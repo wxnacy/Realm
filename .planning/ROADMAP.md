@@ -38,15 +38,15 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — Walking Skeleton: 模块化架构重构 + 容器下拉面板 + 容器切换
+- [x] 01-01-PLAN.md — Walking Skeleton: 模块化架构重构 + 容器下拉面板 + 容器切换
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-02-PLAN.md — 容器创建/编辑 Modal（统一表单、颜色选择器、emoji 选择器）
+- [x] 01-02-PLAN.md — 容器创建/编辑 Modal（统一表单、颜色选择器、emoji 选择器）
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-03-PLAN.md — 容器删除确认弹窗 + 输入验证增强
+- [x] 01-03-PLAN.md — 容器删除确认弹窗 + 输入验证增强
 
 **UI hint**: yes
 
@@ -117,7 +117,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Core Container Management + Architecture Refactoring | 0/TBD | Not started | - |
+| 1. Core Container Management + Architecture Refactoring | 3/3 | Complete | 2026-07-23 |
 | 2. Browser Core - URL Navigation + Multi-Tab | 0/TBD | Not started | - |
 | 3. Data Isolation + Cookie Persistence | 0/TBD | Not started | - |
 | 4. Convenience Features | 0/TBD | Not started | - |
