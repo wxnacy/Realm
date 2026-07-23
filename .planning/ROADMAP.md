@@ -13,7 +13,7 @@ Realm Browser 是一个多容器隔离浏览器，从当前的单文件架构演
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Core Container Management + Architecture Refactoring** - 模块化重构 + 容器 CRUD + 管理 UI
+- [x] **Phase 1: Core Container Management + Architecture Refactoring** - 模块化重构 + 容器 CRUD + 管理 UI ✅ 2026-07-23
 - [ ] **Phase 2: Browser Core - URL Navigation + Multi-Tab** - WebContentsView 迁移 + 多 Tab + URL 导航
 - [ ] **Phase 3: Data Isolation + Cookie Persistence** - 完整数据隔离 + Cookie 文件持久化
 - [ ] **Phase 4: Convenience Features** - 容器分配规则 + 快捷键
@@ -64,11 +64,20 @@ Plans:
   4. 用户可以关闭 Tab，关闭后该 Tab 的资源被正确释放
   5. 用户可以看到每个 Tab 的标题和容器颜色标识，清楚区分当前 Tab 属于哪个容器
 
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
+**Wave 1**
 
-- [ ] 02-01: TBD
+- [ ] 02-01-PLAN.md — Tab 栏 UI + 新标签页 + Tab 本地管理（渲染进程）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-02-PLAN.md — Webview 集成 + URL 导航 + 导航控件
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 02-03-PLAN.md — 主进程 Tab 管理 + IPC 集成 + 持久化
 
 **UI hint**: yes
 
@@ -118,6 +127,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Core Container Management + Architecture Refactoring | 3/3 | Complete | 2026-07-23 |
-| 2. Browser Core - URL Navigation + Multi-Tab | 0/TBD | Not started | - |
+| 2. Browser Core - URL Navigation + Multi-Tab | 0/3 | Not started | - |
 | 3. Data Isolation + Cookie Persistence | 0/TBD | Not started | - |
 | 4. Convenience Features | 0/TBD | Not started | - |
