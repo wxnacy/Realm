@@ -3,7 +3,7 @@ status: complete
 phase: 01-core-container-management-architecture-refactoring
 source: [01-01-SUMMARY.md, 01-02-SUMMARY.md, 01-03-SUMMARY.md]
 started: "2026-07-23T22:05:00Z"
-updated: "2026-07-23T22:35:00Z"
+updated: "2026-07-23T22:50:00Z"
 ---
 
 ## Current Test
@@ -14,9 +14,8 @@ updated: "2026-07-23T22:35:00Z"
 
 ### 1. 冷启动测试
 expected: 运行 npm run dev，应用正常启动，无报错。主窗口显示工具栏、容器指示器和侧边栏。
-result: issue
-reported: "左上角有个问题，三个按钮和 Realm 文字和图片重合了"
-severity: cosmetic
+result: pass
+note: "初次报告 logo 与 macOS 红绿灯重叠（cosmetic），修复 commit c431f1a 后用户复测通过"
 
 ### 2. 容器下拉面板
 expected: 点击工具栏上的容器指示器（显示当前容器名称的区域），弹出下拉面板，列出所有容器（默认、工作、个人、金融），每个容器显示颜色圆点和名称。
@@ -49,8 +48,8 @@ result: pass
 ## Summary
 
 total: 8
-passed: 7
-issues: 1
+passed: 8
+issues: 0
 pending: 0
 skipped: 0
 
