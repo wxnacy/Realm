@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Realm Browser</title>
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+  <!-- 侧边栏 - 容器列表 -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <span class="logo-icon">🌐</span>
+        <span class="logo-text">Realm</span>
+      </div>
+      <button class="btn-icon" id="addContainerBtnSidebar" title="新建容器">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+      </button>
+    </div>
+
+    <div class="container-list" id="containerList">
+      <!-- 容器列表将由 JavaScript 动态生成 -->
+    </div>
+
+    <div class="sidebar-footer">
+      <button class="btn-icon" id="settingsBtn" title="设置">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M12 1v6m0 6v6m11-7h-6m-6 0H1m15.36-5.36l-4.24 4.24m-2.24-2.24L5.64 5.64m12.72 12.72l-4.24-4.24m-2.24 2.24l-4.24 4.24"></path>
+        </svg>
+      </button>
+    </div>
+  </aside>
+
+  <!-- 主内容区 -->
+  <main class="main-content">
+    <!-- 工具栏 -->
+    <div class="toolbar" id="toolbar">
+      <div class="toolbar-left">
+        <button class="btn-icon" id="backBtn" title="后退">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"></path>
+          </svg>
+        </button>
+        <button class="btn-icon" id="forwardBtn" title="前进">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M5 12h14M12 5l7 7-7 7"></path>
+          </svg>
+        </button>
+        <button class="btn-icon" id="reloadBtn" title="刷新">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 4v6h-6M1 20v-6h6"></path>
+            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div class="toolbar-center">
+        <div class="container-indicator" id="containerIndicator">
+          <span class="indicator-dot"></span>
+          <span class="indicator-text">默认</span>
+        </div>
+        <input type="text" class="url-input" id="urlInput" placeholder="输入网址或搜索...">
+      </div>
+
+      <div class="toolbar-right">
+        <button class="btn-icon" id="cookiesBtn" title="Cookie 管理">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <circle cx="12" cy="12" r="4"></circle>
+            <line x1="21.17" y1="8" x2="12" y2="8"></line>
+            <line x1="3.95" y1="6.06" x2="8.54" y2="14"></line>
+            <line x1="10.88" y1="21.94" x2="15.46" y2="14"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- 浏览器视图区域 -->
+    <div class="browser-view" id="browserView">
+      <!-- 欢迎页面 -->
+      <div class="welcome-page" id="welcomePage">
+        <div class="welcome-content">
+          <h1>欢迎使用 Realm Browser</h1>
+          <p>多容器隔离浏览器，保护您的隐私和身份</p>
+          <div class="welcome-features">
+            <div class="feature">
+              <span class="feature-icon">🔒</span>
+              <span class="feature-text">容器隔离</span>
+              <span class="feature-desc">每个容器独立的 Cookie 和存储</span>
+            </div>
+            <div class="feature">
+              <span class="feature-icon">🤖</span>
+              <span class="feature-text">AI Agent</span>
+              <span class="feature-desc">集成 AI 助手（即将推出）</span>
+            </div>
+            <div class="feature">
+              <span class="feature-icon">⚡</span>
+              <span class="feature-text">高性能</span>
+              <span class="feature-desc">基于 Chromium 内核</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- 容器下拉面板 -->
+  <div class="container-panel" id="containerPanel">
+    <div class="panel-header">
+      <span class="panel-title">容器列表</span>
+      <button class="btn-icon" id="addContainerBtn" title="新建容器">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+      </button>
+    </div>
+    <div class="panel-list" id="panelContainerList">
+      <!-- 由 renderer.js 动态生成 -->
+    </div>
+  </div>
+
+  <!-- 容器创建/编辑对话框 -->
+  <dialog class="modal" id="containerModal">
+    <div class="modal-content">
+      <h2 id="containerModalTitle">新建容器</h2>
+      <form id="containerForm">
+        <div class="form-group">
+          <label for="containerNameInput">容器名称</label>
+          <input type="text" id="containerNameInput" required placeholder="例如：工作、个人、测试" maxlength="50">
+          <div class="error-message" id="nameError"></div>
+        </div>
+        <div class="form-group">
+          <label>容器颜色</label>
+          <div class="color-picker" id="colorPicker">
+            <button type="button" class="color-option" data-color="#3B82F6" style="background:#3B82F6"></button>
+            <button type="button" class="color-option" data-color="#10B981" style="background:#10B981"></button>
+            <button type="button" class="color-option" data-color="#F59E0B" style="background:#F59E0B"></button>
+            <button type="button" class="color-option" data-color="#EF4444" style="background:#EF4444"></button>
+            <button type="button" class="color-option" data-color="#8B5CF6" style="background:#8B5CF6"></button>
+            <button type="button" class="color-option" data-color="#EC4899" style="background:#EC4899"></button>
+            <button type="button" class="color-option" data-color="#6366F1" style="background:#6366F1"></button>
+            <button type="button" class="color-option" data-color="#F97316" style="background:#F97316"></button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>容器图标</label>
+          <div class="emoji-picker" id="emojiPicker">
+            <button type="button" class="emoji-option" data-icon="🌐">🌐</button>
+            <button type="button" class="emoji-option" data-icon="💼">💼</button>
+            <button type="button" class="emoji-option" data-icon="👤">👤</button>
+            <button type="button" class="emoji-option" data-icon="🏦">🏦</button>
+            <button type="button" class="emoji-option" data-icon="🎮">🎮</button>
+            <button type="button" class="emoji-option" data-icon="📚">📚</button>
+            <button type="button" class="emoji-option" data-icon="🛒">🛒</button>
+            <button type="button" class="emoji-option" data-icon="💰">💰</button>
+            <button type="button" class="emoji-option" data-icon="🏠">🏠</button>
+            <button type="button" class="emoji-option" data-icon="📧">📧</button>
+            <button type="button" class="emoji-option" data-icon="🔬">🔬</button>
+            <button type="button" class="emoji-option" data-icon="🎵">🎵</button>
+            <button type="button" class="emoji-option" data-icon="📱">📱</button>
+            <button type="button" class="emoji-option" data-icon="✈️">✈️</button>
+            <button type="button" class="emoji-option" data-icon="🎨">🎨</button>
+            <button type="button" class="emoji-option" data-icon="🔧">🔧</button>
+            <button type="button" class="emoji-option" data-icon="📊">📊</button>
+            <button type="button" class="emoji-option" data-icon="🏢">🏢</button>
+            <button type="button" class="emoji-option" data-icon="🎯">🎯</button>
+            <button type="button" class="emoji-option" data-icon="🌍">🌍</button>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" id="cancelContainerBtn">取消</button>
+          <button type="submit" class="btn btn-primary" id="saveContainerBtn">创建容器</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Cookie 管理对话框 -->
+  <dialog class="modal" id="cookiesModal">
+    <div class="modal-content modal-large">
+      <h2>Cookie 管理 - <span id="cookiesModalTitle">默认</span></h2>
+      <div class="cookies-toolbar">
+        <button class="btn btn-secondary" id="clearCookiesBtn">清除所有 Cookie</button>
+        <button class="btn btn-secondary" id="refreshCookiesBtn">刷新</button>
+      </div>
+      <div class="cookies-list" id="cookiesList">
+        <!-- Cookie 列表将由 JavaScript 动态生成 -->
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="closeCookiesModal">关闭</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
