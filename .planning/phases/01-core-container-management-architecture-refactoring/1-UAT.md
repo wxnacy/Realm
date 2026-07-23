@@ -61,5 +61,6 @@ skipped: 0
   reason: "User reported: 左上角有个问题，三个按钮和 Realm 文字和图片重合了"
   severity: cosmetic
   test: 1
-  artifacts: []
-  missing: []
+  root_cause: "window-manager.js 使用 titleBarStyle:'hiddenInset' 将 macOS 红绿灯内嵌到渲染区（约 78×38pt，距左/顶 ~12px），但 src/styles/main.css 中 .sidebar-header 仅 padding:16px，未预留红绿灯安全区，logo 从左上角 16px 处开始排布与按钮重叠"
+  artifacts: ["window-manager.js:30", "src/styles/main.css:64-70", "src/index.html:12-16"]
+  missing: [".sidebar-header 需要 padding-top ≥ 38px（或等效 safe-area 处理）以避让 hiddenInset 红绿灯"]
