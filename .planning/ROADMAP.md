@@ -29,10 +29,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. 用户可以编辑和删除容器，删除前有确认提示
   3. 用户可以通过工具栏下拉面板查看所有容器，点击容器后进入该容器，后续新 Tab 在该容器中打开
   4. 用户可以点击其他容器，在新 Tab 中打开该容器
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: TBD
+- [ ] 01-01-PLAN.md — Walking Skeleton: 模块化架构重构 + 容器下拉面板 + 容器切换
+- [ ] 01-02-PLAN.md — 容器创建/编辑 Modal（统一表单、颜色选择器、emoji 选择器）
+- [ ] 01-03-PLAN.md — 容器删除确认弹窗 + 输入验证增强
 
 **UI hint**: yes
 
