@@ -38,6 +38,12 @@ const elements = {
   cancelContainerBtn: document.getElementById('cancelContainerBtn'),
   saveContainerBtn: document.getElementById('saveContainerBtn'),
 
+  // 删除确认模态框
+  deleteConfirmModal: document.getElementById('deleteConfirmModal'),
+  deleteContainerPreview: document.getElementById('deleteContainerPreview'),
+  cancelDeleteBtn: document.getElementById('cancelDeleteBtn'),
+  confirmDeleteBtn: document.getElementById('confirmDeleteBtn'),
+
   cookiesModal: document.getElementById('cookiesModal'),
   cookiesModalTitle: document.getElementById('cookiesModalTitle'),
   cookiesList: document.getElementById('cookiesList'),
@@ -53,6 +59,7 @@ const state = {
   selectedColor: '#3B82F6',
   selectedIcon: '🌐',
   editingContainerId: null,
+  deletingContainerId: null,
   panelVisible: false,
 };
 
@@ -115,9 +122,15 @@ function renderContainerList() {
 /**
  * 渲染容器面板列表
  * 使用事件委托模式，为 panelContainerList 绑定一次 click 监听器
+ * 默认容器（id=default）的删除按钮禁用并显示 tooltip
  */
 function renderContainerPanelList() {
-  const html = state.containers.map(container => `
+  const html = state.containers.map(container => {
+    const isDefault = container.id === 'default';
+    const deleteBtnDisabled = isDefault ? 'disabled' : '';
+    const deleteBtnTitle = isDefault ? '默认容器不可删除' : '删除';
+
+    return `
     <div class="panel-container-item ${container.id === state.currentContainer ? 'active' : ''}"
          data-container-id="${container.id}">
       <div class="container-dot" style="background-color: ${container.color}"></div>
@@ -130,7 +143,7 @@ function renderContainerPanelList() {
             <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path>
           </svg>
         </button>
-        <button class="action-btn" data-action="delete" title="删除">
+        <button class="action-btn" data-action="delete" ${deleteBtnDisabled} title="${deleteBtnTitle}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="3 6 5 6 21 6"></polyline>
             <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
@@ -139,7 +152,8 @@ function renderContainerPanelList() {
       </div>
       ${container.id === state.currentContainer ? '<div class="check-mark">✓</div>' : ''}
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   elements.panelContainerList.innerHTML = html;
 }
@@ -169,6 +183,93 @@ async function switchContainer(containerId) {
     updateContainerIndicator();
     console.log(`[Realm] 切换到容器: ${containerId}`);
   }
+}
+
+/**
+ * 显示删除确认 Modal
+ * 查找容器信息，更新预览内容，打开 Modal
+ * @param {string} containerId - 待删除的容器 ID
+ */
+function showDeleteConfirmModal(containerId) {
+  const container = state.containers.find(c => c.id === containerId);
+  if (!container || container.id === 'default') return;
+
+  state.deletingContainerId = containerId;
+
+  // 动态填充容器预览（使用 textContent 防止 XSS）
+  const previewDot = document.createElement('div');
+  previewDot.className = 'preview-dot';
+  previewDot.style.backgroundColor = container.color;
+
+  const previewInfo = document.createElement('span');
+  previewInfo.className = 'preview-info';
+  previewInfo.textContent = container.icon + ' ' + container.name;
+
+  elements.deleteContainerPreview.innerHTML = '';
+  elements.deleteContainerPreview.appendChild(previewDot);
+  elements.deleteContainerPreview.appendChild(previewInfo);
+
+  elements.deleteConfirmModal.showModal();
+}
+
+/**
+ * 确认删除容器
+ * 调用 realmAPI.deleteContainer，删除活跃容器时自动切换到默认容器
+ */
+async function confirmDeleteContainer() {
+  const containerId = state.deletingContainerId;
+  if (!containerId) return;
+
+  try {
+    const result = await window.realmAPI.deleteContainer(containerId);
+    if (result.success) {
+      // 如果删除的是当前活跃容器，自动切换到默认容器
+      if (containerId === state.currentContainer) {
+        await switchContainer('default');
+      }
+
+      await loadContainers();
+      elements.deleteConfirmModal.close();
+      showToast('容器已删除', 'success');
+    } else {
+      console.error('[Realm] 删除容器失败:', result.message);
+      showToast('删除失败: ' + (result.message || '未知错误'), 'error');
+    }
+  } catch (error) {
+    console.error('[Realm] 删除容器异常:', error);
+    showToast('删除失败，请重试', 'error');
+  }
+
+  state.deletingContainerId = null;
+}
+
+/**
+ * 显示 Toast 提示
+ * @param {string} message - 提示内容
+ * @param {string} type - 提示类型：'success' 或 'error'
+ */
+function showToast(message, type) {
+  // 移除已有的 toast
+  const existingToast = document.querySelector('.toast');
+  if (existingToast) {
+    existingToast.remove();
+  }
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+
+  // 触发动画
+  requestAnimationFrame(() => {
+    toast.classList.add('visible');
+  });
+
+  // 3 秒后自动消失
+  setTimeout(() => {
+    toast.classList.remove('visible');
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
 }
 
 /**
@@ -354,8 +455,10 @@ function setupEventListeners() {
     if (action === 'edit') {
       showEditContainerModal(containerId);
     } else if (action === 'delete') {
-      // TODO: 实现删除功能
-      console.log('[Realm] 删除容器:', containerId);
+      // 检查按钮是否禁用（默认容器保护）
+      const deleteBtn = e.target.closest('[data-action="delete"]');
+      if (deleteBtn && deleteBtn.disabled) return;
+      showDeleteConfirmModal(containerId);
     } else {
       // 点击容器行 - 切换容器
       switchContainer(containerId);
@@ -449,6 +552,21 @@ function setupEventListeners() {
     updateEmojiSelection();
   });
 
+  // 删除确认按钮
+  elements.confirmDeleteBtn.addEventListener('click', confirmDeleteContainer);
+  elements.cancelDeleteBtn.addEventListener('click', () => {
+    elements.deleteConfirmModal.close();
+    state.deletingContainerId = null;
+  });
+
+  // 点击删除确认模态框外部关闭
+  elements.deleteConfirmModal.addEventListener('click', (e) => {
+    if (e.target === elements.deleteConfirmModal) {
+      elements.deleteConfirmModal.close();
+      state.deletingContainerId = null;
+    }
+  });
+
   // Cookie 管理按钮
   elements.cookiesBtn.addEventListener('click', showCookiesModal);
   elements.clearCookiesBtn.addEventListener('click', clearContainerCookies);
@@ -494,6 +612,8 @@ function setupEventListeners() {
       if (state.panelVisible) {
         hideContainerPanel();
       } else {
+        elements.deleteConfirmModal.close();
+        state.deletingContainerId = null;
         elements.containerModal.close();
         elements.cookiesModal.close();
       }
