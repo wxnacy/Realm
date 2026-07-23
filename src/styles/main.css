@@ -62,7 +62,8 @@ button {
 }
 
 .sidebar-header {
-  padding: 16px;
+  /* 顶部预留 macOS hiddenInset 红绿灯安全区（约 38pt 高） */
+  padding: 38px 16px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
