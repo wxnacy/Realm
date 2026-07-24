@@ -173,6 +173,13 @@ contextBridge.exposeInMainWorld('realmAPI', {
    */
   importCookie: (containerId) => ipcRenderer.invoke('cookie:import', containerId),
 
+  /**
+   * 删除容器的 Cookie 文件和 Session 数据
+   * @param {string} containerId - 容器 ID
+   * @returns {Promise<{success: boolean}>}
+   */
+  deleteCookie: (containerId) => ipcRenderer.invoke('cookie:delete', containerId),
+
   // ==================== 分配规则 ====================
 
   /**
