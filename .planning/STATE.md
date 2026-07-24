@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 04
 current_phase_name: Convenience Features
-status: planning
-stopped_at: Phase 4 plans 02-03 created
-last_updated: "2026-07-24T12:00:00.000Z"
+status: executing
+stopped_at: Phase 4 Plan 03 completed
+last_updated: "2026-07-24T12:55:00.000Z"
 last_activity: 2026-07-24
-last_activity_desc: Phase 04 re-planning — created plans 02 (shortcut refactor) and 03 (rule UI enhancements)
+last_activity_desc: Phase 04 Plan 03 executed — toggle switch, drag-drop, import/export for rules UI
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 12
-  completed_plans: 10
-  percent: 83
+  completed_plans: 11
+  percent: 92
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-07-24)
 ## Current Position
 
 Phase: 04 — Convenience Features
-Plan: Plans 02-03 created, ready for execution
-Status: planning
-Last activity: 2026-07-24 — Phase 04 re-planning, created plans 02 and 03
+Plan: 03 completed, Plan 02 ready for execution
+Status: executing
+Last activity: 2026-07-24 — Phase 04 Plan 03 executed (toggle switch, drag-drop, import/export)
 
-Progress: [██████████████████░░] 10/12 plans (83%)
+Progress: [████████████████████░] 11/12 plans (92%)
 
 ## Performance Metrics
 
@@ -87,6 +87,9 @@ Recent decisions affecting current work:
 - Phase 4: 分配规则支持精确匹配、通配符匹配（*.example.com）、子域名匹配
 - Phase 4: 快捷键使用 CmdOrCtrl 前缀，macOS 用 Cmd，Windows/Linux 用 Ctrl
 - Phase 4: 全局快捷键在应用退出时注销
+- Phase 4: 使用纯 CSS 实现 toggle switch 组件，无第三方依赖
+- Phase 4: 使用 HTML5 原生 Drag and Drop API 实现规则排序
+- Phase 4: 使用 Electron dialog 和 Node.js fs 模块实现文件导入导出
 - [Phase 02]: 空 Tab 栏采用惰性创建（URL 回车时 createTab）而非 eager 启动建 Tab — 覆盖冷启动与关闭最后 Tab 两个入口，不破坏 Test 1/2 空 Tab 栏预期
 - [Phase 02]: 导航入口统一经 normalizeUrl，原始输入不直达 webview.src — 主进程 tab-manager 不做规范化，未规范化值进 webview.src 会缺 scheme（T-02-05-01 缓解）
 
@@ -108,6 +111,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-24T10:50:49.557Z
-Stopped at: Phase 4 UI-SPEC approved
-Resume file: .planning/phases/04-convenience-features/04-UI-SPEC.md
+Last session: 2026-07-24T12:55:00.000Z
+Stopped at: Phase 4 Plan 03 completed
+Resume file: .planning/phases/04-convenience-features/04-03-SUMMARY.md
