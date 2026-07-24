@@ -993,7 +993,7 @@ async function saveCapturedShortcut() {
   await window.realmAPI.setShortcut(keyCaptureAction, keyCaptureAccelerator);
   elements.shortcutCaptureModal.close();
   await refreshShortcutsList();
-  showToast('快捷键已更新，重启应用后生效', 'success');
+  showToast('快捷键已更新', 'success');
 }
 
 /**
