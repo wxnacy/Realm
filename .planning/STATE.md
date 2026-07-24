@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 04
 current_phase_name: Convenience Features
-status: verifying
-stopped_at: Phase 4 context gathered (re-discussion)
-last_updated: "2026-07-24T10:48:08.030Z"
+status: planning
+stopped_at: Phase 4 plans 02-03 created
+last_updated: "2026-07-24T12:00:00.000Z"
 last_activity: 2026-07-24
-last_activity_desc: Phase 03 complete, transitioned to Phase 04
+last_activity_desc: Phase 04 re-planning — created plans 02 (shortcut refactor) and 03 (rule UI enhancements)
 progress:
   total_phases: 4
-  completed_phases: 4
-  total_plans: 10
+  completed_phases: 3
+  total_plans: 12
   completed_plans: 10
-  percent: 100
+  percent: 83
 ---
 
 # Project State
@@ -29,17 +29,17 @@ See: .planning/PROJECT.md (updated 2026-07-24)
 ## Current Position
 
 Phase: 04 — Convenience Features
-Plan: Not started
-Status: verifying
-Last activity: 2026-07-24 — Phase 03 complete, transitioned to Phase 04
+Plan: Plans 02-03 created, ready for execution
+Status: planning
+Last activity: 2026-07-24 — Phase 04 re-planning, created plans 02 and 03
 
-Progress: [██████████████████░░] 9/10 plans (90%)
+Progress: [██████████████████░░] 10/12 plans (83%)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 10
+- Total plans completed: 10 (Phase 04: 1 done, 2 new plans created)
 - Average duration: ~10m
 - Total execution time: ~30 minutes
 
@@ -108,6 +108,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-24T10:48:08.022Z
-Stopped at: Phase 4 context gathered (re-discussion)
-Resume file: .planning/phases/04-convenience-features/04-CONTEXT.md
+Last session: 2026-07-24T10:50:49.557Z
+Stopped at: Phase 4 UI-SPEC approved
+Resume file: .planning/phases/04-convenience-features/04-UI-SPEC.md
