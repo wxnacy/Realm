@@ -75,8 +75,8 @@ function notifyOpenUrlInTab(contents, url, containerId) {
 app.on('web-contents-created', (event, contents) => {
   if (contents.getType() !== 'webview') return;
 
-  contents.setWindowOpenHandler(({ url }) => {
-    console.log(`[Realm] 新窗口请求: ${url}`);
+  contents.setWindowOpenHandler(({ url, disposition, frameName, features }) => {
+    console.log(`[Realm] 新窗口请求: ${url}, disposition: ${disposition}, frameName: ${frameName}`);
     // 检查分配规则，决定目标容器
     const matchedContainer = assignmentRules.matchUrl(url);
     const targetContainer = matchedContainer || getGuestContainerId(contents);
@@ -89,9 +89,17 @@ app.on('web-contents-created', (event, contents) => {
     return { action: 'deny' };
   });
 
-  // 添加 did-navigate 事件监听，用于调试
+  // 添加导航事件监听，用于调试
+  contents.on('did-start-navigation', (event, url, isInPlace, isMainFrame) => {
+    console.log(`[Realm] did-start-navigation: ${url}, isInPlace: ${isInPlace}, isMainFrame: ${isMainFrame}`);
+  });
+
   contents.on('did-navigate', (event, url) => {
     console.log(`[Realm] webview 导航完成: ${url}`);
+  });
+
+  contents.on('did-navigate-in-page', (event, url, isMainFrame) => {
+    console.log(`[Realm] did-navigate-in-page: ${url}, isMainFrame: ${isMainFrame}`);
   });
 
   // WR-2：webContents 的 will-navigate 可同步取消（webview 标签上的同名事件
