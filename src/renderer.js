@@ -350,6 +350,15 @@ async function updateTabTitle(tabId, title) {
  * @returns {HTMLElement} 创建的 webview 元素
  */
 function createWebviewForTab(tabId, containerId, url) {
+  // URL scheme 白名单（WR-9）：仅 http(s) 允许写入 webview src。
+  // 规则匹配与新窗口两条路径的 URL 均来自 guest 页面，不限制 scheme 时
+  // file: 可在浏览器上下文读取本地文件、data: 可注入脚本；
+  // 空 URL（新标签页）与 about:blank 放行。
+  if (url && url !== 'about:blank' && !/^https?:\/\//i.test(url)) {
+    console.warn('[Realm] 拒绝非 http(s) URL:', url);
+    return null;
+  }
+
   const webview = document.createElement('webview');
 
   // 设置 src
