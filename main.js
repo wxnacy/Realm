@@ -118,7 +118,15 @@ app.on('web-contents-created', (event, contents) => {
   });
 
   contents.setWindowOpenHandler(({ url }) => {
-    notifyOpenUrlInTab(contents, url, getGuestContainerId(contents));
+    // 检查分配规则，决定目标容器
+    const matchedContainer = assignmentRules.matchUrl(url);
+    const targetContainer = matchedContainer || getGuestContainerId(contents);
+
+    if (matchedContainer && matchedContainer !== getGuestContainerId(contents)) {
+      console.log(`[Realm] 规则匹配 (新窗口): ${url} -> ${matchedContainer}`);
+    }
+
+    notifyOpenUrlInTab(contents, url, targetContainer);
     return { action: 'deny' };
   });
 
@@ -174,44 +182,6 @@ app.whenReady().then(async () => {
   // 注册全局快捷键
   if (mainWindow) {
     shortcutManager.registerShortcuts(mainWindow);
-
-    // 在 macOS 上使用 webview 时，Menu.accelerator 不会捕获键盘事件，
-    // 因为 webview 会先处理它们。需要添加 before-input-event 处理器来拦截快捷键。
-    mainWindow.webContents.on('before-input-event', (event, input) => {
-      const shortcuts = shortcutManager.getShortcuts();
-      const isMeta = input.meta; // Cmd on macOS
-      const isControl = input.control; // Ctrl on Windows/Linux
-      const isShift = input.shift;
-      const key = input.key.toLowerCase();
-
-      // Electron Accelerator 格式到 input.key 的映射
-      const keyMap = {
-        'left': 'arrowleft',
-        'right': 'arrowright',
-        'up': 'arrowup',
-        'down': 'arrowdown',
-        ']': ']',
-        '[': '[',
-      };
-
-      // 检查每个快捷键
-      for (const [action, accelerator] of Object.entries(shortcuts)) {
-        // 解析 accelerator 字符串（如 "CmdOrCtrl+Left"）
-        const parts = accelerator.split('+');
-        const needsCmdOrCtrl = parts.includes('CmdOrCtrl');
-        const needsShift = parts.includes('Shift');
-        const acceleratorKey = parts[parts.length - 1].toLowerCase();
-        const mappedKey = keyMap[acceleratorKey] || acceleratorKey;
-
-        // 匹配按键组合
-        if (needsCmdOrCtrl && (isMeta || isControl) && needsShift === isShift && key === mappedKey) {
-          console.log(`[Realm] 快捷键拦截: ${action} (${accelerator})`);
-          mainWindow.webContents.send('shortcut:triggered', action);
-          event.preventDefault();
-          return;
-        }
-      }
-    });
   }
 
   // macOS 应用激活事件
