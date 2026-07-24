@@ -134,6 +134,15 @@ contextBridge.exposeInMainWorld('realmAPI', {
    */
   getActiveTab: () => ipcRenderer.invoke('tab:get-active'),
 
+  /**
+   * 监听 Tab 回收事件（WR-4）
+   * 主进程达到 Tab 上限自动回收最久未使用的 Tab 后推送
+   * @param {Function} callback - 回调函数，参数为 { tabId, message }
+   */
+  onTabRecycled: (callback) => {
+    ipcRenderer.on('tab:recycled', (event, data) => callback(data));
+  },
+
   // ==================== Cookie 管理 ====================
 
   /**

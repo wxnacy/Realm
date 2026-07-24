@@ -18,6 +18,20 @@ let tabCounter = 0;
 // Tab 上限（D-07）
 const TAB_MAX_COUNT = 20;
 
+// 回收提示文案（WR-4：回收策略单点实现于主进程，渲染进程经事件获取文案）
+const TAB_RECYCLE_MESSAGE = '已自动关闭最久未使用的标签页以释放资源';
+
+// 回收通知回调（WR-4）：由 ipc-handlers 注入，回收发生时向渲染进程推送事件
+let recycleListener = null;
+
+/**
+ * 设置 Tab 回收通知回调
+ * @param {Function|null} listener - 回调函数，参数为 { recycledTabId, message }
+ */
+function setRecycleListener(listener) {
+  recycleListener = typeof listener === 'function' ? listener : null;
+}
+
 /**
  * 初始化 Tab 管理器
  * 从 electron-store 恢复上次保存的 Tab 列表
@@ -213,9 +227,14 @@ function recycleOldestTab() {
   // 关闭该 Tab
   const result = closeTab(oldestTab.id);
 
+  // 通知渲染进程移除对应 DOM/webview（WR-4）：主进程静默回收会产生幽灵 Tab
+  if (recycleListener) {
+    recycleListener({ recycledTabId: oldestTab.id, message: TAB_RECYCLE_MESSAGE });
+  }
+
   return {
     recycledTabId: oldestTab.id,
-    message: '已自动关闭最久未使用的标签页以释放资源',
+    message: TAB_RECYCLE_MESSAGE,
     ...result,
   };
 }
@@ -240,6 +259,8 @@ module.exports = {
   updateTab,
   closeTab,
   recycleOldestTab,
+  setRecycleListener,
   saveTabs,
   TAB_MAX_COUNT,
+  TAB_RECYCLE_MESSAGE,
 };

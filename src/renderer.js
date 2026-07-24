@@ -99,9 +99,9 @@ const state = {
   webviews: new Map(),
 };
 
-// Tab 管理常量
-const TAB_MAX_COUNT = 20;
-const TAB_RECYCLE_MESSAGE = '已自动关闭最久未使用的标签页以释放资源';
+// 注意：Tab 回收策略（上限/文案/回收逻辑）单点实现于主进程 tab-manager（WR-4）。
+// 渲染进程不再持有 TAB_MAX_COUNT / TAB_RECYCLE_MESSAGE / recycleOldestTab 副本，
+// 回收结果经 tab:recycled 事件推送（见 handleTabRecycled）。
 
 // Webview 安全配置（D-03，CR-1 修复）
 // Electron 布尔属性（nodeintegration/disablewebsecurity/allowpopups）为 presence 语义：
@@ -280,29 +280,25 @@ async function closeTab(tabId) {
 }
 
 /**
- * 回收最久未使用的 Tab
+ * 处理主进程推送的 Tab 回收事件（WR-4）
+ * 主进程 createTab 达到上限时自动回收最久未使用的 Tab，
+ * 渲染进程需同步移除对应 Tab DOM / webview / 本地状态并提示，避免幽灵 Tab。
+ * @param {{tabId: string, message?: string}} data - 回收事件数据
  */
-function recycleOldestTab() {
-  // 找到 lastActiveAt 最小的非活动 Tab
-  let oldestTab = null;
-  let oldestTime = Infinity;
+function handleTabRecycled(data) {
+  if (!data || typeof data.tabId !== 'string') return;
 
-  state.tabs.forEach((tab, id) => {
-    if (id !== state.activeTabId && tab.lastActiveAt < oldestTime) {
-      oldestTime = tab.lastActiveAt;
-      oldestTab = tab;
+  const tab = state.tabs.get(data.tabId);
+  if (tab) {
+    if (tab.element) {
+      tab.element.remove();
     }
-  });
+    state.tabs.delete(data.tabId);
+  }
+  destroyWebview(data.tabId);
 
-  if (!oldestTab) return;
-
-  console.log(`[Realm Renderer] Tab 回收: ${oldestTab.id} (最久未使用)`);
-
-  // 关闭该 Tab
-  closeTab(oldestTab.id);
-
-  // 显示提示
-  showToast(TAB_RECYCLE_MESSAGE, 'info');
+  // 被回收的一定是非活动 Tab（主进程回收逻辑排除活动 Tab），无需切换 activeTabId
+  showToast(data.message || '已自动关闭最久未使用的标签页以释放资源', 'success');
 }
 
 /**
@@ -936,6 +932,9 @@ async function init() {
 
   // 监听主进程转发的「在指定容器新建 Tab」事件（WR-1）
   window.realmAPI.onOpenUrlInTab(handleOpenUrlInTab);
+
+  // 监听主进程的 Tab 回收事件（WR-4）
+  window.realmAPI.onTabRecycled(handleTabRecycled);
 
   console.log('[Realm Renderer] 初始化完成');
 }

@@ -77,6 +77,15 @@ function validateContainerUpdates(updates) {
  * 注册所有 IPC 处理器
  */
 function registerHandlers() {
+  // WR-4：Tab 回收策略单点实现于主进程（tab-manager），
+  // 回收发生时推送 tab:recycled 事件，渲染进程据此移除对应 DOM/webview 并提示
+  tabManager.setRecycleListener(({ recycledTabId, message }) => {
+    const win = windowManager.getMainWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('tab:recycled', { tabId: recycledTabId, message });
+    }
+  });
+
   /**
    * 获取容器列表
    * @returns {Array<{id: string, name: string, color: string, icon: string}>}
