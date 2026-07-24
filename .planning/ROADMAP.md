@@ -63,7 +63,7 @@ Plans:
   4. 用户可以关闭 Tab，关闭后该 Tab 的资源被正确释放
   5. 用户可以看到每个 Tab 的标题和容器颜色标识，清楚区分当前 Tab 属于哪个容器
 
-**Plans**: 4 plans
+**Plans**: 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -80,7 +80,7 @@ Plans:
 
 **Wave 4** *(gap closure — UAT Test 5/6)*
 
-- [ ] 02-04-PLAN.md — Gap 修复：webviewTag 启用 + URL Enter 处理器 webview/newTabPage 可见性修复
+- [x] 02-04-PLAN.md — Gap 修复：webviewTag 启用 + URL Enter 处理器 webview/newTabPage 可见性修复
 
 **UI hint**: yes
 
@@ -130,6 +130,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Core Container Management + Architecture Refactoring | 3/3 | Complete | 2026-07-23 |
-| 2. Browser Core - URL Navigation + Multi-Tab | 3/3 | Complete | 2026-07-23 |
+| 2. Browser Core - URL Navigation + Multi-Tab | 4/4 | Complete   | 2026-07-23 |
 | 3. Data Isolation + Cookie Persistence | 1/1 | Complete | 2026-07-23 |
 | 4. Convenience Features | 1/1 | Complete | 2026-07-23 |
