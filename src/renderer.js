@@ -1340,7 +1340,7 @@ function setupEventListeners() {
     if (e.key === 'Enter') {
       const value = elements.newTabSearch.value.trim();
       if (value) {
-        createTab(state.currentContainer, value);
+        createTab(state.currentContainer, normalizeUrl(value));
         elements.newTabSearch.value = '';
       }
     }
@@ -1585,6 +1585,10 @@ function setupEventListeners() {
           if (tab) {
             elements.newTabPage.style.display = 'none';
           }
+        } else {
+          // 无活动 Tab（冷启动空 Tab 栏或关闭最后 Tab 后）：用当前容器惰性创建 Tab
+          // 传 normalizedUrl（主进程不规范化）；建 webview/切 Tab/隐藏新标签页由 createTab 全链路覆盖
+          await createTab(state.currentContainer, normalizedUrl);
         }
 
         // 输入框聚焦时全选文本
