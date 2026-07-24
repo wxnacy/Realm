@@ -1,9 +1,9 @@
 ---
 status: diagnosed
 phase: 02-browser-core-url-navigation-multi-tab
-source: [02-01-SUMMARY.md, 02-02-SUMMARY.md, 02-03-SUMMARY.md]
+source: [02-01-SUMMARY.md, 02-02-SUMMARY.md, 02-03-SUMMARY.md, 02-04-SUMMARY.md]
 started: 2026-07-23T16:10:02Z
-updated: 2026-07-24T04:33:00Z
+updated: 2026-07-24T12:40:00Z
 ---
 
 ## Current Test
@@ -72,11 +72,17 @@ result: blocked
 blocked_by: prior-phase
 reason: "无法打开页面，没办法测试，需要先修复5/6"
 
+### 13. 冷启动后无活动 Tab 时 URL 输入导航
+expected: 应用刚启动、Tab 栏为空（尚无活动 Tab）时，在 URL 输入框输入域名（如 github.com）或搜索词回车，应用应使用默认容器自动创建一个默认 Tab 并在其 webview 中加载目标页面；新标签页消失，URL 输入框更新为最终 URL。
+result: issue
+reported: "应用刚启动时地址栏输入地址回车还是没有反应；这种情况应该使用默认容器，创建一个默认tab 才对"
+severity: major
+
 ## Summary
 
-total: 12
+total: 13
 passed: 6
-issues: 0
+issues: 1
 pending: 0
 skipped: 0
 blocked: 6
@@ -113,3 +119,16 @@ blocked: 6
     - "window-manager.js webPreferences 中添加 webviewTag: true"
     - "src/renderer.js URL Enter 处理器创建 webview 后隐藏 newTabPage 并调用 showWebview(state.activeTabId)"
   debug_session: ".planning/debug/url-input-enter-no-response.md"
+- truth: "冷启动后无活动 Tab 时，URL 输入框输入域名或搜索词回车应使用默认容器自动创建默认 Tab 并加载目标页面"
+  status: failed
+  reason: "User reported: 应用刚启动时地址栏输入地址回车还是没有反应；这种情况应该使用默认容器，创建一个默认tab 才对"
+  severity: major
+  test: 13
+  root_cause: "src/renderer.js URL Enter 处理器外层包裹 if (state.activeTabId) 守卫，冷启动后 Tab 栏为空（state.activeTabId 为 null）时整个处理器静默 return，无任何反馈；当前实现仅在已存在活动 Tab 的分支内处理导航，未覆盖无 Tab 的初始状态。02-04 修复了 webviewTag 与可见性问题，但该守卫语句未被涉及（属计划范围外的新 gap）"
+  artifacts:
+    - path: "src/renderer.js"
+      issue: "URL Enter 处理器（约行 1563 起）外层 if (state.activeTabId) 守卫导致无 Tab 时静默失败"
+  missing:
+    - "URL Enter 处理器在 state.activeTabId 为 null 时：使用默认容器（containerManager.defaultContainer 或首个容器）调用 createTab 创建新 Tab，再以 normalizedUrl 作为初始 URL 完成导航；同时隐藏 newTabPage"
+    - "或：在冷启动时自动创建一个默认 Tab（应用启动即有一个活动 Tab），从根因上消除 activeTabId 为 null 的窗口期"
+  suggested_fix_direction: "用户建议：使用默认容器创建一个默认 tab；具体实现路径（惰性创建 vs 启动即建）由后续 gap closure 计划决定"
