@@ -392,6 +392,8 @@ function bindWebviewEvents(tabId, webview) {
     const tab = state.tabs.get(tabId);
     if (tab) {
       tab.url = e.url;
+      // 回写主进程持久化（WR-3）：否则重启后 restoreTabs 恢复到过期地址
+      window.realmAPI.updateTab(tabId, { url: e.url });
       // 如果是活动 Tab，更新 URL 输入框
       if (tabId === state.activeTabId) {
         elements.urlInput.value = e.url;
@@ -403,6 +405,8 @@ function bindWebviewEvents(tabId, webview) {
     const tab = state.tabs.get(tabId);
     if (tab) {
       tab.url = e.url;
+      // 回写主进程持久化（WR-3），与 did-navigate 同理
+      window.realmAPI.updateTab(tabId, { url: e.url });
       if (tabId === state.activeTabId) {
         elements.urlInput.value = e.url;
       }
