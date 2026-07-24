@@ -14,9 +14,9 @@ Realm Browser 是一个多容器隔离浏览器，从当前的单文件架构演
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Core Container Management + Architecture Refactoring** - 模块化重构 + 容器 CRUD + 管理 UI ✅ 2026-07-23
-- [ ] **Phase 2: Browser Core - URL Navigation + Multi-Tab** - WebContentsView 迁移 + 多 Tab + URL 导航
-- [ ] **Phase 3: Data Isolation + Cookie Persistence** - 完整数据隔离 + Cookie 文件持久化
-- [ ] **Phase 4: Convenience Features** - 容器分配规则 + 快捷键
+- [x] **Phase 2: Browser Core - URL Navigation + Multi-Tab** - WebContentsView 迁移 + 多 Tab + URL 导航 ✅ 2026-07-23
+- [x] **Phase 3: Data Isolation + Cookie Persistence** - 完整数据隔离 + Cookie 文件持久化 ✅ 2026-07-23
+- [x] **Phase 4: Convenience Features** - 容器分配规则 + 快捷键 ✅ 2026-07-23
 
 ## Phase Details
 
@@ -53,7 +53,6 @@ Plans:
 ### Phase 2: Browser Core - URL Navigation + Multi-Tab
 
 **Goal**: 用户可以在同一窗口内以多 Tab 形式浏览不同容器的网页
-**Mode:** mvp
 **Depends on**: Phase 1
 **Requirements**: BROW-01, BROW-02, BROW-03, BROW-04, BROW-05
 **Success Criteria** (what must be TRUE):
@@ -64,20 +63,24 @@ Plans:
   4. 用户可以关闭 Tab，关闭后该 Tab 的资源被正确释放
   5. 用户可以看到每个 Tab 的标题和容器颜色标识，清楚区分当前 Tab 属于哪个容器
 
-**Plans**: 3 plans
+**Plans**: 4 plans
 
 Plans:
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — Tab 栏 UI + 新标签页 + Tab 本地管理（渲染进程）
+- [x] 02-01-PLAN.md — Tab 栏 UI + 新标签页 + Tab 本地管理（渲染进程） ✅
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 02-02-PLAN.md — Webview 集成 + URL 导航 + 导航控件
+- [x] 02-02-PLAN.md — Webview 集成 + URL 导航 + 导航控件 ✅
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 02-03-PLAN.md — 主进程 Tab 管理 + IPC 集成 + 持久化
+- [x] 02-03-PLAN.md — 主进程 Tab 管理 + IPC 集成 + 持久化 ✅
+
+**Wave 4** *(gap closure — UAT Test 5/6)*
+
+- [ ] 02-04-PLAN.md — Gap 修复：webviewTag 启用 + URL Enter 处理器 webview/newTabPage 可见性修复
 
 **UI hint**: yes
 
@@ -94,11 +97,11 @@ Plans:
   3. 应用关闭时每个容器的 Cookie 自动保存到独立 JSON 文件，domain 前缀点号格式正确保留
   4. 应用启动时各容器的 Cookie 自动加载，用户无需重新登录
 
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
 
-- [ ] 03-01: TBD
+- [x] 03-01-PLAN.md — Cookie 管理模块 + 自动保存/加载 + 手动导出/导入 ✅
 
 ### Phase 4: Convenience Features
 
@@ -111,11 +114,11 @@ Plans:
   1. 用户可以设置容器分配规则，指定网站自动在特定容器打开
   2. 用户可以使用快捷键进行常用操作（新建 Tab、关闭 Tab、切换容器）
 
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
 
-- [ ] 04-01: TBD
+- [x] 04-01-PLAN.md — 容器分配规则 + 快捷键管理 ✅
 
 **UI hint**: yes
 
@@ -127,6 +130,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Core Container Management + Architecture Refactoring | 3/3 | Complete | 2026-07-23 |
-| 2. Browser Core - URL Navigation + Multi-Tab | 0/3 | Not started | - |
-| 3. Data Isolation + Cookie Persistence | 0/TBD | Not started | - |
-| 4. Convenience Features | 0/TBD | Not started | - |
+| 2. Browser Core - URL Navigation + Multi-Tab | 3/3 | Complete | 2026-07-23 |
+| 3. Data Isolation + Cookie Persistence | 1/1 | Complete | 2026-07-23 |
+| 4. Convenience Features | 1/1 | Complete | 2026-07-23 |
