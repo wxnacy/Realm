@@ -121,6 +121,10 @@ app.whenReady().then(async () => {
       const defaultContainer = containerManager.getContainer('default');
       const mainWindow = windowManager.createMainWindow('default', defaultContainer);
       if (mainWindow) {
+        // WR-8：重建窗口前先注销全部已注册的全局快捷键。
+        // shortcutManager 的 isRegistered 检查会跳过已注册 accelerator，
+        // 旧回调闭包仍持有已销毁窗口的引用，导致新窗口永远收不到 shortcut:triggered
+        shortcutManager.unregisterAll();
         shortcutManager.registerShortcuts(mainWindow);
       }
     }
