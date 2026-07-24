@@ -181,6 +181,7 @@ button {
 
 /* 工具栏 */
 .toolbar {
+  position: relative;
   height: var(--toolbar-height);
   background-color: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
