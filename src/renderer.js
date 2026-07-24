@@ -103,13 +103,11 @@ const state = {
 const TAB_MAX_COUNT = 20;
 const TAB_RECYCLE_MESSAGE = '已自动关闭最久未使用的标签页以释放资源';
 
-// Webview 安全配置（D-03）
-const WEBVIEW_ATTRIBUTES = {
-  nodeintegration: 'false',
-  disablewebsecurity: 'false',
-  allowpopups: 'false',
-  webpreferences: 'contextIsolation=yes'
-};
+// Webview 安全配置（D-03，CR-1 修复）
+// Electron 布尔属性（nodeintegration/disablewebsecurity/allowpopups）为 presence 语义：
+// 属性存在即为 true，字符串值被忽略。因此只能保留字符串型属性 webpreferences，
+// 布尔属性一律「缺席即 false」，禁止显式写入（含 'false'）。
+const WEBVIEW_WEBPREFERENCES = 'contextIsolation=yes';
 
 /**
  * URL 标准化函数
@@ -357,10 +355,8 @@ function createWebviewForTab(tabId, containerId, url) {
   // 设置 partition（容器隔离，D-01）
   webview.partition = `persist:container-${containerId}`;
 
-  // 应用安全配置（D-03）
-  Object.entries(WEBVIEW_ATTRIBUTES).forEach(([key, value]) => {
-    webview.setAttribute(key, value);
-  });
+  // 应用安全配置（D-03）：仅设置字符串型属性 webpreferences（CR-1）
+  webview.setAttribute('webpreferences', WEBVIEW_WEBPREFERENCES);
 
   // 设置样式
   webview.style.cssText = `
