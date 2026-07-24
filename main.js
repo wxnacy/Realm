@@ -75,6 +75,48 @@ function notifyOpenUrlInTab(contents, url, containerId) {
 app.on('web-contents-created', (event, contents) => {
   if (contents.getType() !== 'webview') return;
 
+  // 在 webview 的 webContents 上也添加 before-input-event 处理器，
+  // 以便在 webview 获得焦点时拦截快捷键
+  contents.on('before-input-event', (event, input) => {
+    const shortcuts = shortcutManager.getShortcuts();
+    const isMeta = input.meta; // Cmd on macOS
+    const isControl = input.control; // Ctrl on Windows/Linux
+    const isShift = input.shift;
+    const key = input.key.toLowerCase();
+
+    // Electron Accelerator 格式到 input.key 的映射
+    const keyMap = {
+      'left': 'arrowleft',
+      'right': 'arrowright',
+      'up': 'arrowup',
+      'down': 'arrowdown',
+      ']': ']',
+      '[': '[',
+    };
+
+    // 检查每个快捷键
+    for (const [action, accelerator] of Object.entries(shortcuts)) {
+      // 解析 accelerator 字符串（如 "CmdOrCtrl+Left"）
+      const parts = accelerator.split('+');
+      const needsCmdOrCtrl = parts.includes('CmdOrCtrl');
+      const needsShift = parts.includes('Shift');
+      const acceleratorKey = parts[parts.length - 1].toLowerCase();
+      const mappedKey = keyMap[acceleratorKey] || acceleratorKey;
+
+      // 匹配按键组合
+      if (needsCmdOrCtrl && (isMeta || isControl) && needsShift === isShift && key === mappedKey) {
+        console.log(`[Realm] 快捷键拦截 (webview): ${action} (${accelerator})`);
+        // 通知主窗口的渲染进程执行快捷键操作
+        const mainWindow = windowManager.getMainWindow();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('shortcut:triggered', action);
+        }
+        event.preventDefault();
+        return;
+      }
+    }
+  });
+
   contents.setWindowOpenHandler(({ url }) => {
     notifyOpenUrlInTab(contents, url, getGuestContainerId(contents));
     return { action: 'deny' };
