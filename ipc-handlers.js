@@ -464,7 +464,13 @@ function registerHandlers() {
     if (!accelerator || typeof accelerator !== 'string') {
       throw new Error('无效的快捷键');
     }
-    return shortcutManager.setShortcut(action, accelerator);
+    const result = shortcutManager.setShortcut(action, accelerator);
+    // 设置成功后重建菜单，使新快捷键立即生效（无需重启应用）
+    if (result) {
+      const win = windowManager.getMainWindow();
+      shortcutManager.rebuildMenu(win);
+    }
+    return result;
   });
 
   console.log('[Realm] IPC 处理器已注册');

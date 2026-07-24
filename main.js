@@ -121,10 +121,8 @@ app.whenReady().then(async () => {
       const defaultContainer = containerManager.getContainer('default');
       const mainWindow = windowManager.createMainWindow('default', defaultContainer);
       if (mainWindow) {
-        // WR-8：重建窗口前先注销全部已注册的全局快捷键。
-        // shortcutManager 的 isRegistered 检查会跳过已注册 accelerator，
-        // 旧回调闭包仍持有已销毁窗口的引用，导致新窗口永远收不到 shortcut:triggered
-        shortcutManager.unregisterAll();
+        // 重建窗口后重新注册快捷键（Menu Accelerator 无需手动注销旧菜单，
+        // registerShortcuts 会直接替换整个 Application Menu）
         shortcutManager.registerShortcuts(mainWindow);
       }
     }
@@ -149,11 +147,6 @@ app.on('before-quit', async (event) => {
   await cookieManager.saveAllCookies();
   cookiesSaved = true;
   app.quit();
-});
-
-// 应用即将退出时注销快捷键
-app.on('will-quit', () => {
-  shortcutManager.unregisterAll();
 });
 
 // 日志输出
