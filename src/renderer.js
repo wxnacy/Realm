@@ -1042,6 +1042,8 @@ async function loadContainers() {
   renderContainerList();
   renderContainerPanelList();
   updateContainerIndicator();
+  // WR-12：容器增删改后同步刷新新标签页的快速访问入口，避免 UI 停滞到下次启动
+  renderContainerShortcuts();
 }
 
 /**
