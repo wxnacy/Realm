@@ -188,6 +188,42 @@ app.whenReady().then(async () => {
   // 注册全局快捷键
   if (mainWindow) {
     shortcutManager.registerShortcuts(mainWindow);
+
+    // 在主窗口添加 before-input-event 处理器，拦截应用快捷键
+    // 注意：只拦截应用定义的快捷键，不拦截系统快捷键（Cmd+A/V/C/X 等）
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      const shortcuts = shortcutManager.getShortcuts();
+      const isMeta = input.meta;
+      const isControl = input.control;
+      const isShift = input.shift;
+      const key = input.key.toLowerCase();
+
+      // Electron Accelerator 格式到 input.key 的映射
+      const keyMap = {
+        'left': 'arrowleft',
+        'right': 'arrowright',
+        'up': 'arrowup',
+        'down': 'arrowdown',
+        ']': ']',
+        '[': '[',
+      };
+
+      // 检查每个快捷键
+      for (const [action, accelerator] of Object.entries(shortcuts)) {
+        const parts = accelerator.split('+');
+        const needsCmdOrCtrl = parts.includes('CmdOrCtrl');
+        const needsShift = parts.includes('Shift');
+        const acceleratorKey = parts[parts.length - 1].toLowerCase();
+        const mappedKey = keyMap[acceleratorKey] || acceleratorKey;
+
+        if (needsCmdOrCtrl && (isMeta || isControl) && needsShift === isShift && key === mappedKey) {
+          console.log(`[Realm] 快捷键拦截: ${action} (${accelerator})`);
+          mainWindow.webContents.send('shortcut:triggered', action);
+          event.preventDefault();
+          return;
+        }
+      }
+    });
   }
 
   // macOS 应用激活事件
