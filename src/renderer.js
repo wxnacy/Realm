@@ -372,6 +372,9 @@ function createWebviewForTab(tabId, containerId, url) {
   // 应用安全配置（D-03）：仅设置字符串型属性 webpreferences（CR-1）
   webview.setAttribute('webpreferences', WEBVIEW_WEBPREFERENCES);
 
+  // 允许 webview 打开新窗口（target="_blank" 链接）
+  webview.setAttribute('allowpopups', '');
+
   // 设置样式
   webview.style.cssText = `
     position: absolute;
