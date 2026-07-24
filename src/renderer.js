@@ -1054,8 +1054,9 @@ async function switchContainer(containerId) {
     renderContainerPanelList();
     updateContainerIndicator();
 
-    // 创建新 Tab
-    createTab(containerId);
+    // CR-6 修复：不在此处本地 createTab。
+    // 新 Tab 统一由主进程推送的 container-switched 事件（handleContainerSwitched）创建，
+    // 避免「本地创建 + 事件再创建」双路径导致每次切换产生两个重复 Tab。
 
     console.log(`[Realm] 切换到容器: ${containerId}`);
   }
