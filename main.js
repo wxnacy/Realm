@@ -79,7 +79,10 @@ function notifyOpenUrlInTab(contents, url, containerId) {
   if (!isAllowedWebUrl(url)) return;
   const host = contents.hostWebContents;
   if (host && !host.isDestroyed()) {
-    host.send('open-url-in-tab', { url, containerId });
+    // 如果 containerId 为 null 或 undefined，使用 'default' 容器
+    const targetContainer = containerId || 'default';
+    console.log(`[Realm] 通知渲染进程打开 URL: ${url} -> 容器: ${targetContainer}`);
+    host.send('open-url-in-tab', { url, containerId: targetContainer });
   }
 }
 
