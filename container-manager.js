@@ -190,10 +190,12 @@ function updateContainer(id, { name, color, icon }) {
 
 /**
  * 删除容器
+ * 异步流程：先 await 清空 session 存储（停止写入并刷盘），
+ * 再删除 Cookie JSON 与 Partitions 目录，避免清理未完成时 rmSync 竞态
  * @param {string} id - 容器 ID
- * @returns {{success: boolean, message?: string}} 操作结果
+ * @returns {Promise<{success: boolean, message?: string}>} 操作结果
  */
-function deleteContainer(id) {
+async function deleteContainer(id) {
   // 拒绝删除默认容器
   if (id === 'default') {
     return { success: false, message: '无法删除默认容器' };
@@ -204,12 +206,16 @@ function deleteContainer(id) {
     return { success: false, message: '容器不存在' };
   }
 
-  // 清理容器 session 数据
-  container.session.clearStorageData();
+  // 清空容器 session 数据（必须 await：异步刷盘未完成时删目录会被重建）
+  try {
+    await container.session.clearStorageData();
+  } catch (error) {
+    console.error(`[Realm] 清空容器 session 数据失败: ${id}`, error);
+  }
   containers.delete(id);
 
   // 删除容器的 Cookie 文件和 Session 数据（D-01, D-02）
-  cookieManager.deleteCookies(id);
+  await cookieManager.deleteCookies(id);
 
   // 从配置中移除
   let savedContainers = configStore.get('containers', DEFAULT_CONTAINERS);

@@ -8,7 +8,20 @@
 try { require('electron-reloader')(module); } catch {}
 
 const { app, BrowserWindow } = require('electron');
+const Store = require('electron-store');
 const containerManager = require('./container-manager');
+
+// 禁用 Privacy Sandbox 广告 API（FLEDGE/Protected Audience/Topics 等）。
+// 这些 API 的存储（如 Partitions/<id>/InterestGroups SQLite 库）由 Chromium
+// 网络服务进程持有，Electron 32 的 clearStorageData 无法清理，session 存活期间
+// 删除目录后会被刷盘重建——这是 container-delete-partitions 问题的最终根因。
+// 禁用后网站无法调用 joinAdInterestGroup，存储组件不初始化，目录不会再被写入。
+// 必须在 app ready 之前设置。
+app.commandLine.appendSwitch('disable-features',
+  'InterestGroupStorage,Fledge,PrivacySandboxAdsAPIs,Topics,AttributionReporting,SharedStorage');
+
+// 配置存储（whenReady 启动清理与 before-quit 退出清理共用）
+const configStore = new Store({ name: 'realm-config' });
 const windowManager = require('./window-manager');
 const tabManager = require('./tab-manager');
 const cookieManager = require('./cookie-manager');
@@ -94,6 +107,12 @@ app.whenReady().then(async () => {
   // 注册 IPC 处理器
   registerHandlers();
 
+  // 清理孤儿 Partitions 目录（必须在 initContainers 之前：
+  // 此时被删容器的 partition session 尚未创建，目录无句柄占用，
+  // 运行中删除失败的残留由这里兜底，下次启动必定清干净）
+  const configuredIds = configStore.get('containers', []).map(c => c.id);
+  cookieManager.cleanupOrphanPartitions(configuredIds);
+
   // 初始化容器
   containerManager.initContainers();
 
@@ -145,6 +164,14 @@ app.on('before-quit', async (event) => {
   event.preventDefault();
   console.log('[Realm] 应用退出，保存 Cookie...');
   await cookieManager.saveAllCookies();
+
+  // 退出前物理删除孤儿 Partitions 目录（container-delete-partitions 收尾）：
+  // 运行中删除会被存活 session 的网络服务组件刷盘重建（HTTP 缓存索引、
+  // Network Persistent State 等，无法用开关禁用）——这是 Chromium 架构限制。
+  // 此处紧随 app.quit()，网络服务进程终止后删除即永久，不会再被重建。
+  const configuredIds = configStore.get('containers', []).map(c => c.id);
+  cookieManager.cleanupOrphanPartitions(configuredIds);
+
   cookiesSaved = true;
   app.quit();
 });

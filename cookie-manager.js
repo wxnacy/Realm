@@ -241,18 +241,25 @@ async function importCookies(containerId, filePath) {
 }
 
 /**
- * 删除容器的 Cookie 文件和 Session 数据
- * D-01: 删除容器时直接删除 cookie JSON 文件
- * D-02: 同时调用 clearStorageData() 清理 session 数据
- * @param {string} containerId - 容器 ID
- * @returns {Object} 操作结果
+ * 延迟等待 Electron 释放 partition 文件句柄
+ * webview guest 销毁与 clearStorageData 刷盘均为异步，
+ * 立即 rmSync 会撞句柄占用或删除后被重建
+ * @param {number} ms - 等待毫秒数
+ * @returns {Promise<void>}
  */
+function waitForHandleRelease(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 /**
  * 删除容器的 Cookie 文件和 Session 数据
+ * D-01: 删除容器时直接删除 cookie JSON 文件
+ * D-02: 调用方须先 clearStorageData() 并销毁该容器全部 webview，
+ *       此处不再调用 session.fromPartition()（获取即触发 Electron 重建目录）
  * @param {string} containerId - 容器 ID
- * @returns {{success: boolean}}
+ * @returns {Promise<{success: boolean}>}
  */
-function deleteCookies(containerId) {
+async function deleteCookies(containerId) {
   try {
     const filePath = path.join(COOKIE_DIR, `${containerId}.json`);
 
@@ -263,9 +270,10 @@ function deleteCookies(containerId) {
     }
 
     // D-02: 删除 Partitions 目录（Electron 内部存储）
-    // 直接删除目录，不调用 session.fromPartition() 避免重新创建
+    // 等待 guest 进程退出与存储刷盘完成后再删，避免句柄占用导致失败
     const partitionDir = path.join(app.getPath('userData'), 'Partitions', `container-${containerId}`);
     if (fs.existsSync(partitionDir)) {
+      await waitForHandleRelease(300);
       fs.rmSync(partitionDir, { recursive: true, force: true });
       console.log(`[Realm] 删除容器 Partitions 目录: ${containerId}`);
     }
@@ -277,6 +285,40 @@ function deleteCookies(containerId) {
   }
 }
 
+/**
+ * 清理孤儿 Partitions 目录
+ * 应用启动时调用（initContainers 之前，此时无任何 partition session 被创建，
+ * 目录无句柄占用，删除必定成功且不会被重建）。
+ * 运行中删除失败的残留目录由下一次启动在此处兜底清理。
+ * @param {Array<string>} validContainerIds - 当前有效容器 ID 列表
+ * @returns {{removed: number}}
+ */
+function cleanupOrphanPartitions(validContainerIds) {
+  const partitionsRoot = path.join(app.getPath('userData'), 'Partitions');
+  if (!fs.existsSync(partitionsRoot)) {
+    return { removed: 0 };
+  }
+
+  const validDirs = new Set(validContainerIds.map(id => `container-${id}`));
+  let removed = 0;
+
+  for (const entry of fs.readdirSync(partitionsRoot)) {
+    // 只处理本应用创建的 container-* 目录，不触碰其他 partition
+    if (!entry.startsWith('container-') || validDirs.has(entry)) {
+      continue;
+    }
+    try {
+      fs.rmSync(path.join(partitionsRoot, entry), { recursive: true, force: true });
+      removed++;
+      console.log(`[Realm] 清理孤儿 Partitions 目录: ${entry}`);
+    } catch (error) {
+      console.error(`[Realm] 清理孤儿 Partitions 目录失败: ${entry}`, error);
+    }
+  }
+
+  return { removed };
+}
+
 // 模块导出
 module.exports = {
   saveCookies,
@@ -286,5 +328,6 @@ module.exports = {
   exportCookies,
   importCookies,
   deleteCookies,
+  cleanupOrphanPartitions,
   COOKIE_DIR,
 };

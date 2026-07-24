@@ -1378,12 +1378,26 @@ function showDeleteConfirmModal(containerId) {
 /**
  * 确认删除容器
  * 调用 realmAPI.deleteContainer，删除活跃容器时自动切换到默认容器
+ * 删除前先关闭该容器所有 Tab（销毁其 webview）：
+ * 存活 webview 的 guest 进程持有 Partitions 目录句柄并持续写入，
+ * 不先销毁时主进程 rmSync 后目录会被立即重建
  */
 async function confirmDeleteContainer() {
   const containerId = state.deletingContainerId;
   if (!containerId) return;
 
   try {
+    // 先关闭属于该容器的所有 Tab（closeTab 内含 destroyWebview）
+    const tabIdsToClose = [];
+    state.tabs.forEach((tab, tabId) => {
+      if (tab.containerId === containerId) {
+        tabIdsToClose.push(tabId);
+      }
+    });
+    for (const tabId of tabIdsToClose) {
+      await closeTab(tabId);
+    }
+
     const result = await window.realmAPI.deleteContainer(containerId);
     if (result.success) {
       // 如果删除的是当前活跃容器，自动切换到默认容器

@@ -135,7 +135,7 @@ function registerHandlers() {
   /**
    * 删除容器
    * @param {string} id - 容器 ID
-   * @returns {{success: boolean, message?: string}} 操作结果
+   * @returns {Promise<{success: boolean, message?: string}>} 操作结果
    */
   ipcMain.handle('container:delete', (event, id) => {
     assertTrustedSender(event);

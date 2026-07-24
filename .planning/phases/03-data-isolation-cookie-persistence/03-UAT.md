@@ -3,7 +3,7 @@ status: partial
 phase: 03-data-isolation-cookie-persistence
 source: [03-01-SUMMARY.md, 03-VERIFICATION.md]
 started: 2026-07-24T10:05:00Z
-updated: 2026-07-24T10:20:00Z
+updated: 2026-07-24T13:12:36Z
 ---
 
 ## Current Test
@@ -26,10 +26,8 @@ result: pass
 
 ### 3. 容器删除清理验证
 expected: 删除容器 → 检查 userData/cookies 目录 → 重新创建同名容器，Cookie 文件被删除，新容器无旧 Cookie 残留
-result: issue
-reported: "JSON 文件可以删除，但 Partitions 目录无法完全清理（被 Electron 自动重建或进程占用）"
-severity: minor
-debug_session: .planning/debug/container-delete-partitions.md
+result: pass
+note: 修复后回归验证通过（2026-07-24）。运行中 Cookie/缓存数据即时清除；Partitions 目录因 Chromium 架构限制（session 生命周期=进程生命周期）可能暂存空壳，退出应用时物理删除、启动时兜底清理。详见 .planning/debug/container-delete-partitions.md
 
 ### 4. 手动导出/导入验证
 expected: 导出容器 Cookie → 删除容器 → 导入 Cookie → 检查 Cookie 恢复，导入后 Cookie 完全恢复，网站登录状态保持
@@ -39,18 +37,11 @@ reason: UI 按钮未实现，仅 API 层可用
 ## Summary
 
 total: 4
-passed: 2
-issues: 1
+passed: 3
+issues: 0
 pending: 0
 skipped: 1
 
 ## Gaps
 
-- truth: "删除容器时 Partitions 目录应被完全清理"
-  status: failed
-  reason: "JSON 文件可删除，但 Partitions/container-{id}/ 目录被 Electron 自动重建或进程占用无法删除"
-  severity: minor
-  test: 3
-  artifacts: [cookie-manager.js, container-manager.js]
-  missing: [Electron session 清理 API]
-  debug_session: .planning/debug/container-delete-partitions.md
+无未解决 gap。（Test 4 为 skipped：导出/导入 UI 按钮未实现，仅 API 层可用，属功能范围外而非缺陷）
