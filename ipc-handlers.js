@@ -439,6 +439,94 @@ function registerHandlers() {
     return assignmentRules.matchUrl(url);
   });
 
+  /**
+   * 重新排序规则
+   * @param {Array<string>} orderedIds - 规则 ID 的有序数组
+   * @returns {{success: boolean}}
+   */
+  ipcMain.handle('rule:reorder', (event, orderedIds) => {
+    assertTrustedSender(event);
+    if (!Array.isArray(orderedIds)) {
+      throw new Error('orderedIds 必须是数组');
+    }
+    assignmentRules.reorderRules(orderedIds);
+    return { success: true };
+  });
+
+  /**
+   * 导出规则到文件
+   * @returns {Promise<{success: boolean, count?: number, message?: string}>}
+   */
+  ipcMain.handle('rule:export', async (event) => {
+    assertTrustedSender(event);
+
+    const data = assignmentRules.exportRules();
+
+    // 打开文件保存对话框
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: '导出规则',
+      defaultPath: `realm-rules-${Date.now()}.json`,
+      filters: [
+        { name: 'JSON Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+
+    if (canceled || !filePath) {
+      return { success: false, message: '已取消' };
+    }
+
+    try {
+      const fs = require('fs');
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+      console.log(`[Realm] 导出规则到: ${filePath}`);
+      return { success: true, count: data.rules.length };
+    } catch (error) {
+      console.error('[Realm] 导出规则失败:', error);
+      return { success: false, message: '导出失败: ' + error.message };
+    }
+  });
+
+  /**
+   * 从文件导入规则
+   * @returns {Promise<{success: boolean, count?: number, message?: string}>}
+   */
+  ipcMain.handle('rule:import', async (event) => {
+    assertTrustedSender(event);
+
+    // 打开文件选择对话框
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: '导入规则',
+      filters: [
+        { name: 'JSON Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    });
+
+    if (canceled || filePaths.length === 0) {
+      return { success: false, message: '已取消' };
+    }
+
+    try {
+      const fs = require('fs');
+      const content = fs.readFileSync(filePaths[0], 'utf-8');
+      const data = JSON.parse(content);
+
+      // 验证格式（必须包含 rules 数组）
+      if (!data.rules || !Array.isArray(data.rules)) {
+        return { success: false, message: '文件格式不正确：缺少 rules 数组' };
+      }
+
+      const result = assignmentRules.importRules(data.rules);
+      console.log(`[Realm] 从文件导入规则: ${filePaths[0]}`);
+      return result;
+    } catch (error) {
+      console.error('[Realm] 导入规则失败:', error);
+      return { success: false, message: '导入失败: ' + error.message };
+    }
+  });
+
   // ==================== 快捷键 ====================
 
   /**
