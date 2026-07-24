@@ -433,23 +433,9 @@ function bindWebviewEvents(tabId, webview) {
     updateTabTitle(tabId, e.title);
   });
 
-  // 拦截导航请求，检查分配规则
-  webview.addEventListener('will-navigate', async (e) => {
-    try {
-      const matchedContainer = await window.realmAPI.matchRule(e.url);
-      if (matchedContainer) {
-        const tab = state.tabs.get(tabId);
-        if (tab && matchedContainer !== tab.containerId) {
-          // 在匹配的容器中创建新 Tab
-          e.preventDefault();
-          createTab(matchedContainer, e.url);
-          console.log(`[Realm] 规则匹配: ${e.url} -> ${matchedContainer}`);
-        }
-      }
-    } catch (error) {
-      // 忽略规则匹配错误，继续正常导航
-    }
-  });
+  // 注意：webview 标签的 will-navigate 事件文档明示 preventDefault 无效（WR-2），
+  // 分配规则重定向已移至主进程 webContents 的 will-navigate（可同步取消），
+  // 命中规则时经 open-url-in-tab 事件转交 handleOpenUrlInTab 在匹配容器新建 Tab。
 
   // 注意：webview 的 new-window 事件在 Electron 32 已移除（WR-1）。
   // guest 的 window.open / target=_blank 由主进程 setWindowOpenHandler 拦截，

@@ -66,6 +66,24 @@ app.on('web-contents-created', (event, contents) => {
     notifyOpenUrlInTab(contents, url, getGuestContainerId(contents));
     return { action: 'deny' };
   });
+
+  // WR-2：webContents 的 will-navigate 可同步取消（webview 标签上的同名事件
+  // 文档明示 preventDefault 无效）。分配规则命中其他容器时，同步取消当前导航
+  // 并通知渲染进程在匹配容器新建 Tab，避免同一页面出现在两个容器。
+  contents.on('will-navigate', (event, url) => {
+    // WR-9 纵深防御：非 http(s) 导航一律拦截（about:blank 等内部页放行）
+    if (!isAllowedWebUrl(url) && url !== 'about:blank') {
+      event.preventDefault();
+      return;
+    }
+
+    const matchedContainer = assignmentRules.matchUrl(url);
+    if (matchedContainer && matchedContainer !== getGuestContainerId(contents)) {
+      event.preventDefault();
+      console.log(`[Realm] 规则匹配: ${url} -> ${matchedContainer}`);
+      notifyOpenUrlInTab(contents, url, matchedContainer);
+    }
+  });
 });
 
 // ==================== 应用启动 ====================
