@@ -132,6 +132,33 @@ app.whenReady().then(async () => {
   // 注册全局快捷键
   if (mainWindow) {
     shortcutManager.registerShortcuts(mainWindow);
+
+    // 在 macOS 上使用 webview 时，Menu.accelerator 不会捕获键盘事件，
+    // 因为 webview 会先处理它们。需要添加 before-input-event 处理器来拦截快捷键。
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      const shortcuts = shortcutManager.getShortcuts();
+      const isMeta = input.meta; // Cmd on macOS
+      const isControl = input.control; // Ctrl on Windows/Linux
+      const isShift = input.shift;
+      const key = input.key.toLowerCase();
+
+      // 检查每个快捷键
+      for (const [action, accelerator] of Object.entries(shortcuts)) {
+        // 解析 accelerator 字符串（如 "CmdOrCtrl+T"）
+        const parts = accelerator.split('+');
+        const needsCmdOrCtrl = parts.includes('CmdOrCtrl');
+        const needsShift = parts.includes('Shift');
+        const actionKey = parts[parts.length - 1].toLowerCase();
+
+        // 匹配按键组合
+        if (needsCmdOrCtrl && (isMeta || isControl) && needsShift === isShift && key === actionKey) {
+          console.log(`[Realm] 快捷键拦截: ${action} (${accelerator})`);
+          mainWindow.webContents.send('shortcut:triggered', action);
+          event.preventDefault();
+          return;
+        }
+      }
+    });
   }
 
   // macOS 应用激活事件
