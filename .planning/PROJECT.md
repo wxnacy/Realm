@@ -19,16 +19,18 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ 容器配置持久化（electron-store）— 现有
 - ✓ IPC 通信架构（contextBridge）— 现有
 - ✓ 基础 UI 框架（HTML/CSS/JS）— 现有
+- ✓ 容器管理下拉面板 — Phase 1
+- ✓ 容器 CRUD — Phase 1
+- ✓ 容器自定义（名称、颜色、图标）— Phase 1
+- ✓ 容器切换 — Phase 1
+- ✓ 多容器 Tab — Phase 2
+- ✓ URL 导航（协议补全/搜索回退/前进后退/刷新停止）— Phase 2
+- ✓ Tab 状态持久化与重启恢复 — Phase 2
 
 ### Active
 
 <!-- 当前需要构建的功能 -->
 
-- [ ] **容器管理下拉面板** — 工具栏按钮点击弹出下拉面板，显示容器列表
-- [ ] **容器 CRUD** — 创建、查看、编辑、删除容器
-- [ ] **容器自定义** — 每个容器支持自定义名称、颜色、图标
-- [ ] **容器切换** — 点击容器进入该容器，后续新 Tab 在该容器中打开
-- [ ] **多容器 Tab** — 点击不同容器在新 Tab 中打开，所有容器在同一窗口
 - [ ] **完整数据隔离** — Cookie、Session、LocalStorage、IndexedDB、HTTP 缓存完全隔离
 - [ ] **Cookie 文件持久化** — 每个容器的 Cookie 自动保存到独立 JSON 文件
 - [ ] **Cookie 自动加载** — 应用启动时自动加载各容器的 Cookie
@@ -68,10 +70,13 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| 使用 Electron Session partition 实现隔离 | Electron 原生支持，成熟稳定 | — Pending |
+| 使用 Electron Session partition 实现隔离 | Electron 原生支持，成熟稳定 | ✓ 已验证 — Phase 1/2 UAT 通过 |
 | Cookie 持久化使用 JSON 文件格式 | 参考 AutoBrowser 实现，便于调试和迁移 | — Pending |
-| 单窗口多 Tab 架构 | 参考 Firefox Multi-Account Containers 体验 | — Pending |
-| 下拉面板而非侧边栏 | 减少屏幕占用，交互更直接 | — Pending |
+| 单窗口多 Tab 架构 | 参考 Firefox Multi-Account Containers 体验 | ✓ 已验证 — Phase 2 UAT 13/13 通过 |
+| 下拉面板而非侧边栏 | 减少屏幕占用，交互更直接 | ✓ 已验证 — Phase 1 |
+| webviewTag 显式启用（Electron 32 默认 false） | 不启用则 webview 是无功能 HTMLUnknownElement | ✓ 已验证 — Phase 2（02-04） |
+| 空 Tab 栏惰性创建 Tab（URL 回车时 createTab） | 覆盖冷启动与关闭最后 Tab 两个入口，不破坏空 Tab 栏新标签页预期 | ✓ 已验证 — Phase 2（02-05） |
+| 导航入口统一经 normalizeUrl | 原始输入不直达 webview.src，避免缺 scheme/意外协议（T-02-05-01 缓解） | ✓ 已验证 — Phase 2 安全审计 |
 
 ## Evolution
 
@@ -91,4 +96,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-23 after initialization*
+*Last updated: 2026-07-24 after Phase 2*
