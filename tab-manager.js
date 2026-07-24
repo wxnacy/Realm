@@ -37,20 +37,29 @@ function setRecycleListener(listener) {
  * 从 electron-store 恢复上次保存的 Tab 列表
  */
 function initTabs() {
+  // 损坏数据防御（WR-10）：store.get 仅在 key 不存在时回落默认值；
+  // store 文件被手工编辑或损坏导致类型不符时，直接使用会抛 TypeError，
+  // 主进程将在 app.whenReady 中崩溃，应用无法启动
   const savedTabs = store.get('tabs', []);
   const savedCounter = store.get('tabCounter', 0);
   const savedActiveTabId = store.get('activeTabId', null);
 
-  // 恢复 Tab 列表
-  savedTabs.forEach(tab => {
-    tabs.set(tab.id, tab);
-  });
+  // 恢复 Tab 列表（逐项校验形状，跳过非法条目）
+  if (Array.isArray(savedTabs)) {
+    savedTabs.forEach(tab => {
+      if (tab && typeof tab === 'object' && typeof tab.id === 'string') {
+        tabs.set(tab.id, tab);
+      }
+    });
+  } else {
+    console.warn('[Realm] 持久化 Tab 数据损坏（tabs 非数组），已忽略');
+  }
 
-  // 恢复计数器
-  tabCounter = savedCounter;
+  // 恢复计数器（类型校验，损坏时归零）
+  tabCounter = Number.isInteger(savedCounter) && savedCounter >= 0 ? savedCounter : 0;
 
-  // 恢复活动 Tab
-  if (savedActiveTabId && tabs.has(savedActiveTabId)) {
+  // 恢复活动 Tab（类型校验）
+  if (typeof savedActiveTabId === 'string' && tabs.has(savedActiveTabId)) {
     activeTabId = savedActiveTabId;
   } else if (tabs.size > 0) {
     activeTabId = tabs.keys().next().value;
