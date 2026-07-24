@@ -48,11 +48,25 @@ function isAllowedWebUrl(url) {
  * @returns {string|null} 容器 ID，无法识别时返回 null
  */
 function getGuestContainerId(contents) {
-  const partition = contents.session && contents.session.getPartition
-    ? contents.session.getPartition()
-    : '';
+  // 尝试从 session 获取 partition
+  let partition = '';
+  try {
+    if (contents.session && typeof contents.session.getPartition === 'function') {
+      partition = contents.session.getPartition();
+    }
+  } catch (e) {
+    console.log(`[Realm] 获取 partition 失败:`, e.message);
+  }
+
   const prefix = 'persist:container-';
-  return partition.startsWith(prefix) ? partition.slice(prefix.length) : null;
+  if (partition.startsWith(prefix)) {
+    return partition.slice(prefix.length);
+  }
+
+  // 如果 partition 不符合预期格式，尝试从 URL 或其他属性推断
+  // 这是一个 fallback，正常情况下不应该执行到这里
+  console.log(`[Realm] 无法从 partition 获取容器 ID, partition: "${partition}"`);
+  return null;
 }
 
 /**
@@ -114,21 +128,16 @@ app.on('web-contents-created', (event, contents) => {
       return;
     }
 
-    const partition = contents.session && contents.session.getPartition
-      ? contents.session.getPartition()
-      : 'unknown';
-    console.log(`[Realm] webview partition: ${partition}`);
     const currentContainer = getGuestContainerId(contents);
     console.log(`[Realm] 当前容器: ${currentContainer}, 检查规则匹配...`);
     const matchedContainer = assignmentRules.matchUrl(url);
     console.log(`[Realm] 匹配结果: ${matchedContainer || '无匹配'}`);
 
-    if (matchedContainer && matchedContainer !== currentContainer) {
+    // 无论是否匹配，只要规则匹配就创建新 Tab
+    if (matchedContainer) {
       event.preventDefault();
       console.log(`[Realm] 规则匹配成功: ${url} -> ${matchedContainer}`);
       notifyOpenUrlInTab(contents, url, matchedContainer);
-    } else if (matchedContainer && matchedContainer === currentContainer) {
-      console.log(`[Realm] 规则匹配但容器相同，允许导航`);
     }
   });
 });
