@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: complete
 phase: 02-browser-core-url-navigation-multi-tab
 source: [02-01-SUMMARY.md, 02-02-SUMMARY.md, 02-03-SUMMARY.md, 02-04-SUMMARY.md]
 started: 2026-07-23T16:10:02Z
-updated: 2026-07-24T14:50:00Z
+updated: 2026-07-24T15:40:00Z
 ---
 
 ## Current Test
@@ -42,9 +42,7 @@ result: pass
 
 ### 8. 刷新 / 停止按钮与加载进度条
 expected: 点击刷新按钮重新加载当前页面；加载过程中刷新按钮图标变为停止（×）图标，点击可中断加载；URL 输入框下方出现 2px 蓝色加载进度条，加载完成后自动消失。
-result: issue
-reported: "刷新按钮没有变成 x 图标，其他正常；蓝色进度条没有显示在URL输入框下边，而是出现在左边侧边栏的下边"
-severity: minor
+result: pass
 
 ### 9. Tab 标题实时同步网页标题
 expected: 访问任意网页后，当前 Tab 标题自动更新为该网页 <title> 内容（而非 URL 或空白），切换页面时标题跟随变化。
@@ -64,15 +62,13 @@ result: pass
 
 ### 13. 冷启动后无活动 Tab 时 URL 输入导航
 expected: 应用刚启动、Tab 栏为空（尚无活动 Tab）时，在 URL 输入框输入域名（如 github.com）或搜索词回车，应用应使用默认容器自动创建一个默认 Tab 并在其 webview 中加载目标页面；新标签页消失，URL 输入框更新为最终 URL。
-result: issue
-reported: "应用刚启动时地址栏输入地址回车还是没有反应；这种情况应该使用默认容器，创建一个默认tab 才对"
-severity: major
+result: pass
 
 ## Summary
 
 total: 13
-passed: 11
-issues: 2
+passed: 13
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
@@ -110,7 +106,7 @@ blocked: 0
     - "src/renderer.js URL Enter 处理器创建 webview 后隐藏 newTabPage 并调用 showWebview(state.activeTabId)"
   debug_session: ".planning/debug/url-input-enter-no-response.md"
 - truth: "冷启动后无活动 Tab 时，URL 输入框输入域名或搜索词回车应使用默认容器自动创建默认 Tab 并加载目标页面"
-  status: failed
+  status: resolved
   reason: "User reported: 应用刚启动时地址栏输入地址回车还是没有反应；这种情况应该使用默认容器，创建一个默认tab 才对"
   severity: major
   test: 13
@@ -122,8 +118,9 @@ blocked: 0
     - "URL Enter 处理器在 state.activeTabId 为 null 时：使用默认容器（containerManager.defaultContainer 或首个容器）调用 createTab 创建新 Tab，再以 normalizedUrl 作为初始 URL 完成导航；同时隐藏 newTabPage"
     - "或：在冷启动时自动创建一个默认 Tab（应用启动即有一个活动 Tab），从根因上消除 activeTabId 为 null 的窗口期"
   suggested_fix_direction: "用户建议：使用默认容器创建一个默认 tab；具体实现路径（惰性创建 vs 启动即建）由后续 gap closure 计划决定"
+  resolved_by: "重测通过（2026-07-24）"
 - truth: "刷新按钮在页面加载过程中图标切换为停止（×）图标"
-  status: failed
+  status: resolved
   reason: "User reported: 刷新按钮没有变成 x 图标，其他正常"
   severity: minor
   test: 8
@@ -137,8 +134,9 @@ blocked: 0
     - "index.html 在 #reloadBtn 内添加 stop/× 图标 SVG（默认 display:none）"
     - "main.css 添加规则：#reloadBtn.loading .icon-reload { display:none } 和 #reloadBtn.loading .icon-stop { display:block }"
   debug_session: ".planning/debug/refresh-button-no-stop-icon.md"
+  resolved_by: "重测通过（2026-07-24）"
 - truth: "蓝色加载进度条显示在 URL 输入框下方（2px 高度，加载完成后自动消失）"
-  status: failed
+  status: resolved
   reason: "User reported: 蓝色进度条没有显示在URL输入框下边，而是出现在左边侧边栏的下边"
   severity: minor
   test: 8
@@ -151,3 +149,4 @@ blocked: 0
   missing:
     - "main.css .toolbar 规则添加 position: relative（一行修复，无 JS/HTML 变更）"
   debug_session: ".planning/debug/progress-bar-wrong-position.md"
+  resolved_by: "重测通过（2026-07-24）"
