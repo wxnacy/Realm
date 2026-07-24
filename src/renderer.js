@@ -587,52 +587,71 @@ function renderRulesList(rules) {
     return;
   }
 
-  const html = rules.map(rule => {
+  // WR-13：DOM 构建 + textContent。规则 pattern 为用户输入，拼入 innerHTML 构成 XSS 注入面
+  elements.rulesList.innerHTML = '';
+
+  rules.forEach(rule => {
     const container = state.containers.find(c => c.id === rule.containerId);
-    const containerName = container ? container.icon + ' ' + container.name : rule.containerId;
+    const containerName = container ? `${container.icon} ${container.name}` : rule.containerId;
 
-    return `
-      <div class="rule-item" data-rule-id="${rule.id}">
-        <div class="rule-info">
-          <span class="rule-pattern">${rule.pattern}</span>
-          <span class="rule-arrow">→</span>
-          <span class="rule-container">${containerName}</span>
-        </div>
-        <div class="rule-actions">
-          <button class="action-btn" data-action="toggle" title="${rule.enabled ? '禁用' : '启用'}">
-            ${rule.enabled ? '✓' : '✗'}
-          </button>
-          <button class="action-btn" data-action="delete" title="删除">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="3 6 5 6 21 6"></polyline>
-              <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
-            </svg>
-          </button>
-        </div>
-      </div>
-    `;
-  }).join('');
+    const item = document.createElement('div');
+    item.className = 'rule-item';
+    item.dataset.ruleId = rule.id;
 
-  elements.rulesList.innerHTML = html;
+    const info = document.createElement('div');
+    info.className = 'rule-info';
 
-  // 绑定事件
-  document.querySelectorAll('.rule-item').forEach(item => {
-    const ruleId = item.dataset.ruleId;
+    const pattern = document.createElement('span');
+    pattern.className = 'rule-pattern';
+    pattern.textContent = rule.pattern;
 
-    item.querySelectorAll('[data-action]').forEach(btn => {
+    const arrow = document.createElement('span');
+    arrow.className = 'rule-arrow';
+    arrow.textContent = '→';
+
+    const containerSpan = document.createElement('span');
+    containerSpan.className = 'rule-container';
+    containerSpan.textContent = containerName;
+
+    info.appendChild(pattern);
+    info.appendChild(arrow);
+    info.appendChild(containerSpan);
+
+    const actions = document.createElement('div');
+    actions.className = 'rule-actions';
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'action-btn';
+    toggleBtn.dataset.action = 'toggle';
+    toggleBtn.title = rule.enabled ? '禁用' : '启用';
+    toggleBtn.textContent = rule.enabled ? '✓' : '✗';
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'action-btn';
+    deleteBtn.dataset.action = 'delete';
+    deleteBtn.title = '删除';
+    deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path></svg>';
+
+    actions.appendChild(toggleBtn);
+    actions.appendChild(deleteBtn);
+    item.appendChild(info);
+    item.appendChild(actions);
+    elements.rulesList.appendChild(item);
+
+    // 绑定操作事件（toggle / delete）
+    [toggleBtn, deleteBtn].forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        const action = btn.dataset.action;
 
-        if (action === 'toggle') {
-          const rules = await window.realmAPI.getRules();
-          const rule = rules.find(r => r.id === ruleId);
-          if (rule) {
-            await window.realmAPI.updateRule(ruleId, { enabled: !rule.enabled });
+        if (btn.dataset.action === 'toggle') {
+          const latest = await window.realmAPI.getRules();
+          const current = latest.find(r => r.id === rule.id);
+          if (current) {
+            await window.realmAPI.updateRule(rule.id, { enabled: !current.enabled });
             await refreshRulesList();
           }
-        } else if (action === 'delete') {
-          await window.realmAPI.deleteRule(ruleId);
+        } else if (btn.dataset.action === 'delete') {
+          await window.realmAPI.deleteRule(rule.id);
           await refreshRulesList();
         }
       });
@@ -694,50 +713,58 @@ async function refreshShortcutsList() {
  * @param {Object} shortcuts - 快捷键配置对象
  */
 function renderShortcutsList(shortcuts) {
-  const html = Object.entries(shortcuts).map(([action, accelerator]) => {
+  // WR-13：DOM 构建 + textContent。accelerator 来自用户按键捕获，禁止拼入 innerHTML
+  elements.shortcutsList.innerHTML = '';
+
+  Object.entries(shortcuts).forEach(([action, accelerator]) => {
     const name = SHORTCUT_NAMES[action] || action;
 
-    return `
-      <div class="shortcut-item" data-action="${action}">
-        <div class="shortcut-info">
-          <span class="shortcut-name">${name}</span>
-          <span class="shortcut-key">${accelerator}</span>
-        </div>
-        <div class="shortcut-actions">
-          <button class="action-btn" data-action="edit" title="修改">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path>
-              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-            </svg>
-          </button>
-          <button class="action-btn" data-action="reset" title="恢复默认">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M23 4v6h-6M1 20v-6h6"></path>
-              <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path>
-            </svg>
-          </button>
-        </div>
-      </div>
-    `;
-  }).join('');
+    const item = document.createElement('div');
+    item.className = 'shortcut-item';
+    item.dataset.action = action;
 
-  elements.shortcutsList.innerHTML = html;
+    const info = document.createElement('div');
+    info.className = 'shortcut-info';
 
-  // 绑定事件
-  document.querySelectorAll('.shortcut-item').forEach(item => {
-    const action = item.dataset.action;
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'shortcut-name';
+    nameSpan.textContent = name;
 
-    item.querySelectorAll('[data-action]').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const btnAction = btn.dataset.action;
+    const keySpan = document.createElement('span');
+    keySpan.className = 'shortcut-key';
+    keySpan.textContent = accelerator;
 
-        if (btnAction === 'edit') {
-          await editShortcut(action);
-        } else if (btnAction === 'reset') {
-          await resetShortcut(action);
-        }
-      });
+    info.appendChild(nameSpan);
+    info.appendChild(keySpan);
+
+    const actions = document.createElement('div');
+    actions.className = 'shortcut-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'action-btn';
+    editBtn.dataset.action = 'edit';
+    editBtn.title = '修改';
+    editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'action-btn';
+    resetBtn.dataset.action = 'reset';
+    resetBtn.title = '恢复默认';
+    resetBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path></svg>';
+
+    actions.appendChild(editBtn);
+    actions.appendChild(resetBtn);
+    item.appendChild(info);
+    item.appendChild(actions);
+    elements.shortcutsList.appendChild(item);
+
+    editBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await editShortcut(action);
+    });
+    resetBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await resetShortcut(action);
     });
   });
 }
@@ -1050,25 +1077,42 @@ async function loadContainers() {
  * 渲染侧边栏容器列表
  */
 function renderContainerList() {
-  const html = state.containers.map(container => `
-    <div class="container-item ${container.id === state.currentContainer ? 'active' : ''}"
-         data-container-id="${container.id}">
-      <div class="container-dot" style="background-color: ${container.color}"></div>
-      <div class="container-info">
-        <div class="container-name">${container.icon} ${container.name}</div>
-        <div class="container-status">${container.id === state.currentContainer ? '当前' : ''}</div>
-      </div>
-    </div>
-  `).join('');
+  // WR-13：DOM 构建 + textContent。
+  // 容器名称/图标为用户输入，拼入 innerHTML 构成 XSS 注入面；
+  // 颜色值经 style 属性字符串拼接可逃逸属性，统一改为 DOM 属性赋值
+  // （主进程 validateContainerConfig 另有颜色格式白名单做纵深防御）
+  elements.containerList.innerHTML = '';
 
-  elements.containerList.innerHTML = html;
+  state.containers.forEach(container => {
+    const item = document.createElement('div');
+    item.className = 'container-item' + (container.id === state.currentContainer ? ' active' : '');
+    item.dataset.containerId = container.id;
 
-  // 为每个容器项添加点击事件
-  document.querySelectorAll('.container-item').forEach(item => {
+    const dot = document.createElement('div');
+    dot.className = 'container-dot';
+    dot.style.backgroundColor = container.color;
+
+    const info = document.createElement('div');
+    info.className = 'container-info';
+
+    const name = document.createElement('div');
+    name.className = 'container-name';
+    name.textContent = `${container.icon} ${container.name}`;
+
+    const status = document.createElement('div');
+    status.className = 'container-status';
+    status.textContent = container.id === state.currentContainer ? '当前' : '';
+
+    info.appendChild(name);
+    info.appendChild(status);
+    item.appendChild(dot);
+    item.appendChild(info);
+
     item.addEventListener('click', () => {
-      const containerId = item.dataset.containerId;
-      switchContainer(containerId);
+      switchContainer(item.dataset.containerId);
     });
+
+    elements.containerList.appendChild(item);
   });
 }
 
@@ -1078,37 +1122,63 @@ function renderContainerList() {
  * 默认容器（id=default）的删除按钮禁用并显示 tooltip
  */
 function renderContainerPanelList() {
-  const html = state.containers.map(container => {
+  // WR-13：DOM 构建 + textContent（动机见 renderContainerList 注释）。
+  // setupEventListeners 中的事件委托依赖 dataset.containerId、data-action
+  // 与 delete 按钮的 disabled 状态，此处保持结构一致
+  elements.panelContainerList.innerHTML = '';
+
+  state.containers.forEach(container => {
     const isDefault = container.id === 'default';
-    const deleteBtnDisabled = isDefault ? 'disabled' : '';
-    const deleteBtnTitle = isDefault ? '默认容器不可删除' : '删除';
 
-    return `
-    <div class="panel-container-item ${container.id === state.currentContainer ? 'active' : ''}"
-         data-container-id="${container.id}">
-      <div class="container-dot" style="background-color: ${container.color}"></div>
-      <div class="container-emoji">${container.icon}</div>
-      <div class="container-name">${container.name}</div>
-      <div class="container-actions">
-        <button class="action-btn" data-action="edit" title="编辑">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-        </button>
-        <button class="action-btn" data-action="delete" ${deleteBtnDisabled} title="${deleteBtnTitle}">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="3 6 5 6 21 6"></polyline>
-            <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
-          </svg>
-        </button>
-      </div>
-      ${container.id === state.currentContainer ? '<div class="check-mark">✓</div>' : ''}
-    </div>
-  `;
-  }).join('');
+    const item = document.createElement('div');
+    item.className = 'panel-container-item' + (container.id === state.currentContainer ? ' active' : '');
+    item.dataset.containerId = container.id;
 
-  elements.panelContainerList.innerHTML = html;
+    const dot = document.createElement('div');
+    dot.className = 'container-dot';
+    dot.style.backgroundColor = container.color;
+
+    const emoji = document.createElement('div');
+    emoji.className = 'container-emoji';
+    emoji.textContent = container.icon;
+
+    const name = document.createElement('div');
+    name.className = 'container-name';
+    name.textContent = container.name;
+
+    const actions = document.createElement('div');
+    actions.className = 'container-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'action-btn';
+    editBtn.dataset.action = 'edit';
+    editBtn.title = '编辑';
+    editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'action-btn';
+    deleteBtn.dataset.action = 'delete';
+    deleteBtn.disabled = isDefault;
+    deleteBtn.title = isDefault ? '默认容器不可删除' : '删除';
+    deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path></svg>';
+
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
+
+    item.appendChild(dot);
+    item.appendChild(emoji);
+    item.appendChild(name);
+    item.appendChild(actions);
+
+    if (container.id === state.currentContainer) {
+      const check = document.createElement('div');
+      check.className = 'check-mark';
+      check.textContent = '✓';
+      item.appendChild(check);
+    }
+
+    elements.panelContainerList.appendChild(item);
+  });
 }
 
 /**

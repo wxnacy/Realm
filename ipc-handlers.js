@@ -43,10 +43,13 @@ function validateContainerConfig(config) {
   if (!config.name || typeof config.name !== 'string' || config.name.trim() === '') {
     return false;
   }
-  if (config.color && typeof config.color !== 'string') {
+  // WR-13：颜色必须为 #RRGGBB 格式——渲染层会将 color 写入 style 属性，
+  // 仅校验 typeof string 时形如 red" onmouseover="... 的值可逃逸属性构成 XSS；
+  // 图标限制为单字符（emoji），防止超长字符串注入
+  if (config.color && !/^#[0-9a-fA-F]{6}$/.test(config.color)) {
     return false;
   }
-  if (config.icon && typeof config.icon !== 'string') {
+  if (config.icon && (typeof config.icon !== 'string' || [...config.icon].length !== 1)) {
     return false;
   }
   return true;
@@ -64,10 +67,11 @@ function validateContainerUpdates(updates) {
   if (updates.name !== undefined && (typeof updates.name !== 'string' || updates.name.trim() === '')) {
     return false;
   }
-  if (updates.color !== undefined && typeof updates.color !== 'string') {
+  // WR-13：与 validateContainerConfig 同色/图标白名单（见该函数注释）
+  if (updates.color !== undefined && !/^#[0-9a-fA-F]{6}$/.test(updates.color)) {
     return false;
   }
-  if (updates.icon !== undefined && typeof updates.icon !== 'string') {
+  if (updates.icon !== undefined && (typeof updates.icon !== 'string' || [...updates.icon].length !== 1)) {
     return false;
   }
   return true;
