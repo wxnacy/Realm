@@ -218,6 +218,25 @@ contextBridge.exposeInMainWorld('realmAPI', {
    */
   matchRule: (url) => ipcRenderer.invoke('rule:match', url),
 
+  /**
+   * 重新排序规则
+   * @param {Array<string>} orderedIds - 规则 ID 的有序数组
+   * @returns {Promise<{success: boolean}>}
+   */
+  reorderRules: (orderedIds) => ipcRenderer.invoke('rule:reorder', orderedIds),
+
+  /**
+   * 导出规则到文件
+   * @returns {Promise<{success: boolean, count?: number, message?: string}>}
+   */
+  exportRules: () => ipcRenderer.invoke('rule:export'),
+
+  /**
+   * 从文件导入规则
+   * @returns {Promise<{success: boolean, count?: number, message?: string}>}
+   */
+  importRules: () => ipcRenderer.invoke('rule:import'),
+
   // ==================== 快捷键 ====================
 
   /**
