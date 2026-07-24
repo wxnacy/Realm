@@ -1287,15 +1287,30 @@ async function refreshCookiesList() {
     return;
   }
 
-  const html = cookies.map(cookie => `
-    <div class="cookie-item">
-      <span class="cookie-name">${cookie.name}</span>
-      <span class="cookie-value">${cookie.value}</span>
-      <span class="cookie-domain">${cookie.domain}</span>
-    </div>
-  `).join('');
+  // 使用 DOM API + textContent 渲染（CR-3 修复）：
+  // cookie.name/value/domain 由任意网站设置，是攻击者可控数据，禁止拼入 innerHTML
+  elements.cookiesList.innerHTML = '';
+  cookies.forEach(cookie => {
+    const item = document.createElement('div');
+    item.className = 'cookie-item';
 
-  elements.cookiesList.innerHTML = html;
+    const name = document.createElement('span');
+    name.className = 'cookie-name';
+    name.textContent = cookie.name;
+
+    const value = document.createElement('span');
+    value.className = 'cookie-value';
+    value.textContent = cookie.value;
+
+    const domain = document.createElement('span');
+    domain.className = 'cookie-domain';
+    domain.textContent = cookie.domain;
+
+    item.appendChild(name);
+    item.appendChild(value);
+    item.appendChild(domain);
+    elements.cookiesList.appendChild(item);
+  });
 }
 
 /**
