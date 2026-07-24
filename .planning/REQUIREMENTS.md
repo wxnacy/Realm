@@ -24,16 +24,16 @@
 
 ### 数据隔离
 
-- [ ] **ISO-01**: 每个容器的 Cookie 和 Session 完全隔离，互不干扰
-- [ ] **ISO-02**: 每个容器的 LocalStorage 和 IndexedDB 完全隔离
-- [ ] **ISO-03**: 每个容器的 HTTP 缓存完全隔离
-- [ ] **ISO-04**: 用户可以在同一网站同时登录不同容器的不同账号
+- [x] **ISO-01**: 每个容器的 Cookie 和 Session 完全隔离，互不干扰
+- [x] **ISO-02**: 每个容器的 LocalStorage 和 IndexedDB 完全隔离
+- [x] **ISO-03**: 每个容器的 HTTP 缓存完全隔离
+- [x] **ISO-04**: 用户可以在同一网站同时登录不同容器的不同账号
 
 ### Cookie 持久化
 
-- [ ] **PST-01**: 应用关闭时自动保存每个容器的 Cookie 到独立 JSON 文件
-- [ ] **PST-02**: 应用启动时自动加载各容器的 Cookie 文件
-- [ ] **PST-03**: Cookie 文件保留 domain 前缀点号格式（如 `.example.com`）
+- [x] **PST-01**: 应用关闭时自动保存每个容器的 Cookie 到独立 JSON 文件
+- [x] **PST-02**: 应用启动时自动加载各容器的 Cookie 文件
+- [x] **PST-03**: Cookie 文件保留 domain 前缀点号格式（如 `.example.com`）
 
 ### 便利功能
 
@@ -76,13 +76,13 @@
 | BROW-03 | Phase 2 | Complete |
 | BROW-04 | Phase 2 | Complete |
 | BROW-05 | Phase 2 | Complete |
-| ISO-01 | Phase 3 | Pending |
-| ISO-02 | Phase 3 | Pending |
-| ISO-03 | Phase 3 | Pending |
-| ISO-04 | Phase 3 | Pending |
-| PST-01 | Phase 3 | Pending |
-| PST-02 | Phase 3 | Pending |
-| PST-03 | Phase 3 | Pending |
+| ISO-01 | Phase 3 | Complete |
+| ISO-02 | Phase 3 | Complete |
+| ISO-03 | Phase 3 | Complete |
+| ISO-04 | Phase 3 | Complete |
+| PST-01 | Phase 3 | Complete |
+| PST-02 | Phase 3 | Complete |
+| PST-03 | Phase 3 | Complete |
 | CNV-01 | Phase 4 | Pending |
 | CNV-02 | Phase 4 | Pending |
 

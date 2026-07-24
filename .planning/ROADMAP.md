@@ -101,7 +101,7 @@ Plans:
   3. 应用关闭时每个容器的 Cookie 自动保存到独立 JSON 文件，domain 前缀点号格式正确保留
   4. 应用启动时各容器的 Cookie 自动加载，用户无需重新登录
 
-**Plans**: 1 plan
+**Plans**: 1/1 plans complete
 
 Plans:
 
@@ -135,5 +135,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Core Container Management + Architecture Refactoring | 3/3 | Complete | 2026-07-23 |
 | 2. Browser Core - URL Navigation + Multi-Tab | 5/5 | Complete    | 2026-07-23 |
-| 3. Data Isolation + Cookie Persistence | 1/1 | Complete | 2026-07-23 |
+| 3. Data Isolation + Cookie Persistence | 1/1 | Complete    | 2026-07-23 |
 | 4. Convenience Features | 1/1 | Complete | 2026-07-23 |
