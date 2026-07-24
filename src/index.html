@@ -38,6 +38,29 @@
 
   <!-- 主内容区 -->
   <main class="main-content">
+    <!-- Tab 栏 -->
+    <div class="tab-bar" id="tabBar">
+      <button class="tab-scroll-left tab-scroll-btn" id="tabScrollLeft" title="向左滚动">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M15 18l-6-6 6-6"></path>
+        </svg>
+      </button>
+      <div class="tab-list" id="tabList">
+        <!-- Tab 项将由 JavaScript 动态生成 -->
+      </div>
+      <button class="tab-scroll-right tab-scroll-btn" id="tabScrollRight" title="向右滚动">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 18l6-6-6-6"></path>
+        </svg>
+      </button>
+      <button class="tab-new-btn" id="tabNewBtn" title="新建标签页">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+      </button>
+    </div>
+
     <!-- 工具栏 -->
     <div class="toolbar" id="toolbar">
       <div class="toolbar-left">
@@ -68,6 +91,19 @@
       </div>
 
       <div class="toolbar-right">
+        <button class="btn-icon" id="rulesBtn" title="分配规则">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+            <path d="M2 17l10 5 10-5"></path>
+            <path d="M2 12l10 5 10-5"></path>
+          </svg>
+        </button>
+        <button class="btn-icon" id="shortcutsBtn" title="快捷键设置">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect>
+            <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"></path>
+          </svg>
+        </button>
         <button class="btn-icon" id="cookiesBtn" title="Cookie 管理">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10"></circle>
@@ -78,30 +114,22 @@
           </svg>
         </button>
       </div>
+      <div class="loading-bar" id="loadingBar"></div>
     </div>
 
     <!-- 浏览器视图区域 -->
     <div class="browser-view" id="browserView">
-      <!-- 欢迎页面 -->
-      <div class="welcome-page" id="welcomePage">
-        <div class="welcome-content">
-          <h1>欢迎使用 Realm Browser</h1>
-          <p>多容器隔离浏览器，保护您的隐私和身份</p>
-          <div class="welcome-features">
-            <div class="feature">
-              <span class="feature-icon">🔒</span>
-              <span class="feature-text">容器隔离</span>
-              <span class="feature-desc">每个容器独立的 Cookie 和存储</span>
-            </div>
-            <div class="feature">
-              <span class="feature-icon">🤖</span>
-              <span class="feature-text">AI Agent</span>
-              <span class="feature-desc">集成 AI 助手（即将推出）</span>
-            </div>
-            <div class="feature">
-              <span class="feature-icon">⚡</span>
-              <span class="feature-text">高性能</span>
-              <span class="feature-desc">基于 Chromium 内核</span>
+      <!-- 新标签页 -->
+      <div class="new-tab-page" id="newTabPage">
+        <div class="new-tab-content">
+          <h1 class="new-tab-title">新标签页</h1>
+          <div class="new-tab-search-wrapper">
+            <input type="text" class="new-tab-search" id="newTabSearch" placeholder="搜索或输入网址...">
+          </div>
+          <div class="new-tab-containers">
+            <h2 class="new-tab-section-title">快速访问</h2>
+            <div class="container-shortcuts" id="containerShortcuts">
+              <!-- 容器快捷入口将由 JavaScript 动态生成 -->
             </div>
           </div>
         </div>
@@ -212,6 +240,41 @@
       </div>
       <div class="form-actions">
         <button class="btn btn-primary" id="closeCookiesModal">关闭</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 规则管理对话框 -->
+  <dialog class="modal" id="rulesModal">
+    <div class="modal-content modal-large">
+      <h2>容器分配规则</h2>
+      <div class="rules-toolbar">
+        <div class="rule-form">
+          <select id="ruleContainerSelect" class="select-input">
+            <!-- 容器选项将由 JavaScript 动态生成 -->
+          </select>
+          <input type="text" id="rulePatternInput" class="text-input" placeholder="输入域名，如 google.com 或 *.google.com">
+          <button class="btn btn-primary" id="addRuleBtn">添加规则</button>
+        </div>
+      </div>
+      <div class="rules-list" id="rulesList">
+        <!-- 规则列表将由 JavaScript 动态生成 -->
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="closeRulesModal">关闭</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 快捷键设置对话框 -->
+  <dialog class="modal" id="shortcutsModal">
+    <div class="modal-content modal-large">
+      <h2>快捷键设置</h2>
+      <div class="shortcuts-list" id="shortcutsList">
+        <!-- 快捷键列表将由 JavaScript 动态生成 -->
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="closeShortcutsModal">关闭</button>
       </div>
     </div>
   </dialog>

@@ -14,6 +14,21 @@ const elements = {
   welcomePage: document.getElementById('welcomePage'),
   browserView: document.getElementById('browserView'),
 
+  // Tab 栏
+  tabBar: document.getElementById('tabBar'),
+  tabList: document.getElementById('tabList'),
+  tabNewBtn: document.getElementById('tabNewBtn'),
+  tabScrollLeft: document.getElementById('tabScrollLeft'),
+  tabScrollRight: document.getElementById('tabScrollRight'),
+
+  // 新标签页
+  newTabPage: document.getElementById('newTabPage'),
+  newTabSearch: document.getElementById('newTabSearch'),
+  containerShortcuts: document.getElementById('containerShortcuts'),
+
+  // 加载进度条
+  loadingBar: document.getElementById('loadingBar'),
+
   // 容器面板
   containerPanel: document.getElementById('containerPanel'),
   panelContainerList: document.getElementById('panelContainerList'),
@@ -25,6 +40,7 @@ const elements = {
   forwardBtn: document.getElementById('forwardBtn'),
   reloadBtn: document.getElementById('reloadBtn'),
   cookiesBtn: document.getElementById('cookiesBtn'),
+  rulesBtn: document.getElementById('rulesBtn'),
   settingsBtn: document.getElementById('settingsBtn'),
 
   // 容器创建/编辑模态框
@@ -50,6 +66,20 @@ const elements = {
   clearCookiesBtn: document.getElementById('clearCookiesBtn'),
   refreshCookiesBtn: document.getElementById('refreshCookiesBtn'),
   closeCookiesModal: document.getElementById('closeCookiesModal'),
+
+  // 规则管理
+  rulesModal: document.getElementById('rulesModal'),
+  rulesList: document.getElementById('rulesList'),
+  ruleContainerSelect: document.getElementById('ruleContainerSelect'),
+  rulePatternInput: document.getElementById('rulePatternInput'),
+  addRuleBtn: document.getElementById('addRuleBtn'),
+  closeRulesModal: document.getElementById('closeRulesModal'),
+
+  // 快捷键设置
+  shortcutsModal: document.getElementById('shortcutsModal'),
+  shortcutsList: document.getElementById('shortcutsList'),
+  shortcutsBtn: document.getElementById('shortcutsBtn'),
+  closeShortcutsModal: document.getElementById('closeShortcutsModal'),
 };
 
 // 应用状态
@@ -61,7 +91,847 @@ const state = {
   editingContainerId: null,
   deletingContainerId: null,
   panelVisible: false,
+
+  // Tab 管理
+  tabs: new Map(),
+  activeTabId: null,
+  tabCounter: 0,
+  webviews: new Map(),
 };
+
+// Tab 管理常量
+const TAB_MAX_COUNT = 20;
+const TAB_RECYCLE_MESSAGE = '已自动关闭最久未使用的标签页以释放资源';
+
+// Webview 安全配置（D-03）
+const WEBVIEW_ATTRIBUTES = {
+  nodeintegration: 'false',
+  disablewebsecurity: 'false',
+  allowpopups: 'false',
+  webpreferences: 'contextIsolation=yes'
+};
+
+/**
+ * URL 标准化函数
+ * @param {string} input - 用户输入
+ * @returns {string} 标准化后的 URL
+ */
+function normalizeUrl(input) {
+  input = input.trim();
+
+  // 如果已经是完整的 HTTP/HTTPS URL，直接返回
+  if (/^https?:\/\//i.test(input)) {
+    return input;
+  }
+
+  // 如果看起来像域名（包含点号），添加 https://
+  if (/^[\w-]+(\.[\w-]+)+/.test(input)) {
+    return `https://${input}`;
+  }
+
+  // 其他情况当作搜索查询
+  return `https://www.google.com/search?q=${encodeURIComponent(input)}`;
+}
+
+/**
+ * 创建新 Tab
+ * @param {string} containerId - 容器 ID
+ * @param {string|null} url - 初始 URL
+ * @returns {Promise<string>} 新创建的 Tab ID
+ */
+async function createTab(containerId, url = null) {
+  // 调用主进程创建 Tab
+  const tab = await window.realmAPI.createTab(containerId, url || '');
+
+  // 创建 Tab DOM 元素
+  const tabElement = document.createElement('div');
+  tabElement.className = 'tab';
+  tabElement.dataset.tabId = tab.id;
+
+  const color = getContainerColor(containerId);
+  const colorLine = document.createElement('div');
+  colorLine.className = 'tab-color-line';
+  colorLine.style.backgroundColor = color;
+
+  const content = document.createElement('div');
+  content.className = 'tab-content';
+
+  const title = document.createElement('span');
+  title.className = 'tab-title';
+  title.textContent = tab.title;
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'tab-close';
+  closeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>';
+  closeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeTab(tab.id);
+  });
+
+  content.appendChild(title);
+  tabElement.appendChild(colorLine);
+  tabElement.appendChild(content);
+  tabElement.appendChild(closeBtn);
+
+  // 添加到 Tab 列表
+  elements.tabList.appendChild(tabElement);
+
+  // 存储 Tab 数据（包含 DOM 引用）
+  tab.element = tabElement;
+  state.tabs.set(tab.id, tab);
+
+  // 创建 webview（如果有 URL）
+  if (url) {
+    createWebviewForTab(tab.id, containerId, url);
+  }
+
+  // 切换到新 Tab
+  await switchTab(tab.id);
+
+  console.log(`[Realm Renderer] Tab 创建: ${tab.id} (容器: ${containerId})`);
+
+  return tab.id;
+}
+
+/**
+ * 切换到指定 Tab
+ * @param {string} tabId - Tab ID
+ */
+async function switchTab(tabId) {
+  if (tabId === state.activeTabId) return;
+
+  const tab = state.tabs.get(tabId);
+  if (!tab) return;
+
+  // 调用主进程切换 Tab
+  await window.realmAPI.switchTab(tabId);
+
+  // 更新所有 Tab 的 active 状态
+  state.tabs.forEach((t, id) => {
+    if (t.element) {
+      t.element.classList.toggle('active', id === tabId);
+    }
+  });
+
+  // 更新活动 Tab ID
+  state.activeTabId = tabId;
+  tab.lastActiveAt = Date.now();
+
+  // 更新 URL 输入框
+  elements.urlInput.value = tab.url || '';
+
+  // 更新容器指示器
+  const container = state.containers.find(c => c.id === tab.containerId);
+  if (container) {
+    elements.indicatorDot.style.backgroundColor = container.color;
+    elements.indicatorText.textContent = container.name;
+    state.currentContainer = tab.containerId;
+  }
+
+  // 切换 webview 可见性
+  showWebview(tabId);
+
+  // 如果没有 URL，显示新标签页
+  if (!tab.url) {
+    elements.newTabPage.style.display = 'flex';
+  } else {
+    elements.newTabPage.style.display = 'none';
+  }
+
+  // 滚动 Tab 到可见区域
+  if (tab.element) {
+    tab.element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+  }
+}
+
+/**
+ * 关闭 Tab
+ * @param {string} tabId - Tab ID
+ */
+async function closeTab(tabId) {
+  const tab = state.tabs.get(tabId);
+  if (!tab) return;
+
+  // 调用主进程关闭 Tab
+  const result = await window.realmAPI.closeTab(tabId);
+
+  // 从 DOM 移除
+  if (tab.element) {
+    tab.element.remove();
+  }
+
+  // 从 state 删除
+  state.tabs.delete(tabId);
+
+  // 销毁关联的 webview
+  destroyWebview(tabId);
+
+  // 如果关闭的是活动 Tab，切换到新的活动 Tab
+  if (tabId === state.activeTabId) {
+    if (result.newActiveTabId) {
+      await switchTab(result.newActiveTabId);
+    } else {
+      // 没有 Tab 了，显示新标签页
+      state.activeTabId = null;
+      elements.urlInput.value = '';
+      elements.newTabPage.style.display = 'flex';
+    }
+  }
+
+  console.log(`[Realm Renderer] Tab 关闭: ${tabId}`);
+}
+
+/**
+ * 回收最久未使用的 Tab
+ */
+function recycleOldestTab() {
+  // 找到 lastActiveAt 最小的非活动 Tab
+  let oldestTab = null;
+  let oldestTime = Infinity;
+
+  state.tabs.forEach((tab, id) => {
+    if (id !== state.activeTabId && tab.lastActiveAt < oldestTime) {
+      oldestTime = tab.lastActiveAt;
+      oldestTab = tab;
+    }
+  });
+
+  if (!oldestTab) return;
+
+  console.log(`[Realm Renderer] Tab 回收: ${oldestTab.id} (最久未使用)`);
+
+  // 关闭该 Tab
+  closeTab(oldestTab.id);
+
+  // 显示提示
+  showToast(TAB_RECYCLE_MESSAGE, 'info');
+}
+
+/**
+ * 获取容器颜色
+ * @param {string} containerId - 容器 ID
+ * @returns {string} 颜色值
+ */
+function getContainerColor(containerId) {
+  const container = state.containers.find(c => c.id === containerId);
+  return container ? container.color : '#6B7280';
+}
+
+/**
+ * 更新 Tab 标题
+ * @param {string} tabId - Tab ID
+ * @param {string} title - 新标题
+ */
+async function updateTabTitle(tabId, title) {
+  const tab = state.tabs.get(tabId);
+  if (!tab) return;
+
+  // 调用主进程更新 Tab
+  await window.realmAPI.updateTab(tabId, { title });
+
+  tab.title = title;
+
+  // 更新 DOM
+  if (tab.element) {
+    const titleElement = tab.element.querySelector('.tab-title');
+    if (titleElement) {
+      titleElement.textContent = title;
+      titleElement.title = title; // 悬停显示完整标题
+    }
+  }
+}
+
+/**
+ * 为 Tab 创建 webview
+ * @param {string} tabId - Tab ID
+ * @param {string} containerId - 容器 ID
+ * @param {string} url - 初始 URL
+ * @returns {HTMLElement} 创建的 webview 元素
+ */
+function createWebviewForTab(tabId, containerId, url) {
+  const webview = document.createElement('webview');
+
+  // 设置 src
+  webview.src = url || 'about:blank';
+
+  // 设置 partition（容器隔离，D-01）
+  webview.partition = `persist:container-${containerId}`;
+
+  // 应用安全配置（D-03）
+  Object.entries(WEBVIEW_ATTRIBUTES).forEach(([key, value]) => {
+    webview.setAttribute(key, value);
+  });
+
+  // 设置样式
+  webview.style.cssText = `
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: none;
+    visibility: hidden;
+  `;
+
+  // 插入到 browser-view 容器
+  elements.browserView.appendChild(webview);
+
+  // 存储 webview 引用
+  state.webviews.set(tabId, webview);
+
+  // 绑定 webview 事件
+  bindWebviewEvents(tabId, webview);
+
+  return webview;
+}
+
+/**
+ * 绑定 webview 事件
+ * @param {string} tabId - Tab ID
+ * @param {HTMLElement} webview - webview 元素
+ */
+function bindWebviewEvents(tabId, webview) {
+  // 页面导航事件
+  webview.addEventListener('did-navigate', (e) => {
+    const tab = state.tabs.get(tabId);
+    if (tab) {
+      tab.url = e.url;
+      // 如果是活动 Tab，更新 URL 输入框
+      if (tabId === state.activeTabId) {
+        elements.urlInput.value = e.url;
+      }
+    }
+  });
+
+  webview.addEventListener('did-navigate-in-page', (e) => {
+    const tab = state.tabs.get(tabId);
+    if (tab) {
+      tab.url = e.url;
+      if (tabId === state.activeTabId) {
+        elements.urlInput.value = e.url;
+      }
+    }
+  });
+
+  // 加载状态事件
+  webview.addEventListener('did-start-loading', () => {
+    if (tabId === state.activeTabId) {
+      elements.loadingBar.classList.add('active');
+      elements.loadingBar.classList.remove('complete');
+      elements.reloadBtn.classList.add('loading');
+    }
+  });
+
+  webview.addEventListener('did-stop-loading', () => {
+    if (tabId === state.activeTabId) {
+      elements.loadingBar.classList.remove('active');
+      elements.loadingBar.classList.add('complete');
+      elements.reloadBtn.classList.remove('loading');
+      // 更新前进/后退按钮状态
+      updateNavigationButtons();
+    }
+  });
+
+  // 标题更新事件
+  webview.addEventListener('page-title-updated', (e) => {
+    updateTabTitle(tabId, e.title);
+  });
+
+  // 拦截导航请求，检查分配规则
+  webview.addEventListener('will-navigate', async (e) => {
+    try {
+      const matchedContainer = await window.realmAPI.matchRule(e.url);
+      if (matchedContainer) {
+        const tab = state.tabs.get(tabId);
+        if (tab && matchedContainer !== tab.containerId) {
+          // 在匹配的容器中创建新 Tab
+          e.preventDefault();
+          createTab(matchedContainer, e.url);
+          console.log(`[Realm] 规则匹配: ${e.url} -> ${matchedContainer}`);
+        }
+      }
+    } catch (error) {
+      // 忽略规则匹配错误，继续正常导航
+    }
+  });
+
+  // 拦截新窗口请求（D-09）
+  webview.addEventListener('new-window', (e) => {
+    e.preventDefault();
+    // 在当前容器创建新 Tab
+    const tab = state.tabs.get(tabId);
+    if (tab) {
+      createTab(tab.containerId, e.url);
+    }
+  });
+
+  // 加载失败事件
+  webview.addEventListener('did-fail-load', (e) => {
+    console.error(`[Realm] 页面加载失败: ${e.errorCode} - ${e.errorDescription}`);
+  });
+}
+
+/**
+ * 显示指定 Tab 的 webview
+ * @param {string} tabId - Tab ID
+ */
+function showWebview(tabId) {
+  state.webviews.forEach((wv, id) => {
+    if (wv) {
+      wv.style.visibility = id === tabId ? 'visible' : 'hidden';
+      wv.style.position = id === tabId ? 'relative' : 'absolute';
+    }
+  });
+
+  // 更新导航按钮状态
+  updateNavigationButtons();
+
+  // 更新加载状态
+  const webview = state.webviews.get(tabId);
+  if (webview) {
+    if (webview.isLoading()) {
+      elements.loadingBar.classList.add('active');
+      elements.loadingBar.classList.remove('complete');
+      elements.reloadBtn.classList.add('loading');
+    } else {
+      elements.loadingBar.classList.remove('active');
+      elements.loadingBar.classList.remove('complete');
+      elements.reloadBtn.classList.remove('loading');
+    }
+  }
+}
+
+/**
+ * 销毁 webview
+ * @param {string} tabId - Tab ID
+ */
+function destroyWebview(tabId) {
+  const webview = state.webviews.get(tabId);
+  if (webview) {
+    webview.remove();
+    state.webviews.delete(tabId);
+  }
+}
+
+/**
+ * 渲染容器快捷入口（新标签页）
+ */
+function renderContainerShortcuts() {
+  elements.containerShortcuts.innerHTML = '';
+
+  state.containers.forEach(container => {
+    const shortcut = document.createElement('div');
+    shortcut.className = 'container-shortcut';
+    shortcut.addEventListener('click', () => {
+      createTab(container.id);
+    });
+
+    const icon = document.createElement('div');
+    icon.className = 'shortcut-icon';
+    icon.textContent = container.icon;
+
+    const name = document.createElement('div');
+    name.className = 'shortcut-name';
+    name.textContent = container.name;
+
+    shortcut.appendChild(icon);
+    shortcut.appendChild(name);
+    elements.containerShortcuts.appendChild(shortcut);
+  });
+}
+
+/**
+ * 更新导航按钮状态（前进/后退）
+ */
+function updateNavigationButtons() {
+  const webview = state.webviews.get(state.activeTabId);
+  if (webview) {
+    elements.backBtn.disabled = !webview.canGoBack();
+    elements.forwardBtn.disabled = !webview.canGoForward();
+  } else {
+    elements.backBtn.disabled = true;
+    elements.forwardBtn.disabled = true;
+  }
+}
+
+// ==================== 规则管理 ====================
+
+/**
+ * 显示规则管理模态框
+ */
+async function showRulesModal() {
+  // 加载容器选项
+  const containerSelect = elements.ruleContainerSelect;
+  containerSelect.innerHTML = '';
+  state.containers.forEach(container => {
+    const option = document.createElement('option');
+    option.value = container.id;
+    option.textContent = container.icon + ' ' + container.name;
+    containerSelect.appendChild(option);
+  });
+
+  // 加载规则列表
+  await refreshRulesList();
+
+  // 显示模态框
+  elements.rulesModal.showModal();
+}
+
+/**
+ * 刷新规则列表
+ */
+async function refreshRulesList() {
+  const rules = await window.realmAPI.getRules();
+  renderRulesList(rules);
+}
+
+/**
+ * 渲染规则列表
+ * @param {Array} rules - 规则数组
+ */
+function renderRulesList(rules) {
+  if (rules.length === 0) {
+    elements.rulesList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 20px;">暂无分配规则</div>';
+    return;
+  }
+
+  const html = rules.map(rule => {
+    const container = state.containers.find(c => c.id === rule.containerId);
+    const containerName = container ? container.icon + ' ' + container.name : rule.containerId;
+
+    return `
+      <div class="rule-item" data-rule-id="${rule.id}">
+        <div class="rule-info">
+          <span class="rule-pattern">${rule.pattern}</span>
+          <span class="rule-arrow">→</span>
+          <span class="rule-container">${containerName}</span>
+        </div>
+        <div class="rule-actions">
+          <button class="action-btn" data-action="toggle" title="${rule.enabled ? '禁用' : '启用'}">
+            ${rule.enabled ? '✓' : '✗'}
+          </button>
+          <button class="action-btn" data-action="delete" title="删除">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  elements.rulesList.innerHTML = html;
+
+  // 绑定事件
+  document.querySelectorAll('.rule-item').forEach(item => {
+    const ruleId = item.dataset.ruleId;
+
+    item.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const action = btn.dataset.action;
+
+        if (action === 'toggle') {
+          const rules = await window.realmAPI.getRules();
+          const rule = rules.find(r => r.id === ruleId);
+          if (rule) {
+            await window.realmAPI.updateRule(ruleId, { enabled: !rule.enabled });
+            await refreshRulesList();
+          }
+        } else if (action === 'delete') {
+          await window.realmAPI.deleteRule(ruleId);
+          await refreshRulesList();
+        }
+      });
+    });
+  });
+}
+
+/**
+ * 创建新规则
+ */
+async function createRule() {
+  const containerId = elements.ruleContainerSelect.value;
+  const pattern = elements.rulePatternInput.value.trim();
+
+  if (!pattern) {
+    showToast('请输入匹配模式', 'error');
+    return;
+  }
+
+  await window.realmAPI.createRule(containerId, pattern);
+  elements.rulePatternInput.value = '';
+  await refreshRulesList();
+  showToast('规则已添加', 'success');
+}
+
+// ==================== 快捷键设置 UI ====================
+
+/**
+ * 快捷键中文名称映射
+ */
+const SHORTCUT_NAMES = {
+  'newTab': '新建标签页',
+  'closeTab': '关闭标签页',
+  'nextTab': '下一个标签页',
+  'prevTab': '上一个标签页',
+  'reload': '刷新页面',
+  'back': '后退',
+  'forward': '前进',
+};
+
+/**
+ * 显示快捷键设置模态框
+ */
+async function showShortcutsModal() {
+  await refreshShortcutsList();
+  elements.shortcutsModal.showModal();
+}
+
+/**
+ * 刷新快捷键列表
+ */
+async function refreshShortcutsList() {
+  const shortcuts = await window.realmAPI.getShortcuts();
+  renderShortcutsList(shortcuts);
+}
+
+/**
+ * 渲染快捷键列表
+ * @param {Object} shortcuts - 快捷键配置对象
+ */
+function renderShortcutsList(shortcuts) {
+  const html = Object.entries(shortcuts).map(([action, accelerator]) => {
+    const name = SHORTCUT_NAMES[action] || action;
+
+    return `
+      <div class="shortcut-item" data-action="${action}">
+        <div class="shortcut-info">
+          <span class="shortcut-name">${name}</span>
+          <span class="shortcut-key">${accelerator}</span>
+        </div>
+        <div class="shortcut-actions">
+          <button class="action-btn" data-action="edit" title="修改">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+          </button>
+          <button class="action-btn" data-action="reset" title="恢复默认">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 4v6h-6M1 20v-6h6"></path>
+              <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  elements.shortcutsList.innerHTML = html;
+
+  // 绑定事件
+  document.querySelectorAll('.shortcut-item').forEach(item => {
+    const action = item.dataset.action;
+
+    item.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const btnAction = btn.dataset.action;
+
+        if (btnAction === 'edit') {
+          await editShortcut(action);
+        } else if (btnAction === 'reset') {
+          await resetShortcut(action);
+        }
+      });
+    });
+  });
+}
+
+/**
+ * 编辑快捷键
+ * @param {string} action - 操作名称
+ */
+async function editShortcut(action) {
+  const name = SHORTCUT_NAMES[action] || action;
+  const newAccelerator = prompt(`请输入 ${name} 的快捷键（例如：CmdOrCtrl+T）：`);
+
+  if (newAccelerator) {
+    await window.realmAPI.setShortcut(action, newAccelerator);
+    await refreshShortcutsList();
+    showToast('快捷键已更新，重启应用后生效', 'success');
+  }
+}
+
+/**
+ * 恢复默认快捷键
+ * @param {string} action - 操作名称
+ */
+async function resetShortcut(action) {
+  // 删除自定义配置，恢复默认
+  const shortcuts = await window.realmAPI.getShortcuts();
+  const defaultShortcuts = {
+    'newTab': 'CmdOrCtrl+T',
+    'closeTab': 'CmdOrCtrl+W',
+    'nextTab': 'CmdOrCtrl+Shift+]',
+    'prevTab': 'CmdOrCtrl+Shift+[',
+    'reload': 'CmdOrCtrl+R',
+    'back': 'CmdOrCtrl+Left',
+    'forward': 'CmdOrCtrl+Right',
+  };
+
+  if (defaultShortcuts[action]) {
+    await window.realmAPI.setShortcut(action, defaultShortcuts[action]);
+    await refreshShortcutsList();
+    showToast('快捷键已恢复默认', 'success');
+  }
+}
+
+// ==================== 快捷键处理 ====================
+
+/**
+ * 初始化快捷键监听
+ */
+function initShortcuts() {
+  window.realmAPI.onShortcutTriggered((action) => {
+    console.log('[Realm Renderer] 快捷键触发:', action);
+
+    switch (action) {
+      case 'newTab':
+        createTab(state.currentContainer);
+        break;
+      case 'closeTab':
+        if (state.activeTabId) {
+          closeTab(state.activeTabId);
+        }
+        break;
+      case 'nextTab':
+        switchToNextTab();
+        break;
+      case 'prevTab':
+        switchToPrevTab();
+        break;
+      case 'reload':
+        const webview = state.webviews.get(state.activeTabId);
+        if (webview) {
+          webview.reload();
+        }
+        break;
+      case 'back':
+        const backWebview = state.webviews.get(state.activeTabId);
+        if (backWebview && backWebview.canGoBack()) {
+          backWebview.goBack();
+        }
+        break;
+      case 'forward':
+        const forwardWebview = state.webviews.get(state.activeTabId);
+        if (forwardWebview && forwardWebview.canGoForward()) {
+          forwardWebview.goForward();
+        }
+        break;
+    }
+  });
+}
+
+/**
+ * 切换到下一个 Tab
+ */
+function switchToNextTab() {
+  const tabIds = Array.from(state.tabs.keys());
+  if (tabIds.length <= 1) return;
+
+  const currentIndex = tabIds.indexOf(state.activeTabId);
+  const nextIndex = (currentIndex + 1) % tabIds.length;
+  switchTab(tabIds[nextIndex]);
+}
+
+/**
+ * 切换到上一个 Tab
+ */
+function switchToPrevTab() {
+  const tabIds = Array.from(state.tabs.keys());
+  if (tabIds.length <= 1) return;
+
+  const currentIndex = tabIds.indexOf(state.activeTabId);
+  const prevIndex = (currentIndex - 1 + tabIds.length) % tabIds.length;
+  switchTab(tabIds[prevIndex]);
+}
+
+/**
+ * 从主进程恢复保存的 Tab 列表
+ */
+async function restoreTabs() {
+  const tabs = await window.realmAPI.getTabs();
+  const activeTab = await window.realmAPI.getActiveTab();
+
+  if (tabs.length === 0) {
+    // 没有保存的 Tab，显示新标签页
+    elements.newTabPage.style.display = 'flex';
+    return;
+  }
+
+  console.log(`[Realm Renderer] 恢复 ${tabs.length} 个 Tab`);
+
+  // 为每个保存的 Tab 创建 DOM 和 webview
+  for (const tab of tabs) {
+    // 创建 Tab DOM 元素
+    const tabElement = document.createElement('div');
+    tabElement.className = 'tab';
+    tabElement.dataset.tabId = tab.id;
+
+    const color = getContainerColor(tab.containerId);
+    const colorLine = document.createElement('div');
+    colorLine.className = 'tab-color-line';
+    colorLine.style.backgroundColor = color;
+
+    const content = document.createElement('div');
+    content.className = 'tab-content';
+
+    const title = document.createElement('span');
+    title.className = 'tab-title';
+    title.textContent = tab.title;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'tab-close';
+    closeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>';
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeTab(tab.id);
+    });
+
+    content.appendChild(title);
+    tabElement.appendChild(colorLine);
+    tabElement.appendChild(content);
+    tabElement.appendChild(closeBtn);
+
+    // 添加到 Tab 列表
+    elements.tabList.appendChild(tabElement);
+
+    // 存储 Tab 数据（包含 DOM 引用）
+    tab.element = tabElement;
+    state.tabs.set(tab.id, tab);
+
+    // 如果有 URL，创建 webview
+    if (tab.url) {
+      createWebviewForTab(tab.id, tab.containerId, tab.url);
+    }
+
+    // 更新 Tab 计数器
+    const tabNum = parseInt(tab.id.replace('tab-', ''), 10);
+    if (tabNum > state.tabCounter) {
+      state.tabCounter = tabNum;
+    }
+  }
+
+  // 切换到活动 Tab
+  if (activeTab && state.tabs.has(activeTab.id)) {
+    await switchTab(activeTab.id);
+  } else if (tabs.length > 0) {
+    await switchTab(tabs[0].id);
+  }
+}
 
 /**
  * 初始化应用
@@ -71,6 +941,12 @@ async function init() {
 
   // 加载容器列表
   await loadContainers();
+
+  // 渲染容器快捷入口
+  renderContainerShortcuts();
+
+  // 恢复保存的 Tab 列表
+  await restoreTabs();
 
   // 设置事件监听
   setupEventListeners();
@@ -181,6 +1057,10 @@ async function switchContainer(containerId) {
     renderContainerList();
     renderContainerPanelList();
     updateContainerIndicator();
+
+    // 创建新 Tab
+    createTab(containerId);
+
     console.log(`[Realm] 切换到容器: ${containerId}`);
   }
 }
@@ -280,6 +1160,9 @@ function handleContainerSwitched(data) {
   renderContainerList();
   renderContainerPanelList();
   updateContainerIndicator();
+
+  // 创建新 Tab
+  createTab(data.containerId);
 }
 
 /**
@@ -434,6 +1317,74 @@ async function clearContainerCookies() {
  * 设置事件监听器
  */
 function setupEventListeners() {
+  // Tab 栏事件
+  // 新建 Tab 按钮
+  elements.tabNewBtn.addEventListener('click', () => {
+    createTab(state.currentContainer);
+  });
+
+  // Tab 列表点击事件委托
+  elements.tabList.addEventListener('click', (e) => {
+    const tabElement = e.target.closest('.tab');
+    if (!tabElement) return;
+
+    // 如果点击的是关闭按钮，不切换 Tab
+    if (e.target.closest('.tab-close')) return;
+
+    const tabId = tabElement.dataset.tabId;
+    switchTab(tabId);
+  });
+
+  // 新标签页搜索框
+  elements.newTabSearch.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const value = elements.newTabSearch.value.trim();
+      if (value) {
+        createTab(state.currentContainer, value);
+        elements.newTabSearch.value = '';
+      }
+    }
+  });
+
+  // Tab 滚动按钮
+  elements.tabScrollLeft.addEventListener('click', () => {
+    elements.tabList.scrollBy({ left: -200, behavior: 'smooth' });
+  });
+
+  elements.tabScrollRight.addEventListener('click', () => {
+    elements.tabList.scrollBy({ left: 200, behavior: 'smooth' });
+  });
+
+  // 导航按钮事件
+  // 后退按钮
+  elements.backBtn.addEventListener('click', () => {
+    const webview = state.webviews.get(state.activeTabId);
+    if (webview && webview.canGoBack()) {
+      webview.goBack();
+    }
+  });
+
+  // 前进按钮
+  elements.forwardBtn.addEventListener('click', () => {
+    const webview = state.webviews.get(state.activeTabId);
+    if (webview && webview.canGoForward()) {
+      webview.goForward();
+    }
+  });
+
+  // 刷新/停止按钮
+  elements.reloadBtn.addEventListener('click', () => {
+    const webview = state.webviews.get(state.activeTabId);
+    if (!webview) return;
+
+    // 如果正在加载，停止加载；否则刷新
+    if (elements.reloadBtn.classList.contains('loading')) {
+      webview.stop();
+    } else {
+      webview.reload();
+    }
+  });
+
   // 容器指示器点击 - 切换面板显示/隐藏
   elements.containerIndicator.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -575,13 +1526,62 @@ function setupEventListeners() {
     elements.cookiesModal.close();
   });
 
+  // 规则管理按钮
+  if (elements.rulesBtn) {
+    elements.rulesBtn.addEventListener('click', showRulesModal);
+  }
+
+  // 快捷键设置按钮
+  if (elements.shortcutsBtn) {
+    elements.shortcutsBtn.addEventListener('click', showShortcutsModal);
+  }
+
+  // 关闭快捷键设置模态框
+  if (elements.closeShortcutsModal) {
+    elements.closeShortcutsModal.addEventListener('click', () => {
+      elements.shortcutsModal.close();
+    });
+  }
+
+  // 点击快捷键设置模态框外部关闭
+  if (elements.shortcutsModal) {
+    elements.shortcutsModal.addEventListener('click', (e) => {
+      if (e.target === elements.shortcutsModal) {
+        elements.shortcutsModal.close();
+      }
+    });
+  }
+
   // URL 输入框回车
-  elements.urlInput.addEventListener('keydown', (e) => {
+  elements.urlInput.addEventListener('keydown', async (e) => {
     if (e.key === 'Enter') {
       const url = elements.urlInput.value.trim();
       if (url) {
-        // TODO: 在 webview 中加载 URL
-        console.log('[Realm] 导航到:', url);
+        const normalizedUrl = normalizeUrl(url);
+        console.log('[Realm] 导航到:', normalizedUrl);
+
+        // 如果有活动 Tab 和对应的 webview
+        if (state.activeTabId) {
+          const tab = state.tabs.get(state.activeTabId);
+          const webview = state.webviews.get(state.activeTabId);
+
+          if (tab && webview) {
+            // 在 webview 中加载 URL
+            webview.loadURL(normalizedUrl);
+            tab.url = normalizedUrl;
+            // 同步到主进程
+            await window.realmAPI.updateTab(state.activeTabId, { url: normalizedUrl });
+          } else if (tab) {
+            // 如果没有 webview，创建一个
+            createWebviewForTab(state.activeTabId, tab.containerId, normalizedUrl);
+            tab.url = normalizedUrl;
+            // 同步到主进程
+            await window.realmAPI.updateTab(state.activeTabId, { url: normalizedUrl });
+          }
+        }
+
+        // 输入框聚焦时全选文本
+        elements.urlInput.select();
       }
     }
   });
@@ -616,9 +1616,33 @@ function setupEventListeners() {
         state.deletingContainerId = null;
         elements.containerModal.close();
         elements.cookiesModal.close();
+        if (elements.rulesModal) {
+          elements.rulesModal.close();
+        }
       }
     }
   });
+
+  // 规则管理事件
+  if (elements.rulesModal) {
+    // 添加规则按钮
+    elements.addRuleBtn.addEventListener('click', createRule);
+
+    // 关闭规则模态框
+    elements.closeRulesModal.addEventListener('click', () => {
+      elements.rulesModal.close();
+    });
+
+    // 点击模态框外部关闭
+    elements.rulesModal.addEventListener('click', (e) => {
+      if (e.target === elements.rulesModal) {
+        elements.rulesModal.close();
+      }
+    });
+  }
+
+  // 初始化快捷键监听
+  initShortcuts();
 }
 
 // 初始化应用
