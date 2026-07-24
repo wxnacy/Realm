@@ -1577,6 +1577,13 @@ function setupEventListeners() {
             tab.url = normalizedUrl;
             // 同步到主进程
             await window.realmAPI.updateTab(state.activeTabId, { url: normalizedUrl });
+            // 显示新创建的 webview（createWebviewForTab 创建时 visibility: hidden）
+            showWebview(state.activeTabId);
+          }
+
+          // 导航已发起，隐藏新标签页（统一覆盖两个分支，与 switchTab 行为一致）
+          if (tab) {
+            elements.newTabPage.style.display = 'none';
           }
         }
 
