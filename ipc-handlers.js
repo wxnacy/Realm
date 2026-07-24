@@ -5,13 +5,31 @@
  * 每个处理器对入参做类型校验
  */
 
-const { ipcMain, dialog } = require('electron');
+const { ipcMain, dialog, BrowserWindow } = require('electron');
 const containerManager = require('./container-manager');
 const windowManager = require('./window-manager');
 const tabManager = require('./tab-manager');
 const cookieManager = require('./cookie-manager');
 const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
+
+/**
+ * 校验 IPC 调用方身份（CR-4 修复）
+ * 仅接受来自应用主窗口 webContents 的调用；
+ * webview guest、DevTools 或其他非窗口上下文一律拒绝，
+ * 防止被浏览网页/注入上下文直接 invoke 特权通道。
+ * @param {Electron.IpcMainInvokeEvent} event - IPC 事件对象
+ * @returns {BrowserWindow} 受信的主窗口实例
+ * @throws {Error} 来源不受信任时抛出
+ */
+function assertTrustedSender(event) {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const mainWindow = windowManager.getMainWindow();
+  if (!win || !mainWindow || win.id !== mainWindow.id) {
+    throw new Error('不受信任的 IPC 来源');
+  }
+  return win;
+}
 
 /**
  * 验证容器配置参数
@@ -63,7 +81,8 @@ function registerHandlers() {
    * 获取容器列表
    * @returns {Array<{id: string, name: string, color: string, icon: string}>}
    */
-  ipcMain.handle('container:list', () => {
+  ipcMain.handle('container:list', (event) => {
+    assertTrustedSender(event);
     return containerManager.getContainers();
   });
 
@@ -76,6 +95,7 @@ function registerHandlers() {
    * @returns {Object} 创建的容器配置
    */
   ipcMain.handle('container:create', (event, config) => {
+    assertTrustedSender(event);
     if (!validateContainerConfig(config)) {
       throw new Error('无效的容器配置');
     }
@@ -89,6 +109,7 @@ function registerHandlers() {
    * @returns {Object|undefined} 更新后的容器配置
    */
   ipcMain.handle('container:update', (event, id, updates) => {
+    assertTrustedSender(event);
     if (!id || typeof id !== 'string') {
       throw new Error('无效的容器 ID');
     }
@@ -104,6 +125,7 @@ function registerHandlers() {
    * @returns {{success: boolean, message?: string}} 操作结果
    */
   ipcMain.handle('container:delete', (event, id) => {
+    assertTrustedSender(event);
     if (!id || typeof id !== 'string') {
       throw new Error('无效的容器 ID');
     }
@@ -115,6 +137,7 @@ function registerHandlers() {
    * @returns {string} 容器 ID
    */
   ipcMain.handle('container:current', (event) => {
+    assertTrustedSender(event);
     const windowId = event.sender.id;
     return windowManager.getCurrentContainer(windowId);
   });
@@ -125,6 +148,7 @@ function registerHandlers() {
    * @returns {boolean} 切换是否成功
    */
   ipcMain.handle('container:switch', (event, containerId) => {
+    assertTrustedSender(event);
     if (!containerId || typeof containerId !== 'string') {
       throw new Error('无效的容器 ID');
     }
@@ -139,7 +163,8 @@ function registerHandlers() {
    * 获取所有 Tab
    * @returns {Array} Tab 数组
    */
-  ipcMain.handle('tab:list', () => {
+  ipcMain.handle('tab:list', (event) => {
+    assertTrustedSender(event);
     return tabManager.getTabs();
   });
 
@@ -150,6 +175,7 @@ function registerHandlers() {
    * @returns {Object} 新创建的 Tab 对象
    */
   ipcMain.handle('tab:create', (event, containerId, url) => {
+    assertTrustedSender(event);
     if (!containerId || typeof containerId !== 'string') {
       throw new Error('无效的容器 ID');
     }
@@ -162,6 +188,7 @@ function registerHandlers() {
    * @returns {boolean} 是否成功切换
    */
   ipcMain.handle('tab:switch', (event, tabId) => {
+    assertTrustedSender(event);
     if (!tabId || typeof tabId !== 'string') {
       throw new Error('无效的 Tab ID');
     }
@@ -175,6 +202,7 @@ function registerHandlers() {
    * @returns {boolean} 是否成功更新
    */
   ipcMain.handle('tab:update', (event, tabId, updates) => {
+    assertTrustedSender(event);
     if (!tabId || typeof tabId !== 'string') {
       throw new Error('无效的 Tab ID');
     }
@@ -190,6 +218,7 @@ function registerHandlers() {
    * @returns {Object} 关闭结果
    */
   ipcMain.handle('tab:close', (event, tabId) => {
+    assertTrustedSender(event);
     if (!tabId || typeof tabId !== 'string') {
       throw new Error('无效的 Tab ID');
     }
@@ -200,7 +229,8 @@ function registerHandlers() {
    * 获取当前活动 Tab
    * @returns {Object|null} 活动 Tab 对象或 null
    */
-  ipcMain.handle('tab:get-active', () => {
+  ipcMain.handle('tab:get-active', (event) => {
+    assertTrustedSender(event);
     return tabManager.getActiveTab();
   });
 
@@ -212,6 +242,7 @@ function registerHandlers() {
    * @returns {Promise<Array>} Cookie 数组
    */
   ipcMain.handle('container:get-cookies', async (event, containerId) => {
+    assertTrustedSender(event);
     if (!containerId || typeof containerId !== 'string') {
       throw new Error('无效的容器 ID');
     }
@@ -224,6 +255,7 @@ function registerHandlers() {
    * @returns {Promise<boolean>} 是否成功清除
    */
   ipcMain.handle('container:clear-cookies', async (event, containerId) => {
+    assertTrustedSender(event);
     if (!containerId || typeof containerId !== 'string') {
       throw new Error('无效的容器 ID');
     }
@@ -236,6 +268,7 @@ function registerHandlers() {
    * @returns {Promise<{success: boolean, count: number}>}
    */
   ipcMain.handle('cookie:save', async (event, containerId) => {
+    assertTrustedSender(event);
     if (!containerId || typeof containerId !== 'string') {
       throw new Error('无效的容器 ID');
     }
@@ -248,6 +281,7 @@ function registerHandlers() {
    * @returns {Promise<{success: boolean, count: number}>}
    */
   ipcMain.handle('cookie:load', async (event, containerId) => {
+    assertTrustedSender(event);
     if (!containerId || typeof containerId !== 'string') {
       throw new Error('无效的容器 ID');
     }
@@ -260,6 +294,7 @@ function registerHandlers() {
    * @returns {Promise<{success: boolean, message: string}>}
    */
   ipcMain.handle('cookie:export', async (event, containerId) => {
+    assertTrustedSender(event);
     if (!containerId || typeof containerId !== 'string') {
       throw new Error('无效的容器 ID');
     }
@@ -287,6 +322,7 @@ function registerHandlers() {
    * @returns {Promise<{success: boolean, message: string}>}
    */
   ipcMain.handle('cookie:import', async (event, containerId) => {
+    assertTrustedSender(event);
     if (!containerId || typeof containerId !== 'string') {
       throw new Error('无效的容器 ID');
     }
@@ -314,7 +350,8 @@ function registerHandlers() {
    * 获取所有规则
    * @returns {Array} 规则数组
    */
-  ipcMain.handle('rule:list', () => {
+  ipcMain.handle('rule:list', (event) => {
+    assertTrustedSender(event);
     return assignmentRules.getRules();
   });
 
@@ -325,6 +362,7 @@ function registerHandlers() {
    * @returns {Object} 创建的规则对象
    */
   ipcMain.handle('rule:create', (event, containerId, pattern) => {
+    assertTrustedSender(event);
     if (!containerId || typeof containerId !== 'string') {
       throw new Error('无效的容器 ID');
     }
@@ -341,6 +379,7 @@ function registerHandlers() {
    * @returns {Object|null} 更新后的规则对象
    */
   ipcMain.handle('rule:update', (event, ruleId, updates) => {
+    assertTrustedSender(event);
     if (!ruleId || typeof ruleId !== 'string') {
       throw new Error('无效的规则 ID');
     }
@@ -353,6 +392,7 @@ function registerHandlers() {
    * @returns {boolean} 是否成功删除
    */
   ipcMain.handle('rule:delete', (event, ruleId) => {
+    assertTrustedSender(event);
     if (!ruleId || typeof ruleId !== 'string') {
       throw new Error('无效的规则 ID');
     }
@@ -365,6 +405,7 @@ function registerHandlers() {
    * @returns {string|null} 匹配的容器 ID 或 null
    */
   ipcMain.handle('rule:match', (event, url) => {
+    assertTrustedSender(event);
     if (!url || typeof url !== 'string') {
       return null;
     }
@@ -377,7 +418,8 @@ function registerHandlers() {
    * 获取快捷键配置
    * @returns {Object} 快捷键配置对象
    */
-  ipcMain.handle('shortcut:list', () => {
+  ipcMain.handle('shortcut:list', (event) => {
+    assertTrustedSender(event);
     return shortcutManager.getShortcuts();
   });
 
@@ -388,6 +430,7 @@ function registerHandlers() {
    * @returns {boolean} 是否设置成功
    */
   ipcMain.handle('shortcut:set', (event, action, accelerator) => {
+    assertTrustedSender(event);
     if (!action || typeof action !== 'string') {
       throw new Error('无效的操作名称');
     }
