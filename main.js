@@ -118,6 +118,7 @@ app.on('web-contents-created', (event, contents) => {
   });
 
   contents.setWindowOpenHandler(({ url }) => {
+    console.log(`[Realm] 新窗口请求: ${url}`);
     // 检查分配规则，决定目标容器
     const matchedContainer = assignmentRules.matchUrl(url);
     const targetContainer = matchedContainer || getGuestContainerId(contents);
@@ -128,6 +129,11 @@ app.on('web-contents-created', (event, contents) => {
 
     notifyOpenUrlInTab(contents, url, targetContainer);
     return { action: 'deny' };
+  });
+
+  // 添加 did-navigate 事件监听，用于调试
+  contents.on('did-navigate', (event, url) => {
+    console.log(`[Realm] webview 导航完成: ${url}`);
   });
 
   // WR-2：webContents 的 will-navigate 可同步取消（webview 标签上的同名事件

@@ -1898,6 +1898,7 @@ function setupEventListeners() {
 
   // URL 输入框回车
   elements.urlInput.addEventListener('keydown', async (e) => {
+    console.log('[Realm Renderer] URL 输入框按键:', e.key, 'meta:', e.metaKey, 'ctrl:', e.ctrlKey);
     if (e.key === 'Enter') {
       const url = elements.urlInput.value.trim();
       if (url) {
