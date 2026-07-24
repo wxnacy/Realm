@@ -47,8 +47,8 @@ function createMainWindow(containerId, container) {
   // 记录窗口与容器的映射
   windowContainerMap.set(mainWindow.id, containerId);
 
-  // 加载 UI
-  mainWindow.loadFile('src/index.html');
+  // 加载 UI（WR-11：使用绝对路径——打包后进程 CWD 不保证为应用目录，相对路径会白屏）
+  mainWindow.loadFile(path.join(__dirname, 'src/index.html'));
 
   // 打开开发者工具（开发模式）
   if (process.env.NODE_ENV === 'development') {
