@@ -93,10 +93,12 @@ app.on('web-contents-created', (event, contents) => {
     console.log(`[Realm] 新窗口请求: ${url}, disposition: ${disposition}, frameName: ${frameName}`);
     // 检查分配规则，决定目标容器
     const matchedContainer = assignmentRules.matchUrl(url);
-    const targetContainer = matchedContainer || getGuestContainerId(contents);
+    const targetContainer = matchedContainer || 'default'; // 如果没有匹配，使用默认容器
 
-    if (matchedContainer && matchedContainer !== getGuestContainerId(contents)) {
+    if (matchedContainer) {
       console.log(`[Realm] 规则匹配 (新窗口): ${url} -> ${matchedContainer}`);
+    } else {
+      console.log(`[Realm] 无规则匹配，使用默认容器: ${url}`);
     }
 
     notifyOpenUrlInTab(contents, url, targetContainer);
