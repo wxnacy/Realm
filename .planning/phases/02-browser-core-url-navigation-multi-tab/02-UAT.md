@@ -1,14 +1,14 @@
 ---
-status: diagnosed
+status: complete
 phase: 02-browser-core-url-navigation-multi-tab
 source: [02-01-SUMMARY.md, 02-02-SUMMARY.md, 02-03-SUMMARY.md, 02-04-SUMMARY.md]
 started: 2026-07-23T16:10:02Z
-updated: 2026-07-24T12:40:00Z
+updated: 2026-07-24T14:43:00Z
 ---
 
 ## Current Test
 
-[testing paused — 6 items outstanding, blocked on fixing Test 5/6]
+[testing complete]
 
 ## Tests
 
@@ -38,39 +38,29 @@ result: pass
 
 ### 7. 前进 / 后退按钮
 expected: 在当前 Tab 内连续访问两个不同页面后，后退按钮变为可用，点击返回上一页；再点击前进按钮回到最新页；无历史时按钮为禁用（灰色）状态。
-result: blocked
-blocked_by: prior-phase
-reason: "无法打开页面，没办法测试，需要先修复5/6"
+result: pass
 
 ### 8. 刷新 / 停止按钮与加载进度条
 expected: 点击刷新按钮重新加载当前页面；加载过程中刷新按钮图标变为停止（×）图标，点击可中断加载；URL 输入框下方出现 2px 蓝色加载进度条，加载完成后自动消失。
-result: blocked
-blocked_by: prior-phase
-reason: "无法打开页面，没办法测试，需要先修复5/6"
+result: issue
+reported: "刷新按钮没有变成 x 图标，其他正常；蓝色进度条没有显示在URL输入框下边，而是出现在左边侧边栏的下边"
+severity: minor
 
 ### 9. Tab 标题实时同步网页标题
 expected: 访问任意网页后，当前 Tab 标题自动更新为该网页 <title> 内容（而非 URL 或空白），切换页面时标题跟随变化。
-result: blocked
-blocked_by: prior-phase
-reason: "无法打开页面，没办法测试，需要先修复5/6"
+result: pass
 
 ### 10. 多 Tab 并存与切换隔离
 expected: 在容器 A 的 Tab 中访问 github.com，在容器 B 的 Tab 中访问 google.com，点击 Tab 栏在两个 Tab 之间切换，各自 webview 保留原页面状态（URL、滚动位置、登录态互不串），URL 输入框跟随当前 Tab 更新。
-result: blocked
-blocked_by: prior-phase
-reason: "无法打开页面，没办法测试，需要先修复5/6"
+result: pass
 
 ### 11. 关闭 Tab
 expected: 悬停 Tab 显示 × 关闭按钮，点击关闭；关闭活动 Tab 时自动切换到相邻 Tab（右侧优先，无右侧则左侧）；关闭最后一个 Tab 时回到新标签页/欢迎页。
-result: blocked
-blocked_by: prior-phase
-reason: "无法打开页面，没办法测试，需要先修复5/6"
+result: pass
 
 ### 12. Tab 状态持久化（重启恢复）
 expected: 打开几个 Tab 各访问不同网页后完全退出应用并重新启动，Tab 栏恢复到退出前的状态（Tab 数量、容器归属、URL/标题），活动 Tab 正确高亮。
-result: blocked
-blocked_by: prior-phase
-reason: "无法打开页面，没办法测试，需要先修复5/6"
+result: pass
 
 ### 13. 冷启动后无活动 Tab 时 URL 输入导航
 expected: 应用刚启动、Tab 栏为空（尚无活动 Tab）时，在 URL 输入框输入域名（如 github.com）或搜索词回车，应用应使用默认容器自动创建一个默认 Tab 并在其 webview 中加载目标页面；新标签页消失，URL 输入框更新为最终 URL。
@@ -81,11 +71,11 @@ severity: major
 ## Summary
 
 total: 13
-passed: 6
-issues: 1
+passed: 11
+issues: 2
 pending: 0
 skipped: 0
-blocked: 6
+blocked: 0
 
 ## Gaps
 
@@ -132,3 +122,21 @@ blocked: 6
     - "URL Enter 处理器在 state.activeTabId 为 null 时：使用默认容器（containerManager.defaultContainer 或首个容器）调用 createTab 创建新 Tab，再以 normalizedUrl 作为初始 URL 完成导航；同时隐藏 newTabPage"
     - "或：在冷启动时自动创建一个默认 Tab（应用启动即有一个活动 Tab），从根因上消除 activeTabId 为 null 的窗口期"
   suggested_fix_direction: "用户建议：使用默认容器创建一个默认 tab；具体实现路径（惰性创建 vs 启动即建）由后续 gap closure 计划决定"
+- truth: "刷新按钮在页面加载过程中图标切换为停止（×）图标"
+  status: failed
+  reason: "User reported: 刷新按钮没有变成 x 图标，其他正常"
+  severity: minor
+  test: 8
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
+- truth: "蓝色加载进度条显示在 URL 输入框下方（2px 高度，加载完成后自动消失）"
+  status: failed
+  reason: "User reported: 蓝色进度条没有显示在URL输入框下边，而是出现在左边侧边栏的下边"
+  severity: minor
+  test: 8
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
