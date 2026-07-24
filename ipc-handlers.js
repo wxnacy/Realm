@@ -137,9 +137,10 @@ function registerHandlers() {
    * @returns {string} 容器 ID
    */
   ipcMain.handle('container:current', (event) => {
-    assertTrustedSender(event);
-    const windowId = event.sender.id;
-    return windowManager.getCurrentContainer(windowId);
+    // CR-7：统一使用 BrowserWindow.id 作为 windowContainerMap 键空间
+    // （event.sender.id 属于 webContents 独立计数空间，禁止混用）
+    const win = assertTrustedSender(event);
+    return windowManager.getCurrentContainer(win.id);
   });
 
   /**
@@ -148,13 +149,13 @@ function registerHandlers() {
    * @returns {boolean} 切换是否成功
    */
   ipcMain.handle('container:switch', (event, containerId) => {
-    assertTrustedSender(event);
     if (!containerId || typeof containerId !== 'string') {
       throw new Error('无效的容器 ID');
     }
-    const windowId = event.sender.id;
+    // CR-7：统一使用 BrowserWindow.id（见 container:current 注释）
+    const win = assertTrustedSender(event);
     const container = containerManager.getContainer(containerId);
-    return windowManager.switchContainer(windowId, containerId, container);
+    return windowManager.switchContainer(win.id, containerId, container);
   });
 
   // ==================== Tab 管理 ====================

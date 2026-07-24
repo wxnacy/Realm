@@ -8,6 +8,10 @@ const { BrowserWindow } = require('electron');
 const path = require('path');
 
 // 窗口与容器的映射关系
+// 键空间约定（CR-7）：一律使用 BrowserWindow.id 作为键。
+// 注意：webContents.id（如 IPC event.sender.id）属于独立的计数空间，
+// 与 BrowserWindow.id 不是同一套编号，读取侧必须先通过
+// BrowserWindow.fromWebContents() 解析出窗口再取 win.id，禁止混用。
 const windowContainerMap = new Map();
 
 /**
