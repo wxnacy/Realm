@@ -81,6 +81,15 @@ contextBridge.exposeInMainWorld('realmAPI', {
     ipcRenderer.on('container-switched', (event, data) => callback(data));
   },
 
+  /**
+   * 监听「在指定容器新建 Tab」事件（WR-1/WR-2）
+   * 主进程拦截 webview guest 的 window.open / 规则命中导航后推送
+   * @param {Function} callback - 回调函数，参数为 { url, containerId }
+   */
+  onOpenUrlInTab: (callback) => {
+    ipcRenderer.on('open-url-in-tab', (event, data) => callback(data));
+  },
+
   // ==================== Tab 管理 ====================
 
   /**

@@ -451,15 +451,9 @@ function bindWebviewEvents(tabId, webview) {
     }
   });
 
-  // 拦截新窗口请求（D-09）
-  webview.addEventListener('new-window', (e) => {
-    e.preventDefault();
-    // 在当前容器创建新 Tab
-    const tab = state.tabs.get(tabId);
-    if (tab) {
-      createTab(tab.containerId, e.url);
-    }
-  });
+  // 注意：webview 的 new-window 事件在 Electron 32 已移除（WR-1）。
+  // guest 的 window.open / target=_blank 由主进程 setWindowOpenHandler 拦截，
+  // 经 open-url-in-tab 事件转交 handleOpenUrlInTab 在对应容器新建 Tab（D-09）。
 
   // 加载失败事件
   webview.addEventListener('did-fail-load', (e) => {
@@ -950,6 +944,9 @@ async function init() {
   // 监听容器切换事件
   window.realmAPI.onContainerSwitched(handleContainerSwitched);
 
+  // 监听主进程转发的「在指定容器新建 Tab」事件（WR-1）
+  window.realmAPI.onOpenUrlInTab(handleOpenUrlInTab);
+
   console.log('[Realm Renderer] 初始化完成');
 }
 
@@ -1147,6 +1144,23 @@ function showToast(message, type) {
     toast.classList.remove('visible');
     setTimeout(() => toast.remove(), 300);
   }, 3000);
+}
+
+/**
+ * 处理主进程转发的「在指定容器新建 Tab」事件（WR-1）
+ * 触发场景：webview guest 的 window.open / target=_blank 被主进程
+ * setWindowOpenHandler 拦截后转发（D-09：在当前容器新建 Tab）。
+ * URL 来自 guest 页面，主进程已做 http(s) 白名单校验，此处纵深防御再校验一次（WR-9）。
+ * @param {{url: string, containerId: string|null}} data - 事件数据
+ */
+function handleOpenUrlInTab(data) {
+  if (!data || typeof data.url !== 'string' || !/^https?:\/\//i.test(data.url)) {
+    console.warn('[Realm] 拒绝非 http(s) 的新建 Tab 请求:', data && data.url);
+    return;
+  }
+
+  const containerId = data.containerId || state.currentContainer;
+  createTab(containerId, data.url);
 }
 
 /**
