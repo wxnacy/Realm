@@ -251,7 +251,7 @@ function deleteCookies(containerId) {
   try {
     const filePath = path.join(COOKIE_DIR, `${containerId}.json`);
 
-    // D-01: 删除 Cookie 文件
+    // D-01: 删除 Cookie JSON 文件
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
       console.log(`[Realm] 删除容器 Cookie 文件: ${containerId}`);
@@ -260,6 +260,13 @@ function deleteCookies(containerId) {
     // D-02: 清理 Session 数据
     const ses = session.fromPartition(`persist:container-${containerId}`);
     ses.clearStorageData();
+
+    // D-03: 删除 Partitions 目录（Electron 内部存储）
+    const partitionDir = path.join(app.getPath('userData'), 'Partitions', `container-${containerId}`);
+    if (fs.existsSync(partitionDir)) {
+      fs.rmSync(partitionDir, { recursive: true, force: true });
+      console.log(`[Realm] 删除容器 Partitions 目录: ${containerId}`);
+    }
 
     return { success: true };
   } catch (error) {
