@@ -118,12 +118,12 @@ Plans:
   1. 用户可以设置容器分配规则，指定网站自动在特定容器打开
   2. 用户可以使用快捷键进行常用操作（新建 Tab、关闭 Tab、切换容器）
 
-**Plans**: 3 plans
+**Plans**: 1/2 plans executed
 
 Plans:
 
 - [x] 04-01-PLAN.md — 容器分配规则 + 快捷键管理 ✅
-- [ ] 04-02-PLAN.md — 快捷键重构：globalShortcut → Menu Accelerator
+- [x] 04-02-PLAN.md — 快捷键重构：globalShortcut → Menu Accelerator
 - [ ] 04-03-PLAN.md — 规则管理 UI 增强：Toggle + Drag-Drop + Import/Export
 
 **UI hint**: yes
@@ -138,4 +138,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Core Container Management + Architecture Refactoring | 3/3 | Complete | 2026-07-23 |
 | 2. Browser Core - URL Navigation + Multi-Tab | 5/5 | Complete    | 2026-07-23 |
 | 3. Data Isolation + Cookie Persistence | 1/1 | Complete    | 2026-07-23 |
-| 4. Convenience Features | 1/3 | In Progress | — |
+| 4. Convenience Features | 1/2 | In Progress|  |

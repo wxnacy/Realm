@@ -38,7 +38,7 @@
 ### 便利功能
 
 - [ ] **CNV-01**: 用户可以设置容器分配规则，指定网站自动在特定容器打开
-- [ ] **CNV-02**: 用户可以使用快捷键进行常用操作（新建 Tab、关闭 Tab、切换容器）
+- [x] **CNV-02**: 用户可以使用快捷键进行常用操作（新建 Tab、关闭 Tab、切换容器）
 
 ## v2 Requirements
 
@@ -84,7 +84,7 @@
 | PST-02 | Phase 3 | Complete |
 | PST-03 | Phase 3 | Complete |
 | CNV-01 | Phase 4 | Pending |
-| CNV-02 | Phase 4 | Pending |
+| CNV-02 | Phase 4 | Complete |
 
 **Coverage:**
 
