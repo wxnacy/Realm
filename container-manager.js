@@ -193,7 +193,7 @@ function updateContainer(id, { name, color, icon }) {
  * @param {string} id - 容器 ID
  * @returns {{success: boolean, message?: string}} 操作结果
  */
-async function deleteContainer(id) {
+function deleteContainer(id) {
   // 拒绝删除默认容器
   if (id === 'default') {
     return { success: false, message: '无法删除默认容器' };
@@ -208,8 +208,8 @@ async function deleteContainer(id) {
   container.session.clearStorageData();
   containers.delete(id);
 
-  // 删除容器的 Cookie 文件和 Session 数据（D-01, D-02, D-03）
-  await cookieManager.deleteCookies(id);
+  // 删除容器的 Cookie 文件和 Session 数据（D-01, D-02）
+  cookieManager.deleteCookies(id);
 
   // 从配置中移除
   let savedContainers = configStore.get('containers', DEFAULT_CONTAINERS);

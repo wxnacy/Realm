@@ -250,9 +250,9 @@ async function importCookies(containerId, filePath) {
 /**
  * 删除容器的 Cookie 文件和 Session 数据
  * @param {string} containerId - 容器 ID
- * @returns {Promise<{success: boolean}>}
+ * @returns {{success: boolean}}
  */
-async function deleteCookies(containerId) {
+function deleteCookies(containerId) {
   try {
     const filePath = path.join(COOKIE_DIR, `${containerId}.json`);
 
@@ -262,14 +262,8 @@ async function deleteCookies(containerId) {
       console.log(`[Realm] 删除容器 Cookie 文件: ${containerId}`);
     }
 
-    // D-02: 清理 Session 数据（必须等待完成）
-    const ses = session.fromPartition(`persist:container-${containerId}`);
-    await ses.clearStorageData();
-
-    // D-03: 删除 Partitions 目录（Electron 内部存储）
-    // 等待一小段时间确保 Electron 释放文件句柄
-    await new Promise(resolve => setTimeout(resolve, 100));
-
+    // D-02: 删除 Partitions 目录（Electron 内部存储）
+    // 直接删除目录，不调用 session.fromPartition() 避免重新创建
     const partitionDir = path.join(app.getPath('userData'), 'Partitions', `container-${containerId}`);
     if (fs.existsSync(partitionDir)) {
       fs.rmSync(partitionDir, { recursive: true, force: true });
