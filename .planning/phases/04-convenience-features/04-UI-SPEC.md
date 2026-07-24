@@ -43,7 +43,6 @@ created: 2026-07-24
 
 **例外：**
 - Tab 最小宽度 120px（`--tab-min-width`），最大 240px（`--tab-max-width`）— 功能性尺寸，非间距
-- 规则列表项内边距 12px — 介于 sm 和 md 之间，用于紧凑列表
 
 ---
 
@@ -52,14 +51,14 @@ created: 2026-07-24
 | Role | Size | Weight | Line Height |
 |------|------|--------|-------------|
 | Body | 14px | 400 | 1.5 |
-| Label | 14px | 500 | 1.4 |
+| Label | 14px | 400 | 1.4 |
 | Heading (Modal) | 18px | 600 | 1.3 |
 | Heading (Section) | 14px | 600 | 1.4 |
 | Caption | 12px | 400 | 1.4 |
 | Monospace (快捷键) | 13px | 400 | 1.0 |
 
 **字体使用规则：**
-- 表单标签使用 Label 样式（14px/500）
+- 表单标签使用 Label 样式（14px/400，通过上下文区分）
 - 模态框标题使用 Heading (Modal) 样式
 - 区域标题（如"容器列表"）使用 Heading (Section) 样式
 - 快捷键显示使用 monospace 字体族
@@ -288,7 +287,7 @@ created: 2026-07-24
 
 **模态框宽度：** 600px（`.modal-large`）
 **规则列表最大高度：** 300px，超出滚动
-**每条规则行高：** 约 48px（包含内边距）
+**每条规则行高：** 约 48px（使用 sm 8px 内边距 + 内容高度）
 
 ### 快捷键设置模态框（确认现有 `#shortcutsModal`）
 
@@ -335,11 +334,11 @@ created: 2026-07-24
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved (2026-07-24)
