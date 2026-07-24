@@ -208,6 +208,19 @@ button {
   -webkit-app-region: no-drag;
 }
 
+/* 刷新/停止按钮图标切换 */
+#reloadBtn .icon-stop {
+  display: none;
+}
+
+#reloadBtn.loading .icon-reload {
+  display: none;
+}
+
+#reloadBtn.loading .icon-stop {
+  display: block;
+}
+
 .container-indicator {
   display: flex;
   align-items: center;
