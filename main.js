@@ -98,14 +98,20 @@ app.on('web-contents-created', (event, contents) => {
   // 文档明示 preventDefault 无效）。分配规则命中其他容器时，同步取消当前导航
   // 并通知渲染进程在匹配容器新建 Tab，避免同一页面出现在两个容器。
   contents.on('will-navigate', (event, url) => {
+    console.log(`[Realm] will-navigate 事件: ${url}`);
     // WR-9 纵深防御：非 http(s) 导航一律拦截（about:blank 等内部页放行）
     if (!isAllowedWebUrl(url) && url !== 'about:blank') {
+      console.log(`[Realm] 导航被拦截（非 http）: ${url}`);
       event.preventDefault();
       return;
     }
 
+    const currentContainer = getGuestContainerId(contents);
+    console.log(`[Realm] 当前容器: ${currentContainer}, 检查规则匹配...`);
     const matchedContainer = assignmentRules.matchUrl(url);
-    if (matchedContainer && matchedContainer !== getGuestContainerId(contents)) {
+    console.log(`[Realm] 匹配结果: ${matchedContainer || '无匹配'}`);
+
+    if (matchedContainer && matchedContainer !== currentContainer) {
       event.preventDefault();
       console.log(`[Realm] 规则匹配: ${url} -> ${matchedContainer}`);
       notifyOpenUrlInTab(contents, url, matchedContainer);
