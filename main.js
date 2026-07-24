@@ -142,16 +142,27 @@ app.whenReady().then(async () => {
       const isShift = input.shift;
       const key = input.key.toLowerCase();
 
+      // Electron Accelerator 格式到 input.key 的映射
+      const keyMap = {
+        'left': 'arrowleft',
+        'right': 'arrowright',
+        'up': 'arrowup',
+        'down': 'arrowdown',
+        ']': ']',
+        '[': '[',
+      };
+
       // 检查每个快捷键
       for (const [action, accelerator] of Object.entries(shortcuts)) {
-        // 解析 accelerator 字符串（如 "CmdOrCtrl+T"）
+        // 解析 accelerator 字符串（如 "CmdOrCtrl+Left"）
         const parts = accelerator.split('+');
         const needsCmdOrCtrl = parts.includes('CmdOrCtrl');
         const needsShift = parts.includes('Shift');
-        const actionKey = parts[parts.length - 1].toLowerCase();
+        const acceleratorKey = parts[parts.length - 1].toLowerCase();
+        const mappedKey = keyMap[acceleratorKey] || acceleratorKey;
 
         // 匹配按键组合
-        if (needsCmdOrCtrl && (isMeta || isControl) && needsShift === isShift && key === actionKey) {
+        if (needsCmdOrCtrl && (isMeta || isControl) && needsShift === isShift && key === mappedKey) {
           console.log(`[Realm] 快捷键拦截: ${action} (${accelerator})`);
           mainWindow.webContents.send('shortcut:triggered', action);
           event.preventDefault();
