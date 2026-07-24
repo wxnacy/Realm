@@ -18,9 +18,9 @@
 
 - [x] **BROW-01**: 用户可以在容器中输入 URL 并导航到网页
 - [x] **BROW-02**: 用户可以使用前进、后退、刷新按钮进行导航
-- [ ] **BROW-03**: 用户可以在同一窗口内打开多个 Tab，每个 Tab 属于不同容器
-- [ ] **BROW-04**: 用户可以关闭 Tab
-- [ ] **BROW-05**: 用户可以看到 Tab 标签页标题和容器颜色标识
+- [x] **BROW-03**: 用户可以在同一窗口内打开多个 Tab，每个 Tab 属于不同容器
+- [x] **BROW-04**: 用户可以关闭 Tab
+- [x] **BROW-05**: 用户可以看到 Tab 标签页标题和容器颜色标识
 
 ### 数据隔离
 
@@ -73,9 +73,9 @@
 | CONT-06 | Phase 1 | Pending |
 | BROW-01 | Phase 2 | Complete |
 | BROW-02 | Phase 2 | Complete |
-| BROW-03 | Phase 2 | Pending |
-| BROW-04 | Phase 2 | Pending |
-| BROW-05 | Phase 2 | Pending |
+| BROW-03 | Phase 2 | Complete |
+| BROW-04 | Phase 2 | Complete |
+| BROW-05 | Phase 2 | Complete |
 | ISO-01 | Phase 3 | Pending |
 | ISO-02 | Phase 3 | Pending |
 | ISO-03 | Phase 3 | Pending |

@@ -415,17 +415,17 @@ class TabModel {
 
 **如果此表为空：** 所有声明均已验证或引用 — 无需用户确认。
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **webview 在 Electron 32.x 中的确切废弃状态**
+1. **webview 在 Electron 32.x 中的确切废弃状态** ✅ RESOLVED
    - What we know: 官方建议逐步迁移，但 32.x 仍支持
    - What's unclear: 是否有明确的废弃时间表
-   - Recommendation: 继续使用 webview（D-01 决策），但关注 Electron 更新日志
+   - Resolution: 继续使用 webview（D-01 决策），但关注 Electron 更新日志
 
-2. **Tab 上限的最佳值**
+2. **Tab 上限的最佳值** ✅ RESOLVED
    - What we know: D-07 决策需要设定上限
    - What's unclear: 20 个 Tab 是否是最佳值
-   - Recommendation: 先设为 20，后续根据用户反馈调整
+   - Resolution: 先设为 20，后续根据用户反馈调整
 
 ## Environment Availability
 

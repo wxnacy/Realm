@@ -21,7 +21,7 @@
 
 ### 浏览器视图技术选型
 - **D-01:** 使用 webview 标签渲染网页内容 — 在渲染进程中嵌入，支持 preload 脚本，可绑定 Session partition
-- **D-02:** 单个 webview 动态切换 — 修改 src 和 partition 属性，不为每个 Tab 创建独立 webview
+- **D-02:** ~~单个 webview 动态切换~~ — **SUPERSEDED by D-06**（用户于 2026-07-23 决定保留 D-06 多实例方案）
 - **D-03:** 标准安全模式 — nodeintegration="false"，禁止网页访问 Node.js API，后续可扩展白名单模式
 - **D-04:** 通过 preload 注入实现网页与主进程通信 — 保持与现有架构一致
 
