@@ -16,8 +16,8 @@
 
 ### 浏览器核心
 
-- [ ] **BROW-01**: 用户可以在容器中输入 URL 并导航到网页
-- [ ] **BROW-02**: 用户可以使用前进、后退、刷新按钮进行导航
+- [x] **BROW-01**: 用户可以在容器中输入 URL 并导航到网页
+- [x] **BROW-02**: 用户可以使用前进、后退、刷新按钮进行导航
 - [ ] **BROW-03**: 用户可以在同一窗口内打开多个 Tab，每个 Tab 属于不同容器
 - [ ] **BROW-04**: 用户可以关闭 Tab
 - [ ] **BROW-05**: 用户可以看到 Tab 标签页标题和容器颜色标识
@@ -71,8 +71,8 @@
 | CONT-04 | Phase 1 | Pending |
 | CONT-05 | Phase 1 | Pending |
 | CONT-06 | Phase 1 | Pending |
-| BROW-01 | Phase 2 | Pending |
-| BROW-02 | Phase 2 | Pending |
+| BROW-01 | Phase 2 | Complete |
+| BROW-02 | Phase 2 | Complete |
 | BROW-03 | Phase 2 | Pending |
 | BROW-04 | Phase 2 | Pending |
 | BROW-05 | Phase 2 | Pending |
@@ -87,6 +87,7 @@
 | CNV-02 | Phase 4 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 20 total
 - Mapped to phases: 20
 - Unmapped: 0 ✓

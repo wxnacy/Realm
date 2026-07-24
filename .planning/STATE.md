@@ -6,14 +6,14 @@ current_phase: 02
 current_phase_name: browser-core-url-navigation-multi-tab
 status: executing
 stopped_at: Phase 3 context gathered
-last_updated: "2026-07-24T04:20:40.225Z"
+last_updated: "2026-07-24T06:14:04.448Z"
 last_activity: 2026-07-24
-last_activity_desc: Phase 02 execution started
+last_activity_desc: Phase 02 execution resumed (wave continue)
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 9
-  completed_plans: 8
+  total_plans: 10
+  completed_plans: 9
   percent: 75
 ---
 
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 ## Current Position
 
 Phase: 02 (browser-core-url-navigation-multi-tab) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 02
-Last activity: 2026-07-24 — Phase 02 execution started
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-07-24 — Phase 02 execution resumed (wave continue)
 
 Progress: [██████████] 100% (Phase 4) | [██████████] 100% (Overall)
 
@@ -58,6 +58,7 @@ Progress: [██████████] 100% (Phase 4) | [██████�
 - Trend: 稳定
 
 *Updated after each plan completion*
+| Phase 02 P05 | 5 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,8 @@ Recent decisions affecting current work:
 - Phase 4: 分配规则支持精确匹配、通配符匹配（*.example.com）、子域名匹配
 - Phase 4: 快捷键使用 CmdOrCtrl 前缀，macOS 用 Cmd，Windows/Linux 用 Ctrl
 - Phase 4: 全局快捷键在应用退出时注销
+- [Phase 02]: 空 Tab 栏采用惰性创建（URL 回车时 createTab）而非 eager 启动建 Tab — 覆盖冷启动与关闭最后 Tab 两个入口，不破坏 Test 1/2 空 Tab 栏预期
+- [Phase 02]: 导航入口统一经 normalizeUrl，原始输入不直达 webview.src — 主进程 tab-manager 不做规范化，未规范化值进 webview.src 会缺 scheme（T-02-05-01 缓解）
 
 ### Pending Todos
 
@@ -105,6 +108,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-24T04:20:40.221Z
+Last session: 2026-07-24T06:13:14.669Z
 Stopped at: Phase 3 context gathered
 Resume file: .planning/phases/03-data-isolation-cookie-persistence/03-CONTEXT.md
