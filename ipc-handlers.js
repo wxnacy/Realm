@@ -137,12 +137,12 @@ function registerHandlers() {
    * @param {string} id - 容器 ID
    * @returns {{success: boolean, message?: string}} 操作结果
    */
-  ipcMain.handle('container:delete', (event, id) => {
+  ipcMain.handle('container:delete', async (event, id) => {
     assertTrustedSender(event);
     if (!id || typeof id !== 'string') {
       throw new Error('无效的容器 ID');
     }
-    return containerManager.deleteContainer(id);
+    return await containerManager.deleteContainer(id);
   });
 
   /**
