@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 1
-current_phase_name: COMPLETE ✅
-status: phase_complete
-stopped_at: Phase 2 context gathered
-last_updated: "2026-07-23T14:20:27.866Z"
-last_activity: 2026-07-23
-last_activity_desc: Phase 1 完成
+current_phase: 02
+current_phase_name: browser-core-url-navigation-multi-tab
+status: executing
+stopped_at: Phase 3 context gathered
+last_updated: "2026-07-24T04:20:40.225Z"
+last_activity: 2026-07-24
+last_activity_desc: Phase 02 execution started
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 25
+  completed_phases: 3
+  total_plans: 9
+  completed_plans: 8
+  percent: 75
 ---
 
 # Project State
@@ -24,16 +24,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-23)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载
-**Current focus:** Phase 1: Core Container Management + Architecture Refactoring
+**Current focus:** Phase 02 — browser-core-url-navigation-multi-tab
 
 ## Current Position
 
-Phase: 1 of 4 (COMPLETE ✅)
-Plan: 3 of 3 in Phase 1 (COMPLETE)
-Status: Phase 1 已完成，等待用户决定是否继续 Phase 2
-Last activity: 2026-07-23 — Phase 1 完成
+Phase: 02 (browser-core-url-navigation-multi-tab) — EXECUTING
+Plan: 1 of 4
+Status: Executing Phase 02
+Last activity: 2026-07-24 — Phase 02 execution started
 
-Progress: [██████████] 100% (Phase 1) | [██░░░░░░░░] 25% (Overall)
+Progress: [██████████] 100% (Phase 4) | [██████████] 100% (Overall)
 
 ## Performance Metrics
 
@@ -48,11 +48,14 @@ Progress: [██████████] 100% (Phase 1) | [██░░░░�
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1 | 3 | ~30m | ~10m |
+| 2 | 3 | ~30m | ~10m |
+| 3 | 1 | ~10m | ~10m |
+| 4 | 1 | ~10m | ~10m |
 
 **Recent Trend:**
 
-- Last 5 plans: -
-- Trend: -
+- Last 5 plans: Plan 01, Plan 02, Plan 03, Phase 3 Plan 01, Phase 4 Plan 01
+- Trend: 稳定
 
 *Updated after each plan completion*
 
@@ -70,6 +73,19 @@ Recent decisions affecting current work:
 - Plan 03: 使用 DOM API (createElement/textContent) 防止 XSS（删除预览）
 - Plan 03: 使用原生 disabled 属性保护默认容器删除按钮
 - Plan 03: Toast 使用 CSS transition，3 秒自动消失
+- Phase 2: Tab 状态由主进程管理，通过 IPC 与渲染进程同步
+- Phase 2: Tab 配置使用 electron-store 持久化
+- Phase 2: Tab 超过 20 个时自动回收最久未使用的 Tab（D-07）
+- Phase 2: webview 使用容器独立的 Session partition（persist:container-{id}）
+- Phase 2: URL 标准化：完整 URL 直接使用，域名添加 https://，其他作为搜索
+- Phase 2: 拦截新窗口请求，在当前容器创建新 Tab（D-09）
+- Phase 3: Cookie 文件存储在 `{userData}/cookies/` 目录
+- Phase 3: 每个容器的 Cookie 独立存储为 `{containerId}.json`
+- Phase 3: 应用启动时自动加载 Cookie，退出前自动保存
+- Phase 3: 支持手动导出/导入 Cookie（带文件对话框）
+- Phase 4: 分配规则支持精确匹配、通配符匹配（*.example.com）、子域名匹配
+- Phase 4: 快捷键使用 CmdOrCtrl 前缀，macOS 用 Cmd，Windows/Linux 用 Ctrl
+- Phase 4: 全局快捷键在应用退出时注销
 
 ### Pending Todos
 
@@ -89,6 +105,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-23T14:20:27.863Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-browser-core-url-navigation-multi-tab/02-CONTEXT.md
+Last session: 2026-07-24T04:20:40.221Z
+Stopped at: Phase 3 context gathered
+Resume file: .planning/phases/03-data-isolation-cookie-persistence/03-CONTEXT.md
