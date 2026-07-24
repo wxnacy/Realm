@@ -80,6 +80,13 @@ const elements = {
   shortcutsList: document.getElementById('shortcutsList'),
   shortcutsBtn: document.getElementById('shortcutsBtn'),
   closeShortcutsModal: document.getElementById('closeShortcutsModal'),
+
+  // 快捷键捕获对话框（WR-5）
+  shortcutCaptureModal: document.getElementById('shortcutCaptureModal'),
+  shortcutCaptureTitle: document.getElementById('shortcutCaptureTitle'),
+  keyCaptureBox: document.getElementById('keyCaptureBox'),
+  cancelKeyCaptureBtn: document.getElementById('cancelKeyCaptureBtn'),
+  saveKeyCaptureBtn: document.getElementById('saveKeyCaptureBtn'),
 };
 
 // 应用状态
@@ -726,19 +733,96 @@ function renderShortcutsList(shortcuts) {
   });
 }
 
+// 快捷键捕获状态（WR-5）
+let keyCaptureAction = null;
+let keyCaptureAccelerator = null;
+
 /**
- * 编辑快捷键
+ * 将 keydown 事件转换为 Electron accelerator 字符串（WR-5）
+ * @param {KeyboardEvent} e - keydown 事件
+ * @returns {string|null} accelerator（如 CmdOrCtrl+Shift+T）；纯修饰键返回 null
+ */
+function acceleratorFromEvent(e) {
+  const key = e.key;
+  // 单独按下修饰键不构成快捷键，等待后续按键
+  if (['Control', 'Shift', 'Alt', 'Meta'].includes(key)) {
+    return null;
+  }
+
+  const parts = [];
+  if (e.metaKey || e.ctrlKey) parts.push('CmdOrCtrl');
+  if (e.altKey) parts.push('Alt');
+  if (e.shiftKey) parts.push('Shift');
+
+  // Electron accelerator 的键名映射
+  const keyMap = {
+    ' ': 'Space',
+    '+': 'Plus',
+    'ArrowUp': 'Up',
+    'ArrowDown': 'Down',
+    'ArrowLeft': 'Left',
+    'ArrowRight': 'Right',
+  };
+  let mainKey = keyMap[key] || key;
+  if (mainKey.length === 1) {
+    mainKey = mainKey.toUpperCase();
+  }
+  parts.push(mainKey);
+
+  return parts.join('+');
+}
+
+/**
+ * 编辑快捷键（WR-5）
+ * window.prompt() 在 Electron 中不受支持（返回 undefined），
+ * 改为自定义按键捕获 dialog，与现有 <dialog> 模态框风格一致。
  * @param {string} action - 操作名称
  */
-async function editShortcut(action) {
+function editShortcut(action) {
   const name = SHORTCUT_NAMES[action] || action;
-  const newAccelerator = prompt(`请输入 ${name} 的快捷键（例如：CmdOrCtrl+T）：`);
 
-  if (newAccelerator) {
-    await window.realmAPI.setShortcut(action, newAccelerator);
-    await refreshShortcutsList();
-    showToast('快捷键已更新，重启应用后生效', 'success');
+  keyCaptureAction = action;
+  keyCaptureAccelerator = null;
+  elements.shortcutCaptureTitle.textContent = `修改快捷键 - ${name}`;
+  elements.keyCaptureBox.textContent = '等待按键...';
+  elements.keyCaptureBox.classList.add('capturing');
+  elements.saveKeyCaptureBtn.disabled = true;
+  elements.shortcutCaptureModal.showModal();
+}
+
+/**
+ * 处理快捷键捕获 dialog 内的按键
+ * @param {KeyboardEvent} e - keydown 事件
+ */
+function handleKeyCaptureKeydown(e) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  // Esc 取消捕获
+  if (e.key === 'Escape') {
+    elements.shortcutCaptureModal.close();
+    return;
   }
+
+  const accelerator = acceleratorFromEvent(e);
+  if (!accelerator) return;
+
+  keyCaptureAccelerator = accelerator;
+  elements.keyCaptureBox.textContent = accelerator;
+  elements.keyCaptureBox.classList.remove('capturing');
+  elements.saveKeyCaptureBtn.disabled = false;
+}
+
+/**
+ * 保存捕获的快捷键
+ */
+async function saveCapturedShortcut() {
+  if (!keyCaptureAction || !keyCaptureAccelerator) return;
+
+  await window.realmAPI.setShortcut(keyCaptureAction, keyCaptureAccelerator);
+  elements.shortcutCaptureModal.close();
+  await refreshShortcutsList();
+  showToast('快捷键已更新，重启应用后生效', 'success');
 }
 
 /**
@@ -1563,6 +1647,21 @@ function setupEventListeners() {
     elements.shortcutsModal.addEventListener('click', (e) => {
       if (e.target === elements.shortcutsModal) {
         elements.shortcutsModal.close();
+      }
+    });
+  }
+
+  // 快捷键捕获对话框（WR-5）
+  if (elements.shortcutCaptureModal) {
+    elements.shortcutCaptureModal.addEventListener('keydown', handleKeyCaptureKeydown);
+    elements.saveKeyCaptureBtn.addEventListener('click', saveCapturedShortcut);
+    elements.cancelKeyCaptureBtn.addEventListener('click', () => {
+      elements.shortcutCaptureModal.close();
+    });
+    // 点击模态框外部取消捕获
+    elements.shortcutCaptureModal.addEventListener('click', (e) => {
+      if (e.target === elements.shortcutCaptureModal) {
+        elements.shortcutCaptureModal.close();
       }
     });
   }

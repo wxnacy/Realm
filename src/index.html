@@ -282,6 +282,21 @@
     </div>
   </dialog>
 
+  <!-- 快捷键捕获对话框（WR-5：window.prompt 在 Electron 中不受支持，改为按键捕获） -->
+  <dialog class="modal" id="shortcutCaptureModal">
+    <div class="modal-content">
+      <h2 id="shortcutCaptureTitle">修改快捷键</h2>
+      <div class="form-group">
+        <label>请按下新的快捷键组合（Esc 取消）</label>
+        <div class="key-capture-box" id="keyCaptureBox">等待按键...</div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" id="cancelKeyCaptureBtn">取消</button>
+        <button type="button" class="btn btn-primary" id="saveKeyCaptureBtn" disabled>保存</button>
+      </div>
+    </div>
+  </dialog>
+
   <script src="renderer.js"></script>
 </body>
 </html>
