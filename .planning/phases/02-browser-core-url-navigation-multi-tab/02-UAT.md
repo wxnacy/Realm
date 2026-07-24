@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 02-browser-core-url-navigation-multi-tab
 source: [02-01-SUMMARY.md, 02-02-SUMMARY.md, 02-03-SUMMARY.md, 02-04-SUMMARY.md]
 started: 2026-07-23T16:10:02Z
-updated: 2026-07-24T14:43:00Z
+updated: 2026-07-24T14:50:00Z
 ---
 
 ## Current Test
@@ -127,16 +127,27 @@ blocked: 0
   reason: "User reported: 刷新按钮没有变成 x 图标，其他正常"
   severity: minor
   test: 8
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "JS 状态管理正确（renderer.js:421/429 在 did-start-loading/did-stop-loading 切换 #reloadBtn 的 loading class，点击处理器 renderer.js:1381-1385 正确分支到 webview.stop()），但视觉层从未实现：src/styles/main.css 没有任何 #reloadBtn.loading / .btn-icon.loading 规则，且 index.html:77-82 按钮 DOM 里只有一个静态 refresh 图标 SVG，没有 × 图标元素可切换；class 加上去不产生任何视觉变化"
+  artifacts:
+    - path: "src/styles/main.css"
+      issue: "缺少 #reloadBtn.loading 规则（仅 1002-1036 行有 .loading-bar 规则）"
+    - path: "src/index.html"
+      issue: "行 77-82 #reloadBtn 内只有 refresh SVG，无 stop/× 图标元素"
+  missing:
+    - "index.html 在 #reloadBtn 内添加 stop/× 图标 SVG（默认 display:none）"
+    - "main.css 添加规则：#reloadBtn.loading .icon-reload { display:none } 和 #reloadBtn.loading .icon-stop { display:block }"
+  debug_session: ".planning/debug/refresh-button-no-stop-icon.md"
 - truth: "蓝色加载进度条显示在 URL 输入框下方（2px 高度，加载完成后自动消失）"
   status: failed
   reason: "User reported: 蓝色进度条没有显示在URL输入框下边，而是出现在左边侧边栏的下边"
   severity: minor
   test: 8
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: ".loading-bar（main.css:1003-1012）使用 position:absolute; bottom:0; left:0; width:100%，但没有任何祖先建立包含块——.toolbar（main.css:183-192）、.main-content（main.css:175-180）、body（main.css:48-55）都是默认 position:static。绝对定位回退到初始包含块（viewport），导致进度条钉在整个窗口左下角（即左侧边栏下方）。DOM 位置正确（index.html:117 是 .toolbar 子元素），仅缺一行 CSS"
+  artifacts:
+    - path: "src/styles/main.css"
+      issue: "行 183 .toolbar 规则缺少 position:relative，无法成为 .loading-bar 的包含块"
+    - path: "src/styles/main.css"
+      issue: "行 1003 .loading-bar 规则依赖不存在的定位祖先"
+  missing:
+    - "main.css .toolbar 规则添加 position: relative（一行修复，无 JS/HTML 变更）"
+  debug_session: ".planning/debug/progress-bar-wrong-position.md"
