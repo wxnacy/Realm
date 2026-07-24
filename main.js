@@ -92,6 +92,7 @@ function notifyOpenUrlInTab(contents, url, containerId) {
 app.on('web-contents-created', (event, contents) => {
   if (contents.getType() !== 'webview') return;
 
+  console.log(`[Realm] webview webContents 创建, id: ${contents.id}`);
   contents.setWindowOpenHandler(({ url, disposition, frameName, features }) => {
     console.log(`[Realm] 新窗口请求: ${url}, disposition: ${disposition}, frameName: ${frameName}`);
     // 检查分配规则，决定目标容器
