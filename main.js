@@ -114,6 +114,10 @@ app.on('web-contents-created', (event, contents) => {
       return;
     }
 
+    const partition = contents.session && contents.session.getPartition
+      ? contents.session.getPartition()
+      : 'unknown';
+    console.log(`[Realm] webview partition: ${partition}`);
     const currentContainer = getGuestContainerId(contents);
     console.log(`[Realm] 当前容器: ${currentContainer}, 检查规则匹配...`);
     const matchedContainer = assignmentRules.matchUrl(url);
@@ -121,8 +125,10 @@ app.on('web-contents-created', (event, contents) => {
 
     if (matchedContainer && matchedContainer !== currentContainer) {
       event.preventDefault();
-      console.log(`[Realm] 规则匹配: ${url} -> ${matchedContainer}`);
+      console.log(`[Realm] 规则匹配成功: ${url} -> ${matchedContainer}`);
       notifyOpenUrlInTab(contents, url, matchedContainer);
+    } else if (matchedContainer && matchedContainer === currentContainer) {
+      console.log(`[Realm] 规则匹配但容器相同，允许导航`);
     }
   });
 });
