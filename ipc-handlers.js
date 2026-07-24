@@ -556,7 +556,7 @@ function registerHandlers() {
     // 设置成功后重建菜单，使新快捷键立即生效（无需重启应用）
     if (result) {
       const win = windowManager.getMainWindow();
-      shortcutManager.rebuildMenu(win);
+      shortcutManager.rebuildShortcuts(win);
     }
     return result;
   });
