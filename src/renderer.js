@@ -74,6 +74,8 @@ const elements = {
   rulePatternInput: document.getElementById('rulePatternInput'),
   addRuleBtn: document.getElementById('addRuleBtn'),
   closeRulesModal: document.getElementById('closeRulesModal'),
+  importRulesBtn: document.getElementById('importRulesBtn'),
+  exportRulesBtn: document.getElementById('exportRulesBtn'),
 
   // 快捷键设置
   shortcutsModal: document.getElementById('shortcutsModal'),
@@ -597,6 +599,12 @@ function renderRulesList(rules) {
     const item = document.createElement('div');
     item.className = 'rule-item';
     item.dataset.ruleId = rule.id;
+    item.draggable = true;
+
+    // 拖拽手柄
+    const dragHandle = document.createElement('div');
+    dragHandle.className = 'drag-handle';
+    dragHandle.textContent = '⋮⋮';
 
     const info = document.createElement('div');
     info.className = 'rule-info';
@@ -620,11 +628,19 @@ function renderRulesList(rules) {
     const actions = document.createElement('div');
     actions.className = 'rule-actions';
 
-    const toggleBtn = document.createElement('button');
-    toggleBtn.className = 'action-btn';
-    toggleBtn.dataset.action = 'toggle';
-    toggleBtn.title = rule.enabled ? '禁用' : '启用';
-    toggleBtn.textContent = rule.enabled ? '✓' : '✗';
+    // Toggle Switch 组件
+    const toggleSwitch = document.createElement('div');
+    toggleSwitch.className = 'toggle-switch';
+    toggleSwitch.title = rule.enabled ? '禁用' : '启用';
+
+    const toggleTrack = document.createElement('div');
+    toggleTrack.className = 'toggle-track' + (rule.enabled ? ' active' : '');
+
+    const toggleThumb = document.createElement('div');
+    toggleThumb.className = 'toggle-thumb';
+
+    toggleTrack.appendChild(toggleThumb);
+    toggleSwitch.appendChild(toggleTrack);
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'action-btn';
@@ -632,31 +648,123 @@ function renderRulesList(rules) {
     deleteBtn.title = '删除';
     deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path></svg>';
 
-    actions.appendChild(toggleBtn);
+    actions.appendChild(toggleSwitch);
     actions.appendChild(deleteBtn);
+    item.appendChild(dragHandle);
     item.appendChild(info);
     item.appendChild(actions);
     elements.rulesList.appendChild(item);
 
-    // 绑定操作事件（toggle / delete）
-    [toggleBtn, deleteBtn].forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-
-        if (btn.dataset.action === 'toggle') {
-          const latest = await window.realmAPI.getRules();
-          const current = latest.find(r => r.id === rule.id);
-          if (current) {
-            await window.realmAPI.updateRule(rule.id, { enabled: !current.enabled });
-            await refreshRulesList();
-          }
-        } else if (btn.dataset.action === 'delete') {
-          await window.realmAPI.deleteRule(rule.id);
-          await refreshRulesList();
-        }
-      });
+    // 绑定 toggle 点击事件
+    toggleSwitch.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const latest = await window.realmAPI.getRules();
+      const current = latest.find(r => r.id === rule.id);
+      if (current) {
+        await window.realmAPI.updateRule(rule.id, { enabled: !current.enabled });
+        await refreshRulesList();
+      }
     });
+
+    // 绑定 delete 点击事件
+    deleteBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await window.realmAPI.deleteRule(rule.id);
+      await refreshRulesList();
+    });
+
+    // 绑定拖拽事件
+    item.addEventListener('dragstart', handleDragStart);
+    item.addEventListener('dragover', handleDragOver);
+    item.addEventListener('drop', handleDrop);
+    item.addEventListener('dragend', handleDragEnd);
   });
+}
+
+// 拖拽状态
+let draggedItem = null;
+
+/**
+ * 处理拖拽开始
+ * @param {DragEvent} e - 拖拽事件
+ */
+function handleDragStart(e) {
+  draggedItem = this;
+  this.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', this.dataset.ruleId);
+}
+
+/**
+ * 处理拖拽悬停
+ * @param {DragEvent} e - 拖拽事件
+ */
+function handleDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+
+  // 清除所有指示线
+  const items = elements.rulesList.querySelectorAll('.rule-item');
+  items.forEach(item => {
+    item.classList.remove('drag-over-top', 'drag-over-bottom');
+  });
+
+  // 计算鼠标位置决定插入目标的上方或下方
+  const rect = this.getBoundingClientRect();
+  const midY = rect.top + rect.height / 2;
+
+  if (e.clientY < midY) {
+    this.classList.add('drag-over-top');
+  } else {
+    this.classList.add('drag-over-bottom');
+  }
+}
+
+/**
+ * 处理拖拽放下
+ * @param {DragEvent} e - 拖拽事件
+ */
+function handleDrop(e) {
+  e.preventDefault();
+
+  if (draggedItem === this) return;
+
+  // 清除所有指示线
+  const items = elements.rulesList.querySelectorAll('.rule-item');
+  items.forEach(item => {
+    item.classList.remove('drag-over-top', 'drag-over-bottom');
+  });
+
+  // 计算插入位置
+  const rect = this.getBoundingClientRect();
+  const midY = rect.top + rect.height / 2;
+
+  if (e.clientY < midY) {
+    this.parentNode.insertBefore(draggedItem, this);
+  } else {
+    this.parentNode.insertBefore(draggedItem, this.nextSibling);
+  }
+}
+
+/**
+ * 处理拖拽结束
+ */
+async function handleDragEnd() {
+  this.classList.remove('dragging');
+  draggedItem = null;
+
+  // 清除所有指示线
+  const items = elements.rulesList.querySelectorAll('.rule-item');
+  items.forEach(item => {
+    item.classList.remove('drag-over-top', 'drag-over-bottom');
+  });
+
+  // 收集新顺序
+  const newOrder = Array.from(elements.rulesList.querySelectorAll('.rule-item'))
+    .map(item => item.dataset.ruleId);
+
+  // 调用 IPC 同步到主进程
+  await window.realmAPI.reorderRules(newOrder);
 }
 
 /**
@@ -675,6 +783,33 @@ async function createRule() {
   elements.rulePatternInput.value = '';
   await refreshRulesList();
   showToast('规则已添加', 'success');
+}
+
+/**
+ * 导入规则
+ */
+async function importRules() {
+  const result = await window.realmAPI.importRules();
+
+  if (result.success) {
+    showToast(`已导入 ${result.count} 条规则`, 'success');
+    await refreshRulesList();
+  } else {
+    showToast(result.message || '导入失败', 'error');
+  }
+}
+
+/**
+ * 导出规则
+ */
+async function exportRules() {
+  const result = await window.realmAPI.exportRules();
+
+  if (result.success) {
+    showToast(`已导出 ${result.count} 条规则`, 'success');
+  } else if (result.message !== '已取消') {
+    showToast(result.message || '导出失败', 'error');
+  }
 }
 
 // ==================== 快捷键设置 UI ====================
@@ -1845,6 +1980,16 @@ function setupEventListeners() {
         elements.rulesModal.close();
       }
     });
+
+    // 导入规则按钮
+    if (elements.importRulesBtn) {
+      elements.importRulesBtn.addEventListener('click', importRules);
+    }
+
+    // 导出规则按钮
+    if (elements.exportRulesBtn) {
+      elements.exportRulesBtn.addEventListener('click', exportRules);
+    }
   }
 
   // 初始化快捷键监听
