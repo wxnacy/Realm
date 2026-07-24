@@ -134,10 +134,17 @@ app.on('window-all-closed', () => {
   }
 });
 
-// 应用退出前保存所有容器的 Cookie
-app.on('before-quit', async () => {
+// 应用退出前保存所有容器的 Cookie（WR-6）
+// before-quit 不会等待 async handler 返回，必须先 preventDefault 阻止退出，
+// 待 Cookie 写盘完成后再显式 app.quit()，避免退出竞态导致数据丢失
+let cookiesSaved = false;
+app.on('before-quit', async (event) => {
+  if (cookiesSaved) return;
+  event.preventDefault();
   console.log('[Realm] 应用退出，保存 Cookie...');
   await cookieManager.saveAllCookies();
+  cookiesSaved = true;
+  app.quit();
 });
 
 // 应用即将退出时注销快捷键
