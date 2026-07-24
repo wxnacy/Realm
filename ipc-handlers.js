@@ -358,6 +358,19 @@ function registerHandlers() {
     return cookieManager.importCookies(containerId, filePaths[0]);
   });
 
+  /**
+   * 删除容器的 Cookie 文件和 Session 数据
+   * @param {string} containerId - 容器 ID
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('cookie:delete', async (event, containerId) => {
+    assertTrustedSender(event);
+    if (!containerId || typeof containerId !== 'string') {
+      throw new Error('无效的容器 ID');
+    }
+    return cookieManager.deleteCookies(containerId);
+  });
+
   // ==================== 分配规则 ====================
 
   /**
