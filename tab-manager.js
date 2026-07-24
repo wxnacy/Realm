@@ -158,16 +158,21 @@ function closeTab(tabId) {
   // 删除 Tab
   tabs.delete(tabId);
 
-  // 确定新的活动 Tab
-  let newActiveTabId = null;
-  if (tabs.size > 0) {
-    // 切换到右侧 Tab，无右侧则左侧
-    if (closedIndex < tabArray.length - 1) {
-      newActiveTabId = tabArray[closedIndex + 1];
-    } else if (closedIndex > 0) {
-      newActiveTabId = tabArray[closedIndex - 1];
-    } else {
-      newActiveTabId = tabs.keys().next().value;
+  // 确定新的活动 Tab（CR-5 修复）：
+  // 仅当被关闭的就是活动 Tab 时才重选；关闭后台 Tab 必须保持 activeTabId 不变，
+  // 否则主进程与渲染进程的活动 Tab 状态分裂，且错误状态会被持久化
+  let newActiveTabId = activeTabId;
+  if (tabId === activeTabId) {
+    newActiveTabId = null;
+    if (tabs.size > 0) {
+      // 切换到右侧 Tab，无右侧则左侧
+      if (closedIndex < tabArray.length - 1) {
+        newActiveTabId = tabArray[closedIndex + 1];
+      } else if (closedIndex > 0) {
+        newActiveTabId = tabArray[closedIndex - 1];
+      } else {
+        newActiveTabId = tabs.keys().next().value;
+      }
     }
   }
 
