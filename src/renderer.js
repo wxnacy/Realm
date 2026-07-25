@@ -39,6 +39,7 @@ const elements = {
   backBtn: document.getElementById('backBtn'),
   forwardBtn: document.getElementById('forwardBtn'),
   reloadBtn: document.getElementById('reloadBtn'),
+  historyBtn: document.getElementById('historyBtn'),
   cookiesBtn: document.getElementById('cookiesBtn'),
   rulesBtn: document.getElementById('rulesBtn'),
   settingsBtn: document.getElementById('settingsBtn'),
@@ -423,6 +424,23 @@ function bindWebviewEvents(tabId, webview) {
       if (tabId === state.activeTabId) {
         elements.urlInput.value = e.url;
       }
+
+      // D-21/D-23：导航完成后自动写入历史记录（过滤内部页面）
+      if (e.url && e.url !== 'about:blank' && !e.url.startsWith('realm://')) {
+        // 从 webview partition 推导容器 ID
+        const partition = webview.partition || '';
+        const prefix = 'persist:container-';
+        const historyContainerId = partition.startsWith(prefix)
+          ? partition.slice(prefix.length)
+          : state.currentContainer;
+
+        window.realmAPI.historyAdd({
+          containerId: historyContainerId,
+          url: e.url,
+          title: webview.getTitle() || '',
+          visitedAt: Date.now(),
+        }).catch(err => console.error('[Realm] 历史记录写入失败:', err));
+      }
     }
   });
 
@@ -460,6 +478,24 @@ function bindWebviewEvents(tabId, webview) {
   // 标题更新事件
   webview.addEventListener('page-title-updated', (e) => {
     updateTabTitle(tabId, e.title);
+
+    // 更新历史记录中最近一条匹配记录的标题
+    if (e.title) {
+      const partition = webview.partition || '';
+      const prefix = 'persist:container-';
+      const historyContainerId = partition.startsWith(prefix)
+        ? partition.slice(prefix.length)
+        : state.currentContainer;
+
+      const currentUrl = webview.getURL();
+      if (currentUrl && !currentUrl.startsWith('realm://')) {
+        window.realmAPI.historyUpdateTitle({
+          containerId: historyContainerId,
+          url: currentUrl,
+          title: e.title,
+        }).catch(err => console.error('[Realm] 历史记录标题更新失败:', err));
+      }
+    }
   });
 
   // 注意：webview 标签的 will-navigate 事件文档明示 preventDefault 无效（WR-2），
@@ -1905,6 +1941,27 @@ function setupEventListeners() {
     if (e.target === elements.deleteConfirmModal) {
       elements.deleteConfirmModal.close();
       state.deletingContainerId = null;
+    }
+  });
+
+  // 浏览历史按钮：在当前容器新 Tab 打开 realm://history
+  elements.historyBtn.addEventListener('click', () => {
+    const containerId = state.currentContainer;
+
+    // 检查是否已有 realm://history 的 Tab 打开
+    let existingTabId = null;
+    state.tabs.forEach((tab, tabId) => {
+      if (tab.url === 'realm://history') {
+        existingTabId = tabId;
+      }
+    });
+
+    if (existingTabId) {
+      // 已有则切换到该 Tab
+      switchTab(existingTabId);
+    } else {
+      // 没有则创建新 Tab
+      createTab(containerId, 'realm://history');
     }
   });
 
