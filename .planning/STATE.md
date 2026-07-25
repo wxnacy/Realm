@@ -1,16 +1,16 @@
 ---
-gsd_state_version: 1.0
+gsd_state_version: '1.0'
 milestone: v1.1
 milestone_name: 容器属性增强 + 收藏历史 + 常用网站 + 设置页面
 status: planning
-last_updated: "2026-07-25T04:45:09.553Z"
+last_updated: "2026-07-25"
 last_activity: 2026-07-25
 progress:
-  total_phases: 0
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 8
+  completed_phases: 4
+  total_plans: 12
+  completed_plans: 12
+  percent: 50
 ---
 
 # Project State
@@ -20,39 +20,31 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-25)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载
-**Current focus:** v1.0 milestone complete — planning next milestone
+**Current focus:** Phase 5: 容器属性扩展
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-07-25 — Milestone v1.1 started
+Phase: 5 of 8 (容器属性扩展)
+Plan: 0 of 1 in current phase
+Status: Ready to plan
+Last activity: 2026-07-25 — v1.1 roadmap created (Phases 5-8)
+
+Progress: [████░░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-
-- Total plans completed: 12 (Phase 04: 1 done, 2 new plans created)
-- Average duration: ~10m
-- Total execution time: ~30 minutes
+- Total plans completed: 12
+- Total phases completed: 4 (v1.0 MVP)
 
 **By Phase:**
 
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 1 | 3 | ~30m | ~10m |
-| 02 | 5 | - | - |
-| 03 | 1 | - | - |
-| 4 | 3 | - | - |
-
-**Recent Trend:**
-
-- Last 5 plans: Plan 01, Plan 02, Plan 03, Phase 3 Plan 01, Phase 4 Plan 01
-- Trend: 稳定
-
-*Updated after each plan completion*
-| Phase 02 P05 | 5 min | 3 tasks | 3 files |
+| Phase | Plans | Status |
+|-------|-------|--------|
+| 1. Core Container Management | 3/3 | Complete |
+| 2. Browser Core - URL Navigation | 5/5 | Complete |
+| 3. Data Isolation + Cookie Persistence | 1/1 | Complete |
+| 4. Convenience Features | 3/3 | Complete |
 
 ## Accumulated Context
 
@@ -65,28 +57,11 @@ Recent decisions affecting current work:
 - Phase 1: Cookie 持久化使用 JSON 文件格式
 - Phase 1: 单窗口多 Tab 架构
 - Phase 1: 下拉面板而非侧边栏
-- Plan 03: 使用 DOM API (createElement/textContent) 防止 XSS（删除预览）
-- Plan 03: 使用原生 disabled 属性保护默认容器删除按钮
-- Plan 03: Toast 使用 CSS transition，3 秒自动消失
 - Phase 2: Tab 状态由主进程管理，通过 IPC 与渲染进程同步
-- Phase 2: Tab 配置使用 electron-store 持久化
-- Phase 2: Tab 超过 20 个时自动回收最久未使用的 Tab（D-07）
-- Phase 2: webview 使用容器独立的 Session partition（persist:container-{id}）
-- Phase 2: URL 标准化：完整 URL 直接使用，域名添加 https://，其他作为搜索
-- Phase 2: 拦截新窗口请求，在当前容器创建新 Tab（D-09）
+- Phase 2: webview 使用容器独立的 Session partition
 - Phase 3: Cookie 文件存储在 `{userData}/cookies/` 目录
-- Phase 3: 每个容器的 Cookie 独立存储为 `{containerId}.json`
-- Phase 3: 应用启动时自动加载 Cookie，退出前自动保存
-- Phase 3: 支持手动导出/导入 Cookie（带文件对话框）
-- Phase 4: 分配规则支持精确匹配、通配符匹配（*.example.com）、子域名匹配
-- Phase 4: 快捷键使用 CmdOrCtrl 前缀，macOS 用 Cmd，Windows/Linux 用 Ctrl
-- Phase 4: 全局快捷键在应用退出时注销
-- Phase 4: 使用纯 CSS 实现 toggle switch 组件，无第三方依赖
-- Phase 4: 使用 HTML5 原生 Drag and Drop API 实现规则排序
-- Phase 4: 使用 Electron dialog 和 Node.js fs 模块实现文件导入导出
-- [Phase 02]: 空 Tab 栏采用惰性创建（URL 回车时 createTab）而非 eager 启动建 Tab — 覆盖冷启动与关闭最后 Tab 两个入口，不破坏 Test 1/2 空 Tab 栏预期
-- [Phase 02]: 导航入口统一经 normalizeUrl，原始输入不直达 webview.src — 主进程 tab-manager 不做规范化，未规范化值进 webview.src 会缺 scheme（T-02-05-01 缓解）
-- [Phase ?]: 快捷键改为应用内生效，避免与系统冲突
+- Phase 4: 分配规则支持精确匹配、通配符匹配、子域名匹配
+- Phase 4: 快捷键使用 CmdOrCtrl 前缀
 
 ### Pending Todos
 
@@ -98,19 +73,14 @@ None yet.
 
 ## Deferred Items
 
-Items acknowledged and deferred at milestone close on 2026-07-25:
-
 | Category | Item | Status |
 |----------|------|--------|
 | debug | cold-start-url-input-no-response | diagnosed |
 | debug | container-delete-partitions | unknown |
-| debug | progress-bar-wrong-position | diagnosed |
-| debug | refresh-button-no-stop-icon | diagnosed |
-| debug | url-input-enter-no-response | diagnosed |
 | uat_gaps | Phase 03: 03-UAT.md | partial |
 
 ## Session Continuity
 
-Last session: 2026-07-24T14:10:00.000Z
-Stopped at: Phase 4 complete — verification passed
-Resume file: .planning/phases/04-convenience-features/04-VERIFICATION.md
+Last session: 2026-07-25
+Stopped at: v1.1 roadmap created, ready to plan Phase 5
+Resume file: None

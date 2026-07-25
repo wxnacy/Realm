@@ -2,23 +2,31 @@
 
 ## Overview
 
-Realm Browser 是一个多容器隔离浏览器，从当前的单文件架构演进为模块化架构。Phase 1 重构核心代码并实现容器 CRUD 和管理 UI；Phase 2 迁移到 WebContentsView 实现多 Tab 和 URL 导航；Phase 3 确保数据完全隔离并实现 Cookie 持久化；Phase 4 补充便利功能。四个阶段完成后，产品具备完整的多容器浏览器能力。
+Realm Browser 是一个多容器隔离浏览器，从当前的单文件架构演进为模块化架构。Phase 1 重构核心代码并实现容器 CRUD 和管理 UI；Phase 2 迁移到 WebContentsView 实现多 Tab 和 URL 导航；Phase 3 确保数据完全隔离并实现 Cookie 持久化；Phase 4 补充便利功能。四个阶段完成后，产品具备完整的多容器浏览器能力。v1.1 继续增强容器元数据、添加浏览数据管理能力、优化新标签页体验并提供应用设置。
 
 ## Milestones
 
 - ✅ **v1.0 MVP** — Phases 1-4 (shipped 2026-07-25)
+- 🚧 **v1.1 容器属性增强 + 收藏历史 + 常用网站 + 设置页面** — Phases 5-8 (in progress)
 
 ## Phases
 
 <details>
 <summary>✅ v1.0 MVP (Phases 1-4) — SHIPPED 2026-07-25</summary>
 
-- [x] Phase 1: Core Container Management + Architecture Refactoring (3/3 plans) — completed 2026-07-23
-- [x] Phase 2: Browser Core - URL Navigation + Multi-Tab (5/5 plans) — completed 2026-07-23
-- [x] Phase 3: Data Isolation + Cookie Persistence (1/1 plan) — completed 2026-07-23
-- [x] Phase 4: Convenience Features (3/3 plans) — completed 2026-07-24
+- [x] **Phase 1: Core Container Management + Architecture Refactoring** — completed 2026-07-23
+- [x] **Phase 2: Browser Core - URL Navigation + Multi-Tab** — completed 2026-07-23
+- [x] **Phase 3: Data Isolation + Cookie Persistence** — completed 2026-07-23
+- [x] **Phase 4: Convenience Features** — completed 2026-07-24
 
 </details>
+
+### 🚧 v1.1 容器属性增强 + 收藏历史 + 常用网站 + 设置页面
+
+- [ ] **Phase 5: 容器属性扩展** — 容器增加手机号、邮箱、备注属性，旧数据自动兼容
+- [ ] **Phase 6: 浏览历史记录** — 自动记录页面导航、按容器隔离存储、列表展示、搜索、清理
+- [ ] **Phase 7: 收藏夹管理** — 收藏/取消收藏、收藏列表、编辑/删除、搜索、容器隔离
+- [ ] **Phase 8: 常用网站推荐 + 设置页面** — 新标签页常用网站网格（frecency）+ 应用设置
 
 ## Phase Details
 
@@ -39,16 +47,8 @@ Realm Browser 是一个多容器隔离浏览器，从当前的单文件架构演
 **Plans**: 3 plans
 
 Plans:
-**Wave 1**
-
 - [x] 01-01-PLAN.md — Walking Skeleton: 模块化架构重构 + 容器下拉面板 + 容器切换
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
 - [x] 01-02-PLAN.md — 容器创建/编辑 Modal（统一表单、颜色选择器、emoji 选择器）
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
 - [x] 01-03-PLAN.md — 容器删除确认弹窗 + 输入验证增强
 
 **UI hint**: yes
@@ -69,28 +69,14 @@ Plans:
 4. 用户可以关闭 Tab，关闭后该 Tab 的资源被正确释放
 5. 用户可以看到每个 Tab 的标题和容器颜色标识，清楚区分当前 Tab 属于哪个容器
 
-**Plans**: 5/5 plans complete
+**Plans**: 5 plans
 
 Plans:
-**Wave 1**
-
-- [x] 02-01-PLAN.md — Tab 栏 UI + 新标签页 + Tab 本地管理（渲染进程） ✅
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 02-02-PLAN.md — Webview 集成 + URL 导航 + 导航控件 ✅
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 02-03-PLAN.md — 主进程 Tab 管理 + IPC 集成 + 持久化 ✅
-
-**Wave 4** *(gap closure — UAT Test 5/6)*
-
+- [x] 02-01-PLAN.md — Tab 栏 UI + 新标签页 + Tab 本地管理（渲染进程）
+- [x] 02-02-PLAN.md — Webview 集成 + URL 导航 + 导航控件
+- [x] 02-03-PLAN.md — 主进程 Tab 管理 + IPC 集成 + 持久化
 - [x] 02-04-PLAN.md — Gap 修复：webviewTag 启用 + URL Enter 处理器 webview/newTabPage 可见性修复
-
-**Wave 5** *(gap closure — UAT Test 8/13)*
-
-- [x] 02-05-PLAN.md — Gap 修复：进度条定位（.toolbar position:relative）+ 刷新按钮 × 图标 + 冷启动无 Tab 时 URL 回车惰性创建 Tab
+- [x] 02-05-PLAN.md — Gap 修复：进度条定位 + 刷新按钮图标 + 冷启动无 Tab 时 URL 回车惰性创建 Tab
 
 **UI hint**: yes
 
@@ -110,11 +96,10 @@ Plans:
 3. 应用关闭时每个容器的 Cookie 自动保存到独立 JSON 文件，domain 前缀点号格式正确保留
 4. 应用启动时各容器的 Cookie 自动加载，用户无需重新登录
 
-**Plans**: 1/1 plans complete
+**Plans**: 1 plan
 
 Plans:
-
-- [x] 03-01-PLAN.md — Cookie 管理模块 + 自动保存/加载 + 手动导出/导入 ✅
+- [x] 03-01-PLAN.md — Cookie 管理模块 + 自动保存/加载 + 手动导出/导入
 
 </details>
 
@@ -130,22 +115,80 @@ Plans:
 1. 用户可以设置容器分配规则，指定网站自动在特定容器打开
 2. 用户可以使用快捷键进行常用操作（新建 Tab、关闭 Tab、切换容器）
 
-**Plans**: 3/3 plans complete
+**Plans**: 3 plans
 
 Plans:
-
-- [x] 04-01-PLAN.md — 容器分配规则 + 快捷键管理 ✅
-- [x] 04-02-PLAN.md — 快捷键重构：globalShortcut → Menu Accelerator ✅
-- [x] 04-03-PLAN.md — 规则管理 UI 增强：Toggle + Drag-Drop + Import/Export ✅
+- [x] 04-01-PLAN.md — 容器分配规则 + 快捷键管理
+- [x] 04-02-PLAN.md — 快捷键重构：globalShortcut → Menu Accelerator
+- [x] 04-03-PLAN.md — 规则管理 UI 增强：Toggle + Drag-Drop + Import/Export
 
 **UI hint**: yes
 
 </details>
 
+### Phase 5: 容器属性扩展
+**Goal**: 容器支持手机号、邮箱、备注等扩展属性，旧版本数据自动兼容
+**Depends on**: Phase 4
+**Requirements**: ATTR-01, ATTR-02, ATTR-03, ATTR-04, ATTR-05
+**Success Criteria** (what must be TRUE):
+  1. 用户可以在编辑容器 Modal 中为容器设置手机号、邮箱、备注
+  2. 容器属性在创建和编辑容器时均可填写和修改
+  3. 旧版本容器数据升级后自动填充缺失字段的默认值，不会崩溃
+**Plans**: TBD
+
+Plans:
+- [ ] 05-01: TBD
+
+### Phase 6: 浏览历史记录
+**Goal**: 应用自动记录用户浏览的页面，按容器隔离存储，用户可以查看、搜索和清理历史
+**Depends on**: Phase 5
+**Requirements**: HIST-01, HIST-02, HIST-03, HIST-04, HIST-05, HIST-06, HIST-07
+**Success Criteria** (what must be TRUE):
+  1. 用户访问的页面 URL 和标题被自动记录到当前容器的历史记录中
+  2. 用户可以在工具栏查看当前容器的历史记录列表，不同容器的历史记录互不可见
+  3. 用户可以搜索历史记录，输入关键词后实时过滤结果
+  4. 用户可以删除单条历史记录或清空当前容器的全部历史
+  5. 历史记录超过每容器 10000 条上限时自动淘汰最旧记录
+**Plans**: TBD
+
+Plans:
+- [ ] 06-01: TBD
+
+### Phase 7: 收藏夹管理
+**Goal**: 用户可以收藏和管理常用页面，收藏按容器隔离
+**Depends on**: Phase 6
+**Requirements**: FAV-01, FAV-02, FAV-03, FAV-04, FAV-05, FAV-06, FAV-07, FAV-08
+**Success Criteria** (what must be TRUE):
+  1. 用户可以点击工具栏按钮收藏当前页面，已收藏页面显示收藏状态
+  2. 用户可以查看当前容器的收藏列表，不同容器的收藏互不可见
+  3. 用户可以编辑收藏项的标题、删除收藏项、搜索收藏
+  4. 同一 URL 在同一容器内不能重复收藏，重复操作给出提示
+**Plans**: TBD
+
+Plans:
+- [ ] 07-01: TBD
+
+### Phase 8: 常用网站推荐 + 设置页面
+**Goal**: 新标签页展示基于 frecency 排序的常用网站，用户可以配置应用设置
+**Depends on**: Phase 6
+**Requirements**: FREQ-01, FREQ-02, FREQ-03, FREQ-04, FREQ-05, SETT-01, SETT-02, SETT-03, SETT-04, SETT-05
+**Success Criteria** (what must be TRUE):
+  1. 新标签页展示常用网站网格，按 frecency（频率 + 最近性加权）排序，同一域名下多个页面合并为一个卡片
+  2. 常用网站显示 favicon，按当前容器过滤，不同容器看到不同的推荐
+  3. 用户可以打开设置页面，设置默认浏览器、历史记录保留天数等选项
+  4. 设置变更立即持久化，应用重启后设置保持不变
+  5. 设置页面引导用户将 Realm 设为系统默认浏览器
+**Plans**: TBD
+
+Plans:
+- [ ] 08-01: TBD
+
+**UI hint**: yes
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4
+Phases execute in numeric order: 5 → 6 → 7 → 8
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -153,3 +196,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 2. Browser Core - URL Navigation + Multi-Tab | v1.0 | 5/5 | Complete | 2026-07-23 |
 | 3. Data Isolation + Cookie Persistence | v1.0 | 1/1 | Complete | 2026-07-23 |
 | 4. Convenience Features | v1.0 | 3/3 | Complete | 2026-07-24 |
+| 5. 容器属性扩展 | v1.1 | 0/1 | Not started | - |
+| 6. 浏览历史记录 | v1.1 | 0/1 | Not started | - |
+| 7. 收藏夹管理 | v1.1 | 0/1 | Not started | - |
+| 8. 常用网站推荐 + 设置页面 | v1.1 | 0/1 | Not started | - |

@@ -65,43 +65,43 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ATTR-01 | — | Pending |
-| ATTR-02 | — | Pending |
-| ATTR-03 | — | Pending |
-| ATTR-04 | — | Pending |
-| ATTR-05 | — | Pending |
-| HIST-01 | — | Pending |
-| HIST-02 | — | Pending |
-| HIST-03 | — | Pending |
-| HIST-04 | — | Pending |
-| HIST-05 | — | Pending |
-| HIST-06 | — | Pending |
-| HIST-07 | — | Pending |
-| FAV-01 | — | Pending |
-| FAV-02 | — | Pending |
-| FAV-03 | — | Pending |
-| FAV-04 | — | Pending |
-| FAV-05 | — | Pending |
-| FAV-06 | — | Pending |
-| FAV-07 | — | Pending |
-| FAV-08 | — | Pending |
-| FREQ-01 | — | Pending |
-| FREQ-02 | — | Pending |
-| FREQ-03 | — | Pending |
-| FREQ-04 | — | Pending |
-| FREQ-05 | — | Pending |
-| SETT-01 | — | Pending |
-| SETT-02 | — | Pending |
-| SETT-03 | — | Pending |
-| SETT-04 | — | Pending |
-| SETT-05 | — | Pending |
+| ATTR-01 | Phase 5 | Pending |
+| ATTR-02 | Phase 5 | Pending |
+| ATTR-03 | Phase 5 | Pending |
+| ATTR-04 | Phase 5 | Pending |
+| ATTR-05 | Phase 5 | Pending |
+| HIST-01 | Phase 6 | Pending |
+| HIST-02 | Phase 6 | Pending |
+| HIST-03 | Phase 6 | Pending |
+| HIST-04 | Phase 6 | Pending |
+| HIST-05 | Phase 6 | Pending |
+| HIST-06 | Phase 6 | Pending |
+| HIST-07 | Phase 6 | Pending |
+| FAV-01 | Phase 7 | Pending |
+| FAV-02 | Phase 7 | Pending |
+| FAV-03 | Phase 7 | Pending |
+| FAV-04 | Phase 7 | Pending |
+| FAV-05 | Phase 7 | Pending |
+| FAV-06 | Phase 7 | Pending |
+| FAV-07 | Phase 7 | Pending |
+| FAV-08 | Phase 7 | Pending |
+| FREQ-01 | Phase 8 | Pending |
+| FREQ-02 | Phase 8 | Pending |
+| FREQ-03 | Phase 8 | Pending |
+| FREQ-04 | Phase 8 | Pending |
+| FREQ-05 | Phase 8 | Pending |
+| SETT-01 | Phase 8 | Pending |
+| SETT-02 | Phase 8 | Pending |
+| SETT-03 | Phase 8 | Pending |
+| SETT-04 | Phase 8 | Pending |
+| SETT-05 | Phase 8 | Pending |
 
 **Coverage:**
 
 - v1.1 requirements: 30 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 30
+- Mapped to phases: 30 (complete)
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-25*
-*Last updated: 2026-07-25 after v1.1 requirements definition*
+*Last updated: 2026-07-25 — v1.1 roadmap created, all 30 requirements mapped to Phases 5-8*
