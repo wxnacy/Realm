@@ -1285,13 +1285,15 @@ textarea::placeholder {
 /* ==================== 浏览历史页面 ==================== */
 
 /* 页面布局 */
+/* body 是主窗口布局（display:flex; height:100vh; overflow:hidden），
+   历史页作为其 flex item：flex:1 保证宽度始终撑到 max-width（空状态不收缩），
+   自身 overflow-y:auto 成为滚动容器（body 禁滚，window scroll 不会触发） */
 .history-page {
   max-width: 800px;
   margin: 0 auto;
   padding: 24px;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
+  flex: 1;
+  overflow-y: auto;
 }
 
 .history-header {

@@ -8,13 +8,18 @@
 
 // ==================== 状态管理 ====================
 
+// 页面运行在 webview guest 中，IPC 会被主进程 assertTrustedSender（CR-4）拒绝，
+// 因此数据访问走本地 HTTP 服务器的 /api/history/* 端点。
+// 容器 ID 和 API token 由渲染进程创建 webview 时注入 URL 查询参数。
+const pageParams = new URLSearchParams(window.location.search);
+
 /**
  * 页面状态对象
  * @type {Object}
  */
 const state = {
-  /** 当前容器 ID */
-  containerId: '',
+  /** 当前容器 ID（来自 URL 查询参数） */
+  containerId: pageParams.get('container') || 'default',
   /** 已加载的历史记录 */
   records: [],
   /** 搜索关键词 */
@@ -33,10 +38,30 @@ const state = {
   selectAll: false,
 };
 
+/** API token（来自 URL 查询参数） */
+const apiToken = pageParams.get('token') || '';
+
+/**
+ * 调用历史记录 HTTP API
+ * @param {string} route - API 路由（如 'list'、'delete'）
+ * @param {Object} [options] - fetch 选项
+ * @param {Object} [query] - 额外查询参数
+ * @returns {Promise<*>} 解析后的 JSON 响应
+ */
+async function historyApi(route, options = {}, query = {}) {
+  const params = new URLSearchParams({ token: apiToken, ...query });
+  const res = await fetch(`/api/history/${route}?${params.toString()}`, options);
+  if (!res.ok) {
+    throw new Error(`历史 API 请求失败: ${res.status}`);
+  }
+  return res.json();
+}
+
 // ==================== DOM 元素 ====================
 
 /** DOM 元素引用 */
 const elements = {
+  historyPage: document.querySelector('.history-page'),
   searchInput: document.getElementById('searchInput'),
   historyContent: document.getElementById('historyContent'),
   clearAllBtn: document.getElementById('clearAllBtn'),
@@ -191,9 +216,11 @@ function renderHistory(records) {
 }
 
 /**
- * 渲染空状态
+ * 渲染空状态（先清空列表——清空全部/删除全部后直接调用本函数）
  */
 function renderEmpty() {
+  elements.historyContent.innerHTML = '';
+
   const emptyEl = document.createElement('div');
   emptyEl.className = 'history-empty';
 
@@ -268,8 +295,8 @@ function renderHistoryItem(record) {
 
   itemEl.innerHTML = `
     <input type="checkbox" class="history-item-checkbox" data-id="${record.id}" ${state.selectedIds.has(record.id) ? 'checked' : ''}>
-    <img class="history-item-favicon" src="${escapeHtml(faviconSrc)}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'">
-    <div class="history-item-favicon-fallback" style="display:none">${escapeHtml(faviconFallback)}</div>
+    <img class="history-item-favicon" src="${escapeHtml(faviconSrc)}" alt="">
+    <div class="history-item-favicon-fallback">${escapeHtml(faviconFallback)}</div>
     <div class="history-item-content">
       <div class="history-item-title">${titleHtml}</div>
       <div class="history-item-url">${urlHtml}</div>
@@ -282,6 +309,20 @@ function renderHistoryItem(record) {
       </svg>
     </button>
   `;
+
+  // favicon 加载失败时显示首字符回退（CSP 禁止 inline onerror/style 属性，用 JS 控制）
+  const faviconImg = itemEl.querySelector('.history-item-favicon');
+  const faviconFallbackEl = itemEl.querySelector('.history-item-favicon-fallback');
+  const showFaviconFallback = () => {
+    faviconImg.style.display = 'none';
+    faviconFallbackEl.style.display = 'flex';
+  };
+  if (!faviconSrc) {
+    showFaviconFallback();
+  } else {
+    faviconFallbackEl.style.display = 'none';
+    faviconImg.addEventListener('error', showFaviconFallback);
+  }
 
   // 绑定 checkbox 事件
   const checkbox = itemEl.querySelector('.history-item-checkbox');
@@ -324,14 +365,14 @@ async function loadHistory() {
   try {
     let results;
     if (state.keyword) {
-      results = await window.realmAPI.historySearch({
+      results = await historyApi('search', {}, {
         containerId: state.containerId,
         keyword: state.keyword,
         offset: 0,
         limit: state.limit,
       });
     } else {
-      results = await window.realmAPI.historyList({
+      results = await historyApi('list', {}, {
         containerId: state.containerId,
         offset: 0,
         limit: state.limit,
@@ -359,14 +400,14 @@ async function loadMore() {
   try {
     let results;
     if (state.keyword) {
-      results = await window.realmAPI.historySearch({
+      results = await historyApi('search', {}, {
         containerId: state.containerId,
         keyword: state.keyword,
         offset: state.offset,
         limit: state.limit,
       });
     } else {
-      results = await window.realmAPI.historyList({
+      results = await historyApi('list', {}, {
         containerId: state.containerId,
         offset: state.offset,
         limit: state.limit,
@@ -396,7 +437,11 @@ async function loadMore() {
  */
 async function handleDeleteItem(id, itemEl) {
   try {
-    await window.realmAPI.historyDelete(state.containerId, id);
+    await historyApi('delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ containerId: state.containerId, id }),
+    });
 
     // 移除 DOM 节点
     itemEl.remove();
@@ -434,7 +479,11 @@ async function handleBatchDelete() {
   if (ids.length === 0) return;
 
   try {
-    await window.realmAPI.historyDeleteBatch(state.containerId, ids);
+    await historyApi('delete-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ containerId: state.containerId, ids }),
+    });
 
     // 移除 DOM 节点
     for (const id of ids) {
@@ -474,7 +523,11 @@ async function handleBatchDelete() {
  */
 async function handleClearAll() {
   try {
-    await window.realmAPI.historyClear(state.containerId);
+    await historyApi('clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ containerId: state.containerId }),
+    });
 
     // 清空状态
     state.records = [];
@@ -623,11 +676,9 @@ function setupEventListeners() {
     }
   });
 
-  // 滚动加载
-  window.addEventListener('scroll', () => {
-    const scrollTop = window.scrollY || document.documentElement.scrollTop;
-    const scrollHeight = document.documentElement.scrollHeight;
-    const clientHeight = document.documentElement.clientHeight;
+  // 滚动加载（滚动容器是 .history-page，body overflow:hidden 时 window scroll 不触发）
+  elements.historyPage.addEventListener('scroll', () => {
+    const { scrollTop, scrollHeight, clientHeight } = elements.historyPage;
 
     // 距离底部 200px 时开始加载
     if (scrollTop + clientHeight >= scrollHeight - 200) {
@@ -643,9 +694,10 @@ function setupEventListeners() {
  */
 async function init() {
   try {
-    // 获取当前容器 ID
-    const container = await window.realmAPI.getCurrentContainer();
-    state.containerId = container;
+    // 容器 ID 已在页面加载时从 URL 查询参数解析（见 state 初始化）
+    if (!apiToken) {
+      throw new Error('缺少 API token，无法访问历史数据');
+    }
 
     // 绑定事件监听器
     setupEventListeners();

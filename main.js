@@ -12,6 +12,7 @@ const { app, BrowserWindow, protocol, net, ipcMain } = require('electron');
 const { pathToFileURL } = require('url');
 const http = require('http');
 const fs = require('fs');
+const crypto = require('crypto');
 
 // 环境隔离：开发环境使用独立的 userData 目录
 if (process.env.NODE_ENV === 'development') {
@@ -188,6 +189,13 @@ app.whenReady().then(async () => {
 
   // 本地 HTTP 服务器：为 webview 提供内部页面（realm:// 页面在 webview 中无法直接加载）
   // 渲染进程将 realm://history 转换为 http://localhost:PORT/history 后由 webview 加载
+  //
+  // 内部页面的数据访问走 /api/history/* JSON 端点而非 IPC：
+  // webview guest 的 IPC 会被 assertTrustedSender（CR-4）拒绝，
+  // 给 guest 挂载 preload 又会在导航到外部站点时泄露 realmAPI。
+  // API 使用随机 token 鉴权（防 CSRF/端口扫描），token 仅经
+  // get-realm-port IPC 传递给受信主窗口，再注入内部页面 URL。
+  const REALM_TOKEN = crypto.randomUUID();
   const REALM_MIME_TYPES = {
     '.html': 'text/html; charset=utf-8',
     '.js': 'application/javascript; charset=utf-8',
@@ -199,8 +207,104 @@ app.whenReady().then(async () => {
     '.ico': 'image/x-icon',
   };
 
+  /**
+   * 发送 JSON 响应
+   * @param {http.ServerResponse} res - 响应对象
+   * @param {number} status - HTTP 状态码
+   * @param {*} data - 响应数据
+   */
+  function sendJson(res, status, data) {
+    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(data));
+  }
+
+  /**
+   * 读取并解析 POST 请求的 JSON body
+   * @param {http.IncomingMessage} req - 请求对象
+   * @returns {Promise<Object>} 解析后的 body
+   */
+  function readJsonBody(req) {
+    return new Promise((resolve, reject) => {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        try {
+          resolve(body ? JSON.parse(body) : {});
+        } catch (err) {
+          reject(err);
+        }
+      });
+      req.on('error', reject);
+    });
+  }
+
+  /**
+   * 处理 /api/history/* 历史记录 API 请求
+   * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} res - 响应对象
+   * @param {URL} reqUrl - 解析后的请求 URL
+   */
+  async function handleHistoryApi(req, res, reqUrl) {
+    // token 鉴权：防 CSRF 与 localhost 端口扫描读取/篡改历史
+    if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+      sendJson(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    try {
+      const route = reqUrl.pathname.replace('/api/history/', '');
+
+      if (route === 'list' && req.method === 'GET') {
+        const containerId = reqUrl.searchParams.get('containerId') || '';
+        const offset = parseInt(reqUrl.searchParams.get('offset'), 10) || 0;
+        const limit = parseInt(reqUrl.searchParams.get('limit'), 10) || 50;
+        sendJson(res, 200, historyManager.listRecords(containerId, { offset, limit }));
+        return;
+      }
+
+      if (route === 'search' && req.method === 'GET') {
+        const containerId = reqUrl.searchParams.get('containerId') || '';
+        const keyword = reqUrl.searchParams.get('keyword') || '';
+        const offset = parseInt(reqUrl.searchParams.get('offset'), 10) || 0;
+        const limit = parseInt(reqUrl.searchParams.get('limit'), 10) || 50;
+        sendJson(res, 200, historyManager.searchRecords(containerId, { keyword, offset, limit }));
+        return;
+      }
+
+      if (route === 'delete' && req.method === 'POST') {
+        const { containerId, id } = await readJsonBody(req);
+        sendJson(res, 200, historyManager.deleteRecord(containerId, id));
+        return;
+      }
+
+      if (route === 'delete-batch' && req.method === 'POST') {
+        const { containerId, ids } = await readJsonBody(req);
+        sendJson(res, 200, historyManager.deleteRecords(containerId, ids));
+        return;
+      }
+
+      if (route === 'clear' && req.method === 'POST') {
+        const { containerId } = await readJsonBody(req);
+        sendJson(res, 200, historyManager.clearRecords(containerId));
+        return;
+      }
+
+      sendJson(res, 404, { error: 'Not Found' });
+    } catch (err) {
+      console.error('[Realm] 历史 API 处理失败:', err.message);
+      sendJson(res, 400, { error: err.message });
+    }
+  }
+
   const realmServer = http.createServer((req, res) => {
-    const reqPath = req.url.split('?')[0]; // 去掉查询参数
+    const reqUrl = new URL(req.url, 'http://localhost');
+    const reqPath = reqUrl.pathname;
+
+    // 历史记录 JSON API（内部页面数据层）
+    if (reqPath.startsWith('/api/history/')) {
+      handleHistoryApi(req, res, reqUrl);
+      return;
+    }
 
     // 路由映射：/history → src/history.html，/history/xxx.js → src/xxx.js
     let filePath;
@@ -242,8 +346,8 @@ app.whenReady().then(async () => {
     const realmPort = realmServer.address().port;
     console.log(`[Realm] 内部页面服务器已启动: http://localhost:${realmPort}`);
 
-    // 暴露端口给渲染进程
-    ipcMain.handle('get-realm-port', () => realmPort);
+    // 暴露端口和 API token 给渲染进程（token 用于内部页面调用 /api/history/*）
+    ipcMain.handle('get-realm-port', () => ({ port: realmPort, token: REALM_TOKEN }));
   });
 
   // 注册 IPC 处理器

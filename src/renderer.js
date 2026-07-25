@@ -118,6 +118,8 @@ const state = {
 
   // 内部页面服务器端口（用于加载 realm:// 页面）
   realmPort: null,
+  // 内部页面 API token（/api/history/* 鉴权）
+  realmToken: null,
 };
 
 // 注意：Tab 回收策略（上限/文案/回收逻辑）单点实现于主进程 tab-manager（WR-4）。
@@ -133,23 +135,34 @@ const WEBVIEW_WEBPREFERENCES = 'contextIsolation=yes';
 /**
  * 将 realm:// URL 转换为 http://localhost:PORT/ URL
  * webview 无法直接加载自定义协议，需要通过本地 HTTP 服务器中转
+ * 内部页面的数据 API（/api/history/*）需要 token 鉴权，
+ * 容器 ID 也通过查询参数传递给页面（guest 无法走 IPC 获取当前容器）
  * @param {string} url - realm:// 格式的 URL
+ * @param {string} [containerId] - 当前容器 ID
  * @returns {string} http://localhost:PORT/ 格式的 URL
  */
-function realmUrlToHttp(url) {
+function realmUrlToHttp(url, containerId) {
   if (!state.realmPort || !url.startsWith('realm://')) return url;
-  const converted = url.replace(/^realm:\/\//, `http://localhost:${state.realmPort}/`);
+  let converted = url.replace(/^realm:\/\//, `http://localhost:${state.realmPort}/`);
+  const params = new URLSearchParams();
+  if (containerId) params.set('container', containerId);
+  if (state.realmToken) params.set('token', state.realmToken);
+  const query = params.toString();
+  if (query) converted += (converted.includes('?') ? '&' : '?') + query;
   return converted;
 }
 
 /**
  * 将 http://localhost:PORT/ URL 转换回 realm:// URL（用于地址栏显示）
+ * 查询参数（container/token）仅用于页面运行时，显示时剥离
  * @param {string} url - http://localhost:PORT/ 格式的 URL
  * @returns {string} realm:// 格式的 URL（如果不是内部页面则原样返回）
  */
 function httpUrlToRealm(url) {
   if (!state.realmPort || !url.startsWith(`http://localhost:${state.realmPort}/`)) return url;
-  return url.replace(`http://localhost:${state.realmPort}/`, 'realm://');
+  const converted = url.replace(`http://localhost:${state.realmPort}/`, 'realm://');
+  // 剥离查询参数（含 API token），避免泄露到地址栏/持久化 Tab
+  return converted.split('?')[0];
 }
 
 /**
@@ -402,7 +415,7 @@ function createWebviewForTab(tabId, containerId, url) {
 
   // realm:// URL 转换为 http://localhost:PORT/ URL（webview 无法加载自定义协议）
   if (url && url.startsWith('realm://')) {
-    url = realmUrlToHttp(url);
+    url = realmUrlToHttp(url, containerId);
   }
 
   const webview = document.createElement('webview');
@@ -1256,8 +1269,10 @@ async function restoreTabs() {
 async function init() {
   console.log('[Realm Renderer] 初始化...');
 
-  // 获取内部页面服务器端口（用于加载 realm:// 页面）
-  state.realmPort = await window.realmAPI.getRealmPort();
+  // 获取内部页面服务器端口和 API token（用于加载 realm:// 页面）
+  const realmInfo = await window.realmAPI.getRealmPort();
+  state.realmPort = realmInfo.port;
+  state.realmToken = realmInfo.token;
   console.log('[Realm Renderer] 内部页面服务器端口:', state.realmPort);
 
   // 加载容器列表
@@ -1990,10 +2005,11 @@ function setupEventListeners() {
   elements.historyBtn.addEventListener('click', () => {
     const containerId = state.currentContainer;
 
-    // 检查是否已有 realm://history 的 Tab 打开
+    // 检查当前容器是否已有 realm://history 的 Tab 打开
+    // （历史页容器由 webview URL 的 ?container= 参数决定，跨容器复用会串数据）
     let existingTabId = null;
     state.tabs.forEach((tab, tabId) => {
-      if (tab.url === 'realm://history') {
+      if (tab.url === 'realm://history' && tab.containerId === containerId) {
         existingTabId = tabId;
       }
     });
