@@ -47,6 +47,7 @@ Realm Browser 是一个多容器隔离浏览器，从当前的单文件架构演
 **Plans**: 3 plans
 
 Plans:
+
 - [x] 01-01-PLAN.md — Walking Skeleton: 模块化架构重构 + 容器下拉面板 + 容器切换
 - [x] 01-02-PLAN.md — 容器创建/编辑 Modal（统一表单、颜色选择器、emoji 选择器）
 - [x] 01-03-PLAN.md — 容器删除确认弹窗 + 输入验证增强
@@ -72,6 +73,7 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
+
 - [x] 02-01-PLAN.md — Tab 栏 UI + 新标签页 + Tab 本地管理（渲染进程）
 - [x] 02-02-PLAN.md — Webview 集成 + URL 导航 + 导航控件
 - [x] 02-03-PLAN.md — 主进程 Tab 管理 + IPC 集成 + 持久化
@@ -99,6 +101,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
+
 - [x] 03-01-PLAN.md — Cookie 管理模块 + 自动保存/加载 + 手动导出/导入
 
 </details>
@@ -118,6 +121,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
+
 - [x] 04-01-PLAN.md — 容器分配规则 + 快捷键管理
 - [x] 04-02-PLAN.md — 快捷键重构：globalShortcut → Menu Accelerator
 - [x] 04-03-PLAN.md — 规则管理 UI 增强：Toggle + Drag-Drop + Import/Export
@@ -127,60 +131,76 @@ Plans:
 </details>
 
 ### Phase 5: 容器属性扩展
+
 **Goal**: 容器支持手机号、邮箱、备注等扩展属性，旧版本数据自动兼容
 **Depends on**: Phase 4
 **Requirements**: ATTR-01, ATTR-02, ATTR-03, ATTR-04, ATTR-05
 **Success Criteria** (what must be TRUE):
+
   1. 用户可以在编辑容器 Modal 中为容器设置手机号、邮箱、备注
   2. 容器属性在创建和编辑容器时均可填写和修改
   3. 旧版本容器数据升级后自动填充缺失字段的默认值，不会崩溃
-**Plans**: 1 plan
+
+**Plans**: 1/1 plans complete
 
 Plans:
+
 - [x] 05-01-PLAN.md — 数据模型扩展（主进程惰性填充 + IPC 验证）+ 表单 UI 扩展（邮箱/手机号/备注字段 + 验证 + textarea 样式）
 
 ### Phase 6: 浏览历史记录
+
 **Goal**: 应用自动记录用户浏览的页面，按容器隔离存储，用户可以查看、搜索和清理历史
 **Depends on**: Phase 5
 **Requirements**: HIST-01, HIST-02, HIST-03, HIST-04, HIST-05, HIST-06, HIST-07
 **Success Criteria** (what must be TRUE):
+
   1. 用户访问的页面 URL 和标题被自动记录到当前容器的历史记录中
   2. 用户可以在工具栏查看当前容器的历史记录列表，不同容器的历史记录互不可见
   3. 用户可以搜索历史记录，输入关键词后实时过滤结果
   4. 用户可以删除单条历史记录或清空当前容器的全部历史
   5. 历史记录超过每容器 10000 条上限时自动淘汰最旧记录
+
 **Plans**: TBD
 
 Plans:
+
 - [ ] 06-01: TBD
 
 ### Phase 7: 收藏夹管理
+
 **Goal**: 用户可以收藏和管理常用页面，收藏按容器隔离
 **Depends on**: Phase 6
 **Requirements**: FAV-01, FAV-02, FAV-03, FAV-04, FAV-05, FAV-06, FAV-07, FAV-08
 **Success Criteria** (what must be TRUE):
+
   1. 用户可以点击工具栏按钮收藏当前页面，已收藏页面显示收藏状态
   2. 用户可以查看当前容器的收藏列表，不同容器的收藏互不可见
   3. 用户可以编辑收藏项的标题、删除收藏项、搜索收藏
   4. 同一 URL 在同一容器内不能重复收藏，重复操作给出提示
+
 **Plans**: TBD
 
 Plans:
+
 - [ ] 07-01: TBD
 
 ### Phase 8: 常用网站推荐 + 设置页面
+
 **Goal**: 新标签页展示基于 frecency 排序的常用网站，用户可以配置应用设置
 **Depends on**: Phase 6
 **Requirements**: FREQ-01, FREQ-02, FREQ-03, FREQ-04, FREQ-05, SETT-01, SETT-02, SETT-03, SETT-04, SETT-05
 **Success Criteria** (what must be TRUE):
+
   1. 新标签页展示常用网站网格，按 frecency（频率 + 最近性加权）排序，同一域名下多个页面合并为一个卡片
   2. 常用网站显示 favicon，按当前容器过滤，不同容器看到不同的推荐
   3. 用户可以打开设置页面，设置默认浏览器、历史记录保留天数等选项
   4. 设置变更立即持久化，应用重启后设置保持不变
   5. 设置页面引导用户将 Realm 设为系统默认浏览器
+
 **Plans**: TBD
 
 Plans:
+
 - [ ] 08-01: TBD
 
 **UI hint**: yes
@@ -196,7 +216,7 @@ Phases execute in numeric order: 5 → 6 → 7 → 8
 | 2. Browser Core - URL Navigation + Multi-Tab | v1.0 | 5/5 | Complete | 2026-07-23 |
 | 3. Data Isolation + Cookie Persistence | v1.0 | 1/1 | Complete | 2026-07-23 |
 | 4. Convenience Features | v1.0 | 3/3 | Complete | 2026-07-24 |
-| 5. 容器属性扩展 | v1.1 | 1/1 | Complete | 2026-07-25 |
+| 5. 容器属性扩展 | v1.1 | 1/1 | Complete   | 2026-07-25 |
 | 6. 浏览历史记录 | v1.1 | 0/1 | Not started | - |
 | 7. 收藏夹管理 | v1.1 | 0/1 | Not started | - |
 | 8. 常用网站推荐 + 设置页面 | v1.1 | 0/1 | Not started | - |
