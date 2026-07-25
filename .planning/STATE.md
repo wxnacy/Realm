@@ -4,11 +4,11 @@ milestone: v1.1
 milestone_name: 容器属性增强 + 收藏历史 + 常用网站 + 设置页面
 current_phase: 5
 current_phase_name: 容器属性扩展
-status: planning
-stopped_at: Phase 5 UI-SPEC approved
-last_updated: "2026-07-25T04:55:50.293Z"
+status: ready
+stopped_at: Phase 5 plans created
+last_updated: "2026-07-25T12:57:00.000Z"
 last_activity: 2026-07-25
-last_activity_desc: v1.1 roadmap created (Phases 5-8)
+last_activity_desc: Phase 5 planning complete (1 plan, 2 tasks)
 progress:
   total_phases: 4
   completed_phases: 0
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-07-25)
 
 Phase: 5 of 8 (容器属性扩展)
 Plan: 0 of 1 in current phase
-Status: Ready to plan
-Last activity: 2026-07-25 — v1.1 roadmap created (Phases 5-8)
+Status: Ready to execute
+Last activity: 2026-07-25 — Phase 5 planning complete
 
 Progress: [████░░░░░░] 50%
 
