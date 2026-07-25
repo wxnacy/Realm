@@ -25,7 +25,7 @@ Realm Browser 是一个多容器隔离浏览器，从当前的单文件架构演
 
 - [x] **Phase 5: 容器属性扩展** — 容器增加手机号、邮箱、备注属性，旧数据自动兼容 (completed 2026-07-25)
 - [ ] **Phase 6: 浏览历史记录** — 自动记录页面导航、按容器隔离存储、列表展示、搜索、清理
-- [ ] **Phase 7: 收藏夹管理** — 收藏/取消收藏、收藏列表、编辑/删除、搜索、容器隔离
+- [x] **Phase 7: 收藏夹管理** — 收藏/取消收藏、收藏列表、编辑/删除、搜索、容器隔离 (completed 2026-07-25)
 - [ ] **Phase 8: 常用网站推荐 + 设置页面** — 新标签页常用网站网格（frecency）+ 应用设置
 
 ## Phase Details
@@ -188,11 +188,11 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 07-01-PLAN.md — 后端基础：favorites-manager.js + /api/favorites/* API + IPC 通道 + preload API
+- [x] 07-01-PLAN.md — 后端基础：favorites-manager.js + /api/favorites/* API + IPC 通道 + preload API
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 07-02-PLAN.md — 前端 UI：工具栏按钮 + 收藏编辑面板 + 收藏列表页面（搜索/编辑/删除）
+- [x] 07-02-PLAN.md — 前端 UI：工具栏按钮 + 收藏编辑面板 + 收藏列表页面（搜索/编辑/删除）
 
 ### Phase 8: 常用网站推荐 + 设置页面
 
@@ -228,5 +228,5 @@ Phases execute in numeric order: 5 → 6 → 7 → 8
 | 4. Convenience Features | v1.0 | 3/3 | Complete | 2026-07-24 |
 | 5. 容器属性扩展 | v1.1 | 1/1 | Complete    | 2026-07-25 |
 | 6. 浏览历史记录 | v1.1 | 2/2 | Complete   | 2026-07-25 |
-| 7. 收藏夹管理 | v1.1 | 0/1 | Not started | - |
+| 7. 收藏夹管理 | v1.1 | 2/2 | Complete | 2026-07-25 |
 | 8. 常用网站推荐 + 设置页面 | v1.1 | 0/1 | Not started | - |
