@@ -339,22 +339,24 @@
     </div>
   </dialog>
 
-  <!-- 收藏编辑面板 -->
-  <div id="bookmarkEditPanel" class="bookmark-edit-panel" style="display:none">
-    <div class="bookmark-edit-header">收藏此页面</div>
-    <div class="bookmark-edit-field">
-      <label for="bookmarkTitleInput">标题</label>
-      <input type="text" id="bookmarkTitleInput" class="bookmark-edit-input" placeholder="页面标题">
+  <!-- 收藏编辑面板（dialog 元素 + showModal()，走 top layer 覆盖 webview） -->
+  <dialog class="modal bookmark-edit-modal" id="bookmarkEditPanel">
+    <div class="bookmark-edit-panel">
+      <div class="bookmark-edit-header">收藏此页面</div>
+      <div class="bookmark-edit-field">
+        <label for="bookmarkTitleInput">标题</label>
+        <input type="text" id="bookmarkTitleInput" class="bookmark-edit-input" placeholder="页面标题">
+      </div>
+      <div class="bookmark-edit-field">
+        <label>网址</label>
+        <div id="bookmarkUrlDisplay" class="bookmark-edit-url"></div>
+      </div>
+      <div class="bookmark-edit-actions">
+        <button type="button" class="btn btn-secondary" id="bookmarkCancelBtn">取消</button>
+        <button type="button" class="btn btn-primary" id="bookmarkSaveBtn">保存</button>
+      </div>
     </div>
-    <div class="bookmark-edit-field">
-      <label>网址</label>
-      <div id="bookmarkUrlDisplay" class="bookmark-edit-url"></div>
-    </div>
-    <div class="bookmark-edit-actions">
-      <button type="button" class="btn btn-secondary" id="bookmarkCancelBtn">取消</button>
-      <button type="button" class="btn btn-primary" id="bookmarkSaveBtn">保存</button>
-    </div>
-  </div>
+  </dialog>
 
   <script src="renderer.js"></script>
 </body>

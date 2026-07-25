@@ -254,7 +254,14 @@ function updateStarButton(bookmarked) {
 function showBookmarkEditPanel(title, url) {
   elements.bookmarkTitleInput.value = title || '';
   elements.bookmarkUrlDisplay.textContent = url || '';
-  elements.bookmarkEditPanel.style.display = 'block';
+
+  // 使用 <dialog> + showModal()：进入 top layer，天然覆盖 Electron <webview>
+  // （webview 是独立 guest WebContents，z-index/visibility 对其不可靠，
+  //  项目其他模态框如 cookiesModal/rulesModal 均用此模式）
+  if (!elements.bookmarkEditPanel.open) {
+    elements.bookmarkEditPanel.showModal();
+  }
+
   elements.bookmarkTitleInput.focus();
   elements.bookmarkTitleInput.select();
 }
@@ -263,7 +270,9 @@ function showBookmarkEditPanel(title, url) {
  * 隐藏收藏编辑面板
  */
 function hideBookmarkEditPanel() {
-  elements.bookmarkEditPanel.style.display = 'none';
+  if (elements.bookmarkEditPanel.open) {
+    elements.bookmarkEditPanel.close();
+  }
 }
 
 /**
@@ -417,6 +426,10 @@ async function switchTab(tabId) {
 
   // 切换 Tab 时检查收藏状态
   checkBookmarkStatus(tab.url, tab.containerId);
+
+  // 切换 Tab 时关闭收藏编辑面板（防御性：showModal 通常阻塞背景使此场景不可达，
+  // 但 ESC/程序化关闭边缘场景下仍可能残留 open 状态）
+  hideBookmarkEditPanel();
 
   // 切换 webview 可见性
   showWebview(tabId);
@@ -2185,6 +2198,10 @@ function setupEventListeners() {
 
   // 星标按钮：收藏/取消收藏当前页面
   elements.bookmarkStarBtn.addEventListener('click', () => {
+    console.log('[Realm Renderer] 星标按钮被点击', {
+      isBookmarked: state.isCurrentPageBookmarked,
+      activeTabId: state.activeTabId,
+    });
     if (state.isCurrentPageBookmarked) {
       // D-03: 已收藏直接取消收藏
       removeBookmark();
@@ -2193,6 +2210,10 @@ function setupEventListeners() {
       const activeTab = state.tabs.get(state.activeTabId);
       if (activeTab && activeTab.url) {
         showBookmarkEditPanel(activeTab.title || activeTab.url, activeTab.url);
+      } else {
+        // 当前 Tab 无可收藏 URL（新标签页/欢迎页/内部页面），给出明确反馈
+        console.warn('[Realm Renderer] 当前 Tab 无可收藏 URL', { activeTab });
+        showToast('当前页面不可收藏', 'info');
       }
     }
   });
@@ -2203,21 +2224,14 @@ function setupEventListeners() {
   // 收藏编辑面板取消按钮
   elements.bookmarkCancelBtn.addEventListener('click', hideBookmarkEditPanel);
 
-  // 点击编辑面板外部关闭
-  document.addEventListener('click', (e) => {
-    if (elements.bookmarkEditPanel.style.display === 'block' &&
-        !elements.bookmarkEditPanel.contains(e.target) &&
-        e.target !== elements.bookmarkStarBtn) {
+  // 点击 dialog 外部（backdrop）关闭：点击 dialog 元素本身（非内容）即 backdrop
+  elements.bookmarkEditPanel.addEventListener('click', (e) => {
+    if (e.target === elements.bookmarkEditPanel) {
       hideBookmarkEditPanel();
     }
   });
 
-  // Escape 键关闭编辑面板
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && elements.bookmarkEditPanel.style.display === 'block') {
-      hideBookmarkEditPanel();
-    }
-  });
+  // Escape 键：<dialog> 原生支持 Escape 关闭，无需手动监听
 
   // 收藏夹按钮：打开 realm://favorites 收藏列表页面
   elements.favoritesBtn.addEventListener('click', () => {
