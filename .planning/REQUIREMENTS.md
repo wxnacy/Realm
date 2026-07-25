@@ -7,12 +7,12 @@
 
 ### 容器管理
 
-- [ ] **CONT-01**: 用户可以创建新容器，设置名称、颜色、图标
-- [ ] **CONT-02**: 用户可以编辑现有容器的名称、颜色、图标
-- [ ] **CONT-03**: 用户可以删除容器（含确认提示）
-- [ ] **CONT-04**: 用户可以通过工具栏下拉面板查看所有容器列表
-- [ ] **CONT-05**: 用户可以点击容器进入该容器，后续新 Tab 在该容器中打开
-- [ ] **CONT-06**: 用户可以点击其他容器，在新 Tab 中打开该容器
+- [x] **CONT-01**: 用户可以创建新容器，设置名称、颜色、图标
+- [x] **CONT-02**: 用户可以编辑现有容器的名称、颜色、图标
+- [x] **CONT-03**: 用户可以删除容器（含确认提示）
+- [x] **CONT-04**: 用户可以通过工具栏下拉面板查看所有容器列表
+- [x] **CONT-05**: 用户可以点击容器进入该容器，后续新 Tab 在该容器中打开
+- [x] **CONT-06**: 用户可以点击其他容器，在新 Tab 中打开该容器
 
 ### 浏览器核心
 
@@ -65,12 +65,12 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONT-01 | Phase 1 | Pending |
-| CONT-02 | Phase 1 | Pending |
-| CONT-03 | Phase 1 | Pending |
-| CONT-04 | Phase 1 | Pending |
-| CONT-05 | Phase 1 | Pending |
-| CONT-06 | Phase 1 | Pending |
+| CONT-01 | Phase 1 | Complete |
+| CONT-02 | Phase 1 | Complete |
+| CONT-03 | Phase 1 | Complete |
+| CONT-04 | Phase 1 | Complete |
+| CONT-05 | Phase 1 | Complete |
+| CONT-06 | Phase 1 | Complete |
 | BROW-01 | Phase 2 | Complete |
 | BROW-02 | Phase 2 | Complete |
 | BROW-03 | Phase 2 | Complete |
@@ -91,7 +91,8 @@
 - v1 requirements: 20 total
 - Mapped to phases: 20
 - Unmapped: 0 ✓
+- Complete: 20/20 (100%) ✓
 
 ---
 *Requirements defined: 2026-07-23*
-*Last updated: 2026-07-23 after initial definition*
+*Last updated: 2026-07-25 after v1.0 milestone completion*

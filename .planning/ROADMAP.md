@@ -4,23 +4,26 @@
 
 Realm Browser 是一个多容器隔离浏览器，从当前的单文件架构演进为模块化架构。Phase 1 重构核心代码并实现容器 CRUD 和管理 UI；Phase 2 迁移到 WebContentsView 实现多 Tab 和 URL 导航；Phase 3 确保数据完全隔离并实现 Cookie 持久化；Phase 4 补充便利功能。四个阶段完成后，产品具备完整的多容器浏览器能力。
 
+## Milestones
+
+- ✅ **v1.0 MVP** — Phases 1-4 (shipped 2026-07-25)
+
 ## Phases
 
-**Phase Numbering:**
+<details>
+<summary>✅ v1.0 MVP (Phases 1-4) — SHIPPED 2026-07-25</summary>
 
-- Integer phases (1, 2, 3): Planned milestone work
-- Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
+- [x] Phase 1: Core Container Management + Architecture Refactoring (3/3 plans) — completed 2026-07-23
+- [x] Phase 2: Browser Core - URL Navigation + Multi-Tab (5/5 plans) — completed 2026-07-23
+- [x] Phase 3: Data Isolation + Cookie Persistence (1/1 plan) — completed 2026-07-23
+- [x] Phase 4: Convenience Features (3/3 plans) — completed 2026-07-24
 
-Decimal phases appear between their surrounding integers in numeric order.
-
-- [x] **Phase 1: Core Container Management + Architecture Refactoring** - 模块化重构 + 容器 CRUD + 管理 UI ✅ 2026-07-23
-- [x] **Phase 2: Browser Core - URL Navigation + Multi-Tab** - WebContentsView 迁移 + 多 Tab + URL 导航 ✅ 2026-07-23
-- [x] **Phase 3: Data Isolation + Cookie Persistence** - 完整数据隔离 + Cookie 文件持久化 ✅ 2026-07-23
-- [x] **Phase 4: Convenience Features** - 容器分配规则 + 快捷键 ✅ 2026-07-23
+</details>
 
 ## Phase Details
 
-### Phase 1: Core Container Management + Architecture Refactoring
+<details>
+<summary>Phase 1: Core Container Management + Architecture Refactoring</summary>
 
 **Goal**: 用户可以通过下拉面板管理容器（创建/编辑/删除），应用采用模块化架构
 **Mode:** mvp
@@ -28,10 +31,10 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Requirements**: CONT-01, CONT-02, CONT-03, CONT-04, CONT-05, CONT-06
 **Success Criteria** (what must be TRUE):
 
-  1. 用户可以创建新容器，设置名称、颜色、图标，新容器立即出现在列表中
-  2. 用户可以编辑和删除容器，删除前有确认提示
-  3. 用户可以通过工具栏下拉面板查看所有容器，点击容器后进入该容器，后续新 Tab 在该容器中打开
-  4. 用户可以点击其他容器，在新 Tab 中打开该容器
+1. 用户可以创建新容器，设置名称、颜色、图标，新容器立即出现在列表中
+2. 用户可以编辑和删除容器，删除前有确认提示
+3. 用户可以通过工具栏下拉面板查看所有容器，点击容器后进入该容器，后续新 Tab 在该容器中打开
+4. 用户可以点击其他容器，在新 Tab 中打开该容器
 
 **Plans**: 3 plans
 
@@ -50,18 +53,21 @@ Plans:
 
 **UI hint**: yes
 
-### Phase 2: Browser Core - URL Navigation + Multi-Tab
+</details>
+
+<details>
+<summary>Phase 2: Browser Core - URL Navigation + Multi-Tab</summary>
 
 **Goal**: 用户可以在同一窗口内以多 Tab 形式浏览不同容器的网页
 **Depends on**: Phase 1
 **Requirements**: BROW-01, BROW-02, BROW-03, BROW-04, BROW-05
 **Success Criteria** (what must be TRUE):
 
-  1. 用户可以在容器中输入 URL 并导航到目标网页
-  2. 用户可以使用前进、后退、刷新按钮进行页面导航
-  3. 用户可以在同一窗口内打开多个 Tab，每个 Tab 属于不同容器，互不影响
-  4. 用户可以关闭 Tab，关闭后该 Tab 的资源被正确释放
-  5. 用户可以看到每个 Tab 的标题和容器颜色标识，清楚区分当前 Tab 属于哪个容器
+1. 用户可以在容器中输入 URL 并导航到目标网页
+2. 用户可以使用前进、后退、刷新按钮进行页面导航
+3. 用户可以在同一窗口内打开多个 Tab，每个 Tab 属于不同容器，互不影响
+4. 用户可以关闭 Tab，关闭后该 Tab 的资源被正确释放
+5. 用户可以看到每个 Tab 的标题和容器颜色标识，清楚区分当前 Tab 属于哪个容器
 
 **Plans**: 5/5 plans complete
 
@@ -88,7 +94,10 @@ Plans:
 
 **UI hint**: yes
 
-### Phase 3: Data Isolation + Cookie Persistence
+</details>
+
+<details>
+<summary>Phase 3: Data Isolation + Cookie Persistence</summary>
 
 **Goal**: 每个容器的数据完全隔离，Cookie 在应用重启后自动恢复
 **Mode:** mvp
@@ -96,10 +105,10 @@ Plans:
 **Requirements**: ISO-01, ISO-02, ISO-03, ISO-04, PST-01, PST-02, PST-03
 **Success Criteria** (what must be TRUE):
 
-  1. 每个容器的 Cookie、Session、LocalStorage、IndexedDB、HTTP 缓存完全隔离，容器间互不干扰
-  2. 用户可以在同一网站同时登录不同容器的不同账号，互不影响
-  3. 应用关闭时每个容器的 Cookie 自动保存到独立 JSON 文件，domain 前缀点号格式正确保留
-  4. 应用启动时各容器的 Cookie 自动加载，用户无需重新登录
+1. 每个容器的 Cookie、Session、LocalStorage、IndexedDB、HTTP 缓存完全隔离，容器间互不干扰
+2. 用户可以在同一网站同时登录不同容器的不同账号，互不影响
+3. 应用关闭时每个容器的 Cookie 自动保存到独立 JSON 文件，domain 前缀点号格式正确保留
+4. 应用启动时各容器的 Cookie 自动加载，用户无需重新登录
 
 **Plans**: 1/1 plans complete
 
@@ -107,7 +116,10 @@ Plans:
 
 - [x] 03-01-PLAN.md — Cookie 管理模块 + 自动保存/加载 + 手动导出/导入 ✅
 
-### Phase 4: Convenience Features
+</details>
+
+<details>
+<summary>Phase 4: Convenience Features</summary>
 
 **Goal**: 用户可以通过分配规则和快捷键提升多容器浏览效率
 **Mode:** mvp
@@ -115,8 +127,8 @@ Plans:
 **Requirements**: CNV-01, CNV-02
 **Success Criteria** (what must be TRUE):
 
-  1. 用户可以设置容器分配规则，指定网站自动在特定容器打开
-  2. 用户可以使用快捷键进行常用操作（新建 Tab、关闭 Tab、切换容器）
+1. 用户可以设置容器分配规则，指定网站自动在特定容器打开
+2. 用户可以使用快捷键进行常用操作（新建 Tab、关闭 Tab、切换容器）
 
 **Plans**: 3/3 plans complete
 
@@ -128,14 +140,16 @@ Plans:
 
 **UI hint**: yes
 
+</details>
+
 ## Progress
 
 **Execution Order:**
 Phases execute in numeric order: 1 → 2 → 3 → 4
 
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 1. Core Container Management + Architecture Refactoring | 3/3 | Complete | 2026-07-23 |
-| 2. Browser Core - URL Navigation + Multi-Tab | 5/5 | Complete    | 2026-07-23 |
-| 3. Data Isolation + Cookie Persistence | 1/1 | Complete    | 2026-07-23 |
-| 4. Convenience Features | 3/3 | Complete    | 2026-07-24 |
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1. Core Container Management + Architecture Refactoring | v1.0 | 3/3 | Complete | 2026-07-23 |
+| 2. Browser Core - URL Navigation + Multi-Tab | v1.0 | 5/5 | Complete | 2026-07-23 |
+| 3. Data Isolation + Cookie Persistence | v1.0 | 1/1 | Complete | 2026-07-23 |
+| 4. Convenience Features | v1.0 | 3/3 | Complete | 2026-07-24 |

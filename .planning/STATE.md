@@ -1,39 +1,39 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.0
-milestone_name: milestone
+milestone_name: v1.0 MVP
 current_phase: 4
-status: executing
-stopped_at: Phase 4 complete — verification passed
-last_updated: "2026-07-25T03:43:44.030Z"
+status: milestone_complete
+stopped_at: v1.0 milestone complete — all phases shipped
+last_updated: "2026-07-25T04:17:00.000Z"
 last_activity: 2026-07-25
-last_activity_desc: Phase 4 complete
+last_activity_desc: v1.0 milestone complete
 progress:
   total_phases: 4
   completed_phases: 4
   total_plans: 12
   completed_plans: 12
   percent: 100
-current_phase_name: Convenience Features
+current_phase_name: Milestone Complete
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-24)
+See: .planning/PROJECT.md (updated 2026-07-25)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载
-**Current focus:** Phase 03 — Data Isolation + Cookie Persistence
+**Current focus:** v1.0 milestone complete — planning next milestone
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
-Status: executing
-Last activity: 2026-07-25 — Phase 4 complete
+Phase: 4 (All complete)
+Plan: N/A
+Status: milestone_complete
+Last activity: 2026-07-25 — v1.0 milestone complete
 
-Progress: [████████████████████░] 11/12 plans (92%)
+Progress: [████████████████████████] 12/12 plans (100%)
 
 ## Performance Metrics
 
@@ -104,11 +104,16 @@ None yet.
 
 ## Deferred Items
 
-Items acknowledged and carried forward from previous milestone close:
+Items acknowledged and deferred at milestone close on 2026-07-25:
 
-| Category | Item | Status | Deferred At |
-|----------|------|--------|-------------|
-| *(none)* | | | |
+| Category | Item | Status |
+|----------|------|--------|
+| debug | cold-start-url-input-no-response | diagnosed |
+| debug | container-delete-partitions | unknown |
+| debug | progress-bar-wrong-position | diagnosed |
+| debug | refresh-button-no-stop-icon | diagnosed |
+| debug | url-input-enter-no-response | diagnosed |
+| uat_gaps | Phase 03: 03-UAT.md | partial |
 
 ## Session Continuity
 
