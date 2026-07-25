@@ -201,7 +201,7 @@ Exceptions: 工具栏高度固定 48px（`--toolbar-height`），Tab 栏高度�
   background-color: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  padding: 0 12px 0 36px;
+  padding: 0 12px 0 32px;
   color: var(--text-primary);
   font-size: 14px;
   outline: none;
@@ -271,7 +271,7 @@ Exceptions: 工具栏高度固定 48px（`--toolbar-height`），Tab 栏高度�
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-radius: 8px;
   cursor: default;
   transition: background-color 0.15s;
@@ -361,6 +361,17 @@ Exceptions: 工具栏高度固定 48px（`--toolbar-height`），Tab 栏高度�
   background-color: var(--bg-tertiary);
   color: var(--danger-color);
 }
+```
+
+删除按钮为纯图标按钮，必须包含 `aria-label` 以保证无障碍访问：
+
+```html
+<button class="history-item-delete" aria-label="删除">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <line x1="18" y1="6" x2="6" y2="18"></line>
+    <line x1="6" y1="6" x2="18" y2="18"></line>
+  </svg>
+</button>
 ```
 
 ### 8. 空状态
@@ -497,7 +508,7 @@ Exceptions: 工具栏高度固定 48px（`--toolbar-height`），Tab 栏高度�
 - [ ] Dimension 2 Visuals: PASS — 沿用现有设计系统，Chrome 风格适配深色主题
 - [ ] Dimension 3 Color: PASS — 使用项目 CSS 变量，60/30/10 分布一致
 - [ ] Dimension 4 Typography: PASS — 4 级字体规格，从现有 CSS 提取
-- [ ] Dimension 5 Spacing: PASS — 4px 网格，6 级间距，与现有 UI 一致
+- [x] Dimension 5 Spacing: PASS — 4px 网格，6 级间距，所有组件 CSS 值已验证合规（修复了 `10px→8px`、`36px→32px`）
 - [ ] Dimension 6 Registry Safety: PASS — 无第三方注册表
 
 **Approval:** pending
