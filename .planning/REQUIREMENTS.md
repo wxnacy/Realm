@@ -25,14 +25,16 @@
 
 ### 收藏夹管理
 
-- [ ] **FAV-01**: 用户可以收藏当前页面
-- [ ] **FAV-02**: 用户可以取消收藏已收藏页面
-- [ ] **FAV-03**: 用户可以查看收藏列表
-- [ ] **FAV-04**: 用户可以编辑收藏项的标题
-- [ ] **FAV-05**: 用户可以删除收藏项
-- [ ] **FAV-06**: 用户可以搜索收藏
-- [ ] **FAV-07**: 收藏按容器隔离（收藏时记录当前容器 ID）
-- [ ] **FAV-08**: 同一 URL 在同一容器内不能重复收藏
+- [x] **FAV-01**: 用户可以收藏当前页面
+- [x] **FAV-02**: 用户可以取消收藏已收藏页面
+- [x] **FAV-03**: 用户可以查看收藏列表
+- [x] **FAV-04**: 用户可以编辑收藏项的标题
+- [x] **FAV-05**: 用户可以删除收藏项
+- [x] **FAV-06**: 用户可以搜索收藏
+- [ ] **FAV-07**: ~~收藏按容器隔离~~（已重新设计：改为所有容器共享收藏数据库，由 FAV-09 替代）
+- [x] **FAV-08**: 同一 URL 不能重复收藏（URL 全局唯一，跨容器去重）
+- [ ] **FAV-09**: 收藏数据全局共享，所有容器看到同一份收藏列表
+- [ ] **FAV-10**: 切换容器时收藏列表保持一致，无需按容器过滤
 
 ### 常用网站推荐
 
@@ -40,7 +42,7 @@
 - [ ] **FREQ-02**: 常用网站基于 frecency 算法（频率 + 最近性加权）排序
 - [ ] **FREQ-03**: 常用网站按域名聚合（同一域名下多个页面合并为一个卡片）
 - [ ] **FREQ-04**: 常用网站显示 favicon
-- [ ] **FREQ-05**: 常用网站按当前容器过滤
+- [ ] **FREQ-05**: 常用网站合并所有容器历史记录（不按容器隔离，所有容器显示相同推荐）
 
 ### 设置页面
 
@@ -77,14 +79,16 @@
 | HIST-05 | Phase 6 | Complete |
 | HIST-06 | Phase 6 | Complete |
 | HIST-07 | Phase 6 | Complete |
-| FAV-01 | Phase 7 | Pending |
-| FAV-02 | Phase 7 | Pending |
-| FAV-03 | Phase 7 | Pending |
-| FAV-04 | Phase 7 | Pending |
-| FAV-05 | Phase 7 | Pending |
-| FAV-06 | Phase 7 | Pending |
-| FAV-07 | Phase 7 | Pending |
-| FAV-08 | Phase 7 | Pending |
+| FAV-01 | Phase 7 | Complete |
+| FAV-02 | Phase 7 | Complete |
+| FAV-03 | Phase 7 | Complete |
+| FAV-04 | Phase 7 | Complete |
+| FAV-05 | Phase 7 | Complete |
+| FAV-06 | Phase 7 | Complete |
+| FAV-07 | Phase 9 | Pending (重新设计为共享) |
+| FAV-08 | Phase 7 / 9 | Complete (语义扩展为全局唯一) |
+| FAV-09 | Phase 9 | Pending |
+| FAV-10 | Phase 9 | Pending |
 | FREQ-01 | Phase 8 | Pending |
 | FREQ-02 | Phase 8 | Pending |
 | FREQ-03 | Phase 8 | Pending |

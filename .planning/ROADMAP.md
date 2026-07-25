@@ -7,7 +7,7 @@ Realm Browser 是一个多容器隔离浏览器，从当前的单文件架构演
 ## Milestones
 
 - ✅ **v1.0 MVP** — Phases 1-4 (shipped 2026-07-25)
-- 🚧 **v1.1 容器属性增强 + 收藏历史 + 常用网站 + 设置页面** — Phases 5-8 (in progress)
+- 🚧 **v1.1 容器属性增强 + 收藏历史 + 常用网站 + 设置页面** — Phases 5-9 (in progress)
 
 ## Phases
 
@@ -27,6 +27,7 @@ Realm Browser 是一个多容器隔离浏览器，从当前的单文件架构演
 - [ ] **Phase 6: 浏览历史记录** — 自动记录页面导航、按容器隔离存储、列表展示、搜索、清理
 - [x] **Phase 7: 收藏夹管理** — 收藏/取消收藏、收藏列表、编辑/删除、搜索、容器隔离 (completed 2026-07-25)
 - [ ] **Phase 8: 常用网站推荐 + 设置页面** — 新标签页常用网站网格（frecency）+ 应用设置
+- [ ] **Phase 9: 共享收藏数据库** — 收藏从按容器隔离改为全局共享，跨容器看到同一份收藏列表
 
 ## Phase Details
 
@@ -202,23 +203,48 @@ Plans:
 **Success Criteria** (what must be TRUE):
 
   1. 新标签页展示常用网站网格，按 frecency（频率 + 最近性加权）排序，同一域名下多个页面合并为一个卡片
-  2. 常用网站显示 favicon，按当前容器过滤，不同容器看到不同的推荐
+  2. 常用网站显示 favicon，合并所有容器历史记录，所有容器显示相同推荐
   3. 用户可以打开设置页面，设置默认浏览器、历史记录保留天数等选项
   4. 设置变更立即持久化，应用重启后设置保持不变
   5. 设置页面引导用户将 Realm 设为系统默认浏览器
 
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 
-- [ ] 08-01: TBD
+**Wave 1**
+
+- [ ] 08-01-PLAN.md — 后端基础：frequent-sites-manager.js + API 端点 + HTML 模板
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 08-02-PLAN.md — 前端 UI：新标签页常用网站 + 设置页面 + 工具栏绑定
 
 **UI hint**: yes
+
+### Phase 9: 共享收藏数据库
+
+**Goal**: 收藏功能从按容器隔离改为全局共享，所有容器看到同一份收藏列表
+**Depends on**: Phase 7
+**Requirements**: FAV-07 (重新设计), FAV-09, FAV-10
+**Success Criteria** (what must be TRUE):
+
+  1. 收藏数据存储在单一全局表（不再按容器分表），所有容器读写同一份数据
+  2. 用户在容器 A 收藏的页面，在容器 B 中也能看到并标记为已收藏
+  3. 同一 URL 全局唯一去重，跨容器收藏同一 URL 返回重复提示
+  4. 现有按容器分表（favorites_work、favorites_default 等）的收藏数据自动迁移合并到全局表，迁移后旧表被清理
+  5. 删除容器时不再清空该容器的收藏数据（数据全局共享，与容器生命周期解耦）
+
+**Plans**: TBD
+
+**背景**: Phase 7 实现按容器隔离（favorites_{containerId} 分表）。UAT 期间用户判断收藏应是跨容器的全局数据（类似 Chrome 收藏夹），不应与容器绑定。Phase 9 执行此次重构，简化数据模型并修复跨容器看到不同收藏的违和感。
+
+**UI hint**: no（后端重构 + 数据迁移为主，前端只需移除按容器过滤逻辑）
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 5 → 6 → 7 → 8
+Phases execute in numeric order: 5 → 6 → 7 → 8 → 9
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -228,5 +254,6 @@ Phases execute in numeric order: 5 → 6 → 7 → 8
 | 4. Convenience Features | v1.0 | 3/3 | Complete | 2026-07-24 |
 | 5. 容器属性扩展 | v1.1 | 1/1 | Complete    | 2026-07-25 |
 | 6. 浏览历史记录 | v1.1 | 2/2 | Complete   | 2026-07-25 |
-| 7. 收藏夹管理 | v1.1 | 2/2 | Complete | 2026-07-25 |
-| 8. 常用网站推荐 + 设置页面 | v1.1 | 0/1 | Not started | - |
+| 7. 收藏夹管理 | v1.1 | 2/2 | Complete    | 2026-07-25 |
+| 8. 常用网站推荐 + 设置页面 | v1.1 | 0/2 | Planning complete | - |
+| 9. 共享收藏数据库 | v1.1 | 0/? | Not started | - |
