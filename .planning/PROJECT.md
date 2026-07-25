@@ -51,10 +51,10 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 <!-- 当前需要构建的功能 -->
 
-- [ ] **容器间数据导入导出** — ADV-01
-- [ ] **Tab 内存优化** — Tab discarding (ADV-02)
-- [ ] **容器颜色标识的 Tab UI 增强** — ADV-03
-- [ ] **容器分组管理** — ADV-04
+- [ ] **容器属性扩展** — 容器增加手机号、邮箱、备注等属性
+- [ ] **收藏与历史记录** — 收藏夹管理和浏览历史记录功能
+- [ ] **常用网站智能推荐** — 新标签页展示常用网站，自动根据访问记录排序
+- [ ] **设置页面** — 包含设置默认浏览器功能
 
 ### Out of Scope
 
@@ -63,6 +63,16 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - **书签/历史同步** — 本期不实现跨容器同步
 - **网络代理隔离** — 本期不实现每个容器独立代理
 - **移动端支持** — 仅支持桌面端（macOS）
+
+## Current Milestone: v1.1 容器属性增强 + 收藏历史 + 常用网站 + 设置页面
+
+**Goal:** 增强容器元数据管理，添加用户浏览数据管理能力，优化新标签页体验，提供应用设置
+
+**Target features:**
+- 容器属性扩展 — 容器增加手机号、邮箱、备注等属性
+- 收藏与历史记录 — 收藏夹管理和浏览历史记录功能
+- 常用网站智能推荐 — 新标签页展示常用网站，自动根据访问记录排序
+- 设置页面 — 包含设置默认浏览器功能
 
 ## Context
 
@@ -80,6 +90,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - v1.0 MVP 已完成，包含完整的多容器浏览器功能
 - 支持容器 CRUD、多 Tab、URL 导航、数据隔离、Cookie 持久化、分配规则、快捷键
 - 12 个计划全部完成，20 个 v1 需求全部实现
+- 新增环境隔离：开发环境使用 realm-dev 目录
 
 ## Constraints
 
@@ -122,4 +133,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-25 after v1.0 milestone*
+*Last updated: 2026-07-25 — Milestone v1.1 started*
