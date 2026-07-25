@@ -46,16 +46,14 @@ Exceptions: 工具栏高度固定 48px（`--toolbar-height`），Tab 栏高度�
 
 ## Typography
 
-沿用项目已有字体规格（从 `main.css` 提取）：
+沿用项目已有字体规格（从 `main.css` 提取，合并 Caption 到 Label 以保持 4 级字体层次）：
 
 | Role | Size | Weight | Line Height | Usage |
 |------|------|--------|-------------|-------|
 | Display | 24px | 600 | 1.2 | 新标签页标题、历史记录页面标题 |
-| Heading | 18px | 600 | 1.3 | Modal 标题（h2） |
-| Body | 14px | 400 | 1.5 | 列表项正文、表单输入、按钮文字 |
-| Label | 13px | 400 | 1.4 | Tab 标题、URL 显示 |
-| Caption | 12px | 400 | 1.4 | 次要信息（container-status、cookie-domain）、时间戳 |
-| Mono | 13px | 400 | 1.4 | URL 文本（浏览器地址栏风格） |
+| Heading | 18px | 600 | 1.3 | Modal 标题（h2）、空状态标题 |
+| Body | 14px | 400 | 1.5 | 列表项正文、表单输入、按钮文字、日期分组标题 |
+| Label | 13px | 400 | 1.4 | Tab 标题、URL 显示、时间戳、次要信息（container-status、cookie-domain） |
 
 ---
 
@@ -326,7 +324,7 @@ Exceptions: 工具栏高度固定 48px（`--toolbar-height`），Tab 栏高度�
 }
 
 .history-item-url {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -334,7 +332,7 @@ Exceptions: 工具栏高度固定 48px（`--toolbar-height`），Tab 栏高度�
 }
 
 .history-item-time {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
   flex-shrink: 0;
   min-width: 40px;
