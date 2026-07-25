@@ -321,6 +321,80 @@ contextBridge.exposeInMainWorld('realmAPI', {
    */
   historyCount: (containerId) => ipcRenderer.invoke('history:count', { containerId }),
 
+  // ==================== 收藏夹 ====================
+
+  /**
+   * 检查 URL 是否已收藏
+   * @param {string} containerId - 容器 ID
+   * @param {string} url - 页面 URL
+   * @returns {Promise<{id: number, title: string, favicon_url: string}|null>}
+   */
+  favoritesCheck: (containerId, url) => ipcRenderer.invoke('favorites:check', { containerId, url }),
+
+  /**
+   * 添加收藏
+   * @param {Object} data - 收藏数据
+   * @param {string} data.containerId - 容器 ID
+   * @param {string} data.url - 页面 URL
+   * @param {string} [data.title] - 页面标题
+   * @param {string} [data.faviconUrl] - favicon URL
+   * @returns {Promise<{id: number}|{error: string, message: string}>}
+   */
+  favoritesAdd: (data) => ipcRenderer.invoke('favorites:add', data),
+
+  /**
+   * 更新收藏标题
+   * @param {string} containerId - 容器 ID
+   * @param {number} id - 记录 ID
+   * @param {string} title - 新标题
+   * @returns {Promise<boolean>}
+   */
+  favoritesUpdate: (containerId, id, title) => ipcRenderer.invoke('favorites:update', { containerId, id, title }),
+
+  /**
+   * 删除单条收藏
+   * @param {string} containerId - 容器 ID
+   * @param {number} id - 记录 ID
+   * @returns {Promise<boolean>}
+   */
+  favoritesDelete: (containerId, id) => ipcRenderer.invoke('favorites:delete', { containerId, id }),
+
+  /**
+   * 批量删除收藏
+   * @param {string} containerId - 容器 ID
+   * @param {Array<number>} ids - 记录 ID 数组
+   * @returns {Promise<number>}
+   */
+  favoritesDeleteBatch: (containerId, ids) => ipcRenderer.invoke('favorites:delete-batch', { containerId, ids }),
+
+  /**
+   * 列出收藏记录
+   * @param {Object} data - 分页参数
+   * @param {string} data.containerId - 容器 ID
+   * @param {number} [data.offset] - 分页偏移
+   * @param {number} [data.limit] - 每页数量
+   * @returns {Promise<Array>}
+   */
+  favoritesList: (data) => ipcRenderer.invoke('favorites:list', data),
+
+  /**
+   * 搜索收藏记录
+   * @param {Object} data - 搜索参数
+   * @param {string} data.containerId - 容器 ID
+   * @param {string} data.keyword - 搜索关键词
+   * @param {number} [data.offset] - 分页偏移
+   * @param {number} [data.limit] - 每页数量
+   * @returns {Promise<Array>}
+   */
+  favoritesSearch: (data) => ipcRenderer.invoke('favorites:search', data),
+
+  /**
+   * 获取容器收藏记录总数
+   * @param {string} containerId - 容器 ID
+   * @returns {Promise<number>}
+   */
+  favoritesCount: (containerId) => ipcRenderer.invoke('favorites:count', { containerId }),
+
   // ==================== 快捷键 ====================
 
   /**

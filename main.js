@@ -51,6 +51,7 @@ const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
 const { registerHandlers } = require('./ipc-handlers');
 const historyManager = require('./history-manager');
+const favoritesManager = require('./favorites-manager');
 
 // ==================== webview guest 拦截（WR-1/WR-2/WR-9） ====================
 
@@ -293,6 +294,77 @@ app.whenReady().then(async () => {
     }
   }
 
+  /**
+   * 处理 /api/favorites/* 收藏夹 API 请求
+   * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} res - 响应对象
+   * @param {URL} reqUrl - 解析后的请求 URL
+   */
+  async function handleFavoritesApi(req, res, reqUrl) {
+    // token 鉴权：防 CSRF 与 localhost 端口扫描读取/篡改收藏
+    if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+      sendJson(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    try {
+      const route = reqUrl.pathname.replace('/api/favorites/', '');
+
+      if (route === 'list' && req.method === 'GET') {
+        const containerId = reqUrl.searchParams.get('containerId') || '';
+        const offset = parseInt(reqUrl.searchParams.get('offset'), 10) || 0;
+        const limit = parseInt(reqUrl.searchParams.get('limit'), 10) || 50;
+        sendJson(res, 200, favoritesManager.listRecords(containerId, { offset, limit }));
+        return;
+      }
+
+      if (route === 'search' && req.method === 'GET') {
+        const containerId = reqUrl.searchParams.get('containerId') || '';
+        const keyword = reqUrl.searchParams.get('keyword') || '';
+        const offset = parseInt(reqUrl.searchParams.get('offset'), 10) || 0;
+        const limit = parseInt(reqUrl.searchParams.get('limit'), 10) || 50;
+        sendJson(res, 200, favoritesManager.searchRecords(containerId, { keyword, offset, limit }));
+        return;
+      }
+
+      if (route === 'check' && req.method === 'GET') {
+        const containerId = reqUrl.searchParams.get('containerId') || '';
+        const url = reqUrl.searchParams.get('url') || '';
+        sendJson(res, 200, favoritesManager.checkUrl(containerId, url));
+        return;
+      }
+
+      if (route === 'add' && req.method === 'POST') {
+        const { containerId, url, title, faviconUrl } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.addRecord(containerId, { url, title, faviconUrl }));
+        return;
+      }
+
+      if (route === 'update' && req.method === 'POST') {
+        const { containerId, id, title } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.updateRecord(containerId, id, { title }));
+        return;
+      }
+
+      if (route === 'delete' && req.method === 'POST') {
+        const { containerId, id } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.deleteRecord(containerId, id));
+        return;
+      }
+
+      if (route === 'delete-batch' && req.method === 'POST') {
+        const { containerId, ids } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.deleteRecords(containerId, ids));
+        return;
+      }
+
+      sendJson(res, 404, { error: 'Not Found' });
+    } catch (err) {
+      console.error('[Realm] 收藏 API 处理失败:', err.message);
+      sendJson(res, 400, { error: err.message });
+    }
+  }
+
   const realmServer = http.createServer((req, res) => {
     const reqUrl = new URL(req.url, 'http://localhost');
     const reqPath = reqUrl.pathname;
@@ -303,6 +375,12 @@ app.whenReady().then(async () => {
       return;
     }
 
+    // 收藏夹 JSON API（内部页面数据层）
+    if (reqPath.startsWith('/api/favorites/')) {
+      handleFavoritesApi(req, res, reqUrl);
+      return;
+    }
+
     // 路由映射：/history → src/history.html，/history/xxx.js → src/xxx.js
     let filePath;
     if (reqPath === '/history' || reqPath === '/history/') {
@@ -310,6 +388,11 @@ app.whenReady().then(async () => {
     } else if (reqPath.startsWith('/history/')) {
       // /history/history-page.js → src/history-page.js
       const subPath = reqPath.replace('/history/', '');
+      filePath = path.join(__dirname, 'src', subPath);
+    } else if (reqPath === '/favorites' || reqPath === '/favorites/') {
+      filePath = path.join(__dirname, 'src', 'favorites.html');
+    } else if (reqPath.startsWith('/favorites/')) {
+      const subPath = reqPath.replace('/favorites/', '');
       filePath = path.join(__dirname, 'src', subPath);
     } else {
       res.writeHead(404);
@@ -352,6 +435,9 @@ app.whenReady().then(async () => {
 
   // 初始化历史记录数据库
   historyManager.initDatabase();
+
+  // 初始化收藏夹数据库
+  favoritesManager.initDatabase();
 
   // 清理孤儿 Partitions 目录（必须在 initContainers 之前：
   // 此时被删容器的 partition session 尚未创建，目录无句柄占用，
