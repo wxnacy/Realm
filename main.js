@@ -7,8 +7,11 @@
 // 热重载配置（仅开发模式）
 try { require('electron-reloader')(module); } catch {}
 
-const { app, BrowserWindow, protocol, net } = require('electron');
+const path = require('path');
+const { app, BrowserWindow, protocol, net, ipcMain } = require('electron');
 const { pathToFileURL } = require('url');
+const http = require('http');
+const fs = require('fs');
 
 // 环境隔离：开发环境使用独立的 userData 目录
 if (process.env.NODE_ENV === 'development') {
@@ -57,7 +60,7 @@ const historyManager = require('./history-manager');
  * @returns {boolean} 是否允许
  */
 function isAllowedWebUrl(url) {
-  return typeof url === 'string' && /^https?:\/\//i.test(url);
+  return typeof url === 'string' && (/^https?:\/\//i.test(url) || /^realm:\/\//i.test(url));
 }
 
 /**
@@ -175,7 +178,6 @@ app.whenReady().then(async () => {
   // macOS Dock 图标：dev 模式下 electron 不会读 package.json build.mac.icon，
   // 需要用 nativeImage 显式覆盖；打包后 Info.plist 已声明，重复设置无副作用
   if (process.platform === 'darwin') {
-    const path = require('path');
     const { nativeImage } = require('electron');
     const iconPath = path.join(__dirname, 'icons/icon.png');
     const icon = nativeImage.createFromPath(iconPath);
@@ -184,15 +186,64 @@ app.whenReady().then(async () => {
     }
   }
 
-  // 注册 realm:// 协议处理器（D-03，RESEARCH Pattern 2）
-  protocol.handle('realm', (request) => {
-    const url = new URL(request.url);
-    if (url.hostname === 'history') {
-      return net.fetch(
-        pathToFileURL(path.join(__dirname, 'src/history.html')).toString()
-      );
+  // 本地 HTTP 服务器：为 webview 提供内部页面（realm:// 页面在 webview 中无法直接加载）
+  // 渲染进程将 realm://history 转换为 http://localhost:PORT/history 后由 webview 加载
+  const REALM_MIME_TYPES = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'application/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon',
+  };
+
+  const realmServer = http.createServer((req, res) => {
+    const reqPath = req.url.split('?')[0]; // 去掉查询参数
+
+    // 路由映射：/history → src/history.html，/history/xxx.js → src/xxx.js
+    let filePath;
+    if (reqPath === '/history' || reqPath === '/history/') {
+      filePath = path.join(__dirname, 'src', 'history.html');
+    } else if (reqPath.startsWith('/history/')) {
+      // /history/history-page.js → src/history-page.js
+      const subPath = reqPath.replace('/history/', '');
+      filePath = path.join(__dirname, 'src', subPath);
+    } else {
+      res.writeHead(404);
+      res.end('Not Found');
+      return;
     }
-    return new Response('Not Found', { status: 404 });
+
+    // 安全检查：防止路径遍历
+    if (!filePath.startsWith(path.join(__dirname, 'src'))) {
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = REALM_MIME_TYPES[ext] || 'application/octet-stream';
+
+    fs.readFile(filePath, (err, data) => {
+      if (err) {
+        res.writeHead(404);
+        res.end('Not Found');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': contentType });
+      res.end(data);
+    });
+  });
+
+  // 在随机可用端口启动服务器
+  realmServer.listen(0, '127.0.0.1', () => {
+    const realmPort = realmServer.address().port;
+    console.log(`[Realm] 内部页面服务器已启动: http://localhost:${realmPort}`);
+
+    // 暴露端口给渲染进程
+    ipcMain.handle('get-realm-port', () => realmPort);
   });
 
   // 注册 IPC 处理器

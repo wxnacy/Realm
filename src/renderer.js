@@ -115,6 +115,9 @@ const state = {
   activeTabId: null,
   tabCounter: 0,
   webviews: new Map(),
+
+  // 内部页面服务器端口（用于加载 realm:// 页面）
+  realmPort: null,
 };
 
 // 注意：Tab 回收策略（上限/文案/回收逻辑）单点实现于主进程 tab-manager（WR-4）。
@@ -128,6 +131,28 @@ const state = {
 const WEBVIEW_WEBPREFERENCES = 'contextIsolation=yes';
 
 /**
+ * 将 realm:// URL 转换为 http://localhost:PORT/ URL
+ * webview 无法直接加载自定义协议，需要通过本地 HTTP 服务器中转
+ * @param {string} url - realm:// 格式的 URL
+ * @returns {string} http://localhost:PORT/ 格式的 URL
+ */
+function realmUrlToHttp(url) {
+  if (!state.realmPort || !url.startsWith('realm://')) return url;
+  const converted = url.replace(/^realm:\/\//, `http://localhost:${state.realmPort}/`);
+  return converted;
+}
+
+/**
+ * 将 http://localhost:PORT/ URL 转换回 realm:// URL（用于地址栏显示）
+ * @param {string} url - http://localhost:PORT/ 格式的 URL
+ * @returns {string} realm:// 格式的 URL（如果不是内部页面则原样返回）
+ */
+function httpUrlToRealm(url) {
+  if (!state.realmPort || !url.startsWith(`http://localhost:${state.realmPort}/`)) return url;
+  return url.replace(`http://localhost:${state.realmPort}/`, 'realm://');
+}
+
+/**
  * URL 标准化函数
  * @param {string} input - 用户输入
  * @returns {string} 标准化后的 URL
@@ -137,6 +162,11 @@ function normalizeUrl(input) {
 
   // 如果已经是完整的 HTTP/HTTPS URL，直接返回
   if (/^https?:\/\//i.test(input)) {
+    return input;
+  }
+
+  // 如果是 realm:// 自定义协议 URL，直接返回
+  if (/^realm:\/\//i.test(input)) {
     return input;
   }
 
@@ -361,13 +391,18 @@ async function updateTabTitle(tabId, title) {
  * @returns {HTMLElement} 创建的 webview 元素
  */
 function createWebviewForTab(tabId, containerId, url) {
-  // URL scheme 白名单（WR-9）：仅 http(s) 允许写入 webview src。
+  // URL scheme 白名单（WR-9）：仅 http(s) 和 realm:// 允许写入 webview src。
   // 规则匹配与新窗口两条路径的 URL 均来自 guest 页面，不限制 scheme 时
   // file: 可在浏览器上下文读取本地文件、data: 可注入脚本；
   // 空 URL（新标签页）与 about:blank 放行。
-  if (url && url !== 'about:blank' && !/^https?:\/\//i.test(url)) {
-    console.warn('[Realm] 拒绝非 http(s) URL:', url);
+  if (url && url !== 'about:blank' && !/^https?:\/\//i.test(url) && !/^realm:\/\//i.test(url)) {
+    console.warn('[Realm] 拒绝非 http(s)/realm URL:', url);
     return null;
+  }
+
+  // realm:// URL 转换为 http://localhost:PORT/ URL（webview 无法加载自定义协议）
+  if (url && url.startsWith('realm://')) {
+    url = realmUrlToHttp(url);
   }
 
   const webview = document.createElement('webview');
@@ -417,16 +452,18 @@ function bindWebviewEvents(tabId, webview) {
   webview.addEventListener('did-navigate', (e) => {
     const tab = state.tabs.get(tabId);
     if (tab) {
-      tab.url = e.url;
+      // 内部页面 URL 转换回 realm:// 格式（用于存储和地址栏显示）
+      const displayUrl = httpUrlToRealm(e.url);
+      tab.url = displayUrl;
       // 回写主进程持久化（WR-3）：否则重启后 restoreTabs 恢复到过期地址
-      window.realmAPI.updateTab(tabId, { url: e.url });
+      window.realmAPI.updateTab(tabId, { url: displayUrl });
       // 如果是活动 Tab，更新 URL 输入框
       if (tabId === state.activeTabId) {
-        elements.urlInput.value = e.url;
+        elements.urlInput.value = displayUrl;
       }
 
       // D-21/D-23：导航完成后自动写入历史记录（过滤内部页面）
-      if (e.url && e.url !== 'about:blank' && !e.url.startsWith('realm://')) {
+      if (e.url && e.url !== 'about:blank' && !displayUrl.startsWith('realm://')) {
         // 从 webview partition 推导容器 ID
         const partition = webview.partition || '';
         const prefix = 'persist:container-';
@@ -447,11 +484,12 @@ function bindWebviewEvents(tabId, webview) {
   webview.addEventListener('did-navigate-in-page', (e) => {
     const tab = state.tabs.get(tabId);
     if (tab) {
-      tab.url = e.url;
+      const displayUrl = httpUrlToRealm(e.url);
+      tab.url = displayUrl;
       // 回写主进程持久化（WR-3），与 did-navigate 同理
-      window.realmAPI.updateTab(tabId, { url: e.url });
+      window.realmAPI.updateTab(tabId, { url: displayUrl });
       if (tabId === state.activeTabId) {
-        elements.urlInput.value = e.url;
+        elements.urlInput.value = displayUrl;
       }
     }
   });
@@ -1217,6 +1255,10 @@ async function restoreTabs() {
  */
 async function init() {
   console.log('[Realm Renderer] 初始化...');
+
+  // 获取内部页面服务器端口（用于加载 realm:// 页面）
+  state.realmPort = await window.realmAPI.getRealmPort();
+  console.log('[Realm Renderer] 内部页面服务器端口:', state.realmPort);
 
   // 加载容器列表
   await loadContainers();

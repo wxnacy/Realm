@@ -335,6 +335,15 @@ contextBridge.exposeInMainWorld('realmAPI', {
   onShortcutTriggered: (callback) => {
     ipcRenderer.on('shortcut:triggered', (event, action) => callback(action));
   },
+
+  // ==================== 内部页面服务器 ====================
+
+  /**
+   * 获取内部页面服务器端口
+   * 用于将 realm:// URL 转换为 http://localhost:PORT/ URL
+   * @returns {Promise<number>} 服务器端口号
+   */
+  getRealmPort: () => ipcRenderer.invoke('get-realm-port'),
 });
 
 console.log('[Realm] Preload 脚本已加载');

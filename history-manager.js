@@ -9,12 +9,15 @@
  * 数据库路径：{userData}/history.db
  */
 
-const Database = require('better-sqlite3');
 const path = require('path');
 const { app } = require('electron');
 
-// 数据库路径：与 electron-store 同目录
-const DB_PATH = path.join(app.getPath('userData'), 'history.db');
+// better-sqlite3 延迟加载：原生模块必须在 app.whenReady 之后加载，
+// 否则 Electron 早期启动阶段会导致 SIGSEGV 段错误
+let Database = null;
+
+// 数据库路径（延迟初始化，避免 app.getPath 在 ready 前调用）
+let DB_PATH = null;
 
 // 每容器最大记录数（D-19 FIFO 淘汰阈值）
 const MAX_RECORDS_PER_CONTAINER = 10000;
@@ -30,6 +33,12 @@ let db = null;
  */
 function initDatabase() {
   if (db) return;
+
+  // 延迟加载原生模块和路径，确保在 app.whenReady 之后执行
+  if (!Database) {
+    Database = require('better-sqlite3');
+    DB_PATH = path.join(app.getPath('userData'), 'history.db');
+  }
 
   db = new Database(DB_PATH);
   // WAL 模式：提升并发读写性能（RESEARCH Pattern 1）
