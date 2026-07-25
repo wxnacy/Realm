@@ -4,17 +4,17 @@ milestone: v1.1
 milestone_name: 容器属性增强 + 收藏历史 + 常用网站 + 设置页面
 current_phase: 6
 current_phase_name: 浏览历史记录
-status: completed
-stopped_at: Phase 6 UI-SPEC approved
-last_updated: "2026-07-25T08:00:39.485Z"
+status: planned
+stopped_at: Phase 6 plans created (2 plans)
+last_updated: "2026-07-25T10:00:00.000Z"
 last_activity: 2026-07-25
-last_activity_desc: Phase 05 complete, transitioned to Phase 6
+last_activity_desc: Phase 6 plans created (2 plans)
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 25
+  total_plans: 2
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-07-25)
 ## Current Position
 
 Phase: 6 — 浏览历史记录
-Plan: Not started
-Status: Phase 05 Plan 1 complete
-Last activity: 2026-07-25 — Phase 05 complete, transitioned to Phase 6
+Plan: 2 plans created, ready for execution
+Status: Planned
+Last activity: 2026-07-25 — Phase 6 plans created (2 plans)
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -90,6 +90,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-25T08:00:39.481Z
-Stopped at: Phase 6 UI-SPEC approved
-Resume file: .planning/phases/06-浏览历史记录/06-UI-SPEC.md
+Last session: 2026-07-25T10:00:00.000Z
+Stopped at: Phase 6 plans created
+Resume file: .planning/phases/06-浏览历史记录/06-01-PLAN.md
