@@ -137,7 +137,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 05-01-PLAN.md — 数据模型扩展（主进程惰性填充 + IPC 验证）+ 表单 UI 扩展（邮箱/手机号/备注字段 + 验证 + textarea 样式）
+- [x] 05-01-PLAN.md — 数据模型扩展（主进程惰性填充 + IPC 验证）+ 表单 UI 扩展（邮箱/手机号/备注字段 + 验证 + textarea 样式）
 
 ### Phase 6: 浏览历史记录
 **Goal**: 应用自动记录用户浏览的页面，按容器隔离存储，用户可以查看、搜索和清理历史
@@ -196,7 +196,7 @@ Phases execute in numeric order: 5 → 6 → 7 → 8
 | 2. Browser Core - URL Navigation + Multi-Tab | v1.0 | 5/5 | Complete | 2026-07-23 |
 | 3. Data Isolation + Cookie Persistence | v1.0 | 1/1 | Complete | 2026-07-23 |
 | 4. Convenience Features | v1.0 | 3/3 | Complete | 2026-07-24 |
-| 5. 容器属性扩展 | v1.1 | 0/1 | Planning complete | - |
+| 5. 容器属性扩展 | v1.1 | 1/1 | Complete | 2026-07-25 |
 | 6. 浏览历史记录 | v1.1 | 0/1 | Not started | - |
 | 7. 收藏夹管理 | v1.1 | 0/1 | Not started | - |
 | 8. 常用网站推荐 + 设置页面 | v1.1 | 0/1 | Not started | - |
