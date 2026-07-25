@@ -163,8 +163,12 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
+**Wave 1**
 
 - [ ] 06-01-PLAN.md — 后端基础：SQLite history-manager.js + realm:// 协议 + IPC 通道 + 导航捕获 + 工具栏按钮
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 06-02-PLAN.md — 前端 UI：历史记录页面（日期分组列表 + 搜索高亮 + 单条/批量删除 + 清空 + 样式）
 
 ### Phase 7: 收藏夹管理
