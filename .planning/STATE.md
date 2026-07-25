@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: 容器属性增强 + 收藏历史 + 常用网站 + 设置页面
-current_phase: 06
-current_phase_name: 浏览历史记录
-status: executing
-stopped_at: Phase 6 plans created (2 plans)
-last_updated: "2026-07-25T08:06:04.504Z"
+current_phase: 07
+current_phase_name: 收藏夹管理
+status: planned
+stopped_at: Phase 6 complete (2/2 plans)
+last_updated: "2026-07-25T16:10:00.000Z"
 last_activity: 2026-07-25
-last_activity_desc: Phase 06 execution started
+last_activity_desc: Phase 06 completed (2/2 plans)
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 1
-  percent: 25
+  completed_phases: 2
+  total_plans: 2
+  completed_plans: 2
+  percent: 50
 ---
 
 # Project State
@@ -28,12 +28,12 @@ See: .planning/PROJECT.md (updated 2026-07-25)
 
 ## Current Position
 
-Phase: 06 (浏览历史记录) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 06
-Last activity: 2026-07-25 — Phase 06 execution started
+Phase: 07 (收藏夹管理) — NOT STARTED
+Plan: N/A
+Status: Phase 06 complete, ready for Phase 07
+Last activity: 2026-07-25 — Phase 06 completed (浏览历史记录)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██████████] 100% (Phase 06)
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Progress: [░░░░░░░░░░] 0%
 | 3. Data Isolation + Cookie Persistence | 1/1 | Complete |
 | 4. Convenience Features | 3/3 | Complete |
 | 5. 容器属性扩展 | 1/1 | Complete |
+| 6. 浏览历史记录 | 2/2 | Complete |
 
 ## Accumulated Context
 
@@ -71,6 +72,10 @@ Recent decisions affecting current work:
 - Phase 5: 容器扩展属性采用读取时惰性填充策略（D-09），getContainers() || '' 填充
 - Phase 5: 扩展属性均为可选项，空值不触发验证（D-03/D-05）
 - Phase 5: 前端宽松验证+主进程校验双重防御模式
+- Phase 6: 使用 better-sqlite3 实现历史记录存储，每容器独立表
+- Phase 6: realm:// 自定义协议用于内部页面（历史记录页面）
+- Phase 6: FIFO 淘汰策略，每容器上限 10000 条记录
+- Phase 6: D-23 过滤逻辑：realm:// 和 about:blank 不记录
 
 ### Pending Todos
 
@@ -90,6 +95,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-25T10:00:00.000Z
-Stopped at: Phase 6 plans created
-Resume file: .planning/phases/06-浏览历史记录/06-01-PLAN.md
+Last session: 2026-07-25T16:10:00.000Z
+Stopped at: Phase 6 complete
+Resume file: N/A
