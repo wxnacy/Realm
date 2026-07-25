@@ -8,7 +8,67 @@
   <link rel="stylesheet" href="styles/main.css">
 </head>
 <body>
-  <div id="app">加载中...</div>
+  <div class="history-page">
+    <!-- 页面头部 -->
+    <div class="history-header">
+      <h1 class="history-title">浏览历史</h1>
+      <button id="clearAllBtn" class="btn btn-danger btn-sm">清空所有历史</button>
+    </div>
+
+    <!-- 搜索栏 -->
+    <div class="history-search-wrapper">
+      <svg class="history-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"></circle>
+        <path d="m21 21-4.35-4.35"></path>
+      </svg>
+      <input type="text" class="history-search" id="searchInput" placeholder="搜索历史记录...">
+    </div>
+
+    <!-- 批量操作栏 -->
+    <div class="history-actions-bar hidden" id="actionsBar">
+      <input type="checkbox" id="selectAllCheckbox" class="history-item-checkbox">
+      <span id="selectedCount">已选择 0 项</span>
+      <button id="deleteSelectedBtn" class="btn btn-danger btn-sm" disabled>删除选中项</button>
+      <button id="selectAllBtn" class="btn btn-secondary btn-sm">全选</button>
+    </div>
+
+    <!-- 主内容区域 -->
+    <div id="historyContent"></div>
+  </div>
+
+  <!-- 清空历史确认弹窗 -->
+  <dialog class="modal" id="historyClearModal">
+    <div class="modal-content">
+      <h2>清空所有历史</h2>
+      <div class="delete-confirm-content">
+        <p>确定清空当前容器的所有浏览历史吗？此操作不可撤销。</p>
+        <p class="warning-text">此操作无法撤销</p>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" id="cancelHistoryClearBtn">取消</button>
+        <button type="button" class="btn btn-danger" id="confirmHistoryClearBtn">删除</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 批量删除确认弹窗 -->
+  <dialog class="modal" id="historyBatchDeleteModal">
+    <div class="modal-content">
+      <h2>删除历史记录</h2>
+      <div class="delete-confirm-content">
+        <p id="batchDeleteBody">确定删除选中的 0 条历史记录吗？此操作不可撤销。</p>
+        <p class="warning-text">此操作无法撤销</p>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" id="cancelBatchDeleteBtn">取消</button>
+        <button type="button" class="btn btn-danger" id="confirmBatchDeleteBtn">删除</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Toast 提示 -->
+  <div id="toast" class="toast hidden"></div>
+
   <script src="history-page.js"></script>
 </body>
 </html>
