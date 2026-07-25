@@ -795,7 +795,8 @@ async function importRules() {
   const result = await window.realmAPI.importRules();
 
   if (result.success) {
-    showToast(`已导入 ${result.count} 条规则`, 'success');
+    const skippedText = result.skipped > 0 ? `，跳过 ${result.skipped} 条重复` : '';
+    showToast(`已导入 ${result.count} 条规则${skippedText}`, 'success');
     await refreshRulesList();
   } else {
     showToast(result.message || '导入失败', 'error');

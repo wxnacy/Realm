@@ -70,6 +70,7 @@ expected: |
 result: issue
 reported: "可以导入成功，但是重复的规则没有去重"
 severity: major
+fix: "importRules 增加 (containerId, pattern) 去重，renderer Toast 显示跳过数；待复测"
 
 ### 7. 规则导入错误处理
 expected: |
@@ -114,9 +115,14 @@ skipped: 0
     - "已修复：改用 globalShortcut，不再干扰系统快捷键"
 
 - truth: "导入规则时应当对重复规则去重（按 pattern + containerId 判定）"
-  status: failed
+  status: fixed
   reason: "User reported: 可以导入成功，但是重复的规则没有去重"
   severity: major
   test: 6
-  artifacts: []
-  missing: []
+  artifacts:
+    - path: "assignment-rules.js"
+      issue: "importRules 调用 createRule 时不检查 (containerId, pattern) 是否已存在"
+    - path: "src/renderer.js"
+      issue: "Toast 未区分新增/重复数量"
+  missing:
+    - "已修复：importRules 内置 existingKeys Set 按 containerId::pattern 去重，返回 skipped 字段；renderer 在 Toast 中显示 '跳过 X 条重复'"
