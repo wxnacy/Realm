@@ -183,11 +183,16 @@ Plans:
   3. 用户可以编辑收藏项的标题、删除收藏项、搜索收藏
   4. 同一 URL 在同一容器内不能重复收藏，重复操作给出提示
 
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
+**Wave 1**
 
-- [ ] 07-01: TBD
+- [ ] 07-01-PLAN.md — 后端基础：favorites-manager.js + /api/favorites/* API + IPC 通道 + preload API
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 07-02-PLAN.md — 前端 UI：工具栏按钮 + 收藏编辑面板 + 收藏列表页面（搜索/编辑/删除）
 
 ### Phase 8: 常用网站推荐 + 设置页面
 
