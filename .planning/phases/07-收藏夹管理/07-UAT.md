@@ -26,26 +26,21 @@ expected: 尝试收藏已收藏的页面返回错误提示"已收藏过该页面
 result: pass
 note: "实际行为：已收藏页面再次点击星标弹编辑面板（D-03 重新设计），从交互入口即阻止了重复收藏路径，符合去重目的。"
 
-### 4. 容器隔离功能
-expected: 在不同容器中收藏相同 URL，每个容器的收藏列表互不干扰，切换容器后收藏列表正确更新
-result: skipped
-reason: "用户决定改为所有容器共享收藏数据库，容器隔离不再是预期行为；后续重构后此测试将被重新定义"
-
-### 5. 收藏编辑面板交互
+### 4. 收藏编辑面板交互
 expected: 点击星标按钮弹出编辑面板，点击取消或外部区域关闭面板，Escape 键关闭面板
 result: pass
 
-### 6. 收藏夹按钮功能
+### 5. 收藏夹按钮功能
 expected: 点击收藏夹按钮打开 realm://favorites 页面，显示当前容器的收藏列表
 result: pass
 
 ## Summary
 
-total: 6
+total: 5
 passed: 5
 issues: 0
 pending: 0
-skipped: 1
+skipped: 0
 blocked: 0
 
 ## Gaps
