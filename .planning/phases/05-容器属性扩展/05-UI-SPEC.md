@@ -50,11 +50,11 @@ Exceptions: 备注 textarea 高度约 80px（约 4 行文字），不严格遵�
 | Role | Size | Weight | Line Height |
 |------|------|--------|-------------|
 | Body | 14px | 400 | 1.5 |
-| Label | 14px | 500 | 1.4 |
+| Label | 14px | 400 | 1.4 |
 | Heading | 18px | 600 | 1.3 |
 | Error | 12px | 400 | 1.4 |
 
-说明：复用项目已有的 .form-group label (14px/500)、.form-group input (14px/400)、.modal-content h2 (18px/600)、.error-message (12px/400) 样式。本阶段不引入新字体尺寸。
+说明：使用 2 种字重 — 400（正文、标签、错误提示）和 600（标题）。Label 字重从 500 调整为 400 以符合字重数量限制。本阶段不引入新字体尺寸。
 
 ---
 
@@ -137,11 +137,11 @@ Accent reserved for: 输入框聚焦状态边框 (border-color)、主按钮背�
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: FLAG (建议声明主视觉焦点)
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved (2026-07-25)
