@@ -5,8 +5,8 @@ milestone_name: 容器属性增强 + 收藏历史 + 常用网站 + 设置页面
 current_phase: 6
 current_phase_name: 浏览历史记录
 status: completed
-stopped_at: Phase 6 context gathered
-last_updated: "2026-07-25T07:58:44.455Z"
+stopped_at: Phase 6 UI-SPEC approved
+last_updated: "2026-07-25T08:00:39.485Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 05 complete, transitioned to Phase 6
 progress:
@@ -90,6 +90,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-25T07:58:44.449Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-浏览历史记录/06-CONTEXT.md
+Last session: 2026-07-25T08:00:39.481Z
+Stopped at: Phase 6 UI-SPEC approved
+Resume file: .planning/phases/06-浏览历史记录/06-UI-SPEC.md
