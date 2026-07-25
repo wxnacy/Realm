@@ -15,13 +15,13 @@
 
 ### 浏览历史记录
 
-- [ ] **HIST-01**: 应用自动记录用户访问的页面 URL 和标题
-- [ ] **HIST-02**: 历史记录按容器隔离存储
-- [ ] **HIST-03**: 用户可以查看当前容器的历史记录列表
-- [ ] **HIST-04**: 用户可以搜索历史记录
-- [ ] **HIST-05**: 用户可以删除单条历史记录
-- [ ] **HIST-06**: 用户可以清空当前容器的历史记录
-- [ ] **HIST-07**: 历史记录自动清理（每容器上限 10000 条，FIFO 淘汰）
+- [x] **HIST-01**: 应用自动记录用户访问的页面 URL 和标题
+- [x] **HIST-02**: 历史记录按容器隔离存储
+- [x] **HIST-03**: 用户可以查看当前容器的历史记录列表
+- [x] **HIST-04**: 用户可以搜索历史记录
+- [x] **HIST-05**: 用户可以删除单条历史记录
+- [x] **HIST-06**: 用户可以清空当前容器的历史记录
+- [x] **HIST-07**: 历史记录自动清理（每容器上限 10000 条，FIFO 淘汰）
 
 ### 收藏夹管理
 
@@ -70,13 +70,13 @@
 | ATTR-03 | Phase 5 | Complete |
 | ATTR-04 | Phase 5 | Complete |
 | ATTR-05 | Phase 5 | Complete |
-| HIST-01 | Phase 6 | Pending |
-| HIST-02 | Phase 6 | Pending |
-| HIST-03 | Phase 6 | Pending |
-| HIST-04 | Phase 6 | Pending |
-| HIST-05 | Phase 6 | Pending |
-| HIST-06 | Phase 6 | Pending |
-| HIST-07 | Phase 6 | Pending |
+| HIST-01 | Phase 6 | Complete |
+| HIST-02 | Phase 6 | Complete |
+| HIST-03 | Phase 6 | Complete |
+| HIST-04 | Phase 6 | Complete |
+| HIST-05 | Phase 6 | Complete |
+| HIST-06 | Phase 6 | Complete |
+| HIST-07 | Phase 6 | Complete |
 | FAV-01 | Phase 7 | Pending |
 | FAV-02 | Phase 7 | Pending |
 | FAV-03 | Phase 7 | Pending |
@@ -104,4 +104,4 @@
 
 ---
 *Requirements defined: 2026-07-25*
-*Last updated: 2026-07-25 — v1.1 roadmap created, all 30 requirements mapped to Phases 5-8*
+*Last updated: 2026-07-25 — Phase 6 complete: all 7 HIST requirements verified and marked complete*
