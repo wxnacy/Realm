@@ -26,7 +26,7 @@ Realm Browser 是一个多容器隔离浏览器，从当前的单文件架构演
 - [x] **Phase 5: 容器属性扩展** — 容器增加手机号、邮箱、备注属性，旧数据自动兼容 (completed 2026-07-25)
 - [ ] **Phase 6: 浏览历史记录** — 自动记录页面导航、按容器隔离存储、列表展示、搜索、清理
 - [x] **Phase 7: 收藏夹管理** — 收藏/取消收藏、收藏列表、编辑/删除、搜索、容器隔离 (completed 2026-07-25)
-- [ ] **Phase 8: 常用网站推荐 + 设置页面** — 新标签页常用网站网格（frecency）+ 应用设置
+- [x] **Phase 8: 常用网站推荐 + 设置页面** — 新标签页常用网站网格（frecency）+ 应用设置 (completed 2026-07-25)
 - [ ] **Phase 9: 共享收藏数据库** — 收藏从按容器隔离改为全局共享，跨容器看到同一份收藏列表
 
 ## Phase Details
@@ -208,17 +208,17 @@ Plans:
   4. 设置变更立即持久化，应用重启后设置保持不变
   5. 设置页面引导用户将 Realm 设为系统默认浏览器
 
-**Plans**: 2 plans
+**Plans**: 2/2 plans complete
 
 Plans:
 
 **Wave 1**
 
-- [ ] 08-01-PLAN.md — 后端基础：frequent-sites-manager.js + API 端点 + HTML 模板
+- [x] 08-01-PLAN.md — 后端基础：frequent-sites-manager.js + API 端点 + HTML 模板
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 08-02-PLAN.md — 前端 UI：新标签页常用网站 + 设置页面 + 工具栏绑定
+- [x] 08-02-PLAN.md — 前端 UI：新标签页常用网站 + 设置页面 + 工具栏绑定
 
 **UI hint**: yes
 
@@ -235,7 +235,17 @@ Plans:
   4. 现有按容器分表（favorites_work、favorites_default 等）的收藏数据自动迁移合并到全局表，迁移后旧表被清理
   5. 删除容器时不再清空该容器的收藏数据（数据全局共享，与容器生命周期解耦）
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 09-01-PLAN.md — 后端重构：favorites-manager.js 移除 containerId + 全局 favorites 表 + migrateToGlobal() 迁移 + main.js API 端点清理
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 09-02-PLAN.md — 前端对齐：preload.js IPC 接口 + renderer.js 收藏按钮 + favorites-page.js 移除容器感知
 
 **背景**: Phase 7 实现按容器隔离（favorites_{containerId} 分表）。UAT 期间用户判断收藏应是跨容器的全局数据（类似 Chrome 收藏夹），不应与容器绑定。Phase 9 执行此次重构，简化数据模型并修复跨容器看到不同收藏的违和感。
 
@@ -255,5 +265,5 @@ Phases execute in numeric order: 5 → 6 → 7 → 8 → 9
 | 5. 容器属性扩展 | v1.1 | 1/1 | Complete    | 2026-07-25 |
 | 6. 浏览历史记录 | v1.1 | 2/2 | Complete   | 2026-07-25 |
 | 7. 收藏夹管理 | v1.1 | 2/2 | Complete    | 2026-07-25 |
-| 8. 常用网站推荐 + 设置页面 | v1.1 | 0/2 | Planning complete | - |
+| 8. 常用网站推荐 + 设置页面 | v1.1 | 2/2 | Complete | 2026-07-25 |
 | 9. 共享收藏数据库 | v1.1 | 0/? | Not started | - |
