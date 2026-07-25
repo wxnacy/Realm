@@ -237,6 +237,81 @@ contextBridge.exposeInMainWorld('realmAPI', {
    */
   importRules: () => ipcRenderer.invoke('rule:import'),
 
+  // ==================== 浏览历史 ====================
+
+  /**
+   * 添加历史记录
+   * @param {Object} data - 历史记录数据
+   * @param {string} data.containerId - 容器 ID
+   * @param {string} data.url - 页面 URL
+   * @param {string} [data.title] - 页面标题
+   * @param {string} [data.faviconUrl] - favicon URL
+   * @param {number} [data.visitedAt] - 访问时间戳
+   * @returns {Promise<{id: number}|{skipped: boolean}>}
+   */
+  historyAdd: (data) => ipcRenderer.invoke('history:add', data),
+
+  /**
+   * 更新最近一条历史记录的标题
+   * @param {Object} data - 数据
+   * @param {string} data.containerId - 容器 ID
+   * @param {string} data.url - 匹配的 URL
+   * @param {string} data.title - 新标题
+   * @returns {Promise<boolean>}
+   */
+  historyUpdateTitle: (data) => ipcRenderer.invoke('history:update-title', data),
+
+  /**
+   * 搜索历史记录
+   * @param {Object} data - 搜索参数
+   * @param {string} data.containerId - 容器 ID
+   * @param {string} data.keyword - 搜索关键词
+   * @param {number} [data.offset] - 分页偏移
+   * @param {number} [data.limit] - 每页数量
+   * @returns {Promise<Array>}
+   */
+  historySearch: (data) => ipcRenderer.invoke('history:search', data),
+
+  /**
+   * 列出历史记录
+   * @param {Object} data - 分页参数
+   * @param {string} data.containerId - 容器 ID
+   * @param {number} [data.offset] - 分页偏移
+   * @param {number} [data.limit] - 每页数量
+   * @returns {Promise<Array>}
+   */
+  historyList: (data) => ipcRenderer.invoke('history:list', data),
+
+  /**
+   * 删除单条历史记录
+   * @param {string} containerId - 容器 ID
+   * @param {number} id - 记录 ID
+   * @returns {Promise<boolean>}
+   */
+  historyDelete: (containerId, id) => ipcRenderer.invoke('history:delete', { containerId, id }),
+
+  /**
+   * 批量删除历史记录
+   * @param {string} containerId - 容器 ID
+   * @param {Array<number>} ids - 记录 ID 数组
+   * @returns {Promise<number>}
+   */
+  historyDeleteBatch: (containerId, ids) => ipcRenderer.invoke('history:delete-batch', { containerId, ids }),
+
+  /**
+   * 清空容器全部历史记录
+   * @param {string} containerId - 容器 ID
+   * @returns {Promise<number>}
+   */
+  historyClear: (containerId) => ipcRenderer.invoke('history:clear', { containerId }),
+
+  /**
+   * 获取容器历史记录总数
+   * @param {string} containerId - 容器 ID
+   * @returns {Promise<number>}
+   */
+  historyCount: (containerId) => ipcRenderer.invoke('history:count', { containerId }),
+
   // ==================== 快捷键 ====================
 
   /**

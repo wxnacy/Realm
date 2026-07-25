@@ -12,6 +12,7 @@ const tabManager = require('./tab-manager');
 const cookieManager = require('./cookie-manager');
 const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
+const historyManager = require('./history-manager');
 
 /**
  * 校验 IPC 调用方身份（CR-4 修复）
@@ -579,6 +580,149 @@ function registerHandlers() {
       shortcutManager.rebuildShortcuts(win);
     }
     return result;
+  });
+
+  // ==================== 浏览历史 ====================
+
+  /**
+   * 添加历史记录
+   * @param {Object} data - 历史记录数据
+   * @param {string} data.containerId - 容器 ID
+   * @param {string} data.url - 页面 URL
+   * @param {string} [data.title] - 页面标题
+   * @param {string} [data.faviconUrl] - favicon URL
+   * @param {number} [data.visitedAt] - 访问时间戳
+   * @returns {{id: number}|{skipped: boolean}} 新记录 ID 或跳过标记
+   */
+  ipcMain.handle('history:add', (event, data) => {
+    assertTrustedSender(event);
+    if (!data || typeof data !== 'object' || typeof data.containerId !== 'string') {
+      throw new Error('无效的历史记录参数');
+    }
+    // D-23 过滤：不记录空 URL、about:blank、realm:// 协议页面
+    if (!data.url || data.url === 'about:blank' || data.url.startsWith('realm://')) {
+      return { skipped: true };
+    }
+    return historyManager.addRecord(data.containerId, {
+      url: data.url,
+      title: data.title || '',
+      faviconUrl: data.faviconUrl || '',
+      visitedAt: data.visitedAt,
+    });
+  });
+
+  /**
+   * 更新最近一条历史记录的标题
+   * @param {Object} data - 数据
+   * @param {string} data.containerId - 容器 ID
+   * @param {string} data.url - 匹配的 URL
+   * @param {string} data.title - 新标题
+   * @returns {boolean} 是否更新成功
+   */
+  ipcMain.handle('history:update-title', (event, data) => {
+    assertTrustedSender(event);
+    if (!data || typeof data !== 'object' || typeof data.containerId !== 'string') {
+      throw new Error('无效的参数');
+    }
+    return historyManager.updateLastTitle(data.containerId, data.url, data.title);
+  });
+
+  /**
+   * 搜索历史记录
+   * @param {Object} data - 搜索参数
+   * @param {string} data.containerId - 容器 ID
+   * @param {string} data.keyword - 搜索关键词
+   * @param {number} [data.offset] - 分页偏移
+   * @param {number} [data.limit] - 每页数量
+   * @returns {Array} 匹配的记录列表
+   */
+  ipcMain.handle('history:search', (event, data) => {
+    assertTrustedSender(event);
+    if (!data || typeof data !== 'object' || typeof data.containerId !== 'string') {
+      throw new Error('无效的搜索参数');
+    }
+    return historyManager.searchRecords(data.containerId, {
+      keyword: data.keyword || '',
+      offset: data.offset || 0,
+      limit: data.limit || 50,
+    });
+  });
+
+  /**
+   * 列出历史记录
+   * @param {Object} data - 分页参数
+   * @param {string} data.containerId - 容器 ID
+   * @param {number} [data.offset] - 分页偏移
+   * @param {number} [data.limit] - 每页数量
+   * @returns {Array} 记录列表
+   */
+  ipcMain.handle('history:list', (event, data) => {
+    assertTrustedSender(event);
+    if (!data || typeof data !== 'object' || typeof data.containerId !== 'string') {
+      throw new Error('无效的参数');
+    }
+    return historyManager.listRecords(data.containerId, {
+      offset: data.offset || 0,
+      limit: data.limit || 50,
+    });
+  });
+
+  /**
+   * 删除单条历史记录
+   * @param {Object} data - 参数
+   * @param {string} data.containerId - 容器 ID
+   * @param {number} data.id - 记录 ID
+   * @returns {boolean} 是否删除成功
+   */
+  ipcMain.handle('history:delete', (event, data) => {
+    assertTrustedSender(event);
+    if (!data || typeof data !== 'object' || typeof data.containerId !== 'string') {
+      throw new Error('无效的参数');
+    }
+    return historyManager.deleteRecord(data.containerId, data.id);
+  });
+
+  /**
+   * 批量删除历史记录
+   * @param {Object} data - 参数
+   * @param {string} data.containerId - 容器 ID
+   * @param {Array<number>} data.ids - 记录 ID 数组
+   * @returns {number} 删除的记录数
+   */
+  ipcMain.handle('history:delete-batch', (event, data) => {
+    assertTrustedSender(event);
+    if (!data || typeof data !== 'object' || typeof data.containerId !== 'string') {
+      throw new Error('无效的参数');
+    }
+    return historyManager.deleteRecords(data.containerId, data.ids || []);
+  });
+
+  /**
+   * 清空容器全部历史记录
+   * @param {Object} data - 参数
+   * @param {string} data.containerId - 容器 ID
+   * @returns {number} 删除的记录数
+   */
+  ipcMain.handle('history:clear', (event, data) => {
+    assertTrustedSender(event);
+    if (!data || typeof data !== 'object' || typeof data.containerId !== 'string') {
+      throw new Error('无效的参数');
+    }
+    return historyManager.clearRecords(data.containerId);
+  });
+
+  /**
+   * 获取容器历史记录总数
+   * @param {Object} data - 参数
+   * @param {string} data.containerId - 容器 ID
+   * @returns {number} 记录总数
+   */
+  ipcMain.handle('history:count', (event, data) => {
+    assertTrustedSender(event);
+    if (!data || typeof data !== 'object' || typeof data.containerId !== 'string') {
+      throw new Error('无效的参数');
+    }
+    return historyManager.getCount(data.containerId);
   });
 
   console.log('[Realm] IPC 处理器已注册');

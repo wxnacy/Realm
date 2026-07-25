@@ -20,11 +20,13 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
     "electron": "^32.0.0",
     "electron-builder": "^24.13.0",
     "electron-reloader": "^1.2.3"
   },
   "dependencies": {
+    "better-sqlite3": "^13.0.1",
     "electron-store": "^8.1.0"
   },
   "build": {

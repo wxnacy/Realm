@@ -31,3 +31,15 @@ const now = new Date();
 fs.utimesSync(appPath, now, now);
 
 console.log('[postinstall] Electron.app 图标已替换为 icons/icon.icns');
+
+// 重编译原生模块（better-sqlite3 等），使其匹配 Electron 的 Node ABI
+const { execSync } = require('child_process');
+try {
+  execSync('npx @electron/rebuild', {
+    cwd: path.join(__dirname, '..'),
+    stdio: 'inherit',
+  });
+  console.log('[postinstall] 原生模块重编译完成');
+} catch (e) {
+  console.error('[postinstall] 原生模块重编译失败:', e.message);
+}

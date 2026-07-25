@@ -7,7 +7,14 @@
 // 热重载配置（仅开发模式）
 try { require('electron-reloader')(module); } catch {}
 
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, protocol, net } = require('electron');
+const { pathToFileURL } = require('url');
+
+// 环境隔离：开发环境使用独立的 userData 目录
+if (process.env.NODE_ENV === 'development') {
+  app.setName('realm-dev');
+}
+
 const Store = require('electron-store');
 const containerManager = require('./container-manager');
 
@@ -20,6 +27,17 @@ const containerManager = require('./container-manager');
 app.commandLine.appendSwitch('disable-features',
   'InterestGroupStorage,Fledge,PrivacySandboxAdsAPIs,Topics,AttributionReporting,SharedStorage');
 
+// 注册 realm:// 自定义协议为 privileged scheme（必须在 app.whenReady 之前调用）
+// 用于加载内部页面如 realm://history
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'realm',
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+  }
+}]);
+
 // 配置存储（whenReady 启动清理与 before-quit 退出清理共用）
 const configStore = new Store({ name: 'realm-config' });
 const windowManager = require('./window-manager');
@@ -28,6 +46,7 @@ const cookieManager = require('./cookie-manager');
 const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
 const { registerHandlers } = require('./ipc-handlers');
+const historyManager = require('./history-manager');
 
 // ==================== webview guest 拦截（WR-1/WR-2/WR-9） ====================
 
@@ -165,8 +184,22 @@ app.whenReady().then(async () => {
     }
   }
 
+  // 注册 realm:// 协议处理器（D-03，RESEARCH Pattern 2）
+  protocol.handle('realm', (request) => {
+    const url = new URL(request.url);
+    if (url.hostname === 'history') {
+      return net.fetch(
+        pathToFileURL(path.join(__dirname, 'src/history.html')).toString()
+      );
+    }
+    return new Response('Not Found', { status: 404 });
+  });
+
   // 注册 IPC 处理器
   registerHandlers();
+
+  // 初始化历史记录数据库
+  historyManager.initDatabase();
 
   // 清理孤儿 Partitions 目录（必须在 initContainers 之前：
   // 此时被删容器的 partition session 尚未创建，目录无句柄占用，
