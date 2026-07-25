@@ -342,7 +342,7 @@
   <!-- 收藏编辑面板（dialog 元素 + showModal()，走 top layer 覆盖 webview） -->
   <dialog class="modal bookmark-edit-modal" id="bookmarkEditPanel">
     <div class="bookmark-edit-panel">
-      <div class="bookmark-edit-header">收藏此页面</div>
+      <div class="bookmark-edit-header" id="bookmarkEditHeader">收藏此页面</div>
       <div class="bookmark-edit-field">
         <label for="bookmarkTitleInput">标题</label>
         <input type="text" id="bookmarkTitleInput" class="bookmark-edit-input" placeholder="页面标题">
@@ -352,6 +352,7 @@
         <div id="bookmarkUrlDisplay" class="bookmark-edit-url"></div>
       </div>
       <div class="bookmark-edit-actions">
+        <button type="button" class="btn btn-danger" id="bookmarkRemoveBtn" style="display:none">移除收藏</button>
         <button type="button" class="btn btn-secondary" id="bookmarkCancelBtn">取消</button>
         <button type="button" class="btn btn-primary" id="bookmarkSaveBtn">保存</button>
       </div>

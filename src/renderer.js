@@ -48,10 +48,12 @@ const elements = {
   // 收藏功能
   bookmarkStarBtn: document.getElementById('bookmarkStarBtn'),
   bookmarkEditPanel: document.getElementById('bookmarkEditPanel'),
+  bookmarkEditHeader: document.getElementById('bookmarkEditHeader'),
   bookmarkTitleInput: document.getElementById('bookmarkTitleInput'),
   bookmarkUrlDisplay: document.getElementById('bookmarkUrlDisplay'),
   bookmarkCancelBtn: document.getElementById('bookmarkCancelBtn'),
   bookmarkSaveBtn: document.getElementById('bookmarkSaveBtn'),
+  bookmarkRemoveBtn: document.getElementById('bookmarkRemoveBtn'),
 
   // 容器创建/编辑模态框
   containerModal: document.getElementById('containerModal'),
@@ -133,6 +135,7 @@ const state = {
   // 收藏状态
   isCurrentPageBookmarked: false,
   currentBookmarkId: null,
+  currentBookmarkTitle: null,
 };
 
 // 注意：Tab 回收策略（上限/文案/回收逻辑）单点实现于主进程 tab-manager（WR-4）。
@@ -214,7 +217,10 @@ function normalizeUrl(input) {
  */
 async function checkBookmarkStatus(url, containerId) {
   if (!url || url.startsWith('realm://') || url === 'about:blank') {
-    // 内部页面不显示收藏状态
+    // 内部页面不显示收藏状态，同时清空收藏相关 state
+    state.isCurrentPageBookmarked = false;
+    state.currentBookmarkId = null;
+    state.currentBookmarkTitle = null;
     updateStarButton(false);
     return;
   }
@@ -222,6 +228,7 @@ async function checkBookmarkStatus(url, containerId) {
     const result = await window.realmAPI.favoritesCheck(containerId, url);
     state.isCurrentPageBookmarked = !!result;
     state.currentBookmarkId = result ? result.id : null;
+    state.currentBookmarkTitle = result ? result.title : null;
     updateStarButton(!!result);
   } catch (err) {
     console.error('[Realm Renderer] 检查收藏状态失败:', err);
@@ -250,10 +257,17 @@ function updateStarButton(bookmarked) {
  * 显示收藏编辑面板
  * @param {string} title - 页面标题
  * @param {string} url - 页面 URL
+ * @param {boolean} isEdit - 是否为编辑模式（已收藏页面再次点击星标）
+ *   true：显示"移除收藏"按钮，标题为"编辑收藏"，保存调用 update
+ *   false：隐藏"移除收藏"按钮，标题为"收藏此页面"，保存调用 add
  */
-function showBookmarkEditPanel(title, url) {
+function showBookmarkEditPanel(title, url, isEdit = false) {
   elements.bookmarkTitleInput.value = title || '';
   elements.bookmarkUrlDisplay.textContent = url || '';
+
+  // 编辑模式 UI 切换
+  elements.bookmarkEditHeader.textContent = isEdit ? '编辑收藏' : '收藏此页面';
+  elements.bookmarkRemoveBtn.style.display = isEdit ? '' : 'none';
 
   // 使用 <dialog> + showModal()：进入 top layer，天然覆盖 Electron <webview>
   // （webview 是独立 guest WebContents，z-index/visibility 对其不可靠，
@@ -277,6 +291,8 @@ function hideBookmarkEditPanel() {
 
 /**
  * 保存收藏
+ * 已收藏（编辑模式）：调用 favoritesUpdate 更新标题
+ * 未收藏（新增模式）：调用 favoritesAdd 新增记录
  */
 async function saveBookmark() {
   const title = elements.bookmarkTitleInput.value.trim();
@@ -285,32 +301,51 @@ async function saveBookmark() {
 
   if (!url) return;
 
-  try {
-    const result = await window.realmAPI.favoritesAdd({
-      containerId,
-      url,
-      title,
-      faviconUrl: '' // favicon 暂不获取
-    });
+  let toastMessage = null;
+  let toastType = 'success';
 
-    if (result.error === 'duplicate') {
-      showToast('已收藏过该页面', 'error');
+  try {
+    if (state.isCurrentPageBookmarked && state.currentBookmarkId) {
+      // 编辑模式：更新标题
+      await window.realmAPI.favoritesUpdate(containerId, state.currentBookmarkId, title);
+      state.currentBookmarkTitle = title; // 同步 state，避免下次打开仍是旧值
+      toastMessage = '已更新收藏';
     } else {
-      state.isCurrentPageBookmarked = true;
-      state.currentBookmarkId = result.id;
-      updateStarButton(true);
-      showToast('已收藏');
+      // 新增模式：插入新记录
+      const result = await window.realmAPI.favoritesAdd({
+        containerId,
+        url,
+        title,
+        faviconUrl: '' // favicon 暂不获取
+      });
+
+      if (result.error === 'duplicate') {
+        toastMessage = '已收藏过该页面';
+        toastType = 'error';
+      } else {
+        state.isCurrentPageBookmarked = true;
+        state.currentBookmarkId = result.id;
+        state.currentBookmarkTitle = title; // 同步 state
+        updateStarButton(true);
+        toastMessage = '已收藏';
+      }
     }
   } catch (err) {
     console.error('[Realm Renderer] 收藏失败:', err);
-    showToast('收藏失败，请重试', 'error');
+    toastMessage = '收藏失败，请重试';
+    toastType = 'error';
   }
 
+  // 先关闭 dialog（释放 top layer）再弹 toast，
+  // 否则 toast 被 modal dialog 完全遮挡，用户看不到保存反馈
   hideBookmarkEditPanel();
+  if (toastMessage) {
+    showToast(toastMessage, toastType);
+  }
 }
 
 /**
- * 取消收藏当前页面
+ * 取消收藏当前页面（编辑面板"移除收藏"按钮触发）
  */
 async function removeBookmark() {
   const containerId = state.currentContainer;
@@ -318,14 +353,26 @@ async function removeBookmark() {
 
   if (!bookmarkId) return;
 
+  let toastMessage = null;
+  let toastType = 'success';
+
   try {
     await window.realmAPI.favoritesDelete(containerId, bookmarkId);
     state.isCurrentPageBookmarked = false;
     state.currentBookmarkId = null;
+    state.currentBookmarkTitle = null;
     updateStarButton(false);
-    showToast('已取消收藏');
+    toastMessage = '已取消收藏';
   } catch (err) {
     console.error('[Realm Renderer] 取消收藏失败:', err);
+    toastMessage = '取消收藏失败';
+    toastType = 'error';
+  }
+
+  // 与 saveBookmark 同理：先关 dialog 再弹 toast，避免遮挡
+  hideBookmarkEditPanel();
+  if (toastMessage) {
+    showToast(toastMessage, toastType);
   }
 }
 
@@ -2196,25 +2243,24 @@ function setupEventListeners() {
     }
   });
 
-  // 星标按钮：收藏/取消收藏当前页面
+  // 星标按钮：弹收藏编辑面板（Chrome/Edge 标准交互）
+  // 未收藏：新增模式；已收藏：编辑模式（含"移除收藏"按钮）
   elements.bookmarkStarBtn.addEventListener('click', () => {
-    console.log('[Realm Renderer] 星标按钮被点击', {
-      isBookmarked: state.isCurrentPageBookmarked,
-      activeTabId: state.activeTabId,
-    });
-    if (state.isCurrentPageBookmarked) {
-      // D-03: 已收藏直接取消收藏
-      removeBookmark();
+    const activeTab = state.tabs.get(state.activeTabId);
+    if (activeTab && activeTab.url) {
+      // 编辑模式：用收藏数据库存的标题（用户上次保存的）
+      // 新增模式：用网页本身的标题作为初始值
+      const initialTitle = state.isCurrentPageBookmarked && state.currentBookmarkTitle
+        ? state.currentBookmarkTitle
+        : (activeTab.title || activeTab.url);
+      showBookmarkEditPanel(
+        initialTitle,
+        activeTab.url,
+        state.isCurrentPageBookmarked
+      );
     } else {
-      // D-02: 未收藏弹出编辑面板
-      const activeTab = state.tabs.get(state.activeTabId);
-      if (activeTab && activeTab.url) {
-        showBookmarkEditPanel(activeTab.title || activeTab.url, activeTab.url);
-      } else {
-        // 当前 Tab 无可收藏 URL（新标签页/欢迎页/内部页面），给出明确反馈
-        console.warn('[Realm Renderer] 当前 Tab 无可收藏 URL', { activeTab });
-        showToast('当前页面不可收藏', 'info');
-      }
+      // 当前 Tab 无可收藏 URL（新标签页/欢迎页/内部页面），给出明确反馈
+      showToast('当前页面不可收藏', 'info');
     }
   });
 
@@ -2223,6 +2269,9 @@ function setupEventListeners() {
 
   // 收藏编辑面板取消按钮
   elements.bookmarkCancelBtn.addEventListener('click', hideBookmarkEditPanel);
+
+  // 收藏编辑面板"移除收藏"按钮（编辑模式可见）
+  elements.bookmarkRemoveBtn.addEventListener('click', removeBookmark);
 
   // 点击 dialog 外部（backdrop）关闭：点击 dialog 元素本身（非内容）即 backdrop
   elements.bookmarkEditPanel.addEventListener('click', (e) => {
