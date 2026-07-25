@@ -245,7 +245,13 @@ function importRules(rulesData) {
     return { success: false, message: '规则数据格式不正确' };
   }
 
+  // 已存在的 (containerId, pattern) 组合，用于去重
+  const existingKeys = new Set(
+    Array.from(rules.values()).map(r => `${r.containerId}::${r.pattern}`)
+  );
+
   let imported = 0;
+  let skipped = 0;
 
   for (const rule of rulesData) {
     // 验证每条规则必须有 containerId 和 pattern
@@ -253,8 +259,16 @@ function importRules(rulesData) {
       continue; // 跳过无效规则
     }
 
+    const normalizedPattern = rule.pattern.trim().toLowerCase();
+    const key = `${rule.containerId}::${normalizedPattern}`;
+    if (existingKeys.has(key)) {
+      skipped++;
+      continue; // 跳过重复规则
+    }
+
     try {
       createRule(rule.containerId, rule.pattern);
+      existingKeys.add(key);
       imported++;
     } catch (error) {
       console.error(`[Realm] 导入规则失败: ${error.message}`);
@@ -262,8 +276,12 @@ function importRules(rulesData) {
   }
 
   if (imported > 0) {
-    console.log(`[Realm] 成功导入 ${imported} 条规则`);
-    return { success: true, count: imported };
+    console.log(`[Realm] 成功导入 ${imported} 条规则${skipped > 0 ? `，跳过 ${skipped} 条重复` : ''}`);
+    return { success: true, count: imported, skipped };
+  }
+
+  if (skipped > 0) {
+    return { success: false, message: `所有 ${skipped} 条规则均已存在，未导入`, skipped };
   }
 
   return { success: false, message: '没有有效的规则可导入' };

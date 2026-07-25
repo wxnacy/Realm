@@ -153,6 +153,18 @@ app.on('web-contents-created', (event, contents) => {
 app.whenReady().then(async () => {
   console.log('[Realm] 应用启动');
 
+  // macOS Dock 图标：dev 模式下 electron 不会读 package.json build.mac.icon，
+  // 需要用 nativeImage 显式覆盖；打包后 Info.plist 已声明，重复设置无副作用
+  if (process.platform === 'darwin') {
+    const path = require('path');
+    const { nativeImage } = require('electron');
+    const iconPath = path.join(__dirname, 'icons/icon.png');
+    const icon = nativeImage.createFromPath(iconPath);
+    if (!icon.isEmpty()) {
+      app.dock.setIcon(icon);
+    }
+  }
+
   // 注册 IPC 处理器
   registerHandlers();
 

@@ -1,0 +1,45 @@
+{
+  "name": "realm",
+  "version": "0.1.0",
+  "description": "多容器隔离浏览器，支持独立 Cookie 管理和 AI Agent 集成",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "NODE_ENV=development electron .",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "keywords": [
+    "browser",
+    "container",
+    "isolation",
+    "electron",
+    "ai-agent"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^24.13.0",
+    "electron-reloader": "^1.2.3"
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0"
+  },
+  "build": {
+    "appId": "com.realm.browser",
+    "productName": "Realm",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "icons/icon.icns",
+      "target": [
+        "dmg"
+      ]
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "publish": null
+  }
+}
