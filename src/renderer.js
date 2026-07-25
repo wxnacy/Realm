@@ -40,9 +40,18 @@ const elements = {
   forwardBtn: document.getElementById('forwardBtn'),
   reloadBtn: document.getElementById('reloadBtn'),
   historyBtn: document.getElementById('historyBtn'),
+  favoritesBtn: document.getElementById('favoritesBtn'),
   cookiesBtn: document.getElementById('cookiesBtn'),
   rulesBtn: document.getElementById('rulesBtn'),
   settingsBtn: document.getElementById('settingsBtn'),
+
+  // 收藏功能
+  bookmarkStarBtn: document.getElementById('bookmarkStarBtn'),
+  bookmarkEditPanel: document.getElementById('bookmarkEditPanel'),
+  bookmarkTitleInput: document.getElementById('bookmarkTitleInput'),
+  bookmarkUrlDisplay: document.getElementById('bookmarkUrlDisplay'),
+  bookmarkCancelBtn: document.getElementById('bookmarkCancelBtn'),
+  bookmarkSaveBtn: document.getElementById('bookmarkSaveBtn'),
 
   // 容器创建/编辑模态框
   containerModal: document.getElementById('containerModal'),
@@ -120,6 +129,10 @@ const state = {
   realmPort: null,
   // 内部页面 API token（/api/history/* 鉴权）
   realmToken: null,
+
+  // 收藏状态
+  isCurrentPageBookmarked: false,
+  currentBookmarkId: null,
 };
 
 // 注意：Tab 回收策略（上限/文案/回收逻辑）单点实现于主进程 tab-manager（WR-4）。
@@ -190,6 +203,121 @@ function normalizeUrl(input) {
 
   // 其他情况当作搜索查询
   return `https://www.google.com/search?q=${encodeURIComponent(input)}`;
+}
+
+// ==================== 收藏功能 ====================
+
+/**
+ * 检查当前页面是否已收藏，更新星标状态
+ * @param {string} url - 当前页面 URL
+ * @param {string} containerId - 当前容器 ID
+ */
+async function checkBookmarkStatus(url, containerId) {
+  if (!url || url.startsWith('realm://') || url === 'about:blank') {
+    // 内部页面不显示收藏状态
+    updateStarButton(false);
+    return;
+  }
+  try {
+    const result = await window.realmAPI.favoritesCheck(containerId, url);
+    state.isCurrentPageBookmarked = !!result;
+    state.currentBookmarkId = result ? result.id : null;
+    updateStarButton(!!result);
+  } catch (err) {
+    console.error('[Realm Renderer] 检查收藏状态失败:', err);
+  }
+}
+
+/**
+ * 更新星标按钮显示状态
+ * @param {boolean} bookmarked - 是否已收藏
+ */
+function updateStarButton(bookmarked) {
+  const outline = elements.bookmarkStarBtn.querySelector('.star-outline');
+  const filled = elements.bookmarkStarBtn.querySelector('.star-filled');
+  if (bookmarked) {
+    outline.style.display = 'none';
+    filled.style.display = 'block';
+    elements.bookmarkStarBtn.title = '取消收藏';
+  } else {
+    outline.style.display = 'block';
+    filled.style.display = 'none';
+    elements.bookmarkStarBtn.title = '收藏';
+  }
+}
+
+/**
+ * 显示收藏编辑面板
+ * @param {string} title - 页面标题
+ * @param {string} url - 页面 URL
+ */
+function showBookmarkEditPanel(title, url) {
+  elements.bookmarkTitleInput.value = title || '';
+  elements.bookmarkUrlDisplay.textContent = url || '';
+  elements.bookmarkEditPanel.style.display = 'block';
+  elements.bookmarkTitleInput.focus();
+  elements.bookmarkTitleInput.select();
+}
+
+/**
+ * 隐藏收藏编辑面板
+ */
+function hideBookmarkEditPanel() {
+  elements.bookmarkEditPanel.style.display = 'none';
+}
+
+/**
+ * 保存收藏
+ */
+async function saveBookmark() {
+  const title = elements.bookmarkTitleInput.value.trim();
+  const url = elements.bookmarkUrlDisplay.textContent;
+  const containerId = state.currentContainer;
+
+  if (!url) return;
+
+  try {
+    const result = await window.realmAPI.favoritesAdd({
+      containerId,
+      url,
+      title,
+      faviconUrl: '' // favicon 暂不获取
+    });
+
+    if (result.error === 'duplicate') {
+      showToast('已收藏过该页面', 'error');
+    } else {
+      state.isCurrentPageBookmarked = true;
+      state.currentBookmarkId = result.id;
+      updateStarButton(true);
+      showToast('已收藏');
+    }
+  } catch (err) {
+    console.error('[Realm Renderer] 收藏失败:', err);
+    showToast('收藏失败，请重试', 'error');
+  }
+
+  hideBookmarkEditPanel();
+}
+
+/**
+ * 取消收藏当前页面
+ */
+async function removeBookmark() {
+  const containerId = state.currentContainer;
+  const bookmarkId = state.currentBookmarkId;
+
+  if (!bookmarkId) return;
+
+  try {
+    await window.realmAPI.favoritesDelete(containerId, bookmarkId);
+    state.isCurrentPageBookmarked = false;
+    state.currentBookmarkId = null;
+    updateStarButton(false);
+    showToast('已取消收藏');
+  } catch (err) {
+    console.error('[Realm Renderer] 取消收藏失败:', err);
+  }
 }
 
 /**
@@ -286,6 +414,9 @@ async function switchTab(tabId) {
     elements.indicatorText.textContent = container.name;
     state.currentContainer = tab.containerId;
   }
+
+  // 切换 Tab 时检查收藏状态
+  checkBookmarkStatus(tab.url, tab.containerId);
 
   // 切换 webview 可见性
   showWebview(tabId);
@@ -473,6 +604,11 @@ function bindWebviewEvents(tabId, webview) {
       // 如果是活动 Tab，更新 URL 输入框
       if (tabId === state.activeTabId) {
         elements.urlInput.value = displayUrl;
+      }
+
+      // 导航完成后检查收藏状态
+      if (tabId === state.activeTabId) {
+        checkBookmarkStatus(displayUrl, tab.containerId);
       }
 
       // D-21/D-23：导航完成后自动写入历史记录（过滤内部页面）
@@ -2044,6 +2180,61 @@ function setupEventListeners() {
     } else {
       // 没有则创建新 Tab
       createTab(containerId, 'realm://history');
+    }
+  });
+
+  // 星标按钮：收藏/取消收藏当前页面
+  elements.bookmarkStarBtn.addEventListener('click', () => {
+    if (state.isCurrentPageBookmarked) {
+      // D-03: 已收藏直接取消收藏
+      removeBookmark();
+    } else {
+      // D-02: 未收藏弹出编辑面板
+      const activeTab = state.tabs.get(state.activeTabId);
+      if (activeTab && activeTab.url) {
+        showBookmarkEditPanel(activeTab.title || activeTab.url, activeTab.url);
+      }
+    }
+  });
+
+  // 收藏编辑面板保存按钮
+  elements.bookmarkSaveBtn.addEventListener('click', saveBookmark);
+
+  // 收藏编辑面板取消按钮
+  elements.bookmarkCancelBtn.addEventListener('click', hideBookmarkEditPanel);
+
+  // 点击编辑面板外部关闭
+  document.addEventListener('click', (e) => {
+    if (elements.bookmarkEditPanel.style.display === 'block' &&
+        !elements.bookmarkEditPanel.contains(e.target) &&
+        e.target !== elements.bookmarkStarBtn) {
+      hideBookmarkEditPanel();
+    }
+  });
+
+  // Escape 键关闭编辑面板
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && elements.bookmarkEditPanel.style.display === 'block') {
+      hideBookmarkEditPanel();
+    }
+  });
+
+  // 收藏夹按钮：打开 realm://favorites 收藏列表页面
+  elements.favoritesBtn.addEventListener('click', () => {
+    const containerId = state.currentContainer;
+
+    // 检查当前容器是否已有 realm://favorites 的 Tab 打开
+    let existingTabId = null;
+    state.tabs.forEach((tab, tabId) => {
+      if (tab.url === 'realm://favorites' && tab.containerId === containerId) {
+        existingTabId = tabId;
+      }
+    });
+
+    if (existingTabId) {
+      switchTab(existingTabId);
+    } else {
+      createTab(containerId, 'realm://favorites');
     }
   });
 

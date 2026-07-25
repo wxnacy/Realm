@@ -97,10 +97,23 @@
       </div>
 
       <div class="toolbar-right">
+        <button class="btn-icon" id="bookmarkStarBtn" title="收藏">
+          <svg class="star-outline" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+          </svg>
+          <svg class="star-filled" width="18" height="18" viewBox="0 0 24 24" fill="#FBBF24" stroke="#FBBF24" stroke-width="2" style="display:none">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+          </svg>
+        </button>
         <button class="btn-icon" id="historyBtn" title="浏览历史">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10"></circle>
             <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+        </button>
+        <button class="btn-icon" id="favoritesBtn" title="收藏夹">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
           </svg>
         </button>
         <button class="btn-icon" id="rulesBtn" title="分配规则">
@@ -325,6 +338,23 @@
       </div>
     </div>
   </dialog>
+
+  <!-- 收藏编辑面板 -->
+  <div id="bookmarkEditPanel" class="bookmark-edit-panel" style="display:none">
+    <div class="bookmark-edit-header">收藏此页面</div>
+    <div class="bookmark-edit-field">
+      <label for="bookmarkTitleInput">标题</label>
+      <input type="text" id="bookmarkTitleInput" class="bookmark-edit-input" placeholder="页面标题">
+    </div>
+    <div class="bookmark-edit-field">
+      <label>网址</label>
+      <div id="bookmarkUrlDisplay" class="bookmark-edit-url"></div>
+    </div>
+    <div class="bookmark-edit-actions">
+      <button type="button" class="btn btn-secondary" id="bookmarkCancelBtn">取消</button>
+      <button type="button" class="btn btn-primary" id="bookmarkSaveBtn">保存</button>
+    </div>
+  </div>
 
   <script src="renderer.js"></script>
 </body>
