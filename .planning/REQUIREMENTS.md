@@ -7,11 +7,11 @@
 
 ### 容器属性扩展
 
-- [ ] **ATTR-01**: 用户可以为容器设置手机号属性
-- [ ] **ATTR-02**: 用户可以为容器设置邮箱属性
-- [ ] **ATTR-03**: 用户可以为容器设置备注属性
-- [ ] **ATTR-04**: 容器属性在编辑容器 Modal 中展示和编辑
-- [ ] **ATTR-05**: 旧版本容器数据自动兼容（缺失字段填充默认值）
+- [x] **ATTR-01**: 用户可以为容器设置手机号属性
+- [x] **ATTR-02**: 用户可以为容器设置邮箱属性
+- [x] **ATTR-03**: 用户可以为容器设置备注属性
+- [x] **ATTR-04**: 容器属性在编辑容器 Modal 中展示和编辑
+- [x] **ATTR-05**: 旧版本容器数据自动兼容（缺失字段填充默认值）
 
 ### 浏览历史记录
 
@@ -65,11 +65,11 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ATTR-01 | Phase 5 | Pending |
-| ATTR-02 | Phase 5 | Pending |
-| ATTR-03 | Phase 5 | Pending |
-| ATTR-04 | Phase 5 | Pending |
-| ATTR-05 | Phase 5 | Pending |
+| ATTR-01 | Phase 5 | Complete |
+| ATTR-02 | Phase 5 | Complete |
+| ATTR-03 | Phase 5 | Complete |
+| ATTR-04 | Phase 5 | Complete |
+| ATTR-05 | Phase 5 | Complete |
 | HIST-01 | Phase 6 | Pending |
 | HIST-02 | Phase 6 | Pending |
 | HIST-03 | Phase 6 | Pending |

@@ -23,7 +23,7 @@ Realm Browser 是一个多容器隔离浏览器，从当前的单文件架构演
 
 ### 🚧 v1.1 容器属性增强 + 收藏历史 + 常用网站 + 设置页面
 
-- [ ] **Phase 5: 容器属性扩展** — 容器增加手机号、邮箱、备注属性，旧数据自动兼容
+- [x] **Phase 5: 容器属性扩展** — 容器增加手机号、邮箱、备注属性，旧数据自动兼容 (completed 2026-07-25)
 - [ ] **Phase 6: 浏览历史记录** — 自动记录页面导航、按容器隔离存储、列表展示、搜索、清理
 - [ ] **Phase 7: 收藏夹管理** — 收藏/取消收藏、收藏列表、编辑/删除、搜索、容器隔离
 - [ ] **Phase 8: 常用网站推荐 + 设置页面** — 新标签页常用网站网格（frecency）+ 应用设置
@@ -216,7 +216,7 @@ Phases execute in numeric order: 5 → 6 → 7 → 8
 | 2. Browser Core - URL Navigation + Multi-Tab | v1.0 | 5/5 | Complete | 2026-07-23 |
 | 3. Data Isolation + Cookie Persistence | v1.0 | 1/1 | Complete | 2026-07-23 |
 | 4. Convenience Features | v1.0 | 3/3 | Complete | 2026-07-24 |
-| 5. 容器属性扩展 | v1.1 | 1/1 | Complete   | 2026-07-25 |
+| 5. 容器属性扩展 | v1.1 | 1/1 | Complete    | 2026-07-25 |
 | 6. 浏览历史记录 | v1.1 | 0/1 | Not started | - |
 | 7. 收藏夹管理 | v1.1 | 0/1 | Not started | - |
 | 8. 常用网站推荐 + 设置页面 | v1.1 | 0/1 | Not started | - |
