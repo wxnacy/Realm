@@ -54,6 +54,14 @@ const elements = {
   cancelContainerBtn: document.getElementById('cancelContainerBtn'),
   saveContainerBtn: document.getElementById('saveContainerBtn'),
 
+  // 扩展属性字段（手机、邮箱、备注）
+  containerEmailInput: document.getElementById('containerEmailInput'),
+  containerPhoneInput: document.getElementById('containerPhoneInput'),
+  containerNotesInput: document.getElementById('containerNotesInput'),
+  emailError: document.getElementById('emailError'),
+  phoneError: document.getElementById('phoneError'),
+  notesError: document.getElementById('notesError'),
+
   // 删除确认模态框
   deleteConfirmModal: document.getElementById('deleteConfirmModal'),
   deleteContainerPreview: document.getElementById('deleteContainerPreview'),
@@ -1535,6 +1543,13 @@ function showCreateContainerModal() {
   elements.containerModalTitle.textContent = '新建容器';
   elements.saveContainerBtn.textContent = '创建容器';
   elements.nameError.classList.remove('visible');
+  // 重置扩展属性字段
+  elements.containerEmailInput.value = '';
+  elements.containerPhoneInput.value = '';
+  elements.containerNotesInput.value = '';
+  elements.emailError.classList.remove('visible');
+  elements.phoneError.classList.remove('visible');
+  elements.notesError.classList.remove('visible');
   updateColorSelection();
   updateEmojiSelection();
   elements.containerModal.showModal();
@@ -1556,6 +1571,13 @@ function showEditContainerModal(containerId) {
   elements.containerModalTitle.textContent = '编辑容器';
   elements.saveContainerBtn.textContent = '保存';
   elements.nameError.classList.remove('visible');
+  // 填充扩展属性字段
+  elements.containerEmailInput.value = container.email || '';
+  elements.containerPhoneInput.value = container.phone || '';
+  elements.containerNotesInput.value = container.notes || '';
+  elements.emailError.classList.remove('visible');
+  elements.phoneError.classList.remove('visible');
+  elements.notesError.classList.remove('visible');
   updateColorSelection();
   updateEmojiSelection();
   elements.containerModal.showModal();
@@ -1791,6 +1813,35 @@ function setupEventListeners() {
     // 清除错误提示
     elements.nameError.classList.remove('visible');
 
+    // 获取扩展属性值
+    const email = elements.containerEmailInput.value.trim();
+    const phone = elements.containerPhoneInput.value.trim();
+    const notes = elements.containerNotesInput.value;
+
+    // 邮箱验证（per D-04, D-05）：非空时检查 @ 格式
+    if (email && !email.includes('@')) {
+      elements.emailError.textContent = '请输入正确的邮箱地址';
+      elements.emailError.classList.add('visible');
+      return;
+    }
+    elements.emailError.classList.remove('visible');
+
+    // 手机号验证（per D-04, D-05）：非空时检查11位数字
+    if (phone && !/^\d{11}$/.test(phone)) {
+      elements.phoneError.textContent = '请输入11位手机号';
+      elements.phoneError.classList.add('visible');
+      return;
+    }
+    elements.phoneError.classList.remove('visible');
+
+    // 备注验证（per D-07）：最大500字符
+    if (notes.length > 500) {
+      elements.notesError.textContent = '备注不能超过500字';
+      elements.notesError.classList.add('visible');
+      return;
+    }
+    elements.notesError.classList.remove('visible');
+
     try {
       if (state.editingContainerId) {
         // 编辑模式
@@ -1798,6 +1849,9 @@ function setupEventListeners() {
           name,
           color: state.selectedColor,
           icon: state.selectedIcon,
+          phone,
+          email,
+          notes,
         });
       } else {
         // 新建模式
@@ -1805,6 +1859,9 @@ function setupEventListeners() {
           name,
           color: state.selectedColor,
           icon: state.selectedIcon,
+          phone,
+          email,
+          notes,
         });
       }
 

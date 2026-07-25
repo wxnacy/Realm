@@ -207,6 +207,22 @@
             <button type="button" class="emoji-option" data-icon="🌍">🌍</button>
           </div>
         </div>
+        <hr class="form-divider">
+        <div class="form-group">
+          <label for="containerEmailInput">邮箱</label>
+          <input type="email" id="containerEmailInput" placeholder="例如：user@example.com" maxlength="100">
+          <div class="error-message" id="emailError"></div>
+        </div>
+        <div class="form-group">
+          <label for="containerPhoneInput">手机号</label>
+          <input type="tel" id="containerPhoneInput" placeholder="例如：13800138000" maxlength="11">
+          <div class="error-message" id="phoneError"></div>
+        </div>
+        <div class="form-group">
+          <label for="containerNotesInput">备注</label>
+          <textarea id="containerNotesInput" placeholder="可选填写备注信息..." maxlength="500" rows="4"></textarea>
+          <div class="error-message" id="notesError"></div>
+        </div>
         <div class="form-actions">
           <button type="button" class="btn btn-secondary" id="cancelContainerBtn">取消</button>
           <button type="submit" class="btn btn-primary" id="saveContainerBtn">创建容器</button>

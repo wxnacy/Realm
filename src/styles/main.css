@@ -393,6 +393,37 @@ button {
   border-color: var(--accent-color);
 }
 
+/* 表单分隔线 */
+.form-divider {
+  border: none;
+  border-top: 1px solid var(--border-color, #3a3a3a);
+  margin: 16px 0;
+}
+
+/* 备注 textarea 样式 */
+textarea {
+  width: 100%;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+}
+
+textarea:focus {
+  border-color: var(--accent-color);
+}
+
+textarea::placeholder {
+  color: var(--text-muted);
+}
+
 /* 颜色选择器 */
 .color-picker {
   display: flex;
