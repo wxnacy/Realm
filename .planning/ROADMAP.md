@@ -160,11 +160,12 @@ Plans:
   4. 用户可以删除单条历史记录或清空当前容器的全部历史
   5. 历史记录超过每容器 10000 条上限时自动淘汰最旧记录
 
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 
-- [ ] 06-01: TBD
+- [ ] 06-01-PLAN.md — 后端基础：SQLite history-manager.js + realm:// 协议 + IPC 通道 + 导航捕获 + 工具栏按钮
+- [ ] 06-02-PLAN.md — 前端 UI：历史记录页面（日期分组列表 + 搜索高亮 + 单条/批量删除 + 清空 + 样式）
 
 ### Phase 7: 收藏夹管理
 
@@ -217,6 +218,6 @@ Phases execute in numeric order: 5 → 6 → 7 → 8
 | 3. Data Isolation + Cookie Persistence | v1.0 | 1/1 | Complete | 2026-07-23 |
 | 4. Convenience Features | v1.0 | 3/3 | Complete | 2026-07-24 |
 | 5. 容器属性扩展 | v1.1 | 1/1 | Complete    | 2026-07-25 |
-| 6. 浏览历史记录 | v1.1 | 0/1 | Not started | - |
+| 6. 浏览历史记录 | v1.1 | 0/2 | Planned | - |
 | 7. 收藏夹管理 | v1.1 | 0/1 | Not started | - |
 | 8. 常用网站推荐 + 设置页面 | v1.1 | 0/1 | Not started | - |
