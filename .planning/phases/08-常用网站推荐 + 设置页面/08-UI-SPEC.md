@@ -47,16 +47,17 @@ Exceptions: 常用网站卡片 favicon 圆形尺寸 48px（12 的倍数，非 4 
 
 ## Typography
 
+4 种字号，2 种字重：
+
 | Role | Size | Weight | Line Height |
 |------|------|--------|-------------|
-| Body | 14px | 400 | 1.5 |
-| Label | 13px | 400 | 1.4 |
+| Card Title | 12px | 400 | 1.3 |
+| Body / Label / Muted / URL | 14px | 400 | 1.5 |
 | Section Title | 14px | 600 | 1.4 |
+| Empty State Heading | 18px | 600 | 1.4 |
 | Page Title | 24px | 600 | 1.3 |
-| Card Title | 12px | 500 | 1.3 |
-| Muted/URL | 13px | 400 | 1.4 |
 
-**说明：** 与现有 history/favorites 页面完全一致。常用网站卡片标题使用 12px（与 `.shortcut-name` 一致）。
+**说明：** 与现有 history/favorites 页面完全一致。常用网站卡片标题使用 12px（与 `.shortcut-name` 一致）。Label、Muted/URL 统一归入 14px，不再单独使用 13px。仅保留 400（regular）和 600（bold）两种字重。
 
 ---
 
@@ -144,7 +145,7 @@ Exceptions: 常用网站卡片 favicon 圆形尺寸 48px（12 的倍数，非 4 
 
 **设置项结构：**
 - label + 控件水平排列（justify-content: space-between）
-- label：14px/500/`var(--text-secondary)`
+- label：14px/400/`var(--text-secondary)`
 - 控件：select 下拉框（使用现有 form 样式）或 Toggle Switch（复用现有 `.toggle-switch` 样式）
 
 **默认浏览器引导区：**
