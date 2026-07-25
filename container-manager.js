@@ -22,10 +22,10 @@ const containers = new Map();
  * 默认容器配置
  */
 const DEFAULT_CONTAINERS = [
-  { id: 'default', name: '默认', color: '#6B7280', icon: '🌐' },
-  { id: 'work', name: '工作', color: '#3B82F6', icon: '💼' },
-  { id: 'personal', name: '个人', color: '#10B981', icon: '👤' },
-  { id: 'finance', name: '金融', color: '#F59E0B', icon: '🏦' },
+  { id: 'default', name: '默认', color: '#6B7280', icon: '🌐', phone: '', email: '', notes: '' },
+  { id: 'work', name: '工作', color: '#3B82F6', icon: '💼', phone: '', email: '', notes: '' },
+  { id: 'personal', name: '个人', color: '#10B981', icon: '👤', phone: '', email: '', notes: '' },
+  { id: 'finance', name: '金融', color: '#F59E0B', icon: '🏦', phone: '', email: '', notes: '' },
 ];
 
 /**
@@ -80,7 +80,8 @@ function initContainers() {
 
 /**
  * 获取所有容器配置（不含 session 对象）
- * @returns {Array<{id: string, name: string, color: string, icon: string}>}
+ * 惰性填充 phone/email/notes 字段，兼容旧版本数据（per D-09, D-10）
+ * @returns {Array<{id: string, name: string, color: string, icon: string, phone: string, email: string, notes: string}>}
  */
 function getContainers() {
   return Array.from(containers.values()).map(c => ({
@@ -88,6 +89,9 @@ function getContainers() {
     name: c.name,
     color: c.color,
     icon: c.icon,
+    phone: c.phone || '',
+    email: c.email || '',
+    notes: c.notes || '',
   }));
 }
 
@@ -106,10 +110,13 @@ function getContainer(id) {
  * @param {string} config.name - 容器名称（必填）
  * @param {string} [config.color='#6B7280'] - 容器颜色
  * @param {string} [config.icon='📌'] - 容器图标
+ * @param {string} [config.phone=''] - 手机号（可选）
+ * @param {string} [config.email=''] - 邮箱（可选）
+ * @param {string} [config.notes=''] - 备注（可选）
  * @returns {Object} 创建的容器配置
  * @throws {Error} 名称为空时抛出错误
  */
-function createContainer({ name, color = '#6B7280', icon = '📌' }) {
+function createContainer({ name, color = '#6B7280', icon = '📌', phone = '', email = '', notes = '' }) {
   // 验证名称非空
   if (!name || typeof name !== 'string' || name.trim() === '') {
     throw new Error('容器名称不能为空');
@@ -121,6 +128,9 @@ function createContainer({ name, color = '#6B7280', icon = '📌' }) {
     name: name.trim(),
     color,
     icon,
+    phone: phone || '',
+    email: email || '',
+    notes: notes || '',
   };
 
   // 保存到配置
@@ -149,9 +159,12 @@ function createContainer({ name, color = '#6B7280', icon = '📌' }) {
  * @param {string} [updates.name] - 新名称
  * @param {string} [updates.color] - 新颜色
  * @param {string} [updates.icon] - 新图标
+ * @param {string} [updates.phone] - 新手机号
+ * @param {string} [updates.email] - 新邮箱
+ * @param {string} [updates.notes] - 新备注
  * @returns {Object|undefined} 更新后的容器配置或 undefined
  */
-function updateContainer(id, { name, color, icon }) {
+function updateContainer(id, { name, color, icon, phone, email, notes }) {
   const container = containers.get(id);
   if (!container) {
     console.error(`[Realm] 容器不存在: ${id}`);
@@ -162,6 +175,9 @@ function updateContainer(id, { name, color, icon }) {
   if (name !== undefined) container.name = name;
   if (color !== undefined) container.color = color;
   if (icon !== undefined) container.icon = icon;
+  if (phone !== undefined) container.phone = phone;
+  if (email !== undefined) container.email = email;
+  if (notes !== undefined) container.notes = notes;
 
   // 更新 Map
   containers.set(id, container);
@@ -175,6 +191,9 @@ function updateContainer(id, { name, color, icon }) {
       name: container.name,
       color: container.color,
       icon: container.icon,
+      phone: container.phone,
+      email: container.email,
+      notes: container.notes,
     };
   }
   configStore.set('containers', savedContainers);
@@ -185,6 +204,9 @@ function updateContainer(id, { name, color, icon }) {
     name: container.name,
     color: container.color,
     icon: container.icon,
+    phone: container.phone,
+    email: container.email,
+    notes: container.notes,
   };
 }
 

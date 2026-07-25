@@ -52,6 +52,16 @@ function validateContainerConfig(config) {
   if (config.icon && (typeof config.icon !== 'string' || [...config.icon].length !== 1)) {
     return false;
   }
+  // 扩展属性校验（per D-04）：允许 undefined 或 string，非空时限制长度
+  if (config.phone !== undefined && (typeof config.phone !== 'string' || config.phone.length > 20)) {
+    return false;
+  }
+  if (config.email !== undefined && (typeof config.email !== 'string' || config.email.length > 100)) {
+    return false;
+  }
+  if (config.notes !== undefined && (typeof config.notes !== 'string' || config.notes.length > 500)) {
+    return false;
+  }
   return true;
 }
 
@@ -72,6 +82,16 @@ function validateContainerUpdates(updates) {
     return false;
   }
   if (updates.icon !== undefined && (typeof updates.icon !== 'string' || [...updates.icon].length !== 1)) {
+    return false;
+  }
+  // 扩展属性校验（per D-04）：允许 undefined 或 string，非空时限制长度
+  if (updates.phone !== undefined && (typeof updates.phone !== 'string' || updates.phone.length > 20)) {
+    return false;
+  }
+  if (updates.email !== undefined && (typeof updates.email !== 'string' || updates.email.length > 100)) {
+    return false;
+  }
+  if (updates.notes !== undefined && (typeof updates.notes !== 'string' || updates.notes.length > 500)) {
     return false;
   }
   return true;
