@@ -1,214 +1,194 @@
-# 项目研究总结
+# Project Research Summary
 
-**项目:** Realm Browser — 多容器隔离浏览器
-**领域:** Electron 桌面应用
-**研究日期:** 2026-07-23
-**置信度:** HIGH
+**Project:** Realm Browser v1.1
+**Domain:** Electron 多容器隔离浏览器 -- 容器属性增强 + 收藏历史 + 常用网站 + 设置页面
+**Researched:** 2026-07-25
+**Confidence:** MEDIUM-HIGH
+
+## Executive Summary
+
+Realm Browser 是一个基于 Electron 32.x 的多容器隔离浏览器，v1.1 目标是在已有容器 CRUD、Tab 管理、Cookie 持久化基础上，新增容器属性扩展、收藏夹、浏览历史、常用网站推荐和设置页面五个功能模块。研究表明，所有新增功能均可在现有技术栈内实现，**不需要引入任何新的 npm 依赖**，核心存储继续使用 electron-store（JSON 文件），历史记录和收藏夹通过扩展 electron-store schema 完成。
+
+架构分析确认现有模块化设计（container-manager、tab-manager、cookie-manager + ipc-handlers 集中注册 + preload contextBridge 暴露）可以直接扩展，无需重构。建议按依赖关系分 5 个 Wave 构建：先做无依赖的容器属性扩展和历史记录（后者是常用网站推荐的前置依赖），再做收藏夹、常用网站推荐，最后做独立的设置页面。
+
+主要风险集中在三个方面：(1) electron-store 作为历史记录存储引擎的性能上限约在万级数据量，需要设置每容器 10000 条上限和 FIFO 淘汰机制；(2) macOS 默认浏览器注册依赖代码签名和系统权限，开发阶段无法完整测试；(3) 容器属性 Schema 扩展必须处理旧数据兼容（读取时填充默认值），否则旧用户升级会崩溃。
+
+## Key Findings
+
+### Recommended Stack
+
+v1.1 不引入任何新依赖。所有数据持久化通过扩展现有 electron-store schema 完成，浏览历史通过 webview 内置导航事件采集，默认浏览器注册使用 Electron 内置 API。
+
+**Core technologies (existing, unchanged):**
+- **Electron 32.x**: 桌面应用框架，提供 Session 隔离、webview、IPC 通信
+- **electron-store 8.x**: 容器配置、收藏、历史、设置的持久化存储（JSON 文件）
+- **Electron Session API**: 容器隔离核心机制（`persist:container-{id}`）
+
+**Anti-Stack (explicitly NOT introducing):**
+- better-sqlite3: 万级数据量下 electron-store 性能足够，原生编译依赖增加构建复杂度
+- lodash/underscore: 原生 JS 方法足以处理排序、过滤、聚合
+- uuid/fuse.js/date-fns: 内置 API 或简单实现即可替代
+
+> 详见 `.planning/research/STACK.md`
+
+### Expected Features
+
+**Must have (table stakes, v1.1):**
+- 容器属性扩展（phone/email/notes）-- 多账号管理场景的基本需求
+- 收藏夹管理（添加/删除/列表/搜索）-- 所有浏览器标配
+- 浏览历史记录（自动记录/按容器隔离/搜索/清理）-- 所有浏览器标配
+- 常用网站推荐（新标签页 frecency 算法网格）-- Chrome/Firefox/Safari 新标签页标配
+- 设置页面（通用设置 + 默认浏览器引导）-- macOS 偏好设置标准位置
+
+**Should have (differentiators):**
+- 收藏按容器隔离 -- Firefox MAC 不支持，是显著差异化点
+- 常用网站域名聚合 -- 同一域名下多个页面合并为一个卡片
+- 收藏全局选项 -- 允许用户选择"仅此容器"或"所有容器"
+
+**Defer (v2+):**
+- 收藏文件夹分类、收藏栏显示
+- 收藏智能分类建议
+- 容器属性自动填充（DOM 注入）
+- 历史记录跨 Tab 关联
+
+> 详见 `.planning/research/FEATURES.md`
+
+### Architecture Approach
+
+现有架构采用模块化设计，新功能沿用同一模式扩展即可。核心集成点是 electron-store 持久化层和 IPC 通信层。需要新增 3 个主进程模块（bookmark-manager.js、history-manager.js、settings-manager.js），扩展 ipc-handlers.js 注册新通道，扩展 preload.js 暴露新 API。
+
+**Major components to add:**
+1. **history-manager.js** -- 浏览历史 CRUD、按容器隔离查询、frecency 算法、自动清理
+2. **bookmark-manager.js** -- 收藏夹 CRUD、URL 归一化去重、容器隔离 + 全局收藏
+3. **settings-manager.js** -- 应用设置管理、默认浏览器检测与引导
+
+**IPC 通道命名规范（沿用现有 `模块:动作` 格式）:**
+- `bookmark:list`, `bookmark:add`, `bookmark:update`, `bookmark:delete`
+- `history:list`, `history:add`, `history:delete`, `history:clear`, `history:search`, `history:frequent`
+- `settings:get`, `settings:update`, `settings:is-default`, `settings:set-default`
+
+> 详见 `.planning/research/ARCHITECTURE.md`
+
+### Critical Pitfalls
+
+1. **electron-store 存储膨胀（陷阱1）** -- 历史记录高频写入，JSON 全量序列化性能随数据增长急剧下降。缓解措施：设置每容器 10000 条上限 + FIFO 淘汰 + 启动时清理过期数据。如果未来性能不足，可单独将 history 迁移到 better-sqlite3。
+
+2. **容器属性 Schema 迁移（陷阱2）** -- 旧配置中没有 phone/email/notes 字段，直接访问会抛 TypeError。缓解措施：在 `getContainers()` 中用 `{ ...DEFAULT_CONTAINER, ...c }` 填充默认值。
+
+3. **历史记录未按容器隔离（陷阱3）** -- 如果不记录 container_id，所有容器历史混在一起，破坏核心价值。缓解措施：数据库设计时就将 container_id 作为必填字段。
+
+4. **常用网站 frecency 算法不准（陷阱4）** -- 纯频率排序导致过时网站始终排前面。缓解措施：使用 `log2(visitCount+1) * recencyMultiplier` 复合算法。
+
+5. **macOS 默认浏览器注册（陷阱5）** -- 开发模式下 `setAsDefaultProtocolClient` 静默失败，打包后行为不一致。缓解措施：以打开系统偏好设置引导用户手动设置为主，API 调用为辅。
+
+> 详见 `.planning/research/PITFALLS.md`
+
+## Implications for Roadmap
+
+Based on research, suggested phase structure:
+
+### Phase 1: 容器属性扩展 + Schema 兼容
+
+**Rationale:** 最轻量的变更，仅修改现有模块，无新模块依赖。同时验证 electron-store 字段扩展模式和 Schema 兼容机制，为后续功能打基础。
+
+**Delivers:** 容器支持 phone/email/notes 三个可选字段，旧数据自动兼容。
+
+**Addresses:** 容器属性扩展（表单编辑 UI + 数据持久化）
+
+**Avoids:** 陷阱2（Schema 迁移缺失）-- 在本阶段建立 `{ ...DEFAULT, ...saved }` 的合并读取模式。
+
+### Phase 2: 浏览历史记录
+
+**Rationale:** 历史记录是 Phase 3（常用网站推荐）的前置依赖，且是浏览器的 table stakes 功能。先实现历史记录，积累数据后再做推荐。
+
+**Delivers:** 自动记录页面导航、按容器隔离存储、历史列表展示、搜索、清理机制。
+
+**Addresses:** 浏览历史记录（自动记录/容器隔离/搜索/清理/自动过期）
+
+**Avoids:** 陷阱1（存储膨胀，设上限+FIFO）、陷阱3（容器隔离，container_id 必填）、陷阱9（数据增长，启动清理+定时清理）
+
+### Phase 3: 收藏夹管理
+
+**Rationale:** 与 Phase 2 共享 IPC 注册模式和 UI 模式（模态框列表），紧随其后实现效率最高。独立于历史记录，无数据依赖。
+
+**Delivers:** 收藏当前页面、收藏列表展示、编辑/删除、搜索、容器隔离 + 全局收藏选项。
+
+**Addresses:** 收藏夹管理（CRUD/容器隔离/全局收藏）
+
+**Avoids:** 陷阱6（URL 去重，归一化函数）、陷阱10（跨容器 UX，提供全局收藏选项）
+
+### Phase 4: 常用网站推荐 + 新标签页
+
+**Rationale:** 依赖 Phase 2 的 history-manager.js 提供数据。在历史数据积累后实现推荐算法，可立即验证效果。
+
+**Delivers:** 新标签页常用网站网格（frecency 算法）、域名聚合、favicon 展示。
+
+**Addresses:** 常用网站推荐（新标签页网格/frecency/域名聚合/按容器过滤）
+
+**Avoids:** 陷阱4（frecency 算法，log2+时间衰减）、陷阱7（新标签页性能，并行请求+缓存）、陷阱12（favicon 缓存，Google Favicon API）
+
+### Phase 5: 设置页面
+
+**Rationale:** 完全独立于其他功能，可随时插入。放在最后是因为默认浏览器注册需要打包后验证，且设置页面的 IPC 设计需要参考前面模块的经验。
+
+**Delivers:** 设置模态框（默认浏览器引导、启动行为、搜索引擎、历史保留天数）。
+
+**Addresses:** 设置页面（通用设置/默认浏览器/设置持久化）
+
+**Avoids:** 陷阱5（默认浏览器，以系统设置引导为主）、陷阱8（IPC 通道爆炸，统一 key-value 模式）
+
+### Phase Ordering Rationale
+
+- **Phase 1 先行**：最轻量，验证 electron-store 扩展模式，建立 Schema 兼容基础
+- **Phase 2 在 Phase 3/4 之前**：历史记录是常用网站推荐的数据依赖，必须先有数据
+- **Phase 3 紧跟 Phase 2**：共享 IPC 注册模式和 UI 模式，学习曲线最低
+- **Phase 4 在 Phase 2 之后**：依赖 history-manager.js 的 getFrequentlyVisited() 方法
+- **Phase 5 最后**：完全独立，且默认浏览器注册需要打包后验证
+
+### Research Flags
+
+Phases likely needing deeper research during planning:
+- **Phase 2 (历史记录):** webview `did-navigate` 事件不提供页面 title，需要异步获取；electron-store 性能边界需要实际测试验证
+- **Phase 4 (常用网站):** frecency 算法参数需要实际使用数据调优
+- **Phase 5 (设置页面):** macOS 默认浏览器注册行为需要打包后实际测试
+
+Phases with standard patterns (skip research-phase):
+- **Phase 1 (容器属性):** 纯 schema 扩展，模式清晰，无技术不确定性
+- **Phase 3 (收藏夹):** 标准 CRUD 模式，与现有模块一致
+
+## Confidence Assessment
+
+| Area | Confidence | Notes |
+|------|------------|-------|
+| Stack | HIGH | 明确不引入新依赖，所有功能在现有栈内可实现，官方文档验证 |
+| Features | MEDIUM-HIGH | 竞品分析充分，功能优先级清晰，但 UI 设计需结合项目风格 |
+| Architecture | HIGH | 现有模块化设计可直接扩展，集成点明确，代码结构已验证 |
+| Pitfalls | MEDIUM | 基于 Electron 文档和领域知识，部分陷阱（如 electron-store 性能边界）需要实际测试 |
+
+**Overall confidence:** MEDIUM-HIGH
+
+### Gaps to Address
+
+- **electron-store 性能边界**: 万级数据量下的实际写入耗时和启动加载时间需要基准测试，建议 Phase 2 开始时先做性能基准
+- **webview title 获取**: `did-navigate` 事件不提供 title，需要 `executeJavaScript('document.title')` 异步获取，实际效果需验证
+- **macOS 默认浏览器**: 开发阶段无法完整测试，需要在打包后验证完整流程
+- **favicon 获取策略**: Google Favicon API 可用性需要验证，备选方案是 webContents 获取并本地缓存
+
+## Sources
+
+### Primary (HIGH confidence)
+- Electron 官方文档 -- webview 事件、app API、shell API、electron-store
+- 项目现有代码库 -- container-manager.js、ipc-handlers.js、src/renderer.js、src/preload.js
+
+### Secondary (MEDIUM confidence)
+- Firefox Multi-Account Containers 扩展源码 -- 容器隔离模式参考
+- Chrome/Firefox/Safari 新标签页实现 -- frecency 算法和 UI 模式参考
+- macOS Info.plist CFBundleURLTypes 规范 -- 默认浏览器注册限制
+
+### Tertiary (LOW confidence)
+- electron-store GitHub Issues -- 性能边界讨论，需要实际验证
+- macOS 15 (Sequoia) 安全策略变更 -- 默认浏览器注册可能有新限制
 
 ---
-
-## 执行摘要
-
-Realm Browser 是一款基于 Electron 的多容器隔离浏览器，定位为「Firefox Multi-Account Containers 的独立桌面应用版本」。研究结论明确：必须升级到 Electron 36+ 并采用 `BaseWindow + WebContentsView` 架构，而非继续使用已废弃的 BrowserView。容器隔离的核心机制（`session.fromPartition('persist:container-xxx')`）已被验证为正确且稳定，但当前代码存在多个架构缺陷——包括容器切换未真正生效、缺少多 Tab 支持、以及所有逻辑集中在单一文件中。
-
-基于竞品分析（Firefox MAC、Ghost Browser、Multilogin、GoLogin），Realm 的差异化定位应聚焦于：简单易用的个人多容器浏览器，不追求反检测/指纹伪装，不追求团队协作，预留 AI Agent 接口但不在 v1 实现。MVP 范围明确：容器 CRUD + 完整数据隔离 + URL 导航 + 多 Tab 支持。
-
-最大的技术风险是：Session 隔离泄漏（容器间 Cookie 渗透）、Cookie domain 前导点号处理不当、以及多 WebContents 内存泄漏。这些陷阱在 Phase 1 和 Phase 2 必须严格验证，否则后续所有功能都建立在错误的隔离基础上。
-
----
-
-## 关键发现
-
-### 推荐技术栈
-
-详见 [STACK.md](./STACK.md)
-
-**核心技术：**
-- **Electron 36.3.1**：当前 32.x 已结束支持，36 是 LTS 版本，Chromium 136 + Node 22.14
-- **BaseWindow + WebContentsView**：BrowserView 已废弃（Electron 30 起），WebContentsView 是官方推荐替代，原生支持多视图
-- **Electron Session API**：`session.fromPartition('persist:container-xxx')` 实现完全隔离，无需第三方库
-- **electron-store ^11.0.0**：容器配置持久化，从 8.x 升级（注意 breaking changes）
-
-**关键决策：** BrowserView → WebContentsView 迁移是不可回避的架构变更。每个 Tab 对应一个独立的 WebContentsView，通过 `addChildView()` 添加到 BaseWindow，通过 `setVisible()` 控制显示/隐藏。
-
-### 预期功能
-
-详见 [FEATURES.md](./FEATURES.md)
-
-**必须有（MVP v1）：**
-- 容器 CRUD（创建/编辑/删除）— 用户管理自己的容器
-- 容器自定义（名称/颜色/图标）— 视觉区分是基本需求
-- 完整数据隔离（Cookie/Session/LocalStorage/IndexedDB/HTTP 缓存）— 核心价值
-- URL 导航 + 基础导航（前进/后退/刷新）— 浏览器基本功能
-- 多 Tab 支持 — 同一窗口内多个容器的 Tab
-- 容器管理 UI — 下拉面板显示容器列表
-
-**应该有（v1.x 验证后添加）：**
-- Cookie 文件持久化（JSON 导出/导入）— 备份和迁移
-- 容器分配规则（URL 自动归类）— Firefox MAC 的杀手功能
-- 快捷键支持 — 效率用户需求
-- 容器颜色标识 Tab UI — 视觉区分当前容器
-
-**推迟到 v2+：**
-- 每容器独立代理 — 需要代理基础设施
-- 团队协作 — 需要云同步和权限系统
-- AI Agent 集成 — 预留架构，等待市场成熟
-- 浏览器扩展支持 — 技术复杂度高
-
-### 架构方案
-
-详见 [ARCHITECTURE.md](./ARCHITECTURE.md)
-
-**四层架构：**
-1. **窗口层（Window Layer）**：BaseWindow 管理多个 WebContentsView，每个 Tab 是独立视图
-2. **容器层（Container Layer）**：ContainerManager 负责 CRUD 和配置管理，SessionManager 负责 partition 创建
-3. **Session 层（Session Layer）**：每个容器独立的 Session（persist:container-xxx），实现完全隔离
-4. **持久化层（Persistence Layer）**：electron-store 存储容器配置，Cookie JSON 作为导入导出
-
-**推荐项目结构：** 从当前的单一 `main.js` 拆分为：`main/index.js`（入口）、`main/container-manager.js`（容器管理）、`main/tab-manager.js`（Tab 管理）、`main/session-manager.js`（Session 管理）、`main/cookie-manager.js`（Cookie 持久化）、`main/ipc-handlers.js`（IPC 处理器）。
-
-**关键数据流：** 渲染进程通过 `realmAPI`（preload.js 暴露）调用主进程方法，主进程执行 Session/Container/Tab 操作后返回结果。所有 Session 操作必须在主进程执行，渲染进程不能直接操作 Session 对象。
-
-### 关键陷阱
-
-详见 [PITFALLS.md](./PITFALLS.md)
-
-1. **Session 隔离泄漏** — partition 命名冲突、默认 Session 渗透、UI 视图与 Tab 视图 Session 不一致都会导致跨容器 Cookie 渗透。必须在 Phase 1 严格验证。
-2. **Cookie domain 前导点号** — 持久化时必须保留原始 domain（含前导点号），否则恢复后部分站点登录状态丢失。
-3. **多 WebContents 内存泄漏** — 事件监听器未清理、引用未释放、DOM 节点泄漏都会导致内存持续增长。Tab 关闭时必须完整清理。
-4. **BrowserView 已废弃** — 必须迁移到 WebContentsView，否则未来 Electron 版本可能移除支持。
-5. **容器 ID 碰撞和注入** — 当前 ID 生成策略存在碰撞风险，需要 UUID 或唯一性检查。
-
----
-
-## 路标建议
-
-基于研究发现，建议分为 4 个阶段：
-
-### Phase 1: 基础架构重构 + 核心容器
-
-**理由：** 当前所有逻辑集中在 main.js，必须先拆分为独立模块。同时实现容器 CRUD 和 Session 隔离机制，这是所有后续功能的基础。
-
-**交付：**
-- Electron 升级到 36+
-- main.js 拆分为 ContainerManager、SessionManager、IPCHandlers 等独立模块
-- 容器 CRUD（创建/编辑/删除）+ 容器配置持久化（electron-store）
-- 完整 Session 隔离验证（Cookie/Session/LocalStorage/IndexedDB）
-- 容器管理 UI（下拉面板）
-
-**覆盖功能：** 容器 CRUD、容器自定义、容器管理 UI、完整数据隔离
-
-**必须避免：** Session 隔离泄漏、容器 ID 碰撞、XSS 注入、事件监听累积
-
----
-
-### Phase 2: 多 Tab 架构 + URL 导航
-
-**理由：** 依赖 Phase 1 的模块化架构和容器隔离机制。多 Tab 是产品核心体验，URL 导航是浏览器基本功能。
-
-**交付：**
-- BrowserView → WebContentsView 迁移（BaseWindow + 多 WebContentsView）
-- TabManager 实现（创建/切换/关闭 Tab）
-- URL 导航（地址栏输入、前进/后退/刷新）
-- 窗口 resize 布局管理
-- Tab 栏 UI（显示容器颜色标识）
-
-**覆盖功能：** 多 Tab 支持、URL 导航、基础导航、容器颜色标识 Tab
-
-**必须避免：** 多 WebContents 内存泄漏、Tab 切换时 Session 不同步、窗口关闭时资源清理不完整
-
----
-
-### Phase 3: Cookie 持久化 + 容器分配规则
-
-**理由：** 依赖 Phase 2 的 Tab 系统和容器隔离。Cookie 持久化增强用户信任，容器分配规则是 Firefox MAC 的杀手功能。
-
-**交付：**
-- CookieManager 实现（JSON 导出/导入、定时备份、启动恢复）
-- Cookie domain 前导点号正确处理
-- 容器分配规则（URL 自动归类到指定容器）
-- 容器间数据导入导出
-- 快捷键支持
-
-**覆盖功能：** Cookie 文件持久化、容器分配规则、快捷键支持、数据导入导出
-
-**必须避免：** Cookie domain 前导点号处理不当、Session 存储路径不可控
-
----
-
-### Phase 4: 体验优化 + 性能调优
-
-**理由：** 前三阶段完成后，产品已具备核心功能。此阶段聚焦用户体验和性能。
-
-**交付：**
-- Tab discarding（后台 Tab 释放内存）
-- 延迟加载非默认容器
-- 容器分组和搜索
-- 关闭 Tab 动画
-- 删除容器确认对话框
-- 性能监控和优化
-
-**覆盖功能：** Tab discarding、容器分组、性能优化
-
----
-
-### 阶段排序理由
-
-- Phase 1 是所有后续工作的基础：没有模块化架构和容器隔离，其他功能都无法正确实现
-- Phase 2 依赖 Phase 1 的 ContainerManager 和 SessionManager：Tab 需要绑定到容器的 Session
-- Phase 3 依赖 Phase 2 的 TabManager：Cookie 持久化需要在 Tab 关闭/应用退出时触发
-- Phase 4 是锦上添花：前三阶段完成后产品已可用，此阶段优化体验
-
-### 研究标记
-
-需要深入研究的阶段：
-- **Phase 2：** WebContentsView 多 Tab 架构的具体实现细节，特别是 BaseWindow 与 BrowserWindow 的差异（如 preload.js 行为变化）
-
-标准模式（可跳过研究）的阶段：
-- **Phase 1：** Electron 模块拆分和 ContainerManager 模式非常成熟
-- **Phase 3：** Cookie 持久化和 JSON 导出有成熟的参考实现（AutoBrowser）
-
----
-
-## 置信度评估
-
-| 领域 | 置信度 | 说明 |
-|------|--------|------|
-| 技术栈 | HIGH | Electron 官方文档明确：36.x 是当前 LTS，WebContentsView 是官方推荐替代 |
-| 功能定义 | MEDIUM | 基于 5 个竞品的一手信息，但未经过用户验证 |
-| 架构设计 | HIGH | 官方迁移指南完整，Session 隔离机制成熟，代码模式清晰 |
-| 陷阱识别 | HIGH | 基于官方文档、RFC 6265 规范、Chromium 源码和实际项目经验 |
-
-**总体置信度：HIGH**
-
-### 待解决的差距
-
-- **electron-store 8.x → 11.x breaking changes：** 需要在 Phase 1 升级时实际测试，可能有 API 变更
-- **BaseWindow 的 preload.js 行为：** BaseWindow 本身不加载 preload.js，需要通过 WebContentsView 的 webContents 交互，具体实现模式需要在 Phase 2 验证
-- **用户对容器分配规则的需求强度：** Firefox MAC 的杀手功能，但 Realm 用户是否需要待验证
-
----
-
-## 来源
-
-### 主要来源（HIGH 置信度）
-- Electron 官方文档：WebContentsView API、BaseWindow API、Session API、Cookies API
-- Electron 30+ 弃用公告：BrowserView → WebContentsView 迁移指南
-- RFC 6265：HTTP State Management Mechanism（Cookie domain 规范）
-
-### 次要来源（MEDIUM 置信度）
-- Firefox Multi-Account Containers 官方扩展页面
-- Ghost Browser 官方网站
-- Multilogin 官方网站
-- GoLogin 官方网站
-- AutoBrowser 项目 Cookie 持久化实现
-
-### 参考来源
-- npm registry 版本信息（electron@43.2.0, electron-store@11.0.2, electron-builder@26.15.3）
-- Chromium 源码：Cookie 存储和匹配逻辑
-- 项目代码库分析：main.js、src/preload.js、src/renderer.js
-
----
-
-*研究完成日期：2026-07-23*
-*可进入路标规划：是*
+*Research completed: 2026-07-25*
+*Ready for roadmap: yes*

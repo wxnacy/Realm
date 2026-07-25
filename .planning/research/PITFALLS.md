@@ -1,675 +1,624 @@
-# 研究：领域陷阱
+# 领域陷阱研究
 
-**领域：** 多容器隔离浏览器 (Electron)
-**研究日期：** 2026-07-23
-**置信度：** HIGH
+**领域：** 多容器隔离浏览器 (Electron) — v1.1 功能扩展
+**研究日期：** 2026-07-25
+**置信度：** MEDIUM（基于 websearch + 领域知识综合）
+
+---
+
+## 本文档说明
+
+本文档聚焦 v1.1 里程碑新增功能的陷阱，即：向已有系统**添加**容器扩展属性、收藏与历史、常用网站推荐、设置页面时的常见错误。基础架构陷阱（Session 隔离、Cookie domain、内存泄漏等）请参见初始研究 PITFALLS.md（2026-07-23）。
 
 ---
 
 ## 关键陷阱
 
-### 陷阱 1：Session 隔离泄漏 — 跨容器 Cookie 渗透
+### 陷阱 1：electron-store 存储膨胀 — 历史记录和收藏用错存储引擎
 
 **问题描述：**
-容器 A 设置的 Cookie 在容器 B 的 WebContents 中可被读取，导致用户在不同身份间的会话数据完全混淆。这是多容器浏览器最致命的安全缺陷。
+将浏览历史记录和收藏夹数据直接存入 electron-store（JSON 文件），随着数据增长导致应用启动变慢、写入卡顿。
 
 **根本原因：**
-开发者错误地认为 `session.fromPartition()` 的隔离是自动且完整的。实际上有几种场景会导致泄漏：
-
-1. **Partition 命名冲突** — 如果两个容器使用相同的 partition 字符串（如 `persist:container-work` 和 `persist:container-work`），它们共享同一个 Session。
-2. **默认 Session 渗透** — 未显式指定 session 的 WebContents 会使用默认的 `""` partition，可能意外共享。
-3. **主窗口与子视图 Session 不一致** — 主窗口使用容器 A 的 session 加载 UI，但 BrowserView/WebContentsView 未同步绑定。
-4. **`persist:` 前缀问题** — 使用 `persist:xxx` 会让数据写入磁盘；不使用 `persist:` 的内存 Session 在应用重启后丢失但进程内仍然共享。
+electron-store 每次 `.set()` 都会将**整个 JSON 对象**序列化并写入磁盘。浏览历史是高频写入场景（每次导航都记录），数据量可达数万条。当 JSON 文件超过 1MB 时：
+- 每次写入耗时从 <1ms 增长到 50ms+
+- 启动时全量加载到内存，占用数十 MB
+- 无法做部分查询，必须全量反序列化
 
 **如何避免：**
+历史记录和收藏夹应使用 SQLite（`better-sqlite3`）而非 electron-store。electron-store 仅适合低频、小量配置数据（容器配置、设置项）。
 
 ```javascript
-// 错误：容器 ID 可能被注入恶意字符
-const partition = `persist:container-${userInput}`;
+// 错误：用 electron-store 存历史
+const historyStore = new Store({ name: 'history' });
+historyStore.set('visits', [...thousandsOfEntries]); // 每次全量写入
 
-// 正确：严格验证 partition 名称，使用白名单字符
-function buildPartition(containerId) {
-  const sanitized = containerId.replace(/[^a-zA-Z0-9_-]/g, '');
-  return `persist:container-${sanitized}`;
-}
+// 正确：用 SQLite 存历史
+const Database = require('better-sqlite3');
+const db = new Database(path.join(app.getPath('userData'), 'history.db'));
+db.pragma('journal_mode = WAL'); // 关键：启用 WAL 模式
 
-// 验证：确保所有 WebContents 都绑定到正确的 session
-function getContainerSession(containerId) {
-  const partition = buildPartition(containerId);
-  return session.fromPartition(partition);
-}
+db.exec(`
+  CREATE TABLE IF NOT EXISTS visits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    container_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    title TEXT,
+    visit_time INTEGER NOT NULL,
+    visit_count INTEGER DEFAULT 1
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_visits_container ON visits(container_id, visit_time DESC)');
 ```
 
 **预警信号：**
-- 在容器 A 登录网站后，容器 B 中相同网站显示已登录状态
-- 打开 DevTools → Application → Cookies，发现不同容器 Tab 的 Cookie 来自同一源
-- 应用启动后某个容器的 Cookie 意外包含了另一个容器站点的数据
+- 应用启动越来越慢（>2秒）
+- 导航到新页面时明显卡顿
+- realm-config.json 文件超过 1MB
 
 **应解决的阶段：**
-Phase 1 — 基础容器实现。这是核心隔离机制，必须在第一步就确保正确。
+Phase 1（历史记录存储选型）— 在实现历史记录功能前确定存储方案。
 
 ---
 
-### 陷阱 2：Cookie Domain 的前导点号 (Leading Dot) 处理
+### 陷阱 2：容器属性 Schema 迁移 — 扩展字段导致旧配置崩溃
 
 **问题描述：**
-当 Cookie 的 domain 字段包含前导点号（如 `.example.com`），根据 RFC 6265 这个 Cookie 应该在所有子域名共享。如果在持久化时没有正确保留或剥离前导点号，会导致：
-- Cookie 恢复后无法匹配正确的域
-- 跨容器的 Cookie 意外共享（两个容器访问同一域名的不同子域时）
-- 安全属性 `__Host-` 前缀的 Cookie 失效
+给容器添加 phone、email、notes 等新属性时，如果没有正确处理旧配置数据的迁移，会导致应用启动崩溃或数据丢失。
 
 **根本原因：**
-Electron 的 `session.cookies` API 返回的 Cookie 对象中，domain 字段的前导点号行为与 Chromium 内部实现不一致。在持久化到 JSON 文件时，如果简单存储 `domain` 字段，恢复时可能产生问题。
-
-参考项目 AutoBrowser 的解决方案是在 JSON 格式中显式保留 domain 的前导点号，并在加载时做特殊处理。
+electron-store 没有内置的 schema 版本管理或迁移系统。当前容器配置结构为 `{ id, name, color, icon }`，添加新字段后：
+- 旧配置中没有 phone/email/notes 字段，读取时返回 `undefined`
+- 如果代码直接访问 `container.phone.length`，会抛出 TypeError
+- `getContainers()` 返回的对象结构变化，渲染进程可能因此崩溃
 
 **如何避免：**
 
 ```javascript
-// Cookie 持久化时：保留原始 domain
-async function saveCookies(containerId, ses) {
-  const cookies = await ses.cookies.get({});
-  const formatted = cookies.map(cookie => ({
-    name: cookie.name,
-    value: cookie.value,
-    domain: cookie.domain,        // 保留原始 domain（包含前导点号）
-    path: cookie.path,
-    secure: cookie.secure,
-    httpOnly: cookie.httpOnly,
-    expirationDate: cookie.expirationDate,
-    sameSite: cookie.sameSite,
-    // 额外记录原始 hostOnly 状态
-    hostOnly: cookie.hostOnly,
-  }));
-  // 保存到独立文件
-  fs.writeFileSync(`cookies-${containerId}.json`, JSON.stringify(formatted));
+// 方案 1：在读取时填充默认值（推荐，简单可靠）
+const DEFAULT_CONTAINER = {
+  id: '', name: '', color: '#6B7280', icon: '🌐',
+  phone: '',   // v1.1 新增
+  email: '',   // v1.1 新增
+  notes: '',   // v1.1 新增
+};
+
+function getContainers() {
+  const saved = configStore.get('containers', DEFAULT_CONTAINERS);
+  return saved.map(c => ({ ...DEFAULT_CONTAINER, ...c }));
 }
 
-// Cookie 加载时：显式处理 domain 匹配
-async function loadCookies(containerId, ses) {
-  const data = JSON.parse(fs.readFileSync(`cookies-${containerId}.json`));
-  for (const cookie of data) {
-    try {
-      await ses.cookies.set({
-        url: buildUrlFromDomain(cookie.domain, cookie.path, cookie.secure),
-        name: cookie.name,
-        value: cookie.value,
-        domain: cookie.domain,
-        path: cookie.path,
-        secure: cookie.secure,
-        httpOnly: cookie.httpOnly,
-        expirationDate: cookie.expirationDate,
-        sameSite: cookie.sameSite,
-      });
-    } catch (err) {
-      console.warn(`[Cookie] 加载失败: ${cookie.domain}${cookie.path} - ${err.message}`);
-    }
-  }
-}
-```
+// 方案 2：显式 schema 版本号 + 迁移函数
+const SCHEMA_VERSION = 2; // 当前版本
 
-**预警信号：**
-- 持久化的 Cookie JSON 中 domain 字段混合使用有/无前导点号
-- 恢复 Cookie 后某些站点的登录状态丢失
-- 同一顶级域名下不同子站的 Cookie 被错误共享
-
-**应解决的阶段：**
-Phase 1 — Cookie 持久化实现。必须在首次实现 Cookie 持久化时就处理好这个问题。
-
----
-
-### 陷阱 3：多 WebContents 内存泄漏
-
-**问题描述：**
-每个 Tab（无论是 BrowserView、WebContentsView 还是 webview）都会创建一个独立的 WebContents 实例。WebContents 包含完整的 Chromium 渲染进程，占用大量内存（每个约 50-200MB）。如果 Tab 关闭时 WebContents 没有被正确销毁，内存会持续增长直到应用崩溃。
-
-**根本原因：**
-1. **事件监听器未清理** — 每次创建 Tab 都添加 `did-finish-load`、`page-title-updated` 等事件监听，关闭时未移除
-2. **引用未释放** — JavaScript 变量持有对已关闭 WebContents 的引用，阻止 GC 回收
-3. **Session 对象累积** — `session.fromPartition()` 调用会缓存 Session 对象，即使对应的 WebContents 已销毁
-4. **DOM 节点泄漏** — 渲染进程中为每个 Tab 创建的 DOM 元素（如 Tab 按钮、iframe 容器）在关闭时未移除
-
-**如何避免：**
-
-```javascript
-// Tab 管理器示例
-class TabManager {
-  constructor() {
-    this.tabs = new Map(); // tabId -> { view, listeners }
-  }
-
-  createTab(containerId, url) {
-    const tabId = generateUniqueId();
-    const ses = getContainerSession(containerId);
-    const view = new WebContentsView({
-      webPreferences: { session: ses }
+function migrateSchema() {
+  const version = configStore.get('_schemaVersion', 1);
+  if (version < 2) {
+    const containers = configStore.get('containers', []);
+    containers.forEach(c => {
+      c.phone = c.phone || '';
+      c.email = c.email || '';
+      c.notes = c.notes || '';
     });
-
-    // 记录所有监听器以便后续清理
-    const listeners = [];
-    const onTitleUpdate = (event, title) => this.updateTabTitle(tabId, title);
-    view.webContents.on('page-title-updated', onTitleUpdate);
-    listeners.push({ event: 'page-title-updated', handler: onTitleUpdate });
-
-    this.tabs.set(tabId, { view, listeners, containerId });
-    return tabId;
+    configStore.set('containers', containers);
+    configStore.set('_schemaVersion', 2);
   }
+}
+```
 
-  closeTab(tabId) {
-    const tab = this.tabs.get(tabId);
-    if (!tab) return;
+**预警信号：**
+- 更新代码后旧用户启动报 TypeError
+- 新建容器正常，但旧容器的编辑表单显示异常
+- 容器列表中部分容器缺少新字段
 
-    // 1. 移除所有事件监听器
-    for (const { event, handler } of tab.listeners) {
-      tab.view.webContents.removeListener(event, handler);
+**应解决的阶段：**
+Phase 1（容器属性扩展）— 在添加新字段前实现 schema 迁移机制。
+
+---
+
+### 陷阱 3：浏览历史的容器隔离 — 历史记录未按容器分离
+
+**问题描述：**
+浏览历史记录没有按容器 ID 分区，导致用户在"工作"容器浏览的网站出现在"个人"容器的历史中，破坏了容器隔离的核心价值。
+
+**根本原因：**
+实现历史记录时，如果只记录 `{ url, title, time }` 而不记录 `container_id`，所有容器的历史混在一起。这在"常用网站推荐"功能中尤为严重 — 推荐列表会泄露用户在其他容器的浏览行为。
+
+**如何避免：**
+
+```javascript
+// 记录历史时必须包含 container_id
+function recordVisit(containerId, url, title) {
+  db.prepare(`
+    INSERT INTO visits (container_id, url, title, visit_time)
+    VALUES (?, ?, ?, ?)
+  `).run(containerId, url, title, Date.now());
+}
+
+// 查询常用网站时按容器过滤
+function getFrequentSites(containerId, limit = 8) {
+  return db.prepare(`
+    SELECT url, title, COUNT(*) as visit_count, MAX(visit_time) as last_visit
+    FROM visits
+    WHERE container_id = ?
+    GROUP BY url
+    ORDER BY visit_count DESC, last_visit DESC
+    LIMIT ?
+  `).all(containerId, limit);
+}
+```
+
+**预警信号：**
+- 在"工作"容器的新标签页看到"个人"容器常访问的网站
+- 搜索历史时出现不属于当前容器的记录
+- 用户反馈"隔离不彻底"
+
+**应解决的阶段：**
+Phase 2（历史记录实现）— 在数据库设计时就将 container_id 作为必填字段。
+
+---
+
+### 陷阱 4：常用网站 frecency 算法 — 排序结果不符合直觉
+
+**问题描述：**
+常用网站推荐的排序算法如果只按访问次数排序，会导致以下问题：
+- 一周前高频访问但最近不再访问的网站始终排在前面
+- 最近新发现的好网站因为总次数少而排不到推荐位
+- 用户觉得"推荐不准"而放弃使用
+
+**根本原因：**
+纯粹的频率排序没有时间衰减，纯粹的最近访问排序没有频率权重。需要"频率 + 时间衰减"的复合算法（frecency）。
+
+**如何避免：**
+
+```javascript
+// frecency 算法：频率 × 时间衰减
+function calculateFrecencyScore(visitCount, lastVisitTime) {
+  const now = Date.now();
+  const daysSinceVisit = (now - lastVisitTime) / (1000 * 60 * 60 * 24);
+
+  // 时间衰减因子：访问越近，衰减越小
+  let recencyMultiplier;
+  if (daysSinceVisit < 1) recencyMultiplier = 1.0;        // 今天
+  else if (daysSinceVisit < 7) recencyMultiplier = 0.8;   // 本周
+  else if (daysSinceVisit < 30) recencyMultiplier = 0.5;  // 本月
+  else recencyMultiplier = 0.2;                            // 更早
+
+  // 对数缩放防止超高频网站垄断推荐位
+  const frequencyScore = Math.log2(visitCount + 1);
+
+  return frequencyScore * recencyMultiplier;
+}
+
+// 查询时计算 frecency 分数
+function getTopSites(containerId, limit = 8) {
+  const sites = db.prepare(`
+    SELECT url, title, COUNT(*) as visit_count, MAX(visit_time) as last_visit
+    FROM visits
+    WHERE container_id = ?
+    GROUP BY url
+  `).all(containerId);
+
+  return sites
+    .map(site => ({
+      ...site,
+      frecency: calculateFrecencyScore(site.visit_count, site.last_visit),
+    }))
+    .sort((a, b) => b.frecency - a.frecency)
+    .slice(0, limit);
+}
+```
+
+**预警信号：**
+- 常用网站列表长期不变，最近访问的网站不出现
+- 某个网站访问 100 次后永远占第一位，即使已不再使用
+- 用户反馈"推荐不准"
+
+**应解决的阶段：**
+Phase 3（常用网站推荐）— 在实现推荐功能时设计并调优 frecency 算法。
+
+---
+
+### 陷阱 5：macOS 默认浏览器注册 — 开发模式和打包模式行为不一致
+
+**问题描述：**
+在开发模式下测试 `setAsDefaultProtocolClient` 正常，但打包后注册失败或行为不一致。
+
+**根本原因：**
+macOS 对默认浏览器注册有严格限制：
+1. **签名要求** — macOS 只允许已签名和公证（notarized）的应用注册为默认协议处理器
+2. **Info.plist 声明** — 协议处理器必须在 `Info.plist` 的 `CFBundleURLTypes` 中声明
+3. **开发模式** — 未签名的开发版本调用 `setAsDefaultProtocolClient` 会静默失败
+4. **默认浏览器 vs 协议处理器** — `setAsDefaultProtocolClient('https')` 和注册为 HTTP/HTTPS 默认浏览器是不同的事情，后者需要更深层的系统集成
+
+**如何避免：**
+
+```javascript
+// package.json 中的 electron-builder 配置
+{
+  "build": {
+    "mac": {
+      "protocols": [
+        {
+          "name": "Realm Browser",
+          "schemes": ["http", "https"]  // 注册为 http/https 处理器
+        }
+      ]
     }
-
-    // 2. 销毁 WebContents
-    tab.view.webContents.close();
-    tab.view = null;
-
-    // 3. 从 Map 中移除引用
-    this.tabs.delete(tabId);
-
-    // 4. 提示 GC
-    if (global.gc) global.gc();
   }
+}
+
+// main.js 中处理默认浏览器状态检查
+function checkDefaultBrowser() {
+  // isDefaultProtocolClient 在 macOS 上可能不可靠
+  const isDefault = app.isDefaultProtocolClient('http')
+    && app.isDefaultProtocolClient('https');
+  return isDefault;
+}
+
+// 设置为默认浏览器（需要打包后才能正常工作）
+function setAsDefaultBrowser() {
+  // macOS: 这会打开系统偏好设置让用户手动确认
+  app.setAsDefaultProtocolClient('http');
+  app.setAsDefaultProtocolClient('https');
+
+  // 更可靠的方式：使用 shell.openExternal 打开系统设置
+  // shell.openExternal('x-apple.systempreferences:com.apple.preference.internet');
+}
+```
+
+**重要提醒：** macOS 上没有 API 可以静默设置默认浏览器，系统总会弹出确认对话框。这是 macOS 的安全设计，无法绕过。
+
+**预警信号：**
+- 开发模式下 `isDefaultProtocolClient` 返回 false 但不报错
+- 打包后应用无法处理 http/https 链接
+- 系统偏好设置中看不到 Realm Browser 选项
+
+**应解决的阶段：**
+Phase 4（设置页面）— 在实现设置页面时处理默认浏览器注册，并在打包后验证。
+
+---
+
+### 陷阱 6：收藏夹数据模型 — URL 去重和元数据同步
+
+**问题描述：**
+收藏夹实现中，如果直接存储用户输入的 URL，会导致：
+- 同一页面的不同 URL 形式被重复收藏（`https://google.com` vs `https://www.google.com/`）
+- 收藏的页面标题在源站更新后变得过时
+- 收藏夹中的 favicon 丢失或不显示
+
+**根本原因：**
+URL 的等价性判断不是简单的字符串比较。`http://example.com`、`https://example.com`、`https://example.com/`、`https://www.example.com` 可能指向同一页面。
+
+**如何避免：**
+
+```javascript
+// URL 归一化
+function normalizeUrl(url) {
+  try {
+    const parsed = new URL(url);
+    // 统一协议为 https
+    parsed.protocol = 'https:';
+    // 移除 www 前缀
+    parsed.hostname = parsed.hostname.replace(/^www\./, '');
+    // 移除末尾斜杠（仅路径为 / 时）
+    if (parsed.pathname === '/') parsed.pathname = '';
+    // 移除常见追踪参数
+    ['utm_source', 'utm_medium', 'utm_campaign', 'fbclid', 'gclid'].forEach(p => {
+      parsed.searchParams.delete(p);
+    });
+    return parsed.href;
+  } catch {
+    return url; // 无法解析时保留原始 URL
+  }
+}
+
+// 收藏时检查是否已存在
+function addBookmark(containerId, url, title) {
+  const normalized = normalizeUrl(url);
+  const existing = db.prepare(
+    'SELECT id FROM bookmarks WHERE container_id = ? AND normalized_url = ?'
+  ).get(containerId, normalized);
+
+  if (existing) {
+    // 更新标题和访问时间，不重复添加
+    db.prepare('UPDATE bookmarks SET title = ?, updated_at = ? WHERE id = ?')
+      .run(title, Date.now(), existing.id);
+    return { updated: true, id: existing.id };
+  }
+
+  const result = db.prepare(
+    'INSERT INTO bookmarks (container_id, url, normalized_url, title, created_at) VALUES (?, ?, ?, ?, ?)'
+  ).run(containerId, url, normalized, title, Date.now());
+  return { created: true, id: result.lastInsertRowid };
 }
 ```
 
 **预警信号：**
-- 应用运行数小时后内存占用持续增长（通过 Activity Monitor 或 `process.memoryUsage()` 监控）
-- 关闭 Tab 后内存不下降
-- 创建 10+ Tab 后应用明显变慢
-- DevTools → Memory → Heap Snapshot 显示大量 `WebContents` 或 `BrowserView` 残留对象
+- 收藏夹中出现多个看起来一样的网站
+- 收藏后再次收藏同一页面没有提示"已收藏"
+- favicon 不显示或显示错误
 
 **应解决的阶段：**
-Phase 2 — Tab 系统实现。在实现多 Tab 功能时必须同步实现完整的生命周期管理。
+Phase 1（收藏夹实现）— 在数据模型设计时就考虑 URL 归一化。
 
 ---
 
-### 陷阱 4：BrowserView 已弃用 — 必须迁移到 WebContentsView
+### 陷阱 7：新标签页性能 — 常用网站加载阻塞页面渲染
 
 **问题描述：**
-Electron 30（2024年4月）正式弃用了 `BrowserView` API。项目当前使用 Electron 32.x，虽然 `BrowserView` 仍然可用（但控制台会打印弃用警告），但未来的 Electron 版本（36+）可能会完全移除。如果在架构设计阶段继续使用 `BrowserView`，将面临大规模重写。
+新标签页打开时需要加载常用网站列表、收藏夹、容器快捷方式等数据，如果全部同步加载会导致白屏或明显卡顿。
 
 **根本原因：**
-`BrowserView` 的设计有根本性限制：
-- 不支持 z-index 层叠管理
-- 无法与 CSS 布局系统集成
-- 一个窗口只能绑定一个 `BrowserView`（需要 hack 才能实现多 Tab）
-- 与现代 Electron 的 `BaseWindow` 架构不兼容
+SQLite 查询虽然很快（通常 <10ms），但如果在渲染进程的 `DOMContentLoaded` 中同步调用 IPC 等待主进程返回数据，会阻塞页面渲染。多个 IPC 调用串行执行时延迟叠加。
 
 **如何避免：**
 
-直接使用 `WebContentsView` + `BaseWindow`：
+```javascript
+// 方案 1：并行请求 + 异步渲染
+async function initNewTabPage() {
+  // 先渲染骨架屏/空白状态
+  renderSkeleton();
+
+  // 并行请求所有数据
+  const [frequentSites, bookmarks, containers] = await Promise.all([
+    window.realmAPI.getFrequentSites(currentContainerId),
+    window.realmAPI.getBookmarks(currentContainerId),
+    window.realmAPI.getContainers(),
+  ]);
+
+  // 异步渲染各模块
+  renderFrequentSites(frequentSites);
+  renderBookmarks(bookmarks);
+  renderContainerShortcuts(containers);
+}
+
+// 方案 2：缓存 + 增量更新
+let cachedTopSites = null;
+
+async function getTopSites(containerId) {
+  // 先返回缓存（如果有）
+  if (cachedTopSites && cachedTopSites.containerId === containerId) {
+    renderFrequentSites(cachedTopSites.data);
+  }
+
+  // 后台刷新
+  const fresh = await window.realmAPI.getFrequentSites(containerId);
+  cachedTopSites = { containerId, data: fresh };
+  renderFrequentSites(fresh);
+}
+```
+
+**预警信号：**
+- 新标签页打开后有 200ms+ 的白屏
+- 切换容器时新标签页内容闪烁
+- 鼠标点击新标签页按钮后有明显延迟
+
+**应解决的阶段：**
+Phase 3（新标签页常用网站）— 在实现推荐功能时优化加载策略。
+
+---
+
+### 陷阱 8：设置页面 IPC 通道爆炸 — 每个设置项一个通道
+
+**问题描述：**
+为每个设置项创建独立的 IPC 通道（如 `settings:get-theme`、`settings:set-theme`、`settings:get-default-browser`...），导致 IPC 通道数量爆炸，维护困难。
+
+**根本原因：**
+随着设置项增多，IPC 通道数量线性增长。每个通道都需要在 main.js 注册、preload.js 暴露、renderer.js 调用，三处代码同步维护。
+
+**如何避免：**
 
 ```javascript
-// 推荐：使用 WebContentsView（Electron 30+）
-const { BaseWindow, WebContentsView } = require('electron');
+// 错误：每个设置项一个通道
+ipcMain.handle('settings:get-theme', () => configStore.get('theme'));
+ipcMain.handle('settings:set-theme', (e, v) => configStore.set('theme', v));
+ipcMain.handle('settings:get-default-browser', () => ...);
+// ... N 个通道
 
-// 创建主窗口（使用 BaseWindow 替代 BrowserWindow）
-const mainWindow = new BaseWindow({
-  width: 1400,
-  height: 900,
-  titleBarStyle: 'hiddenInset',
+// 正确：统一的设置读写接口
+ipcMain.handle('settings:get', (event, key) => {
+  assertTrustedSender(event);
+  const ALLOWED_KEYS = ['theme', 'defaultBrowser', 'startupBehavior', 'historyRetention'];
+  if (!ALLOWED_KEYS.includes(key)) {
+    throw new Error(`不允许的设置项: ${key}`);
+  }
+  return configStore.get(key);
 });
 
-// 创建 UI 层（工具栏等）
-const uiView = new WebContentsView();
-mainWindow.contentView.addChildView(uiView);
-uiView.setBounds({ x: 0, y: 0, width: 1400, height: 80 });
-uiView.webContents.loadFile('src/toolbar.html');
-
-// 创建内容层（网页显示区域）
-const contentView = new WebContentsView({
-  webPreferences: {
-    session: getContainerSession('work'),
-  }
+ipcMain.handle('settings:set', (event, key, value) => {
+  assertTrustedSender(event);
+  const SCHEMA = {
+    theme: { type: 'string', values: ['light', 'dark', 'system'] },
+    historyRetention: { type: 'number', min: 7, max: 365 },
+    defaultBrowser: { type: 'boolean' },
+  };
+  const rule = SCHEMA[key];
+  if (!rule) throw new Error(`不允许的设置项: ${key}`);
+  if (!validateSetting(value, rule)) throw new Error(`无效的设置值: ${key}`);
+  configStore.set(key, value);
+  return true;
 });
-mainWindow.contentView.addChildView(contentView);
-contentView.setBounds({ x: 0, y: 80, width: 1400, height: 820 });
-contentView.webContents.loadURL('https://example.com');
 ```
 
-**注意：** `BaseWindow` 不加载 `preload.js`（它没有自己的渲染进程）。需要通过 `WebContentsView.webContents` 与内容交互。UI 层需要通过单独的 `WebContentsView` 加载。
-
 **预警信号：**
-- 控制台出现 `BrowserView is deprecated and will be removed` 警告
-- 代码中使用了 `win.setBrowserView()` 或 `new BrowserView()`
-- 升级 Electron 版本后构建失败，报错 `BrowserView is not a constructor`
+- ipc-handlers.js 中 `settings:` 开头的通道超过 10 个
+- 添加新设置项需要修改 3 个文件
+- 设置值没有校验逻辑
 
 **应解决的阶段：**
-Phase 1 — 架构选型。必须在项目初期就确定使用 `WebContentsView` 而非 `BrowserView`。
+Phase 4（设置页面）— 在设计 IPC 接口时采用统一的 key-value 模式。
 
 ---
 
-### 陷阱 5：容器 ID 碰撞和注入
+### 陷阱 9：历史记录数据增长失控 — 没有清理策略
 
 **问题描述：**
-当前容器 ID 通过 `name.toLowerCase().replace(/[^a-z0-9]/g, '-')` 生成，存在以下问题：
-1. **碰撞** — "My Container" 和 "my-container" 生成相同 ID
-2. **注入** — 如果 ID 被用于构建 partition 字符串或文件路径，恶意输入可能导致路径穿越
-3. **数据覆盖** — 两个碰撞的容器共享 Session，导致完全的隔离失败
+浏览历史记录持续增长，没有自动清理机制，最终导致 SQLite 数据库文件过大（数十 MB）、查询变慢、占用过多磁盘空间。
 
 **根本原因：**
-没有唯一性检查，也没有使用足够唯一的标识符（如 UUID）。
+每次页面导航都会产生一条历史记录。假设用户每天浏览 100 个页面，一年就是 36,500 条记录。加上 URL 和标题数据，每年可产生 10-50MB 的数据。
 
 **如何避免：**
 
 ```javascript
-const { randomUUID } = require('crypto');
-
-// 容器 ID 生成策略
-function generateContainerId(name, existingIds) {
-  // 基础 ID：名称转换
-  const baseId = name.toLowerCase()
-    .replace(/[^a-z0-9一-龥]/g, '-')  // 支持中文
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
-
-  // 检查是否已存在
-  if (!existingIds.has(baseId)) {
-    return baseId;
+// 启动时执行清理（保留最近 N 天的历史）
+function cleanupHistory(retentionDays = 90) {
+  const cutoff = Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
+  const deleted = db.prepare('DELETE FROM visits WHERE visit_time < ?').run(cutoff);
+  if (deleted.changes > 0) {
+    console.log(`[Realm] 清理了 ${deleted.changes} 条过期历史记录`);
   }
-
-  // 碰撞时追加短 UUID
-  const shortUuid = randomUUID().slice(0, 8);
-  return `${baseId}-${shortUuid}`;
+  // 回收空间
+  db.exec('VACUUM');
 }
 
-// 在创建容器时使用
-function createContainer(name, config) {
-  const existingIds = new Set(containers.keys());
-  const id = generateContainerId(name, existingIds);
-  // ...
-}
+// 定期执行（例如每天一次）
+const CLEANUP_INTERVAL = 24 * 60 * 60 * 1000; // 24小时
+setInterval(() => {
+  const retention = configStore.get('historyRetention', 90);
+  cleanupHistory(retention);
+}, CLEANUP_INTERVAL);
+
+// 应用启动时也执行一次
+cleanupHistory(configStore.get('historyRetention', 90));
 ```
 
 **预警信号：**
-- 容器配置文件中出现重复的 ID
-- 创建容器后另一个容器的数据丢失
-- Partition 字符串包含非法字符
-
-**应解决的阶段：**
-Phase 1 — 容器 CRUD。在实现容器创建功能时必须包含 ID 唯一性检查。
-
----
-
-### 陷阱 6：Electron Session 存储路径不可控
-
-**问题描述：**
-`persist:` 前缀的 Session 数据存储在 Electron 的默认 userData 路径下（macOS: `~/Library/Application Support/<app-name>/`）。当容器数量增多，Session 数据（Cookie、Cache、LocalStorage、IndexedDB）会占用大量磁盘空间，且无法在应用内清理单个容器的缓存。
-
-**根本原因：**
-Electron 的 Session 管理是 Chromium 级别的，每个 `persist:xxx` partition 会创建完整的存储目录结构（包括 Cache、Code Cache、GPUCache 等）。应用层无法直接控制这些文件的存储位置和生命周期。
-
-**如何避免：**
-
-```javascript
-// 方案 1：使用 session.clearStorageData() 按需清理
-async function clearContainerData(containerId) {
-  const ses = getContainerSession(containerId);
-  await ses.clearStorageData({
-    storages: ['cookies', 'localstorage', 'indexeddb', 'cachestorage'],
-  });
-  await ses.clearCache();
-}
-
-// 方案 2：监控存储大小
-async function getContainerStorageSize(containerId) {
-  const ses = getContainerSession(containerId);
-  const usage = await ses.getStorageSizeInfo();
-  return usage; // { totalSize, cacheSize }
-}
-
-// 方案 3：在容器删除时彻底清理
-async function deleteContainer(containerId) {
-  const ses = getContainerSession(containerId);
-  await ses.clearStorageData();
-  await ses.clearCache();
-  await ses.closeAllConnections();
-  containers.delete(containerId);
-  configStore.set('containers', Array.from(containers.values()));
-}
-```
-
-**预警信号：**
-- 应用的 userData 目录大小持续增长
-- 删除容器后磁盘空间未释放
+- history.db 文件超过 50MB
+- 历史记录查询耗时超过 100ms
 - 用户反馈应用占用过多磁盘空间
 
 **应解决的阶段：**
-Phase 1 — 容器 CRUD。在实现容器删除时必须包含完整的存储清理。
+Phase 2（历史记录实现）— 在实现历史功能时同步实现清理机制。
 
 ---
 
-### 陷阱 7：Tab 切换时 Session 不同步
+### 陷阱 10：收藏夹和历史的跨容器 UX 混乱
 
 **问题描述：**
-在单窗口多 Tab 架构中，用户点击不同容器的 Tab 时需要切换显示的内容区域。如果 Tab 的 WebContents 没有正确绑定到对应容器的 Session，会导致：
-- 切换 Tab 后 Cookie 上下文错误
-- 页面加载使用了错误的 Session
-- 新建 Tab 意外继承了上一个 Tab 的 Session
+收藏夹和历史记录按容器隔离后，用户在切换容器时发现之前收藏的网站"消失了"，感到困惑。同时，用户可能希望在所有容器间共享某些收藏。
 
 **根本原因：**
-`BaseWindow` 本身没有 Session 概念，Session 绑定在每个 `WebContentsView` 上。如果在创建 `WebContentsView` 时没有显式指定 `session`，它会使用默认 Session。
+严格的容器隔离虽然保证了安全，但降低了便利性。用户可能不理解为什么"个人"容器的收藏在"工作"容器中看不到。
 
 **如何避免：**
 
 ```javascript
-// 每个 Tab 必须显式绑定到容器 Session
-function createTabForContainer(containerId, url) {
-  const ses = getContainerSession(containerId);
-
-  const view = new WebContentsView({
-    webPreferences: {
-      session: ses,  // 关键：显式指定 session
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    }
-  });
-
-  view.webContents.loadURL(url);
-  return view;
-}
-
-// 切换 Tab 时：确保显示的 view 对应正确的容器
-function switchToTab(tabId) {
-  const tab = tabs.get(tabId);
-  if (!tab) return;
-
-  // 隐藏当前显示的 view
-  if (currentView) {
-    currentView.setVisible(false);
-  }
-
-  // 显示目标 view
-  tab.view.setVisible(true);
-  currentView = tab.view;
-
-  // 验证 Session 一致性
-  const containerId = tab.containerId;
-  const expectedPartition = buildPartition(containerId);
-  const actualPartition = tab.view.webContents.session.partition;
-  console.assert(
-    actualPartition === expectedPartition,
-    `Session 不同步！期望 ${expectedPartition}，实际 ${actualPartition}`
+// 方案 1：提供"全局收藏"选项（推荐）
+// 收藏时可选择"仅此容器"或"所有容器"
+function addBookmark(containerId, url, title, isGlobal = false) {
+  db.prepare(`
+    INSERT INTO bookmarks (container_id, url, normalized_url, title, is_global, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    isGlobal ? '_global' : containerId,
+    url, normalizeUrl(url), title, isGlobal ? 1 : 0, Date.now()
   );
 }
-```
 
-**预警信号：**
-- 在容器 A 的 Tab 中操作后，切换到容器 B 的 Tab 时看到容器 A 的 Cookie
-- DevTools 中 `document.cookie` 返回了错误容器的 Cookie
-- 新建 Tab 时默认 Session 而非当前容器的 Session
-
-**应解决的阶段：**
-Phase 2 — Tab 系统。在实现多 Tab 功能时必须确保 Session 绑定正确。
-
----
-
-### 陷阱 8：Event Listener 泄染进程累积
-
-**问题描述：**
-每次在渲染进程中渲染容器列表或 Tab 列表时，如果使用 `innerHTML` 替换内容并重新绑定事件监听器，旧的监听器不会被自动移除。随着时间推移，同一个 DOM 元素上可能绑定了数十个相同的事件处理器，导致：
-- 点击一次触发多次回调
-- 内存泄漏（闭包引用了旧的 DOM 节点）
-- UI 行为不可预测
-
-**根本原因：**
-`innerHTML` 替换内容后，旧的 DOM 节点被移除，但如果有 JavaScript 闭包引用了这些节点，它们不会被 GC 回收。而且每次渲染都调用 `addEventListener` 会累积处理器。
-
-**如何避免：**
-
-```javascript
-// 方案 1：事件委托（推荐）
-// 只在容器元素上绑定一次监听器，通过 event.target 判断具体元素
-containerListElement.addEventListener('click', (event) => {
-  const target = event.target.closest('[data-container-id]');
-  if (!target) return;
-
-  const containerId = target.dataset.containerId;
-  handleContainerClick(containerId);
-});
-
-// 方案 2：在替换内容前清理监听器
-function renderContainerList(containers) {
-  // 移除旧的监听器
-  const oldButtons = containerListElement.querySelectorAll('.container-item');
-  oldButtons.forEach(btn => {
-    btn.removeEventListener('click', handleClick);
-  });
-
-  // 渲染新内容
-  containerListElement.innerHTML = containers.map(c =>
-    `<div class="container-item" data-id="${c.id}">${c.name}</div>`
-  ).join('');
-
-  // 绑定新监听器
-  const newButtons = containerListElement.querySelectorAll('.container-item');
-  newButtons.forEach(btn => {
-    btn.addEventListener('click', handleClick);
-  });
-}
-```
-
-**预警信号：**
-- 同一个按钮点击一次但回调执行了多次
-- 在 DevTools → Event Listeners 中看到同一元素绑定了多个相同事件
-- 应用运行时间越长，UI 响应越慢
-
-**应解决的阶段：**
-Phase 1 — UI 框架。在首次实现 UI 渲染时就采用事件委托模式。
-
----
-
-### 陷阱 9：XSS 通过 Cookie 值注入
-
-**问题描述：**
-在 Cookie 管理界面中，如果直接将 Cookie 的名称和值通过 `innerHTML` 插入到 HTML 中，恶意网站设置的 Cookie 值可能包含 `<script>` 标签或事件处理器，导致 XSS 攻击。
-
-**根本原因：**
-Cookie 的值完全由远程服务器控制，是不可信的用户输入。`innerHTML` 会解析 HTML 实体和标签。
-
-**如何避免：**
-
-```javascript
-// 错误：直接插入
-cookieListElement.innerHTML += `
-  <div>${cookie.name} = ${cookie.value}</div>
-`;
-
-// 正确：使用 textContent 或手动转义
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+// 查询时同时返回容器收藏和全局收藏
+function getBookmarks(containerId) {
+  return db.prepare(`
+    SELECT * FROM bookmarks
+    WHERE container_id = ? OR container_id = '_global'
+    ORDER BY created_at DESC
+  `).all(containerId);
 }
 
-cookieListElement.innerHTML += `
-  <div>${escapeHtml(cookie.name)} = ${escapeHtml(cookie.value)}</div>
-`;
-
-// 或者完全使用 DOM API
-const item = document.createElement('div');
-item.textContent = `${cookie.name} = ${cookie.value}`;
-cookieListElement.appendChild(item);
+// 方案 2：UI 上明确标识来源
+// 在收藏列表中用图标或标签区分"本容器"和"全局"
 ```
 
 **预警信号：**
-- Cookie 显示区域出现了异常的 HTML 渲染
-- 在 Cookie 列表中看到闪烁或脚本执行
-- 控制台出现 CSP 违规警告
+- 用户反馈"切换容器后收藏夹是空的"
+- 用户尝试手动复制收藏到多个容器
+- 支持渠道频繁收到"收藏丢失"的反馈
 
 **应解决的阶段：**
-Phase 1 — UI 实现。在首次渲染 Cookie 列表时就使用安全的 DOM 操作。
+Phase 1（收藏夹设计）— 在数据模型设计时考虑全局 vs 容器级收藏的需求。
 
 ---
 
-### 陷阱 10：窗口关闭时资源清理不完整
+## 中等陷阱
+
+### 陷阱 11：SQLite 数据库备份和恢复
 
 **问题描述：**
-当用户关闭窗口时，需要清理所有相关的 WebContents、Session 引用和内存映射。如果清理不完整，会导致：
-- 内存泄漏（WebContents 未销毁）
-- 文件句柄泄漏（Session 数据库未关闭）
-- 应用退出挂起（有未完成的异步操作）
-
-**根本原因：**
-Electron 的 `closed` 事件在窗口关闭后触发，但此时 WebContents 可能仍在执行异步操作（如网络请求、Cookie 写入）。直接在 `closed` 事件中清理资源可能与正在进行的操作冲突。
+SQLite 数据库（历史记录、收藏夹）没有纳入现有的 Cookie 持久化和备份机制，用户可能丢失数据。
 
 **如何避免：**
+在应用退出时备份 SQLite 数据库文件，在容器数据导出功能中包含历史和收藏数据。
 
-```javascript
-mainWindow.on('close', async (event) => {
-  // 1. 阻止默认关闭行为
-  event.preventDefault();
-
-  // 2. 保存所有容器的 Cookie
-  const savePromises = Array.from(tabs.values()).map(async (tab) => {
-    await saveCookies(tab.containerId, tab.view.webContents.session);
-  });
-  await Promise.all(savePromises);
-
-  // 3. 关闭所有 Tab 的 WebContents
-  for (const [tabId, tab] of tabs) {
-    tab.view.webContents.close();
-    tab.view = null;
-  }
-  tabs.clear();
-
-  // 4. 清理映射
-  windowContainerMap.delete(mainWindow.id);
-
-  // 5. 真正关闭窗口
-  mainWindow.destroy();
-});
-
-// 6. 处理应用退出
-app.on('before-quit', async () => {
-  // 确保所有窗口的资源已清理
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
-      win.destroy();
-    }
-  }
-});
-```
-
-**预警信号：**
-- 关闭窗口后应用进程未退出（在 Activity Monitor 中仍可见）
-- 应用退出时控制台报错 `Cannot read properties of destroyed WebContents`
-- 频繁开关窗口后内存占用持续增长
-
-**应解决的阶段：**
-Phase 2 — Tab 系统。在实现多 Tab 功能时必须同步实现完整的生命周期清理。
+**应解决的阶段：** Phase 2（历史记录）— 同步考虑数据备份策略。
 
 ---
 
-## 技术债务模式
+### 陷阱 12：favicon 缓存和显示
 
-| 捷径 | 短期收益 | 长期成本 | 何时可接受 |
-|------|---------|---------|-----------|
-| 使用 `innerHTML` 渲染 UI | 开发速度快 | XSS 风险、事件泄漏、维护困难 | 仅在原型阶段 |
-| 跳过 Cookie domain 前导点号处理 | 简化持久化逻辑 | 部分站点登录状态丢失 | 绝对不行 |
-| 使用 BrowserView 而非 WebContentsView | 文档多、示例丰富 | 未来版本被移除，需要大规模重写 | 绝对不行 |
-| 不清理旧的事件监听器 | 代码更简单 | 内存泄漏、UI 卡顿 | 仅在 MVP 演示中 |
-| 容器 ID 不做唯一性检查 | 代码更简单 | 数据覆盖、隔离失败 | 绝对不行 |
-| 共享 Session 而非独立 Session | 减少内存占用 | 完全破坏隔离，安全灾难 | 绝对不行 |
+**问题描述：**
+常用网站和收藏夹中的 favicon 需要异步获取和缓存，如果直接从网站实时获取，会导致：
+- 首次加载时大量并发请求
+- 某些网站的 favicon 获取失败
+- 离线时无法显示 favicon
 
-## 集成陷阱
+**如何避免：**
+使用 Electron 的 `webContents` 获取页面 favicon 并缓存到本地文件系统。
 
-| 集成点 | 常见错误 | 正确做法 |
-|--------|---------|---------|
-| `session.fromPartition()` | 未验证 partition 名称唯一性 | 使用 UUID 或严格验证的字符串 |
-| `session.cookies` | 未处理 domain 前导点号 | 保留原始 domain，正确处理匹配逻辑 |
-| `WebContentsView` | 未显式指定 session 参数 | 创建时必须传入 `webPreferences.session` |
-| `electron-store` | 无 schema 版本管理 | 添加版本号和迁移函数 |
-| `contextBridge` | 未验证 IPC 入参 | 对所有入参进行类型和格式检查 |
-| `mainWindow.contentView` | 未管理子视图的 z-index 和可见性 | 统一的视图管理层 |
+**应解决的阶段：** Phase 3（常用网站）— 在实现新标签页时处理 favicon 缓存。
 
-## 性能陷阱
+---
 
-| 陷阱 | 症状 | 预防措施 | 触发阈值 |
-|------|------|---------|---------|
-| 启动时初始化所有 Session | 首次启动慢 | 延迟加载，仅在首次使用时初始化 | 容器 > 5 个 |
-| 每次切换容器重渲染整个列表 | 切换卡顿 | 仅更新变化的 DOM 节点 | 容器 > 20 个 |
-| Cookie 列表一次性渲染 | 模态框打开慢 | 虚拟滚动或分页加载 | Cookie > 500 条 |
-| 每个 Tab 独立的 Chromium 进程 | 内存爆满 | 限制最大 Tab 数量，LRU 淘汰 | Tab > 15 个 |
-| 同步读取 Cookie JSON 文件 | 阻塞主线程 | 异步读取，启动时预加载 | Cookie 文件 > 1MB |
+### 陷阱 13：设置页面的实时预览
 
-## 安全陷阱
+**问题描述：**
+主题切换等设置修改后，如果不在所有窗口实时生效，用户会认为"设置没生效"。
 
-| 陷阱 | 风险 | 预防措施 |
-|------|------|---------|
-| Cookie 值未转义直接插入 HTML | XSS 攻击 | 使用 `textContent` 或 HTML 转义 |
-| IPC 入参未验证 | 主进程被注入恶意数据 | 对所有入参做类型和格式校验 |
-| 未启用 `sandbox: true` | 渲染进程可访问 Node.js API | 在 webPreferences 中启用沙箱 |
-| 未设置 CSP 头 | 可加载外部恶意脚本 | 添加 `<meta>` CSP 限制资源来源 |
-| Partition 名称可被用户输入控制 | 路径穿越、Session 劫持 | 白名单字符，严格验证 |
-| 未限制 `webContents.executeJavaScript` | 任意代码执行 | 禁用或严格限制此 API |
+**如何避免：**
+通过 IPC 广播通知所有窗口设置变更，使用 CSS 变量实现主题切换。
 
-## UX 陷阱
+**应解决的阶段：** Phase 4（设置页面）— 在实现设置功能时处理实时预览。
 
-| 陷阱 | 用户影响 | 更好方案 |
-|------|---------|---------|
-| 容器切换时页面闪烁/白屏 | 体验差，感觉慢 | 预加载容器 Tab，切换时仅改变可见性 |
-| 容器删除无确认对话框 | 误删导致数据丢失 | 弹出确认对话框，显示将删除的数据量 |
-| Cookie 持久化无进度反馈 | 用户不确定是否保存成功 | 显示保存状态指示器 |
-| 容器颜色选择无预设 | 用户需要输入 hex 值 | 提供预设颜色盘 |
-| Tab 关闭无动画 | 突然消失，感觉不稳定 | 添加淡出动画 |
-
-## "看起来完成了但其实没完成" 检查清单
-
-- [ ] **容器隔离：** 验证容器 A 的 Cookie 在容器 B 中不可见 — 在 DevTools 中检查两个容器 Tab 的 Application → Cookies
-- [ ] **Cookie 持久化：** 重启应用后 Cookie 仍在 — 登录某网站 → 关闭应用 → 重新打开 → 验证仍登录
-- [ ] **Cookie domain：** 带前导点号的 Cookie 正确恢复 — 检查 `.example.com` 格式的 Cookie 是否正确匹配子域
-- [ ] **内存清理：** 关闭 Tab 后内存下降 — 用 Activity Monitor 监控，关闭 5 个 Tab 后内存应减少
-- [ ] **事件监听：** 按钮点击只触发一次 — 在回调中添加 `console.count()` 验证
-- [ ] **窗口关闭：** 关闭窗口后进程退出 — 检查 Activity Monitor 是否有残留进程
-- [ ] **容器 ID：** 创建同名容器不会覆盖 — 创建 "Work" 和 "work" 并验证两者共存
-- [ ] **Session 绑定：** 每个 Tab 的 Session 正确 — 在 DevTools Console 中检查 `require('electron').remote.getCurrentWebContents().session.partition`
+---
 
 ## 恢复策略
 
 | 陷阱 | 恢复成本 | 恢复步骤 |
 |------|---------|---------|
-| Session 隔离泄漏 | HIGH | 需要重新设计 Session 绑定逻辑，所有 Tab 需重建 |
-| Cookie domain 问题 | MEDIUM | 修复持久化/加载逻辑，清理现有错误数据后重新同步 |
-| 内存泄漏 | MEDIUM | 添加清理逻辑，需要重启应用释放已泄漏的内存 |
-| BrowserView 迁移 | HIGH | 重写所有 BrowserView 相关代码，改为 WebContentsView |
-| 容器 ID 碰撞 | LOW | 添加 UUID 后缀，迁移现有容器配置到新 ID |
-| 事件监听累积 | LOW | 改为事件委托，旧代码直接替换即可 |
+| electron-store 膨胀 | HIGH | 迁移到 SQLite，需要数据迁移脚本 |
+| Schema 迁移缺失 | MEDIUM | 添加默认值填充，修复崩溃代码 |
+| 历史未按容器隔离 | HIGH | 需要重建数据库，现有数据无法区分来源 |
+| frecency 算法不准 | LOW | 调整算法参数，重新计算分数 |
+| macOS 默认浏览器 | LOW | 仅影响设置页面，不影响核心功能 |
+| URL 去重缺失 | MEDIUM | 添加归一化逻辑，合并重复收藏 |
+| 新标签页性能 | MEDIUM | 添加缓存和异步加载 |
+| IPC 通道爆炸 | LOW | 重构为统一接口 |
+| 数据增长失控 | MEDIUM | 添加清理机制，VACUUM 数据库 |
+| 跨容器 UX | LOW | 添加全局收藏支持 |
 
-## 陷阱到阶段映射
+---
 
-| 陷阱 | 预防阶段 | 验证方式 |
-|------|---------|---------|
-| Session 隔离泄漏 | Phase 1 - 基础容器 | 在两个容器中分别登录同一网站，验证状态不共享 |
-| Cookie domain 前导点号 | Phase 1 - Cookie 持久化 | 检查持久化的 JSON 中 domain 字段是否正确保留 |
-| 内存泄漏 | Phase 2 - Tab 系统 | 创建并关闭 10 个 Tab，验证内存回到基线 |
-| BrowserView 弃用 | Phase 1 - 架构选型 | 代码中不使用 `BrowserView`，控制台无弃用警告 |
-| 容器 ID 碰撞 | Phase 1 - 容器 CRUD | 创建同名容器测试，验证两者独立存在 |
-| Session 存储路径 | Phase 1 - 容器 CRUD | 删除容器后检查 userData 目录大小是否减少 |
-| Tab Session 不同步 | Phase 2 - Tab 系统 | 在 DevTools 中验证每个 Tab 的 session.partition 正确 |
-| 事件监听累积 | Phase 1 - UI 框架 | 在 DevTools Event Listeners 面板中检查无重复绑定 |
-| XSS 注入 | Phase 1 - UI 实现 | 在 Cookie 值中注入 `<script>alert(1)</script>` 测试 |
-| 窗口关闭清理 | Phase 2 - Tab 系统 | 关闭窗口后检查 Activity Monitor 无残留进程 |
+## 阶段-陷阱映射
+
+| 阶段 | 需要重点防范的陷阱 | 验证方式 |
+|------|-------------------|---------|
+| Phase 1: 容器属性扩展 | Schema 迁移 (陷阱2), 容器 CRUD 兼容性 | 升级后旧容器数据完整，新字段可编辑 |
+| Phase 2: 收藏与历史 | 存储选型 (陷阱1), 容器隔离 (陷阱3), URL 去重 (陷阱6), 数据增长 (陷阱9) | 历史按容器隔离，收藏不重复，数据量可控 |
+| Phase 3: 常用网站 | frecency 算法 (陷阱4), 新标签页性能 (陷阱7), favicon (陷阱12) | 推荐结果符合直觉，新标签页 <200ms 加载 |
+| Phase 4: 设置页面 | 默认浏览器 (陷阱5), IPC 设计 (陷阱8), 实时预览 (陷阱13) | 设置保存/读取正常，主题切换即时生效 |
 
 ---
 
 ## 来源
 
-- Electron 官方文档：Session API、Cookie API、WebContentsView
-- Electron 30+ 弃用公告：BrowserView → WebContentsView 迁移指南
-- RFC 6265：HTTP State Management Mechanism（Cookie domain 规范）
-- Chromium 源码：Cookie 存储和匹配逻辑
-- AutoBrowser 项目：Cookie 持久化实现参考
-- Firefox Multi-Account Containers：隔离机制参考
-- 项目代码库分析：main.js、src/renderer.js、CONCERNS.md
+- Electron 官方文档：Session API、app.setAsDefaultProtocolClient
+- better-sqlite3 文档：WAL 模式、事务
+- Mozilla Firefox frecency 算法设计
+- macOS Info.plist CFBundleURLTypes 规范
+- electron-store GitHub Issues：schema migration、performance
+- 项目代码库分析：container-manager.js、ipc-handlers.js、src/renderer.js
 
 ---
 
-*陷阱研究：多容器隔离浏览器 (Electron)*
-*研究日期：2026-07-23*
+*陷阱研究：多容器隔离浏览器 v1.1 功能扩展*
+*研究日期：2026-07-25*
