@@ -96,16 +96,16 @@ function getGuestContainerId(contents) {
  * 通知渲染进程在指定容器新建 Tab（经 host webContents 转发）
  * @param {Electron.WebContents} contents - guest webContents
  * @param {string} url - 目标 URL（已过白名单校验才发送）
- * @param {string|null} containerId - 目标容器 ID
+ * @param {string|null} containerId - 分配规则匹配的容器 ID（无匹配时传 null，
+ *   由渲染进程按来源 webview 的 partition 决定容器——Electron 32 下 guest 的
+ *   session.getPartition() 返回空串，主进程无法可靠反推）
  */
 function notifyOpenUrlInTab(contents, url, containerId) {
   if (!isAllowedWebUrl(url)) return;
   const host = contents.hostWebContents;
   if (host && !host.isDestroyed()) {
-    // 如果 containerId 为 null 或 undefined，使用 'default' 容器
-    const targetContainer = containerId || 'default';
-    console.log(`[Realm] 通知渲染进程打开 URL: ${url} -> 容器: ${targetContainer}`);
-    host.send('open-url-in-tab', { url, containerId: targetContainer });
+    console.log(`[Realm] 通知渲染进程打开 URL: ${url} -> 规则容器: ${containerId || '(无匹配)'}, guestId: ${contents.id}`);
+    host.send('open-url-in-tab', { url, containerId: containerId || null, guestId: contents.id });
   }
 }
 
@@ -120,15 +120,12 @@ app.on('web-contents-created', (event, contents) => {
     console.log(`[Realm] 新窗口请求: ${url}, disposition: ${disposition}, frameName: ${frameName}`);
     // 检查分配规则，决定目标容器
     const matchedContainer = assignmentRules.matchUrl(url);
-    const targetContainer = matchedContainer || 'default'; // 如果没有匹配，使用默认容器
-
+    // D-09：无规则匹配时传 null，由渲染进程按来源 webview 所在容器新建 Tab
     if (matchedContainer) {
       console.log(`[Realm] 规则匹配 (新窗口): ${url} -> ${matchedContainer}`);
-    } else {
-      console.log(`[Realm] 无规则匹配，使用默认容器: ${url}`);
     }
 
-    notifyOpenUrlInTab(contents, url, targetContainer);
+    notifyOpenUrlInTab(contents, url, matchedContainer);
     return { action: 'deny' };
   });
 
@@ -386,6 +383,9 @@ app.whenReady().then(async () => {
 
   // macOS 应用激活事件
   app.on('activate', () => {
+    // 退出流程中禁止重建窗口：macOS 在退出关闭最后窗口时可能触发 activate，
+    // 此时重建窗口会打断 quit 序列，导致「关窗代替退出」
+    if (quitting || cookiesSaved) return;
     if (BrowserWindow.getAllWindows().length === 0) {
       const defaultContainer = containerManager.getContainer('default');
       const mainWindow = windowManager.createMainWindow('default', defaultContainer);
@@ -400,6 +400,7 @@ app.whenReady().then(async () => {
 
 // 所有窗口关闭事件
 app.on('window-all-closed', () => {
+  console.log('[Realm] window-all-closed, quitting:', quitting, 'cookiesSaved:', cookiesSaved);
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -408,12 +409,44 @@ app.on('window-all-closed', () => {
 // 应用退出前保存所有容器的 Cookie（WR-6）
 // before-quit 不会等待 async handler 返回，必须先 preventDefault 阻止退出，
 // 待 Cookie 写盘完成后再显式 app.quit()，避免退出竞态导致数据丢失
+//
+// 双击确认退出：第一次 Cmd+Q 只提示（渲染进程 Toast），
+// QUIT_CONFIRM_WINDOW_MS 内再次按下才真正进入退出流程
 let cookiesSaved = false;
+let quitting = false;
+let quitConfirmAt = 0;
+const QUIT_CONFIRM_WINDOW_MS = 3000;
+
 app.on('before-quit', async (event) => {
   if (cookiesSaved) return;
   event.preventDefault();
+
+  // 已在保存流程中（ quit 重入）：直接拦截，等待保存完成后自动退出
+  if (quitting) return;
+
+  // 确认窗口期外的第一次按下：仅提示，不退出
+  const now = Date.now();
+  if (now - quitConfirmAt > QUIT_CONFIRM_WINDOW_MS) {
+    quitConfirmAt = now;
+    const win = windowManager.getMainWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('show-quit-hint');
+    }
+    console.log('[Realm] 退出确认：再次按下 Cmd+Q 退出');
+    return;
+  }
+
+  // 窗口期内第二次按下：进入退出流程
+  quitting = true;
   console.log('[Realm] 应用退出，保存 Cookie...');
-  await cookieManager.saveAllCookies();
+  try {
+    await cookieManager.saveAllCookies();
+  } catch (err) {
+    // 保存失败时解除退出锁，允许用户重试 Cmd+Q
+    quitting = false;
+    console.error('[Realm] Cookie 保存失败，退出已取消:', err);
+    return;
+  }
 
   // 退出前物理删除孤儿 Partitions 目录（container-delete-partitions 收尾）：
   // 运行中删除会被存活 session 的网络服务组件刷盘重建（HTTP 缓存索引、
@@ -423,11 +456,17 @@ app.on('before-quit', async (event) => {
   cookieManager.cleanupOrphanPartitions(configuredIds);
 
   cookiesSaved = true;
-  app.quit();
+  console.log('[Realm] Cookie 保存完成，请求退出 (app.quit)');
+  // setImmediate 跳出 before-quit 异步续体上下文：
+  // 在 preventDefault 后的同一个 async handler 里直接 app.quit()，
+  // quit 序列会在 window-all-closed 后停滞（will-quit 不触发），
+  // 推迟到下一轮事件循环调用可正常完成退出
+  setImmediate(() => app.quit());
 });
 
 // 应用退出时注销所有全局快捷键
 app.on('will-quit', () => {
+  console.log('[Realm] will-quit');
   shortcutManager.unregisterAll();
 });
 

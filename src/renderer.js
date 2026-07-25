@@ -1293,6 +1293,11 @@ async function init() {
   // 监听主进程转发的「在指定容器新建 Tab」事件（WR-1）
   window.realmAPI.onOpenUrlInTab(handleOpenUrlInTab);
 
+  // 监听退出确认提示：第一次 Cmd+Q 仅提示，3 秒内再按一次才退出
+  window.realmAPI.onShowQuitHint(() => {
+    showToast('再按一次 ⌘Q 退出应用', 'info');
+  });
+
   // 监听主进程的 Tab 回收事件（WR-4）
   window.realmAPI.onTabRecycled(handleTabRecycled);
 
@@ -1557,9 +1562,10 @@ function showToast(message, type) {
 /**
  * 处理主进程转发的「在指定容器新建 Tab」事件（WR-1）
  * 触发场景：webview guest 的 window.open / target=_blank 被主进程
- * setWindowOpenHandler 拦截后转发（D-09：在当前容器新建 Tab）。
+ * setWindowOpenHandler 拦截后转发（D-09：在来源容器新建 Tab）。
  * URL 来自 guest 页面，主进程已做 http(s) 白名单校验，此处纵深防御再校验一次（WR-9）。
- * @param {{url: string, containerId: string|null}} data - 事件数据
+ * 容器优先级：分配规则匹配 > 来源 webview 所在容器 > 当前激活容器。
+ * @param {{url: string, containerId: string|null, guestId: number|undefined}} data - 事件数据
  */
 function handleOpenUrlInTab(data) {
   if (!data || typeof data.url !== 'string' || !/^https?:\/\//i.test(data.url)) {
@@ -1567,8 +1573,26 @@ function handleOpenUrlInTab(data) {
     return;
   }
 
-  const containerId = data.containerId || state.currentContainer;
-  createTab(containerId, data.url);
+  // 分配规则匹配的容器优先
+  let containerId = data.containerId || null;
+
+  // 无规则匹配：按来源 webview 的 partition 反查容器
+  // （主进程 session.getPartition() 在 Electron 32 下不可靠，webview 元素属性才是权威来源）
+  if (!containerId && data.guestId != null) {
+    const prefix = 'persist:container-';
+    for (const webview of state.webviews.values()) {
+      try {
+        if (typeof webview.getWebContentsId === 'function'
+            && webview.getWebContentsId() === data.guestId
+            && (webview.partition || '').startsWith(prefix)) {
+          containerId = webview.partition.slice(prefix.length);
+          break;
+        }
+      } catch { /* webview 未就绪时跳过 */ }
+    }
+  }
+
+  createTab(containerId || state.currentContainer, data.url);
 }
 
 /**

@@ -84,10 +84,19 @@ contextBridge.exposeInMainWorld('realmAPI', {
   /**
    * 监听「在指定容器新建 Tab」事件（WR-1/WR-2）
    * 主进程拦截 webview guest 的 window.open / 规则命中导航后推送
-   * @param {Function} callback - 回调函数，参数为 { url, containerId }
+   * @param {Function} callback - 回调函数，参数为 { url, containerId, guestId }
    */
   onOpenUrlInTab: (callback) => {
     ipcRenderer.on('open-url-in-tab', (event, data) => callback(data));
+  },
+
+  /**
+   * 监听「退出确认提示」事件
+   * 第一次 Cmd+Q 时主进程拦截退出并推送此事件，渲染进程显示 Toast 提示
+   * @param {Function} callback - 回调函数
+   */
+  onShowQuitHint: (callback) => {
+    ipcRenderer.on('show-quit-hint', () => callback());
   },
 
   // ==================== Tab 管理 ====================
