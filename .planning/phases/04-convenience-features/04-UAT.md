@@ -6,7 +6,7 @@ source:
   - .planning/phases/04-convenience-features/04-02-SUMMARY.md
   - .planning/phases/04-convenience-features/04-03-SUMMARY.md
 started: 2026-07-24T14:30:00Z
-updated: 2026-07-25T00:10:00Z
+updated: 2026-07-25T00:20:00Z
 ---
 
 ## Current Test
@@ -67,10 +67,8 @@ expected: |
   4. 选择准备好的 JSON 文件
   5. Toast 提示"已导入 X 条规则"
   6. 规则列表刷新，显示导入的规则
-result: issue
-reported: "可以导入成功，但是重复的规则没有去重"
-severity: major
-fix: "importRules 增加 (containerId, pattern) 去重，renderer Toast 显示跳过数；待复测"
+result: pass
+fix: "importRules 增加 (containerId, pattern) 去重，renderer Toast 显示跳过数；复测通过"
 
 ### 7. 规则导入错误处理
 expected: |
@@ -85,8 +83,8 @@ result: pass
 ## Summary
 
 total: 7
-passed: 6
-issues: 1
+passed: 7
+issues: 0
 pending: 0
 skipped: 0
 
