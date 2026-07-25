@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- 页面经 http://localhost:PORT/favorites 加载，base 使相对资源路径解析到 /favorites/ 下 -->
+  <base href="/favorites/">
+  <!-- img-src 需放行远程 favicon（http/https/data） -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: http: data:">
+  <title>收藏夹 - Realm</title>
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+  <div class="favorites-page">
+    <!-- 页面头部 -->
+    <div class="favorites-header">
+      <h1 class="favorites-title">收藏夹</h1>
+    </div>
+
+    <!-- 搜索栏 -->
+    <div class="favorites-search-wrapper">
+      <svg class="favorites-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"></circle>
+        <path d="m21 21-4.35-4.35"></path>
+      </svg>
+      <input type="text" class="favorites-search" id="searchInput" placeholder="搜索收藏...">
+    </div>
+
+    <!-- 批量操作栏 -->
+    <div class="favorites-actions-bar hidden" id="actionsBar">
+      <input type="checkbox" id="selectAllCheckbox" class="favorite-item-checkbox">
+      <span id="selectedCount">已选择 0 项</span>
+      <button id="deleteSelectedBtn" class="btn btn-danger btn-sm" disabled>删除选中项</button>
+      <button id="selectAllBtn" class="btn btn-secondary btn-sm">全选</button>
+    </div>
+
+    <!-- 主内容区域 -->
+    <div id="favoritesContent"></div>
+  </div>
+
+  <!-- 批量删除确认弹窗 -->
+  <dialog class="modal" id="favoritesBatchDeleteModal">
+    <div class="modal-content">
+      <h2>删除收藏</h2>
+      <div class="delete-confirm-content">
+        <p id="batchDeleteBody">确定删除选中的 0 项收藏吗？此操作不可撤销。</p>
+        <p class="warning-text">此操作无法撤销</p>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" id="cancelBatchDeleteBtn">取消</button>
+        <button type="button" class="btn btn-danger" id="confirmBatchDeleteBtn">删除</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Toast 提示 -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="favorites-page.js"></script>
+</body>
+</html>

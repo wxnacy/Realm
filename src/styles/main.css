@@ -1536,3 +1536,250 @@ textarea::placeholder {
   font-size: 13px;
   margin-top: 8px;
 }
+
+/* ==================== 收藏夹页面样式 ==================== */
+
+.favorites-page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 24px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.favorites-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.favorites-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+/* 搜索栏 */
+.favorites-search-wrapper {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.favorites-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.favorites-search {
+  width: 100%;
+  padding: 10px 12px 10px 36px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.favorites-search:focus {
+  border-color: var(--accent-color);
+}
+
+/* 批量操作栏 */
+.favorites-actions-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.favorites-actions-bar.hidden {
+  display: none;
+}
+
+/* 收藏项 */
+.favorite-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: default;
+  transition: background-color 0.15s;
+}
+
+.favorite-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.favorite-item-checkbox {
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.favorite-item-favicon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background-color: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.favorite-item-favicon img {
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+}
+
+.favorite-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.favorite-item-title {
+  font-size: 14px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.favorite-item-title:hover {
+  color: var(--accent-color);
+}
+
+.favorite-item-url {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.favorite-item-time {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* 行内编辑模式 */
+.favorite-item-title-edit {
+  font-size: 14px;
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--accent-color);
+  border-radius: 4px;
+  padding: 2px 6px;
+  outline: none;
+  width: 100%;
+}
+
+/* 搜索高亮 */
+.favorites-highlight {
+  background-color: rgba(59, 130, 246, 0.3);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+/* 空状态 */
+.favorites-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 24px;
+  color: var(--text-muted);
+}
+
+.favorites-empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.favorites-empty-text {
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.favorites-empty-hint {
+  font-size: 14px;
+}
+
+/* 收藏编辑面板样式 */
+.bookmark-edit-panel {
+  position: fixed;
+  top: calc(var(--toolbar-height, 48px) + 4px);
+  right: 12px;
+  width: 320px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 1001;
+}
+
+.bookmark-edit-header {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+}
+
+.bookmark-edit-field {
+  margin-bottom: 12px;
+}
+
+.bookmark-edit-field label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.bookmark-edit-input {
+  width: 100%;
+  padding: 8px 12px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.bookmark-edit-input:focus {
+  border-color: var(--accent-color);
+}
+
+.bookmark-edit-url {
+  font-size: 13px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.bookmark-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
