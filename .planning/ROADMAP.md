@@ -235,21 +235,21 @@ Plans:
   4. 现有按容器分表（favorites_work、favorites_default 等）的收藏数据自动迁移合并到全局表，迁移后旧表被清理
   5. 删除容器时不再清空该容器的收藏数据（数据全局共享，与容器生命周期解耦）
 
-**Plans**: 3 plans
+**Plans**: 3/3 plans complete
 
 Plans:
 
 **Wave 1**
 
-- [ ] 09-01-PLAN.md — 后端重构：favorites-manager.js 移除 containerId + 全局 favorites 表 + migrateToGlobal() 迁移 + main.js API 端点清理
+- [x] 09-01-PLAN.md — 后端重构：favorites-manager.js 移除 containerId + 全局 favorites 表 + migrateToGlobal() 迁移 + main.js API 端点清理
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 09-02-PLAN.md — 前端对齐：preload.js IPC 接口 + renderer.js 收藏按钮 + favorites-page.js 移除容器感知
+- [x] 09-02-PLAN.md — 前端对齐：preload.js IPC 接口 + renderer.js 收藏按钮 + favorites-page.js 移除容器感知
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 09-03-PLAN.md — Gap 修复：ipc-handlers.js 收藏夹区段 8 个 handler 移除 containerId + IPC 运行时冒烟测试 + 真实星标流程 UAT
+- [x] 09-03-PLAN.md — Gap 修复：ipc-handlers.js 收藏夹区段 8 个 handler 移除 containerId + IPC 运行时冒烟测试 + 真实星标流程 UAT
 
 **背景**: Phase 7 实现按容器隔离（favorites_{containerId} 分表）。UAT 期间用户判断收藏应是跨容器的全局数据（类似 Chrome 收藏夹），不应与容器绑定。Phase 9 执行此次重构，简化数据模型并修复跨容器看到不同收藏的违和感。
 
@@ -270,4 +270,4 @@ Phases execute in numeric order: 5 → 6 → 7 → 8 → 9
 | 6. 浏览历史记录 | v1.1 | 2/2 | Complete   | 2026-07-25 |
 | 7. 收藏夹管理 | v1.1 | 2/2 | Complete    | 2026-07-25 |
 | 8. 常用网站推荐 + 设置页面 | v1.1 | 2/2 | Complete | 2026-07-25 |
-| 9. 共享收藏数据库 | v1.1 | 0/3 | Planning complete | - |
+| 9. 共享收藏数据库 | v1.1 | 3/3 | Complete   | 2026-07-26 |
