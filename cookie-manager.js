@@ -163,10 +163,10 @@ async function saveCookies(containerId) {
 
 /**
  * 保存指定域名的 Cookie 到文件
- * 只保存当前域名及其子域名的 Cookie
+ * 保存当前页面可见的域名 Cookie（当前域名及其父域，与 Cookie 管理面板"含子域名"过滤集合一致）
  * @param {string} containerId - 容器 ID
  * @param {string} domain - 目标域名
- * @param {boolean} includeSubdomains - 是否包含子域名
+ * @param {boolean} includeSubdomains - 是否包含父域（对齐面板"含子域名"过滤）
  * @returns {Promise<{success: boolean, count: number}>}
  */
 async function saveDomainCookies(containerId, domain, includeSubdomains = true) {
@@ -179,17 +179,16 @@ async function saveDomainCookies(containerId, domain, includeSubdomains = true) 
     // 获取 session 中的所有 Cookie
     const sessionCookies = await ses.cookies.get({});
 
-    // 按域名过滤
+    // 按域名过滤（与渲染层 applyDomainFilter 的 subdomain 过滤语义对齐，同一集合）
     const filteredCookies = sessionCookies.filter(cookie => {
-      const cookieDomain = cookie.domain;
+      // 剥离前导点后再比较（.example.com 与 example.com 视为同一域）
+      const cookieDomain = cookie.domain.startsWith('.') ? cookie.domain.slice(1) : cookie.domain;
       if (includeSubdomains) {
-        // 精确匹配或子域名匹配（.example.com 或 example.com）
-        return cookieDomain === domain ||
-               cookieDomain === `.${domain}` ||
-               cookieDomain.endsWith(`.${domain}`);
+        // Cookie 所属域是当前域名本身或其父域（即面板"含子域名"过滤显示的集合）
+        return cookieDomain === domain || domain.endsWith(`.${cookieDomain}`);
       } else {
         // 仅精确匹配
-        return cookieDomain === domain || cookieDomain === `.${domain}`;
+        return cookieDomain === domain;
       }
     });
 

@@ -2269,23 +2269,18 @@ async function handleDeleteCookie(cookie) {
 }
 
 /**
- * 处理保存当前域名 Cookie 到文件
- * 只保存当前域名及其子域名的 Cookie
+ * 保存当前标签页可见域名的 Cookie 到文件（与面板过滤集合一致）
  */
 async function handleSaveToFile() {
   try {
-    // 获取当前标签页的域名
+    // 获取当前标签页的域名（与 showCookiesModal 同源）
     let domain = '';
-    const activeTab = document.querySelector('.tab.active');
-    if (activeTab) {
-      const webview = document.querySelector(`.webview-container[data-tab-id="${activeTab.dataset.tabId}"]`);
-      if (webview) {
-        try {
-          const url = new URL(webview.getAttribute('src') || '');
-          domain = url.hostname;
-        } catch (e) {
-          // URL 解析失败，使用空字符串
-        }
+    const activeTab = state.tabs.get(state.activeTabId);
+    if (activeTab && activeTab.url) {
+      try {
+        domain = new URL(activeTab.url).hostname;
+      } catch {
+        // URL 解析失败，使用空字符串
       }
     }
 
