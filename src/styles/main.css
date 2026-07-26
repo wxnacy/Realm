@@ -331,6 +331,8 @@ button {
   padding: 0;
   max-width: 100%;
   max-height: 100%;
+  /* 覆盖原生 dialog 的 UA 默认文字色，恢复与 body 一致的文字基色 */
+  color: var(--text-primary);
 }
 
 .modal::backdrop {
@@ -622,6 +624,7 @@ textarea::placeholder {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text-primary);
 }
 
 .cookie-col-value {
@@ -629,6 +632,7 @@ textarea::placeholder {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text-secondary);
 }
 
 .cookie-col-domain {
@@ -636,6 +640,7 @@ textarea::placeholder {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text-secondary);
 }
 
 .cookie-col-actions {
@@ -659,6 +664,7 @@ textarea::placeholder {
   gap: 12px;
   padding: 8px 4px;
   border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
 }
 
 .cookie-item:last-child {
@@ -756,30 +762,6 @@ textarea::placeholder {
   display: flex;
   gap: 8px;
   margin-bottom: 16px;
-}
-
-.cookie-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
-  min-width: 120px;
-}
-
-.cookie-value {
-  font-size: 12px;
-  color: var(--text-muted);
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cookie-domain {
-  font-size: 11px;
-  color: var(--text-muted);
-  background-color: var(--bg-primary);
-  padding: 2px 8px;
-  border-radius: 4px;
 }
 
 /* 容器下拉面板 */
