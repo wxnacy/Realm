@@ -2,12 +2,12 @@
 
 ## Overview
 
-Realm Browser 是一个多容器隔离浏览器，从当前的单文件架构演进为模块化架构。Phase 1 重构核心代码并实现容器 CRUD 和管理 UI；Phase 2 迁移到 WebContentsView 实现多 Tab 和 URL 导航；Phase 3 确保数据完全隔离并实现 Cookie 持久化；Phase 4 补充便利功能。四个阶段完成后，产品具备完整的多容器浏览器能力。v1.1 继续增强容器元数据、添加浏览数据管理能力、优化新标签页体验并提供应用设置。
+Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理、浏览历史记录、收藏夹、常用网站推荐和应用设置。每个容器完全隔离（Cookie、缓存、存储），未来将集成 AI Agent SDK。
 
 ## Milestones
 
 - ✅ **v1.0 MVP** — Phases 1-4 (shipped 2026-07-25)
-- 🚧 **v1.1 容器属性增强 + 收藏历史 + 常用网站 + 设置页面** — Phases 5-9 (in progress)
+- ✅ **v1.1 容器属性增强 + 收藏历史 + 常用网站 + 设置页面** — Phases 5-9 (shipped 2026-07-26)
 
 ## Phases
 
@@ -21,13 +21,16 @@ Realm Browser 是一个多容器隔离浏览器，从当前的单文件架构演
 
 </details>
 
-### 🚧 v1.1 容器属性增强 + 收藏历史 + 常用网站 + 设置页面
+<details>
+<summary>✅ v1.1 容器属性增强 + 收藏历史 + 常用网站 + 设置页面 (Phases 5-9) — SHIPPED 2026-07-26</summary>
 
-- [x] **Phase 5: 容器属性扩展** — 容器增加手机号、邮箱、备注属性，旧数据自动兼容 (completed 2026-07-25)
-- [ ] **Phase 6: 浏览历史记录** — 自动记录页面导航、按容器隔离存储、列表展示、搜索、清理
-- [x] **Phase 7: 收藏夹管理** — 收藏/取消收藏、收藏列表、编辑/删除、搜索、容器隔离 (completed 2026-07-25)
-- [x] **Phase 8: 常用网站推荐 + 设置页面** — 新标签页常用网站网格（frecency）+ 应用设置 (completed 2026-07-25)
-- [x] **Phase 9: 共享收藏数据库** — 收藏从按容器隔离改为全局共享，跨容器看到同一份收藏列表 (completed 2026-07-26)
+- [x] **Phase 5: 容器属性扩展** — completed 2026-07-25
+- [x] **Phase 6: 浏览历史记录** — completed 2026-07-25
+- [x] **Phase 7: 收藏夹管理** — completed 2026-07-25
+- [x] **Phase 8: 常用网站推荐 + 设置页面** — completed 2026-07-25
+- [x] **Phase 9: 共享收藏数据库** — completed 2026-07-26 (09-04 deferred)
+
+</details>
 
 ## Phase Details
 
@@ -131,7 +134,8 @@ Plans:
 
 </details>
 
-### Phase 5: 容器属性扩展
+<details>
+<summary>Phase 5: 容器属性扩展</summary>
 
 **Goal**: 容器支持手机号、邮箱、备注等扩展属性，旧版本数据自动兼容
 **Depends on**: Phase 4
@@ -148,7 +152,10 @@ Plans:
 
 - [x] 05-01-PLAN.md — 数据模型扩展（主进程惰性填充 + IPC 验证）+ 表单 UI 扩展（邮箱/手机号/备注字段 + 验证 + textarea 样式）
 
-### Phase 6: 浏览历史记录
+</details>
+
+<details>
+<summary>Phase 6: 浏览历史记录</summary>
 
 **Goal**: 应用自动记录用户浏览的页面，按容器隔离存储，用户可以查看、搜索和清理历史
 **Depends on**: Phase 5
@@ -164,15 +171,14 @@ Plans:
 **Plans**: 2/2 plans complete
 
 Plans:
-**Wave 1**
 
 - [x] 06-01-PLAN.md — 后端基础：SQLite history-manager.js + realm:// 协议 + IPC 通道 + 导航捕获 + 工具栏按钮
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
 - [x] 06-02-PLAN.md — 前端 UI：历史记录页面（日期分组列表 + 搜索高亮 + 单条/批量删除 + 清空 + 样式）
 
-### Phase 7: 收藏夹管理
+</details>
+
+<details>
+<summary>Phase 7: 收藏夹管理</summary>
 
 **Goal**: 用户可以收藏和管理常用页面，收藏按容器隔离
 **Depends on**: Phase 6
@@ -187,15 +193,14 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-**Wave 1**
 
 - [x] 07-01-PLAN.md — 后端基础：favorites-manager.js + /api/favorites/* API + IPC 通道 + preload API
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
 - [x] 07-02-PLAN.md — 前端 UI：工具栏按钮 + 收藏编辑面板 + 收藏列表页面（搜索/编辑/删除）
 
-### Phase 8: 常用网站推荐 + 设置页面
+</details>
+
+<details>
+<summary>Phase 8: 常用网站推荐 + 设置页面</summary>
 
 **Goal**: 新标签页展示基于 frecency 排序的常用网站，用户可以配置应用设置
 **Depends on**: Phase 6
@@ -212,17 +217,15 @@ Plans:
 
 Plans:
 
-**Wave 1**
-
 - [x] 08-01-PLAN.md — 后端基础：frequent-sites-manager.js + API 端点 + HTML 模板
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
 - [x] 08-02-PLAN.md — 前端 UI：新标签页常用网站 + 设置页面 + 工具栏绑定
 
 **UI hint**: yes
 
-### Phase 9: 共享收藏数据库
+</details>
+
+<details>
+<summary>Phase 9: 共享收藏数据库</summary>
 
 **Goal**: 收藏功能从按容器隔离改为全局共享，所有容器看到同一份收藏列表
 **Depends on**: Phase 7
@@ -235,34 +238,25 @@ Plans:
   4. 现有按容器分表（favorites_work、favorites_default 等）的收藏数据自动迁移合并到全局表，迁移后旧表被清理
   5. 删除容器时不再清空该容器的收藏数据（数据全局共享，与容器生命周期解耦）
 
-**Plans**: 3/4 plans complete
+**Plans**: 3/4 plans complete (09-04 deferred)
 
 Plans:
 
-**Wave 1**
-
 - [x] 09-01-PLAN.md — 后端重构：favorites-manager.js 移除 containerId + 全局 favorites 表 + migrateToGlobal() 迁移 + main.js API 端点清理
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
 - [x] 09-02-PLAN.md — 前端对齐：preload.js IPC 接口 + renderer.js 收藏按钮 + favorites-page.js 移除容器感知
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
 - [x] 09-03-PLAN.md — Gap 修复：ipc-handlers.js 收藏夹区段 8 个 handler 移除 containerId + IPC 运行时冒烟测试 + 真实星标流程 UAT
-
-**Wave 4** *(blocked on Wave 3 completion)*
-
-- [ ] 09-04-PLAN.md — Gap 修复：checkBookmarkStatus 移除 realm:// 早退守卫（内置 URL 星标回显）+ handleOpenUrlInTab 放行 realm:// + 冒烟测试 realm:// 用例
+- [ ] 09-04-PLAN.md — Gap 修复：checkBookmarkStatus 移除 realm:// 早退守卫（deferred）
 
 **背景**: Phase 7 实现按容器隔离（favorites_{containerId} 分表）。UAT 期间用户判断收藏应是跨容器的全局数据（类似 Chrome 收藏夹），不应与容器绑定。Phase 9 执行此次重构，简化数据模型并修复跨容器看到不同收藏的违和感。
 
 **UI hint**: no（后端重构 + 数据迁移为主，前端只需移除按容器过滤逻辑）
 
+</details>
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 5 → 6 → 7 → 8 → 9
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -270,8 +264,8 @@ Phases execute in numeric order: 5 → 6 → 7 → 8 → 9
 | 2. Browser Core - URL Navigation + Multi-Tab | v1.0 | 5/5 | Complete | 2026-07-23 |
 | 3. Data Isolation + Cookie Persistence | v1.0 | 1/1 | Complete | 2026-07-23 |
 | 4. Convenience Features | v1.0 | 3/3 | Complete | 2026-07-24 |
-| 5. 容器属性扩展 | v1.1 | 1/1 | Complete    | 2026-07-25 |
-| 6. 浏览历史记录 | v1.1 | 2/2 | Complete   | 2026-07-25 |
-| 7. 收藏夹管理 | v1.1 | 2/2 | Complete    | 2026-07-25 |
+| 5. 容器属性扩展 | v1.1 | 1/1 | Complete | 2026-07-25 |
+| 6. 浏览历史记录 | v1.1 | 2/2 | Complete | 2026-07-25 |
+| 7. 收藏夹管理 | v1.1 | 2/2 | Complete | 2026-07-25 |
 | 8. 常用网站推荐 + 设置页面 | v1.1 | 2/2 | Complete | 2026-07-25 |
-| 9. 共享收藏数据库 | v1.1 | 3/4 | Complete    | 2026-07-26 |
+| 9. 共享收藏数据库 | v1.1 | 3/4 | Complete | 2026-07-26 |

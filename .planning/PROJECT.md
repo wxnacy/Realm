@@ -46,15 +46,41 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ PST-03: Cookie 文件保留 domain 前缀点号格式 — v1.0
 - ✓ CNV-01: 用户可以设置容器分配规则 — v1.0
 - ✓ CNV-02: 用户可以使用快捷键进行常用操作 — v1.0
+- ✓ ATTR-01: 用户可以为容器设置手机号属性 — v1.1
+- ✓ ATTR-02: 用户可以为容器设置邮箱属性 — v1.1
+- ✓ ATTR-03: 用户可以为容器设置备注属性 — v1.1
+- ✓ ATTR-04: 容器属性在编辑容器 Modal 中展示和编辑 — v1.1
+- ✓ ATTR-05: 旧版本容器数据自动兼容 — v1.1
+- ✓ HIST-01: 应用自动记录用户访问的页面 URL 和标题 — v1.1
+- ✓ HIST-02: 历史记录按容器隔离存储 — v1.1
+- ✓ HIST-03: 用户可以查看当前容器的历史记录列表 — v1.1
+- ✓ HIST-04: 用户可以搜索历史记录 — v1.1
+- ✓ HIST-05: 用户可以删除单条历史记录 — v1.1
+- ✓ HIST-06: 用户可以清空当前容器的历史记录 — v1.1
+- ✓ HIST-07: 历史记录自动清理（每容器上限 10000 条） — v1.1
+- ✓ FAV-01: 用户可以收藏当前页面 — v1.1
+- ✓ FAV-02: 用户可以取消收藏已收藏页面 — v1.1
+- ✓ FAV-03: 用户可以查看收藏列表 — v1.1
+- ✓ FAV-04: 用户可以编辑收藏项的标题 — v1.1
+- ✓ FAV-05: 用户可以删除收藏项 — v1.1
+- ✓ FAV-06: 用户可以搜索收藏 — v1.1
+- ✓ FAV-08: 同一 URL 不能重复收藏（全局唯一） — v1.1
+- ✓ FAV-09: 收藏数据全局共享 — v1.1
+- ✓ FAV-10: 切换容器时收藏列表保持一致 — v1.1
+- ✓ FREQ-01: 新标签页展示常用网站网格 — v1.1
+- ✓ FREQ-02: 常用网站基于 frecency 算法排序 — v1.1
+- ✓ FREQ-03: 常用网站按域名聚合 — v1.1
+- ✓ FREQ-04: 常用网站显示 favicon — v1.1
+- ✓ FREQ-05: 常用网站合并所有容器历史记录 — v1.1
+- ✓ SETT-01: 用户可以打开设置页面 — v1.1
+- ✓ SETT-02: 设置页面包含默认浏览器引导功能 — v1.1
+- ✓ SETT-03: 默认浏览器使用当前容器打开外部链接 — v1.1
+- ✓ SETT-04: 设置持久化（electron-store） — v1.1
+- ✓ SETT-05: 设置页面包含历史记录保留天数配置 — v1.1
 
 ### Active
 
-<!-- 当前需要构建的功能 -->
-
-- [ ] **容器属性扩展** — 容器增加手机号、邮箱、备注等属性
-- [ ] **收藏与历史记录** — 收藏夹管理和浏览历史记录功能
-- [ ] **常用网站智能推荐** — 新标签页展示常用网站，自动根据访问记录排序
-- [ ] **设置页面** — 包含设置默认浏览器功能
+<!-- 当前需要构建的功能（下一里程碑定义） -->
 
 ### Out of Scope
 
@@ -64,15 +90,25 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - **网络代理隔离** — 本期不实现每个容器独立代理
 - **移动端支持** — 仅支持桌面端（macOS）
 
-## Current Milestone: v1.1 容器属性增强 + 收藏历史 + 常用网站 + 设置页面
+## Current State
 
-**Goal:** 增强容器元数据管理，添加用户浏览数据管理能力，优化新标签页体验，提供应用设置
+**Shipped:** v1.1 (2026-07-26)
+- 9 phases complete (5 in v1.0, 4 in v1.1 + 1 deferred)
+- 21/22 plans complete
+- 30/30 v1.1 requirements complete
+- 技术栈：Electron 32.x + better-sqlite3 + electron-store
 
-**Target features:**
-- 容器属性扩展 — 容器增加手机号、邮箱、备注等属性
-- 收藏与历史记录 — 收藏夹管理和浏览历史记录功能
-- 常用网站智能推荐 — 新标签页展示常用网站，自动根据访问记录排序
-- 设置页面 — 包含设置默认浏览器功能
+**Key features delivered:**
+- 多容器隔离浏览器（Cookie/Session/Storage/缓存完全隔离）
+- 容器 CRUD + 多 Tab + URL 导航 + 分配规则 + 快捷键
+- 容器扩展属性（手机号/邮箱/备注）+ 惰性填充兼容
+- 浏览历史记录（SQLite + 每容器隔离 + realm:// 协议）
+- 收藏夹管理（全局共享数据库 + 星标按钮 + CRUD）
+- frecency 常用网站推荐 + 应用设置页面
+
+**Known gaps:**
+- 09-04: checkBookmarkStatus realm:// 早退守卫移除（deferred）
+- 6 个已诊断 debug session 未修复
 
 ## Context
 
@@ -87,10 +123,10 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - AutoBrowser 项目的 Cookie 持久化方案（JSON 文件格式，支持 domain 前缀点号保留）
 
 **代码库状态：**
-- v1.0 MVP 已完成，包含完整的多容器浏览器功能
-- 支持容器 CRUD、多 Tab、URL 导航、数据隔离、Cookie 持久化、分配规则、快捷键
-- 12 个计划全部完成，20 个 v1 需求全部实现
-- 新增环境隔离：开发环境使用 realm-dev 目录
+- v1.1 已 shipped，包含完整的多容器浏览器功能 + 历史记录 + 收藏夹 + 常用网站 + 设置
+- 9 个阶段完成，21/22 计划完成，30/30 v1.1 需求全部实现
+- 61 个文件变更，+13013 行代码
+- 技术栈新增 better-sqlite3（历史记录存储）
 
 ## Constraints
 
@@ -114,6 +150,12 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | 快捷键使用 CmdOrCtrl 前缀 | macOS 用 Cmd，Windows/Linux 用 Ctrl | ✓ 已验证 — Phase 4 |
 | 使用纯 CSS 实现 toggle switch 组件 | 无第三方依赖 | ✓ 已验证 — Phase 4 |
 | 使用 HTML5 原生 Drag and Drop API 实现规则排序 | 浏览器原生支持 | ✓ 已验证 — Phase 4 |
+| 采用读取时惰性填充策略兼容旧数据 | 避免启动时批量迁移，降低风险 | ✓ 已验证 — Phase 5 |
+| 使用 better-sqlite3 同步 API | 性能优于异步 sqlite3 | ✓ 已验证 — Phase 6 |
+| 每容器独立 SQLite 表 | 避免索引膨胀，简化 FIFO 淘汰 | ✓ 已验证 — Phase 6 |
+| realm:// 自定义协议用于内部页面 | 避免 http:// 路由冲突 | ✓ 已验证 — Phase 6 |
+| 收藏从按容器隔离重构为全局共享 | 用户判断收藏应跨容器共享（类似 Chrome） | ✓ 已验证 — Phase 9 |
+| 容器 ID 白名单验证 [a-z0-9-] | 防 SQL 注入 | ✓ 已验证 — Phase 6 |
 
 ## Evolution
 
@@ -133,4 +175,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-25 — Milestone v1.1 started*
+*Last updated: 2026-07-26 — Milestone v1.1 shipped*

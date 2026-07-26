@@ -89,11 +89,18 @@ None yet.
 
 ## Deferred Items
 
+Items acknowledged and deferred at milestone close on 2026-07-26:
+
 | Category | Item | Status |
 |----------|------|--------|
 | debug | cold-start-url-input-no-response | diagnosed |
 | debug | container-delete-partitions | unknown |
+| debug | progress-bar-wrong-position | diagnosed |
+| debug | realm-newtab-star-not-persistent | diagnosed |
+| debug | refresh-button-no-stop-icon | diagnosed |
+| debug | url-input-enter-no-response | diagnosed |
 | uat_gaps | Phase 03: 03-UAT.md | partial |
+| plan_gap | Phase 09: 09-04-PLAN.md (checkBookmarkStatus realm:// guard) | open |
 
 ## Session Continuity
 
