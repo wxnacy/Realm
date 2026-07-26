@@ -3,16 +3,17 @@ status: testing
 phase: 09-共享收藏数据库
 source: [09-01-SUMMARY.md, 09-02-SUMMARY.md, 09-03-SUMMARY.md, 09-VERIFICATION.md]
 started: 2026-07-25T16:20:26Z
-updated: 2026-07-26T03:00:00Z
+updated: 2026-07-26T03:10:00Z
 ---
 
 ## Current Test
 
-number: 9
-name: 收藏与状态回显（星标写入路径端到端）
+number: 10
+name: 跨容器共享与重复收藏提示
 expected: |
-  在任意容器打开一个未收藏页面，点击工具栏星标 → 出现「已收藏」toast，星标立即变为实心；
-  刷新页面后星标仍保持实心（checkBookmarkStatus 读取全局 favorites 表）。
+  在容器 A 收藏某 URL 后切换到容器 B，打开同一 URL → 星标显示实心已收藏；
+  再次点击星标尝试收藏 → 出现「已收藏过该页面」提示而非重复写入；
+  favorites 表中该 URL 仅一条记录。
 awaiting: user response
 
 ## Tests
@@ -68,7 +69,9 @@ expected: |
   在任意容器打开一个未收藏页面，点击工具栏星标 → 出现「已收藏」toast，星标立即变为实心；
   刷新页面后星标仍保持实心（checkBookmarkStatus 读取全局 favorites 表）；
   DevTools Console 不出现「无效的参数」错误。
-result: [pending]
+result: issue
+reported: "正常地址收藏显示正常，realm://newtab 这类内置的可以收藏，列表也可以看到，但是页面刷新星标不是实心的"
+severity: major
 source: human
 coverage_id: 09-03/H1
 
@@ -94,10 +97,16 @@ coverage_id: 09-03/H3
 
 total: 11
 passed: 8
-issues: 0
-pending: 3
+issues: 1
+pending: 2
 skipped: 0
 
 ## Gaps
 
-[none]
+- truth: "realm://newtab 等内置 URL 收藏后，页面刷新星标应保持实心（与外部 URL 行为一致）"
+  status: failed
+  reason: "User reported: 正常地址收藏显示正常，realm://newtab 这类内置的可以收藏，列表也可以看到，但是页面刷新星标不是实心的"
+  severity: major
+  test: 9
+  artifacts: []
+  missing: []
