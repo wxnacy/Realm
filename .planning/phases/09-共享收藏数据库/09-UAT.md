@@ -1,14 +1,19 @@
 ---
-status: complete
+status: testing
 phase: 09-共享收藏数据库
-source: [09-01-SUMMARY.md, 09-02-SUMMARY.md]
+source: [09-01-SUMMARY.md, 09-02-SUMMARY.md, 09-03-SUMMARY.md, 09-VERIFICATION.md]
 started: 2026-07-25T16:20:26Z
-updated: 2026-07-25T16:25:00Z
+updated: 2026-07-26T03:00:00Z
 ---
 
 ## Current Test
 
-[testing complete]
+number: 9
+name: 收藏与状态回显（星标写入路径端到端）
+expected: |
+  在任意容器打开一个未收藏页面，点击工具栏星标 → 出现「已收藏」toast，星标立即变为实心；
+  刷新页面后星标仍保持实心（checkBookmarkStatus 读取全局 favorites 表）。
+awaiting: user response
 
 ## Tests
 
@@ -58,12 +63,39 @@ result: pass
 source: automated
 coverage_id: 09-02/D4
 
+### 9. 收藏与状态回显（星标写入路径端到端 — 09-03 gap closure 后首次人工回归）
+expected: |
+  在任意容器打开一个未收藏页面，点击工具栏星标 → 出现「已收藏」toast，星标立即变为实心；
+  刷新页面后星标仍保持实心（checkBookmarkStatus 读取全局 favorites 表）；
+  DevTools Console 不出现「无效的参数」错误。
+result: [pending]
+source: human
+coverage_id: 09-03/H1
+
+### 10. 跨容器共享与重复收藏提示
+expected: |
+  在容器 A 收藏某 URL 后切换到容器 B，打开同一 URL → 星标显示实心已收藏；
+  再次点击星标尝试收藏 → 出现「已收藏过该页面」提示而非重复写入；
+  favorites 表中该 URL 仅一条记录。
+result: [pending]
+source: human
+coverage_id: 09-03/H2
+
+### 11. 取消收藏与收藏管理页回归
+expected: |
+  点击实心星标取消收藏 → 星标变回空心，跨容器同步；
+  打开 realm://favorites → 列表/编辑/搜索/删除均正常；
+  整个过程 DevTools Console 无「无效的参数」错误。
+result: [pending]
+source: human
+coverage_id: 09-03/H3
+
 ## Summary
 
-total: 8
+total: 11
 passed: 8
 issues: 0
-pending: 0
+pending: 3
 skipped: 0
 
 ## Gaps
