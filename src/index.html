@@ -270,18 +270,101 @@
 
   <!-- Cookie 管理对话框 -->
   <dialog class="modal" id="cookiesModal">
-    <div class="modal-content modal-large">
+    <div class="modal-content modal-xlarge">
       <h2>Cookie 管理 - <span id="cookiesModalTitle">默认</span></h2>
-      <div class="cookies-toolbar">
-        <button class="btn btn-secondary" id="clearCookiesBtn">清除所有 Cookie</button>
-        <button class="btn btn-secondary" id="refreshCookiesBtn">刷新</button>
+
+      <!-- 来源切换标签页 -->
+      <div class="source-tabs">
+        <button class="source-tab active" data-source="session">Session（实时）</button>
+        <button class="source-tab" data-source="file">File（持久化）</button>
       </div>
+
+      <!-- 域名过滤工具栏 -->
+      <div class="domain-filter">
+        <span class="filter-label">域名过滤：</span>
+        <button class="filter-chip" data-filter="all">全部</button>
+        <button class="filter-chip active" data-filter="subdomain">含子域名</button>
+        <button class="filter-chip" data-filter="exact">仅当前域名</button>
+        <button class="btn btn-secondary btn-sm" id="refreshCookiesBtn">刷新</button>
+        <button class="btn btn-secondary btn-sm" id="saveCookiesBtn">保存到文件</button>
+        <button class="btn btn-danger btn-sm" id="clearCookiesBtn">清除所有</button>
+      </div>
+
+      <!-- Cookie 列表头 -->
+      <div class="cookie-list-header">
+        <span class="cookie-col-name">Name</span>
+        <span class="cookie-col-value">Value</span>
+        <span class="cookie-col-domain">Domain</span>
+        <span class="cookie-col-actions">操作</span>
+      </div>
+
+      <!-- Cookie 列表 -->
       <div class="cookies-list" id="cookiesList">
         <!-- Cookie 列表将由 JavaScript 动态生成 -->
       </div>
+
+      <!-- 分页控件 -->
+      <div class="pagination" id="cookiesPagination">
+        <!-- 分页将由 JavaScript 动态生成 -->
+      </div>
+
       <div class="form-actions">
         <button class="btn btn-primary" id="closeCookiesModal">关闭</button>
       </div>
+    </div>
+  </dialog>
+
+  <!-- Cookie 编辑对话框 -->
+  <dialog class="modal" id="cookieEditModal">
+    <div class="modal-content cookie-edit-modal">
+      <h2>编辑 Cookie</h2>
+      <form id="cookieEditForm">
+        <div class="form-group">
+          <label for="cookieNameInput">Name</label>
+          <input type="text" id="cookieNameInput" class="text-input" disabled>
+        </div>
+        <div class="form-group">
+          <label for="cookieValueInput">Value</label>
+          <input type="text" id="cookieValueInput" class="text-input">
+        </div>
+        <div class="form-group">
+          <label for="cookieDomainInput">Domain</label>
+          <input type="text" id="cookieDomainInput" class="text-input">
+        </div>
+        <div class="form-group">
+          <label for="cookiePathInput">Path</label>
+          <input type="text" id="cookiePathInput" class="text-input" value="/">
+        </div>
+        <div class="form-group">
+          <label for="cookieExpirationInput">过期时间（Unix 时间戳）</label>
+          <input type="text" id="cookieExpirationInput" class="text-input" placeholder="留空表示会话 Cookie">
+        </div>
+        <div class="form-row">
+          <div class="form-group form-group-half">
+            <label>
+              <input type="checkbox" id="cookieSecureInput"> Secure
+            </label>
+          </div>
+          <div class="form-group form-group-half">
+            <label>
+              <input type="checkbox" id="cookieHttpOnlyInput"> HttpOnly
+            </label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="cookieSameSiteInput">SameSite</label>
+          <select id="cookieSameSiteInput" class="select-input">
+            <option value="unspecified">Unspecified</option>
+            <option value="no_restriction">No Restriction</option>
+            <option value="lax">Lax</option>
+            <option value="strict">Strict</option>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" id="cancelCookieEditBtn">取消</button>
+          <button type="submit" class="btn btn-primary" id="saveCookieEditBtn">保存</button>
+        </div>
+      </form>
     </div>
   </dialog>
 

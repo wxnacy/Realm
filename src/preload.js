@@ -189,6 +189,38 @@ contextBridge.exposeInMainWorld('realmAPI', {
    */
   deleteCookie: (containerId) => ipcRenderer.invoke('cookie:delete', containerId),
 
+  // ==================== Cookie 管理增强 ====================
+
+  /**
+   * 获取容器的 Session Cookie 列表
+   * @param {string} containerId - 容器 ID
+   * @returns {Promise<Array>} Cookie 数组
+   */
+  getSessionCookies: (containerId) => ipcRenderer.invoke('cookie:get-session', containerId),
+
+  /**
+   * 获取容器的 File Cookie 列表
+   * @param {string} containerId - 容器 ID
+   * @returns {Promise<Array>} Cookie 数组
+   */
+  getFileCookies: (containerId) => ipcRenderer.invoke('cookie:get-file', containerId),
+
+  /**
+   * 编辑单个 Cookie
+   * @param {string} containerId - 容器 ID
+   * @param {Object} cookieData - Cookie 数据
+   * @returns {Promise<{success: boolean, message: string}>}
+   */
+  editCookie: (containerId, cookieData) => ipcRenderer.invoke('cookie:edit', containerId, cookieData),
+
+  /**
+   * 删除单个 Cookie
+   * @param {string} containerId - 容器 ID
+   * @param {Object} cookieData - Cookie 数据
+   * @returns {Promise<{success: boolean, message: string}>}
+   */
+  deleteSingleCookie: (containerId, cookieData) => ipcRenderer.invoke('cookie:delete-single', containerId, cookieData),
+
   // ==================== 分配规则 ====================
 
   /**

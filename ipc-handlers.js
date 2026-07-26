@@ -393,6 +393,68 @@ function registerHandlers() {
     return cookieManager.deleteCookies(containerId);
   });
 
+  // ==================== Cookie 管理增强 ====================
+
+  /**
+   * 获取容器的 Session Cookie 列表
+   * @param {string} containerId - 容器 ID
+   * @returns {Promise<Array>} Cookie 数组
+   */
+  ipcMain.handle('cookie:get-session', async (event, containerId) => {
+    assertTrustedSender(event);
+    if (!containerId || typeof containerId !== 'string') {
+      throw new Error('无效的容器 ID');
+    }
+    return cookieManager.getSessionCookies(containerId);
+  });
+
+  /**
+   * 获取容器的 File Cookie 列表
+   * @param {string} containerId - 容器 ID
+   * @returns {Array} Cookie 数组
+   */
+  ipcMain.handle('cookie:get-file', (event, containerId) => {
+    assertTrustedSender(event);
+    if (!containerId || typeof containerId !== 'string') {
+      throw new Error('无效的容器 ID');
+    }
+    return cookieManager.getFileCookies(containerId);
+  });
+
+  /**
+   * 编辑单个 Cookie
+   * @param {string} containerId - 容器 ID
+   * @param {Object} cookieData - Cookie 数据
+   * @returns {Promise<{success: boolean, message: string}>}
+   */
+  ipcMain.handle('cookie:edit', async (event, containerId, cookieData) => {
+    assertTrustedSender(event);
+    if (!containerId || typeof containerId !== 'string') {
+      throw new Error('无效的容器 ID');
+    }
+    if (!cookieData || typeof cookieData !== 'object' || !cookieData.name) {
+      throw new Error('无效的 Cookie 数据');
+    }
+    return cookieManager.editCookie(containerId, cookieData);
+  });
+
+  /**
+   * 删除单个 Cookie
+   * @param {string} containerId - 容器 ID
+   * @param {Object} cookieData - Cookie 数据
+   * @returns {Promise<{success: boolean, message: string}>}
+   */
+  ipcMain.handle('cookie:delete-single', async (event, containerId, cookieData) => {
+    assertTrustedSender(event);
+    if (!containerId || typeof containerId !== 'string') {
+      throw new Error('无效的容器 ID');
+    }
+    if (!cookieData || typeof cookieData !== 'object' || !cookieData.name) {
+      throw new Error('无效的 Cookie 数据');
+    }
+    return cookieManager.deleteSingleCookie(containerId, cookieData);
+  });
+
   // ==================== 分配规则 ====================
 
   /**
