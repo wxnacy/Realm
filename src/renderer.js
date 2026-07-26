@@ -1917,51 +1917,357 @@ function updateEmojiSelection() {
 }
 
 /**
+ * Cookie 管理状态
+ */
+const cookieState = {
+  source: 'session', // 'session' 或 'file'
+  filter: 'subdomain', // 'all', 'subdomain', 'exact'
+  currentDomain: '', // 当前标签页域名
+  allCookies: [], // 所有 Cookie 数据
+  filteredCookies: [], // 过滤后的 Cookie
+  page: 1, // 当前页码
+  pageSize: 25, // 每页数量
+  editingCookie: null, // 正在编辑的 Cookie
+};
+
+/**
  * 显示 Cookie 管理对话框
  */
 async function showCookiesModal() {
   const current = state.containers.find(c => c.id === state.currentContainer);
   elements.cookiesModalTitle.textContent = current?.name || '未知';
 
+  // 获取当前标签页域名
+  const activeTab = state.tabs.get(state.activeTabId);
+  if (activeTab && activeTab.url) {
+    try {
+      const url = new URL(activeTab.url);
+      cookieState.currentDomain = url.hostname;
+    } catch {
+      cookieState.currentDomain = '';
+    }
+  } else {
+    cookieState.currentDomain = '';
+  }
+
+  // 重置状态
+  cookieState.page = 1;
+  cookieState.source = 'session';
+  cookieState.filter = 'subdomain';
+
+  // 更新标签页选中状态
+  updateSourceTabUI();
+  updateFilterChipUI();
+
   await refreshCookiesList();
   elements.cookiesModal.showModal();
+}
+
+/**
+ * 更新来源标签页 UI
+ */
+function updateSourceTabUI() {
+  const tabs = document.querySelectorAll('.source-tab');
+  tabs.forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.source === cookieState.source);
+  });
+}
+
+/**
+ * 更新过滤选项 UI
+ */
+function updateFilterChipUI() {
+  const chips = document.querySelectorAll('.filter-chip');
+  chips.forEach(chip => {
+    chip.classList.toggle('active', chip.dataset.filter === cookieState.filter);
+  });
+}
+
+/**
+ * 处理来源标签页切换
+ * @param {string} source - 'session' 或 'file'
+ */
+async function handleSourceTabSwitch(source) {
+  if (cookieState.source === source) return;
+  cookieState.source = source;
+  cookieState.page = 1;
+  updateSourceTabUI();
+  await refreshCookiesList();
+}
+
+/**
+ * 处理域名过滤切换
+ * @param {string} filter - 'all', 'subdomain', 'exact'
+ */
+async function handleDomainFilter(filter) {
+  if (cookieState.filter === filter) return;
+  cookieState.filter = filter;
+  cookieState.page = 1;
+  updateFilterChipUI();
+  applyDomainFilter();
+  renderCookiesList();
+  renderPagination();
+}
+
+/**
+ * 应用域名过滤
+ */
+function applyDomainFilter() {
+  const domain = cookieState.currentDomain;
+  if (!domain || cookieState.filter === 'all') {
+    cookieState.filteredCookies = [...cookieState.allCookies];
+    return;
+  }
+
+  cookieState.filteredCookies = cookieState.allCookies.filter(cookie => {
+    const cookieDomain = cookie.domain.startsWith('.') ? cookie.domain.slice(1) : cookie.domain;
+    if (cookieState.filter === 'exact') {
+      return cookieDomain === domain;
+    } else if (cookieState.filter === 'subdomain') {
+      return cookieDomain === domain || domain.endsWith('.' + cookieDomain);
+    }
+    return true;
+  });
 }
 
 /**
  * 刷新 Cookie 列表
  */
 async function refreshCookiesList() {
-  const cookies = await window.realmAPI.getContainerCookies(state.currentContainer);
+  try {
+    if (cookieState.source === 'session') {
+      cookieState.allCookies = await window.realmAPI.getSessionCookies(state.currentContainer);
+    } else {
+      cookieState.allCookies = await window.realmAPI.getFileCookies(state.currentContainer);
+    }
+  } catch (error) {
+    console.error('[Realm Renderer] 获取 Cookie 失败:', error);
+    cookieState.allCookies = [];
+  }
 
-  if (cookies.length === 0) {
-    elements.cookiesList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 20px;">暂无 Cookie</div>';
+  applyDomainFilter();
+  renderCookiesList();
+  renderPagination();
+}
+
+/**
+ * 渲染 Cookie 列表
+ */
+function renderCookiesList() {
+  const cookies = cookieState.filteredCookies;
+  const start = (cookieState.page - 1) * cookieState.pageSize;
+  const end = start + cookieState.pageSize;
+  const pageCookies = cookies.slice(start, end);
+
+  if (pageCookies.length === 0) {
+    elements.cookiesList.innerHTML = '<div class="cookies-empty"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle></svg><p>暂无 Cookie</p></div>';
     return;
   }
 
-  // 使用 DOM API + textContent 渲染（CR-3 修复）：
-  // cookie.name/value/domain 由任意网站设置，是攻击者可控数据，禁止拼入 innerHTML
+  // 使用 DOM API + textContent 渲染（CR-3 修复）
   elements.cookiesList.innerHTML = '';
-  cookies.forEach(cookie => {
+  pageCookies.forEach(cookie => {
     const item = document.createElement('div');
     item.className = 'cookie-item';
 
     const name = document.createElement('span');
-    name.className = 'cookie-name';
+    name.className = 'cookie-col-name';
     name.textContent = cookie.name;
+    name.title = cookie.name;
 
     const value = document.createElement('span');
-    value.className = 'cookie-value';
+    value.className = 'cookie-col-value';
     value.textContent = cookie.value;
+    value.title = cookie.value;
 
     const domain = document.createElement('span');
-    domain.className = 'cookie-domain';
+    domain.className = 'cookie-col-domain';
     domain.textContent = cookie.domain;
+    domain.title = cookie.domain;
+
+    const actions = document.createElement('div');
+    actions.className = 'cookie-col-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn-icon btn-sm';
+    editBtn.title = '编辑';
+    editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+    editBtn.addEventListener('click', () => handleEditCookie(cookie));
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn-icon btn-sm btn-danger-icon';
+    deleteBtn.title = '删除';
+    deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path></svg>';
+    deleteBtn.addEventListener('click', () => handleDeleteCookie(cookie));
+
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
 
     item.appendChild(name);
     item.appendChild(value);
     item.appendChild(domain);
+    item.appendChild(actions);
     elements.cookiesList.appendChild(item);
   });
+}
+
+/**
+ * 渲染分页控件
+ */
+function renderPagination() {
+  const totalPages = Math.ceil(cookieState.filteredCookies.length / cookieState.pageSize);
+  const pagination = document.getElementById('cookiesPagination');
+  if (!pagination) return;
+
+  if (totalPages <= 1) {
+    pagination.innerHTML = '';
+    return;
+  }
+
+  pagination.innerHTML = '';
+
+  // 上一页按钮
+  const prevBtn = document.createElement('button');
+  prevBtn.className = 'page-btn';
+  prevBtn.textContent = '<';
+  prevBtn.disabled = cookieState.page <= 1;
+  prevBtn.addEventListener('click', () => {
+    if (cookieState.page > 1) {
+      cookieState.page--;
+      renderCookiesList();
+      renderPagination();
+    }
+  });
+  pagination.appendChild(prevBtn);
+
+  // 页码按钮
+  const maxVisiblePages = 5;
+  let startPage = Math.max(1, cookieState.page - Math.floor(maxVisiblePages / 2));
+  let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+  if (endPage - startPage + 1 < maxVisiblePages) {
+    startPage = Math.max(1, endPage - maxVisiblePages + 1);
+  }
+
+  for (let i = startPage; i <= endPage; i++) {
+    const pageBtn = document.createElement('button');
+    pageBtn.className = 'page-btn' + (i === cookieState.page ? ' active' : '');
+    pageBtn.textContent = i;
+    pageBtn.addEventListener('click', () => {
+      cookieState.page = i;
+      renderCookiesList();
+      renderPagination();
+    });
+    pagination.appendChild(pageBtn);
+  }
+
+  // 下一页按钮
+  const nextBtn = document.createElement('button');
+  nextBtn.className = 'page-btn';
+  nextBtn.textContent = '>';
+  nextBtn.disabled = cookieState.page >= totalPages;
+  nextBtn.addEventListener('click', () => {
+    if (cookieState.page < totalPages) {
+      cookieState.page++;
+      renderCookiesList();
+      renderPagination();
+    }
+  });
+  pagination.appendChild(nextBtn);
+}
+
+/**
+ * 处理编辑 Cookie
+ * @param {Object} cookie - Cookie 数据
+ */
+function handleEditCookie(cookie) {
+  cookieState.editingCookie = cookie;
+
+  // 填充表单
+  document.getElementById('cookieNameInput').value = cookie.name;
+  document.getElementById('cookieValueInput').value = cookie.value;
+  document.getElementById('cookieDomainInput').value = cookie.domain;
+  document.getElementById('cookiePathInput').value = cookie.path || '/';
+  document.getElementById('cookieExpirationInput').value = cookie.expirationDate || '';
+  document.getElementById('cookieSecureInput').checked = cookie.secure || false;
+  document.getElementById('cookieHttpOnlyInput').checked = cookie.httpOnly || false;
+  document.getElementById('cookieSameSiteInput').value = cookie.sameSite || 'unspecified';
+
+  // 显示编辑模态框
+  document.getElementById('cookieEditModal').showModal();
+}
+
+/**
+ * 处理保存 Cookie 编辑
+ */
+async function handleSaveCookieEdit() {
+  if (!cookieState.editingCookie) return;
+
+  const cookieData = {
+    name: cookieState.editingCookie.name,
+    value: document.getElementById('cookieValueInput').value,
+    domain: document.getElementById('cookieDomainInput').value,
+    path: document.getElementById('cookiePathInput').value,
+    expirationDate: document.getElementById('cookieExpirationInput').value ? Number(document.getElementById('cookieExpirationInput').value) : undefined,
+    secure: document.getElementById('cookieSecureInput').checked,
+    httpOnly: document.getElementById('cookieHttpOnlyInput').checked,
+    sameSite: document.getElementById('cookieSameSiteInput').value,
+  };
+
+  try {
+    const result = await window.realmAPI.editCookie(state.currentContainer, cookieData);
+    if (result.success) {
+      document.getElementById('cookieEditModal').close();
+      showToast('Cookie 已更新', 'success');
+      await refreshCookiesList();
+    } else {
+      showToast(result.message || '更新失败', 'error');
+    }
+  } catch (error) {
+    console.error('[Realm Renderer] 编辑 Cookie 失败:', error);
+    showToast('编辑失败，请重试', 'error');
+  }
+
+  cookieState.editingCookie = null;
+}
+
+/**
+ * 处理删除 Cookie
+ * @param {Object} cookie - Cookie 数据
+ */
+async function handleDeleteCookie(cookie) {
+  if (!confirm(`确定要删除 Cookie "${cookie.name}" 吗？`)) {
+    return;
+  }
+
+  try {
+    const result = await window.realmAPI.deleteSingleCookie(state.currentContainer, cookie);
+    if (result.success) {
+      showToast('Cookie 已删除', 'success');
+      await refreshCookiesList();
+    } else {
+      showToast(result.message || '删除失败', 'error');
+    }
+  } catch (error) {
+    console.error('[Realm Renderer] 删除 Cookie 失败:', error);
+    showToast('删除失败，请重试', 'error');
+  }
+}
+
+/**
+ * 处理保存当前域名 Cookie 到文件
+ */
+async function handleSaveToFile() {
+  try {
+    const result = await window.realmAPI.saveCookie(state.currentContainer);
+    if (result.success) {
+      showToast(`已保存 ${result.count} 个 Cookie 到文件`, 'success');
+    } else {
+      showToast('保存失败', 'error');
+    }
+  } catch (error) {
+    console.error('[Realm Renderer] 保存 Cookie 失败:', error);
+    showToast('保存失败，请重试', 'error');
+  }
 }
 
 /**
@@ -1971,6 +2277,7 @@ async function clearContainerCookies() {
   if (confirm('确定要清除当前容器的所有 Cookie 吗？')) {
     await window.realmAPI.clearContainerCookies(state.currentContainer);
     await refreshCookiesList();
+    showToast('Cookie 已清除', 'success');
     console.log(`[Realm] 已清除容器 ${state.currentContainer} 的所有 Cookie`);
   }
 }
@@ -2325,6 +2632,54 @@ function setupEventListeners() {
   elements.closeCookiesModal.addEventListener('click', () => {
     elements.cookiesModal.close();
   });
+
+  // Cookie 来源切换标签页
+  document.querySelectorAll('.source-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      handleSourceTabSwitch(tab.dataset.source);
+    });
+  });
+
+  // Cookie 域名过滤
+  document.querySelectorAll('.filter-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      handleDomainFilter(chip.dataset.filter);
+    });
+  });
+
+  // Cookie 保存到文件按钮
+  const saveCookiesBtn = document.getElementById('saveCookiesBtn');
+  if (saveCookiesBtn) {
+    saveCookiesBtn.addEventListener('click', handleSaveToFile);
+  }
+
+  // Cookie 编辑模态框
+  const cookieEditForm = document.getElementById('cookieEditForm');
+  if (cookieEditForm) {
+    cookieEditForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await handleSaveCookieEdit();
+    });
+  }
+
+  const cancelCookieEditBtn = document.getElementById('cancelCookieEditBtn');
+  if (cancelCookieEditBtn) {
+    cancelCookieEditBtn.addEventListener('click', () => {
+      document.getElementById('cookieEditModal').close();
+      cookieState.editingCookie = null;
+    });
+  }
+
+  // Cookie 编辑模态框外部点击关闭
+  const cookieEditModal = document.getElementById('cookieEditModal');
+  if (cookieEditModal) {
+    cookieEditModal.addEventListener('click', (e) => {
+      if (e.target === cookieEditModal) {
+        cookieEditModal.close();
+        cookieState.editingCookie = null;
+      }
+    });
+  }
 
   // 规则管理按钮
   if (elements.rulesBtn) {

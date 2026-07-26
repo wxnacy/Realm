@@ -356,6 +356,10 @@ button {
   width: 600px;
 }
 
+.modal-xlarge {
+  width: 750px;
+}
+
 .modal-content h2 {
   font-size: 18px;
   font-weight: 600;
@@ -545,31 +549,219 @@ textarea::placeholder {
   background-color: var(--bg-hover);
 }
 
-/* Cookie 管理 */
-.cookies-toolbar {
+/* Cookie 管理增强 */
+.source-tabs {
   display: flex;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 12px;
+}
+
+.source-tab {
+  padding: 8px 16px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.source-tab:hover {
+  color: var(--text-primary);
+}
+
+.source-tab.active {
+  color: var(--accent-color);
+  border-bottom-color: var(--accent-color);
+}
+
+.domain-filter {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.filter-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.filter-chip {
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.filter-chip:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.filter-chip.active {
+  background-color: var(--accent-color);
+  border-color: var(--accent-color);
+  color: white;
+}
+
+.cookie-list-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: var(--bg-tertiary);
+  border-radius: 8px 8px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.cookie-col-name {
+  width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cookie-col-value {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cookie-col-domain {
+  width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cookie-col-actions {
+  width: 80px;
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
 }
 
 .cookies-list {
   max-height: 400px;
   overflow-y: auto;
   background-color: var(--bg-tertiary);
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: 0 0 8px 8px;
+  padding: 0 12px 12px;
 }
 
 .cookie-item {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px;
+  padding: 8px 4px;
   border-bottom: 1px solid var(--border-color);
 }
 
 .cookie-item:last-child {
   border-bottom: none;
+}
+
+.cookie-item:hover {
+  background-color: var(--bg-hover);
+  border-radius: 4px;
+}
+
+.cookies-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+}
+
+.cookies-empty svg {
+  margin-bottom: 12px;
+  opacity: 0.5;
+}
+
+.cookies-empty p {
+  font-size: 14px;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.page-btn {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.page-btn:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.page-btn.active {
+  background-color: var(--accent-color);
+  border-color: var(--accent-color);
+  color: white;
+}
+
+.page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+  height: 28px;
+}
+
+.btn-danger-icon {
+  color: var(--danger-color);
+}
+
+.btn-danger-icon:hover {
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+.cookie-edit-modal {
+  width: 450px;
+}
+
+.form-row {
+  display: flex;
+  gap: 16px;
+}
+
+.form-group-half {
+  flex: 1;
+}
+
+.cookies-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
 }
 
 .cookie-name {
