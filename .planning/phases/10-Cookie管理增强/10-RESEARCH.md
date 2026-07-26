@@ -380,22 +380,27 @@ async function deleteSingleCookie(containerId, cookieData) {
 | A2 | Cookie 数据量通常 <1000 条，客户端分页足够 | Architecture | 若数据量过大可能需要服务端分页 |
 | A3 | `sameSite` 属性值为 'strict'/'lax'/'unspecified'/'no_restriction' | Code Examples | 需要验证 Electron 实际支持的值 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Electron `session.cookies.remove()` 的确切参数签名**
+> 以下三问均属 10-01 范围，已由 10-01 交付代码实证解决（10-UAT.md 对应测试通过），与 10-02 范围零交集。保留原始记录并补 RESOLVED 标记。
+
+1. **Electron `session.cookies.remove()` 的确切参数签名** — RESOLVED
    - What we know: 文档显示 `cookies.remove(url, name)` 返回 Promise
    - What's unclear: 是否需要额外参数（如 path）来精确定位 Cookie
    - Recommendation: 实现时先测试，若一个 URL 下同名不同 path 的 Cookie 需要额外处理
+   - **Resolution (10-01):** `deleteSingleCookie()` 按 `cookies.remove(url, name)` 两参数签名实现并交付；10-UAT.md test 5（单条删除功能：确认后 Cookie 从列表移除，同时从 Session 和文件中删除）pass，实证无需额外参数。
 
-2. **File 数据源的排序方式**
+2. **File 数据源的排序方式** — RESOLVED
    - What we know: cookies.json 是无序数组
    - What's unclear: 用户期望的默认排序
    - Recommendation: 按 domain 分组排序，同 domain 内按 name 排序（与 Session 来源一致）
+   - **Resolution (10-01):** 实现采用来源原序（Session API 返回序 / cookies.json 文件数组序），未引入额外排序（applyDomainFilter 仅过滤不重排，代码库无 sort 调用）；10-UAT.md test 1（来源切换功能：Session/File 标签页各自正确显示）pass，用户对显示顺序无异议。排序属 CONTEXT.md 中 Claude's Discretion 项，后续如需可另行追加。
 
-3. **编辑 Cookie 的 name 字段是否可编辑**
+3. **编辑 Cookie 的 name 字段是否可编辑** — RESOLVED
    - What we know: D-14 列出 name 为可编辑字段
    - What's unclear: 修改 name 实际上是创建新 Cookie 并删除旧 Cookie
    - Recommendation: name 字段设为只读（灰色显示），避免技术复杂性
+   - **Resolution (10-01):** Recommendation 被采纳——name 字段只读（10-01-SUMMARY.md 决策记录："Cookie name 只读：避免修改 name 需要删除旧 Cookie + 创建新 Cookie 的技术复杂性"）；10-UAT.md test 4（单条编辑功能：编辑模态框包含 name（只读）字段，保存后立即更新）pass。
 
 ## Environment Availability
 
