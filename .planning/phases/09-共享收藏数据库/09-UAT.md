@@ -1,20 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 09-共享收藏数据库
 source: [09-01-SUMMARY.md, 09-02-SUMMARY.md, 09-03-SUMMARY.md, 09-VERIFICATION.md]
 started: 2026-07-25T16:20:26Z
-updated: 2026-07-26T03:15:00Z
+updated: 2026-07-26T03:20:00Z
 ---
 
 ## Current Test
 
-number: 11
-name: 取消收藏与收藏管理页回归
-expected: |
-  点击实心星标取消收藏 → 星标变回空心，跨容器同步；
-  打开 realm://favorites → 列表/编辑/搜索/删除均正常；
-  整个过程 DevTools Console 无「无效的参数」错误。
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -89,16 +83,16 @@ expected: |
   点击实心星标取消收藏 → 星标变回空心，跨容器同步；
   打开 realm://favorites → 列表/编辑/搜索/删除均正常；
   整个过程 DevTools Console 无「无效的参数」错误。
-result: [pending]
+result: pass
 source: human
 coverage_id: 09-03/H3
 
 ## Summary
 
 total: 11
-passed: 9
+passed: 10
 issues: 1
-pending: 1
+pending: 0
 skipped: 0
 
 ## Gaps
