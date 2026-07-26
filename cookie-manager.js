@@ -319,6 +319,151 @@ function cleanupOrphanPartitions(validContainerIds) {
   return { removed };
 }
 
+/**
+ * 获取容器的 Session Cookie 列表
+ * 从 Electron Session 中实时读取当前所有 Cookie
+ * @param {string} containerId - 容器 ID
+ * @returns {Promise<Array>} Cookie 数组
+ */
+async function getSessionCookies(containerId) {
+  try {
+    const partition = `persist:container-${containerId}`;
+    const ses = session.fromPartition(partition);
+    const cookies = await ses.cookies.get({});
+
+    // 格式化 Cookie 数据
+    return cookies.map(cookie => ({
+      name: cookie.name,
+      value: cookie.value,
+      domain: cookie.domain,
+      path: cookie.path,
+      expirationDate: cookie.expirationDate,
+      secure: cookie.secure,
+      httpOnly: cookie.httpOnly,
+      sameSite: cookie.sameSite,
+      hostOnly: cookie.hostOnly,
+      url: cookie.url,
+    }));
+  } catch (error) {
+    console.error(`[Realm] 获取 Session Cookie 失败: ${containerId}`, error);
+    return [];
+  }
+}
+
+/**
+ * 获取容器的 File Cookie 列表
+ * 从 cookies.json 文件中读取持久化的 Cookie
+ * @param {string} containerId - 容器 ID
+ * @returns {Array} Cookie 数组
+ */
+function getFileCookies(containerId) {
+  try {
+    const filePath = path.join(COOKIE_DIR, `${containerId}.json`);
+
+    // 文件不存在时返回空数组
+    if (!fs.existsSync(filePath)) {
+      return [];
+    }
+
+    const data = fs.readFileSync(filePath, 'utf8');
+    const cookies = JSON.parse(data);
+
+    // 验证格式
+    if (!Array.isArray(cookies)) {
+      return [];
+    }
+
+    return cookies;
+  } catch (error) {
+    console.error(`[Realm] 读取 File Cookie 失败: ${containerId}`, error);
+    return [];
+  }
+}
+
+/**
+ * 编辑单个 Cookie
+ * 更新 Session 中的 Cookie，然后同步保存到文件
+ * @param {string} containerId - 容器 ID
+ * @param {Object} cookieData - Cookie 数据
+ * @param {string} cookieData.name - Cookie 名称（只读，用于定位）
+ * @param {string} cookieData.value - Cookie 值
+ * @param {string} cookieData.domain - Cookie 域名
+ * @param {string} cookieData.path - Cookie 路径
+ * @param {number} [cookieData.expirationDate] - 过期时间戳（秒）
+ * @param {boolean} [cookieData.secure] - 是否仅 HTTPS
+ * @param {boolean} [cookieData.httpOnly] - 是否仅 HTTP
+ * @param {string} [cookieData.sameSite] - SameSite 属性
+ * @returns {Promise<{success: boolean, message: string}>}
+ */
+async function editCookie(containerId, cookieData) {
+  try {
+    const partition = `persist:container-${containerId}`;
+    const ses = session.fromPartition(partition);
+
+    // 构建 Cookie URL
+    const protocol = cookieData.secure ? 'https' : 'http';
+    const domain = cookieData.domain.startsWith('.') ? cookieData.domain.slice(1) : cookieData.domain;
+    const url = `${protocol}://${domain}${cookieData.path || '/'}`;
+
+    // 更新 Session Cookie
+    await ses.cookies.set({
+      url: url,
+      name: cookieData.name,
+      value: cookieData.value,
+      domain: cookieData.domain,
+      path: cookieData.path || '/',
+      expirationDate: cookieData.expirationDate,
+      secure: cookieData.secure || false,
+      httpOnly: cookieData.httpOnly || false,
+      sameSite: cookieData.sameSite || 'unspecified',
+    });
+
+    // 同步保存到文件
+    await saveCookies(containerId);
+
+    console.log(`[Realm] 编辑 Cookie: ${containerId} - ${cookieData.name}`);
+    return { success: true, message: 'Cookie 已更新' };
+  } catch (error) {
+    console.error(`[Realm] 编辑 Cookie 失败: ${containerId}`, error);
+    return { success: false, message: '编辑失败: ' + error.message };
+  }
+}
+
+/**
+ * 删除单个 Cookie
+ * 从 Session 中删除 Cookie，然后同步更新文件
+ * @param {string} containerId - 容器 ID
+ * @param {Object} cookieData - Cookie 数据
+ * @param {string} cookieData.name - Cookie 名称
+ * @param {string} cookieData.domain - Cookie 域名
+ * @param {string} cookieData.path - Cookie 路径
+ * @param {boolean} [cookieData.secure] - 是否仅 HTTPS
+ * @returns {Promise<{success: boolean, message: string}>}
+ */
+async function deleteSingleCookie(containerId, cookieData) {
+  try {
+    const partition = `persist:container-${containerId}`;
+    const ses = session.fromPartition(partition);
+
+    // 构建 Cookie URL
+    const protocol = cookieData.secure ? 'https' : 'http';
+    const domain = cookieData.domain.startsWith('.') ? cookieData.domain.slice(1) : cookieData.domain;
+    const url = `${protocol}://${domain}${cookieData.path || '/'}`;
+
+    // 从 Session 中删除
+    await ses.cookies.remove(url, cookieData.name);
+
+    // 同步保存到文件
+    await saveCookies(containerId);
+
+    console.log(`[Realm] 删除 Cookie: ${containerId} - ${cookieData.name}`);
+    return { success: true, message: 'Cookie 已删除' };
+  } catch (error) {
+    console.error(`[Realm] 删除 Cookie 失败: ${containerId}`, error);
+    return { success: false, message: '删除失败: ' + error.message };
+  }
+}
+
 // 模块导出
 module.exports = {
   saveCookies,
@@ -329,5 +474,9 @@ module.exports = {
   importCookies,
   deleteCookies,
   cleanupOrphanPartitions,
+  getSessionCookies,
+  getFileCookies,
+  editCookie,
+  deleteSingleCookie,
   COOKIE_DIR,
 };
