@@ -110,6 +110,15 @@ const cases = [
     expectReturn: null,
   },
   {
+    // 内置 URL 回归护栏（09-UAT test 9 issue）：favorites:check 必须接受 realm://
+    // scheme，不得在 IPC 边界被拦截——防止未来在 handler 加 scheme 过滤
+    // 复现 src/renderer.js:219 曾经的渲染层守卫同等问题
+    channel: 'favorites:check',
+    payload: { url: 'realm://newtab' },
+    expectCall: ['checkUrl', 'realm://newtab'],
+    expectReturn: null,
+  },
+  {
     channel: 'favorites:add',
     payload: { url: 'https://example.com', title: 'Example', faviconUrl: 'https://example.com/favicon.ico' },
     expectCall: ['addRecord', { url: 'https://example.com', title: 'Example', faviconUrl: 'https://example.com/favicon.ico' }],

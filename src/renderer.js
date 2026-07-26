@@ -212,12 +212,12 @@ function normalizeUrl(input) {
 
 /**
  * 检查当前页面是否已收藏，更新星标状态
+ * 收藏数据全局共享，与容器无关
  * @param {string} url - 当前页面 URL
- * @param {string} containerId - 当前容器 ID
  */
-async function checkBookmarkStatus(url, containerId) {
-  if (!url || url.startsWith('realm://') || url === 'about:blank') {
-    // 内部页面不显示收藏状态，同时清空收藏相关 state
+async function checkBookmarkStatus(url) {
+  if (!url || url === 'about:blank') {
+    // 无 URL 或空白页不查询收藏状态，同时清空收藏相关 state
     state.isCurrentPageBookmarked = false;
     state.currentBookmarkId = null;
     state.currentBookmarkTitle = null;
@@ -225,7 +225,7 @@ async function checkBookmarkStatus(url, containerId) {
     return;
   }
   try {
-    const result = await window.realmAPI.favoritesCheck(containerId, url);
+    const result = await window.realmAPI.favoritesCheck(url);
     state.isCurrentPageBookmarked = !!result;
     state.currentBookmarkId = result ? result.id : null;
     state.currentBookmarkTitle = result ? result.title : null;
@@ -297,7 +297,6 @@ function hideBookmarkEditPanel() {
 async function saveBookmark() {
   const title = elements.bookmarkTitleInput.value.trim();
   const url = elements.bookmarkUrlDisplay.textContent;
-  const containerId = state.currentContainer;
 
   if (!url) return;
 
@@ -307,13 +306,12 @@ async function saveBookmark() {
   try {
     if (state.isCurrentPageBookmarked && state.currentBookmarkId) {
       // 编辑模式：更新标题
-      await window.realmAPI.favoritesUpdate(containerId, state.currentBookmarkId, title);
+      await window.realmAPI.favoritesUpdate(state.currentBookmarkId, title);
       state.currentBookmarkTitle = title; // 同步 state，避免下次打开仍是旧值
       toastMessage = '已更新收藏';
     } else {
       // 新增模式：插入新记录
       const result = await window.realmAPI.favoritesAdd({
-        containerId,
         url,
         title,
         faviconUrl: '' // favicon 暂不获取
@@ -348,7 +346,6 @@ async function saveBookmark() {
  * 取消收藏当前页面（编辑面板"移除收藏"按钮触发）
  */
 async function removeBookmark() {
-  const containerId = state.currentContainer;
   const bookmarkId = state.currentBookmarkId;
 
   if (!bookmarkId) return;
@@ -357,7 +354,7 @@ async function removeBookmark() {
   let toastType = 'success';
 
   try {
-    await window.realmAPI.favoritesDelete(containerId, bookmarkId);
+    await window.realmAPI.favoritesDelete(bookmarkId);
     state.isCurrentPageBookmarked = false;
     state.currentBookmarkId = null;
     state.currentBookmarkTitle = null;
@@ -383,8 +380,11 @@ async function removeBookmark() {
  * @returns {Promise<string>} 新创建的 Tab ID
  */
 async function createTab(containerId, url = null) {
+  // 如果没有指定 URL，使用新标签页
+  const tabUrl = url || 'realm://newtab';
+
   // 调用主进程创建 Tab
-  const tab = await window.realmAPI.createTab(containerId, url || '');
+  const tab = await window.realmAPI.createTab(containerId, tabUrl);
 
   // 创建 Tab DOM 元素
   const tabElement = document.createElement('div');
@@ -423,10 +423,8 @@ async function createTab(containerId, url = null) {
   tab.element = tabElement;
   state.tabs.set(tab.id, tab);
 
-  // 创建 webview（如果有 URL）
-  if (url) {
-    createWebviewForTab(tab.id, containerId, url);
-  }
+  // 创建 webview（如果有 URL 或使用新标签页）
+  createWebviewForTab(tab.id, containerId, tabUrl);
 
   // 切换到新 Tab
   await switchTab(tab.id);
@@ -472,7 +470,7 @@ async function switchTab(tabId) {
   }
 
   // 切换 Tab 时检查收藏状态
-  checkBookmarkStatus(tab.url, tab.containerId);
+  checkBookmarkStatus(tab.url);
 
   // 切换 Tab 时关闭收藏编辑面板（防御性：showModal 通常阻塞背景使此场景不可达，
   // 但 ESC/程序化关闭边缘场景下仍可能残留 open 状态）
@@ -481,12 +479,8 @@ async function switchTab(tabId) {
   // 切换 webview 可见性
   showWebview(tabId);
 
-  // 如果没有 URL，显示新标签页
-  if (!tab.url) {
-    elements.newTabPage.style.display = 'flex';
-  } else {
-    elements.newTabPage.style.display = 'none';
-  }
+  // 隐藏内嵌新标签页（现在使用 realm://newtab 加载新标签页）
+  elements.newTabPage.style.display = 'none';
 
   // 滚动 Tab 到可见区域
   if (tab.element) {
@@ -521,10 +515,10 @@ async function closeTab(tabId) {
     if (result.newActiveTabId) {
       await switchTab(result.newActiveTabId);
     } else {
-      // 没有 Tab 了，显示新标签页
+      // 没有 Tab 了，创建新 Tab
       state.activeTabId = null;
       elements.urlInput.value = '';
-      elements.newTabPage.style.display = 'flex';
+      createTab(state.currentContainer);
     }
   }
 
@@ -668,7 +662,7 @@ function bindWebviewEvents(tabId, webview) {
 
       // 导航完成后检查收藏状态
       if (tabId === state.activeTabId) {
-        checkBookmarkStatus(displayUrl, tab.containerId);
+        checkBookmarkStatus(displayUrl);
       }
 
       // D-21/D-23：导航完成后自动写入历史记录（过滤内部页面）
@@ -1393,8 +1387,8 @@ async function restoreTabs() {
   const activeTab = await window.realmAPI.getActiveTab();
 
   if (tabs.length === 0) {
-    // 没有保存的 Tab，显示新标签页
-    elements.newTabPage.style.display = 'flex';
+    // 没有保存的 Tab，创建新 Tab
+    createTab(state.currentContainer);
     return;
   }
 
@@ -1764,8 +1758,8 @@ function showToast(message, type) {
  * @param {{url: string, containerId: string|null, guestId: number|undefined}} data - 事件数据
  */
 function handleOpenUrlInTab(data) {
-  if (!data || typeof data.url !== 'string' || !/^https?:\/\//i.test(data.url)) {
-    console.warn('[Realm] 拒绝非 http(s) 的新建 Tab 请求:', data && data.url);
+  if (!data || typeof data.url !== 'string' || !/^(https?|realm):\/\//i.test(data.url)) {
+    console.warn('[Realm] 拒绝非 http(s)/realm 的新建 Tab 请求:', data && data.url);
     return;
   }
 
@@ -2243,6 +2237,29 @@ function setupEventListeners() {
     }
   });
 
+  // 设置按钮：打开设置页面
+  if (elements.settingsBtn) {
+    elements.settingsBtn.addEventListener('click', () => {
+      const containerId = state.currentContainer;
+
+      // 检查当前容器是否已有 realm://settings 的 Tab 打开
+      let existingTabId = null;
+      state.tabs.forEach((tab, tabId) => {
+        if (tab.url === 'realm://settings' && tab.containerId === containerId) {
+          existingTabId = tabId;
+        }
+      });
+
+      if (existingTabId) {
+        // 已有则切换到该 Tab
+        switchTab(existingTabId);
+      } else {
+        // 没有则创建新 Tab
+        createTab(containerId, 'realm://settings');
+      }
+    });
+  }
+
   // 星标按钮：弹收藏编辑面板（Chrome/Edge 标准交互）
   // 未收藏：新增模式；已收藏：编辑模式（含"移除收藏"按钮）
   elements.bookmarkStarBtn.addEventListener('click', () => {
@@ -2259,7 +2276,7 @@ function setupEventListeners() {
         state.isCurrentPageBookmarked
       );
     } else {
-      // 当前 Tab 无可收藏 URL（新标签页/欢迎页/内部页面），给出明确反馈
+      // 当前 Tab 无 URL（尚未导航），给出明确反馈
       showToast('当前页面不可收藏', 'info');
     }
   });
@@ -2282,14 +2299,14 @@ function setupEventListeners() {
 
   // Escape 键：<dialog> 原生支持 Escape 关闭，无需手动监听
 
-  // 收藏夹按钮：打开 realm://favorites 收藏列表页面
+  // 收藏夹按钮：打开 realm://favorites 收藏列表页面（全局共享，不区分容器）
   elements.favoritesBtn.addEventListener('click', () => {
     const containerId = state.currentContainer;
 
-    // 检查当前容器是否已有 realm://favorites 的 Tab 打开
+    // 检查是否已有 realm://favorites 的 Tab 打开（全局唯一，不按容器区分）
     let existingTabId = null;
     state.tabs.forEach((tab, tabId) => {
-      if (tab.url === 'realm://favorites' && tab.containerId === containerId) {
+      if (tab.url === 'realm://favorites') {
         existingTabId = tabId;
       }
     });
@@ -2460,6 +2477,15 @@ function setupEventListeners() {
       elements.exportRulesBtn.addEventListener('click', exportRules);
     }
   }
+
+  // 监听外部链接打开事件（SETT-03）
+  // data: { url, containerId }；containerId 为 null 表示在当前容器打开，
+  // 否则在默认容器设置指定的容器中打开
+  window.realmAPI.onExternalUrlOpen((data) => {
+    if (data && data.url) {
+      createTab(data.containerId || state.currentContainer, data.url);
+    }
+  });
 
   // 初始化快捷键监听
   initShortcuts();
