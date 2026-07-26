@@ -268,11 +268,12 @@ Plans:
   4. 用户可以编辑单个 cookie 的值、过期时间等属性，修改后立即生效
   5. 用户可以删除单个 cookie，删除后立即从 session 和文件中移除
 
-**Plans**: 1/1 plans complete
+**Plans**: 1/2 plans complete
 
 Plans:
 
 - [x] 10-01-PLAN.md — Cookie 管理面板增强（来源切换 + 域名过滤 + 手动保存 + 单条编辑删除）
+- [ ] 10-02-PLAN.md — Gap 修复：保存按钮域名过滤失效 + Cookie 列表文字颜色（UAT test 6/7）
 
 **UI hint**: yes
 
@@ -294,4 +295,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. 收藏夹管理 | v1.1 | 2/2 | Complete | 2026-07-25 |
 | 8. 常用网站推荐 + 设置页面 | v1.1 | 2/2 | Complete | 2026-07-25 |
 | 9. 共享收藏数据库 | v1.1 | 3/4 | Complete | 2026-07-26 |
-| 10. Cookie 管理增强 | v1.2 | 1/1 | Complete   | 2026-07-26 |
+| 10. Cookie 管理增强 | v1.2 | 1/2 | Executing | |
