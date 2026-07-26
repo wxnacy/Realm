@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: resolved
 phase: 09-共享收藏数据库
 source: [09-01-SUMMARY.md, 09-02-SUMMARY.md, 09-03-SUMMARY.md, 09-VERIFICATION.md]
 started: 2026-07-25T16:20:26Z
-updated: 2026-07-26T03:30:00Z
+updated: 2026-07-26T04:10:00Z
 ---
 
 ## Current Test
@@ -66,6 +66,8 @@ expected: |
 result: issue
 reported: "正常地址收藏显示正常，realm://newtab 这类内置的可以收藏，列表也可以看到，但是页面刷新星标不是实心的"
 severity: major
+fix_committed: ca2369f
+fix_note: "渲染层守卫已移除（renderer.js:219），待用户重启 App 后回归验证"
 source: human
 coverage_id: 09-03/H1
 
@@ -98,16 +100,16 @@ skipped: 0
 ## Gaps
 
 - truth: "realm://newtab 等内置 URL 收藏后，页面刷新星标应保持实心（与外部 URL 行为一致）"
-  status: failed
+  status: fix-pending-verification
   reason: "User reported: 正常地址收藏显示正常，realm://newtab 这类内置的可以收藏，列表也可以看到，但是页面刷新星标不是实心的"
   severity: major
   test: 9
   root_cause: "src/renderer.js:219 checkBookmarkStatus 早退守卫 `if (!url || url.startsWith('realm://') || url === 'about:blank')` 对所有内部页面永不查询 favorites 表，强制星标为空心；保存路径无对应守卫（不对称）。该守卫由 Phase 07-02 commit 93778ab 引入，注释「内部页面不显示收藏状态」，与 Phase 09 全局收藏语义冲突。"
+  fix_applied: "移除 url.startsWith('realm://') 分支（保留 !url 与 about:blank 排除）；同步把 handleOpenUrlInTab (renderer.js:1761) scheme 白名单加 realm:// 与 main.js:66 对齐；scripts/test-ipc-favorites.js 加 favorites:check realm://newtab 回归护栏（9/9 PASS）"
+  fix_commit: ca2369f
+  awaiting: "用户重启 App 后回归验证 realm://newtab 收藏+刷新星标回显"
   artifacts:
     - path: "src/renderer.js"
       issue: "checkBookmarkStatus:219 守卫将 realm:// 全部短路（在 DB 查询之前拦截）；保存路径 2265-2282/297-343 无对应守卫，导致存/查不对称"
-  missing:
-    - "移除 checkBookmarkStatus 守卫中的 url.startsWith('realm://') 分支，保留 !url || url === 'about:blank' 排除"
-    - "让内部页面走与外部 URL 相同的 favoritesCheck 路径"
-    - "（相邻）favorites 列表双击 realm:// 条目经 window.open → handleOpenUrlInTab (renderer.js:1761) 仅放行 http(s) 会被拒绝，内置收藏条目无法从列表打开 — 建议一并处理"
+  missing: []
   debug_session: .planning/debug/realm-newtab-star-not-persistent.md
