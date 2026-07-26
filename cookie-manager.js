@@ -162,6 +162,99 @@ async function saveCookies(containerId) {
 }
 
 /**
+ * 保存指定域名的 Cookie 到文件
+ * 只保存当前域名及其子域名的 Cookie
+ * @param {string} containerId - 容器 ID
+ * @param {string} domain - 目标域名
+ * @param {boolean} includeSubdomains - 是否包含子域名
+ * @returns {Promise<{success: boolean, count: number}>}
+ */
+async function saveDomainCookies(containerId, domain, includeSubdomains = true) {
+  try {
+    ensureContainerDir(containerId);
+
+    const partition = `persist:container-${containerId}`;
+    const ses = session.fromPartition(partition);
+
+    // 获取 session 中的所有 Cookie
+    const sessionCookies = await ses.cookies.get({});
+
+    // 按域名过滤
+    const filteredCookies = sessionCookies.filter(cookie => {
+      const cookieDomain = cookie.domain;
+      if (includeSubdomains) {
+        // 精确匹配或子域名匹配（.example.com 或 example.com）
+        return cookieDomain === domain ||
+               cookieDomain === `.${domain}` ||
+               cookieDomain.endsWith(`.${domain}`);
+      } else {
+        // 仅精确匹配
+        return cookieDomain === domain || cookieDomain === `.${domain}`;
+      }
+    });
+
+    // 格式化过滤后的 Cookie
+    const formattedCookies = filteredCookies.map(cookie => ({
+      name: cookie.name,
+      value: cookie.value,
+      domain: cookie.domain,
+      path: cookie.path,
+      expirationDate: cookie.expirationDate,
+      secure: cookie.secure,
+      httpOnly: cookie.httpOnly,
+      sameSite: cookie.sameSite,
+      hostOnly: cookie.hostOnly,
+      url: cookie.url,
+    }));
+
+    // 读取已保存的 cookies.json
+    const filePath = getCookieFilePath(containerId);
+    let existingCookies = [];
+    if (fs.existsSync(filePath)) {
+      try {
+        const data = fs.readFileSync(filePath, 'utf8');
+        existingCookies = JSON.parse(data);
+      } catch (e) {
+        console.warn(`[Realm] 读取 cookies.json 失败，将使用空数组: ${containerId}`, e.message);
+      }
+    }
+
+    // 合并逻辑：以过滤后的 session cookie 为主
+    const sessionCookieKeys = new Set(
+      formattedCookies.map(c => `${c.domain}|${c.name}|${c.path}`)
+    );
+
+    // 保留 cookies.json 中存在但不在本次保存范围的 cookie
+    const now = Date.now() / 1000;
+    const preservedCookies = existingCookies.filter(cookie => {
+      const key = `${cookie.domain}|${cookie.name}|${cookie.path}`;
+      // 如果已在本次保存的 session cookie 中，则不保留旧的
+      if (sessionCookieKeys.has(key)) {
+        return false;
+      }
+      // 如果已过期，则不保留
+      if (cookie.expirationDate && cookie.expirationDate < now) {
+        return false;
+      }
+      return true;
+    });
+
+    // 合并：过滤后的 session cookie + 保留的旧 cookie
+    const mergedCookies = [...formattedCookies, ...preservedCookies];
+
+    // 保存合并后的结果
+    fs.writeFileSync(filePath, JSON.stringify(mergedCookies, null, 2));
+
+    console.log(`[Realm] 保存域名 Cookie: ${containerId} / ${domain} (${formattedCookies.length} 匹配 + ${preservedCookies.length} 保留 = ${mergedCookies.length} 总计)`);
+
+    return { success: true, count: formattedCookies.length };
+  } catch (error) {
+    console.error(`[Realm] 保存域名 Cookie 失败: ${containerId} / ${domain}`, error);
+    return { success: false, count: 0, error: error.message };
+  }
+}
+
+/**
  * 保存所有容器的 Cookie
  * @returns {Promise<{success: boolean, saved: number}>}
  */
@@ -459,7 +552,7 @@ async function getSessionCookies(containerId) {
  */
 function getFileCookies(containerId) {
   try {
-    const filePath = path.join(COOKIE_DIR, `${containerId}.json`);
+    const filePath = getCookieFilePath(containerId);
 
     // 文件不存在时返回空数组
     if (!fs.existsSync(filePath)) {
@@ -579,7 +672,7 @@ module.exports = {
   getFileCookies,
   editCookie,
   deleteSingleCookie,
-  COOKIE_DIR,
+  saveDomainCookies,
   migrateLegacyCookies,
   getContainerDir,
   getCookieFilePath,

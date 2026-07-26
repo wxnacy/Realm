@@ -2270,14 +2270,42 @@ async function handleDeleteCookie(cookie) {
 
 /**
  * 处理保存当前域名 Cookie 到文件
+ * 只保存当前域名及其子域名的 Cookie
  */
 async function handleSaveToFile() {
   try {
-    const result = await window.realmAPI.saveCookie(state.currentContainer);
-    if (result.success) {
-      showToast(`已保存 ${result.count} 个 Cookie 到文件`, 'success');
+    // 获取当前标签页的域名
+    let domain = '';
+    const activeTab = document.querySelector('.tab.active');
+    if (activeTab) {
+      const webview = document.querySelector(`.webview-container[data-tab-id="${activeTab.dataset.tabId}"]`);
+      if (webview) {
+        try {
+          const url = new URL(webview.getAttribute('src') || '');
+          domain = url.hostname;
+        } catch (e) {
+          // URL 解析失败，使用空字符串
+        }
+      }
+    }
+
+    let result;
+    if (domain) {
+      // 按域名保存（含子域名）
+      result = await window.realmAPI.saveDomainCookies(state.currentContainer, domain, true);
+      if (result.success) {
+        showToast(`已保存 ${result.count} 个 ${domain} 的 Cookie 到文件`, 'success');
+      } else {
+        showToast('保存失败', 'error');
+      }
     } else {
-      showToast('保存失败', 'error');
+      // 无法获取域名时，保存全部
+      result = await window.realmAPI.saveCookie(state.currentContainer);
+      if (result.success) {
+        showToast(`已保存 ${result.count} 个 Cookie 到文件`, 'success');
+      } else {
+        showToast('保存失败', 'error');
+      }
     }
   } catch (error) {
     console.error('[Realm Renderer] 保存 Cookie 失败:', error);

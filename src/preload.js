@@ -230,6 +230,16 @@ contextBridge.exposeInMainWorld('realmAPI', {
    */
   deleteSingleCookie: (containerId, cookieData) => ipcRenderer.invoke('cookie:delete-single', containerId, cookieData),
 
+  /**
+   * 保存指定域名的 Cookie 到文件
+   * 只保存当前域名及其子域名的 Cookie
+   * @param {string} containerId - 容器 ID
+   * @param {string} domain - 目标域名
+   * @param {boolean} includeSubdomains - 是否包含子域名
+   * @returns {Promise<{success: boolean, count: number}>}
+   */
+  saveDomainCookies: (containerId, domain, includeSubdomains) => ipcRenderer.invoke('cookie:save-domain', containerId, domain, includeSubdomains),
+
   // ==================== 分配规则 ====================
 
   /**

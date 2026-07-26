@@ -455,6 +455,25 @@ function registerHandlers() {
     return cookieManager.deleteSingleCookie(containerId, cookieData);
   });
 
+  /**
+   * 保存指定域名的 Cookie 到文件
+   * 只保存当前域名及其子域名的 Cookie
+   * @param {string} containerId - 容器 ID
+   * @param {string} domain - 目标域名
+   * @param {boolean} includeSubdomains - 是否包含子域名
+   * @returns {Promise<{success: boolean, count: number}>}
+   */
+  ipcMain.handle('cookie:save-domain', async (event, containerId, domain, includeSubdomains) => {
+    assertTrustedSender(event);
+    if (!containerId || typeof containerId !== 'string') {
+      throw new Error('无效的容器 ID');
+    }
+    if (!domain || typeof domain !== 'string') {
+      throw new Error('无效的域名');
+    }
+    return cookieManager.saveDomainCookies(containerId, domain, includeSubdomains !== false);
+  });
+
   // ==================== 分配规则 ====================
 
   /**
