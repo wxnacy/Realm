@@ -8,6 +8,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 
 - ✅ **v1.0 MVP** — Phases 1-4 (shipped 2026-07-25)
 - ✅ **v1.1 容器属性增强 + 收藏历史 + 常用网站 + 设置页面** — Phases 5-9 (shipped 2026-07-26)
+- 📋 **v1.2 Cookie 管理增强** — Phase 10
 
 ## Phases
 
@@ -253,10 +254,34 @@ Plans:
 
 </details>
 
+<details>
+<summary>Phase 10: Cookie 管理增强</summary>
+
+**Goal**: Cookie 管理面板支持多来源查看、域名过滤、手动保存和单条编辑删除
+**Depends on**: Phase 9
+**Requirements**: COOKIE-01, COOKIE-02, COOKIE-03, COOKIE-04
+**Success Criteria** (what must be TRUE):
+
+  1. 用户可以在 Cookie 管理面板切换数据来源（Session 或文件），查看不同来源的 cookie 数据
+  2. 用户可以切换查看全部 cookie 或仅当前域名及其子域名的 cookie
+  3. 用户可以点击保存按钮，将当前域名及子域名的 cookie 主动保存到文件（合并模式，不覆盖）
+  4. 用户可以编辑单个 cookie 的值、过期时间等属性，修改后立即生效
+  5. 用户可以删除单个 cookie，删除后立即从 session 和文件中移除
+
+**Plans**: 1/1 plans complete
+
+Plans:
+
+- [x] 10-01-PLAN.md — Cookie 管理面板增强（来源切换 + 域名过滤 + 手动保存 + 单条编辑删除）
+
+**UI hint**: yes
+
+</details>
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -269,3 +294,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. 收藏夹管理 | v1.1 | 2/2 | Complete | 2026-07-25 |
 | 8. 常用网站推荐 + 设置页面 | v1.1 | 2/2 | Complete | 2026-07-25 |
 | 9. 共享收藏数据库 | v1.1 | 3/4 | Complete | 2026-07-26 |
+| 10. Cookie 管理增强 | v1.2 | 1/1 | Planning | - |
