@@ -1,11 +1,12 @@
 ---
 phase: 09-共享收藏数据库
 verified: 2026-07-26T03:07:37Z
-status: human_needed
+status: passed
 score: 5/5 must-haves verified
 behavior_unverified: 0
 overrides_applied: 1
 overrides:
+
   - must_have: "现有按容器分表（favorites_work、favorites_default 等）的收藏数据自动迁移合并到全局表"
     reason: "用户锁定决策 D-01（09-CONTEXT.md）：不迁移旧数据，现有 per-container 收藏直接丢弃全新开始。migrateToGlobal() 仅 drop 旧表 + create 全局表，不 copy 数据。ROADMAP SC 4 的『迁移合并』措辞与规划期锁定决策冲突，以 D-01 为准"
     accepted_by: "user (locked decision D-01, 09-CONTEXT.md)"
@@ -14,16 +15,20 @@ re_verification:
   previous_status: gaps_found
   previous_score: 2/5
   gaps_closed:
+
     - "BLOCKER: ipc-handlers.js 8 个 favorites:* handler 从 Phase 7 per-container 旧签名重构为 Phase 9 全局新签名（gaps.missing 全部 10 项代码修复落地，运行时冒烟测试 8/8 PASS）"
   gaps_remaining: []
   regressions: []
 human_verification:
+
   - test: "npm run dev 启动后在任意容器（如 default）打开 https://example.com，点击工具栏星标收藏；随后刷新页面"
     expected: "弹出『已收藏』toast（而非『收藏失败，请重试』），星标变为已收藏态；刷新后星标保持已收藏态（favorites:check 链路）"
     why_human: "toast 渲染与星标 DOM 状态更新是 UI 行为，冒烟测试桩掉了真实 DOM 与 Electron ipcMain 往返；09-03 Task 2 检查点按 human_verify_mode: end-of-phase 推迟至此"
+
   - test: "切换到另一个容器（如 work）打开同一 URL，观察星标；随后在该页再次点击星标尝试重复收藏"
     expected: "星标直接显示已收藏（跨容器共享的用户可感证据，FAV-09/FAV-10）；重复收藏提示『已收藏过该页面』（SC 3）"
     why_human: "跨容器导航后的真实 UI 状态无法由静态检查或 Node 冒烟测试覆盖；数据层机制已验证（单一全局表 + 全链路无 containerId），但端到端用户可感行为需真实应用确认"
+
   - test: "点击星标取消收藏，切回第一个容器刷新确认同样未收藏；再收藏一次后打开 realm://favorites，编辑标题、搜索、删除；全程观察 Console"
     expected: "取消后两个容器星标均恢复未收藏态；管理页列表/编辑/搜索/删除正常；Console 不再出现『检查收藏状态失败』『收藏失败』『无效的参数』报错"
     why_human: "管理页 HTTP 路径此前已验证，此步为真实环境回归；Console 无报错是 IPC 修复的用户侧最终证据"

@@ -1,9 +1,9 @@
 ---
-status: resolved
+status: complete
 phase: 09-共享收藏数据库
 source: [09-01-SUMMARY.md, 09-02-SUMMARY.md, 09-03-SUMMARY.md, 09-VERIFICATION.md]
 started: 2026-07-25T16:20:26Z
-updated: 2026-07-26T04:10:00Z
+updated: 2026-07-26T04:25:00Z
 ---
 
 ## Current Test
@@ -63,11 +63,11 @@ expected: |
   在任意容器打开一个未收藏页面，点击工具栏星标 → 出现「已收藏」toast，星标立即变为实心；
   刷新页面后星标仍保持实心（checkBookmarkStatus 读取全局 favorites 表）；
   DevTools Console 不出现「无效的参数」错误。
-result: issue
-reported: "正常地址收藏显示正常，realm://newtab 这类内置的可以收藏，列表也可以看到，但是页面刷新星标不是实心的"
+result: pass
+reported: "初始发现：正常地址收藏显示正常，realm://newtab 这类内置的可以收藏，列表也可以看到，但是页面刷新星标不是实心的"
 severity: major
-fix_committed: ca2369f
-fix_note: "渲染层守卫已移除（renderer.js:219），待用户重启 App 后回归验证"
+resolved_by: ca2369f
+resolved_at: 2026-07-26T04:25:00Z
 source: human
 coverage_id: 09-03/H1
 
@@ -92,22 +92,22 @@ coverage_id: 09-03/H3
 ## Summary
 
 total: 11
-passed: 10
-issues: 1
+passed: 11
+issues: 0
 pending: 0
 skipped: 0
 
 ## Gaps
 
 - truth: "realm://newtab 等内置 URL 收藏后，页面刷新星标应保持实心（与外部 URL 行为一致）"
-  status: fix-pending-verification
+  status: resolved
   reason: "User reported: 正常地址收藏显示正常，realm://newtab 这类内置的可以收藏，列表也可以看到，但是页面刷新星标不是实心的"
   severity: major
   test: 9
   root_cause: "src/renderer.js:219 checkBookmarkStatus 早退守卫 `if (!url || url.startsWith('realm://') || url === 'about:blank')` 对所有内部页面永不查询 favorites 表，强制星标为空心；保存路径无对应守卫（不对称）。该守卫由 Phase 07-02 commit 93778ab 引入，注释「内部页面不显示收藏状态」，与 Phase 09 全局收藏语义冲突。"
-  fix_applied: "移除 url.startsWith('realm://') 分支（保留 !url 与 about:blank 排除）；同步把 handleOpenUrlInTab (renderer.js:1761) scheme 白名单加 realm:// 与 main.js:66 对齐；scripts/test-ipc-favorites.js 加 favorites:check realm://newtab 回归护栏（9/9 PASS）"
-  fix_commit: ca2369f
-  awaiting: "用户重启 App 后回归验证 realm://newtab 收藏+刷新星标回显"
+  resolution: "移除 url.startsWith('realm://') 分支（保留 !url 与 about:blank 排除）；同步把 handleOpenUrlInTab (renderer.js:1761) scheme 白名单加 realm:// 与 main.js:66 对齐，使内置收藏条目可从列表打开；scripts/test-ipc-favorites.js 加 favorites:check realm://newtab 回归护栏（9/9 PASS）"
+  resolved_by: ca2369f
+  resolved_at: 2026-07-26T04:25:00Z
   artifacts:
     - path: "src/renderer.js"
       issue: "checkBookmarkStatus:219 守卫将 realm:// 全部短路（在 DB 查询之前拦截）；保存路径 2265-2282/297-343 无对应守卫，导致存/查不对称"
