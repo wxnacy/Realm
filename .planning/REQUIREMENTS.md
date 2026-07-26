@@ -31,10 +31,10 @@
 - [x] **FAV-04**: 用户可以编辑收藏项的标题
 - [x] **FAV-05**: 用户可以删除收藏项
 - [x] **FAV-06**: 用户可以搜索收藏
-- [ ] **FAV-07**: ~~收藏按容器隔离~~（已重新设计：改为所有容器共享收藏数据库，由 FAV-09 替代）
+- [x] **FAV-07**: ~~收藏按容器隔离~~（已重新设计：改为所有容器共享收藏数据库，由 FAV-09 替代）
 - [x] **FAV-08**: 同一 URL 不能重复收藏（URL 全局唯一，跨容器去重）
-- [ ] **FAV-09**: 收藏数据全局共享，所有容器看到同一份收藏列表
-- [ ] **FAV-10**: 切换容器时收藏列表保持一致，无需按容器过滤
+- [x] **FAV-09**: 收藏数据全局共享，所有容器看到同一份收藏列表
+- [x] **FAV-10**: 切换容器时收藏列表保持一致，无需按容器过滤
 
 ### 常用网站推荐
 
@@ -87,8 +87,8 @@
 | FAV-06 | Phase 7 | Complete |
 | FAV-07 | Phase 9 | Pending (重新设计为共享) |
 | FAV-08 | Phase 7 / 9 | Complete (语义扩展为全局唯一) |
-| FAV-09 | Phase 9 | Pending |
-| FAV-10 | Phase 9 | Pending |
+| FAV-09 | Phase 9 | Complete |
+| FAV-10 | Phase 9 | Complete |
 | FREQ-01 | Phase 8 | Pending |
 | FREQ-02 | Phase 8 | Pending |
 | FREQ-03 | Phase 8 | Pending |
