@@ -731,22 +731,20 @@ function registerHandlers() {
   /**
    * 检查 URL 是否已收藏
    * @param {Object} data - 参数
-   * @param {string} data.containerId - 容器 ID
    * @param {string} data.url - 页面 URL
    * @returns {{id: number, title: string, favicon_url: string}|null}
    */
   ipcMain.handle('favorites:check', (event, data) => {
     assertTrustedSender(event);
-    if (!data || typeof data !== 'object' || typeof data.containerId !== 'string') {
+    if (!data || typeof data !== 'object') {
       throw new Error('无效的参数');
     }
-    return favoritesManager.checkUrl(data.containerId, data.url || '');
+    return favoritesManager.checkUrl(data.url || '');
   });
 
   /**
    * 添加收藏
    * @param {Object} data - 收藏数据
-   * @param {string} data.containerId - 容器 ID
    * @param {string} data.url - 页面 URL
    * @param {string} [data.title] - 页面标题
    * @param {string} [data.faviconUrl] - favicon URL
@@ -754,10 +752,10 @@ function registerHandlers() {
    */
   ipcMain.handle('favorites:add', (event, data) => {
     assertTrustedSender(event);
-    if (!data || typeof data !== 'object' || typeof data.containerId !== 'string') {
+    if (!data || typeof data !== 'object') {
       throw new Error('无效的参数');
     }
-    return favoritesManager.addRecord(data.containerId, {
+    return favoritesManager.addRecord({
       url: data.url || '',
       title: data.title || '',
       faviconUrl: data.faviconUrl || '',
@@ -767,63 +765,59 @@ function registerHandlers() {
   /**
    * 更新收藏标题
    * @param {Object} data - 参数
-   * @param {string} data.containerId - 容器 ID
    * @param {number} data.id - 记录 ID
    * @param {string} data.title - 新标题
    * @returns {boolean} 是否更新成功
    */
   ipcMain.handle('favorites:update', (event, data) => {
     assertTrustedSender(event);
-    if (!data || typeof data !== 'object' || typeof data.containerId !== 'string') {
+    if (!data || typeof data !== 'object') {
       throw new Error('无效的参数');
     }
-    return favoritesManager.updateRecord(data.containerId, data.id, { title: data.title });
+    return favoritesManager.updateRecord(data.id, { title: data.title });
   });
 
   /**
    * 删除单条收藏
    * @param {Object} data - 参数
-   * @param {string} data.containerId - 容器 ID
    * @param {number} data.id - 记录 ID
    * @returns {boolean} 是否删除成功
    */
   ipcMain.handle('favorites:delete', (event, data) => {
     assertTrustedSender(event);
-    if (!data || typeof data !== 'object' || typeof data.containerId !== 'string') {
+    if (!data || typeof data !== 'object') {
       throw new Error('无效的参数');
     }
-    return favoritesManager.deleteRecord(data.containerId, data.id);
+    return favoritesManager.deleteRecord(data.id);
   });
 
   /**
    * 批量删除收藏
    * @param {Object} data - 参数
-   * @param {string} data.containerId - 容器 ID
    * @param {Array<number>} data.ids - 记录 ID 数组
    * @returns {number} 删除的记录数
    */
   ipcMain.handle('favorites:delete-batch', (event, data) => {
     assertTrustedSender(event);
-    if (!data || typeof data !== 'object' || typeof data.containerId !== 'string') {
+    if (!data || typeof data !== 'object') {
       throw new Error('无效的参数');
     }
-    return favoritesManager.deleteRecords(data.containerId, data.ids || []);
+    return favoritesManager.deleteRecords(data.ids || []);
   });
 
   /**
    * 列出收藏记录
    * @param {Object} data - 分页参数
-   * @param {string} data.containerId - 容器 ID
    * @param {number} [data.offset] - 分页偏移
    * @param {number} [data.limit] - 每页数量
    * @returns {Array} 记录列表
    */
   ipcMain.handle('favorites:list', (event, data) => {
     assertTrustedSender(event);
-    if (!data || typeof data !== 'object' || typeof data.containerId !== 'string') {
+    if (!data || typeof data !== 'object') {
       throw new Error('无效的参数');
     }
-    return favoritesManager.listRecords(data.containerId, {
+    return favoritesManager.listRecords({
       offset: data.offset || 0,
       limit: data.limit || 50,
     });
@@ -832,7 +826,6 @@ function registerHandlers() {
   /**
    * 搜索收藏记录
    * @param {Object} data - 搜索参数
-   * @param {string} data.containerId - 容器 ID
    * @param {string} data.keyword - 搜索关键词
    * @param {number} [data.offset] - 分页偏移
    * @param {number} [data.limit] - 每页数量
@@ -840,10 +833,10 @@ function registerHandlers() {
    */
   ipcMain.handle('favorites:search', (event, data) => {
     assertTrustedSender(event);
-    if (!data || typeof data !== 'object' || typeof data.containerId !== 'string') {
+    if (!data || typeof data !== 'object') {
       throw new Error('无效的参数');
     }
-    return favoritesManager.searchRecords(data.containerId, {
+    return favoritesManager.searchRecords({
       keyword: data.keyword || '',
       offset: data.offset || 0,
       limit: data.limit || 50,
@@ -851,17 +844,16 @@ function registerHandlers() {
   });
 
   /**
-   * 获取容器收藏记录总数
+   * 获取收藏记录总数
    * @param {Object} data - 参数
-   * @param {string} data.containerId - 容器 ID
    * @returns {number} 记录总数
    */
   ipcMain.handle('favorites:count', (event, data) => {
     assertTrustedSender(event);
-    if (!data || typeof data !== 'object' || typeof data.containerId !== 'string') {
+    if (!data || typeof data !== 'object') {
       throw new Error('无效的参数');
     }
-    return favoritesManager.getCount(data.containerId);
+    return favoritesManager.getCount();
   });
 
   console.log('[Realm] IPC 处理器已注册');
