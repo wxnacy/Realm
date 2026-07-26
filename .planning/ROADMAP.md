@@ -273,7 +273,7 @@ Plans:
 Plans:
 
 - [x] 10-01-PLAN.md — Cookie 管理面板增强（来源切换 + 域名过滤 + 手动保存 + 单条编辑删除）
-- [ ] 10-02-PLAN.md — Gap 修复：保存按钮域名过滤失效 + Cookie 列表文字颜色（UAT test 6/7）
+- [x] 10-02-PLAN.md — Gap 修复：保存按钮域名过滤失效 + Cookie 列表文字颜色（UAT test 6/7）
 
 **UI hint**: yes
 
@@ -295,4 +295,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. 收藏夹管理 | v1.1 | 2/2 | Complete | 2026-07-25 |
 | 8. 常用网站推荐 + 设置页面 | v1.1 | 2/2 | Complete | 2026-07-25 |
 | 9. 共享收藏数据库 | v1.1 | 3/4 | Complete | 2026-07-26 |
-| 10. Cookie 管理增强 | v1.2 | 1/2 | Executing | |
+| 10. Cookie 管理增强 | v1.2 | 2/2 | Complete   | 2026-07-26 |
