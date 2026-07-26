@@ -138,6 +138,28 @@ AI Agent 集成模块（预留），包括：
 2. 在 `src/styles/main.css` 中添加样式
 3. 在 `src/renderer.js` 中添加交互逻辑
 
+## 环境隔离
+
+开发环境和正式环境使用独立的 `userData` 目录，互不干扰：
+
+| 命令 | 环境 | userData 路径 |
+|------|------|--------------|
+| `npm run dev` | 开发 | `~/Library/Application Support/realm-dev/` |
+| `npm start` / .app | 正式 | `~/Library/Application Support/realm/` |
+
+实现在 `main.js` 顶部，通过 `process.env.NODE_ENV === 'development'` 判断：
+
+```javascript
+if (process.env.NODE_ENV === 'development') {
+  app.setName('realm-dev');
+}
+```
+
+这会影响所有本地存储：
+- electron-store 配置（`realm-config.json`）
+- Cookie JSON 文件（`cookies/`）
+- Session Partitions（`Partitions/`）
+
 ## 调试
 
 ### 开发模式

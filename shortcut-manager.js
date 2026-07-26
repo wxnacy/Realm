@@ -44,6 +44,7 @@ const DEFAULT_SHORTCUTS = {
   'reload': 'CmdOrCtrl+R',
   'back': 'CmdOrCtrl+Left',
   'forward': 'CmdOrCtrl+Right',
+  'bookmark': 'CmdOrCtrl+D',
 };
 
 // ==================== 读写函数 ====================

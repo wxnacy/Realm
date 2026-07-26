@@ -18,8 +18,6 @@ const pageParams = new URLSearchParams(window.location.search);
  * @type {Object}
  */
 const state = {
-  /** 当前容器 ID（来自 URL 查询参数） */
-  containerId: pageParams.get('container') || 'default',
   /** 已加载的收藏记录 */
   records: [],
   /** 搜索关键词 */
@@ -313,7 +311,6 @@ function startInlineEdit(titleEl, record) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            containerId: state.containerId,
             id: record.id,
             title: newTitle,
           }),
@@ -369,14 +366,12 @@ async function loadFavorites() {
     let results;
     if (state.keyword) {
       results = await favoritesApi('search', {}, {
-        containerId: state.containerId,
         keyword: state.keyword,
         offset: 0,
         limit: state.limit,
       });
     } else {
       results = await favoritesApi('list', {}, {
-        containerId: state.containerId,
         offset: 0,
         limit: state.limit,
       });
@@ -404,14 +399,12 @@ async function loadMore() {
     let results;
     if (state.keyword) {
       results = await favoritesApi('search', {}, {
-        containerId: state.containerId,
         keyword: state.keyword,
         offset: state.offset,
         limit: state.limit,
       });
     } else {
       results = await favoritesApi('list', {}, {
-        containerId: state.containerId,
         offset: state.offset,
         limit: state.limit,
       });
@@ -444,7 +437,7 @@ async function handleBatchDelete() {
     await favoritesApi('delete-batch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ containerId: state.containerId, ids }),
+      body: JSON.stringify({ ids }),
     });
 
     // 移除 DOM 节点

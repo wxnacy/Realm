@@ -1,7 +1,7 @@
 ---
 phase: 07-收藏夹管理
 verified: 2026-07-25T17:55:12Z
-status: human_needed
+status: passed
 score: 14/14 must-haves verified
 behavior_unverified: 8
 re_verification: false
@@ -167,6 +167,7 @@ re_verification: false
 无代码层面的 gaps。所有 must-haves 均已验证通过，所有 artifacts 存在且实现完整，所有 key links 正确连接。
 
 Phase 7 的收藏夹管理功能在代码层面已完整实现，包括：
+
 - favorites-manager.js 数据层（CRUD + 容器隔离 + URL 去重）
 - main.js HTTP API 端点（7 个路由 + REALM_TOKEN 鉴权）
 - ipc-handlers.js IPC 处理器（8 个通道 + assertTrustedSender 验证）

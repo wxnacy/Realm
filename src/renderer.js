@@ -1351,6 +1351,21 @@ function initShortcuts() {
           forwardWebview.goForward();
         }
         break;
+      case 'bookmark':
+        const activeTab = state.tabs.get(state.activeTabId);
+        if (activeTab && activeTab.url) {
+          const initialTitle = state.isCurrentPageBookmarked && state.currentBookmarkTitle
+            ? state.currentBookmarkTitle
+            : (activeTab.title || activeTab.url);
+          showBookmarkEditPanel(
+            initialTitle,
+            activeTab.url,
+            state.isCurrentPageBookmarked
+          );
+        } else {
+          showToast('当前页面不可收藏', 'info');
+        }
+        break;
     }
   });
 }
@@ -2538,6 +2553,11 @@ function setupEventListeners() {
     if (existingTabId) {
       // 已有则切换到该 Tab
       switchTab(existingTabId);
+      // 切换到已有标签后刷新页面，确保历史记录显示最新数据
+      const webview = state.webviews.get(existingTabId);
+      if (webview) {
+        webview.reload();
+      }
     } else {
       // 没有则创建新 Tab
       createTab(containerId, 'realm://history');
@@ -2591,6 +2611,14 @@ function setupEventListeners() {
   // 收藏编辑面板保存按钮
   elements.bookmarkSaveBtn.addEventListener('click', saveBookmark);
 
+  // 收藏编辑面板标题输入框回车键触发保存
+  elements.bookmarkTitleInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveBookmark();
+    }
+  });
+
   // 收藏编辑面板取消按钮
   elements.bookmarkCancelBtn.addEventListener('click', hideBookmarkEditPanel);
 
@@ -2620,6 +2648,11 @@ function setupEventListeners() {
 
     if (existingTabId) {
       switchTab(existingTabId);
+      // 切换到已有标签后刷新页面，确保收藏列表显示最新数据
+      const webview = state.webviews.get(existingTabId);
+      if (webview) {
+        webview.reload();
+      }
     } else {
       createTab(containerId, 'realm://favorites');
     }

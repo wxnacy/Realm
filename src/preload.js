@@ -91,6 +91,15 @@ contextBridge.exposeInMainWorld('realmAPI', {
   },
 
   /**
+   * 监听外部链接打开事件（SETT-03）
+   * 主进程通过 realm:// 协议打开外部链接时推送
+   * @param {Function} callback - 回调函数，参数为 { url, containerId }；containerId 为 null 表示在当前容器打开
+   */
+  onExternalUrlOpen: (callback) => {
+    ipcRenderer.on('open-external-url', (event, data) => callback(data));
+  },
+
+  /**
    * 监听「退出确认提示」事件
    * 第一次 Cmd+Q 时主进程拦截退出并推送此事件，渲染进程显示 Toast 提示
    * @param {Function} callback - 回调函数
@@ -357,16 +366,14 @@ contextBridge.exposeInMainWorld('realmAPI', {
 
   /**
    * 检查 URL 是否已收藏
-   * @param {string} containerId - 容器 ID
    * @param {string} url - 页面 URL
    * @returns {Promise<{id: number, title: string, favicon_url: string}|null>}
    */
-  favoritesCheck: (containerId, url) => ipcRenderer.invoke('favorites:check', { containerId, url }),
+  favoritesCheck: (url) => ipcRenderer.invoke('favorites:check', { url }),
 
   /**
    * 添加收藏
    * @param {Object} data - 收藏数据
-   * @param {string} data.containerId - 容器 ID
    * @param {string} data.url - 页面 URL
    * @param {string} [data.title] - 页面标题
    * @param {string} [data.faviconUrl] - favicon URL
@@ -376,33 +383,29 @@ contextBridge.exposeInMainWorld('realmAPI', {
 
   /**
    * 更新收藏标题
-   * @param {string} containerId - 容器 ID
    * @param {number} id - 记录 ID
    * @param {string} title - 新标题
    * @returns {Promise<boolean>}
    */
-  favoritesUpdate: (containerId, id, title) => ipcRenderer.invoke('favorites:update', { containerId, id, title }),
+  favoritesUpdate: (id, title) => ipcRenderer.invoke('favorites:update', { id, title }),
 
   /**
    * 删除单条收藏
-   * @param {string} containerId - 容器 ID
    * @param {number} id - 记录 ID
    * @returns {Promise<boolean>}
    */
-  favoritesDelete: (containerId, id) => ipcRenderer.invoke('favorites:delete', { containerId, id }),
+  favoritesDelete: (id) => ipcRenderer.invoke('favorites:delete', { id }),
 
   /**
    * 批量删除收藏
-   * @param {string} containerId - 容器 ID
    * @param {Array<number>} ids - 记录 ID 数组
    * @returns {Promise<number>}
    */
-  favoritesDeleteBatch: (containerId, ids) => ipcRenderer.invoke('favorites:delete-batch', { containerId, ids }),
+  favoritesDeleteBatch: (ids) => ipcRenderer.invoke('favorites:delete-batch', { ids }),
 
   /**
    * 列出收藏记录
    * @param {Object} data - 分页参数
-   * @param {string} data.containerId - 容器 ID
    * @param {number} [data.offset] - 分页偏移
    * @param {number} [data.limit] - 每页数量
    * @returns {Promise<Array>}
@@ -412,7 +415,6 @@ contextBridge.exposeInMainWorld('realmAPI', {
   /**
    * 搜索收藏记录
    * @param {Object} data - 搜索参数
-   * @param {string} data.containerId - 容器 ID
    * @param {string} data.keyword - 搜索关键词
    * @param {number} [data.offset] - 分页偏移
    * @param {number} [data.limit] - 每页数量
@@ -421,11 +423,10 @@ contextBridge.exposeInMainWorld('realmAPI', {
   favoritesSearch: (data) => ipcRenderer.invoke('favorites:search', data),
 
   /**
-   * 获取容器收藏记录总数
-   * @param {string} containerId - 容器 ID
+   * 获取收藏记录总数
    * @returns {Promise<number>}
    */
-  favoritesCount: (containerId) => ipcRenderer.invoke('favorites:count', { containerId }),
+  favoritesCount: () => ipcRenderer.invoke('favorites:count', {}),
 
   // ==================== 快捷键 ====================
 

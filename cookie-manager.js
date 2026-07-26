@@ -2,7 +2,7 @@
  * Realm Browser - Cookie 管理模块
  *
  * 管理容器 Cookie 的保存、加载、导出和导入
- * 每个容器的 Cookie 独立存储为 JSON 文件
+ * 每个容器的 Cookie 独立存储在容器目录下的 cookies.json 文件
  */
 
 const { app, session } = require('electron');
@@ -13,35 +13,94 @@ const Store = require('electron-store');
 // 配置存储实例
 const configStore = new Store({ name: 'realm-config' });
 
-// Cookie 存储目录
-const COOKIE_DIR = path.join(app.getPath('userData'), 'cookies');
+// 容器目录根路径
+const CONTAINERS_DIR = path.join(app.getPath('userData'), 'containers');
+
+// 旧版 Cookie 存储目录（用于迁移）
+const LEGACY_COOKIE_DIR = path.join(app.getPath('userData'), 'cookies');
 
 /**
- * 确保 Cookie 目录存在
+ * 获取容器目录路径
+ * @param {string} containerId - 容器 ID
+ * @returns {string} 容器目录路径
  */
-function ensureCookieDir() {
-  if (!fs.existsSync(COOKIE_DIR)) {
-    fs.mkdirSync(COOKIE_DIR, { recursive: true });
+function getContainerDir(containerId) {
+  return path.join(CONTAINERS_DIR, containerId);
+}
+
+/**
+ * 获取容器 Cookie 文件路径
+ * @param {string} containerId - 容器 ID
+ * @returns {string} Cookie 文件路径
+ */
+function getCookieFilePath(containerId) {
+  return path.join(getContainerDir(containerId), 'cookies.json');
+}
+
+/**
+ * 确保容器目录存在
+ * @param {string} containerId - 容器 ID
+ */
+function ensureContainerDir(containerId) {
+  const containerDir = getContainerDir(containerId);
+  if (!fs.existsSync(containerDir)) {
+    fs.mkdirSync(containerDir, { recursive: true });
   }
 }
 
 /**
- * 保存容器 Cookie 到 JSON 文件
+ * 迁移旧版 Cookie 文件到新版容器目录
+ * 仅在旧文件存在且新文件不存在时执行迁移
+ */
+function migrateLegacyCookies() {
+  if (!fs.existsSync(LEGACY_COOKIE_DIR)) {
+    return;
+  }
+
+  const containers = configStore.get('containers', []);
+  for (const container of containers) {
+    const legacyPath = path.join(LEGACY_COOKIE_DIR, `${container.id}.json`);
+    const newPath = getCookieFilePath(container.id);
+
+    // 仅迁移旧文件存在且新文件不存在的情况
+    if (fs.existsSync(legacyPath) && !fs.existsSync(newPath)) {
+      try {
+        ensureContainerDir(container.id);
+        fs.copyFileSync(legacyPath, newPath);
+        console.log(`[Realm] 迁移 Cookie 文件: ${container.id}`);
+      } catch (error) {
+        console.error(`[Realm] 迁移 Cookie 文件失败: ${container.id}`, error);
+      }
+    }
+  }
+}
+
+/**
+ * 保存容器 Cookie 到 JSON 文件（合并模式）
+ *
+ * 合并逻辑：
+ * 1. 从 session 获取当前所有 cookie
+ * 2. 从 cookies.json 读取已保存的 cookie
+ * 3. 以 session 为主，但保留 cookies.json 中存在但 session 中没有的 cookie
+ * 4. 保存合并后的结果
+ *
+ * 这样可以避免只访问部分网站时丢失其他网站的 cookie
+ *
  * @param {string} containerId - 容器 ID
  * @returns {Promise<{success: boolean, count: number}>}
  */
 async function saveCookies(containerId) {
   try {
-    ensureCookieDir();
+    ensureContainerDir(containerId);
 
     const partition = `persist:container-${containerId}`;
     const ses = session.fromPartition(partition);
 
-    // 获取所有 Cookie
-    const cookies = await ses.cookies.get({});
+    // 获取 session 中的所有 Cookie
+    const sessionCookies = await ses.cookies.get({});
 
-    // 格式化 Cookie（包含完整属性）
-    const formattedCookies = cookies.map(cookie => ({
+    // 格式化 session Cookie
+    const formattedSessionCookies = sessionCookies.map(cookie => ({
       name: cookie.name,
       value: cookie.value,
       domain: cookie.domain,
@@ -49,18 +108,53 @@ async function saveCookies(containerId) {
       expirationDate: cookie.expirationDate,
       secure: cookie.secure,
       httpOnly: cookie.httpOnly,
-      sameSite: cookie.sameSite,      // D-05: SameSite 属性
-      hostOnly: cookie.hostOnly,      // D-06: hostOnly 属性
-      url: cookie.url,                // 用于 set 操作
+      sameSite: cookie.sameSite,
+      hostOnly: cookie.hostOnly,
+      url: cookie.url,
     }));
 
-    // 保存到文件
-    const filePath = path.join(COOKIE_DIR, `${containerId}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(formattedCookies, null, 2));
+    // 读取已保存的 cookies.json
+    const filePath = getCookieFilePath(containerId);
+    let existingCookies = [];
+    if (fs.existsSync(filePath)) {
+      try {
+        const data = fs.readFileSync(filePath, 'utf8');
+        existingCookies = JSON.parse(data);
+      } catch (e) {
+        console.warn(`[Realm] 读取 cookies.json 失败，将使用空数组: ${containerId}`, e.message);
+      }
+    }
 
-    console.log(`[Realm] 保存容器 Cookie: ${containerId} (${cookies.length} 个)`);
+    // 合并逻辑：以 session 为主
+    // 创建 session cookie 的唯一标识集合
+    const sessionCookieKeys = new Set(
+      formattedSessionCookies.map(c => `${c.domain}|${c.name}|${c.path}`)
+    );
 
-    return { success: true, count: cookies.length };
+    // 保留 cookies.json 中存在但 session 中没有的 cookie（未过期的）
+    const now = Date.now() / 1000;
+    const preservedCookies = existingCookies.filter(cookie => {
+      const key = `${cookie.domain}|${cookie.name}|${cookie.path}`;
+      // 如果 session 中已有，则不保留
+      if (sessionCookieKeys.has(key)) {
+        return false;
+      }
+      // 如果已过期，则不保留
+      if (cookie.expirationDate && cookie.expirationDate < now) {
+        return false;
+      }
+      return true;
+    });
+
+    // 合并：session cookie + 保留的旧 cookie
+    const mergedCookies = [...formattedSessionCookies, ...preservedCookies];
+
+    // 保存合并后的结果
+    fs.writeFileSync(filePath, JSON.stringify(mergedCookies, null, 2));
+
+    console.log(`[Realm] 保存容器 Cookie: ${containerId} (${formattedSessionCookies.length} session + ${preservedCookies.length} 保留 = ${mergedCookies.length} 总计)`);
+
+    return { success: true, count: mergedCookies.length };
   } catch (error) {
     console.error(`[Realm] 保存容器 Cookie 失败: ${containerId}`, error);
     return { success: false, count: 0, error: error.message };
@@ -99,7 +193,7 @@ async function saveAllCookies() {
  */
 async function loadCookies(containerId) {
   try {
-    const filePath = path.join(COOKIE_DIR, `${containerId}.json`);
+    const filePath = getCookieFilePath(containerId);
 
     // 如果文件不存在，返回
     if (!fs.existsSync(filePath)) {
@@ -184,9 +278,7 @@ async function loadAllCookies() {
  */
 async function exportCookies(containerId, filePath) {
   try {
-    ensureCookieDir();
-
-    const sourcePath = path.join(COOKIE_DIR, `${containerId}.json`);
+    const sourcePath = getCookieFilePath(containerId);
 
     // 如果源文件不存在，先保存一次
     if (!fs.existsSync(sourcePath)) {
@@ -213,7 +305,7 @@ async function exportCookies(containerId, filePath) {
  */
 async function importCookies(containerId, filePath) {
   try {
-    ensureCookieDir();
+    ensureContainerDir(containerId);
 
     // 读取文件
     const data = fs.readFileSync(filePath, 'utf8');
@@ -224,8 +316,8 @@ async function importCookies(containerId, filePath) {
       return { success: false, message: '无效的 Cookie 文件格式' };
     }
 
-    // 保存到容器 Cookie 文件
-    const targetPath = path.join(COOKIE_DIR, `${containerId}.json`);
+    // 保存到容器目录下的 cookies.json
+    const targetPath = getCookieFilePath(containerId);
     fs.writeFileSync(targetPath, JSON.stringify(cookies, null, 2));
 
     // 加载到 session
@@ -261,12 +353,21 @@ function waitForHandleRelease(ms) {
  */
 async function deleteCookies(containerId) {
   try {
-    const filePath = path.join(COOKIE_DIR, `${containerId}.json`);
-
-    // D-01: 删除 Cookie JSON 文件
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+    // D-01: 删除容器目录下的 Cookie 文件
+    const cookieFilePath = getCookieFilePath(containerId);
+    if (fs.existsSync(cookieFilePath)) {
+      fs.unlinkSync(cookieFilePath);
       console.log(`[Realm] 删除容器 Cookie 文件: ${containerId}`);
+    }
+
+    // 删除容器目录（如果为空）
+    const containerDir = getContainerDir(containerId);
+    if (fs.existsSync(containerDir)) {
+      const files = fs.readdirSync(containerDir);
+      if (files.length === 0) {
+        fs.rmdirSync(containerDir);
+        console.log(`[Realm] 删除空容器目录: ${containerId}`);
+      }
     }
 
     // D-02: 删除 Partitions 目录（Electron 内部存储）
@@ -479,4 +580,9 @@ module.exports = {
   editCookie,
   deleteSingleCookie,
   COOKIE_DIR,
+  migrateLegacyCookies,
+  getContainerDir,
+  getCookieFilePath,
+  CONTAINERS_DIR,
+  LEGACY_COOKIE_DIR,
 };

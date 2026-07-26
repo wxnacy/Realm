@@ -52,6 +52,7 @@ const shortcutManager = require('./shortcut-manager');
 const { registerHandlers } = require('./ipc-handlers');
 const historyManager = require('./history-manager');
 const favoritesManager = require('./favorites-manager');
+const frequentSitesManager = require('./frequent-sites-manager');
 
 // ==================== webview guest 拦截（WR-1/WR-2/WR-9） ====================
 
@@ -311,56 +312,251 @@ app.whenReady().then(async () => {
       const route = reqUrl.pathname.replace('/api/favorites/', '');
 
       if (route === 'list' && req.method === 'GET') {
-        const containerId = reqUrl.searchParams.get('containerId') || '';
         const offset = parseInt(reqUrl.searchParams.get('offset'), 10) || 0;
         const limit = parseInt(reqUrl.searchParams.get('limit'), 10) || 50;
-        sendJson(res, 200, favoritesManager.listRecords(containerId, { offset, limit }));
+        sendJson(res, 200, favoritesManager.listRecords({ offset, limit }));
         return;
       }
 
       if (route === 'search' && req.method === 'GET') {
-        const containerId = reqUrl.searchParams.get('containerId') || '';
         const keyword = reqUrl.searchParams.get('keyword') || '';
         const offset = parseInt(reqUrl.searchParams.get('offset'), 10) || 0;
         const limit = parseInt(reqUrl.searchParams.get('limit'), 10) || 50;
-        sendJson(res, 200, favoritesManager.searchRecords(containerId, { keyword, offset, limit }));
+        sendJson(res, 200, favoritesManager.searchRecords({ keyword, offset, limit }));
         return;
       }
 
       if (route === 'check' && req.method === 'GET') {
-        const containerId = reqUrl.searchParams.get('containerId') || '';
         const url = reqUrl.searchParams.get('url') || '';
-        sendJson(res, 200, favoritesManager.checkUrl(containerId, url));
+        sendJson(res, 200, favoritesManager.checkUrl(url));
         return;
       }
 
       if (route === 'add' && req.method === 'POST') {
-        const { containerId, url, title, faviconUrl } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.addRecord(containerId, { url, title, faviconUrl }));
+        const { url, title, faviconUrl } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.addRecord({ url, title, faviconUrl }));
         return;
       }
 
       if (route === 'update' && req.method === 'POST') {
-        const { containerId, id, title } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.updateRecord(containerId, id, { title }));
+        const { id, title } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.updateRecord(id, { title }));
         return;
       }
 
       if (route === 'delete' && req.method === 'POST') {
-        const { containerId, id } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.deleteRecord(containerId, id));
+        const { id } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.deleteRecord(id));
         return;
       }
 
       if (route === 'delete-batch' && req.method === 'POST') {
-        const { containerId, ids } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.deleteRecords(containerId, ids));
+        const { ids } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.deleteRecords(ids));
         return;
       }
 
       sendJson(res, 404, { error: 'Not Found' });
     } catch (err) {
       console.error('[Realm] 收藏 API 处理失败:', err.message);
+      sendJson(res, 400, { error: err.message });
+    }
+  }
+
+  // ---- favicon 代理（/api/frequent-sites/favicon）----
+  // Google favicon 服务对无图标域名返回 404 + 默认地球 PNG（响应带有效图片体，
+  // 前端 <img> 不触发 onerror，无法自行降级），因此由服务端识别并统一回退为应用图标。
+  const KNOWN_GOOGLE_FALLBACK_MD5 = new Set([
+    'b8a0bf372c762e966cc99ede8682bc71', // sz=48 默认地球占位图
+  ]);
+  const faviconCache = new Map(); // domain -> { buffer, contentType }
+  let realmIconBuffer = null;
+  try {
+    realmIconBuffer = fs.readFileSync(path.join(__dirname, 'icons', 'icon.png'));
+  } catch (err) {
+    console.error('[Realm] 应用图标读取失败:', err.message);
+  }
+
+  /**
+   * 拉取指定域名的 favicon；无图标或拉取失败时回退为应用图标（带内存缓存）
+   * @param {string} domain - 目标域名
+   * @returns {Promise<{buffer: Buffer|null, contentType: string}>}
+   */
+  async function resolveFavicon(domain) {
+    if (faviconCache.has(domain)) {
+      return faviconCache.get(domain);
+    }
+
+    let result = { buffer: realmIconBuffer, contentType: 'image/png' };
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      const resp = await fetch(
+        `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=48`,
+        { signal: controller.signal, redirect: 'follow' }
+      );
+      clearTimeout(timer);
+
+      if (resp.ok) {
+        const buffer = Buffer.from(await resp.arrayBuffer());
+        const md5 = crypto.createHash('md5').update(buffer).digest('hex');
+        if (!KNOWN_GOOGLE_FALLBACK_MD5.has(md5)) {
+          result = {
+            buffer,
+            contentType: resp.headers.get('content-type') || 'image/png',
+          };
+        }
+      }
+    } catch (err) {
+      console.warn(`[Realm] favicon 拉取失败 (${domain}):`, err.message);
+    }
+
+    faviconCache.set(domain, result);
+    return result;
+  }
+
+  /**
+   * 处理 /api/frequent-sites/* 常用网站 API 请求
+   * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} res - 响应对象
+   * @param {URL} reqUrl - 解析后的请求 URL
+   */
+  async function handleFrequentSitesApi(req, res, reqUrl) {
+    // token 鉴权
+    if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+      sendJson(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    try {
+      const route = reqUrl.pathname.replace('/api/frequent-sites/', '');
+
+      if (route === 'list' && req.method === 'GET') {
+        const limit = parseInt(reqUrl.searchParams.get('limit'), 10) || 12;
+        sendJson(res, 200, frequentSitesManager.getFrequentSites(limit));
+        return;
+      }
+
+      if (route === 'favicon' && req.method === 'GET') {
+        const domain = reqUrl.searchParams.get('domain') || '';
+        // 域名格式校验，防 SSRF 滥用
+        if (!/^[a-z0-9][a-z0-9.-]{0,253}$/i.test(domain)) {
+          sendJson(res, 400, { error: 'Invalid domain' });
+          return;
+        }
+        const { buffer, contentType } = await resolveFavicon(domain);
+        if (!buffer) {
+          sendJson(res, 404, { error: 'Not Found' });
+          return;
+        }
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Cache-Control': 'private, max-age=86400',
+        });
+        res.end(buffer);
+        return;
+      }
+
+      sendJson(res, 404, { error: 'Not Found' });
+    } catch (err) {
+      console.error('[Realm] 常用网站 API 处理失败:', err.message);
+      sendJson(res, 400, { error: err.message });
+    }
+  }
+
+  /**
+   * 处理 /api/settings/* 设置 API 请求
+   * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} res - 响应对象
+   * @param {URL} reqUrl - 解析后的请求 URL
+   */
+  async function handleSettingsApi(req, res, reqUrl) {
+    // token 鉴权
+    if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+      sendJson(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    try {
+      const route = reqUrl.pathname.replace('/api/settings/', '');
+
+      if (route === 'get' && req.method === 'GET') {
+        const settings = configStore.get('settings', {
+          historyRetentionDays: 30,
+          defaultContainer: 'last-used',
+          isDefaultBrowser: false,
+        });
+        sendJson(res, 200, settings);
+        return;
+      }
+
+      if (route === 'update' && req.method === 'POST') {
+        const updates = await readJsonBody(req);
+        for (const [key, value] of Object.entries(updates)) {
+          configStore.set(`settings.${key}`, value);
+        }
+        sendJson(res, 200, { success: true });
+        return;
+      }
+
+      if (route === 'is-default-browser' && req.method === 'GET') {
+        // 默认浏览器 = http/https 协议的系统默认处理器
+        const isDefault = app.isDefaultProtocolClient('http') && app.isDefaultProtocolClient('https');
+        sendJson(res, 200, { isDefault });
+        return;
+      }
+
+      if (route === 'set-default-browser' && req.method === 'POST') {
+        // 注册 http/https 会触发 macOS 系统确认弹框（用户确认后才真正生效）
+        const httpOk = app.setAsDefaultProtocolClient('http');
+        const httpsOk = app.setAsDefaultProtocolClient('https');
+        sendJson(res, 200, { success: httpOk && httpsOk });
+        return;
+      }
+
+      if (route === 'open-url' && req.method === 'POST') {
+        const { url } = await readJsonBody(req);
+        if (url) {
+          const { shell } = require('electron');
+          await shell.openExternal(url);
+          sendJson(res, 200, { success: true });
+        } else {
+          sendJson(res, 400, { error: 'URL is required' });
+        }
+        return;
+      }
+
+      sendJson(res, 404, { error: 'Not Found' });
+    } catch (err) {
+      console.error('[Realm] 设置 API 处理失败:', err.message);
+      sendJson(res, 400, { error: err.message });
+    }
+  }
+
+  /**
+   * 处理 /api/containers/* 容器 API 请求
+   * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} res - 响应对象
+   * @param {URL} reqUrl - 解析后的请求 URL
+   */
+  async function handleContainersApi(req, res, reqUrl) {
+    // token 鉴权
+    if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+      sendJson(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    try {
+      const route = reqUrl.pathname.replace('/api/containers/', '');
+
+      if (route === 'list' && req.method === 'GET') {
+        sendJson(res, 200, containerManager.getContainers());
+        return;
+      }
+
+      sendJson(res, 404, { error: 'Not Found' });
+    } catch (err) {
+      console.error('[Realm] 容器 API 处理失败:', err.message);
       sendJson(res, 400, { error: err.message });
     }
   }
@@ -381,6 +577,24 @@ app.whenReady().then(async () => {
       return;
     }
 
+    // 常用网站 JSON API（内部页面数据层）
+    if (reqPath.startsWith('/api/frequent-sites/')) {
+      handleFrequentSitesApi(req, res, reqUrl);
+      return;
+    }
+
+    // 设置 JSON API（内部页面数据层）
+    if (reqPath.startsWith('/api/settings/')) {
+      handleSettingsApi(req, res, reqUrl);
+      return;
+    }
+
+    // 容器列表 JSON API（内部页面数据层）
+    if (reqPath.startsWith('/api/containers/')) {
+      handleContainersApi(req, res, reqUrl);
+      return;
+    }
+
     // 路由映射：/history → src/history.html，/history/xxx.js → src/xxx.js
     let filePath;
     if (reqPath === '/history' || reqPath === '/history/') {
@@ -393,6 +607,16 @@ app.whenReady().then(async () => {
       filePath = path.join(__dirname, 'src', 'favorites.html');
     } else if (reqPath.startsWith('/favorites/')) {
       const subPath = reqPath.replace('/favorites/', '');
+      filePath = path.join(__dirname, 'src', subPath);
+    } else if (reqPath === '/newtab' || reqPath === '/newtab/') {
+      filePath = path.join(__dirname, 'src', 'newtab.html');
+    } else if (reqPath.startsWith('/newtab/')) {
+      const subPath = reqPath.replace('/newtab/', '');
+      filePath = path.join(__dirname, 'src', subPath);
+    } else if (reqPath === '/settings' || reqPath === '/settings/') {
+      filePath = path.join(__dirname, 'src', 'settings.html');
+    } else if (reqPath.startsWith('/settings/')) {
+      const subPath = reqPath.replace('/settings/', '');
       filePath = path.join(__dirname, 'src', subPath);
     } else {
       res.writeHead(404);
@@ -438,6 +662,10 @@ app.whenReady().then(async () => {
 
   // 初始化收藏夹数据库
   favoritesManager.initDatabase();
+  favoritesManager.migrateToGlobal();
+
+  // 初始化常用网站数据库
+  frequentSitesManager.initDatabase();
 
   // 清理孤儿 Partitions 目录（必须在 initContainers 之前：
   // 此时被删容器的 partition session 尚未创建，目录无句柄占用，
@@ -447,6 +675,9 @@ app.whenReady().then(async () => {
 
   // 初始化容器
   containerManager.initContainers();
+
+  // 迁移旧版 Cookie 文件到新版容器目录
+  cookieManager.migrateLegacyCookies();
 
   // 加载所有容器的 Cookie
   await cookieManager.loadAllCookies();
@@ -482,6 +713,23 @@ app.whenReady().then(async () => {
       }
     }
   });
+});
+
+// 处理外部链接通过 realm:// 协议打开（SETT-03）
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  // 获取当前活动窗口
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  if (focusedWindow) {
+    // 默认容器设置：'last-used' 在当前容器打开；固定容器 id 在指定容器打开
+    const settings = configStore.get('settings', {});
+    const defaultContainer = settings.defaultContainer || 'last-used';
+    // 发送 URL 到渲染进程，在新 Tab 中打开
+    focusedWindow.webContents.send('open-external-url', {
+      url,
+      containerId: defaultContainer === 'last-used' ? null : defaultContainer,
+    });
+  }
 });
 
 // 所有窗口关闭事件

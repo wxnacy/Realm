@@ -2,7 +2,7 @@
  * Realm Browser - 收藏夹管理模块
  *
  * 使用 better-sqlite3 管理收藏夹数据的 CRUD 操作。
- * 每个容器使用独立的 SQLite 表（favorites_{containerId}）实现数据隔离。
+ * 使用单一全局 favorites 表存储所有收藏数据，与容器生命周期解耦。
  * 与 history-manager.js 共享同一数据库连接实例。
  *
  * 依赖：better-sqlite3（通过 setDatabase 注入）
@@ -54,37 +54,14 @@ function setDatabase(dbInstance) {
   db = dbInstance;
 }
 
-// ==================== 安全验证 ====================
-
-/**
- * 验证容器 ID 格式（防 SQL 注入）
- * 仅允许小写字母、数字和连字符
- * @param {string} containerId - 容器 ID
- * @returns {string} 验证通过的容器 ID
- * @throws {Error} 格式不合法时抛出
- */
-function sanitizeContainerId(containerId) {
-  if (!containerId || typeof containerId !== 'string') {
-    throw new Error('容器 ID 不能为空');
-  }
-  if (!/^[a-z0-9-]+$/.test(containerId)) {
-    throw new Error(`容器 ID 格式不合法: ${containerId}`);
-  }
-  return containerId;
-}
-
 // ==================== 表管理 ====================
 
 /**
- * 确保容器对应的收藏表存在
- * @param {string} containerId - 容器 ID
+ * 确保全局收藏表存在（无参数，固定操作全局 favorites 表）
  */
-function ensureTable(containerId) {
-  const id = sanitizeContainerId(containerId);
-  const tableName = `favorites_${id}`;
-
+function ensureTable() {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS ${tableName} (
+    CREATE TABLE IF NOT EXISTS favorites (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       url TEXT NOT NULL,
       title TEXT NOT NULL DEFAULT '',
@@ -92,32 +69,53 @@ function ensureTable(containerId) {
       created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
       UNIQUE(url)
     );
-    CREATE INDEX IF NOT EXISTS idx_${tableName}_created_at
-      ON ${tableName} (created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_${tableName}_url
-      ON ${tableName} (url);
+    CREATE INDEX IF NOT EXISTS idx_favorites_created_at
+      ON favorites (created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_favorites_url
+      ON favorites (url);
   `);
+}
+
+/**
+ * 迁移到全局收藏表模式
+ * 删除所有旧的 per-container 收藏表（favorites_{containerId}），创建全局 favorites 表
+ * 应在应用启动时 initDatabase() 之后调用
+ */
+function migrateToGlobal() {
+  // 查询所有旧的 per-container 收藏表
+  const oldTables = db.prepare(`
+    SELECT name FROM sqlite_master
+    WHERE type = 'table' AND name LIKE 'favorites_%'
+  `).all();
+
+  // 逐个删除旧表
+  for (const { name } of oldTables) {
+    db.exec(`DROP TABLE IF EXISTS ${name}`);
+    console.log(`[Realm] 已删除旧收藏表: ${name}`);
+  }
+
+  // 确保全局表存在
+  ensureTable();
+
+  console.log('[Realm] 收藏表已迁移到全局模式');
 }
 
 // ==================== CRUD 操作 ====================
 
 /**
  * 添加收藏记录
- * @param {string} containerId - 容器 ID
  * @param {Object} record - 记录数据
  * @param {string} record.url - 页面 URL
  * @param {string} [record.title] - 页面标题
  * @param {string} [record.faviconUrl] - favicon URL
  * @returns {{id: number}|{error: string, message: string}} 新记录的 ID 或重复错误
  */
-function addRecord(containerId, { url, title = '', faviconUrl = '' }) {
-  const id = sanitizeContainerId(containerId);
-  ensureTable(id);
-  const tableName = `favorites_${id}`;
+function addRecord({ url, title = '', faviconUrl = '' }) {
+  ensureTable();
 
   // 使用 INSERT OR IGNORE 处理 UNIQUE 约束冲突
   const result = db.prepare(`
-    INSERT OR IGNORE INTO ${tableName} (url, title, favicon_url)
+    INSERT OR IGNORE INTO favorites (url, title, favicon_url)
     VALUES (?, ?, ?)
   `).run(url, title, faviconUrl);
 
@@ -131,19 +129,16 @@ function addRecord(containerId, { url, title = '', faviconUrl = '' }) {
 
 /**
  * 更新收藏记录标题
- * @param {string} containerId - 容器 ID
  * @param {number} id - 记录 ID
  * @param {Object} updates - 更新内容
  * @param {string} updates.title - 新标题
  * @returns {boolean} 是否更新成功
  */
-function updateRecord(containerId, id, { title }) {
-  const cid = sanitizeContainerId(containerId);
-  ensureTable(cid);
-  const tableName = `favorites_${cid}`;
+function updateRecord(id, { title }) {
+  ensureTable();
 
   const result = db.prepare(`
-    UPDATE ${tableName} SET title = ? WHERE id = ?
+    UPDATE favorites SET title = ? WHERE id = ?
   `).run(title, id);
 
   return result.changes > 0;
@@ -151,52 +146,43 @@ function updateRecord(containerId, id, { title }) {
 
 /**
  * 删除单条收藏记录
- * @param {string} containerId - 容器 ID
  * @param {number} id - 记录 ID
  * @returns {boolean} 是否删除成功
  */
-function deleteRecord(containerId, id) {
-  const cid = sanitizeContainerId(containerId);
-  ensureTable(cid);
-  const tableName = `favorites_${cid}`;
+function deleteRecord(id) {
+  ensureTable();
 
-  const result = db.prepare(`DELETE FROM ${tableName} WHERE id = ?`).run(id);
+  const result = db.prepare('DELETE FROM favorites WHERE id = ?').run(id);
   return result.changes > 0;
 }
 
 /**
  * 批量删除收藏记录
- * @param {string} containerId - 容器 ID
  * @param {Array<number>} ids - 记录 ID 数组
  * @returns {number} 删除的记录数
  */
-function deleteRecords(containerId, ids) {
-  const cid = sanitizeContainerId(containerId);
-  ensureTable(cid);
-  const tableName = `favorites_${cid}`;
+function deleteRecords(ids) {
+  ensureTable();
 
   if (!Array.isArray(ids) || ids.length === 0) return 0;
 
   const placeholders = ids.map(() => '?').join(',');
-  const result = db.prepare(`DELETE FROM ${tableName} WHERE id IN (${placeholders})`).run(...ids);
+  const result = db.prepare(`DELETE FROM favorites WHERE id IN (${placeholders})`).run(...ids);
   return result.changes;
 }
 
 /**
  * 列出收藏记录（按收藏时间倒序）
- * @param {string} containerId - 容器 ID
  * @param {Object} options - 分页选项
  * @param {number} [options.offset=0] - 分页偏移
  * @param {number} [options.limit=50] - 每页数量
  * @returns {Array} 记录列表
  */
-function listRecords(containerId, { offset = 0, limit = 50 }) {
-  const id = sanitizeContainerId(containerId);
-  ensureTable(id);
-  const tableName = `favorites_${id}`;
+function listRecords({ offset = 0, limit = 50 }) {
+  ensureTable();
 
   return db.prepare(`
-    SELECT * FROM ${tableName}
+    SELECT * FROM favorites
     ORDER BY created_at DESC
     LIMIT ? OFFSET ?
   `).all(limit, offset);
@@ -204,21 +190,18 @@ function listRecords(containerId, { offset = 0, limit = 50 }) {
 
 /**
  * 搜索收藏记录（按标题或 URL 模糊匹配）
- * @param {string} containerId - 容器 ID
  * @param {Object} options - 搜索选项
  * @param {string} options.keyword - 搜索关键词
  * @param {number} [options.offset=0] - 分页偏移
  * @param {number} [options.limit=50] - 每页数量
  * @returns {Array} 匹配的记录列表
  */
-function searchRecords(containerId, { keyword, offset = 0, limit = 50 }) {
-  const id = sanitizeContainerId(containerId);
-  ensureTable(id);
-  const tableName = `favorites_${id}`;
+function searchRecords({ keyword, offset = 0, limit = 50 }) {
+  ensureTable();
 
   const pattern = `%${keyword}%`;
   return db.prepare(`
-    SELECT * FROM ${tableName}
+    SELECT * FROM favorites
     WHERE url LIKE ? OR title LIKE ?
     ORDER BY created_at DESC
     LIMIT ? OFFSET ?
@@ -227,44 +210,27 @@ function searchRecords(containerId, { keyword, offset = 0, limit = 50 }) {
 
 /**
  * 检查 URL 是否已收藏
- * @param {string} containerId - 容器 ID
  * @param {string} url - 页面 URL
  * @returns {{id: number, title: string, favicon_url: string}|null} 收藏记录或 null
  */
-function checkUrl(containerId, url) {
-  const id = sanitizeContainerId(containerId);
-  ensureTable(id);
-  const tableName = `favorites_${id}`;
+function checkUrl(url) {
+  ensureTable();
 
   return db.prepare(`
-    SELECT id, title, favicon_url FROM ${tableName}
+    SELECT id, title, favicon_url FROM favorites
     WHERE url = ? LIMIT 1
   `).get(url) || null;
 }
 
 /**
- * 获取容器收藏记录总数
- * @param {string} containerId - 容器 ID
+ * 获取收藏记录总数
  * @returns {number} 记录总数
  */
-function getCount(containerId) {
-  const id = sanitizeContainerId(containerId);
-  ensureTable(id);
-  const tableName = `favorites_${id}`;
+function getCount() {
+  ensureTable();
 
-  const row = db.prepare(`SELECT COUNT(*) as count FROM ${tableName}`).get();
+  const row = db.prepare('SELECT COUNT(*) as count FROM favorites').get();
   return row.count;
-}
-
-/**
- * 删除容器的收藏表（容器删除时调用）
- * @param {string} containerId - 容器 ID
- */
-function dropTable(containerId) {
-  const id = sanitizeContainerId(containerId);
-  const tableName = `favorites_${id}`;
-  db.exec(`DROP TABLE IF EXISTS ${tableName}`);
-  console.log(`[Realm] 已删除收藏表: ${tableName}`);
 }
 
 // ==================== 导出 ====================
@@ -272,6 +238,7 @@ function dropTable(containerId) {
 module.exports = {
   initDatabase,
   setDatabase,
+  migrateToGlobal,
   addRecord,
   updateRecord,
   deleteRecord,
@@ -280,5 +247,4 @@ module.exports = {
   searchRecords,
   checkUrl,
   getCount,
-  dropTable,
 };
