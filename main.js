@@ -21,6 +21,7 @@ if (process.env.NODE_ENV === 'development') {
 
 const Store = require('electron-store');
 const containerManager = require('./container-manager');
+const contextMenuManager = require('./context-menu-manager');
 
 // 禁用 Privacy Sandbox 广告 API（FLEDGE/Protected Audience/Topics 等）。
 // 这些 API 的存储（如 Partitions/<id>/InterestGroups SQLite 库）由 Chromium
@@ -1021,6 +1022,50 @@ app.whenReady().then(async () => {
 
   // 注册 IPC 处理器
   registerHandlers();
+
+  // ==================== 右键菜单 IPC 监听器 ====================
+
+  /**
+   * 标签页右键菜单请求
+   * 渲染进程 Tab 栏右键时发送，主进程构建并弹出原生菜单
+   * @param {Object} tabInfo - 标签上下文 { tabId, tabCount, tabIndex, isPinned, hasClosedTabs }
+   */
+  ipcMain.on('show-tab-context-menu', (event, tabInfo) => {
+    const mainWindow = BrowserWindow.fromWebContents(event.sender);
+    if (mainWindow) {
+      contextMenuManager.buildTabMenu(tabInfo, mainWindow);
+    }
+  });
+
+  /**
+   * 网页右键菜单请求
+   * 渲染进程 webview context-menu 事件时发送，主进程注入容器列表和 guestContentsId
+   * @param {Object} contextInfo - 上下文 { type, linkURL, srcURL, mediaType, selectionText, ... }
+   */
+  ipcMain.on('show-web-context-menu', (event, contextInfo) => {
+    const mainWindow = BrowserWindow.fromWebContents(event.sender);
+    if (mainWindow) {
+      // 注入容器列表（用于链接菜单的容器子菜单）
+      const containers = containerManager.getContainers();
+      // 使用 activeWebviewContentsId 替代渲染进程传来的 guestContentsId（T-13-01 安全缓解）
+      // 主进程不信任渲染进程传来的 guestContentsId，使用自己维护的值
+      const enrichedContext = {
+        ...contextInfo,
+        containers,
+        guestContentsId: getActiveWebviewContentsId(),
+      };
+      contextMenuManager.buildWebMenu(enrichedContext, mainWindow);
+    }
+  });
+
+  /**
+   * 已关闭标签信息上报
+   * 渲染进程关闭标签时发送，主进程维护 closedTabsStack
+   * @param {Object} tabInfo - 关闭的标签信息 { containerId, url, title }
+   */
+  ipcMain.on('context-menu:closed-tab', (event, tabInfo) => {
+    contextMenuManager.pushClosedTab(tabInfo);
+  });
 
   // 初始化历史记录数据库
   historyManager.initDatabase();
