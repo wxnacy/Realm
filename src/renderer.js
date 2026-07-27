@@ -2217,11 +2217,13 @@ function handleEditCookie(cookie) {
 async function handleSaveCookieEdit() {
   if (!cookieState.editingCookie) return;
 
+  // Domain/Path 为 Cookie 唯一键组成部分，编辑模态框已禁用对应输入框，
+  // 键字段始终取原始 Cookie 值（防止绕过禁用导致键迁移产生重复条目）
   const cookieData = {
     name: cookieState.editingCookie.name,
     value: document.getElementById('cookieValueInput').value,
-    domain: document.getElementById('cookieDomainInput').value,
-    path: document.getElementById('cookiePathInput').value,
+    domain: cookieState.editingCookie.domain,
+    path: cookieState.editingCookie.path || '/',
     expirationDate: document.getElementById('cookieExpirationInput').value ? Number(document.getElementById('cookieExpirationInput').value) : undefined,
     secure: document.getElementById('cookieSecureInput').checked,
     httpOnly: document.getElementById('cookieHttpOnlyInput').checked,
