@@ -2069,6 +2069,11 @@ async function refreshCookiesList() {
  * 渲染 Cookie 列表
  */
 function renderCookiesList() {
+  // 渲染前钳制页码：删除末页最后一条等场景下 filteredCookies 收缩后，
+  // cookieState.page 可能超出新的总页数，导致切片为空且分页消失、无法返回
+  const totalPages = Math.max(1, Math.ceil(cookieState.filteredCookies.length / cookieState.pageSize));
+  if (cookieState.page > totalPages) cookieState.page = totalPages;
+
   const cookies = cookieState.filteredCookies;
   const start = (cookieState.page - 1) * cookieState.pageSize;
   const end = start + cookieState.pageSize;
