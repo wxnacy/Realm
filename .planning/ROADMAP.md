@@ -318,11 +318,12 @@ Plans:
   5. 列表中的域名在对应 webview 加载页面时，自动抓取所有 API 请求的 URL、方法、参数、请求头、Cookie、响应头、响应体，写入 SQLite
   6. 抓取过程使用异步并发写入（写入队列 + 批量 flush），不阻塞页面加载和渲染
 
-**Plans**: 0/1 plans
+**Plans**: 0/2 plans
 
 Plans:
 
-- [ ] 12-01-PLAN.md — 开发者模式：设置 UI + 域名管理 + CDP 抓取引擎 + SQLite 持久化
+- [ ] 12-01-PLAN.md — 后端基础：CDP 抓取引擎 + 写入队列 + SQLite 存储 + 设置 API/IPC
+- [ ] 12-02-PLAN.md — 前端页面：设置 UI 开发者模式配置 + realm://devrequests 请求查看页面
 
 **UI hint**: yes
 
