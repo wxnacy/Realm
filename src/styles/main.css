@@ -1116,6 +1116,32 @@ textarea::placeholder {
   background-color: var(--bg-primary);
 }
 
+.tab-pinned {
+  min-width: 40px;
+  max-width: 40px;
+}
+
+.tab-pinned .tab-title {
+  display: none;
+}
+
+.tab-pinned .tab-favicon {
+  margin-right: 0;
+}
+
+.tab-pinned::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background-color: var(--text-secondary);
+  opacity: 0.6;
+}
+
 .tab-color-line {
   height: var(--tab-color-line-height);
   width: 100%;
