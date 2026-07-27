@@ -1067,7 +1067,8 @@ function setupEventListeners() {
   if (elements.devrequestsLink) {
     elements.devrequestsLink.addEventListener('click', (e) => {
       e.preventDefault();
-      const containerParam = state.devMode.containerId || 'default';
+      // 设置页本身由 realmUrlToHttp 注入 container 参数，直接复用
+      const containerParam = pageParams.get('container') || 'default';
       window.open(`realm://devrequests?container=${containerParam}`, '_blank');
     });
   }

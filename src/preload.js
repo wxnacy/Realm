@@ -495,6 +495,16 @@ contextBridge.exposeInMainWorld('realmAPI', {
    */
   setActiveWebview: (contentsId) => ipcRenderer.invoke('webview:set-active', contentsId),
 
+  /**
+   * 上报 guest webContentsId → 容器 ID 映射
+   * 主进程无法从 guest session 反推 partition（Electron 32 限制），
+   * 分配规则匹配和 CDP 抓取依赖此映射
+   * @param {number} contentsId - webview guest 的 webContents ID
+   * @param {string} containerId - 容器 ID
+   */
+  registerGuestContainer: (contentsId, containerId) =>
+    ipcRenderer.invoke('webview:register-container', contentsId, containerId),
+
   // ==================== 应用设置 ====================
 
   /**

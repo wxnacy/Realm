@@ -319,6 +319,7 @@ function handleRequestWillBeSent(params, containerId) {
   const { requestId, request, timestamp } = params;
 
   // 初始化请求记录
+  // startTime 为 CDP 单调时钟时间戳（秒），用于在 loadingFinished 时计算真实耗时
   pendingRequests.set(requestId, {
     requestId,
     url: request.url,
@@ -334,7 +335,6 @@ function handleRequestWillBeSent(params, containerId) {
     containerId,
     createdAt: Date.now(),
     startTime: timestamp,
-    _dataChunks: [], // 临时存储数据块
   });
 }
 
@@ -349,47 +349,44 @@ function handleResponseReceived(params) {
 
   record.statusCode = response.status;
   record.responseHeaders = response.headers || {};
-  record.contentType = response.headers?.['content-type'] || '';
-
-  // 计算请求耗时
-  if (record.startTime && response.timing?.requestTime) {
-    record.duration = Math.round((response.timing.requestTime + (response.timing.receiveHeadersEnd || 0)) * 1000);
-  }
+  record.contentType = response.headers?.['content-type'] || response.headers?.['Content-Type'] || '';
+  // 注意：此处不计算耗时。response.timing.requestTime 是单调时钟基准值
+  // （数值巨大），耗时必须在 loadingFinished 用事件时间戳差值计算
 }
 
 /**
  * 处理 Network.dataReceived 事件
+ * 事件参数为 { requestId, timestamp, dataLength, encodedDataLength }，
+ * 不携带数据本体；dataLength 为解码后字节数
  * @param {object} params - CDP 事件参数
  */
 function handleDataReceived(params) {
-  const { requestId, data } = params;
+  const { requestId, dataLength } = params;
   const record = pendingRequests.get(requestId);
   if (!record) return;
 
-  // 累积响应体数据块
-  if (data) {
-    record._dataChunks.push(data);
-    record.size += data.length;
-  }
+  record.size += dataLength || 0;
 }
 
 /**
  * 处理 Network.loadingFinished 事件
- * 获取完整响应体，组装记录推入写入队列
+ * 计算耗时、拉取响应体，组装记录推入写入队列
  * @param {object} params - CDP 事件参数
  * @param {Electron.WebContents} webContents - webview 的 webContents
  */
 async function handleLoadingFinished(params, webContents) {
-  const { requestId } = params;
+  const { requestId, timestamp } = params;
   const record = pendingRequests.get(requestId);
   if (!record) return;
 
-  // 清理临时数据
-  delete record._dataChunks;
+  // 真实耗时：loadingFinished 与 requestWillBeSent 的单调时钟差（秒 → 毫秒）
+  if (record.startTime && timestamp) {
+    record.duration = Math.max(0, Math.round((timestamp - record.startTime) * 1000));
+  }
   delete record.startTime;
 
-  // 响应体过滤（D-08）
-  record.responseBody = filterResponseBody(record);
+  // 响应体通过 Network.getResponseBody 主动拉取（D-08：仅文本类型，限 1MB）
+  record.responseBody = await fetchResponseBody(webContents, record);
 
   // 推入写入队列
   if (writer) {
@@ -409,7 +406,6 @@ function handleLoadingFailed(params) {
   if (!record) return;
 
   // 清理临时数据
-  delete record._dataChunks;
   delete record.startTime;
 
   // 记录错误信息
@@ -424,18 +420,20 @@ function handleLoadingFailed(params) {
   pendingRequests.delete(requestId);
 }
 
-// ==================== 响应体过滤 ====================
+// ==================== 响应体拉取 ====================
 
 /**
- * 过滤响应体（D-08）
+ * 通过 Network.getResponseBody 拉取响应体（D-08）
  * - 仅存储文本类型 Content-Type
- * - 二进制内容跳过存储
- * - 单条响应体大小限制 1MB
+ * - 单条响应体大小限制 1MB，超出截断
+ * - dataReceived 事件不携带数据本体，必须主动拉取；
+ *   部分请求（缓存命中、重定向、预检）无 body 可取，静默返回空串
+ * @param {Electron.WebContents} webContents - webview 的 webContents
  * @param {object} record - 请求记录
- * @returns {string} 过滤后的响应体
+ * @returns {Promise<string>} 响应体文本
  */
-function filterResponseBody(record) {
-  const contentType = record.contentType.toLowerCase();
+async function fetchResponseBody(webContents, record) {
+  const contentType = (record.contentType || '').toLowerCase();
 
   // 检查是否为文本类型
   const isTextType = TEXT_CONTENT_TYPES.some(prefix => contentType.includes(prefix));
@@ -443,19 +441,26 @@ function filterResponseBody(record) {
     return ''; // 二进制内容跳过
   }
 
-  // 拼接数据块
-  let body = '';
-  if (record._dataChunks && record._dataChunks.length > 0) {
-    body = record._dataChunks.join('');
-  }
+  try {
+    const result = await webContents.debugger.sendCommand('Network.getResponseBody', {
+      requestId: record.requestId,
+    });
 
-  // 大小限制（1MB）
-  if (body.length > MAX_RESPONSE_BODY_SIZE) {
-    const truncated = body.substring(0, MAX_RESPONSE_BODY_SIZE);
-    return truncated + `\n[截断：原始大小 ${body.length} bytes]`;
-  }
+    let body = result.body || '';
+    if (result.base64Encoded) {
+      body = Buffer.from(body, 'base64').toString('utf8');
+    }
 
-  return body;
+    // 大小限制（1MB）
+    if (body.length > MAX_RESPONSE_BODY_SIZE) {
+      return body.substring(0, MAX_RESPONSE_BODY_SIZE) + `\n[截断：原始大小 ${body.length} bytes]`;
+    }
+
+    return body;
+  } catch {
+    // 无 body 可取（缓存、重定向、请求已销毁等），正常情况
+    return '';
+  }
 }
 
 // ==================== 导航处理 ====================

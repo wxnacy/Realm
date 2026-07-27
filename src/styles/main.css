@@ -2487,9 +2487,16 @@ textarea::placeholder {
 /* ==================== DevRequests 页面 ==================== */
 
 .devrequests-page {
+  /* body 是主窗口布局（overflow:hidden），内部页面必须自建滚动容器；
+     flex:1 占满窗口宽度使滚动条位于窗口右缘（同 settings-page 注释）；
+     padding-inline 技巧在容器全宽的同时保持内容 1200px 居中 */
+  flex: 1;
+  min-width: 0;
+  height: 100vh;
+  overflow-y: auto;
+  box-sizing: border-box;
   padding: 24px;
-  max-width: 1200px;
-  margin: 0 auto;
+  padding-inline: max(24px, calc((100% - 1200px) / 2));
 }
 
 /* 头部 */

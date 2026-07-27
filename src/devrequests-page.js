@@ -656,17 +656,46 @@ function setupEventListeners() {
 // ==================== 初始化 ====================
 
 /**
+ * 加载容器列表并填充选择器
+ * 当前容器从 URL 参数获取；若不在列表中（如 'default' 兜底），回落到第一个容器
+ */
+async function loadContainers() {
+  try {
+    const params = new URLSearchParams({ token: apiToken });
+    const res = await fetch(`/api/containers/list?${params.toString()}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const containers = await res.json();
+
+    containers.forEach(container => {
+      const option = document.createElement('option');
+      option.value = container.id;
+      option.textContent = `${container.icon || ''} ${container.name || container.id}`.trim();
+      elements.containerSelect.appendChild(option);
+    });
+
+    const ids = containers.map(c => c.id);
+    if (!ids.includes(state.containerId) && ids.length > 0) {
+      state.containerId = ids[0];
+    }
+    elements.containerSelect.value = state.containerId;
+  } catch (error) {
+    console.error('[Realm DevRequests] 加载容器列表失败:', error);
+    // 兜底：至少保留当前容器选项，保证页面可用
+    const containerOption = document.createElement('option');
+    containerOption.value = state.containerId;
+    containerOption.textContent = state.containerId;
+    elements.containerSelect.appendChild(containerOption);
+  }
+}
+
+/**
  * 初始化页面
  */
 async function init() {
   console.log('[Realm DevRequests] 页面初始化');
 
-  // 设置容器选择器
-  // 当前容器从 URL 参数获取，默认为 'default'
-  const containerOption = document.createElement('option');
-  containerOption.value = state.containerId;
-  containerOption.textContent = state.containerId;
-  elements.containerSelect.appendChild(containerOption);
+  // 填充容器选择器（完整容器列表）
+  await loadContainers();
 
   // 设置事件监听
   setupEventListeners();

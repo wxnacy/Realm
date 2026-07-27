@@ -642,6 +642,21 @@ function createWebviewForTab(tabId, containerId, url) {
  * @param {HTMLElement} webview - webview 元素
  */
 function bindWebviewEvents(tabId, webview) {
+  // 上报 guest webContentsId → 容器 映射（主进程无法从 guest session 反推
+  // partition，Electron 32 限制；分配规则匹配和 CDP 抓取依赖此映射）
+  // did-attach 在首次导航前触发，保证主进程首次 did-start-navigation 即可反查；
+  // dom-ready 作为兜底（重复注册幂等，Map.set 覆盖同值）
+  const registerGuest = () => {
+    const guestId = webview.getWebContentsId();
+    const partition = webview.partition || '';
+    const prefix = 'persist:container-';
+    if (guestId && partition.startsWith(prefix)) {
+      window.realmAPI.registerGuestContainer(guestId, partition.slice(prefix.length));
+    }
+  };
+  webview.addEventListener('did-attach', registerGuest);
+  webview.addEventListener('dom-ready', registerGuest);
+
   // 页面导航事件
   webview.addEventListener('did-navigate', (e) => {
     const tab = state.tabs.get(tabId);

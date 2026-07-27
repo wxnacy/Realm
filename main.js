@@ -49,7 +49,7 @@ const tabManager = require('./tab-manager');
 const cookieManager = require('./cookie-manager');
 const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
-const { registerHandlers, getActiveWebviewContentsId } = require('./ipc-handlers');
+const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer } = require('./ipc-handlers');
 const historyManager = require('./history-manager');
 const favoritesManager = require('./favorites-manager');
 const frequentSitesManager = require('./frequent-sites-manager');
@@ -70,17 +70,21 @@ function isAllowedWebUrl(url) {
 
 /**
  * 从 webview guest 的 webContents 反推其所在容器 ID
- * 渲染进程创建 webview 时统一设置 partition 为 persist:container-<containerId>
+ * 优先查渲染进程上报的 guest→容器 映射（Electron 32 下 guest 的
+ * session.partition 为空串，无法从 session 可靠反推），映射未命中时
+ * 回落 session.partition 解析
  * @param {Electron.WebContents} contents - guest webContents
  * @returns {string|null} 容器 ID，无法识别时返回 null
  */
 function getGuestContainerId(contents) {
-  // 尝试从 session 获取 partition
+  // 首选：渲染进程上报的映射（webview 元素 partition 属性是权威来源）
+  const fromMap = getGuestContainer(contents.id);
+  if (fromMap) return fromMap;
+
+  // 回落：session.partition 属性
   let partition = '';
   try {
-    if (contents.session && typeof contents.session.getPartition === 'function') {
-      partition = contents.session.getPartition();
-    }
+    partition = contents.session ? contents.session.partition || '' : '';
   } catch (e) {
     console.log(`[Realm] 获取 partition 失败:`, e.message);
   }
@@ -101,8 +105,7 @@ function getGuestContainerId(contents) {
  * @param {Electron.WebContents} contents - guest webContents
  * @param {string} url - 目标 URL（已过白名单校验才发送）
  * @param {string|null} containerId - 分配规则匹配的容器 ID（无匹配时传 null，
- *   由渲染进程按来源 webview 的 partition 决定容器——Electron 32 下 guest 的
- *   session.getPartition() 返回空串，主进程无法可靠反推）
+ *   由渲染进程按来源 webview 的 partition 决定容器——以 webview 元素属性为准）
  */
 function notifyOpenUrlInTab(contents, url, containerId) {
   if (!isAllowedWebUrl(url)) return;
@@ -120,6 +123,11 @@ app.on('web-contents-created', (event, contents) => {
   if (contents.getType() !== 'webview') return;
 
   console.log(`[Realm] webview webContents 创建, id: ${contents.id}`);
+
+  // guest 销毁时清理容器映射，避免 Map 泄漏
+  contents.on('destroyed', () => {
+    unregisterGuestContainer(contents.id);
+  });
   contents.setWindowOpenHandler(({ url, disposition, frameName, features }) => {
     console.log(`[Realm] 新窗口请求: ${url}, disposition: ${disposition}, frameName: ${frameName}`);
     // 检查分配规则，决定目标容器

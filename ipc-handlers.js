@@ -22,6 +22,28 @@ const configStore = new Store({ name: 'realm-config' });
 // 跟踪当前活动的 webview guest webContents ID（渲染进程通过 webview:set-active 同步）
 let activeWebviewContentsId = null;
 
+// guest webContentsId → 容器 ID 映射（渲染进程通过 webview:register-container 上报）
+// Electron 32 下主进程无法从 guest session 反推 partition（session.partition 为空串），
+// 必须依赖渲染进程持有的 webview 元素属性
+const guestContainerMap = new Map();
+
+/**
+ * 反查 guest webContents 所在容器 ID
+ * @param {number} contentsId - webview guest 的 webContents ID
+ * @returns {string|null} 容器 ID，未注册时返回 null
+ */
+function getGuestContainer(contentsId) {
+  return guestContainerMap.get(contentsId) || null;
+}
+
+/**
+ * 移除 guest 映射（guest 销毁时由 main.js 调用）
+ * @param {number} contentsId - webview guest 的 webContents ID
+ */
+function unregisterGuestContainer(contentsId) {
+  guestContainerMap.delete(contentsId);
+}
+
 /**
  * 获取当前活动的 webview guest webContents ID
  * 供 main.js 应用菜单快捷键路由使用
@@ -995,6 +1017,20 @@ function registerHandlers() {
     activeWebviewContentsId = contentsId;
   });
 
+  /**
+   * 渲染进程上报 guest webContentsId → 容器 ID 映射
+   * 主进程无法从 guest session 反推 partition（Electron 32 限制），
+   * 容器分配规则匹配和 CDP 抓取依赖此映射
+   * @param {number} contentsId - webview guest 的 webContents ID
+   * @param {string} containerId - 容器 ID
+   */
+  ipcMain.handle('webview:register-container', (event, contentsId, containerId) => {
+    if (typeof contentsId !== 'number' || typeof containerId !== 'string' || !containerId) {
+      return;
+    }
+    guestContainerMap.set(contentsId, containerId);
+  });
+
   // ==================== 应用设置 ====================
   // 与 main.js handleSettingsApi 的 get 路由共享默认值，新增 key 时两处必须同步
 
@@ -1030,4 +1066,4 @@ function registerHandlers() {
   console.log('[Realm] IPC 处理器已注册');
 }
 
-module.exports = { registerHandlers, getActiveWebviewContentsId };
+module.exports = { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer };
