@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- 页面经 http://localhost:PORT/newtab 加载，base 使相对资源路径解析到 /newtab/ 下 -->
+  <base href="/newtab/">
+  <!-- img-src 需放行远程 favicon（http/https/data） -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: http: data:">
+  <title>新标签页 - Realm</title>
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+  <div class="new-tab-page">
+    <div class="new-tab-content">
+      <!-- 搜索框 -->
+      <div class="new-tab-search-wrapper">
+        <input type="text" class="new-tab-search" id="newTabSearch" placeholder="搜索或输入网址...">
+      </div>
+
+      <!-- 常用网站标题 -->
+      <h2 class="new-tab-section-title">常用网站</h2>
+
+      <!-- 常用网站网格 -->
+      <div class="frequent-sites-grid" id="frequentSitesGrid"></div>
+
+      <!-- 空状态 -->
+      <div class="frequent-empty" id="frequentEmpty" style="display: none;">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        <h3>开始浏览</h3>
+        <p>访问一些网站后，这里会显示您的常用网站推荐。</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="newtab-page.js"></script>
+</body>
+</html>

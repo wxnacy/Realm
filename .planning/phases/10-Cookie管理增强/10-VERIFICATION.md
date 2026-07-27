@@ -1,7 +1,7 @@
 ---
 phase: 10-Cookie管理增强
 verified: 2026-07-27T03:15:21Z
-status: human_needed
+status: passed
 score: 13/13 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
@@ -9,6 +9,7 @@ re_verification:
   previous_status: human_needed
   previous_score: 7/7
   gaps_closed:
+
     - "UAT gap 1 (major, test 6): 保存按钮域名过滤失效 — handleSaveToFile 改用 state.tabs 同源提取域名真正触达 saveDomainCookies；saveDomainCookies 过滤方向对齐 UI（当前域名及其父域）"
     - "UAT gap 2 (cosmetic, test 7): 列表文字纯黑不可读 — .cookie-col-* 显式颜色 + .cookie-item/.modal 颜色兜底 + 死代码清理"
     - "CR-01: deleteSingleCookie 删除不持久化 — 显式按 domain|name|path 从文件剔除（48c497f）"

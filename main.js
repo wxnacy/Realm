@@ -8,7 +8,7 @@
 try { require('electron-reloader')(module); } catch {}
 
 const path = require('path');
-const { app, BrowserWindow, protocol, net, ipcMain } = require('electron');
+const { app, BrowserWindow, protocol, net, ipcMain, Menu } = require('electron');
 const { pathToFileURL } = require('url');
 const http = require('http');
 const fs = require('fs');
@@ -49,7 +49,7 @@ const tabManager = require('./tab-manager');
 const cookieManager = require('./cookie-manager');
 const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
-const { registerHandlers } = require('./ipc-handlers');
+const { registerHandlers, getActiveWebviewContentsId } = require('./ipc-handlers');
 const historyManager = require('./history-manager');
 const favoritesManager = require('./favorites-manager');
 const frequentSitesManager = require('./frequent-sites-manager');
@@ -142,6 +142,32 @@ app.on('web-contents-created', (event, contents) => {
 
   contents.on('did-navigate-in-page', (event, url, isMainFrame) => {
     console.log(`[Realm] did-navigate-in-page: ${url}, isMainFrame: ${isMainFrame}`);
+  });
+
+  // webview 右键上下文菜单：提供"检查元素"直接打开该 webview 的 DevTools
+  contents.on('context-menu', (event, params) => {
+    const menu = Menu.buildFromTemplate([
+      { label: '检查元素', click: () => contents.openDevTools() },
+      { type: 'separator' },
+      { label: '后退', enabled: contents.canGoBack(), click: () => contents.goBack() },
+      { label: '前进', enabled: contents.canGoForward(), click: () => contents.goForward() },
+      { type: 'separator' },
+      { label: '刷新', click: () => contents.reload() },
+      { label: '复制', role: 'copy', enabled: params.selectionText.length > 0 },
+    ]);
+    menu.popup();
+  });
+
+  // F12 拦截：Electron 无内置 F12 快捷键，可通过 before-input-event 捕获
+  // Cmd+Option+I 由应用菜单 accelerator 处理（见下方菜单注册）
+  contents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12' && input.type === 'keyDown') {
+      if (contents.isDevToolsOpened()) {
+        contents.closeDevTools();
+      } else {
+        contents.openDevTools();
+      }
+    }
   });
 
   // WR-2：webContents 的 will-navigate 可同步取消（webview 标签上的同名事件
@@ -695,8 +721,66 @@ app.whenReady().then(async () => {
   // 注册全局快捷键
   if (mainWindow) {
     shortcutManager.registerShortcuts(mainWindow);
-
   }
+
+  // 应用菜单：覆盖 Electron 默认的 Cmd+Option+I 行为，
+  // 将 DevTools 打开到当前聚焦的 webview guest 而非主窗口
+  const appMenu = Menu.buildFromTemplate([
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    {
+      label: '编辑',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: '窗口',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { role: 'close' },
+      ],
+    },
+    {
+      label: '开发者',
+      submenu: [
+        {
+          label: '切换开发者工具',
+          accelerator: 'CmdOrCtrl+Alt+I',
+          click: () => {
+            const contentsId = getActiveWebviewContentsId();
+            if (!contentsId) return;
+            const { webContents } = require('electron');
+            const contents = webContents.fromId(contentsId);
+            if (!contents || contents.isDestroyed()) return;
+            if (contents.isDevToolsOpened()) {
+              contents.closeDevTools();
+            } else {
+              contents.openDevTools();
+            }
+          },
+        },
+      ],
+    },
+  ]);
+  Menu.setApplicationMenu(appMenu);
 
   // macOS 应用激活事件
   app.on('activate', () => {

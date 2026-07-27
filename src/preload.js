@@ -455,6 +455,14 @@ contextBridge.exposeInMainWorld('realmAPI', {
   setShortcut: (action, accelerator) => ipcRenderer.invoke('shortcut:set', action, accelerator),
 
   /**
+   * 重置快捷键为默认值
+   * 删除自定义覆盖项，自动回落到主进程 DEFAULT_SHORTCUTS
+   * @param {string} action - 操作名称
+   * @returns {Promise<boolean>} 是否重置成功
+   */
+  resetShortcut: (action) => ipcRenderer.invoke('shortcut:reset', action),
+
+  /**
    * 监听快捷键事件
    * @param {Function} callback - 回调函数
    */
@@ -470,6 +478,15 @@ contextBridge.exposeInMainWorld('realmAPI', {
    * @returns {Promise<number>} 服务器端口号
    */
   getRealmPort: () => ipcRenderer.invoke('get-realm-port'),
+
+  // ==================== webview DevTools 支持 ====================
+
+  /**
+   * 报告当前活动的 webview guest webContents ID
+   * 用于应用菜单快捷键（Cmd+Option+I）路由 DevTools 到正确的 webview
+   * @param {number} contentsId - webview guest 的 webContents ID
+   */
+  setActiveWebview: (contentsId) => ipcRenderer.invoke('webview:set-active', contentsId),
 });
 
 console.log('[Realm] Preload 脚本已加载');

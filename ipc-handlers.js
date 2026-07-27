@@ -15,6 +15,18 @@ const shortcutManager = require('./shortcut-manager');
 const historyManager = require('./history-manager');
 const favoritesManager = require('./favorites-manager');
 
+// 跟踪当前活动的 webview guest webContents ID（渲染进程通过 webview:set-active 同步）
+let activeWebviewContentsId = null;
+
+/**
+ * 获取当前活动的 webview guest webContents ID
+ * 供 main.js 应用菜单快捷键路由使用
+ * @returns {number|null} webContents ID
+ */
+function getActiveWebviewContentsId() {
+  return activeWebviewContentsId;
+}
+
 /**
  * 校验 IPC 调用方身份（CR-4 修复）
  * 仅接受来自应用主窗口 webContents 的调用；
@@ -664,6 +676,25 @@ function registerHandlers() {
     return result;
   });
 
+  /**
+   * 重置快捷键为默认值
+   * 删除自定义覆盖项，自动回落到 DEFAULT_SHORTCUTS
+   * @param {string} action - 操作名称
+   * @returns {boolean} 是否重置成功
+   */
+  ipcMain.handle('shortcut:reset', (event, action) => {
+    assertTrustedSender(event);
+    if (!action || typeof action !== 'string') {
+      throw new Error('无效的操作名称');
+    }
+    const result = shortcutManager.resetShortcut(action);
+    if (result) {
+      const win = windowManager.getMainWindow();
+      shortcutManager.rebuildShortcuts(win);
+    }
+    return result;
+  });
+
   // ==================== 浏览历史 ====================
 
   /**
@@ -937,7 +968,18 @@ function registerHandlers() {
     return favoritesManager.getCount();
   });
 
+  // ==================== webview DevTools 支持 ====================
+
+  /**
+   * 渲染进程报告当前活动的 webview guest webContents ID
+   * 用于应用菜单快捷键（Cmd+Option+I）路由 DevTools 到正确的 webview
+   * @param {number} contentsId - webview guest 的 webContents ID
+   */
+  ipcMain.handle('webview:set-active', (event, contentsId) => {
+    activeWebviewContentsId = contentsId;
+  });
+
   console.log('[Realm] IPC 处理器已注册');
 }
 
-module.exports = { registerHandlers };
+module.exports = { registerHandlers, getActiveWebviewContentsId };

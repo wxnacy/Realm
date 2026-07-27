@@ -45,6 +45,7 @@ const DEFAULT_SHORTCUTS = {
   'back': 'CmdOrCtrl+Left',
   'forward': 'CmdOrCtrl+Right',
   'bookmark': 'CmdOrCtrl+D',
+  'openSettings': 'CmdOrCtrl+,',
 };
 
 // ==================== 读写函数 ====================
@@ -84,6 +85,27 @@ function setShortcut(action, accelerator) {
   store.set('shortcuts', customShortcuts);
 
   console.log(`[Realm] 设置快捷键: ${action} -> ${accelerator}`);
+  return true;
+}
+
+/**
+ * 重置快捷键为默认值
+ * 删除自定义覆盖项；getShortcuts 的合并逻辑（{...DEFAULT, ...custom}）
+ * 会自动回落到 DEFAULT_SHORTCUTS[action]。
+ * @param {string} action - 操作名称
+ * @returns {boolean} 是否重置成功（action 非法时返回 false）
+ */
+function resetShortcut(action) {
+  if (!DEFAULT_SHORTCUTS.hasOwnProperty(action)) {
+    return false;
+  }
+
+  const customShortcuts = store.get('shortcuts', {});
+  // 幂等：本来就没自定义也算成功（结果都是"使用默认"）
+  delete customShortcuts[action];
+  store.set('shortcuts', customShortcuts);
+
+  console.log(`[Realm] 重置快捷键: ${action} -> ${DEFAULT_SHORTCUTS[action]}（默认）`);
   return true;
 }
 
@@ -278,6 +300,7 @@ module.exports = {
   getShortcuts,
   getShortcut,
   setShortcut,
+  resetShortcut,
   registerShortcuts,
   rebuildShortcuts,
   unregisterAll,

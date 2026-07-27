@@ -233,13 +233,13 @@ function renderFavoriteItem(record) {
 
   itemEl.innerHTML = `
     <input type="checkbox" class="favorite-item-checkbox" data-id="${record.id}" ${state.selectedIds.has(record.id) ? 'checked' : ''}>
-    <div class="favorite-item-favicon">
+    <div class="favorite-item-favicon" title="打开链接">
       <img src="${escapeHtml(faviconSrc)}" alt="" style="display:none">
       <div class="favorite-item-favicon-fallback">${escapeHtml(faviconFallback)}</div>
     </div>
     <div class="favorite-item-content">
       <div class="favorite-item-title" title="点击编辑标题">${titleHtml}</div>
-      <div class="favorite-item-url">${urlHtml}</div>
+      <div class="favorite-item-url" title="打开链接">${urlHtml}</div>
     </div>
     <div class="favorite-item-time">${formatTime(record.created_at)}</div>
   `;
@@ -269,6 +269,17 @@ function renderFavoriteItem(record) {
     }
     updateActionsBar();
   });
+
+  // 打开收藏链接：favicon / URL 单击直接打开
+  // window.open 走主进程 setWindowOpenHandler 拦截（main.js:121），
+  // 自动在来源容器新建 Tab，无需通过 IPC 显式通知
+  const openBookmark = () => {
+    window.open(record.url, '_blank');
+  };
+  const faviconEl = itemEl.querySelector('.favorite-item-favicon');
+  faviconEl.addEventListener('click', openBookmark);
+  const urlEl = itemEl.querySelector('.favorite-item-url');
+  urlEl.addEventListener('click', openBookmark);
 
   // 标题点击进入行内编辑模式（D-11）
   const titleEl = itemEl.querySelector('.favorite-item-title');

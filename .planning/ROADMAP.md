@@ -295,4 +295,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. 收藏夹管理 | v1.1 | 2/2 | Complete | 2026-07-25 |
 | 8. 常用网站推荐 + 设置页面 | v1.1 | 2/2 | Complete | 2026-07-25 |
 | 9. 共享收藏数据库 | v1.1 | 3/4 | Complete | 2026-07-26 |
-| 10. Cookie 管理增强 | v1.2 | 2/2 | Complete   | 2026-07-26 |
+| 10. Cookie 管理增强 | v1.2 | 2/2 | Complete    | 2026-07-26 |

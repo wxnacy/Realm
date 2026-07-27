@@ -466,7 +466,10 @@ async function switchTab(tabId) {
   if (container) {
     elements.indicatorDot.style.backgroundColor = container.color;
     elements.indicatorText.textContent = container.name;
-    state.currentContainer = tab.containerId;
+    if (state.currentContainer !== tab.containerId) {
+      state.currentContainer = tab.containerId;
+      renderContainerList();
+    }
   }
 
   // 切换 Tab 时检查收藏状态
@@ -478,6 +481,12 @@ async function switchTab(tabId) {
 
   // 切换 webview 可见性
   showWebview(tabId);
+
+  // 报告当前活动 webview 的 contentsId 给主进程（用于快捷键路由 DevTools）
+  const activeWebview = state.webviews.get(tabId);
+  if (activeWebview && typeof activeWebview.getWebContentsId === 'function') {
+    window.realmAPI.setActiveWebview(activeWebview.getWebContentsId());
+  }
 
   // 隐藏内嵌新标签页（现在使用 realm://newtab 加载新标签页）
   elements.newTabPage.style.display = 'none';
@@ -1114,6 +1123,8 @@ const SHORTCUT_NAMES = {
   'reload': '刷新页面',
   'back': '后退',
   'forward': '前进',
+  'bookmark': '收藏此页面',
+  'openSettings': '打开设置页面',
 };
 
 /**
@@ -1287,25 +1298,17 @@ async function saveCapturedShortcut() {
 
 /**
  * 恢复默认快捷键
+ * 默认值唯一来源是主进程 shortcut-manager 的 DEFAULT_SHORTCUTS；
+ * 删除自定义覆盖后 getShortcuts 的合并逻辑自动回落到默认，无需在此硬编码副本。
  * @param {string} action - 操作名称
  */
 async function resetShortcut(action) {
-  // 删除自定义配置，恢复默认
-  const shortcuts = await window.realmAPI.getShortcuts();
-  const defaultShortcuts = {
-    'newTab': 'CmdOrCtrl+T',
-    'closeTab': 'CmdOrCtrl+W',
-    'nextTab': 'CmdOrCtrl+Shift+]',
-    'prevTab': 'CmdOrCtrl+Shift+[',
-    'reload': 'CmdOrCtrl+R',
-    'back': 'CmdOrCtrl+Left',
-    'forward': 'CmdOrCtrl+Right',
-  };
-
-  if (defaultShortcuts[action]) {
-    await window.realmAPI.setShortcut(action, defaultShortcuts[action]);
+  const success = await window.realmAPI.resetShortcut(action);
+  if (success) {
     await refreshShortcutsList();
     showToast('快捷键已恢复默认', 'success');
+  } else {
+    showToast('未知的快捷键操作', 'error');
   }
 }
 
@@ -1351,6 +1354,9 @@ function initShortcuts() {
           forwardWebview.goForward();
         }
         break;
+      case 'openSettings':
+        openSettingsTab();
+        break;
       case 'bookmark':
         const activeTab = state.tabs.get(state.activeTabId);
         if (activeTab && activeTab.url) {
@@ -1392,6 +1398,28 @@ function switchToPrevTab() {
   const currentIndex = tabIds.indexOf(state.activeTabId);
   const prevIndex = (currentIndex - 1 + tabIds.length) % tabIds.length;
   switchTab(tabIds[prevIndex]);
+}
+
+/**
+ * 打开设置页面
+ * 当前容器已有 realm://settings Tab 则切换过去，否则新建。
+ * 设置按钮和 CmdOrCtrl+, 快捷键共用此入口。
+ */
+function openSettingsTab() {
+  const containerId = state.currentContainer;
+
+  let existingTabId = null;
+  state.tabs.forEach((tab, tabId) => {
+    if (tab.url === 'realm://settings' && tab.containerId === containerId) {
+      existingTabId = tabId;
+    }
+  });
+
+  if (existingTabId) {
+    switchTab(existingTabId);
+  } else {
+    createTab(containerId, 'realm://settings');
+  }
 }
 
 /**
@@ -1986,6 +2014,17 @@ function updateSourceTabUI() {
   tabs.forEach(tab => {
     tab.classList.toggle('active', tab.dataset.source === cookieState.source);
   });
+
+  // File tab 是只读视图（磁盘快照），保存语义始终是 session → file，
+  // 因此在 File tab 禁用保存按钮，避免用户误以为在做 file → file 操作
+  const saveBtn = document.getElementById('saveCookiesBtn');
+  if (saveBtn) {
+    const isFileTab = cookieState.source === 'file';
+    saveBtn.disabled = isFileTab;
+    saveBtn.title = isFileTab
+      ? 'File 标签页为只读视图，请切换到 Session 标签保存当前 Cookie'
+      : '保存当前 Session Cookie 到文件';
+  }
 }
 
 /**
@@ -2102,7 +2141,22 @@ function renderCookiesList() {
 
     const domain = document.createElement('span');
     domain.className = 'cookie-col-domain';
-    domain.textContent = cookie.domain;
+
+    const domainText = document.createElement('span');
+    domainText.className = 'cookie-domain-text';
+    domainText.textContent = cookie.domain;
+    domain.appendChild(domainText);
+
+    // host-only cookie（无 Domain 属性，仅匹配精确主机）加徽标，
+    // 与带前导点的 domain cookie（匹配子域）视觉区分，避免看起来像重复行
+    if (!cookie.domain.startsWith('.')) {
+      const badge = document.createElement('span');
+      badge.className = 'cookie-badge-hostonly';
+      badge.textContent = 'host-only';
+      badge.title = 'host-only cookie：未设置 Domain 属性，仅匹配该主机（不含子域）';
+      domain.appendChild(badge);
+    }
+
     domain.title = cookie.domain;
 
     const actions = document.createElement('div');
@@ -2599,23 +2653,7 @@ function setupEventListeners() {
   // 设置按钮：打开设置页面
   if (elements.settingsBtn) {
     elements.settingsBtn.addEventListener('click', () => {
-      const containerId = state.currentContainer;
-
-      // 检查当前容器是否已有 realm://settings 的 Tab 打开
-      let existingTabId = null;
-      state.tabs.forEach((tab, tabId) => {
-        if (tab.url === 'realm://settings' && tab.containerId === containerId) {
-          existingTabId = tabId;
-        }
-      });
-
-      if (existingTabId) {
-        // 已有则切换到该 Tab
-        switchTab(existingTabId);
-      } else {
-        // 没有则创建新 Tab
-        createTab(containerId, 'realm://settings');
-      }
+      openSettingsTab();
     });
   }
 

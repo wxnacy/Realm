@@ -72,8 +72,13 @@ const windowContainerMap = new Map();
 | 文件 | 说明 |
 |------|------|
 | main.js | Electron 主进程，管理容器 Session 和窗口 |
+| ipc-handlers.js | 主进程 IPC 通道注册（cookie/history/shortcut/...） |
+| shortcut-manager.js | 快捷键默认表 + 注册/重建（**默认值唯一来源**） |
+| cookie-manager.js | Cookie 持久化（session ↔ cookies.json 合并） |
+| favorites-manager.js | 收藏数据存储（better-sqlite3，全局共享） |
 | src/preload.js | 安全暴露 IPC 接口给渲染进程 |
 | src/renderer.js | 渲染进程逻辑，处理 UI 交互 |
+| src/favorites-page.js | 收藏列表页（realm://favorites）逻辑 |
 | src/index.html | 主界面结构 |
 | src/styles/main.css | 样式文件 |
 
@@ -99,6 +104,45 @@ await window.realmAPI.switchContainer('work');
 1. 在 main.js 中添加 `ipcMain.handle('channel-name', handler)`
 2. 在 preload.js 中添加 `contextBridge.exposeInMainWorld` 方法
 3. 在 renderer.js 中通过 `window.realmAPI` 调用
+
+### 新增快捷键（完整链路，五处都要改）
+
+以"打开设置" `CmdOrCtrl+,` 为例：
+
+1. **`shortcut-manager.js`** — `DEFAULT_SHORTCUTS` 加 `'openSettings': 'CmdOrCtrl+,'`（默认值的唯一来源）
+2. **`src/renderer.js`** — `SHORTCUT_NAMES` 加中文名 `'openSettings': '打开设置页面'`（设置页显示用）
+3. **`src/renderer.js`** — `initShortcuts` 的 switch 加 `case 'openSettings': openSettingsTab(); break;`
+4. 行为函数（如 `openSettingsTab`）在 renderer 中定义；设置按钮等 UI 入口共用此函数
+
+**无需**改 `ipc-handlers.js` / `preload.js` —— 注册/触发链路是通用的。重置走 `realmAPI.resetShortcut(action)`（`shortcut:reset` 通道），主进程删除自定义覆盖后 `getShortcuts` 的 `{...DEFAULT, ...custom}` 合并语义自动回落默认，**不要在 renderer 再写一份默认表**。
+
+### 内部页面（`realm://`）打开新 Tab
+
+`realm://favorites` / `realm://history` / `realm://settings` 等页面加载在 webview 中。在 guest 内打开新 tab 的标准做法：
+
+```js
+window.open(url, '_blank');
+```
+
+主进程 `main.js` 的 `setWindowOpenHandler` 统一拦截，按 D-09 决策在**来源容器**新建 tab。不要为这些页面单独写 IPC。
+
+### Cookie 面板的数据源语义
+
+- **Session tab** = 容器当前活 cookie（`ses.cookies.get({})`），唯一可写源
+- **File tab** = `cookies.json` 磁盘快照，只读视图
+- 保存按钮永远是 `session → file` 单向：无论停在哪个 tab，IPC 都只从 session 读。File tab 下保存按钮 `disabled`（`updateSourceTabUI` 联动）
+- Cookie 行的 domain 列：无前导点 = host-only，有 `.` 前缀 = domain cookie（含子域）。UI 用 `cookie-badge-hostonly` 徽标区分，避免看起来像重复行
+
+### `state.currentContainer` 同步约定
+
+修改 `state.currentContainer` 后必须重渲染侧边栏，否则「当前」徽标和 active 高亮会滞后：
+
+```js
+state.currentContainer = tab.containerId;
+renderContainerList();  // 必跟
+```
+
+参考 `switchTab`（容器跟随活动 tab）和 `switchContainer`（用户主动切换）的现有写法。
 
 ## 扩展模块（待实现）
 
