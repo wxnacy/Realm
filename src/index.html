@@ -386,60 +386,6 @@
     </div>
   </dialog>
 
-  <!-- 规则管理对话框 -->
-  <dialog class="modal" id="rulesModal">
-    <div class="modal-content modal-large">
-      <h2>容器分配规则</h2>
-      <div class="rules-toolbar">
-        <div class="rule-form">
-          <select id="ruleContainerSelect" class="select-input">
-            <!-- 容器选项将由 JavaScript 动态生成 -->
-          </select>
-          <input type="text" id="rulePatternInput" class="text-input" placeholder="输入域名，如 google.com 或 *.google.com">
-          <button class="btn btn-primary" id="addRuleBtn">添加规则</button>
-        </div>
-        <div class="rules-actions">
-          <button class="btn btn-secondary" id="importRulesBtn">导入规则</button>
-          <button class="btn btn-secondary" id="exportRulesBtn">导出规则</button>
-        </div>
-      </div>
-      <div class="rules-list" id="rulesList">
-        <!-- 规则列表将由 JavaScript 动态生成 -->
-      </div>
-      <div class="form-actions">
-        <button class="btn btn-primary" id="closeRulesModal">关闭</button>
-      </div>
-    </div>
-  </dialog>
-
-  <!-- 快捷键设置对话框 -->
-  <dialog class="modal" id="shortcutsModal">
-    <div class="modal-content modal-large">
-      <h2>快捷键设置</h2>
-      <div class="shortcuts-list" id="shortcutsList">
-        <!-- 快捷键列表将由 JavaScript 动态生成 -->
-      </div>
-      <div class="form-actions">
-        <button class="btn btn-primary" id="closeShortcutsModal">关闭</button>
-      </div>
-    </div>
-  </dialog>
-
-  <!-- 快捷键捕获对话框（WR-5：window.prompt 在 Electron 中不受支持，改为按键捕获） -->
-  <dialog class="modal" id="shortcutCaptureModal">
-    <div class="modal-content">
-      <h2 id="shortcutCaptureTitle">修改快捷键</h2>
-      <div class="form-group">
-        <label>请按下新的快捷键组合（Esc 取消）</label>
-        <div class="key-capture-box" id="keyCaptureBox">等待按键...</div>
-      </div>
-      <div class="form-actions">
-        <button type="button" class="btn btn-secondary" id="cancelKeyCaptureBtn">取消</button>
-        <button type="button" class="btn btn-primary" id="saveKeyCaptureBtn" disabled>保存</button>
-      </div>
-    </div>
-  </dialog>
-
   <!-- 收藏编辑面板（dialog 元素 + showModal()，走 top layer 覆盖 webview） -->
   <dialog class="modal bookmark-edit-modal" id="bookmarkEditPanel">
     <div class="bookmark-edit-panel">
