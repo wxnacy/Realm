@@ -1,19 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 10-Cookie管理增强
 source: [10-VERIFICATION.md]
 started: 2026-07-26T15:35:00Z
-updated: 2026-07-27T03:10:00Z
+updated: 2026-07-27T03:18:00Z
 ---
 
 ## Current Test
 
-number: 6
-name: 保存到文件（域名过滤）— gap 修复后重测
-expected: |
-  在 https://www.baidu.com/ 标签页打开 Cookie 面板（"含子域名"过滤），点击保存按钮，
-  toast 显示的保存数量与面板过滤后显示的数量一致（约 6 个），不再保存容器全部 65 个 Cookie。
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -39,26 +34,26 @@ result: pass
 
 ### 6. 保存到文件（域名过滤）— gap 修复后重测
 expected: 在 https://www.baidu.com/ 标签页打开 Cookie 面板（"含子域名"过滤），点击保存按钮，toast 显示的保存数量与面板过滤后显示的数量一致（约 6 个），不再保存容器全部 65 个 Cookie。（10-02 已修复：handleSaveToFile 改用 state.tabs 提取域名，saveDomainCookies 过滤方向与面板对齐）
-result: [pending]
+result: pass
 
 ### 7. 样式一致性 — gap 修复后重测
 expected: Cookie 列表文字在深色行背景上清晰可读：name 列为亮色（--text-primary #f0f0f0），value/domain 列为次要色（--text-secondary #a0a0a0）。（10-02 已修复：显式颜色声明 + dialog UA 颜色防御）
-result: [pending]
+result: pass
 
 ### 8. 删除/编辑持久化（code review CR-01/WR-01 修复后运行时确认）
 expected: 删除任意已保存的 Cookie 后重启应用，该 Cookie 不复活；编辑 Cookie 后不产生重复条目（editingCookie 键字段锁定，domain/path 输入框已禁用）。
-result: [pending]
+result: pass
 
 ### 9. 保存范围跟随过滤器（code review WR-02 新行为）
 expected: 切换过滤模式后保存范围跟随："全部"→保存容器全部 Cookie；"含子域名"→保存当前域名及父域匹配集；"仅当前域名"→仅保存精确匹配当前域名的 Cookie。toast 文案带范围说明。
-result: [pending]
+result: pass
 
 ## Summary
 
 total: 9
-passed: 5
+passed: 9
 issues: 0
-pending: 4
+pending: 0
 skipped: 0
 blocked: 0
 
