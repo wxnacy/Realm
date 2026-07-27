@@ -49,18 +49,19 @@ Exceptions:
 
 ## Typography
 
+4 个字体大小等级，2 个字重：
+
 | Role | Size | Weight | Line Height |
 |------|------|--------|-------------|
 | Body | 13px | 400 (regular) | 1.5 |
-| Label | 13px | 500 (medium) | 1.4 |
-| Heading (h3) | 14px | 600 (semibold) | 1.3 |
+| Label | 13px | 600 (semibold) | 1.4 |
+| Heading (h3) / Sidebar title | 14px | 600 (semibold) | 1.3 |
 | Page title (h1) | 18px | 600 (semibold) | 1.3 |
-| Sidebar title | 15px | 600 (semibold) | 1.3 |
 | Sidebar item | 13px | 400 (regular) | 1.4 |
 | Version text | 11px | 400 (regular) | 1.4 |
-| Caption / badge | 11px | 500 (medium) | 1.3 |
+| Caption / badge | 11px | 600 (semibold) | 1.3 |
 
-**字体说明：** 13px body 与现有 Electron 应用（VS Code、Figma 桌面端）一致，macOS Retina 屏幕下可读性良好。所有字体大小使用绝对像素值（非 rem/em），与现有 main.css 风格保持一致。
+**字体说明：** 13px body 与现有 Electron 应用（VS Code、Figma 桌面端）一致，macOS Retina 屏幕下可读性良好。所有字体大小使用绝对像素值（非 rem/em），与现有 main.css 风格保持一致。侧边栏标题复用 14px（与 h3 共享），仅保留 4 个字体大小等级。
 
 ---
 
@@ -230,7 +231,7 @@ Accent reserved for:
 
 **侧边栏标题区域：**
 - 距顶部 24px 内边距
-- "设置" 文字，15px semibold，颜色 var(--text-primary)
+- "设置" 文字，14px semibold，颜色 var(--text-primary)
 - 底部 24px 间距
 
 **导航项：**
