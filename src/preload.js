@@ -505,6 +505,82 @@ contextBridge.exposeInMainWorld('realmAPI', {
   registerGuestContainer: (contentsId, containerId) =>
     ipcRenderer.invoke('webview:register-container', contentsId, containerId),
 
+  // ==================== 右键菜单 ====================
+
+  /**
+   * 发送标签页右键菜单请求
+   * 渲染进程检测到 Tab 栏右键点击后调用，主进程构建并弹出原生菜单
+   * @param {Object} tabInfo - 标签页上下文信息
+   * @param {string} tabInfo.tabId - 右键点击的 Tab ID
+   * @param {number} tabCount - 当前 Tab 总数
+   * @param {number} tabIndex - 该 Tab 在列表中的位置
+   * @param {boolean} isPinned - 是否已固定
+   * @param {boolean} hasClosedTabs - 是否有已关闭的标签页（用于"重新打开"）
+   */
+  showTabContextMenu: (tabInfo) => ipcRenderer.send('show-tab-context-menu', tabInfo),
+
+  /**
+   * 发送网页右键菜单请求
+   * 渲染进程检测到 webview 内右键点击后调用，主进程根据元素类型构建对应菜单
+   * @param {Object} contextInfo - 网页右键上下文信息
+   * @param {string} contextInfo.type - 元素类型：'general' | 'image' | 'link'
+   * @param {string} contextInfo.linkURL - 链接 URL（非链接时为空串）
+   * @param {string} contextInfo.srcURL - 媒体元素 src URL
+   * @param {string} contextInfo.mediaType - 媒体类型：'none' | 'image' | 'video' 等
+   * @param {string} contextInfo.selectionText - 选中的文本
+   * @param {boolean} contextInfo.canGoBack - 是否可后退
+   * @param {boolean} contextInfo.canGoForward - 是否可前进
+   * @param {boolean} contextInfo.isLoading - 是否正在加载
+   */
+  showWebContextMenu: (contextInfo) => ipcRenderer.send('show-web-context-menu', contextInfo),
+
+  /**
+   * 注册右键菜单动作回调监听器
+   * 主进程菜单项被点击后，通过对应 channel 发送回调，渲染进程据此更新 UI
+   * 支持的 channel：context-menu:close-tab, context-menu:close-other-tabs,
+   * context-menu:close-left-tabs, context-menu:close-right-tabs,
+   * context-menu:reopen-tab, context-menu:toggle-pin,
+   * context-menu:open-in-new-tab, context-menu:open-in-bg-tab,
+   * context-menu:open-in-container, context-menu:save-image,
+   * context-menu:copy-image, context-menu:copy-image-address,
+   * context-menu:copy-link-address, context-menu:add-to-favorites,
+   * context-menu:toast, context-menu:text-action
+   * @param {Function} callback - 回调函数，参数为 (channel: string, data: Object)
+   */
+  onContextMenuAction: (callback) => {
+    const channels = [
+      'context-menu:close-tab',
+      'context-menu:close-other-tabs',
+      'context-menu:close-left-tabs',
+      'context-menu:close-right-tabs',
+      'context-menu:reopen-tab',
+      'context-menu:toggle-pin',
+      'context-menu:open-in-new-tab',
+      'context-menu:open-in-bg-tab',
+      'context-menu:open-in-container',
+      'context-menu:save-image',
+      'context-menu:copy-image',
+      'context-menu:copy-image-address',
+      'context-menu:copy-link-address',
+      'context-menu:add-to-favorites',
+      'context-menu:toast',
+      'context-menu:text-action',
+    ];
+    channels.forEach(channel => {
+      ipcRenderer.on(channel, (event, data) => callback(channel, data));
+    });
+  },
+
+  /**
+   * 通知主进程已关闭一个标签页
+   * 用于在主进程侧维护 closedTabsStack（与渲染进程侧同步）
+   * @param {Object} tabInfo - 已关闭标签的信息
+   * @param {string} tabInfo.containerId - 容器 ID
+   * @param {string} tabInfo.url - 标签页 URL
+   * @param {string} tabInfo.title - 标签页标题
+   */
+  notifyClosedTab: (tabInfo) => ipcRenderer.send('context-menu:closed-tab', tabInfo),
+
   // ==================== 应用设置 ====================
 
   /**
