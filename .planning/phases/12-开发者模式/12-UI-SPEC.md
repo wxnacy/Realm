@@ -56,7 +56,7 @@ Additional:
 - Table header: 14px, weight 600, letter-spacing 0.02em
 - Table cell: 14px, weight 400
 - Toast: 14px, weight 400
-- Badge/tag: 12px, weight 500
+- Badge/tag: 12px, weight 400
 
 ---
 
@@ -248,7 +248,7 @@ Accent reserved for:
 - 3xx: #3B82F6 text
 - 4xx: #F59E0B text
 - 5xx: #EF4444 text
-- Font: 14px, weight 500
+- Font: 14px, weight 400
 
 **URL Column:**
 - Truncate with ellipsis at 500px max-width
@@ -288,7 +288,7 @@ Accent reserved for:
 - Search input: same style as `.history-search`, placeholder "搜索 URL..."
 - Domain dropdown: `.settings-select` style, options populated from captured domains
 - Method dropdown: `.settings-select` style, options: 全部/GET/POST/PUT/DELETE/PATCH
-- Refresh button: `.btn .btn-secondary`, icon only (refresh SVG), 36x36px
+- Refresh button: `.btn .btn-secondary`, icon only (refresh SVG), 36x36px, `aria-label="刷新请求列表"`
 
 **Container Selector:**
 - Reuse `.settings-select` style
@@ -361,6 +361,7 @@ No third-party registries used. All components are vanilla JS with existing CSS 
 - Domain delete button: `aria-label="移除域名 {domain}"`
 - Status indicators: `aria-live="polite"` for queue status updates
 - Filter inputs: associated `<label>` elements or `aria-label`
+- Refresh button (filter bar): `aria-label="刷新请求列表"`
 
 ---
 
