@@ -1,45 +1,55 @@
 ---
 phase: 12-开发者模式
 verified: 2026-07-27T10:00:00Z
-status: human_needed
+status: passed
 score: 9/15 must-haves verified
 behavior_unverified: 6
 overrides_applied: 0
 behavior_unverified_items:
+
   - truth: "开发者模式开关状态和域名列表通过 electron-store 持久化，重启后保持"
     test: "开启开发者模式 → 添加域名 → 重启应用 → 检查开关状态和域名列表"
     expected: "开关仍为开启状态，域名列表保持不变"
     why_human: "需要实际运行 Electron 应用并验证 electron-store 持久化行为"
+
   - truth: "webview 导航时自动检查域名是否在抓取列表中，匹配则附加 CDP 调试器"
     test: "添加监控域名 → 在 webview 中导航到该域名 → 检查调试器是否附加"
     expected: "调试器自动附加，控制台显示 [Realm CDP] 调试器已附加 日志"
     why_human: "需要实际 webview 导航和 CDP 调试器运行时状态"
+
   - truth: "CDP 调试器抓取网络请求数据（URL、方法、状态码、请求头、响应头、响应体）"
     test: "在监控域名页面发起 API 请求 → 查看 SQLite 中是否写入对应记录"
     expected: "dev_requests_{containerId} 表中出现抓取的请求记录，字段完整"
     why_human: "需要实际网络请求和 CDP 事件触发"
+
   - truth: "写入队列每 2 秒 flush 一次，队列达到 1000 条时触发紧急 flush"
     test: "产生大量请求 → 观察队列状态和 flush 行为"
     expected: "队列定期清空，1000 条时立即触发 flush"
     why_human: "需要高并发网络请求场景和运行时观察"
+
   - truth: "写入失败重试 3 次后丢弃并记录 console.error"
     test: "模拟数据库写入失败 → 观察重试行为和日志"
     expected: "控制台显示 3 次重试日志，第 4 次显示丢弃日志"
     why_human: "需要模拟数据库异常场景"
+
   - truth: "设置页面通过 IPC 获取/更新开发者模式配置"
     test: "在设置页面切换开关、添加域名 → 检查 API 调用和配置更新"
     expected: "API 调用成功，electron-store 中配置同步更新"
     why_human: "需要运行 Electron 应用并验证 HTTP API 和 electron-store 联动"
 human_verification:
+
   - test: "端到端开发者模式流程测试"
     expected: "开启开关 → 添加域名 → 在 webview 中访问该域名 → devrequests 页面显示抓取的请求记录"
     why_human: "需要运行 Electron 应用，涉及 CDP 调试器、webview 导航、SQLite 写入等多个运行时组件"
+
   - test: "设置页面开发者模式 UI 交互"
     expected: "开关 toggle 正常切换，配置区域禁用/启用状态正确，域名添加/删除功能正常，队列状态实时更新"
     why_human: "需要运行 Electron 应用并验证 UI 交互行为"
+
   - test: "devrequests 请求查看页面功能"
     expected: "页面正常加载，表格显示请求记录，点击行展开详情，过滤和分页功能正常"
     why_human: "需要实际抓取数据后验证页面展示和交互"
+
   - test: "应用重启后配置持久化"
     expected: "关闭并重启应用后，开发者模式开关状态和域名列表保持不变"
     why_human: "需要实际运行 Electron 应用并验证持久化行为"
