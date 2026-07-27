@@ -554,6 +554,12 @@ async function importRules() {
 
 /**
  * 处理文件选择完成
+ *
+ * 接受两种文件格式：裸规则数组（[...]）或应用自身导出产物
+ * （{ rules: [...], exportedAt }）。导入失败时以 toast 展示服务端
+ * 返回的具体原因（格式错误、全部重复等），不再出现「已导入 undefined
+ * 条规则」的假成功提示。文件输入在 finally 块重置，保证所有退出路径
+ * 都能再次触发 change 事件。
  */
 async function handleFileSelect(e) {
   const file = e.target.files[0];
@@ -562,12 +568,23 @@ async function handleFileSelect(e) {
   try {
     const text = await file.text();
     const rulesData = JSON.parse(text);
+    const rules = Array.isArray(rulesData) ? rulesData : rulesData.rules;
+
+    if (!Array.isArray(rules)) {
+      showToast('文件格式不正确：缺少 rules 数组');
+      return;
+    }
 
     const result = await rulesApi('import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rules: rulesData }),
+      body: JSON.stringify({ rules }),
     });
+
+    if (result.success === false) {
+      showToast(result.message || '导入失败');
+      return;
+    }
 
     const skippedText = result.skipped > 0 ? `，跳过 ${result.skipped} 条重复` : '';
     showToast(`已导入 ${result.count} 条规则${skippedText}`);
@@ -575,10 +592,10 @@ async function handleFileSelect(e) {
   } catch (error) {
     console.error('[Realm] 导入规则失败:', error);
     showToast('导入失败，请检查文件格式');
+  } finally {
+    // 清空文件输入，保证所有退出路径都能再次触发 change 事件
+    e.target.value = '';
   }
-
-  // 清空文件输入
-  e.target.value = '';
 }
 
 /**
