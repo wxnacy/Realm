@@ -350,7 +350,7 @@ Plans:
 Plans:
 
 - [x] 13-01-PLAN.md — 主进程菜单基础设施：context-menu-manager.js + IPC 监听器
-- [ ] 13-02-PLAN.md — 渲染进程集成：preload API + 右键事件监听 + 菜单回调 + 固定标签
+- [x] 13-02-PLAN.md — 渲染进程集成：preload API + 右键事件监听 + 菜单回调 + 固定标签
 
 **UI hint**: yes
 
@@ -375,4 +375,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 10. Cookie 管理增强 | v1.2 | 2/2 | Complete    | 2026-07-26 |
 | 11. 设置页面重构 — 左侧边栏 + 规则/快捷键页面化 | v1.2 | 2/2 | Complete    | 2026-07-27 |
 | 12. 开发者模式 — API 请求抓取 | v1.2 | 2/2 | Complete    | 2026-07-27 |
-| 13. 右键菜单增强 — 标签页/图片/链接上下文菜单 | v1.3 | 1/2 | In Progress|  |
+| 13. 右键菜单增强 — 标签页/图片/链接上下文菜单 | v1.3 | 2/2 | Complete   | 2026-07-27 |
