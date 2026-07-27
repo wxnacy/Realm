@@ -1031,10 +1031,11 @@ function setupEventListeners() {
 
   // ==================== 开发者模式事件 ====================
 
-  // 开发者模式开关
+  // 开发者模式开关（div-based toggle，使用 click 事件）
   if (elements.devModeToggle) {
-    elements.devModeToggle.addEventListener('change', () => {
-      saveDevModeEnabled(elements.devModeToggle.checked);
+    elements.devModeToggle.addEventListener('click', () => {
+      const newState = !state.devMode.enabled;
+      saveDevModeEnabled(newState);
     });
   }
 
@@ -1054,6 +1055,15 @@ function setupEventListeners() {
         e.preventDefault();
         addDomain(elements.domainInput.value);
       }
+    });
+  }
+
+  // 查看抓取请求链接 — 在新 tab 打开 realm://devrequests
+  if (elements.devrequestsLink) {
+    elements.devrequestsLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      const containerParam = state.devMode.containerId || 'default';
+      window.open(`realm://devrequests?container=${containerParam}`, '_blank');
     });
   }
 
@@ -1243,13 +1253,22 @@ function renderDomainList() {
  * @param {boolean} enabled - 是否启用
  */
 function updateDevModeUI(enabled) {
+  // div-based toggle：通过 active class 控制视觉状态
   if (elements.devModeToggle) {
-    elements.devModeToggle.checked = enabled;
+    if (enabled) {
+      elements.devModeToggle.classList.add('active');
+    } else {
+      elements.devModeToggle.classList.remove('active');
+    }
   }
 
+  // 配置区域禁用/启用（通过 CSS class 控制）
   if (elements.devModeSection) {
-    elements.devModeSection.style.opacity = enabled ? '1' : '0.4';
-    elements.devModeSection.style.pointerEvents = enabled ? 'auto' : 'none';
+    if (enabled) {
+      elements.devModeSection.classList.remove('disabled');
+    } else {
+      elements.devModeSection.classList.add('disabled');
+    }
   }
 }
 

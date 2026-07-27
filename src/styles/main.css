@@ -2382,3 +2382,355 @@ textarea::placeholder {
   border-style: solid;
   border-color: var(--accent-color);
 }
+
+/* ==================== 开发者模式配置区域 ==================== */
+
+/* 开发者模式配置区域禁用状态 */
+.devmode-content.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* 域名输入区域 */
+.devmode-domain-input {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.devmode-domain-input .text-input {
+  flex: 1;
+  height: 40px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.devmode-domain-input .text-input:focus {
+  border-color: var(--accent-color);
+  outline: none;
+}
+
+/* 域名列表 */
+.devmode-domain-list {
+  margin-bottom: 16px;
+}
+
+.devmode-domain-list .domain-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.devmode-domain-list .domain-item:last-child {
+  border-bottom: none;
+}
+
+.devmode-domain-list .domain-text {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.devmode-domain-list .domain-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.devmode-domain-list .domain-remove:hover {
+  color: var(--danger-color);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.devmode-domain-list .domain-empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 12px;
+  font-size: 14px;
+}
+
+/* 队列状态颜色 */
+.devmode-queue-count {
+  font-weight: 500;
+}
+
+.queue-normal { color: var(--success-color, #10B981); }
+.queue-warning { color: var(--warning-color, #F59E0B); }
+.queue-danger { color: var(--danger-color, #EF4444); }
+
+/* 查看请求链接 */
+.devmode-link {
+  color: var(--accent-color);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.devmode-link:hover {
+  text-decoration: underline;
+}
+
+/* ==================== DevRequests 页面 ==================== */
+
+.devrequests-page {
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* 头部 */
+.devrequests-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.devrequests-header h1 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.devrequests-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* 过滤栏 */
+.devrequests-filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.devrequests-filters .text-input {
+  flex: 1;
+  height: 36px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.devrequests-filters .settings-select {
+  height: 36px;
+  min-width: 100px;
+}
+
+/* 表格容器 */
+.devrequests-table-container {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* 表格 */
+.devrequests-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.devrequests-table thead {
+  background: var(--bg-secondary);
+}
+
+.devrequests-table th {
+  padding: 8px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+}
+
+.devrequests-table th:hover {
+  color: var(--text-primary);
+}
+
+.devrequests-table td {
+  padding: 6px 12px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+  height: 36px;
+  vertical-align: middle;
+}
+
+.devrequests-table tr {
+  cursor: pointer;
+}
+
+.devrequests-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.devrequests-table tbody tr.selected {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+/* 列宽 */
+.col-method { width: 70px; }
+.col-url { /* flex */ }
+.col-status { width: 70px; text-align: center; }
+.col-time { width: 80px; text-align: right; }
+.col-size { width: 80px; text-align: right; }
+
+/* 方法颜色 */
+.method-get { color: #10B981; }
+.method-post { color: #3B82F6; }
+.method-put { color: #F59E0B; }
+.method-delete { color: #EF4444; }
+.method-patch { color: #8B5CF6; }
+
+/* 状态码颜色 */
+.status-2xx { color: #10B981; }
+.status-3xx { color: #3B82F6; }
+.status-4xx { color: #F59E0B; }
+.status-5xx { color: #EF4444; }
+
+/* URL 列 */
+.url-cell {
+  max-width: 500px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+/* 详情面板 */
+.devrequests-detail {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  margin-top: -1px;
+}
+
+.devrequests-detail-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-color);
+  padding: 0 12px;
+}
+
+.detail-tab {
+  padding: 8px 16px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  border-bottom: 2px solid transparent;
+}
+
+.detail-tab.active {
+  color: var(--accent-color);
+  border-bottom-color: var(--accent-color);
+}
+
+.detail-tab:hover {
+  color: var(--text-primary);
+}
+
+.devrequests-detail-content {
+  position: relative;
+  padding: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.devrequests-detail-pre {
+  font-family: monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+
+.devrequests-copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.devrequests-copy-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* 空状态 */
+.devrequests-empty {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-secondary);
+}
+
+.devrequests-empty h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.devrequests-empty p {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+/* 分页 */
+.devrequests-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.page-btn {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  padding: 6px 16px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.page-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+#pageInfo {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
