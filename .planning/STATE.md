@@ -24,16 +24,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-25)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载
-**Current focus:** Phase 11 — 设置页面重构
+**Current focus:** Phase 12 — 开发者模式（12-02 待执行）
 
 ## Current Position
 
 Phase: 12 — 开发者模式
-Plan: Not started
-Status: Phase 11 Complete (Plan 02 gap closure executed inline after subagent 429)
+Plan: Not started (12-02 待执行，12-01 已完成)
+Status: Phase 11 Complete — UAT 4/4 passed, transitioned to Phase 12
 Last activity: 2026-07-27 — Phase 11 complete, transitioned to Phase 12
 
-Progress: [██████████] 100% (Phase 11 complete)
+Progress: [███████████████████░] 15/16 plans (94%)
 
 ## Performance Metrics
 
@@ -84,6 +84,9 @@ Recent decisions affecting current work:
 - [Phase 10]: 保存侧过滤以 UI 为基准对齐（当前域名及其父域，与面板含子域名过滤同集合，UI 所见即所存）
 - [Phase 10]: handleSaveToFile 域名提取与 showCookiesModal 同源（state.tabs），单一域名来源避免分叉
 - [Phase 10]: .modal 显式 color 覆盖原生 dialog UA 默认黑色，作全部模态框后代的防御性兜底
+- [Phase 11]: 设置页面 webview 走 HTTP API 而非 IPC（assertTrustedSender 拒绝 guest IPC）
+- [Phase 11]: 服务端归一化防御层 normalizeRulesPayload 放路由层，不侵入 importRules 校验契约
+- [Phase 11]: HTTP 200 失败对象客户端必须检查 result.success 并 toast 真实 message，文件输入重置 finally 化
 
 ### Pending Todos
 
@@ -110,7 +113,7 @@ Items acknowledged and deferred at milestone close on 2026-07-26:
 
 ## Session Continuity
 
-Last session: 2026-07-27T08:15:58.201Z
-Stopped at: Phase 12 UI-SPEC approved
-Resume file: .planning/phases/12-开发者模式/12-UI-SPEC.md
-Next action: Phase 11 complete — ready for next milestone
+Last session: 2026-07-27T16:00:00.000Z
+Stopped at: Phase 11 complete (UAT 4/4 passed), Phase 12 in progress — 12-01 done, 12-02 not started
+Resume file: None
+Next action: Execute Phase 12 Plan 02（设置 UI 开发者模式配置 + realm://devrequests 请求查看页面）

@@ -77,6 +77,9 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ SETT-03: 默认浏览器使用当前容器打开外部链接 — v1.1
 - ✓ SETT-04: 设置持久化（electron-store） — v1.1
 - ✓ SETT-05: 设置页面包含历史记录保留天数配置 — v1.1
+- ✓ SETT-09: 规则导出→导入往返可用，失败时 toast 显示真实原因 — Phase 11
+- ✓ 设置页面侧边栏多页面布局（通用/分配规则/快捷键设置/关于） — Phase 11
+- ✓ 分配规则与快捷键设置从弹窗迁移入设置页面 — Phase 11
 
 ### Active
 
@@ -156,6 +159,9 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | realm:// 自定义协议用于内部页面 | 避免 http:// 路由冲突 | ✓ 已验证 — Phase 6 |
 | 收藏从按容器隔离重构为全局共享 | 用户判断收藏应跨容器共享（类似 Chrome） | ✓ 已验证 — Phase 9 |
 | 容器 ID 白名单验证 [a-z0-9-] | 防 SQL 注入 | ✓ 已验证 — Phase 6 |
+| 设置页面 webview 通过 HTTP API 而非 IPC 访问数据 | guest 内 assertTrustedSender 会拒绝 IPC；/api/* 路由统一 token 鉴权 | ✓ 已验证 — Phase 11 |
+| 服务端 payload 归一化防御层（normalizeRulesPayload） | 路由层解包任意层级 {rules} 包裹，不侵入 importRules 既有校验契约 | ✓ 已验证 — Phase 11（9/9 冒烟断言） |
+| 客户端失败可见性契约：result.success === false → toast 真实原因 | 静默吞错导致用户感知"没反应"（Phase 11 UAT gap 根因） | ✓ 已验证 — Phase 11 UAT 重跑通过 |
 
 ## Evolution
 
@@ -175,4 +181,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-26 — Milestone v1.1 shipped*
+*Last updated: 2026-07-27 after Phase 11（设置页面重构 + 规则导入修复）*
