@@ -125,6 +125,9 @@ const state = {
   currentBookmarkTitle: null,
 };
 
+// 已关闭标签栈（LIFO，最多 10 条），用于"重新打开已关闭标签页"功能
+const closedTabsStack = [];
+
 // 注意：Tab 回收策略（上限/文案/回收逻辑）单点实现于主进程 tab-manager（WR-4）。
 // 渲染进程不再持有 TAB_MAX_COUNT / TAB_RECYCLE_MESSAGE / recycleOldestTab 副本，
 // 回收结果经 tab:recycled 事件推送（见 handleTabRecycled）。
@@ -488,9 +491,28 @@ async function switchTab(tabId) {
  * 关闭 Tab
  * @param {string} tabId - Tab ID
  */
+async function closedTabsStackPush(tab) {
+  if (!tab) return;
+  const info = { containerId: tab.containerId, url: tab.url || '', title: tab.title || '' };
+  closedTabsStack.push(info);
+  if (closedTabsStack.length > 10) closedTabsStack.shift();
+  try {
+    window.realmAPI.notifyClosedTab(info);
+  } catch (err) {
+    console.error('[Realm Renderer] notifyClosedTab 失败:', err);
+  }
+}
+
+/**
+ * 关闭 Tab
+ * @param {string} tabId - Tab ID
+ */
 async function closeTab(tabId) {
   const tab = state.tabs.get(tabId);
   if (!tab) return;
+
+  // 保存已关闭标签信息（用于"重新打开已关闭标签页"）
+  closedTabsStackPush(tab);
 
   // 调用主进程关闭 Tab
   const result = await window.realmAPI.closeTab(tabId);
@@ -757,6 +779,24 @@ function bindWebviewEvents(tabId, webview) {
   // 注意：webview 的 new-window 事件在 Electron 32 已移除（WR-1）。
   // guest 的 window.open / target=_blank 由主进程 setWindowOpenHandler 拦截，
   // 经 open-url-in-tab 事件转交 handleOpenUrlInTab 在对应容器新建 Tab（D-09）。
+
+  // 网页右键菜单事件
+  webview.addEventListener('context-menu', (e) => {
+    const params = e.params || e.detail || {};
+    const isImage = params.mediaType === 'image' || params.hasImageContents;
+    const isLink = !!params.linkURL;
+    const type = isImage ? 'image' : isLink ? 'link' : 'general';
+    window.realmAPI.showWebContextMenu({
+      type,
+      linkURL: params.linkURL || '',
+      srcURL: params.srcURL || '',
+      mediaType: params.mediaType || 'none',
+      selectionText: params.selectionText || '',
+      canGoBack: webview.canGoBack(),
+      canGoForward: webview.canGoForward(),
+      isLoading: webview.isLoading(),
+    });
+  });
 
   // 加载失败事件
   webview.addEventListener('did-fail-load', (e) => {
@@ -1104,6 +1144,220 @@ async function restoreTabs() {
 }
 
 /**
+ * 处理右键菜单动作回调
+ * 主进程菜单项被点击后，通过 IPC channel 发送回调，此函数统一分发处理
+ * @param {string} channel - IPC channel 名称
+ * @param {Object} data - 回调数据
+ */
+function handleContextMenuAction(channel, data) {
+  switch (channel) {
+    case 'context-menu:close-tab':
+      if (data && data.tabId) {
+        closeTab(data.tabId);
+      }
+      break;
+
+    case 'context-menu:close-other-tabs': {
+      if (!data || !data.tabId) break;
+      const tabIdsToClose = [];
+      state.tabs.forEach((tab, tabId) => {
+        if (tabId !== data.tabId) {
+          tabIdsToClose.push(tabId);
+        }
+      });
+      tabIdsToClose.forEach(tabId => closeTab(tabId));
+      break;
+    }
+
+    case 'context-menu:close-left-tabs': {
+      if (!data || !data.tabId) break;
+      const allIds = Array.from(state.tabs.keys());
+      const leftIndex = allIds.indexOf(data.tabId);
+      if (leftIndex <= 0) break;
+      const leftIds = allIds.slice(0, leftIndex);
+      leftIds.forEach(tabId => closeTab(tabId));
+      break;
+    }
+
+    case 'context-menu:close-right-tabs': {
+      if (!data || !data.tabId) break;
+      const allRightIds = Array.from(state.tabs.keys());
+      const rightIndex = allRightIds.indexOf(data.tabId);
+      if (rightIndex < 0 || rightIndex >= allRightIds.length - 1) break;
+      const rightIds = allRightIds.slice(rightIndex + 1);
+      rightIds.forEach(tabId => closeTab(tabId));
+      break;
+    }
+
+    case 'context-menu:reopen-tab': {
+      if (closedTabsStack.length === 0) {
+        showToast('没有可恢复的标签页', 'info');
+        break;
+      }
+      const lastClosed = closedTabsStack.pop();
+      createTab(lastClosed.containerId, lastClosed.url);
+      break;
+    }
+
+    case 'context-menu:toggle-pin': {
+      if (!data || !data.tabId) break;
+      const tab = state.tabs.get(data.tabId);
+      if (!tab) break;
+      tab.pinned = !tab.pinned;
+      window.realmAPI.updateTab(data.tabId, { pinned: tab.pinned });
+      renderTabs();
+      break;
+    }
+
+    case 'context-menu:open-in-new-tab':
+      if (data && data.url) {
+        // T-13-04 安全校验：拒绝 javascript: 等非 http(s)/realm 协议
+        if (/^(https?|realm):\/\//i.test(data.url)) {
+          createTab(state.currentContainer, data.url);
+        } else {
+          console.warn('[Realm Renderer] 拒绝非安全协议 URL:', data.url);
+        }
+      }
+      break;
+
+    case 'context-menu:open-in-bg-tab':
+      if (data && data.url) {
+        // T-13-04 安全校验：同 open-in-new-tab
+        if (/^(https?|realm):\/\//i.test(data.url)) {
+          // 后台打开：创建 Tab 但不切换（createTab 默认会 switchTab，需要先记住当前 Tab）
+          const currentActiveTabId = state.activeTabId;
+          createTab(state.currentContainer, data.url).then(() => {
+            // 切回原来的 Tab
+            if (currentActiveTabId && state.tabs.has(currentActiveTabId)) {
+              switchTab(currentActiveTabId);
+            }
+          });
+        } else {
+          console.warn('[Realm Renderer] 拒绝非安全协议 URL:', data.url);
+        }
+      }
+      break;
+
+    case 'context-menu:open-in-container':
+      if (data && data.url && data.containerId) {
+        // T-13-04 安全校验：同 open-in-new-tab
+        if (/^(https?|realm):\/\//i.test(data.url)) {
+          createTab(data.containerId, data.url);
+        } else {
+          console.warn('[Realm Renderer] 拒绝非安全协议 URL:', data.url);
+        }
+      }
+      break;
+
+    case 'context-menu:add-to-favorites':
+      if (data && data.url) {
+        window.realmAPI.favoritesAdd({
+          url: data.url,
+          title: data.title || data.url,
+          faviconUrl: '',
+        }).then(result => {
+          if (result.error === 'duplicate') {
+            showToast('已收藏过该页面', 'info');
+          } else {
+            showToast('已收藏', 'success');
+          }
+        }).catch(err => {
+          console.error('[Realm Renderer] 收藏失败:', err);
+          showToast('收藏失败', 'error');
+        });
+      }
+      break;
+
+    case 'context-menu:toast':
+      if (data && data.message) {
+        showToast(data.message, data.type || 'success');
+      }
+      break;
+
+    case 'context-menu:text-action':
+      // T-13-05 安全白名单：仅允许四个文本编辑操作
+      if (data && data.action) {
+        const allowedActions = ['cut', 'copy', 'paste', 'selectAll'];
+        if (!allowedActions.includes(data.action)) {
+          console.warn('[Realm Renderer] 拒绝非白名单 text-action:', data.action);
+          break;
+        }
+        const activeWebview = state.webviews.get(state.activeTabId);
+        if (activeWebview) {
+          activeWebview.executeJavaScript(`document.execCommand('${data.action}')`);
+        }
+      }
+      break;
+
+    default:
+      console.log('[Realm Renderer] 未知的右键菜单 action:', channel);
+  }
+}
+
+/**
+ * 重新渲染整个 Tab 栏
+ * 用于固定/取消固定标签页后更新排序和样式
+ * 固定标签排在最左侧，宽度缩小，显示固定图标
+ */
+function renderTabs() {
+  const tabList = elements.tabList;
+  tabList.innerHTML = '';
+
+  // 将 Tabs 分为固定和未固定两组，固定在前
+  const pinnedTabs = [];
+  const unpinnedTabs = [];
+  state.tabs.forEach((tab, tabId) => {
+    if (tab.pinned) {
+      pinnedTabs.push([tabId, tab]);
+    } else {
+      unpinnedTabs.push([tabId, tab]);
+    }
+  });
+
+  const sortedTabs = [...pinnedTabs, ...unpinnedTabs];
+
+  sortedTabs.forEach(([tabId, tab]) => {
+    // 如果已有 element，更新 class 后追加；否则需要重新创建
+    let tabElement = tab.element;
+    if (!tabElement) {
+      // 重建 DOM element（防御性：正常流程 element 应始终存在）
+      tabElement = document.createElement('div');
+      tabElement.dataset.tabId = tabId;
+
+      const color = getContainerColor(tab.containerId);
+      const colorLine = document.createElement('div');
+      colorLine.className = 'tab-color-line';
+      colorLine.style.backgroundColor = color;
+
+      const content = document.createElement('div');
+      content.className = 'tab-content';
+
+      const title = document.createElement('span');
+      title.className = 'tab-title';
+      title.textContent = tab.title;
+
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'tab-close';
+      closeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>';
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeTab(tabId);
+      });
+
+      content.appendChild(title);
+      tabElement.appendChild(colorLine);
+      tabElement.appendChild(content);
+      tabElement.appendChild(closeBtn);
+      tab.element = tabElement;
+    }
+
+    // 更新 class：固定标签添加 pinned 样式
+    tabElement.className = 'tab' + (tabId === state.activeTabId ? ' active' : '') + (tab.pinned ? ' tab-pinned' : '');
+    tabList.appendChild(tabElement);
+  });
+}
+
+/**
  * 初始化应用
  */
 async function init() {
@@ -1140,6 +1394,9 @@ async function init() {
 
   // 监听主进程的 Tab 回收事件（WR-4）
   window.realmAPI.onTabRecycled(handleTabRecycled);
+
+  // 注册右键菜单动作回调
+  window.realmAPI.onContextMenuAction(handleContextMenuAction);
 
   console.log('[Realm Renderer] 初始化完成');
 }
@@ -2010,6 +2267,28 @@ function setupEventListeners() {
 
     const tabId = tabElement.dataset.tabId;
     switchTab(tabId);
+  });
+
+  // Tab 栏右键菜单事件委托
+  elements.tabList.addEventListener('contextmenu', (e) => {
+    const tabElement = e.target.closest('.tab');
+    if (!tabElement) return;
+
+    e.preventDefault();
+    const tabId = tabElement.dataset.tabId;
+    const tab = state.tabs.get(tabId);
+    if (!tab) return;
+
+    // 收集上下文信息
+    const tabIds = Array.from(state.tabs.keys());
+    const tabIndex = tabIds.indexOf(tabId);
+    window.realmAPI.showTabContextMenu({
+      tabId,
+      tabCount: state.tabs.size,
+      tabIndex,
+      isPinned: !!tab.pinned,
+      hasClosedTabs: closedTabsStack.length > 0,
+    });
   });
 
   // 新标签页搜索框
