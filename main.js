@@ -644,8 +644,8 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'import' && req.method === 'POST') {
-        const { rules } = await readJsonBody(req);
-        const result = assignmentRules.importRules(rules);
+        const payload = await readJsonBody(req);
+        const result = assignmentRules.importRules(assignmentRules.normalizeRulesPayload(payload));
         sendJson(res, 200, result);
         return;
       }

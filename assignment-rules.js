@@ -236,6 +236,25 @@ function exportRules() {
 }
 
 /**
+ * 归一化规则导入 payload
+ *
+ * 接受裸规则数组或任意层级的 { rules: ... } 包裹（含导出产物
+ * { rules, exportedAt }），逐层解包后返回规则数组；无法得到数组时返回 null。
+ * 用于消除客户端/服务端在 body 形状上的隐式耦合：裸数组（零次解包）、单层
+ * 包裹（一次）、旧版客户端的多层包裹（多次）均被接受。
+ *
+ * @param {*} payload - 客户端提交的原始 body 或磁盘文件解析结果
+ * @returns {Array|null} 规则数组，或 null（输入无法归一化为数组）
+ */
+function normalizeRulesPayload(payload) {
+  let current = payload;
+  while (!Array.isArray(current) && current !== null && typeof current === 'object' && 'rules' in current) {
+    current = current.rules;
+  }
+  return Array.isArray(current) ? current : null;
+}
+
+/**
  * 导入规则
  * @param {Array} rulesData - 解析后的规则数组
  * @returns {Object} 导入结果
@@ -299,5 +318,6 @@ module.exports = {
   matchPattern,
   reorderRules,
   exportRules,
+  normalizeRulesPayload,
   importRules,
 };
