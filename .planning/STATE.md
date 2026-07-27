@@ -3,37 +3,37 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Cookie 管理增强
 current_phase: 12
-current_phase_name: 开发者模式
 status: completed
-stopped_at: Phase 12 UI-SPEC approved
-last_updated: "2026-07-27T09:29:54.498Z"
+stopped_at: Phase 12 complete (UAT 4/4 passed) — milestone v1.2 100% complete
+last_updated: "2026-07-27T14:45:00.000Z"
 last_activity: 2026-07-27
-last_activity_desc: Phase 11 complete, transitioned to Phase 12
+last_activity_desc: Phase 12 complete
 progress:
   total_phases: 8
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 16
-  completed_plans: 14
-  percent: 88
+  completed_plans: 16
+  percent: 100
+current_phase_name: 开发者模式
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-25)
+See: .planning/PROJECT.md (updated 2026-07-27)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载
-**Current focus:** Phase 12 — 开发者模式（12-02 待执行）
+**Current focus:** v1.2 完成 — 待归档并规划下一里程碑
 
 ## Current Position
 
-Phase: 12 — 开发者模式
-Plan: Not started (12-02 待执行，12-01 已完成)
-Status: Phase 11 Complete — UAT 4/4 passed, transitioned to Phase 12
-Last activity: 2026-07-27 — Phase 11 complete, transitioned to Phase 12
+Phase: 12
+Plan: Not started
+Status: Phase 12 Complete — UAT 4/4 passed, milestone v1.2 100%
+Last activity: 2026-07-27 — Phase 12 complete
 
-Progress: [███████████████████░] 15/16 plans (94%)
+Progress: [████████████████████] 16/16 plans (100%)
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Progress: [███████████████████░] 15/16 p
 | 9. 共享收藏数据库 | 3/4 | Complete |
 | 10. Cookie 管理增强 | 1/1 | Complete |
 | 11. 设置页面重构 | 2/2 | Complete |
+| 12. 开发者模式 | 2/2 | Complete |
 
 ## Accumulated Context
 
@@ -87,6 +88,9 @@ Recent decisions affecting current work:
 - [Phase 11]: 设置页面 webview 走 HTTP API 而非 IPC（assertTrustedSender 拒绝 guest IPC）
 - [Phase 11]: 服务端归一化防御层 normalizeRulesPayload 放路由层，不侵入 importRules 校验契约
 - [Phase 11]: HTTP 200 失败对象客户端必须检查 result.success 并 toast 真实 message，文件输入重置 finally 化
+- [Phase 12]: guest→容器映射由渲染进程上报（webview:register-container），Electron 32 下 guest session.partition 为空串主进程无法反推
+- [Phase 12]: CDP 耗时取 loadingFinished/requestWillBeSent 单调时间戳差值；响应体发 Network.getResponseBody 拉取；大小累加 dataReceived.dataLength
+- [Phase 12]: 内部页面复用 main.css 必须自建滚动容器（全局 body overflow:hidden 是主窗口壳样式）
 
 ### Pending Todos
 
@@ -113,7 +117,7 @@ Items acknowledged and deferred at milestone close on 2026-07-26:
 
 ## Session Continuity
 
-Last session: 2026-07-27T16:00:00.000Z
-Stopped at: Phase 11 complete (UAT 4/4 passed), Phase 12 in progress — 12-01 done, 12-02 not started
+Last session: 2026-07-27T14:45:00.000Z
+Stopped at: Phase 12 complete (UAT 4/4 passed) — milestone v1.2 100%, ready to complete/archive
 Resume file: None
-Next action: Execute Phase 12 Plan 02（设置 UI 开发者模式配置 + realm://devrequests 请求查看页面）
+Next action: /gsd-complete-milestone v1.2（归档并准备下一里程碑）

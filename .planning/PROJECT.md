@@ -80,6 +80,11 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ SETT-09: 规则导出→导入往返可用，失败时 toast 显示真实原因 — Phase 11
 - ✓ 设置页面侧边栏多页面布局（通用/分配规则/快捷键设置/关于） — Phase 11
 - ✓ 分配规则与快捷键设置从弹窗迁移入设置页面 — Phase 11
+- ✓ DEV-01: 设置页开发者模式开关，关闭时配置区禁用 — Phase 12
+- ✓ DEV-02: 抓取域名列表管理（选择/手动添加/删除，精确+子域名匹配） — Phase 12
+- ✓ DEV-03: CDP 自动附加匹配域名 webview，抓取 URL/方法/请求头/Cookie/响应头/响应体 — Phase 12
+- ✓ DEV-04: realm://devrequests 请求查看页（表格/详情/过滤/分页/清空/容器切换） — Phase 12
+- ✓ DEV-05: 抓取数据按容器分表持久化 SQLite，异步队列批量 flush 不阻塞页面 — Phase 12
 
 ### Active
 
@@ -95,11 +100,10 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 ## Current State
 
-**Shipped:** v1.1 (2026-07-26)
-- 9 phases complete (5 in v1.0, 4 in v1.1 + 1 deferred)
-- 21/22 plans complete
-- 30/30 v1.1 requirements complete
-- 技术栈：Electron 32.x + better-sqlite3 + electron-store
+**Shipped:** v1.2 (2026-07-27)
+- 12 phases complete (5 v1.0 + 4 v1.1 + 3 v1.2，1 plan deferred)
+- 16/16 v1.2 plans complete
+- 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol
 
 **Key features delivered:**
 - 多容器隔离浏览器（Cookie/Session/Storage/缓存完全隔离）
@@ -107,7 +111,8 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - 容器扩展属性（手机号/邮箱/备注）+ 惰性填充兼容
 - 浏览历史记录（SQLite + 每容器隔离 + realm:// 协议）
 - 收藏夹管理（全局共享数据库 + 星标按钮 + CRUD）
-- frecency 常用网站推荐 + 应用设置页面
+- frecency 常用网站推荐 + 应用设置页面（侧边栏多页面布局）
+- Cookie 管理面板（session/file 双视图）+ 开发者模式（CDP 抓取 API 请求 + devrequests 查看页）
 
 **Known gaps:**
 - 09-04: checkBookmarkStatus realm:// 早退守卫移除（deferred）
@@ -162,6 +167,10 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | 设置页面 webview 通过 HTTP API 而非 IPC 访问数据 | guest 内 assertTrustedSender 会拒绝 IPC；/api/* 路由统一 token 鉴权 | ✓ 已验证 — Phase 11 |
 | 服务端 payload 归一化防御层（normalizeRulesPayload） | 路由层解包任意层级 {rules} 包裹，不侵入 importRules 既有校验契约 | ✓ 已验证 — Phase 11（9/9 冒烟断言） |
 | 客户端失败可见性契约：result.success === false → toast 真实原因 | 静默吞错导致用户感知"没反应"（Phase 11 UAT gap 根因） | ✓ 已验证 — Phase 11 UAT 重跑通过 |
+| guest→容器映射由渲染进程上报（webview:register-container） | Electron 32 下 guest session.partition 为空串，主进程无法反推；webview 元素 partition 属性是权威来源 | ✓ 已验证 — Phase 12 UAT |
+| CDP 耗时取 loadingFinished 与 requestWillBeSent 单调时间戳差值 | timing.requestTime 是单调时钟基准值（数值巨大），直接乘算得伪值 | ✓ 已验证 — Phase 12 UAT |
+| CDP 响应体在 loadingFinished 时发 Network.getResponseBody 主动拉取 | dataReceived 事件不携带数据本体（只有 dataLength），攒数据块方案不可行 | ✓ 已验证 — Phase 12 UAT |
+| 内部页面自建滚动容器（height:100vh + overflow-y:auto） | 全局 body overflow:hidden 是主窗口壳样式，内部页面复用 main.css 必须自管滚动 | ✓ 已验证 — Phase 12 UAT |
 
 ## Evolution
 
@@ -181,4 +190,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-27 after Phase 11（设置页面重构 + 规则导入修复）*
+*Last updated: 2026-07-27 after Phase 12（开发者模式 CDP 抓取，v1.2 里程碑完成）*
