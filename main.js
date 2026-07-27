@@ -511,6 +511,7 @@ app.whenReady().then(async () => {
           historyRetentionDays: 30,
           defaultContainer: 'last-used',
           isDefaultBrowser: false,
+          restoreTabsOnLaunch: 'ask',
         });
         sendJson(res, 200, settings);
         return;

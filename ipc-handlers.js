@@ -6,6 +6,7 @@
  */
 
 const { ipcMain, dialog, BrowserWindow } = require('electron');
+const Store = require('electron-store');
 const containerManager = require('./container-manager');
 const windowManager = require('./window-manager');
 const tabManager = require('./tab-manager');
@@ -14,6 +15,9 @@ const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
 const historyManager = require('./history-manager');
 const favoritesManager = require('./favorites-manager');
+
+// 与 main.js 共享 realm-config.json（settings:* 命名空间）
+const configStore = new Store({ name: 'realm-config' });
 
 // 跟踪当前活动的 webview guest webContents ID（渲染进程通过 webview:set-active 同步）
 let activeWebviewContentsId = null;
@@ -280,6 +284,18 @@ function registerHandlers() {
   ipcMain.handle('tab:get-active', (event) => {
     assertTrustedSender(event);
     return tabManager.getActiveTab();
+  });
+
+  /**
+   * 清空所有 Tab（含持久化 store）
+   * 启动时渲染进程判定"不恢复"后调用，避免旧会话残留在 store 里
+   * 与本次新建 Tab 一起被 saveTabs 写回磁盘
+   * @returns {{success: boolean}}
+   */
+  ipcMain.handle('tab:clear-all', (event) => {
+    assertTrustedSender(event);
+    tabManager.clearAllTabs();
+    return { success: true };
   });
 
   // ==================== Cookie 管理 ====================
@@ -977,6 +993,38 @@ function registerHandlers() {
    */
   ipcMain.handle('webview:set-active', (event, contentsId) => {
     activeWebviewContentsId = contentsId;
+  });
+
+  // ==================== 应用设置 ====================
+  // 与 main.js handleSettingsApi 的 get 路由共享默认值，新增 key 时两处必须同步
+
+  /**
+   * 获取应用设置（主窗口渲染进程用；webview 内设置页走 HTTP /api/settings/get）
+   * @returns {Object} 设置对象
+   */
+  ipcMain.handle('settings:get', (event) => {
+    assertTrustedSender(event);
+    return configStore.get('settings', {
+      historyRetentionDays: 30,
+      defaultContainer: 'last-used',
+      isDefaultBrowser: false,
+      restoreTabsOnLaunch: 'ask',
+    });
+  });
+
+  /**
+   * 写入单个设置项
+   * @param {string} key - 设置键
+   * @param {*} value - 设置值
+   * @returns {{success: boolean}}
+   */
+  ipcMain.handle('settings:set', (event, key, value) => {
+    assertTrustedSender(event);
+    if (!key || typeof key !== 'string') {
+      throw new Error('无效的设置键');
+    }
+    configStore.set(`settings.${key}`, value);
+    return { success: true };
   });
 
   console.log('[Realm] IPC 处理器已注册');

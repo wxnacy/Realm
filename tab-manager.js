@@ -257,6 +257,20 @@ function saveTabs() {
   store.set('activeTabId', activeTabId);
 }
 
+/**
+ * 清空所有 Tab（含持久化）
+ * 用于启动时用户选择"不恢复"或设置 restoreTabsOnLaunch='never'：
+ * 主进程 initTabs 已从磁盘加载旧 Tab 到内存 Map，若不清空，
+ * 后续新建 Tab 会 append 到旧列表后一起被 saveTabs 写回磁盘，
+ * 导致下次启动把已放弃的旧会话一并恢复
+ */
+function clearAllTabs() {
+  tabs.clear();
+  activeTabId = null;
+  saveTabs();
+  console.log('[Realm] 已清空所有 Tab（启动时不恢复旧会话）');
+}
+
 // 模块导出
 module.exports = {
   initTabs,
@@ -270,6 +284,7 @@ module.exports = {
   recycleOldestTab,
   setRecycleListener,
   saveTabs,
+  clearAllTabs,
   TAB_MAX_COUNT,
   TAB_RECYCLE_MESSAGE,
 };

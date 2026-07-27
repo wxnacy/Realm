@@ -80,6 +80,13 @@ const elements = {
   cancelDeleteBtn: document.getElementById('cancelDeleteBtn'),
   confirmDeleteBtn: document.getElementById('confirmDeleteBtn'),
 
+  // 启动时恢复标签页询问对话框
+  restoreTabsModal: document.getElementById('restoreTabsModal'),
+  restoreTabsCount: document.getElementById('restoreTabsCount'),
+  restoreTabsRemember: document.getElementById('restoreTabsRemember'),
+  restoreTabsYesBtn: document.getElementById('restoreTabsYesBtn'),
+  restoreTabsNoBtn: document.getElementById('restoreTabsNoBtn'),
+
   cookiesModal: document.getElementById('cookiesModal'),
   cookiesModalTitle: document.getElementById('cookiesModalTitle'),
   cookiesList: document.getElementById('cookiesList'),
@@ -1423,6 +1430,42 @@ function openSettingsTab() {
 }
 
 /**
+ * 弹出"恢复标签页"询问对话框
+ * @param {number} tabCount - 待恢复的 tab 数量
+ * @returns {Promise<{action: 'restore'|'fresh', remember: boolean}>}
+ */
+function showRestoreTabsDialog(tabCount) {
+  return new Promise((resolve) => {
+    elements.restoreTabsCount.textContent = String(tabCount);
+    elements.restoreTabsRemember.checked = false;
+
+    const cleanup = () => {
+      elements.restoreTabsYesBtn.removeEventListener('click', onYes);
+      elements.restoreTabsNoBtn.removeEventListener('click', onNo);
+      elements.restoreTabsModal.removeEventListener('cancel', onCancel);
+      elements.restoreTabsModal.removeEventListener('click', onBackdrop);
+    };
+    const finish = (action) => {
+      const remember = elements.restoreTabsRemember.checked;
+      cleanup();
+      elements.restoreTabsModal.close();
+      resolve({ action, remember });
+    };
+    const onYes = () => finish('restore');
+    const onNo = () => finish('fresh');
+    const onCancel = (e) => { e.preventDefault(); finish('fresh'); };  // Esc
+    const onBackdrop = (e) => { if (e.target === elements.restoreTabsModal) finish('fresh'); };
+
+    elements.restoreTabsYesBtn.addEventListener('click', onYes);
+    elements.restoreTabsNoBtn.addEventListener('click', onNo);
+    elements.restoreTabsModal.addEventListener('cancel', onCancel);
+    elements.restoreTabsModal.addEventListener('click', onBackdrop);
+
+    elements.restoreTabsModal.showModal();
+  });
+}
+
+/**
  * 从主进程恢复保存的 Tab 列表
  */
 async function restoreTabs() {
@@ -1431,6 +1474,32 @@ async function restoreTabs() {
 
   if (tabs.length === 0) {
     // 没有保存的 Tab，创建新 Tab
+    createTab(state.currentContainer);
+    return;
+  }
+
+  // 按设置决定是否恢复
+  const settings = await window.realmAPI.getSettings();
+  const behavior = settings.restoreTabsOnLaunch || 'ask';
+
+  let shouldRestore = behavior === 'always';
+  if (behavior === 'ask') {
+    const { action, remember } = await showRestoreTabsDialog(tabs.length);
+    shouldRestore = action === 'restore';
+    if (remember) {
+      // 永久更改设置：恢复 → 'always'，不恢复 → 'never'
+      await window.realmAPI.setSetting(
+        'restoreTabsOnLaunch',
+        shouldRestore ? 'always' : 'never'
+      );
+    }
+  }
+
+  if (!shouldRestore) {
+    // 丢弃旧会话：主进程 initTabs 已把旧 Tab 加载到内存 Map，
+    // 不清空则后续新建 Tab 会 append 进去一起被持久化，
+    // 下次启动会把本次放弃的旧会话一并恢复
+    await window.realmAPI.clearAllTabs();
     createTab(state.currentContainer);
     return;
   }

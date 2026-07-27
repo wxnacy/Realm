@@ -907,6 +907,26 @@ textarea::placeholder {
   line-height: 1.5;
 }
 
+/* 启动时恢复标签页询问弹窗 */
+.restore-tabs-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 24px;
+}
+
+.restore-tabs-remember {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.restore-tabs-footer .form-actions {
+  margin-top: 0;  /* 覆盖默认 form-actions 的上边距 */
+}
+
 .container-preview {
   display: flex;
   align-items: center;

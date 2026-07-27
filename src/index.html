@@ -266,6 +266,26 @@
     </div>
   </dialog>
 
+  <!-- 启动时恢复标签页询问对话框 -->
+  <dialog class="modal" id="restoreTabsModal">
+    <div class="modal-content">
+      <h2>恢复上次的标签页？</h2>
+      <div class="delete-confirm-content">
+        <p>上次退出时有 <strong id="restoreTabsCount">0</strong> 个标签页未关闭。</p>
+      </div>
+      <div class="restore-tabs-footer">
+        <label class="restore-tabs-remember">
+          <input type="checkbox" id="restoreTabsRemember">
+          <span>记住我的选择</span>
+        </label>
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" id="restoreTabsNoBtn">不恢复</button>
+          <button type="button" class="btn btn-primary" id="restoreTabsYesBtn">恢复</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Cookie 管理对话框 -->
   <dialog class="modal" id="cookiesModal">
     <div class="modal-content modal-xlarge">

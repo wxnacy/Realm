@@ -22,6 +22,7 @@ const state = {
     historyRetentionDays: 30,
     defaultContainer: 'last-used',
     isDefaultBrowser: false,
+    restoreTabsOnLaunch: 'ask',
   },
 };
 
@@ -72,6 +73,7 @@ const elements = {
   setDefaultBrowserBtn: document.getElementById('setDefaultBrowserBtn'),
   retentionDays: document.getElementById('retentionDays'),
   defaultContainer: document.getElementById('defaultContainer'),
+  restoreTabsOnLaunch: document.getElementById('restoreTabsOnLaunch'),
   toast: document.getElementById('toast'),
 };
 
@@ -151,6 +153,7 @@ async function loadSettings() {
     updateDefaultBrowserStatus(isDefault);
     elements.retentionDays.value = state.settings.historyRetentionDays || 30;
     renderContainerOptions(containers, state.settings.defaultContainer);
+    elements.restoreTabsOnLaunch.value = state.settings.restoreTabsOnLaunch || 'ask';
 
   } catch (error) {
     console.error('[Realm] 加载设置失败:', error);
@@ -219,6 +222,12 @@ function setupEventListeners() {
   elements.defaultContainer.addEventListener('change', () => {
     const value = elements.defaultContainer.value;
     saveSettings('defaultContainer', value);
+  });
+
+  // 启动时恢复标签页变更
+  elements.restoreTabsOnLaunch.addEventListener('change', () => {
+    const value = elements.restoreTabsOnLaunch.value;
+    saveSettings('restoreTabsOnLaunch', value);
   });
 }
 

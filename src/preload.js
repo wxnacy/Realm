@@ -153,6 +153,13 @@ contextBridge.exposeInMainWorld('realmAPI', {
   getActiveTab: () => ipcRenderer.invoke('tab:get-active'),
 
   /**
+   * 清空所有 Tab（含持久化 store）
+   * 启动时"不恢复"分支调用，避免旧会话残留被下次启动恢复
+   * @returns {Promise<{success: boolean}>}
+   */
+  clearAllTabs: () => ipcRenderer.invoke('tab:clear-all'),
+
+  /**
    * 监听 Tab 回收事件（WR-4）
    * 主进程达到 Tab 上限自动回收最久未使用的 Tab 后推送
    * @param {Function} callback - 回调函数，参数为 { tabId, message }
@@ -487,6 +494,22 @@ contextBridge.exposeInMainWorld('realmAPI', {
    * @param {number} contentsId - webview guest 的 webContents ID
    */
   setActiveWebview: (contentsId) => ipcRenderer.invoke('webview:set-active', contentsId),
+
+  // ==================== 应用设置 ====================
+
+  /**
+   * 获取应用设置（主窗口渲染进程用；webview 内设置页走 HTTP /api/settings/get）
+   * @returns {Promise<Object>} 设置对象
+   */
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+
+  /**
+   * 写入单个设置项
+   * @param {string} key - 设置键
+   * @param {*} value - 设置值
+   * @returns {Promise<{success: boolean}>}
+   */
+  setSetting: (key, value) => ipcRenderer.invoke('settings:set', key, value),
 });
 
 console.log('[Realm] Preload 脚本已加载');
