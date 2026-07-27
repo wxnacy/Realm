@@ -388,6 +388,43 @@ function queryRecords(containerId, options = {}) {
 }
 
 /**
+ * 按 ID 获取单条请求记录（详情页用）
+ * @param {string} containerId - 容器 ID
+ * @param {number} id - 记录自增 ID
+ * @returns {object|null} 记录（headers 已解析为对象），不存在返回 null
+ */
+function getRecordById(containerId, id) {
+  if (!db) return null;
+
+  try {
+    const sanitized = sanitizeContainerId(containerId);
+    const tableName = `dev_requests_${sanitized}`;
+
+    const tableExists = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
+    ).get(tableName);
+
+    if (!tableExists) {
+      return null;
+    }
+
+    const record = db.prepare(`SELECT * FROM ${tableName} WHERE id = ?`).get(id);
+    if (!record) {
+      return null;
+    }
+
+    return {
+      ...record,
+      request_headers: safeParseJson(record.request_headers),
+      response_headers: safeParseJson(record.response_headers),
+    };
+  } catch (err) {
+    console.error(`[Realm DevWriter] 查询单条记录失败:`, err.message);
+    return null;
+  }
+}
+
+/**
  * 获取已抓取的域名列表
  * @param {string} containerId - 容器 ID
  * @returns {string[]}
@@ -652,6 +689,7 @@ module.exports = {
   getStats,
   cleanup,
   queryRecords,
+  getRecordById,
   queryDomains,
   queryStats,
   deleteRecord,

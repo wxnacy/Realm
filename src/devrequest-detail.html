@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- 页面经 http://localhost:PORT/devrequests/{id} 加载，base 使相对资源路径解析到 /devrequests/ 下 -->
+  <base href="/devrequests/">
+  <!-- img-src 需放行远程 favicon（http/https/data） -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: http: data:">
+  <title>请求详情 - Realm</title>
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+  <div class="devrequest-detail-page">
+    <!-- 加载状态 -->
+    <div id="loadingState" class="detail-loading">加载中...</div>
+
+    <!-- 错误状态 -->
+    <div id="errorState" class="detail-error" style="display:none;"></div>
+
+    <!-- 主内容（加载完成后显示） -->
+    <div id="detailMain" style="display:none;">
+      <!-- 顶部通用信息区：URL / 方法 / 状态码 / 耗时 / 大小 / 请求时间 -->
+      <div class="detail-header" id="detailHeader"></div>
+
+      <!-- tab 条 -->
+      <div class="detail-tabs" id="detailTabs">
+        <button class="detail-tab active" data-tab="params">参数</button>
+        <button class="detail-tab" data-tab="request-headers">请求头</button>
+        <button class="detail-tab" data-tab="response-headers">响应头</button>
+        <button class="detail-tab" data-tab="response-body">响应体</button>
+        <button class="detail-tab" data-tab="cookies">Cookie</button>
+      </div>
+
+      <!-- 内容区 -->
+      <div class="detail-content" id="detailContent"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="devrequest-detail-page.js"></script>
+</body>
+</html>

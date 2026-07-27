@@ -713,6 +713,23 @@ app.whenReady().then(async () => {
         return;
       }
 
+      // GET /api/devrequests/detail?id=N&containerId=X — 获取单条记录完整字段
+      if (route === 'detail' && req.method === 'GET') {
+        const containerId = reqUrl.searchParams.get('containerId') || 'default';
+        const id = parseInt(reqUrl.searchParams.get('id'), 10);
+        if (!Number.isInteger(id) || id <= 0) {
+          sendJson(res, 400, { error: 'Invalid id' });
+          return;
+        }
+        const record = devRequestsWriter.getRecordById(containerId, id);
+        if (!record) {
+          sendJson(res, 404, { error: 'Not Found' });
+          return;
+        }
+        sendJson(res, 200, record);
+        return;
+      }
+
       // POST /api/devrequests/delete — 删除单条记录
       if (route === 'delete' && req.method === 'POST') {
         const { containerId, id } = await readJsonBody(req);
@@ -960,6 +977,9 @@ app.whenReady().then(async () => {
       filePath = path.join(__dirname, 'src', subPath);
     } else if (reqPath === '/devrequests' || reqPath === '/devrequests/') {
       filePath = path.join(__dirname, 'src', 'devrequests.html');
+    } else if (/^\/devrequests\/\d+\/?$/.test(reqPath)) {
+      // 详情页：/devrequests/123 → src/devrequest-detail.html（id 由页面 JS 从 path 解析）
+      filePath = path.join(__dirname, 'src', 'devrequest-detail.html');
     } else if (reqPath.startsWith('/devrequests/')) {
       const subPath = reqPath.replace('/devrequests/', '');
       filePath = path.join(__dirname, 'src', subPath);

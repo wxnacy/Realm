@@ -25,6 +25,18 @@ const debuggerStates = new Map();
 /** @type {Map<string, object>} 请求数据暂存（requestId → 部分记录） */
 const pendingRequests = new Map();
 
+/**
+ * @type {Map<string, object>} 请求 ExtraInfo 暂存（requestId → 完整 headers）
+ *
+ * Chromium 安全模型：Network.requestWillBeSent 的 headers 不含 Cookie/Authorization
+ * 等敏感头，完整版由 Network.requestWillBeSentExtraInfo 下发。两个事件 requestId
+ * 相同但触发顺序不保证，故先到的 ExtraInfo 在此暂存，等常规事件到达时合并。
+ */
+const pendingExtraRequestHeaders = new Map();
+
+/** @type {Map<string, object>} 响应 ExtraInfo 暂存（requestId → 完整 headers，含 Set-Cookie） */
+const pendingExtraResponseHeaders = new Map();
+
 /** @type {import('./dev-requests-writer')|null} 写入队列模块引用 */
 let writer = null;
 
@@ -291,8 +303,14 @@ function setupCdpListeners(webContents, containerId) {
         case 'Network.requestWillBeSent':
           handleRequestWillBeSent(params, containerId);
           break;
+        case 'Network.requestWillBeSentExtraInfo':
+          handleRequestWillBeSentExtraInfo(params);
+          break;
         case 'Network.responseReceived':
           handleResponseReceived(params);
+          break;
+        case 'Network.responseReceivedExtraInfo':
+          handleResponseReceivedExtraInfo(params);
           break;
         case 'Network.dataReceived':
           handleDataReceived(params);
@@ -318,6 +336,10 @@ function setupCdpListeners(webContents, containerId) {
 function handleRequestWillBeSent(params, containerId) {
   const { requestId, request, timestamp } = params;
 
+  // 若 ExtraInfo 先触发，取出其完整 headers（含 Cookie 等敏感头）合并
+  const extraHeaders = pendingExtraRequestHeaders.get(requestId) || {};
+  pendingExtraRequestHeaders.delete(requestId);
+
   // 初始化请求记录
   // startTime 为 CDP 单调时钟时间戳（秒），用于在 loadingFinished 时计算真实耗时
   pendingRequests.set(requestId, {
@@ -325,7 +347,8 @@ function handleRequestWillBeSent(params, containerId) {
     url: request.url,
     method: request.method,
     statusCode: 0,
-    requestHeaders: request.headers || {},
+    // ExtraInfo headers 优先级更高（包含 Cookie/Authorization 等敏感头）
+    requestHeaders: { ...(request.headers || {}), ...extraHeaders },
     requestBody: request.postData || '',
     responseHeaders: {},
     responseBody: '',
@@ -339,6 +362,25 @@ function handleRequestWillBeSent(params, containerId) {
 }
 
 /**
+ * 处理 Network.requestWillBeSentExtraInfo 事件
+ * 完整请求头（含 Cookie）下发通道。若常规事件先到则直接合并到 record；
+ * 否则暂存，等 handleRequestWillBeSent 取出。
+ * @param {object} params - CDP 事件参数
+ */
+function handleRequestWillBeSentExtraInfo(params) {
+  const { requestId, headers } = params;
+  if (!headers) return;
+
+  const record = pendingRequests.get(requestId);
+  if (record) {
+    // ExtraInfo 优先，覆盖常规 headers 中的同名键
+    record.requestHeaders = { ...record.requestHeaders, ...headers };
+  } else {
+    pendingExtraRequestHeaders.set(requestId, headers);
+  }
+}
+
+/**
  * 处理 Network.responseReceived 事件
  * @param {object} params - CDP 事件参数
  */
@@ -347,11 +389,36 @@ function handleResponseReceived(params) {
   const record = pendingRequests.get(requestId);
   if (!record) return;
 
+  // 若 responseReceivedExtraInfo 先触发，取出完整响应头（含 Set-Cookie）合并
+  const extraHeaders = pendingExtraResponseHeaders.get(requestId) || {};
+  pendingExtraResponseHeaders.delete(requestId);
+
   record.statusCode = response.status;
-  record.responseHeaders = response.headers || {};
-  record.contentType = response.headers?.['content-type'] || response.headers?.['Content-Type'] || '';
+  record.responseHeaders = { ...(response.headers || {}), ...extraHeaders };
+  record.contentType = record.responseHeaders['content-type'] || record.responseHeaders['Content-Type'] || '';
   // 注意：此处不计算耗时。response.timing.requestTime 是单调时钟基准值
   // （数值巨大），耗时必须在 loadingFinished 用事件时间戳差值计算
+}
+
+/**
+ * 处理 Network.responseReceivedExtraInfo 事件
+ * 完整响应头（含 Set-Cookie）下发通道。
+ * @param {object} params - CDP 事件参数
+ */
+function handleResponseReceivedExtraInfo(params) {
+  const { requestId, headers } = params;
+  if (!headers) return;
+
+  const record = pendingRequests.get(requestId);
+  if (record) {
+    record.responseHeaders = { ...record.responseHeaders, ...headers };
+    // contentType 可能在 ExtraInfo 中才出现，重新计算一次
+    if (!record.contentType) {
+      record.contentType = record.responseHeaders['content-type'] || record.responseHeaders['Content-Type'] || '';
+    }
+  } else {
+    pendingExtraResponseHeaders.set(requestId, headers);
+  }
 }
 
 /**
@@ -388,12 +455,29 @@ async function handleLoadingFinished(params, webContents) {
   // 响应体通过 Network.getResponseBody 主动拉取（D-08：仅文本类型，限 1MB）
   record.responseBody = await fetchResponseBody(webContents, record);
 
+  // Cookie 兜底：ExtraInfo 事件在部分 Chromium 版本/场景下不下发 Cookie 头，
+  // 此时主动从容器 session 拉取该 URL 当前的 Cookie 拼成 Cookie 头注入，
+  // 保证详情页/展开面板的 Cookie tab 始终有数据
+  const hasCookieHeader = record.requestHeaders.Cookie || record.requestHeaders.cookie;
+  if (!hasCookieHeader) {
+    try {
+      const cookies = await webContents.session.cookies.get({ url: record.url });
+      if (cookies && cookies.length > 0) {
+        record.requestHeaders.Cookie = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+      }
+    } catch (err) {
+      console.warn('[Realm CDP] 兜底拉取 Cookie 失败:', err.message);
+    }
+  }
+
   // 推入写入队列
   if (writer) {
     writer.enqueue(record);
   }
 
   pendingRequests.delete(requestId);
+  pendingExtraRequestHeaders.delete(requestId);
+  pendingExtraResponseHeaders.delete(requestId);
 }
 
 /**
@@ -418,6 +502,8 @@ function handleLoadingFailed(params) {
   }
 
   pendingRequests.delete(requestId);
+  pendingExtraRequestHeaders.delete(requestId);
+  pendingExtraResponseHeaders.delete(requestId);
 }
 
 // ==================== 响应体拉取 ====================
@@ -499,6 +585,8 @@ function handleNavigation(webContents, url, containerId) {
 function cleanup() {
   // 清理暂存的请求数据
   pendingRequests.clear();
+  pendingExtraRequestHeaders.clear();
+  pendingExtraResponseHeaders.clear();
   debuggerStates.clear();
   console.log('[Realm CDP] 资源已清理');
 }

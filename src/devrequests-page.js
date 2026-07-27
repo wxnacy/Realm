@@ -55,9 +55,6 @@ const elements = {
   methodFilter: document.getElementById('methodFilter'),
   refreshBtn: document.getElementById('refreshBtn'),
   requestsBody: document.getElementById('requestsBody'),
-  detailPanel: document.getElementById('detailPanel'),
-  detailContent: document.getElementById('detailContent'),
-  copyDetailBtn: document.getElementById('copyDetailBtn'),
   emptyState: document.getElementById('emptyState'),
   pagination: document.getElementById('pagination'),
   prevPageBtn: document.getElementById('prevPageBtn'),
@@ -142,6 +139,26 @@ function formatSize(bytes) {
 }
 
 /**
+ * 格式化请求发起时间（created_at 毫秒时间戳）
+ * 当天显示 HH:MM:SS，跨天显示 MM-DD HH:MM:SS
+ * @param {number} ts - 毫秒时间戳
+ * @returns {string} 格式化后的时间字符串
+ */
+function formatTimestamp(ts) {
+  if (!ts) return '--';
+  const d = new Date(parseInt(ts, 10));
+  if (isNaN(d.getTime())) return '--';
+  const pad = (n) => String(n).padStart(2, '0');
+  const hms = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const now = new Date();
+  const sameDay = d.getFullYear() === now.getFullYear()
+    && d.getMonth() === now.getMonth()
+    && d.getDate() === now.getDate();
+  if (sameDay) return hms;
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hms}`;
+}
+
+/**
  * HTML 转义（防 XSS）
  * @param {string} text - 原始文本
  * @returns {string} 转义后的文本
@@ -216,86 +233,241 @@ async function loadDomains() {
 
 /**
  * 渲染请求表格
+ *
+ * 展开详情的行通过在同一 tbody 内追加 <tr class="detail-row"><td colspan="6">
+ * 实现，保证符合 HTML 表格语义；展开状态由 state.expandedId 驱动，
+ * 自动刷新重建 tbody 时详情行随之重建。
  */
 function renderTable() {
   // WR-13：DOM 构建 + textContent。URL 来自外部请求，禁止拼入 innerHTML
   elements.requestsBody.innerHTML = '';
 
   state.records.forEach(record => {
-    const tr = document.createElement('tr');
-    tr.dataset.id = record.id;
+    elements.requestsBody.appendChild(buildRecordRow(record));
 
-    // 当前展开行高亮
+    // 当前展开的行：紧跟一行详情
     if (state.expandedId === record.id) {
-      tr.classList.add('selected');
+      elements.requestsBody.appendChild(buildDetailRow(record));
     }
-
-    // 方法列
-    const tdMethod = document.createElement('td');
-    tdMethod.className = 'col-method';
-    const methodSpan = document.createElement('span');
-    const m = (record.method || '').toUpperCase();
-    methodSpan.className = `method-${m.toLowerCase()}`;
-    methodSpan.textContent = m;
-    methodSpan.style.fontWeight = '600';
-    methodSpan.style.fontSize = '12px';
-    tdMethod.appendChild(methodSpan);
-
-    // URL 列
-    const tdUrl = document.createElement('td');
-    tdUrl.className = 'col-url';
-    const urlDiv = document.createElement('div');
-    urlDiv.className = 'url-cell';
-    urlDiv.textContent = record.url || '';
-    urlDiv.title = record.url || '';
-    tdUrl.appendChild(urlDiv);
-
-    // 状态码列
-    const tdStatus = document.createElement('td');
-    tdStatus.className = 'col-status';
-    const code = parseInt(record.status_code, 10);
-    const statusSpan = document.createElement('span');
-    if (code >= 200 && code < 300) statusSpan.className = 'status-2xx';
-    else if (code >= 300 && code < 400) statusSpan.className = 'status-3xx';
-    else if (code >= 400 && code < 500) statusSpan.className = 'status-4xx';
-    else if (code >= 500) statusSpan.className = 'status-5xx';
-    statusSpan.textContent = code;
-    tdStatus.appendChild(statusSpan);
-
-    // 时间列
-    const tdTime = document.createElement('td');
-    tdTime.className = 'col-time';
-    const duration = parseInt(record.duration, 10);
-    if (duration >= 3000) {
-      const slowSpan = document.createElement('span');
-      slowSpan.className = 'status-5xx';
-      slowSpan.textContent = `${(duration / 1000).toFixed(1)}s`;
-      tdTime.appendChild(slowSpan);
-    } else if (duration >= 1000) {
-      tdTime.textContent = `${(duration / 1000).toFixed(1)}s`;
-    } else {
-      tdTime.textContent = `${duration || 0}ms`;
-    }
-
-    // 大小列
-    const tdSize = document.createElement('td');
-    tdSize.className = 'col-size';
-    const size = parseInt(record.size, 10);
-    if (size < 1024) tdSize.textContent = `${size} B`;
-    else if (size < 1024 * 1024) tdSize.textContent = `${(size / 1024).toFixed(1)} KB`;
-    else tdSize.textContent = `${(size / (1024 * 1024)).toFixed(1)} MB`;
-
-    tr.appendChild(tdMethod);
-    tr.appendChild(tdUrl);
-    tr.appendChild(tdStatus);
-    tr.appendChild(tdTime);
-    tr.appendChild(tdSize);
-
-    // 点击行展开详情
-    tr.addEventListener('click', () => toggleExpand(record));
-
-    elements.requestsBody.appendChild(tr);
   });
+}
+
+/**
+ * 构建单条记录行
+ * @param {Object} record - 请求记录
+ * @returns {HTMLTableRowElement}
+ */
+function buildRecordRow(record) {
+  const tr = document.createElement('tr');
+  tr.dataset.id = record.id;
+
+  // 当前展开行高亮
+  if (state.expandedId === record.id) {
+    tr.classList.add('selected');
+  }
+
+  // 方法列
+  const tdMethod = document.createElement('td');
+  tdMethod.className = 'col-method';
+  const methodSpan = document.createElement('span');
+  const m = (record.method || '').toUpperCase();
+  methodSpan.className = `method-${m.toLowerCase()}`;
+  methodSpan.textContent = m;
+  methodSpan.style.fontWeight = '600';
+  methodSpan.style.fontSize = '12px';
+  tdMethod.appendChild(methodSpan);
+
+  // URL 列：点击在来源容器新 tab 打开详情页（realm://devrequests/{id}），
+  // stopPropagation 避免触发整行的展开/收起
+  const tdUrl = document.createElement('td');
+  tdUrl.className = 'col-url';
+  const urlDiv = document.createElement('div');
+  urlDiv.className = 'url-cell url-link';
+  urlDiv.textContent = record.url || '';
+  urlDiv.title = `${record.url || ''}\n点击打开详情页`;
+  urlDiv.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // window.open 走主进程 setWindowOpenHandler 拦截（main.js:131），
+    // 自动在来源容器新建 Tab，无需通过 IPC 显式通知
+    window.open(`realm://devrequests/${record.id}`, '_blank');
+  });
+  tdUrl.appendChild(urlDiv);
+
+  // 状态码列
+  const tdStatus = document.createElement('td');
+  tdStatus.className = 'col-status';
+  const code = parseInt(record.status_code, 10);
+  const statusSpan = document.createElement('span');
+  if (code >= 200 && code < 300) statusSpan.className = 'status-2xx';
+  else if (code >= 300 && code < 400) statusSpan.className = 'status-3xx';
+  else if (code >= 400 && code < 500) statusSpan.className = 'status-4xx';
+  else if (code >= 500) statusSpan.className = 'status-5xx';
+  statusSpan.textContent = code;
+  tdStatus.appendChild(statusSpan);
+
+  // 请求时间列（created_at，请求发起时刻）
+  const tdCreatedAt = document.createElement('td');
+  tdCreatedAt.className = 'col-created-at';
+  tdCreatedAt.textContent = formatTimestamp(record.created_at);
+  tdCreatedAt.title = record.created_at
+    ? new Date(parseInt(record.created_at, 10)).toLocaleString()
+    : '';
+
+  // 耗时列（duration，毫秒）
+  const tdTime = document.createElement('td');
+  tdTime.className = 'col-time';
+  const duration = parseInt(record.duration, 10);
+  if (duration >= 3000) {
+    const slowSpan = document.createElement('span');
+    slowSpan.className = 'status-5xx';
+    slowSpan.textContent = `${(duration / 1000).toFixed(1)}s`;
+    tdTime.appendChild(slowSpan);
+  } else if (duration >= 1000) {
+    tdTime.textContent = `${(duration / 1000).toFixed(1)}s`;
+  } else {
+    tdTime.textContent = `${duration || 0}ms`;
+  }
+
+  // 大小列
+  const tdSize = document.createElement('td');
+  tdSize.className = 'col-size';
+  const size = parseInt(record.size, 10);
+  if (size < 1024) tdSize.textContent = `${size} B`;
+  else if (size < 1024 * 1024) tdSize.textContent = `${(size / 1024).toFixed(1)} KB`;
+  else tdSize.textContent = `${(size / (1024 * 1024)).toFixed(1)} MB`;
+
+  tr.appendChild(tdMethod);
+  tr.appendChild(tdUrl);
+  tr.appendChild(tdStatus);
+  tr.appendChild(tdCreatedAt);
+  tr.appendChild(tdTime);
+  tr.appendChild(tdSize);
+
+  // 点击行展开/收起详情
+  tr.addEventListener('click', () => toggleExpand(record));
+
+  return tr;
+}
+
+/** 详情面板 tab 定义 */
+const DETAIL_TABS = [
+  { key: 'request-headers', label: '请求头' },
+  { key: 'request-body', label: '请求体' },
+  { key: 'response-headers', label: '响应头' },
+  { key: 'response-body', label: '响应体' },
+  { key: 'cookies', label: 'Cookie' },
+];
+
+/**
+ * 构建展开详情行（<tr class="detail-row"><td colspan="6">...</td></tr>）
+ * @param {Object} record - 请求记录
+ * @returns {HTMLTableRowElement}
+ */
+function buildDetailRow(record) {
+  const tr = document.createElement('tr');
+  tr.className = 'detail-row';
+  tr.dataset.id = `detail-${record.id}`;
+
+  const td = document.createElement('td');
+  td.colSpan = 6;
+  td.className = 'detail-cell';
+
+  const panel = document.createElement('div');
+  panel.className = 'devrequests-detail';
+
+  // tab 头
+  const tabsDiv = document.createElement('div');
+  tabsDiv.className = 'devrequests-detail-tabs';
+
+  // 内容区
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'devrequests-detail-content';
+
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'btn-icon devrequests-copy-btn';
+  copyBtn.setAttribute('aria-label', '复制');
+  // 内联 SVG 是固定图标，无外部输入，可安全使用 innerHTML
+  copyBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+
+  const contentPre = document.createElement('pre');
+  contentPre.className = 'devrequests-detail-pre';
+
+  copyBtn.addEventListener('click', () => copyText(contentPre.textContent));
+
+  contentDiv.appendChild(copyBtn);
+  contentDiv.appendChild(contentPre);
+
+  DETAIL_TABS.forEach(({ key, label }) => {
+    const tabBtn = document.createElement('button');
+    tabBtn.className = 'detail-tab' + (state.activeTab === key ? ' active' : '');
+    tabBtn.dataset.tab = key;
+    tabBtn.textContent = label;
+    tabBtn.addEventListener('click', () => {
+      state.activeTab = key;
+      tabsDiv.querySelectorAll('.detail-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.tab === key);
+      });
+      renderDetailContent(record, key, contentPre);
+    });
+    tabsDiv.appendChild(tabBtn);
+  });
+
+  panel.appendChild(tabsDiv);
+  panel.appendChild(contentDiv);
+  td.appendChild(panel);
+  tr.appendChild(td);
+
+  // 渲染当前 tab 内容
+  renderDetailContent(record, state.activeTab, contentPre);
+
+  return tr;
+}
+
+/**
+ * 渲染详情面板内容到指定 <pre>
+ * @param {Object} record - 请求记录
+ * @param {string} tab - 当前 tab key
+ * @param {HTMLPreElement} preEl - 目标 pre 元素
+ */
+function renderDetailContent(record, tab, preEl) {
+  let content = '';
+
+  switch (tab) {
+    case 'request-headers':
+      content = formatJson(record.request_headers);
+      break;
+    case 'request-body':
+      content = record.request_body || '(无请求体)';
+      break;
+    case 'response-headers':
+      content = formatJson(record.response_headers);
+      break;
+    case 'response-body':
+      content = record.response_body || '(无响应体)';
+      break;
+    case 'cookies':
+      content = extractCookies(record.request_headers);
+      break;
+    default:
+      content = '';
+  }
+
+  preEl.textContent = content;
+}
+
+/**
+ * 展开/收起详情面板
+ * 仅切换 state.expandedId，由 renderTable 负责实际 DOM 增删
+ * @param {Object} record - 请求记录
+ */
+function toggleExpand(record) {
+  if (state.expandedId === record.id) {
+    state.expandedId = null;
+  } else {
+    state.expandedId = record.id;
+    state.activeTab = 'request-headers';
+  }
+  renderTable();
 }
 
 /**
@@ -324,69 +496,6 @@ function updateEmptyState() {
 }
 
 // ==================== 详情面板 ====================
-
-/**
- * 展开/收起详情面板
- * @param {Object} record - 请求记录
- */
-function toggleExpand(record) {
-  if (state.expandedId === record.id) {
-    // 收起
-    state.expandedId = null;
-    elements.detailPanel.style.display = 'none';
-    renderTable(); // 刷新高亮
-    return;
-  }
-
-  state.expandedId = record.id;
-  state.activeTab = 'request-headers';
-  elements.detailPanel.style.display = 'block';
-
-  // 移动详情面板到对应行后面
-  const row = elements.requestsBody.querySelector(`tr[data-id="${record.id}"]`);
-  if (row) {
-    row.after(elements.detailPanel);
-  }
-
-  // 重置 tab 状态
-  document.querySelectorAll('.detail-tab').forEach(tab => {
-    tab.classList.toggle('active', tab.dataset.tab === 'request-headers');
-  });
-
-  renderDetail(record, 'request-headers');
-  renderTable(); // 刷新高亮
-}
-
-/**
- * 渲染详情面板内容
- * @param {Object} record - 请求记录
- * @param {string} tab - 当前 tab
- */
-function renderDetail(record, tab) {
-  let content = '';
-
-  switch (tab) {
-    case 'request-headers':
-      content = formatJson(record.request_headers);
-      break;
-    case 'request-body':
-      content = record.request_body || '(无请求体)';
-      break;
-    case 'response-headers':
-      content = formatJson(record.response_headers);
-      break;
-    case 'response-body':
-      content = record.response_body || '(无响应体)';
-      break;
-    case 'cookies':
-      content = extractCookies(record.request_headers);
-      break;
-    default:
-      content = '';
-  }
-
-  elements.detailContent.textContent = content;
-}
 
 /**
  * 格式化 JSON 对象
@@ -441,7 +550,6 @@ async function clearAll() {
     showToast(`已清空 ${result.deletedCount || 0} 条记录`);
     state.offset = 0;
     state.expandedId = null;
-    elements.detailPanel.style.display = 'none';
     await loadRequests();
     await loadDomains();
   } catch (error) {
@@ -451,10 +559,10 @@ async function clearAll() {
 }
 
 /**
- * 复制详情内容到剪贴板
+ * 复制文本到剪贴板
+ * @param {string} content - 要复制的文本
  */
-async function copyDetail() {
-  const content = elements.detailContent.textContent;
+async function copyText(content) {
   if (!content) return;
 
   try {
@@ -616,33 +724,11 @@ function setupEventListeners() {
     }
   });
 
-  // 详情 tab 切换
-  document.querySelectorAll('.detail-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      state.activeTab = tab.dataset.tab;
-
-      // 更新 tab 激活状态
-      document.querySelectorAll('.detail-tab').forEach(t => {
-        t.classList.toggle('active', t.dataset.tab === state.activeTab);
-      });
-
-      // 重新渲染详情
-      const record = state.records.find(r => r.id === state.expandedId);
-      if (record) {
-        renderDetail(record, state.activeTab);
-      }
-    });
-  });
-
-  // 复制按钮
-  elements.copyDetailBtn.addEventListener('click', copyDetail);
-
   // 容器切换
   elements.containerSelect.addEventListener('change', () => {
     state.containerId = elements.containerSelect.value;
     state.offset = 0;
     state.expandedId = null;
-    elements.detailPanel.style.display = 'none';
     loadRequests();
     loadDomains();
   });
