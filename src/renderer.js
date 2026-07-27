@@ -42,7 +42,6 @@ const elements = {
   historyBtn: document.getElementById('historyBtn'),
   favoritesBtn: document.getElementById('favoritesBtn'),
   cookiesBtn: document.getElementById('cookiesBtn'),
-  rulesBtn: document.getElementById('rulesBtn'),
   settingsBtn: document.getElementById('settingsBtn'),
 
   // 收藏功能
@@ -94,28 +93,9 @@ const elements = {
   refreshCookiesBtn: document.getElementById('refreshCookiesBtn'),
   closeCookiesModal: document.getElementById('closeCookiesModal'),
 
-  // 规则管理
-  rulesModal: document.getElementById('rulesModal'),
-  rulesList: document.getElementById('rulesList'),
-  ruleContainerSelect: document.getElementById('ruleContainerSelect'),
-  rulePatternInput: document.getElementById('rulePatternInput'),
-  addRuleBtn: document.getElementById('addRuleBtn'),
-  closeRulesModal: document.getElementById('closeRulesModal'),
-  importRulesBtn: document.getElementById('importRulesBtn'),
-  exportRulesBtn: document.getElementById('exportRulesBtn'),
-
-  // 快捷键设置
-  shortcutsModal: document.getElementById('shortcutsModal'),
-  shortcutsList: document.getElementById('shortcutsList'),
+  // 工具栏按钮
+  rulesBtn: document.getElementById('rulesBtn'),
   shortcutsBtn: document.getElementById('shortcutsBtn'),
-  closeShortcutsModal: document.getElementById('closeShortcutsModal'),
-
-  // 快捷键捕获对话框（WR-5）
-  shortcutCaptureModal: document.getElementById('shortcutCaptureModal'),
-  shortcutCaptureTitle: document.getElementById('shortcutCaptureTitle'),
-  keyCaptureBox: document.getElementById('keyCaptureBox'),
-  cancelKeyCaptureBtn: document.getElementById('cancelKeyCaptureBtn'),
-  saveKeyCaptureBtn: document.getElementById('saveKeyCaptureBtn'),
 };
 
 // 应用状态
@@ -852,473 +832,6 @@ function updateNavigationButtons() {
   }
 }
 
-// ==================== 规则管理 ====================
-
-/**
- * 显示规则管理模态框
- */
-async function showRulesModal() {
-  // 加载容器选项
-  const containerSelect = elements.ruleContainerSelect;
-  containerSelect.innerHTML = '';
-  state.containers.forEach(container => {
-    const option = document.createElement('option');
-    option.value = container.id;
-    option.textContent = container.icon + ' ' + container.name;
-    containerSelect.appendChild(option);
-  });
-
-  // 加载规则列表
-  await refreshRulesList();
-
-  // 显示模态框
-  elements.rulesModal.showModal();
-}
-
-/**
- * 刷新规则列表
- */
-async function refreshRulesList() {
-  const rules = await window.realmAPI.getRules();
-  renderRulesList(rules);
-}
-
-/**
- * 渲染规则列表
- * @param {Array} rules - 规则数组
- */
-function renderRulesList(rules) {
-  if (rules.length === 0) {
-    elements.rulesList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 20px;">暂无分配规则</div>';
-    return;
-  }
-
-  // WR-13：DOM 构建 + textContent。规则 pattern 为用户输入，拼入 innerHTML 构成 XSS 注入面
-  elements.rulesList.innerHTML = '';
-
-  rules.forEach(rule => {
-    const container = state.containers.find(c => c.id === rule.containerId);
-    const containerName = container ? `${container.icon} ${container.name}` : rule.containerId;
-
-    const item = document.createElement('div');
-    item.className = 'rule-item';
-    item.dataset.ruleId = rule.id;
-    item.draggable = true;
-
-    // 拖拽手柄
-    const dragHandle = document.createElement('div');
-    dragHandle.className = 'drag-handle';
-    dragHandle.textContent = '⋮⋮';
-
-    const info = document.createElement('div');
-    info.className = 'rule-info';
-
-    const pattern = document.createElement('span');
-    pattern.className = 'rule-pattern';
-    pattern.textContent = rule.pattern;
-
-    const arrow = document.createElement('span');
-    arrow.className = 'rule-arrow';
-    arrow.textContent = '→';
-
-    const containerSpan = document.createElement('span');
-    containerSpan.className = 'rule-container';
-    containerSpan.textContent = containerName;
-
-    info.appendChild(pattern);
-    info.appendChild(arrow);
-    info.appendChild(containerSpan);
-
-    const actions = document.createElement('div');
-    actions.className = 'rule-actions';
-
-    // Toggle Switch 组件
-    const toggleSwitch = document.createElement('div');
-    toggleSwitch.className = 'toggle-switch';
-    toggleSwitch.title = rule.enabled ? '禁用' : '启用';
-
-    const toggleTrack = document.createElement('div');
-    toggleTrack.className = 'toggle-track' + (rule.enabled ? ' active' : '');
-
-    const toggleThumb = document.createElement('div');
-    toggleThumb.className = 'toggle-thumb';
-
-    toggleTrack.appendChild(toggleThumb);
-    toggleSwitch.appendChild(toggleTrack);
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'action-btn';
-    deleteBtn.dataset.action = 'delete';
-    deleteBtn.title = '删除';
-    deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path></svg>';
-
-    actions.appendChild(toggleSwitch);
-    actions.appendChild(deleteBtn);
-    item.appendChild(dragHandle);
-    item.appendChild(info);
-    item.appendChild(actions);
-    elements.rulesList.appendChild(item);
-
-    // 绑定 toggle 点击事件
-    toggleSwitch.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const latest = await window.realmAPI.getRules();
-      const current = latest.find(r => r.id === rule.id);
-      if (current) {
-        await window.realmAPI.updateRule(rule.id, { enabled: !current.enabled });
-        await refreshRulesList();
-      }
-    });
-
-    // 绑定 delete 点击事件
-    deleteBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      await window.realmAPI.deleteRule(rule.id);
-      await refreshRulesList();
-    });
-
-    // 绑定拖拽事件
-    item.addEventListener('dragstart', handleDragStart);
-    item.addEventListener('dragover', handleDragOver);
-    item.addEventListener('drop', handleDrop);
-    item.addEventListener('dragend', handleDragEnd);
-  });
-}
-
-// 拖拽状态
-let draggedItem = null;
-
-/**
- * 处理拖拽开始
- * @param {DragEvent} e - 拖拽事件
- */
-function handleDragStart(e) {
-  draggedItem = this;
-  this.classList.add('dragging');
-  e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', this.dataset.ruleId);
-}
-
-/**
- * 处理拖拽悬停
- * @param {DragEvent} e - 拖拽事件
- */
-function handleDragOver(e) {
-  e.preventDefault();
-  e.dataTransfer.dropEffect = 'move';
-
-  // 清除所有指示线
-  const items = elements.rulesList.querySelectorAll('.rule-item');
-  items.forEach(item => {
-    item.classList.remove('drag-over-top', 'drag-over-bottom');
-  });
-
-  // 计算鼠标位置决定插入目标的上方或下方
-  const rect = this.getBoundingClientRect();
-  const midY = rect.top + rect.height / 2;
-
-  if (e.clientY < midY) {
-    this.classList.add('drag-over-top');
-  } else {
-    this.classList.add('drag-over-bottom');
-  }
-}
-
-/**
- * 处理拖拽放下
- * @param {DragEvent} e - 拖拽事件
- */
-function handleDrop(e) {
-  e.preventDefault();
-
-  if (draggedItem === this) return;
-
-  // 清除所有指示线
-  const items = elements.rulesList.querySelectorAll('.rule-item');
-  items.forEach(item => {
-    item.classList.remove('drag-over-top', 'drag-over-bottom');
-  });
-
-  // 计算插入位置
-  const rect = this.getBoundingClientRect();
-  const midY = rect.top + rect.height / 2;
-
-  if (e.clientY < midY) {
-    this.parentNode.insertBefore(draggedItem, this);
-  } else {
-    this.parentNode.insertBefore(draggedItem, this.nextSibling);
-  }
-}
-
-/**
- * 处理拖拽结束
- */
-async function handleDragEnd() {
-  this.classList.remove('dragging');
-  draggedItem = null;
-
-  // 清除所有指示线
-  const items = elements.rulesList.querySelectorAll('.rule-item');
-  items.forEach(item => {
-    item.classList.remove('drag-over-top', 'drag-over-bottom');
-  });
-
-  // 收集新顺序
-  const newOrder = Array.from(elements.rulesList.querySelectorAll('.rule-item'))
-    .map(item => item.dataset.ruleId);
-
-  // 调用 IPC 同步到主进程
-  await window.realmAPI.reorderRules(newOrder);
-}
-
-/**
- * 创建新规则
- */
-async function createRule() {
-  const containerId = elements.ruleContainerSelect.value;
-  const pattern = elements.rulePatternInput.value.trim();
-
-  if (!pattern) {
-    showToast('请输入匹配模式', 'error');
-    return;
-  }
-
-  await window.realmAPI.createRule(containerId, pattern);
-  elements.rulePatternInput.value = '';
-  await refreshRulesList();
-  showToast('规则已添加', 'success');
-}
-
-/**
- * 导入规则
- */
-async function importRules() {
-  const result = await window.realmAPI.importRules();
-
-  if (result.success) {
-    const skippedText = result.skipped > 0 ? `，跳过 ${result.skipped} 条重复` : '';
-    showToast(`已导入 ${result.count} 条规则${skippedText}`, 'success');
-    await refreshRulesList();
-  } else {
-    showToast(result.message || '导入失败', 'error');
-  }
-}
-
-/**
- * 导出规则
- */
-async function exportRules() {
-  const result = await window.realmAPI.exportRules();
-
-  if (result.success) {
-    showToast(`已导出 ${result.count} 条规则`, 'success');
-  } else if (result.message !== '已取消') {
-    showToast(result.message || '导出失败', 'error');
-  }
-}
-
-// ==================== 快捷键设置 UI ====================
-
-/**
- * 快捷键中文名称映射
- */
-const SHORTCUT_NAMES = {
-  'newTab': '新建标签页',
-  'closeTab': '关闭标签页',
-  'nextTab': '下一个标签页',
-  'prevTab': '上一个标签页',
-  'reload': '刷新页面',
-  'back': '后退',
-  'forward': '前进',
-  'bookmark': '收藏此页面',
-  'openSettings': '打开设置页面',
-};
-
-/**
- * 显示快捷键设置模态框
- */
-async function showShortcutsModal() {
-  await refreshShortcutsList();
-  elements.shortcutsModal.showModal();
-}
-
-/**
- * 刷新快捷键列表
- */
-async function refreshShortcutsList() {
-  const shortcuts = await window.realmAPI.getShortcuts();
-  renderShortcutsList(shortcuts);
-}
-
-/**
- * 渲染快捷键列表
- * @param {Object} shortcuts - 快捷键配置对象
- */
-function renderShortcutsList(shortcuts) {
-  // WR-13：DOM 构建 + textContent。accelerator 来自用户按键捕获，禁止拼入 innerHTML
-  elements.shortcutsList.innerHTML = '';
-
-  Object.entries(shortcuts).forEach(([action, accelerator]) => {
-    const name = SHORTCUT_NAMES[action] || action;
-
-    const item = document.createElement('div');
-    item.className = 'shortcut-item';
-    item.dataset.action = action;
-
-    const info = document.createElement('div');
-    info.className = 'shortcut-info';
-
-    const nameSpan = document.createElement('span');
-    nameSpan.className = 'shortcut-name';
-    nameSpan.textContent = name;
-
-    const keySpan = document.createElement('span');
-    keySpan.className = 'shortcut-key';
-    keySpan.textContent = accelerator;
-
-    info.appendChild(nameSpan);
-    info.appendChild(keySpan);
-
-    const actions = document.createElement('div');
-    actions.className = 'shortcut-actions';
-
-    const editBtn = document.createElement('button');
-    editBtn.className = 'action-btn';
-    editBtn.dataset.action = 'edit';
-    editBtn.title = '修改';
-    editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
-
-    const resetBtn = document.createElement('button');
-    resetBtn.className = 'action-btn';
-    resetBtn.dataset.action = 'reset';
-    resetBtn.title = '恢复默认';
-    resetBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path></svg>';
-
-    actions.appendChild(editBtn);
-    actions.appendChild(resetBtn);
-    item.appendChild(info);
-    item.appendChild(actions);
-    elements.shortcutsList.appendChild(item);
-
-    editBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      await editShortcut(action);
-    });
-    resetBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      await resetShortcut(action);
-    });
-  });
-}
-
-// 快捷键捕获状态（WR-5）
-let keyCaptureAction = null;
-let keyCaptureAccelerator = null;
-
-/**
- * 将 keydown 事件转换为 Electron accelerator 字符串（WR-5）
- * @param {KeyboardEvent} e - keydown 事件
- * @returns {string|null} accelerator（如 CmdOrCtrl+Shift+T）；纯修饰键返回 null
- */
-function acceleratorFromEvent(e) {
-  const key = e.key;
-  // 单独按下修饰键不构成快捷键，等待后续按键
-  if (['Control', 'Shift', 'Alt', 'Meta'].includes(key)) {
-    return null;
-  }
-
-  const parts = [];
-  if (e.metaKey || e.ctrlKey) parts.push('CmdOrCtrl');
-  if (e.altKey) parts.push('Alt');
-  if (e.shiftKey) parts.push('Shift');
-
-  // Electron accelerator 的键名映射
-  const keyMap = {
-    ' ': 'Space',
-    '+': 'Plus',
-    'ArrowUp': 'Up',
-    'ArrowDown': 'Down',
-    'ArrowLeft': 'Left',
-    'ArrowRight': 'Right',
-  };
-  let mainKey = keyMap[key] || key;
-  if (mainKey.length === 1) {
-    mainKey = mainKey.toUpperCase();
-  }
-  parts.push(mainKey);
-
-  return parts.join('+');
-}
-
-/**
- * 编辑快捷键（WR-5）
- * window.prompt() 在 Electron 中不受支持（返回 undefined），
- * 改为自定义按键捕获 dialog，与现有 <dialog> 模态框风格一致。
- * @param {string} action - 操作名称
- */
-function editShortcut(action) {
-  const name = SHORTCUT_NAMES[action] || action;
-
-  keyCaptureAction = action;
-  keyCaptureAccelerator = null;
-  elements.shortcutCaptureTitle.textContent = `修改快捷键 - ${name}`;
-  elements.keyCaptureBox.textContent = '等待按键...';
-  elements.keyCaptureBox.classList.add('capturing');
-  elements.saveKeyCaptureBtn.disabled = true;
-  elements.shortcutCaptureModal.showModal();
-}
-
-/**
- * 处理快捷键捕获 dialog 内的按键
- * @param {KeyboardEvent} e - keydown 事件
- */
-function handleKeyCaptureKeydown(e) {
-  e.preventDefault();
-  e.stopPropagation();
-
-  // Esc 取消捕获
-  if (e.key === 'Escape') {
-    elements.shortcutCaptureModal.close();
-    return;
-  }
-
-  const accelerator = acceleratorFromEvent(e);
-  if (!accelerator) return;
-
-  keyCaptureAccelerator = accelerator;
-  elements.keyCaptureBox.textContent = accelerator;
-  elements.keyCaptureBox.classList.remove('capturing');
-  elements.saveKeyCaptureBtn.disabled = false;
-}
-
-/**
- * 保存捕获的快捷键
- */
-async function saveCapturedShortcut() {
-  if (!keyCaptureAction || !keyCaptureAccelerator) return;
-
-  await window.realmAPI.setShortcut(keyCaptureAction, keyCaptureAccelerator);
-  elements.shortcutCaptureModal.close();
-  await refreshShortcutsList();
-  showToast('快捷键已更新', 'success');
-}
-
-/**
- * 恢复默认快捷键
- * 默认值唯一来源是主进程 shortcut-manager 的 DEFAULT_SHORTCUTS；
- * 删除自定义覆盖后 getShortcuts 的合并逻辑自动回落到默认，无需在此硬编码副本。
- * @param {string} action - 操作名称
- */
-async function resetShortcut(action) {
-  const success = await window.realmAPI.resetShortcut(action);
-  if (success) {
-    await refreshShortcutsList();
-    showToast('快捷键已恢复默认', 'success');
-  } else {
-    showToast('未知的快捷键操作', 'error');
-  }
-}
-
 // ==================== 快捷键处理 ====================
 
 /**
@@ -1411,21 +924,31 @@ function switchToPrevTab() {
  * 打开设置页面
  * 当前容器已有 realm://settings Tab 则切换过去，否则新建。
  * 设置按钮和 CmdOrCtrl+, 快捷键共用此入口。
+ * @param {string} [tabName] - 可选的 tab 名称（rules、shortcuts 等），用于跳转到设置页面对应区域
  */
-function openSettingsTab() {
+function openSettingsTab(tabName) {
   const containerId = state.currentContainer;
+  const suffix = tabName ? `?tab=${tabName}` : '';
 
+  // 查找已有的设置页面 tab
   let existingTabId = null;
   state.tabs.forEach((tab, tabId) => {
-    if (tab.url === 'realm://settings' && tab.containerId === containerId) {
+    if (tab.url && tab.url.startsWith('realm://settings') && tab.containerId === containerId) {
       existingTabId = tabId;
     }
   });
 
   if (existingTabId) {
     switchTab(existingTabId);
+    // 如果有 tab 参数，通知 webview 切换页面
+    if (tabName) {
+      const webview = state.webviews.get(existingTabId);
+      if (webview) {
+        webview.executeJavaScript(`switchSettingsPage && switchSettingsPage('${tabName}')`);
+      }
+    }
   } else {
-    createTab(containerId, 'realm://settings');
+    createTab(containerId, `realm://settings${suffix}`);
   }
 }
 
@@ -2853,45 +2376,14 @@ function setupEventListeners() {
     });
   }
 
-  // 规则管理按钮
+  // 规则管理按钮（跳转到设置页面分配规则区域）
   if (elements.rulesBtn) {
-    elements.rulesBtn.addEventListener('click', showRulesModal);
+    elements.rulesBtn.addEventListener('click', () => openSettingsTab('rules'));
   }
 
-  // 快捷键设置按钮
+  // 快捷键设置按钮（跳转到设置页面快捷键设置区域）
   if (elements.shortcutsBtn) {
-    elements.shortcutsBtn.addEventListener('click', showShortcutsModal);
-  }
-
-  // 关闭快捷键设置模态框
-  if (elements.closeShortcutsModal) {
-    elements.closeShortcutsModal.addEventListener('click', () => {
-      elements.shortcutsModal.close();
-    });
-  }
-
-  // 点击快捷键设置模态框外部关闭
-  if (elements.shortcutsModal) {
-    elements.shortcutsModal.addEventListener('click', (e) => {
-      if (e.target === elements.shortcutsModal) {
-        elements.shortcutsModal.close();
-      }
-    });
-  }
-
-  // 快捷键捕获对话框（WR-5）
-  if (elements.shortcutCaptureModal) {
-    elements.shortcutCaptureModal.addEventListener('keydown', handleKeyCaptureKeydown);
-    elements.saveKeyCaptureBtn.addEventListener('click', saveCapturedShortcut);
-    elements.cancelKeyCaptureBtn.addEventListener('click', () => {
-      elements.shortcutCaptureModal.close();
-    });
-    // 点击模态框外部取消捕获
-    elements.shortcutCaptureModal.addEventListener('click', (e) => {
-      if (e.target === elements.shortcutCaptureModal) {
-        elements.shortcutCaptureModal.close();
-      }
-    });
+    elements.shortcutsBtn.addEventListener('click', () => openSettingsTab('shortcuts'));
   }
 
   // URL 输入框回车
@@ -2970,40 +2462,9 @@ function setupEventListeners() {
         state.deletingContainerId = null;
         elements.containerModal.close();
         elements.cookiesModal.close();
-        if (elements.rulesModal) {
-          elements.rulesModal.close();
-        }
       }
     }
   });
-
-  // 规则管理事件
-  if (elements.rulesModal) {
-    // 添加规则按钮
-    elements.addRuleBtn.addEventListener('click', createRule);
-
-    // 关闭规则模态框
-    elements.closeRulesModal.addEventListener('click', () => {
-      elements.rulesModal.close();
-    });
-
-    // 点击模态框外部关闭
-    elements.rulesModal.addEventListener('click', (e) => {
-      if (e.target === elements.rulesModal) {
-        elements.rulesModal.close();
-      }
-    });
-
-    // 导入规则按钮
-    if (elements.importRulesBtn) {
-      elements.importRulesBtn.addEventListener('click', importRules);
-    }
-
-    // 导出规则按钮
-    if (elements.exportRulesBtn) {
-      elements.exportRulesBtn.addEventListener('click', exportRules);
-    }
-  }
 
   // 监听外部链接打开事件（SETT-03）
   // data: { url, containerId }；containerId 为 null 表示在当前容器打开，
