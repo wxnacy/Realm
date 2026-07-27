@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Cookie 管理增强
-current_phase: 11
-current_phase_name: 设置页面重构
-status: executing
+current_phase: 12
+current_phase_name: 开发者模式
+status: completed
 stopped_at: Phase 12 UI-SPEC approved
-last_updated: "2026-07-27T08:15:58.207Z"
+last_updated: "2026-07-27T09:29:54.498Z"
 last_activity: 2026-07-27
-last_activity_desc: Phase 11 Plan 02 completed (gap closure — rules import roundtrip fixed)
+last_activity_desc: Phase 11 complete, transitioned to Phase 12
 progress:
   total_phases: 8
   completed_phases: 7
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-25)
 
 ## Current Position
 
-Phase: 11 (设置页面重构) — COMPLETE
-Plan: 2 of 2
+Phase: 12 — 开发者模式
+Plan: Not started
 Status: Phase 11 Complete (Plan 02 gap closure executed inline after subagent 429)
-Last activity: 2026-07-27 — Phase 11 Plan 02 completed (rules import roundtrip fixed)
+Last activity: 2026-07-27 — Phase 11 complete, transitioned to Phase 12
 
 Progress: [██████████] 100% (Phase 11 complete)
 

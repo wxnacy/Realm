@@ -323,8 +323,8 @@ Plans:
 
 Plans:
 
-- [ ] 12-01-PLAN.md — 后端基础：CDP 抓取引擎 + 写入队列 + SQLite 存储 + 设置 API/IPC
-- [ ] 12-02-PLAN.md — 前端页面：设置 UI 开发者模式配置 + realm://devrequests 请求查看页面
+- [x] 12-01-PLAN.md — 后端基础：CDP 抓取引擎 + 写入队列 + SQLite 存储 + 设置 API/IPC
+- [x] 12-02-PLAN.md — 前端页面：设置 UI 开发者模式配置 + realm://devrequests 请求查看页面
 
 **UI hint**: yes
 
@@ -347,5 +347,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 8. 常用网站推荐 + 设置页面 | v1.1 | 2/2 | Complete | 2026-07-25 |
 | 9. 共享收藏数据库 | v1.1 | 3/4 | Complete | 2026-07-26 |
 | 10. Cookie 管理增强 | v1.2 | 2/2 | Complete    | 2026-07-26 |
-| 11. 设置页面重构 — 左侧边栏 + 规则/快捷键页面化 | v1.2 | 2/2 | Complete   | 2026-07-27 |
-| 12. 开发者模式 — API 请求抓取 | v1.2 | 0/1 | Planning | |
+| 11. 设置页面重构 — 左侧边栏 + 规则/快捷键页面化 | v1.2 | 2/2 | Complete    | 2026-07-27 |
+| 12. 开发者模式 — API 请求抓取 | v1.2 | 2/2 | Complete   | 2026-07-27 |
