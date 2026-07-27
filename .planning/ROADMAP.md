@@ -8,7 +8,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 
 - ✅ **v1.0 MVP** — Phases 1-4 (shipped 2026-07-25)
 - ✅ **v1.1 容器属性增强 + 收藏历史 + 常用网站 + 设置页面** — Phases 5-9 (shipped 2026-07-26)
-- 📋 **v1.2 Cookie 管理增强** — Phase 10
+- 📋 **v1.2 Cookie 管理增强 + 设置页面重构 + 开发者模式** — Phases 10-12
 
 ## Phases
 
@@ -279,10 +279,59 @@ Plans:
 
 </details>
 
+<details>
+<summary>Phase 11: 设置页面重构 — 左侧边栏 + 规则/快捷键页面化</summary>
+
+**Goal**: 设置页面增加左侧边栏导航（通用/分配规则/快捷键），将分配规则和快捷键设置从弹窗改为页面内展示
+**Depends on**: Phase 10
+**Requirements**: SETT-06, SETT-07, SETT-08, SETT-09, SETT-10
+**Success Criteria** (what must be TRUE):
+
+  1. 设置页面左侧有边栏导航，包含"通用"、"分配规则"、"快捷键设置"三个入口
+  2. 点击侧边栏入口切换右侧内容区域，无需弹窗
+  3. "通用"页面显示当前设置页的所有功能（默认浏览器、历史保留天数等）
+  4. "分配规则"页面显示规则列表，支持增删改查、拖拽排序、启用/禁用、导入导出
+  5. "快捷键设置"页面显示快捷键列表，支持自定义修改和重置
+
+**Plans**: 1/1 plans
+
+Plans:
+
+- [x] 11-01-PLAN.md — 设置页面重构：左侧边栏 + 通用/分配规则/快捷键三个子页面
+
+**UI hint**: yes
+
+</details>
+
+<details>
+<summary>Phase 12: 开发者模式 — API 请求抓取</summary>
+
+**Goal**: 设置页面增加"开发者模式"，开启后可配置域名列表，自动抓取匹配域名的所有 API 请求并持久化到 SQLite
+**Depends on**: Phase 11
+**Requirements**: DEV-01, DEV-02, DEV-03, DEV-04, DEV-05
+**Success Criteria** (what must be TRUE):
+
+  1. 设置页面左侧边栏新增"开发者模式"入口，进入后顶部有开关切换按钮（默认关闭）
+  2. 开关关闭时，页面下方所有配置元素为禁用状态（灰色不可交互）；开启后恢复可交互
+  3. 开关下方有一个域名列表区域，展示当前已启用抓取的域名，支持删除操作
+  4. 列表上方支持从已有域名列表选择 + 手动输入两种方式添加需要抓取的域名
+  5. 列表中的域名在对应 webview 加载页面时，自动抓取所有 API 请求的 URL、方法、参数、请求头、Cookie、响应头、响应体，写入 SQLite
+  6. 抓取过程使用异步并发写入（写入队列 + 批量 flush），不阻塞页面加载和渲染
+
+**Plans**: 0/1 plans
+
+Plans:
+
+- [ ] 12-01-PLAN.md — 开发者模式：设置 UI + 域名管理 + CDP 抓取引擎 + SQLite 持久化
+
+**UI hint**: yes
+
+</details>
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -296,3 +345,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 8. 常用网站推荐 + 设置页面 | v1.1 | 2/2 | Complete | 2026-07-25 |
 | 9. 共享收藏数据库 | v1.1 | 3/4 | Complete | 2026-07-26 |
 | 10. Cookie 管理增强 | v1.2 | 2/2 | Complete    | 2026-07-26 |
+| 11. 设置页面重构 — 左侧边栏 + 规则/快捷键页面化 | v1.2 | 1/1 | Ready | |
+| 12. 开发者模式 — API 请求抓取 | v1.2 | 0/1 | Planning | |
