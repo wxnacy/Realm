@@ -1,20 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 11-设置页面重构
 source: [11-VERIFICATION.md]
 started: "2026-07-27T06:00:00.000Z"
-updated: "2026-07-27T15:30:00.000Z"
+updated: "2026-07-27T16:00:00.000Z"
 ---
 
 ## Current Test
 
-number: 2
-name: 规则页面功能（gap closure 后重跑）
-expected: |
-  导出规则得到 realm-rules.json → 删除全部规则 → 导入该文件 → toast 显示「已导入 N 条规则」（N 为实际数量）且列表恢复；
-  再任意选一个非规则 JSON 文件导入 → toast 显示失败原因而非成功假象；
-  导入失败后再次选择同一文件，change 事件正常触发（文件输入已被重置）
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -24,10 +18,10 @@ result: pass
 
 ### 2. 规则页面功能
 expected: 添加规则、删除规则、启用/禁用 toggle、拖拽排序、导入/导出功能正常；导出→导入往返可用，失败时 toast 显示具体原因
-result: pending
+result: pass
 reported: "导入选择文件后没有成功导入，没反应（2026-07-27 初测）"
 severity: major
-fix_status: "代码修复已落地（commits 51143c0 + 1e83a23）：服务端 normalizeRulesPayload 防御层 + 客户端发送前解包/失败检查/finally 重置；冒烟测试 9/9 通过。待人工重跑确认用户感知"
+fix_status: "代码修复已落地（commits 51143c0 + 1e83a23）：服务端 normalizeRulesPayload 防御层 + 客户端发送前解包/失败检查/finally 重置；冒烟测试 9/9 通过。人工重跑确认通过（2026-07-27）"
 
 ### 3. 快捷键页面功能
 expected: 查看快捷键列表（按功能分组）、修改快捷键（按键捕获对话框）、重置快捷键、重置全部功能正常
@@ -40,16 +34,16 @@ result: pass
 ## Summary
 
 total: 4
-passed: 3
+passed: 4
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
 
 - truth: "规则导入：选择文件后规则成功导入并显示在列表中"
-  status: fix_shipped_awaiting_retest
+  status: resolved_retest_passed
   reason: "User reported: 导入选择文件后没有成功导入，没反应"
   severity: major
   test: 2
