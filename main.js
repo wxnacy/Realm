@@ -53,6 +53,8 @@ const { registerHandlers, getActiveWebviewContentsId } = require('./ipc-handlers
 const historyManager = require('./history-manager');
 const favoritesManager = require('./favorites-manager');
 const frequentSitesManager = require('./frequent-sites-manager');
+const cdpManager = require('./cdp-manager');
+const devRequestsWriter = require('./dev-requests-writer');
 
 // ==================== webview guest 拦截（WR-1/WR-2/WR-9） ====================
 
@@ -131,9 +133,17 @@ app.on('web-contents-created', (event, contents) => {
     return { action: 'deny' };
   });
 
-  // 添加导航事件监听，用于调试
+  // 添加导航事件监听，用于调试和 CDP 抓取
   contents.on('did-start-navigation', (event, url, isInPlace, isMainFrame) => {
     console.log(`[Realm] did-start-navigation: ${url}, isInPlace: ${isInPlace}, isMainFrame: ${isMainFrame}`);
+
+    // CDP 管理器：检查域名匹配并自动附加/断开调试器
+    if (isMainFrame) {
+      const containerId = getGuestContainerId(contents);
+      if (containerId) {
+        cdpManager.handleNavigation(contents, url, containerId);
+      }
+    }
   });
 
   contents.on('did-navigate', (event, url) => {
@@ -553,6 +563,50 @@ app.whenReady().then(async () => {
         return;
       }
 
+      // ==================== 开发者模式 API ====================
+
+      if (route === 'get-devmode' && req.method === 'GET') {
+        sendJson(res, 200, {
+          enabled: cdpManager.isEnabled(),
+          domains: cdpManager.getDomains(),
+          retentionDays: cdpManager.getRetentionDays(),
+        });
+        return;
+      }
+
+      if (route === 'set-devmode' && req.method === 'POST') {
+        const { enabled } = await readJsonBody(req);
+        cdpManager.setEnabled(!!enabled);
+        sendJson(res, 200, { success: true });
+        return;
+      }
+
+      if (route === 'add-devdomain' && req.method === 'POST') {
+        const { domain } = await readJsonBody(req);
+        const result = cdpManager.addDomain(domain);
+        sendJson(res, result.success ? 200 : 400, result);
+        return;
+      }
+
+      if (route === 'remove-devdomain' && req.method === 'POST') {
+        const { domain } = await readJsonBody(req);
+        const result = cdpManager.removeDomain(domain);
+        sendJson(res, result.success ? 200 : 400, result);
+        return;
+      }
+
+      if (route === 'set-dev-retention' && req.method === 'POST') {
+        const { days } = await readJsonBody(req);
+        cdpManager.setRetentionDays(days);
+        sendJson(res, 200, { success: true });
+        return;
+      }
+
+      if (route === 'devqueue-stats' && req.method === 'GET') {
+        sendJson(res, 200, cdpManager.getQueueStats());
+        return;
+      }
+
       sendJson(res, 404, { error: 'Not Found' });
     } catch (err) {
       console.error('[Realm] 设置 API 处理失败:', err.message);
@@ -825,6 +879,11 @@ app.whenReady().then(async () => {
   // 初始化常用网站数据库
   frequentSitesManager.initDatabase();
 
+  // 初始化开发者模式模块
+  cdpManager.init(configStore);
+  devRequestsWriter.init();
+  cdpManager.setWriter(devRequestsWriter);
+
   // 清理孤儿 Partitions 目录（必须在 initContainers 之前：
   // 此时被删容器的 partition session 尚未创建，目录无句柄占用，
   // 运行中删除失败的残留由这里兜底，下次启动必定清干净）
@@ -989,6 +1048,11 @@ app.on('before-quit', async (event) => {
   // 窗口期内第二次按下：进入退出流程
   quitting = true;
   console.log('[Realm] 应用退出，保存 Cookie...');
+
+  // 清理开发者模式模块（执行最终 flush）
+  cdpManager.cleanup();
+  await devRequestsWriter.cleanup();
+
   try {
     await cookieManager.saveAllCookies();
   } catch (err) {
