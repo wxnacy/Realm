@@ -615,6 +615,102 @@ app.whenReady().then(async () => {
   }
 
   /**
+   * 处理 /api/devrequests/* 开发者模式请求数据 API
+   *
+   * 提供分页查询、域名列表、统计、删除和清空功能。
+   * 所有请求需要 token 鉴权，containerId 需通过白名单验证。
+   *
+   * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} res - 响应对象
+   * @param {URL} reqUrl - 解析后的请求 URL
+   */
+  async function handleDevRequestsApi(req, res, reqUrl) {
+    // token 鉴权
+    if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+      sendJson(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    try {
+      const route = reqUrl.pathname.replace('/api/devrequests/', '');
+
+      // GET /api/devrequests/list — 分页查询请求记录
+      if (route === 'list' && req.method === 'GET') {
+        const containerId = reqUrl.searchParams.get('containerId') || 'default';
+        const offset = parseInt(reqUrl.searchParams.get('offset'), 10) || 0;
+        const limit = parseInt(reqUrl.searchParams.get('limit'), 10) || 50;
+        const method = reqUrl.searchParams.get('method') || '';
+        const domain = reqUrl.searchParams.get('domain') || '';
+        const search = reqUrl.searchParams.get('search') || '';
+
+        const result = devRequestsWriter.queryRecords(containerId, {
+          offset,
+          limit,
+          url: search || undefined,
+          method: method || undefined,
+        });
+
+        // 按域名过滤（queryRecords 不直接支持域名过滤，在此层过滤）
+        if (domain && result.records.length > 0) {
+          result.records = result.records.filter(record => {
+            try {
+              const hostname = new URL(record.url).hostname;
+              return hostname === domain;
+            } catch {
+              return false;
+            }
+          });
+        }
+
+        sendJson(res, 200, {
+          records: result.records,
+          total: result.total,
+          offset,
+          limit,
+        });
+        return;
+      }
+
+      // GET /api/devrequests/domains — 获取已抓取的域名列表
+      if (route === 'domains' && req.method === 'GET') {
+        const containerId = reqUrl.searchParams.get('containerId') || 'default';
+        const domains = devRequestsWriter.queryDomains(containerId);
+        sendJson(res, 200, domains);
+        return;
+      }
+
+      // GET /api/devrequests/stats — 获取统计信息
+      if (route === 'stats' && req.method === 'GET') {
+        const containerId = reqUrl.searchParams.get('containerId') || 'default';
+        const stats = devRequestsWriter.queryStats(containerId);
+        sendJson(res, 200, stats);
+        return;
+      }
+
+      // POST /api/devrequests/delete — 删除单条记录
+      if (route === 'delete' && req.method === 'POST') {
+        const { containerId, id } = await readJsonBody(req);
+        const result = devRequestsWriter.deleteRecord(containerId || 'default', id);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      // POST /api/devrequests/clear — 清空容器的所有记录
+      if (route === 'clear' && req.method === 'POST') {
+        const { containerId } = await readJsonBody(req);
+        const result = devRequestsWriter.clearRecords(containerId || 'default');
+        sendJson(res, 200, { success: result.success, deletedCount: result.deleted });
+        return;
+      }
+
+      sendJson(res, 404, { error: 'Not Found' });
+    } catch (err) {
+      console.error('[Realm] DevRequests API 处理失败:', err.message);
+      sendJson(res, 400, { error: err.message });
+    }
+  }
+
+  /**
    * 处理 /api/containers/* 容器 API 请求
    * @param {http.IncomingMessage} req - 请求对象
    * @param {http.ServerResponse} res - 响应对象
@@ -807,6 +903,12 @@ app.whenReady().then(async () => {
       return;
     }
 
+    // 开发者模式请求数据 API（devrequests 页面数据层）
+    if (reqPath.startsWith('/api/devrequests/')) {
+      handleDevRequestsApi(req, res, reqUrl);
+      return;
+    }
+
     // 路由映射：/history → src/history.html，/history/xxx.js → src/xxx.js
     let filePath;
     if (reqPath === '/history' || reqPath === '/history/') {
@@ -829,6 +931,11 @@ app.whenReady().then(async () => {
       filePath = path.join(__dirname, 'src', 'settings.html');
     } else if (reqPath.startsWith('/settings/')) {
       const subPath = reqPath.replace('/settings/', '');
+      filePath = path.join(__dirname, 'src', subPath);
+    } else if (reqPath === '/devrequests' || reqPath === '/devrequests/') {
+      filePath = path.join(__dirname, 'src', 'devrequests.html');
+    } else if (reqPath.startsWith('/devrequests/')) {
+      const subPath = reqPath.replace('/devrequests/', '');
       filePath = path.join(__dirname, 'src', subPath);
     } else {
       res.writeHead(404);
