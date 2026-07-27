@@ -53,8 +53,8 @@ Exceptions: none
 | Display | 24px | 600 (semibold) | 1.2 |
 
 Additional:
-- Table header: 13px, weight 600, letter-spacing 0.02em
-- Table cell: 13px, weight 400
+- Table header: 14px, weight 600, letter-spacing 0.02em
+- Table cell: 14px, weight 400
 - Toast: 14px, weight 400
 - Badge/tag: 12px, weight 500
 
@@ -156,7 +156,7 @@ Accent reserved for:
 - Reuse existing `.toggle-switch > .toggle-track + .toggle-thumb` pattern
 - Default state: OFF (`.toggle-track` without `.active`)
 - ON state: `.toggle-track.active` (accent color #3B82F6)
-- Toggle text: inline label "开发者模式" at 14px/400, description text at 13px/text-secondary
+- Toggle text: inline label "开发者模式" at 14px/400, description text at 14px/text-secondary
 
 **Disabled State:**
 - When toggle is OFF, all elements below the toggle group receive `opacity: 0.4; pointer-events: none;`
@@ -248,21 +248,21 @@ Accent reserved for:
 - 3xx: #3B82F6 text
 - 4xx: #F59E0B text
 - 5xx: #EF4444 text
-- Font: 13px, weight 500
+- Font: 14px, weight 500
 
 **URL Column:**
 - Truncate with ellipsis at 500px max-width
 - Show full URL in title attribute (native tooltip)
-- Font: 13px, monospace for path portion
+- Font: 14px, monospace for path portion
 
 **Time Column:**
 - Format: "{N}ms" for < 1s, "{N}.{N}s" for >= 1s
 - Color: default text-primary, red if > 3s
-- Font: 13px
+- Font: 14px
 
 **Size Column:**
 - Format: "{N}B" / "{N}.{N}KB" / "{N}.{N}MB"
-- Font: 13px
+- Font: 14px
 
 **Table Row Styling:**
 - Height: 36px
