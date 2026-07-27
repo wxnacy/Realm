@@ -26,6 +26,12 @@ const state = {
   },
   /** 容器列表缓存 */
   containers: [],
+  /** 开发者模式配置 */
+  devMode: {
+    enabled: false,
+    domains: [],
+    retentionDays: 7,
+  },
 };
 
 /** API token（来自 URL 查询参数） */
@@ -99,6 +105,21 @@ async function shortcutsApi(route, options = {}) {
   return res.json();
 }
 
+/**
+ * 调用开发者模式 HTTP API
+ * @param {string} route - API 路由（如 'get-devmode'、'set-devmode'）
+ * @param {Object} [options] - fetch 选项
+ * @returns {Promise<*>} 解析后的 JSON 响应
+ */
+async function devModeApi(route, options = {}) {
+  const params = new URLSearchParams({ token: apiToken });
+  const res = await fetch(`/api/settings/${route}?${params.toString()}`, options);
+  if (!res.ok) {
+    throw new Error(`开发者模式 API 请求失败: ${res.status}`);
+  }
+  return res.json();
+}
+
 // ==================== DOM 元素 ====================
 
 /** DOM 元素引用 */
@@ -139,6 +160,18 @@ const elements = {
 
   // 关于页面
   aboutVersion: document.getElementById('aboutVersion'),
+
+  // 开发者模式
+  devModeToggle: document.getElementById('devModeToggle'),
+  devModeSection: document.getElementById('devModeSection'),
+  devRetentionDays: document.getElementById('devRetentionDays'),
+  domainInput: document.getElementById('domainInput'),
+  addDomainBtn: document.getElementById('addDomainBtn'),
+  domainList: document.getElementById('domainList'),
+  queueStatus: document.getElementById('queueStatus'),
+  queueCount: document.getElementById('queueCount'),
+  queueLastFlush: document.getElementById('queueLastFlush'),
+  devrequestsLink: document.getElementById('devrequestsLink'),
 };
 
 // ==================== 页面切换 ====================
@@ -173,6 +206,12 @@ function switchSettingsPage(pageName) {
     refreshRulesList();
   } else if (pageName === 'shortcuts') {
     refreshShortcutsList();
+  } else if (pageName === 'devmode') {
+    loadDevModeSettings();
+    startQueueStatusPolling();
+  } else {
+    // 离开开发者模式页面时停止轮询
+    stopQueueStatusPolling();
   }
 }
 
@@ -989,6 +1028,303 @@ function setupEventListeners() {
       elements.shortcutCaptureModal.close();
     }
   });
+
+  // ==================== 开发者模式事件 ====================
+
+  // 开发者模式开关
+  if (elements.devModeToggle) {
+    elements.devModeToggle.addEventListener('change', () => {
+      saveDevModeEnabled(elements.devModeToggle.checked);
+    });
+  }
+
+  // 添加域名按钮
+  if (elements.addDomainBtn) {
+    elements.addDomainBtn.addEventListener('click', () => {
+      if (elements.domainInput) {
+        addDomain(elements.domainInput.value);
+      }
+    });
+  }
+
+  // 域名输入框回车
+  if (elements.domainInput) {
+    elements.domainInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addDomain(elements.domainInput.value);
+      }
+    });
+  }
+
+  // 保留天数变更
+  if (elements.devRetentionDays) {
+    elements.devRetentionDays.addEventListener('change', async () => {
+      const days = parseInt(elements.devRetentionDays.value, 10);
+      try {
+        await devModeApi('set-dev-retention', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ days }),
+        });
+        state.devMode.retentionDays = days;
+        showToast('保留天数已更新');
+      } catch (error) {
+        console.error('[Realm] 保存保留天数失败:', error);
+        showToast('保存失败，请重试');
+      }
+    });
+  }
+}
+
+// ==================== 开发者模式 ====================
+
+/** @type {NodeJS.Timeout|null} 队列状态轮询定时器 */
+let queueStatusTimer = null;
+
+/**
+ * 加载开发者模式配置
+ */
+async function loadDevModeSettings() {
+  try {
+    const config = await devModeApi('get-devmode');
+    state.devMode = {
+      enabled: config.enabled || false,
+      domains: config.domains || [],
+      retentionDays: config.retentionDays || 7,
+    };
+
+    // 更新 UI
+    updateDevModeUI(state.devMode.enabled);
+    renderDomainList();
+
+    // 更新保留天数选择
+    if (elements.devRetentionDays) {
+      elements.devRetentionDays.value = state.devMode.retentionDays;
+    }
+  } catch (error) {
+    console.error('[Realm] 加载开发者模式配置失败:', error);
+    showToast('加载开发者模式配置失败');
+  }
+}
+
+/**
+ * 保存开发者模式开关状态
+ * @param {boolean} enabled - 是否启用
+ */
+async function saveDevModeEnabled(enabled) {
+  try {
+    await devModeApi('set-devmode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    state.devMode.enabled = enabled;
+    updateDevModeUI(enabled);
+    showToast(enabled ? '开发者模式已启用' : '开发者模式已禁用');
+  } catch (error) {
+    console.error('[Realm] 保存开发者模式开关失败:', error);
+    showToast('保存失败，请重试');
+    // 恢复 toggle 状态
+    if (elements.devModeToggle) {
+      elements.devModeToggle.checked = !enabled;
+    }
+  }
+}
+
+/**
+ * 添加抓取域名
+ * @param {string} domain - 域名
+ */
+async function addDomain(domain) {
+  const trimmed = domain.trim().toLowerCase();
+
+  // 验证
+  if (!trimmed) {
+    showToast('请输入域名');
+    return;
+  }
+
+  if (/\s/.test(trimmed) || /[^\w.-]/.test(trimmed)) {
+    showToast('域名格式不合法');
+    highlightInputError(elements.domainInput);
+    return;
+  }
+
+  if (state.devMode.domains.includes(trimmed)) {
+    showToast('域名已存在');
+    highlightInputError(elements.domainInput);
+    return;
+  }
+
+  try {
+    const result = await devModeApi('add-devdomain', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain: trimmed }),
+    });
+
+    if (result.success) {
+      state.devMode.domains.push(trimmed);
+      renderDomainList();
+      if (elements.domainInput) {
+        elements.domainInput.value = '';
+      }
+      showToast(`已添加域名: ${trimmed}`);
+    } else {
+      showToast(result.message || '添加失败');
+    }
+  } catch (error) {
+    console.error('[Realm] 添加域名失败:', error);
+    showToast('添加失败，请重试');
+  }
+}
+
+/**
+ * 移除抓取域名
+ * @param {string} domain - 域名
+ */
+async function removeDomain(domain) {
+  try {
+    const result = await devModeApi('remove-devdomain', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain }),
+    });
+
+    if (result.success) {
+      state.devMode.domains = state.devMode.domains.filter(d => d !== domain);
+      renderDomainList();
+      showToast(`已移除域名: ${domain}`);
+    } else {
+      showToast(result.message || '移除失败');
+    }
+  } catch (error) {
+    console.error('[Realm] 移除域名失败:', error);
+    showToast('移除失败，请重试');
+  }
+}
+
+/**
+ * 渲染域名列表
+ */
+function renderDomainList() {
+  if (!elements.domainList) return;
+
+  elements.domainList.innerHTML = '';
+
+  if (state.devMode.domains.length === 0) {
+    elements.domainList.innerHTML = '<div class="domain-empty">暂无监控域名</div>';
+    return;
+  }
+
+  state.devMode.domains.forEach(domain => {
+    const item = document.createElement('div');
+    item.className = 'domain-item';
+    item.innerHTML = `
+      <span class="domain-text">${escapeHtml(domain)}</span>
+      <button class="btn-icon domain-remove" data-domain="${escapeHtml(domain)}" title="移除">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M4 4L12 12M4 12L12 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
+    `;
+
+    // 绑定删除事件
+    const removeBtn = item.querySelector('.domain-remove');
+    removeBtn.addEventListener('click', () => removeDomain(domain));
+
+    elements.domainList.appendChild(item);
+  });
+}
+
+/**
+ * 更新开发者模式 UI 状态
+ * @param {boolean} enabled - 是否启用
+ */
+function updateDevModeUI(enabled) {
+  if (elements.devModeToggle) {
+    elements.devModeToggle.checked = enabled;
+  }
+
+  if (elements.devModeSection) {
+    elements.devModeSection.style.opacity = enabled ? '1' : '0.4';
+    elements.devModeSection.style.pointerEvents = enabled ? 'auto' : 'none';
+  }
+}
+
+/**
+ * 启动队列状态轮询
+ */
+function startQueueStatusPolling() {
+  stopQueueStatusPolling();
+  updateQueueStatus();
+  queueStatusTimer = setInterval(updateQueueStatus, 2000);
+}
+
+/**
+ * 停止队列状态轮询
+ */
+function stopQueueStatusPolling() {
+  if (queueStatusTimer) {
+    clearInterval(queueStatusTimer);
+    queueStatusTimer = null;
+  }
+}
+
+/**
+ * 更新队列状态显示
+ */
+async function updateQueueStatus() {
+  try {
+    const stats = await devModeApi('devqueue-stats');
+
+    if (elements.queueCount) {
+      elements.queueCount.textContent = stats.pending || 0;
+
+      // 颜色编码
+      const pending = stats.pending || 0;
+      elements.queueCount.className = 'queue-count';
+      if (pending > 500) {
+        elements.queueCount.classList.add('queue-danger');
+      } else if (pending > 100) {
+        elements.queueCount.classList.add('queue-warning');
+      } else {
+        elements.queueCount.classList.add('queue-normal');
+      }
+    }
+
+    if (elements.queueLastFlush && stats.lastFlush) {
+      const date = new Date(stats.lastFlush);
+      elements.queueLastFlush.textContent = date.toLocaleTimeString();
+    }
+  } catch (error) {
+    // 静默失败，不打扰用户
+    console.error('[Realm] 获取队列状态失败:', error);
+  }
+}
+
+/**
+ * 高亮输入框错误状态（2秒后恢复）
+ * @param {HTMLElement} input - 输入框元素
+ */
+function highlightInputError(input) {
+  if (!input) return;
+  input.style.borderColor = 'var(--color-danger, #ff4444)';
+  setTimeout(() => {
+    input.style.borderColor = '';
+  }, 2000);
+}
+
+/**
+ * HTML 转义（防 XSS）
+ * @param {string} text - 原始文本
+ * @returns {string} 转义后的文本
+ */
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 // ==================== 初始化 ====================
