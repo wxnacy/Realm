@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 11-设置页面重构
 source: [11-VERIFICATION.md]
 started: "2026-07-27T06:00:00.000Z"
@@ -46,6 +46,14 @@ blocked: 0
   reason: "User reported: 导入选择文件后没有成功导入，没反应"
   severity: major
   test: 2
-  root_cause: ""
-  artifacts: []
-  missing: []
+  root_cause: "数据格式双重包裹 + 失败响应被静默吞掉。客户端 handleFileSelect 把整个解析后的文件内容再次包装为 {rules: rulesData} 发送，而导出产物本身就是 {rules:[...], exportedAt} 对象，服务端解构出的 rules 不是数组，被 assignment-rules.js 的 Array.isArray 校验拒绝；客户端又不检查 result.success，失败也弹成功 toast（显示 undefined 条），用户感知为没反应。导出→导入往返必然失败。"
+  artifacts:
+    - path: "src/settings-page.js:558-582"
+      issue: "handleFileSelect 双重包裹 payload + 不检查 result.success 导致静默失败"
+    - path: "main.js:646-651"
+      issue: "/api/rules/import 路由对 body 格式零校验/零归一化，直接透传"
+  missing:
+    - "客户端发送前解包归一化：const rules = Array.isArray(parsed) ? parsed : parsed.rules"
+    - "客户端检查 result.success，失败时 toast result.message"
+    - "服务端 import 路由做同样的归一化作为防御（可选）"
+  debug_session: .planning/debug/rules-import-no-op.md
