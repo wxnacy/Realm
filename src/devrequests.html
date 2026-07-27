@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- 页面经 http://localhost:PORT/devrequests 加载，base 使相对资源路径解析到 /devrequests/ 下 -->
+  <base href="/devrequests/">
+  <!-- img-src 需放行远程 favicon（http/https/data） -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: http: data:">
+  <title>API 请求记录 - Realm</title>
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+  <div class="devrequests-page">
+    <!-- 头部 -->
+    <div class="devrequests-header">
+      <h1>API 请求记录</h1>
+      <div class="devrequests-actions">
+        <select id="containerSelect" class="settings-select"></select>
+        <button class="btn btn-danger" id="clearAllBtn">清空所有请求</button>
+      </div>
+    </div>
+
+    <!-- 过滤栏 -->
+    <div class="devrequests-filters">
+      <input type="text" id="searchInput" class="text-input" placeholder="搜索 URL...">
+      <select id="domainFilter" class="settings-select">
+        <option value="">全部域名</option>
+      </select>
+      <select id="methodFilter" class="settings-select">
+        <option value="">全部方法</option>
+        <option value="GET">GET</option>
+        <option value="POST">POST</option>
+        <option value="PUT">PUT</option>
+        <option value="DELETE">DELETE</option>
+        <option value="PATCH">PATCH</option>
+      </select>
+      <button class="btn btn-secondary" id="refreshBtn" aria-label="刷新请求列表">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="23 4 23 10 17 10"></polyline>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+        </svg>
+      </button>
+    </div>
+
+    <!-- 请求表格 -->
+    <div class="devrequests-table-container">
+      <table class="devrequests-table">
+        <thead>
+          <tr>
+            <th class="col-method">方法</th>
+            <th class="col-url">URL</th>
+            <th class="col-status">状态码</th>
+            <th class="col-time">时间</th>
+            <th class="col-size">大小</th>
+          </tr>
+        </thead>
+        <tbody id="requestsBody"></tbody>
+      </table>
+    </div>
+
+    <!-- 展开详情面板 -->
+    <div id="detailPanel" class="devrequests-detail" style="display:none;">
+      <div class="devrequests-detail-tabs">
+        <button class="detail-tab active" data-tab="request-headers">请求头</button>
+        <button class="detail-tab" data-tab="request-body">请求体</button>
+        <button class="detail-tab" data-tab="response-headers">响应头</button>
+        <button class="detail-tab" data-tab="response-body">响应体</button>
+        <button class="detail-tab" data-tab="cookies">Cookie</button>
+      </div>
+      <div class="devrequests-detail-content">
+        <button class="btn-icon devrequests-copy-btn" aria-label="复制" id="copyDetailBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+        </button>
+        <pre id="detailContent" class="devrequests-detail-pre"></pre>
+      </div>
+    </div>
+
+    <!-- 空状态 -->
+    <div id="emptyState" class="devrequests-empty" style="display:none;">
+      <h3>暂无抓取记录</h3>
+      <p>开启开发者模式并添加监控域名后，API 请求将显示在这里。</p>
+    </div>
+
+    <!-- 分页 -->
+    <div class="devrequests-pagination" id="pagination">
+      <button class="page-btn" id="prevPageBtn" disabled>上一页</button>
+      <span id="pageInfo">第 1/1 页</span>
+      <button class="page-btn" id="nextPageBtn" disabled>下一页</button>
+    </div>
+  </div>
+
+  <!-- 清空确认对话框 -->
+  <dialog class="modal" id="clearConfirmModal">
+    <div class="modal-content">
+      <h2>清空所有请求</h2>
+      <p>确定清空当前容器的所有抓取记录吗？此操作不可撤销。</p>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" id="cancelClearBtn">取消</button>
+        <button type="button" class="btn btn-danger" id="confirmClearBtn">清空</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="devrequests-page.js"></script>
+</body>
+</html>
