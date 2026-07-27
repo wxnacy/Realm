@@ -543,6 +543,24 @@ app.whenReady().then(async () => {
         return;
       }
 
+      if (route === 'version' && req.method === 'GET') {
+        sendJson(res, 200, { version: app.getVersion() });
+        return;
+      }
+
+      if (route === 'icon' && req.method === 'GET') {
+        const iconPath = path.join(__dirname, 'icons', 'icon.png');
+        fs.readFile(iconPath, (err, data) => {
+          if (err) {
+            sendJson(res, 404, { error: 'Icon not found' });
+            return;
+          }
+          res.writeHead(200, { 'Content-Type': 'image/png' });
+          res.end(data);
+        });
+        return;
+      }
+
       if (route === 'set-default-browser' && req.method === 'POST') {
         // 注册 http/https 会触发 macOS 系统确认弹框（用户确认后才真正生效）
         const httpOk = app.setAsDefaultProtocolClient('http');

@@ -89,7 +89,11 @@ button {
 }
 
 .logo-icon {
-  font-size: 24px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: contain;
+  display: block;
 }
 
 .logo-text {
@@ -1498,14 +1502,14 @@ textarea::placeholder {
 
 /* 页面布局 */
 /* body 是主窗口布局（display:flex; height:100vh; overflow:hidden），
-   历史页作为其 flex item：flex:1 保证宽度始终撑到 max-width（空状态不收缩），
-   自身 overflow-y:auto 成为滚动容器（body 禁滚，window scroll 不会触发） */
+   历史页作为其 flex item：flex:1 + overflow-y:auto 成为滚动容器（body 禁滚）。
+   滚动容器需占满窗口宽度让滚动条贴右缘，内容用 padding-inline:max() 水平居中，
+   等效 max-width:800px（窗口窄于 800px 时退化为 24px 内边距） */
 .history-page {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 24px;
   flex: 1;
   overflow-y: auto;
+  padding-block: 24px;
+  padding-inline: max(24px, calc((100% - 800px) / 2));
 }
 
 .history-header {
@@ -1751,12 +1755,12 @@ textarea::placeholder {
 
 /* ==================== 收藏夹页面样式 ==================== */
 
+/* 收藏页布局同 history-page：滚动容器占满窗口宽度，内容用 padding-inline:max() 居中 */
 .favorites-page {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 24px;
   flex: 1;
   overflow-y: auto;
+  padding-block: 24px;
+  padding-inline: max(24px, calc((100% - 800px) / 2));
 }
 
 .favorites-header {
@@ -2101,6 +2105,10 @@ textarea::placeholder {
   display: flex;
   height: 100vh;
   overflow: hidden;
+  /* body 是 flex 容器，必须显式 flex:1 才能占满窗口宽度，
+     否则 shrink-to-fit 导致滚动条出现在 .settings-page 右缘而非窗口右缘 */
+  flex: 1;
+  min-width: 0;
 }
 
 /* 侧边栏样式 */
@@ -2117,7 +2125,7 @@ textarea::placeholder {
   top: 0;
 }
 
-.sidebar-header {
+.settings-sidebar .sidebar-header {
   padding: 0 20px 24px;
   font-size: 14px;
   font-weight: 600;
@@ -2173,15 +2181,16 @@ textarea::placeholder {
 }
 
 /* 内容区域样式 */
+/* 滚动容器需占满剩余宽度（让滚动条贴窗口右缘），宽度限制下沉到 .settings-section */
 .settings-content {
   flex: 1;
   overflow-y: auto;
   padding: 24px 32px;
-  max-width: 680px;
 }
 
 .settings-section {
   /* display 由 JS 控制 */
+  max-width: 680px;
 }
 
 .settings-page-title {
@@ -2326,14 +2335,9 @@ textarea::placeholder {
   width: 64px;
   height: 64px;
   margin: 0 auto 16px;
-  background: var(--accent-color);
   border-radius: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 28px;
-  font-weight: 700;
-  color: #fff;
+  display: block;
+  object-fit: contain;
 }
 
 .about-name {

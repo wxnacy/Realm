@@ -160,6 +160,7 @@ const elements = {
 
   // 关于页面
   aboutVersion: document.getElementById('aboutVersion'),
+  aboutIcon: document.getElementById('aboutIcon'),
 
   // 开发者模式
   devModeToggle: document.getElementById('devModeToggle'),
@@ -294,9 +295,13 @@ async function loadSettings() {
     elements.restoreTabsOnLaunch.value = state.settings.restoreTabsOnLaunch || 'ask';
 
     // 更新版本号
-    const version = await settingsApi('version').catch(() => '--');
+    const versionRes = await settingsApi('version').catch(() => null);
+    const version = (versionRes && versionRes.version) || '--';
     elements.sidebarVersion.textContent = `版本: ${version}`;
     elements.aboutVersion.textContent = `版本: ${version}`;
+
+    // 设置关于页图标（走带 token 的 API 取应用图标）
+    elements.aboutIcon.src = `/api/settings/icon?token=${encodeURIComponent(apiToken)}`;
 
   } catch (error) {
     console.error('[Realm] 加载设置失败:', error);
@@ -1360,11 +1365,10 @@ async function init() {
   // 初始化事件监听
   setupEventListeners();
 
-  // 检查 URL 参数中的 tab 指示
+  // 检查 URL 参数中的 tab 指示；无参数时显式落在通用页，
+  // 避免仅依赖 HTML 内联 display:none 兜底（内联样式失效会导致多个 section 同时显示）
   const tabParam = pageParams.get('tab');
-  if (tabParam) {
-    switchSettingsPage(tabParam);
-  }
+  switchSettingsPage(tabParam || 'general');
 }
 
 // 页面加载完成后初始化
