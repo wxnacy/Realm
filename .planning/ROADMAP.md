@@ -8,7 +8,8 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 
 - ✅ **v1.0 MVP** — Phases 1-4 (shipped 2026-07-25)
 - ✅ **v1.1 容器属性增强 + 收藏历史 + 常用网站 + 设置页面** — Phases 5-9 (shipped 2026-07-26)
-- 📋 **v1.2 Cookie 管理增强 + 设置页面重构 + 开发者模式** — Phases 10-12
+- ✅ **v1.2 Cookie 管理增强 + 设置页面重构 + 开发者模式** — Phases 10-12 (shipped 2026-07-27)
+- 📋 **v1.3 右键菜单增强** — Phase 13
 
 ## Phases
 
@@ -330,10 +331,35 @@ Plans:
 
 </details>
 
+<details>
+<summary>Phase 13: 右键菜单增强 — 标签页/图片/链接上下文菜单</summary>
+
+**Goal**: 标签页右键菜单和网页内图片、超链接右键菜单提供 Chrome 浏览器常用的上下文菜单功能
+**Depends on**: Phase 12
+**Requirements**: CTX-01, CTX-02, CTX-03, CTX-04, CTX-05
+**Success Criteria** (what must be TRUE):
+
+  1. 标签页右键显示上下文菜单，包含：关闭标签页、关闭其他标签页、关闭右侧标签页、重新打开已关闭标签页、固定标签页
+  2. 网页内右键显示通用上下文菜单，包含：后退、前进、刷新、另存为、打印、查看页面源代码、检查元素
+  3. 网页内图片右键显示图片专用菜单，包含：在新标签页中打开图片、将图片另存为、复制图片、复制图片地址
+  4. 网页内超链接右键显示链接专用菜单，包含：在新标签页中打开链接、在新容器标签页中打开、复制链接地址
+  5. 所有菜单项点击后执行对应功能，功能与 Chrome 浏览器一致
+
+**Plans**: 0/2 plans
+
+Plans:
+
+- [ ] 13-01-PLAN.md — 主进程菜单基础设施：context-menu-manager.js + IPC 监听器
+- [ ] 13-02-PLAN.md — 渲染进程集成：preload API + 右键事件监听 + 菜单回调 + 固定标签
+
+**UI hint**: yes
+
+</details>
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -349,3 +375,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 10. Cookie 管理增强 | v1.2 | 2/2 | Complete    | 2026-07-26 |
 | 11. 设置页面重构 — 左侧边栏 + 规则/快捷键页面化 | v1.2 | 2/2 | Complete    | 2026-07-27 |
 | 12. 开发者模式 — API 请求抓取 | v1.2 | 2/2 | Complete    | 2026-07-27 |
+| 13. 右键菜单增强 — 标签页/图片/链接上下文菜单 | v1.3 | 0/2 | Not started | — |
