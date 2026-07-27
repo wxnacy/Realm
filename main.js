@@ -8,7 +8,7 @@
 try { require('electron-reloader')(module); } catch {}
 
 const path = require('path');
-const { app, BrowserWindow, protocol, net, ipcMain, Menu } = require('electron');
+const { app, BrowserWindow, protocol, net, ipcMain, Menu, dialog } = require('electron');
 const { pathToFileURL } = require('url');
 const http = require('http');
 const fs = require('fs');
@@ -588,6 +588,125 @@ app.whenReady().then(async () => {
     }
   }
 
+  /**
+   * 处理 /api/rules/* 分配规则 API 请求
+   * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} res - 响应对象
+   * @param {URL} reqUrl - 解析后的请求 URL
+   */
+  async function handleRulesApi(req, res, reqUrl) {
+    // token 鉴权
+    if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+      sendJson(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    try {
+      const route = reqUrl.pathname.replace('/api/rules/', '');
+
+      if (route === 'list' && req.method === 'GET') {
+        sendJson(res, 200, assignmentRules.getRules());
+        return;
+      }
+
+      if (route === 'create' && req.method === 'POST') {
+        const { containerId, pattern } = await readJsonBody(req);
+        const result = assignmentRules.createRule(containerId, pattern);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      if (route === 'update' && req.method === 'POST') {
+        const { ruleId, updates } = await readJsonBody(req);
+        const result = assignmentRules.updateRule(ruleId, updates);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      if (route === 'delete' && req.method === 'POST') {
+        const { ruleId } = await readJsonBody(req);
+        const result = assignmentRules.deleteRule(ruleId);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      if (route === 'reorder' && req.method === 'POST') {
+        const { orderedIds } = await readJsonBody(req);
+        const result = assignmentRules.reorderRules(orderedIds);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      if (route === 'export' && req.method === 'GET') {
+        const data = assignmentRules.exportRules();
+        sendJson(res, 200, data);
+        return;
+      }
+
+      if (route === 'import' && req.method === 'POST') {
+        const { rules } = await readJsonBody(req);
+        const result = assignmentRules.importRules(rules);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      sendJson(res, 404, { error: 'Not Found' });
+    } catch (err) {
+      console.error('[Realm] 规则 API 处理失败:', err.message);
+      sendJson(res, 400, { error: err.message });
+    }
+  }
+
+  /**
+   * 处理 /api/shortcuts/* 快捷键 API 请求
+   * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} res - 响应对象
+   * @param {URL} reqUrl - 解析后的请求 URL
+   */
+  async function handleShortcutsApi(req, res, reqUrl) {
+    // token 鉴权
+    if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+      sendJson(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    try {
+      const route = reqUrl.pathname.replace('/api/shortcuts/', '');
+
+      if (route === 'list' && req.method === 'GET') {
+        sendJson(res, 200, shortcutManager.getShortcuts());
+        return;
+      }
+
+      if (route === 'set' && req.method === 'POST') {
+        const { action, accelerator } = await readJsonBody(req);
+        const result = shortcutManager.setShortcut(action, accelerator);
+        if (result) {
+          const win = windowManager.getMainWindow();
+          shortcutManager.rebuildShortcuts(win);
+        }
+        sendJson(res, 200, { success: result });
+        return;
+      }
+
+      if (route === 'reset' && req.method === 'POST') {
+        const { action } = await readJsonBody(req);
+        const result = shortcutManager.resetShortcut(action);
+        if (result) {
+          const win = windowManager.getMainWindow();
+          shortcutManager.rebuildShortcuts(win);
+        }
+        sendJson(res, 200, { success: result });
+        return;
+      }
+
+      sendJson(res, 404, { error: 'Not Found' });
+    } catch (err) {
+      console.error('[Realm] 快捷键 API 处理失败:', err.message);
+      sendJson(res, 400, { error: err.message });
+    }
+  }
+
   const realmServer = http.createServer((req, res) => {
     const reqUrl = new URL(req.url, 'http://localhost');
     const reqPath = reqUrl.pathname;
@@ -619,6 +738,18 @@ app.whenReady().then(async () => {
     // 容器列表 JSON API（内部页面数据层）
     if (reqPath.startsWith('/api/containers/')) {
       handleContainersApi(req, res, reqUrl);
+      return;
+    }
+
+    // 分配规则 JSON API（设置页面数据层）
+    if (reqPath.startsWith('/api/rules/')) {
+      handleRulesApi(req, res, reqUrl);
+      return;
+    }
+
+    // 快捷键 JSON API（设置页面数据层）
+    if (reqPath.startsWith('/api/shortcuts/')) {
+      handleShortcutsApi(req, res, reqUrl);
       return;
     }
 
