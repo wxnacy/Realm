@@ -624,7 +624,9 @@ async function editCookie(containerId, cookieData) {
 
 /**
  * 删除单个 Cookie
- * 从 Session 中删除 Cookie，然后同步更新文件
+ * 从 Session 中删除 Cookie，并显式从文件中剔除同一条目
+ * （saveCookies 的合并逻辑会保留文件中存在但 session 中缺失的未过期
+ * Cookie，若走通用保存会将刚删除的 Cookie 原样写回、重启后复活）
  * @param {string} containerId - 容器 ID
  * @param {Object} cookieData - Cookie 数据
  * @param {string} cookieData.name - Cookie 名称
@@ -646,8 +648,14 @@ async function deleteSingleCookie(containerId, cookieData) {
     // 从 Session 中删除
     await ses.cookies.remove(url, cookieData.name);
 
-    // 同步保存到文件
-    await saveCookies(containerId);
+    // 显式从文件中剔除目标条目（唯一键：domain|name|path）
+    const filePath = getCookieFilePath(containerId);
+    if (fs.existsSync(filePath)) {
+      const existing = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      const targetKey = `${cookieData.domain}|${cookieData.name}|${cookieData.path || '/'}`;
+      const remaining = existing.filter(c => `${c.domain}|${c.name}|${c.path}` !== targetKey);
+      fs.writeFileSync(filePath, JSON.stringify(remaining, null, 2));
+    }
 
     console.log(`[Realm] 删除 Cookie: ${containerId} - ${cookieData.name}`);
     return { success: true, message: 'Cookie 已删除' };
