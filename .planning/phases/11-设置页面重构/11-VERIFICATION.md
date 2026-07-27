@@ -2,20 +2,24 @@
 phase: 11-设置页面重构
 verified: 2026-07-27T14:00:00Z
 reverified: 2026-07-27T15:30:00Z
-status: human_needed
+status: passed
 score: 6/6 must-haves verified (11-01) + 4/4 gap-closure truths verified (11-02)
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "打开设置页面（CmdOrCtrl+,），检查左侧边栏布局"
     expected: "左侧边栏 220px 宽度，显示'通用'、'分配规则'、'快捷键设置'、'关于'四个入口，选中项有蓝色高亮条"
     why_human: "需要视觉确认布局和样式是否正确"
+
   - test: "在分配规则页面添加规则、拖拽排序、启用/禁用 toggle、导入导出（含 UAT test 2 重跑：导出→删除全部→导入导出文件→toast 显示真实条数；再导入非法 JSON 文件→toast 显示失败原因）"
     expected: "所有规则操作正常工作，数据通过 HTTP API 同步到主进程；导出→导入往返可用，失败时 toast 显示具体原因"
     why_human: "需要交互测试验证完整功能链路"
+
   - test: "在快捷键设置页面修改快捷键（按键捕获对话框）、重置单个快捷键、重置全部"
     expected: "快捷键修改后立即生效，主进程 rebuildShortcuts 被调用"
     why_human: "需要验证按键捕获对话框和快捷键实时生效"
+
   - test: "点击工具栏'规则'按钮和'快捷键'按钮"
     expected: "打开设置页面并自动切换到对应区域（分配规则/快捷键设置）"
     why_human: "需要验证跨页面导航和 webview executeJavaScript 调用"
