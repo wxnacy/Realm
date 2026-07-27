@@ -2287,19 +2287,21 @@ async function handleSaveToFile() {
     }
 
     let result;
-    if (domain) {
-      // 按域名保存（含子域名）
-      result = await window.realmAPI.saveDomainCookies(state.currentContainer, domain, true);
+    if (!domain || cookieState.filter === 'all') {
+      // 过滤器为"全部"（或无法获取域名）时，保存全部
+      result = await window.realmAPI.saveCookie(state.currentContainer);
       if (result.success) {
-        showToast(`已保存 ${result.count} 个 ${domain} 的 Cookie 到文件`, 'success');
+        showToast(`已保存 ${result.count} 个 Cookie 到文件`, 'success');
       } else {
         showToast('保存失败', 'error');
       }
     } else {
-      // 无法获取域名时，保存全部
-      result = await window.realmAPI.saveCookie(state.currentContainer);
+      // 保存范围跟随面板当前过滤器：'subdomain' 含父域，'exact' 仅当前域名
+      const includeSubdomains = cookieState.filter === 'subdomain';
+      result = await window.realmAPI.saveDomainCookies(state.currentContainer, domain, includeSubdomains);
       if (result.success) {
-        showToast(`已保存 ${result.count} 个 Cookie 到文件`, 'success');
+        const scopeLabel = includeSubdomains ? '（含父域）' : '（仅当前域名）';
+        showToast(`已保存 ${result.count} 个 ${domain} 的 Cookie 到文件${scopeLabel}`, 'success');
       } else {
         showToast('保存失败', 'error');
       }
