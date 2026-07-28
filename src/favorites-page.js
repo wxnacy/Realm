@@ -34,6 +34,16 @@ const state = {
   selectedIds: new Set(),
   /** 是否全选状态 */
   selectAll: false,
+  /** 当前文件夹 ID（0 = 根目录） */
+  currentFolderId: 0,
+  /** 文件夹树数据 */
+  folderTree: [],
+  /** 当前展开的文件夹 ID 集合 */
+  expandedFolders: new Set(),
+  /** 内部剪贴板（剪切/复制） */
+  clipboard: null,
+  /** 当前显示的右键菜单元素 */
+  contextMenuEl: null,
 };
 
 /** API token（来自 URL 查询参数） */
@@ -55,6 +65,60 @@ async function favoritesApi(route, options = {}, query = {}) {
   return res.json();
 }
 
+/**
+ * 获取文件夹树
+ * @returns {Promise<Array>} 文件夹树数组，错误时返回空数组
+ */
+async function fetchFolderTree() {
+  try {
+    return await favoritesApi('folder-tree');
+  } catch (err) {
+    console.error('[Realm Favorites] 获取文件夹树失败:', err);
+    return [];
+  }
+}
+
+/**
+ * 创建文件夹
+ * @param {string} name - 文件夹名称
+ * @param {number} parentId - 父文件夹 ID（0 表示根目录）
+ * @returns {Promise<Object>} 创建结果
+ */
+async function createFolderApi(name, parentId) {
+  return favoritesApi('create-folder', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, parentId }),
+  });
+}
+
+/**
+ * 重命名文件夹
+ * @param {number} id - 文件夹 ID
+ * @param {string} name - 新名称
+ * @returns {Promise<Object>} 更新结果
+ */
+async function renameFolderApi(id, name) {
+  return favoritesApi('rename-folder', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, name }),
+  });
+}
+
+/**
+ * 删除文件夹
+ * @param {number} id - 文件夹 ID
+ * @returns {Promise<Object>} 删除结果
+ */
+async function deleteFolderApi(id) {
+  return favoritesApi('delete-folder', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+}
+
 // ==================== DOM 元素 ====================
 
 /** DOM 元素引用 */
@@ -72,6 +136,9 @@ const elements = {
   cancelBatchDeleteBtn: document.getElementById('cancelBatchDeleteBtn'),
   confirmBatchDeleteBtn: document.getElementById('confirmBatchDeleteBtn'),
   toast: document.getElementById('toast'),
+  folderTree: document.getElementById('folderTree'),
+  breadcrumb: document.getElementById('breadcrumb'),
+  addFolderBtn: document.getElementById('addFolderBtn'),
 };
 
 // ==================== 工具函数 ====================
@@ -296,6 +363,174 @@ function renderFavoriteItem(record) {
   return itemEl;
 }
 
+// ==================== 文件夹树渲染 ====================
+
+/**
+ * 渲染文件夹树
+ * @param {Array} tree - 文件夹树数组
+ * @param {number} level - 当前层级（用于缩进）
+ */
+function renderFolderTree(tree, level = 0) {
+  if (level === 0) {
+    elements.folderTree.innerHTML = '';
+  }
+
+  for (const folder of tree) {
+    const itemEl = document.createElement('div');
+    itemEl.className = 'folder-tree-item';
+    if (folder.id === state.currentFolderId) {
+      itemEl.classList.add('active');
+    }
+    itemEl.style.paddingLeft = `${16 + level * 16}px`;
+
+    const hasChildren = folder.children && folder.children.length > 0;
+    const isExpanded = state.expandedFolders.has(folder.id);
+
+    // 展开箭头（有子文件夹时显示）
+    const expandIconHtml = hasChildren
+      ? `<svg class="folder-expand-icon ${isExpanded ? 'expanded' : ''}" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>`
+      : '<span style="width: 12px; margin-right: 4px;"></span>';
+
+    // 文件夹图标
+    const folderIconHtml = `<svg class="folder-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+    </svg>`;
+
+    // 收藏数量徽标（可选，需要后端提供 count）
+    const countHtml = folder.count !== undefined
+      ? `<span class="folder-count">${folder.count}</span>`
+      : '';
+
+    itemEl.innerHTML = `
+      ${expandIconHtml}
+      ${folderIconHtml}
+      <span class="folder-name">${escapeHtml(folder.name)}</span>
+      ${countHtml}
+    `;
+
+    // 点击事件：展开/收起 + 导航
+    itemEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (hasChildren) {
+        if (state.expandedFolders.has(folder.id)) {
+          state.expandedFolders.delete(folder.id);
+        } else {
+          state.expandedFolders.add(folder.id);
+        }
+      }
+      navigateToFolder(folder.id);
+    });
+
+    // 右键菜单
+    itemEl.addEventListener('contextmenu', (e) => {
+      showFolderContextMenu(e, folder);
+    });
+
+    elements.folderTree.appendChild(itemEl);
+
+    // 递归渲染子文件夹
+    if (hasChildren && isExpanded) {
+      renderFolderTree(folder.children, level + 1);
+    }
+  }
+}
+
+/**
+ * 刷新文件夹树
+ */
+async function refreshFolderTree() {
+  state.folderTree = await fetchFolderTree();
+  renderFolderTree(state.folderTree);
+}
+
+// ==================== 文件夹导航 ====================
+
+/**
+ * 导航到指定文件夹
+ * @param {number} folderId - 文件夹 ID（0 表示根目录）
+ */
+function navigateToFolder(folderId) {
+  state.currentFolderId = folderId;
+  state.offset = 0;
+  state.hasMore = true;
+  state.records = [];
+  state.selectedIds.clear();
+  updateActionsBar();
+  renderFolderTree(state.folderTree);
+  renderBreadcrumb();
+  loadFavorites();
+}
+
+/**
+ * 获取文件夹路径（从根到目标文件夹）
+ * @param {number} folderId - 目标文件夹 ID
+ * @param {Array} tree - 文件夹树
+ * @param {Array} path - 当前路径（递归累积）
+ * @returns {Array} 路径数组 [{id, name}, ...]
+ */
+function getFolderPath(folderId, tree, path = []) {
+  for (const folder of tree) {
+    if (folder.id === folderId) {
+      return [...path, { id: folder.id, name: folder.name }];
+    }
+    if (folder.children && folder.children.length > 0) {
+      const found = getFolderPath(folderId, folder.children, [...path, { id: folder.id, name: folder.name }]);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * 渲染面包屑导航
+ */
+function renderBreadcrumb() {
+  elements.breadcrumb.innerHTML = '';
+
+  // 根节点"所有书签"
+  const isRoot = state.currentFolderId === 0;
+  if (isRoot) {
+    const currentEl = document.createElement('span');
+    currentEl.className = 'breadcrumb-current';
+    currentEl.textContent = '所有书签';
+    elements.breadcrumb.appendChild(currentEl);
+  } else {
+    const rootEl = document.createElement('span');
+    rootEl.className = 'breadcrumb-item';
+    rootEl.textContent = '所有书签';
+    rootEl.addEventListener('click', () => navigateToFolder(0));
+    elements.breadcrumb.appendChild(rootEl);
+
+    // 查找路径
+    const path = getFolderPath(state.currentFolderId, state.folderTree);
+    if (path) {
+      for (let i = 0; i < path.length; i++) {
+        const sep = document.createElement('span');
+        sep.className = 'breadcrumb-separator';
+        sep.textContent = '>';
+        elements.breadcrumb.appendChild(sep);
+
+        const isLast = i === path.length - 1;
+        if (isLast) {
+          const currentEl = document.createElement('span');
+          currentEl.className = 'breadcrumb-current';
+          currentEl.textContent = path[i].name;
+          elements.breadcrumb.appendChild(currentEl);
+        } else {
+          const itemEl = document.createElement('span');
+          itemEl.className = 'breadcrumb-item';
+          itemEl.textContent = path[i].name;
+          const folderId = path[i].id;
+          itemEl.addEventListener('click', () => navigateToFolder(folderId));
+          elements.breadcrumb.appendChild(itemEl);
+        }
+      }
+    }
+  }
+}
+
 // ==================== 行内编辑 ====================
 
 /**
@@ -376,15 +611,18 @@ async function loadFavorites() {
   try {
     let results;
     if (state.keyword) {
+      // 搜索模式：全局搜索，不受文件夹限制
       results = await favoritesApi('search', {}, {
         keyword: state.keyword,
         offset: 0,
         limit: state.limit,
       });
     } else {
+      // 非搜索模式：按当前文件夹过滤
       results = await favoritesApi('list', {}, {
         offset: 0,
         limit: state.limit,
+        folder_id: state.currentFolderId,
       });
     }
 
@@ -418,6 +656,7 @@ async function loadMore() {
       results = await favoritesApi('list', {}, {
         offset: state.offset,
         limit: state.limit,
+        folder_id: state.currentFolderId,
       });
     }
 
@@ -582,15 +821,18 @@ function setupEventListeners() {
     }
   });
 
-  // 滚动加载（滚动容器是 .favorites-page）
-  elements.favoritesPage.addEventListener('scroll', () => {
-    const { scrollTop, scrollHeight, clientHeight } = elements.favoritesPage;
+  // 滚动加载（滚动容器是 .favorites-content-area）
+  const contentArea = document.querySelector('.favorites-content-area');
+  if (contentArea) {
+    contentArea.addEventListener('scroll', () => {
+      const { scrollTop, scrollHeight, clientHeight } = contentArea;
 
-    // 距离底部 200px 时开始加载
-    if (scrollTop + clientHeight >= scrollHeight - 200) {
-      loadMore();
-    }
-  });
+      // 距离底部 200px 时开始加载
+      if (scrollTop + clientHeight >= scrollHeight - 200) {
+        loadMore();
+      }
+    });
+  }
 }
 
 // ==================== 初始化 ====================
@@ -607,6 +849,15 @@ async function init() {
 
     // 绑定事件监听器
     setupEventListeners();
+
+    // 加载文件夹树
+    await refreshFolderTree();
+
+    // 渲染面包屑
+    renderBreadcrumb();
+
+    // 绑定新建文件夹按钮
+    elements.addFolderBtn.addEventListener('click', () => startNewFolder(0));
 
     // 加载收藏列表
     await loadFavorites();
