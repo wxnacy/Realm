@@ -29,10 +29,9 @@ expected: 在有 3+ 个 Tab 的情况下，右键菜单选择"关闭其他标签
 result: pass
 
 ### 5. 重新打开已关闭标签页
-expected: 先关闭一个 Tab（记住其 URL），再右键其他 Tab → "重新打开已关闭标签页"，关闭的 Tab 在原容器中以原 URL 恢复
-result: issue
-reported: "点击关闭右侧标签页，再点击恢复，只恢复了最右侧的。没有一次性恢复多个"
-severity: major
+expected: 先关闭一个或多个 Tab，右键其他 Tab → "重新打开已关闭标签页"，每次恢复最近关闭的一个（LIFO，Chrome 风格）；批量关闭的 Tab 可通过连续恢复逐个全部找回
+result: pass
+resolved-by-decision: 方案 A（原报告"批量关闭后只恢复最右侧一个"系逐条 LIFO 设计的预期行为；2026-07-28 产品决策维持逐条 LIFO，行为符合设计，期望已修正）
 
 ### 6. 固定/取消固定标签页
 expected: Tab 右键 → 固定标签页，该 Tab 移到 Tab 栏最左侧（带 .tab-pinned class 标识）；再次右键 → 取消固定，Tab 回到普通位置
@@ -65,8 +64,8 @@ result: pass
 ## Summary
 
 total: 10
-passed: 5
-issues: 5
+passed: 6
+issues: 4
 pending: 0
 skipped: 0
 blocked: 0
@@ -74,11 +73,12 @@ blocked: 0
 ## Gaps
 
 - truth: "重新打开已关闭标签页按 LIFO 逐条恢复最近关闭的 Tab（Chrome 风格，符合设计）"
-  status: failed
+  status: resolved
   reason: "User reported: 点击关闭右侧标签页，再点击恢复，只恢复了最右侧的。没有一次性恢复多个"
   severity: major
   test: 5
   root_cause: "需求/设计层偏差，非实现缺陷：Phase 13 全部设计文档（DISCUSSION-LOG/UI-SPEC/PLAN/VERIFICATION）定义的恢复语义均为逐条 LIFO（Chrome 风格），实现与设计精确一致。批量关闭的每个 Tab 都正确入栈，剩余 N-1 个仍在栈中，连续恢复可全部找回。2026-07-28 产品决策：方案 A 维持逐条 LIFO，仅修正 UAT 期望，无代码改动"
+  resolution: "2026-07-28 决策：方案 A 维持逐条 LIFO，行为符合设计，期望已修正"
   artifacts:
     - path: "src/renderer.js:1182-1200"
       issue: "批量关闭循环 + 单条 pop 恢复（实现正确，符合设计）"
