@@ -106,6 +106,19 @@ None — 所有实现均为功能完整代码。favicon 加载失败回退图标
 - `node --check main.js / src/renderer.js / tab-manager.js`: PASS（语法检查全部通过）
 - UAT tests 6/7/8/9/10 重验: 待 end-of-phase 人工验证（human_verify_mode: end-of-phase）
 
+## Code Review Follow-up (commit 56760b9)
+
+13-REVIEW.md 审查发现 1 Critical + 3 Warning，全部修复：
+
+| ID | 级别 | 问题 | 修复 |
+|----|------|------|------|
+| CR-01 | Critical | 「查看页面源代码」菜单端到端失效（T-13-04 协议白名单拒绝 `view-source:`） | renderer.js open-in-new-tab 与 createWebviewForTab 双闸口放行 `view-source:` 包裹 http(s) 内层 URL，保持 file:/javascript: 等拦截 |
+| WR-01 | Warning | createTab 的 JSDoc 错位堆叠在 createTabElement 上方 | JSDoc 移回 createTab 上方 |
+| WR-02 | Warning | `pinned` 同根因被 updateTab 硬白名单丢弃（存量 bug） | tab-manager.js 白名单补 pinned 分支 |
+| WR-03 | Warning | favicon 只写不清，跨站点残留旧图标 | did-navigate 中清空 tab.faviconUrl + DOM img + 持久化 null（Chrome 风格） |
+
+Info 级（IN-01~04）按惯例保留，不阻塞。
+
 ## Threat Flags
 
 None — faviconUrl 仅用于 img.src 展示（T-13-06 accept，与计划 threat model 一致）；editFlags/pageURL 来自渲染进程仅用于菜单构建不执行（信任边界内）；无新依赖安装。
