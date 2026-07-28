@@ -4,15 +4,15 @@ milestone: v1.3
 milestone_name: 右键菜单增强
 current_phase: 13
 status: executing
-stopped_at: Phase 13 UI-SPEC approved
-last_updated: "2026-07-27T16:44:06.320Z"
-last_activity: 2026-07-27
-last_activity_desc: Phase 13 complete
+stopped_at: Completed 13-03-PLAN.md (gap closure)
+last_updated: "2026-07-28T05:12:21.414Z"
+last_activity: 2026-07-28
+last_activity_desc: Completed 13-03 gap closure plan
 progress:
   total_phases: 9
   completed_phases: 9
-  total_plans: 18
-  completed_plans: 18
+  total_plans: 19
+  completed_plans: 19
   percent: 100
 current_phase_name: 右键菜单增强
 ---
@@ -29,17 +29,17 @@ See: .planning/PROJECT.md (updated 2026-07-27)
 ## Current Position
 
 Phase: 13
-Plan: Not started
-Status: Executing Phase 13
-Last activity: 2026-07-27 — Phase 13 complete
+Plan: 3 of 3 (complete)
+Status: Phase 13 plans complete — awaiting UAT re-verification (tests 6/7/8/9/10)
+Last activity: 2026-07-28 — Completed 13-03 gap closure plan
 
-Progress: [░░░░░░░░░░░░░░░░░░░░] 0/1 plans (0%)
+Progress: [████████████████████] 3/3 plans (100%)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 13
+- Total plans completed: 19
 - Total phases completed: 4 (v1.0 MVP) + 5 (v1.1) + 3 (v1.2)
 
 **By Phase:**
@@ -58,7 +58,13 @@ Progress: [░░░░░░░░░░░░░░░░░░░░] 0/1 pla
 | 10. Cookie 管理增强 | 1/1 | Complete |
 | 11. 设置页面重构 | 2/2 | Complete |
 | 12. 开发者模式 | 2/2 | Complete |
-| 13. 右键菜单增强 | 0/1 | Not started |
+| 13. 右键菜单增强 | 3/3 | Complete |
+
+**Execution Log:**
+
+| Phase/Plan | Duration | Tasks | Files |
+|------------|----------|-------|-------|
+| Phase 13 P3 | 9min | 4 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -92,6 +98,9 @@ Recent decisions affecting current work:
 - [Phase 12]: guest→容器映射由渲染进程上报（webview:register-container），Electron 32 下 guest session.partition 为空串主进程无法反推
 - [Phase 12]: CDP 耗时取 loadingFinished/requestWillBeSent 单调时间戳差值；响应体发 Network.getResponseBody 拉取；大小累加 dataReceived.dataLength
 - [Phase 12]: 内部页面复用 main.css 必须自建滚动容器（全局 body overflow:hidden 是主窗口壳样式）
+- [Phase 13]: 网页右键菜单唯一来源为新管线（renderer context-menu → show-web-context-menu IPC → buildWebMenu），遗留 webContents 级 handler 已删除
+- [Phase 13]: Tab DOM 创建统一入口 createTabElement(tab)，含 img.tab-favicon；faviconUrl 经 updateTab 白名单持久化
+- [Phase 13]: 已关闭标签页恢复语义维持逐条 LIFO（2026-07-28 产品决策方案 A），批量关闭经连续恢复逐个找回
 
 ### Pending Todos
 
@@ -118,7 +127,7 @@ Items acknowledged and deferred at milestone close on 2026-07-26:
 
 ## Session Continuity
 
-Last session: 2026-07-27T16:35:43.341Z
+Last session: 2026-07-28T05:12:21.409Z
 Stopped at: Phase 13 UI-SPEC approved
 Resume file: .planning/phases/13-右键菜单增强/13-UI-SPEC.md
 Next action: /gsd-plan-phase 13（创建 Phase 13 实施计划）
