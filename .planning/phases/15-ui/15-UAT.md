@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 15-ui
 source: 15-01-SUMMARY.md
 started: 2026-07-28T10:40:11Z
-updated: 2026-07-28T19:30:00Z
+updated: 2026-07-28T19:40:00Z
 ---
 
 ## Current Test
@@ -60,17 +60,32 @@ blocked: 0
   reason: "User reported: 右键点击空白区域显示新建菜单（新建文件夹/粘贴/按名称排序） 这个不行，出现的是右键空白页面的菜单"
   severity: major
   test: 5
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "空白区域 contextmenu 监听绑在 #favoritesContent，但该元素无 CSS 规则、高度坍缩为内容高度；可见空白实际属于父容器 .favorites-content-area，事件冒泡路径不经过 #favoritesContent，处理器永不触发。无人 preventDefault，Chromium 透传给 webview context-menu → 主进程弹出通用网页菜单。左侧 #folderTree 则从未绑定空白区域监听。"
+  artifacts:
+    - path: "src/favorites-page.js:1347-1349"
+      issue: "空白监听绑定在几何上覆盖不到空白的元素上"
+    - path: "src/favorites-page.js"
+      issue: "#folderTree 空白区域监听缺失"
+    - path: "src/styles/main.css:2124-2130"
+      issue: "#favoritesContent 无规则导致 flex 高度坍缩"
+    - path: "src/renderer.js:833-851"
+      issue: "webview context-menu 无差别转发，内部页面不过滤"
+  missing:
+    - "空白区域 contextmenu 监听提升到 document/.favorites-main 级委托路由，或分别在 .favorites-content-area 与 #folderTree 上绑定"
+    - "任何空白点击路径上必须有处理器调用 e.preventDefault()"
+  debug_session: ".planning/debug/favorites-blank-area-context-menu.md"
 
 - truth: "在目标文件夹空白区域右键可触发粘贴，完成收藏项移动"
   status: failed
   reason: "User reported: 只能在文件夹上右键出现"粘贴"后完成移动，但是文件夹右侧空白地方点击右键，出现的是正常网页空白出现的菜单，无法粘贴"
   severity: major
   test: 7
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "与 Test 5 同根因：空白区域 contextmenu 监听因 #favoritesContent 高度坍缩而不触发，无人 preventDefault，webview 透传弹出通用网页菜单，粘贴入口不可达。"
+  artifacts:
+    - path: "src/favorites-page.js:1347-1349"
+      issue: "空白监听绑定在几何上覆盖不到空白的元素上"
+    - path: "src/styles/main.css:2124-2130"
+      issue: "#favoritesContent 无规则导致 flex 高度坍缩"
+  missing:
+    - "同 Test 5：空白区域监听提升 + preventDefault 兜底"
+  debug_session: ".planning/debug/favorites-blank-area-context-menu.md"
