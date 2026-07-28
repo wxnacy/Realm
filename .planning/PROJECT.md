@@ -95,13 +95,42 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 <!-- 当前需要构建的功能（下一里程碑定义） -->
 
+**v2.0 收藏夹文件夹支持 + AI Agent 集成** (2026-07-28)
+
+#### 收藏夹文件夹支持
+- FOLDER-01: 创建文件夹 — Phase 14
+- FOLDER-02: 重命名文件夹 — Phase 14
+- FOLDER-03: 删除文件夹 — Phase 14
+- FOLDER-04: 移动收藏到文件夹 — Phase 14
+- FOLDER-05: 文件夹树状导航 — Phase 15
+- FOLDER-06: 面包屑导航 — Phase 15
+- FOLDER-07: 拖拽排序 — Phase 16
+- FOLDER-08: 右键菜单（收藏夹页面）— Phase 15
+
+#### Chrome 书签导入
+- IMPORT-01: 自动读取 Chrome 本地书签 — Phase 17
+- IMPORT-02: 支持 HTML 书签文件导入 — Phase 17
+- IMPORT-03: 导入进度和冲突处理 — Phase 17
+
+#### 收藏栏
+- BAR-01: 收藏栏固定显示 — Phase 18
+- BAR-02: 收藏栏项目交互 — Phase 18
+- BAR-03: 收藏栏右键菜单 — Phase 18
+- BAR-04: 收藏栏显示/隐藏设置 — Phase 18
+
+#### AI Agent 集成（基于 pi-agent-core）
+- AI-01: Node.js 版本验证和基础架构 — Phase 19
+- AI-02: AI Manager 核心功能 — Phase 20
+- AI-03: AI 聊天面板 UI — Phase 21
+
 ### Out of Scope
 
-- **AI Agent 集成** — 预留架构但本期不实现
 - **浏览器扩展支持** — 本期不支持 Chrome/Firefox 扩展
 - **书签/历史同步** — 本期不实现跨容器同步
 - **网络代理隔离** — 本期不实现每个容器独立代理
 - **移动端支持** — 仅支持桌面端（macOS）
+- **Chrome 多 Profile 导入** — 仅支持 Default Profile
+- **收藏栏多行显示** — 仅支持单行显示
 
 ## Current State
 
