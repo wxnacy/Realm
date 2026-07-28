@@ -581,6 +581,84 @@ contextBridge.exposeInMainWorld('realmAPI', {
    */
   notifyClosedTab: (tabInfo) => ipcRenderer.send('context-menu:closed-tab', tabInfo),
 
+  // ==================== 收藏夹文件夹 ====================
+
+  /**
+   * 创建收藏夹文件夹
+   * @param {string} name - 文件夹名称
+   * @param {number} [parentId=0] - 父文件夹 ID（0 表示根目录）
+   * @returns {Promise<{id: number}|{error: string, message: string}>}
+   */
+  createFavoriteFolder: (name, parentId) => ipcRenderer.invoke('favorites:create-folder', { name, parentId }),
+
+  /**
+   * 重命名文件夹
+   * @param {number} id - 文件夹 ID
+   * @param {string} name - 新名称
+   * @returns {Promise<boolean>}
+   */
+  renameFavoriteFolder: (id, name) => ipcRenderer.invoke('favorites:rename-folder', { id, name }),
+
+  /**
+   * 删除文件夹（级联删除子文件夹和收藏项）
+   * @param {number} id - 文件夹 ID
+   * @returns {Promise<{success: boolean, message?: string}>}
+   */
+  deleteFavoriteFolder: (id) => ipcRenderer.invoke('favorites:delete-folder', { id }),
+
+  /**
+   * 列出指定父文件夹下的子文件夹
+   * @param {number} [parentId=0] - 父文件夹 ID
+   * @returns {Promise<Array>}
+   */
+  listFavoriteFolders: (parentId) => ipcRenderer.invoke('favorites:list-folders', { parentId }),
+
+  /**
+   * 获取完整的文件夹树结构
+   * @returns {Promise<Array>}
+   */
+  getFavoriteFolderTree: () => ipcRenderer.invoke('favorites:get-folder-tree'),
+
+  /**
+   * 移动文件夹到新的父文件夹
+   * @param {number} id - 文件夹 ID
+   * @param {number} parentId - 目标父文件夹 ID
+   * @returns {Promise<{success: boolean, message?: string}>}
+   */
+  moveFavoriteFolder: (id, parentId) => ipcRenderer.invoke('favorites:move-folder', { id, parentId }),
+
+  /**
+   * 将收藏项移动到指定文件夹
+   * @param {number} id - 收藏项 ID
+   * @param {number} folderId - 目标文件夹 ID（0 表示根目录）
+   * @returns {Promise<boolean>}
+   */
+  moveFavorite: (id, folderId) => ipcRenderer.invoke('favorites:move-favorite', { id, folderId }),
+
+  /**
+   * 批量移动收藏项到指定文件夹
+   * @param {Array<number>} ids - 收藏项 ID 数组
+   * @param {number} folderId - 目标文件夹 ID
+   * @returns {Promise<number>}
+   */
+  moveFavorites: (ids, folderId) => ipcRenderer.invoke('favorites:move-favorites', { ids, folderId }),
+
+  /**
+   * 更新文件夹的排序位置
+   * @param {number} id - 文件夹 ID
+   * @param {number} sortOrder - 新的排序值
+   * @returns {Promise<boolean>}
+   */
+  updateFavoriteFolderSort: (id, sortOrder) => ipcRenderer.invoke('favorites:update-folder-sort', { id, sortOrder }),
+
+  /**
+   * 更新收藏项的排序位置
+   * @param {number} id - 收藏项 ID
+   * @param {number} sortOrder - 新的排序值
+   * @returns {Promise<boolean>}
+   */
+  updateFavoriteSort: (id, sortOrder) => ipcRenderer.invoke('favorites:update-favorite-sort', { id, sortOrder }),
+
   // ==================== 应用设置 ====================
 
   /**
