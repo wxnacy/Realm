@@ -225,11 +225,23 @@ function deleteRecords(ids) {
  * @param {Object} options - 分页选项
  * @param {number} [options.offset=0] - 分页偏移
  * @param {number} [options.limit=50] - 每页数量
+ * @param {number} [options.folderId] - 文件夹 ID（undefined 时返回所有记录，0 表示根目录）
  * @returns {Array} 记录列表
  */
-function listRecords({ offset = 0, limit = 50 }) {
+function listRecords({ offset = 0, limit = 50, folderId = undefined }) {
   ensureTable();
 
+  // 当指定 folderId 时，按文件夹过滤并按 sort_order ASC, created_at DESC 排序
+  if (folderId !== undefined) {
+    return db.prepare(`
+      SELECT * FROM favorites
+      WHERE folder_id = ?
+      ORDER BY sort_order ASC, created_at DESC
+      LIMIT ? OFFSET ?
+    `).all(folderId, limit, offset);
+  }
+
+  // 未指定 folderId 时，返回所有记录（向后兼容）
   return db.prepare(`
     SELECT * FROM favorites
     ORDER BY created_at DESC

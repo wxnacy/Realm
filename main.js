@@ -345,7 +345,9 @@ app.whenReady().then(async () => {
       if (route === 'list' && req.method === 'GET') {
         const offset = parseInt(reqUrl.searchParams.get('offset'), 10) || 0;
         const limit = parseInt(reqUrl.searchParams.get('limit'), 10) || 50;
-        sendJson(res, 200, favoritesManager.listRecords({ offset, limit }));
+        const folderIdParam = reqUrl.searchParams.get('folder_id');
+        const folderId = folderIdParam !== null ? parseInt(folderIdParam, 10) : undefined;
+        sendJson(res, 200, favoritesManager.listRecords({ offset, limit, folderId }));
         return;
       }
 

@@ -26,16 +26,39 @@
       <input type="text" class="favorites-search" id="searchInput" placeholder="搜索收藏...">
     </div>
 
-    <!-- 批量操作栏 -->
-    <div class="favorites-actions-bar hidden" id="actionsBar">
-      <input type="checkbox" id="selectAllCheckbox" class="favorite-item-checkbox">
-      <span id="selectedCount">已选择 0 项</span>
-      <button id="deleteSelectedBtn" class="btn btn-danger btn-sm" disabled>删除选中项</button>
-      <button id="selectAllBtn" class="btn btn-secondary btn-sm">全选</button>
-    </div>
+    <!-- 主内容区域：左右分栏 -->
+    <div class="favorites-main">
+      <!-- 左侧文件夹树面板 -->
+      <div class="favorites-folder-panel">
+        <div class="favorites-folder-header">
+          <span class="favorites-folder-title">文件夹</span>
+          <button class="favorites-folder-add-btn" id="addFolderBtn" title="新建文件夹">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="favorites-folder-tree" id="folderTree"></div>
+      </div>
 
-    <!-- 主内容区域 -->
-    <div id="favoritesContent"></div>
+      <!-- 右侧内容区 -->
+      <div class="favorites-content-area">
+        <!-- 面包屑导航 -->
+        <div class="favorites-breadcrumb" id="breadcrumb"></div>
+
+        <!-- 批量操作栏 -->
+        <div class="favorites-actions-bar hidden" id="actionsBar">
+          <input type="checkbox" id="selectAllCheckbox" class="favorite-item-checkbox">
+          <span id="selectedCount">已选择 0 项</span>
+          <button id="deleteSelectedBtn" class="btn btn-danger btn-sm" disabled>删除选中项</button>
+          <button id="selectAllBtn" class="btn btn-secondary btn-sm">全选</button>
+        </div>
+
+        <!-- 收藏列表 -->
+        <div id="favoritesContent"></div>
+      </div>
+    </div>
   </div>
 
   <!-- 批量删除确认弹窗 -->
