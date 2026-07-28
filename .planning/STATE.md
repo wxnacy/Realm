@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: 右键菜单增强
 current_phase: 13
-status: executing
-stopped_at: Completed 13-03-PLAN.md (gap closure)
-last_updated: "2026-07-28T05:12:21.414Z"
+status: milestone_complete_pending_archive
+stopped_at: Phase 13 complete — v1.3 all phases done, ready to complete milestone
+last_updated: "2026-07-28T09:10:00.000Z"
 last_activity: 2026-07-28
-last_activity_desc: Completed 13-03 gap closure plan
+last_activity_desc: Phase 13 UAT passed + security verified, milestone v1.3 complete
 progress:
   total_phases: 9
   completed_phases: 9
@@ -21,17 +21,17 @@ current_phase_name: 右键菜单增强
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-27)
+See: .planning/PROJECT.md (updated 2026-07-28)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载
-**Current focus:** Phase 13 — 右键菜单增强
+**Current focus:** v1.3 完成，待 /gsd-complete-milestone 归档
 
 ## Current Position
 
 Phase: 13
-Plan: 3 of 3 (complete)
-Status: Phase 13 plans complete — awaiting UAT re-verification (tests 6/7/8/9/10)
-Last activity: 2026-07-28 — Completed 13-03 gap closure plan
+Plan: Not started
+Status: Phase 13 complete (UAT 10/10 + security threats_open:0) — milestone v1.3 ready to archive
+Last activity: 2026-07-28 — Phase 13 complete
 
 Progress: [████████████████████] 3/3 plans (100%)
 
@@ -101,6 +101,7 @@ Recent decisions affecting current work:
 - [Phase 13]: 网页右键菜单唯一来源为新管线（renderer context-menu → show-web-context-menu IPC → buildWebMenu），遗留 webContents 级 handler 已删除
 - [Phase 13]: Tab DOM 创建统一入口 createTabElement(tab)，含 img.tab-favicon；faviconUrl 经 updateTab 白名单持久化
 - [Phase 13]: 已关闭标签页恢复语义维持逐条 LIFO（2026-07-28 产品决策方案 A），批量关闭经连续恢复逐个找回
+- [Phase 13]: 复制图片 nativeImage 快路径 + Chromium canvas 解码兜底（nativeImage 仅支持 PNG/JPEG，webp 走 offscreen 窗口转 PNG）
 
 ### Pending Todos
 
@@ -127,7 +128,7 @@ Items acknowledged and deferred at milestone close on 2026-07-26:
 
 ## Session Continuity
 
-Last session: 2026-07-28T05:12:21.409Z
-Stopped at: Phase 13 UI-SPEC approved
-Resume file: .planning/phases/13-右键菜单增强/13-UI-SPEC.md
-Next action: /gsd-plan-phase 13（创建 Phase 13 实施计划）
+Last session: 2026-07-28T09:10:00.000Z
+Stopped at: Phase 13 complete (UAT 10/10 passed, security verified) — v1.3 milestone ready to archive
+Resume file: None
+Next action: /gsd-complete-milestone v1.3（归档里程碑）

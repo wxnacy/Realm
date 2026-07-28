@@ -85,6 +85,11 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ DEV-03: CDP 自动附加匹配域名 webview，抓取 URL/方法/请求头/Cookie/响应头/响应体 — Phase 12
 - ✓ DEV-04: realm://devrequests 请求查看页（表格/详情/过滤/分页/清空/容器切换） — Phase 12
 - ✓ DEV-05: 抓取数据按容器分表持久化 SQLite，异步队列批量 flush 不阻塞页面 — Phase 12
+- ✓ CTX-01: 标签页右键菜单（关闭/关闭其他/左右侧/重新打开已关闭/固定） — Phase 13
+- ✓ CTX-02: 网页通用右键菜单（导航/另存为/打印/查看源代码/检查元素/文本编辑） — Phase 13
+- ✓ CTX-03: 图片右键专属菜单（新标签页打开/另存为/复制图片/复制图片地址） — Phase 13
+- ✓ CTX-04: 链接右键专属菜单（新标签页/后台打开/容器中打开/复制链接地址） — Phase 13
+- ✓ CTX-05: 菜单项功能与 Chrome 浏览器一致（LIFO 恢复、固定 Tab favicon 持久化） — Phase 13
 
 ### Active
 
@@ -101,8 +106,8 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 ## Current State
 
 **Shipped:** v1.2 (2026-07-27)
-- 12 phases complete (5 v1.0 + 4 v1.1 + 3 v1.2，1 plan deferred)
-- 16/16 v1.2 plans complete
+- 13 phases complete (5 v1.0 + 4 v1.1 + 3 v1.2 + 1 v1.3，1 plan deferred)
+- Phase 13 (v1.3) 完成，待里程碑归档
 - 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol
 
 **Key features delivered:**
@@ -113,6 +118,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - 收藏夹管理（全局共享数据库 + 星标按钮 + CRUD）
 - frecency 常用网站推荐 + 应用设置页面（侧边栏多页面布局）
 - Cookie 管理面板（session/file 双视图）+ 开发者模式（CDP 抓取 API 请求 + devrequests 查看页）
+- 右键菜单增强（Tab/网页通用/图片/链接上下文菜单，固定 Tab favicon，已关闭标签 LIFO 恢复）
 
 **Known gaps:**
 - 09-04: checkBookmarkStatus realm:// 早退守卫移除（deferred）
@@ -171,6 +177,10 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | CDP 耗时取 loadingFinished 与 requestWillBeSent 单调时间戳差值 | timing.requestTime 是单调时钟基准值（数值巨大），直接乘算得伪值 | ✓ 已验证 — Phase 12 UAT |
 | CDP 响应体在 loadingFinished 时发 Network.getResponseBody 主动拉取 | dataReceived 事件不携带数据本体（只有 dataLength），攒数据块方案不可行 | ✓ 已验证 — Phase 12 UAT |
 | 内部页面自建滚动容器（height:100vh + overflow-y:auto） | 全局 body overflow:hidden 是主窗口壳样式，内部页面复用 main.css 必须自管滚动 | ✓ 已验证 — Phase 12 UAT |
+| 网页右键菜单唯一来源为新管线（renderer context-menu → IPC → buildWebMenu） | 遗留 webContents 级 handler 与新管线竞争导致旧 5 项菜单抢先弹出，必须删除 | ✓ 已验证 — Phase 13 UAT |
+| 已关闭标签页恢复维持逐条 LIFO（Chrome 风格） | 2026-07-28 产品决策方案 A：批量关闭经连续恢复逐个找回，不做一键恢复多个 | ✓ 已验证 — Phase 13 UAT |
+| Tab DOM 创建统一入口 createTabElement(tab) | 三处创建点分叉导致 favicon 元素缺失（固定 Tab 无图标 bug 根因），统一入口防回归 | ✓ 已验证 — Phase 13 UAT |
+| 复制图片走 nativeImage 快路径 + Chromium canvas 解码兜底 | nativeImage.createFromBuffer 仅支持 PNG/JPEG，webp/avif 需 offscreen 窗口 canvas 转 PNG | ✓ 已验证 — Phase 13 UAT |
 
 ## Evolution
 
@@ -190,4 +200,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-27 after Phase 12（开发者模式 CDP 抓取，v1.2 里程碑完成）*
+*Last updated: 2026-07-28 after Phase 13（右键菜单增强，v1.3 里程碑完成待归档）*
