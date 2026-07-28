@@ -795,6 +795,8 @@ function bindWebviewEvents(tabId, webview) {
       canGoBack: webview.canGoBack(),
       canGoForward: webview.canGoForward(),
       isLoading: webview.isLoading(),
+      editFlags: params.editFlags || {},
+      pageURL: webview.getURL(),
     });
   });
 
