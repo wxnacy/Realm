@@ -116,6 +116,12 @@ function ensureTable() {
   } catch (e) {
     // 列已存在时忽略（幂等启动）
   }
+
+  // 为 folder_id 创建索引（必须在 ALTER TABLE 之后，确保列已存在）
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_favorites_folder_id
+      ON favorites (folder_id);
+  `);
 }
 
 /**
@@ -348,7 +354,8 @@ function renameFolder(id, { name }) {
 
 /**
  * 删除文件夹（级联删除子文件夹和收藏项）
- * 依赖 SQLite ON DELETE CASCADE 外键约束
+ * 子文件夹通过 favorite_folders.parent_id 外键 ON DELETE CASCADE 自动删除
+ * 收藏项通过手动删除（favorites.folder_id 无外键约束，避免重建表）
  * @param {number} id - 文件夹 ID
  * @returns {{success: boolean, message?: string}} 结果
  */
@@ -360,8 +367,32 @@ function deleteFolder(id) {
     return { success: false, message: '无法删除根目录' };
   }
 
+  // 收集要删除的文件夹 ID（当前文件夹 + 所有后代文件夹）
+  const folderIds = getDescendantFolderIds(id);
+  folderIds.push(id);
+
+  // 先删除这些文件夹中的所有收藏项（避免孤儿记录）
+  const placeholders = folderIds.map(() => '?').join(',');
+  db.prepare(`DELETE FROM favorites WHERE folder_id IN (${placeholders})`).run(...folderIds);
+
+  // 再删除文件夹（子文件夹通过 ON DELETE CASCADE 自动删除）
   const result = db.prepare('DELETE FROM favorite_folders WHERE id = ?').run(id);
   return { success: result.changes > 0 };
+}
+
+/**
+ * 获取指定文件夹的所有后代文件夹 ID（递归）
+ * @param {number} parentId - 父文件夹 ID
+ * @returns {Array<number>} 后代文件夹 ID 列表
+ */
+function getDescendantFolderIds(parentId) {
+  const children = db.prepare('SELECT id FROM favorite_folders WHERE parent_id = ?').all(parentId);
+  let ids = [];
+  for (const child of children) {
+    ids.push(child.id);
+    ids = ids.concat(getDescendantFolderIds(child.id));
+  }
+  return ids;
 }
 
 /**
