@@ -129,12 +129,17 @@ Phase 14  Phase 15  Phase 16  Phase 17  Phase 18  Phase 19  Phase 20  Phase 21
 #### Phase 15: 收藏夹文件夹 - UI 交互
 **预估时间**: 3 天
 **需求覆盖**: FOLDER-05, FOLDER-06, FOLDER-08
+**状态**: 规划完成
+
+**Plans:** 1 plan
+
+Plans:
+- [ ] 15-01-PLAN.md — 后端 folder_id 过滤 + HTML 左右分栏 + 文件夹树 + 面包屑 + 右键菜单 + 新建文件夹
 
 **任务**:
-- [ ] 文件夹树导航组件
-- [ ] 面包屑导航组件
-- [ ] 右键菜单实现
-- [ ] 新建文件夹 UI
+- [ ] 后端支持 folder_id 过滤 + HTML 左右分栏布局 + CSS 样式
+- [ ] 文件夹树渲染、导航逻辑和面包屑
+- [ ] 右键菜单和新建文件夹 UI
 
 ---
 
