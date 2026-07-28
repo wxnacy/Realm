@@ -134,12 +134,13 @@ Phase 14  Phase 15  Phase 16  Phase 17  Phase 18  Phase 19  Phase 20  Phase 21
 **需求覆盖**: FOLDER-05, FOLDER-06, FOLDER-08
 **状态**: 规划完成
 
-**Plans:** 1/1 plans complete
+**Plans:** 1/2 plans complete
 
 Plans:
 
 - [ ] PLAN.md
 - [x] 15-01-PLAN.md — 后端 folder_id 过滤 + HTML 左右分栏 + 文件夹树 + 面包屑 + 右键菜单 + 新建文件夹
+- [ ] 15-02-PLAN.md — 缺口修复：空白区域右键菜单事件委托（.favorites-main 路由 + preventDefault 兜底）
 
 **任务**:
 
@@ -153,13 +154,14 @@ Plans:
 
 **预估时间**: 3 天
 **需求覆盖**: FOLDER-07
+**状态**: 规划完成
 **计划**: 3 个计划
 
 **计划列表**:
 
-- [ ] 16-01-PLAN.md — 数据库迁移与排序持久化（fractional indexing 迁移 + 批量排序 API）
-- [ ] 16-02-PLAN.md — 拖拽排序核心实现（同目录排序 + 跨文件夹移动 + 视觉反馈）
-- [ ] 16-03-PLAN.md — 多选与批量操作（键盘多选 + 右键菜单自适应 + 批量操作）
+- [x] 16-01-PLAN.md — 数据库迁移与排序持久化（fractional indexing 迁移 + 批量排序 API + compute-sort-keys 端点）
+- [x] 16-02-PLAN.md — 拖拽排序核心实现（同目录排序 + 跨文件夹移动 + 视觉反馈）
+- [x] 16-03-PLAN.md — 多选与批量操作（键盘多选 + 右键菜单自适应 + 批量操作）
 
 **任务**:
 
