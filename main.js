@@ -163,20 +163,6 @@ app.on('web-contents-created', (event, contents) => {
     console.log(`[Realm] did-navigate-in-page: ${url}, isMainFrame: ${isMainFrame}`);
   });
 
-  // webview 右键上下文菜单：提供"检查元素"直接打开该 webview 的 DevTools
-  contents.on('context-menu', (event, params) => {
-    const menu = Menu.buildFromTemplate([
-      { label: '检查元素', click: () => contents.openDevTools() },
-      { type: 'separator' },
-      { label: '后退', enabled: contents.canGoBack(), click: () => contents.goBack() },
-      { label: '前进', enabled: contents.canGoForward(), click: () => contents.goForward() },
-      { type: 'separator' },
-      { label: '刷新', click: () => contents.reload() },
-      { label: '复制', role: 'copy', enabled: params.selectionText.length > 0 },
-    ]);
-    menu.popup();
-  });
-
   // F12 拦截：Electron 无内置 F12 快捷键，可通过 before-input-event 捕获
   // Cmd+Option+I 由应用菜单 accelerator 处理（见下方菜单注册）
   contents.on('before-input-event', (event, input) => {
