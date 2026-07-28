@@ -2129,6 +2129,13 @@ textarea::placeholder {
   padding: 16px;
 }
 
+/* 收藏列表容器铺满右侧面板剩余高度，与其语义角色一致。
+   事件覆盖已由 .favorites-main 委托路由保证，此规则为防御性兜底：
+   避免未来再把监听绑到该元素上时重蹈 flex 高度坍缩覆辙 */
+#favoritesContent {
+  flex: 1;
+}
+
 /* ==================== 右键菜单样式 ==================== */
 
 .context-menu {
