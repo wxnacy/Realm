@@ -72,14 +72,15 @@ function setDatabase(dbInstance) {
  */
 function ensureTable() {
   // 创建收藏夹文件夹表（支持无限层级嵌套）
+  // 注意：不使用外键约束，因为 parent_id=0 是虚拟根目录（不存在于表中）
+  // 级联删除通过 deleteFolder() 中的应用层逻辑实现
   db.exec(`
     CREATE TABLE IF NOT EXISTS favorite_folders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL DEFAULT '',
       parent_id INTEGER NOT NULL DEFAULT 0,
       sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
-      FOREIGN KEY (parent_id) REFERENCES favorite_folders(id) ON DELETE CASCADE
+      created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
     );
     CREATE INDEX IF NOT EXISTS idx_favorite_folders_parent_id
       ON favorite_folders (parent_id);
