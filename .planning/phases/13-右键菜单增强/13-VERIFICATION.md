@@ -1,152 +1,184 @@
 ---
 phase: 13-右键菜单增强
-verified: 2026-07-28T15:00:00Z
-status: passed
-score: 10/10 must-haves verified
-behavior_unverified: 0
+verified: 2026-07-28T06:02:02Z
+status: human_needed
+score: 10/16 must-haves verified
+behavior_unverified: 6
 overrides_applied: 0
 re_verification:
-  previous_status: gaps_found
-  previous_score: 9/10
+  previous_status: passed
+  previous_score: 10/10
+  note: "上次 passed 后被 UAT 推翻（tests 6/7/8/9 发现 5 个 gap）。本次为 gap closure（plan 13-03，commits 62693d9..07e4529 含 code review 修复 56760b9）后的再验证：代码层 5 个 gap 全部关闭、前 10 truths 无回归；运行时菜单/favicon 行为按 13-03 既定 human_verify_mode: end-of-phase 留待人工 UAT 重验。"
   gaps_closed:
-    - "固定标签页后 Tab 栏 UI 正确更新（位置/样式） — .tab-pinned CSS 规则已添加到 src/styles/main.css:1119-1143"
+    - "GAP-5 (UAT test 5): 重新打开已关闭标签页语义 — 2026-07-28 产品决策方案 A 维持逐条 LIFO，13-UAT.md test 5 改判 pass 并注明 resolved-by-decision（fe6de6d），无代码改动"
+    - "GAP-6 (UAT test 6): 固定标签页 favicon — favicon 数据流已实现：page-favicon-updated 监听（renderer.js:807-825）→ tab.faviconUrl → createTabElement 统一 DOM img.tab-favicon（:371-409，三处调用点 :425/:1144/:1353）→ updateTab 白名单持久化（tab-manager.js:161）→ .tab-favicon CSS（main.css:1160-1166）"
+    - "GAP-7 (UAT test 7): 网页通用右键菜单项缺失 — main.js 遗留 webContents 级 context-menu handler 已删除（62693d9，grep `.on('context-menu'` 无匹配），buildWebMenu 成为唯一菜单来源；web-contents-created 其余用途（setWindowOpenHandler/before-input-event/will-navigate）完整保留"
+    - "GAP-8 (UAT test 8): 图片右键与空白处菜单相同 — 同 GAP-7 根因已除；buildWebMenu image 分支（context-menu-manager.js:431-453 四项图片专属项）现为唯一来源"
+    - "GAP-9 (UAT test 9): 链接右键与空白处菜单相同 — 同 GAP-7 根因已除；buildWebMenu link 分支（:481-505 含容器子菜单）现为唯一来源；另补发 contextInfo.editFlags/pageURL（renderer.js:850-851）修复潜伏缺陷"
   gaps_remaining: []
   regressions: []
+behavior_unverified_items:
+  - truth: "网页空白处右键弹出 buildWebMenu 构建的完整 13 项通用菜单"
+    test: "运行应用，在网页空白处右键（UAT test 7 重验）"
+    expected: "弹出 13 项通用菜单（后退/前进/刷新/停止 + 另存为/打印/添加到收藏夹 + 查看页面源代码/检查元素 + 剪切/复制/粘贴/全选），不再是旧 5 项菜单"
+    why_human: "原生 Menu.popup 需 Electron 运行时；遗留 handler 已删、新管线代码已通，但实际弹出内容需人工确认"
+  - truth: "图片右键显示图片专属 4 项 + 通用菜单"
+    test: "在含图片网页上右键图片（UAT test 8 重验）"
+    expected: "菜单顶部出现：在新标签页中打开图片/将图片另存为…/复制图片/复制图片地址，后接通用菜单"
+    why_human: "mediaType=image 分支的运行时触发需真实图片元素"
+  - truth: "链接右键显示链接专属项（含在容器中打开子菜单）+ 通用菜单"
+    test: "在链接上右键（UAT test 9 重验）"
+    expected: "菜单顶部出现：在新标签页中打开链接/在后台标签页中打开/在新容器标签页中打开（子菜单列出全部容器）/复制链接地址"
+    why_human: "linkURL 分支与容器子菜单的运行时构建需真实链接元素"
+  - truth: "输入框右键的剪切/复制/粘贴按 editFlags 正确启用/禁用"
+    test: "在网页输入框选中文字后右键；再在无可复制内容处右键（UAT test 10 重验）"
+    expected: "有选区时剪切/复制可用，无选区时禁用；粘贴按剪贴板状态启用"
+    why_human: "editFlags 由 Chromium 在运行时按上下文生成，enabled 状态只能人工确认"
+  - truth: "固定标签页显示网站 favicon 而非空块"
+    test: "固定一个已加载网站的 Tab（UAT test 6 重验）"
+    expected: "40px 固定 Tab 内居中显示该站 favicon，不再是仅底部小点"
+    why_human: "page-favicon-updated 事件与 img 渲染需真实网站加载"
+  - truth: "重启应用后固定标签 favicon 不丢失"
+    test: "固定带 favicon 的 Tab 后完全退出并重启应用"
+    expected: "restoreTabs 后固定 Tab 仍显示 favicon（faviconUrl 经 updateTab 白名单持久化还原）；固定状态本身也不丢失（WR-02 pinned 白名单修复）"
+    why_human: "持久化往返需真实重启验证"
+human_verification:
+  - test: "UAT tests 6/7/8/9/10 重验（见 behavior_unverified_items 1-5）"
+    expected: "5 项全部 pass，UAT Summary 更新为 passed 10/10"
+    why_human: "原生菜单弹出、favicon 渲染、editFlags 启用态均为 Electron 运行时行为，grep 无法验证"
+  - test: "重启后固定 Tab favicon 与固定状态保留（见 behavior_unverified_items 6）"
+    expected: "favicon 与 pinned 均跨重启保留"
+    why_human: "持久化往返需真实重启"
+  - test: "查看页面源代码端到端：网页右键 → 查看页面源代码"
+    expected: "新 Tab 打开 view-source:<页面URL> 并显示源码（CR-01 修复后首次端到端可用）"
+    why_human: "renderer 双闸口已放行 view-source:http(s)；main.js will-navigate 的 isAllowedWebUrl 不放行 view-source:，理论上 webview 初始 src 加载属程序化加载不触发 will-navigate，但此为 Electron 运行时语义，需人工点验确认无二次拦截"
 ---
 
-# Phase 13: 右键菜单增强 Verification Report
+# Phase 13: 右键菜单增强 Verification Report（再验证）
 
 **Phase Goal:** 右键菜单增强 — 为浏览器添加完整的右键菜单系统，包括 Tab 栏右键菜单和网页右键菜单
-**Verified:** 2026-07-28T15:00:00Z
-**Status:** passed
-**Re-verification:** Yes — after CSS fix (gap closure)
+**Verified:** 2026-07-28T06:02:02Z
+**Status:** human_needed
+**Re-verification:** Yes — UAT 发现 5 gaps 后的 gap closure（plan 13-03）再验证
 
 ## Goal Achievement
 
 ### Observable Truths
 
+**A. 前一轮 10 truths 回归检查（13-03 改动后）**
+
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | 主进程能根据上下文参数构建四种菜单模板（Tab/Web通用/图片/链接） | VERIFIED | context-menu-manager.js:325 buildTabMenu, :420 buildWebMenu with type branching (image/link/general), :164 buildGeneralMenuItems; 532 lines, all templates substantive |
-| 2 | 菜单项 click 回调能正确执行主进程直接操作（导航/剪贴板/打印/DevTools） | VERIFIED | context-menu-manager.js:173 goBack, :181 goForward, :189 reload, :212 saveAs, :219 print, :252 openDevTools, :126 clipboard.writeImage, :455 clipboard.writeText — all use guest/host webContents directly |
-| 3 | 菜单项 click 回调能正确发送 IPC 消息给渲染进程（关闭Tab/打开URL/toast） | VERIFIED | context-menu-manager.js:335 send close-tab, :344 close-other-tabs, :434 open-in-new-tab, :141 context-menu:toast; all via hostWebContents.send() |
-| 4 | Tab 菜单的禁用状态根据上下文正确计算 | VERIFIED | context-menu-manager.js:341 tabCount>1, :350 tabIndex>0, :359 tabIndex<tabCount-1, :370 hasClosedTabs() — all enabled states correctly computed |
-| 5 | 链接菜单的容器子菜单动态列出所有容器 | VERIFIED | context-menu-manager.js:466-477 containers.map() builds submenu; :499-502 empty fallback shows "无可用容器" disabled item; main.js:1049 injects containerManager.getContainers() |
-| 6 | Tab 栏右键点击能触发主进程菜单弹出 | VERIFIED | renderer.js:2273-2292 contextmenu event on tabList, collects tabCount/tabIndex/isPinned/hasClosedTabs, calls showTabContextMenu; main.js:1033-1038 receives and calls buildTabMenu |
-| 7 | webview 内右键点击能根据元素类型弹出对应菜单 | VERIFIED | renderer.js:784-799 context-menu event on webview, determines type (image/link/general) from params, calls showWebContextMenu; main.js:1045-1058 enriches with containers+guestContentsId, calls buildWebMenu |
-| 8 | 菜单项 click 后渲染进程正确处理所有回调 | VERIFIED | renderer.js:1152-1295 handleContextMenuAction handles 12 channels; preload.js:550-572 registers 16 channels; 4 unhandled channels (save-image/copy-image/copy-image-address/copy-link-address) execute entirely in main process, no renderer action needed |
-| 9 | closedTabsStack 在关闭标签时正确维护 | VERIFIED | renderer.js:129 module-level array, :494-504 closedTabsStackPush (push+shift+notifyClosedTab), :515 called in closeTab; context-menu-manager.js:37-47 pushClosedTab (main process mirror); max 10 entries enforced on both sides |
-| 10 | 固定标签页后 Tab 栏 UI 正确更新（位置/样式） | VERIFIED (was FAILED) | JS logic: renderer.js:1302-1358 renderTabs splits pinned/unpinned, pinned first; :1355 applies tab-pinned class; :1202-1208 toggle-pin handler. CSS fix: main.css:1119-1143 .tab-pinned { min/max-width:40px }, .tab-pinned .tab-title { display:none }, .tab-pinned::after { pin indicator dot } |
+| 1 | 主进程能根据上下文参数构建四种菜单模板（Tab/Web通用/图片/链接） | ✓ VERIFIED | context-menu-manager.js 未被 13-03 触碰；`node -e require` 实测 buildTabMenu/buildWebMenu 均为 function；29 个 label 项，image 4 项（:431-453）、link 4 项+子菜单（:481-505）、通用 13 项齐全 |
+| 2 | 菜单项 click 回调能正确执行主进程直接操作（导航/剪贴板/打印/DevTools） | ✓ VERIFIED | context-menu-manager.js 未变；goBack/goForward/reload/saveAs/print/openDevTools/clipboard 调用原样保留 |
+| 3 | 菜单项 click 回调能正确发送 IPC 消息给渲染进程 | ✓ VERIFIED | hostWebContents.send('context-menu:*') 调用原样保留；preload.js:550 onContextMenuAction 16 通道注册未动 |
+| 4 | Tab 菜单的禁用状态根据上下文正确计算 | ✓ VERIFIED | buildTabMenu 未变；tabCount>1/tabIndex>0/tabIndex<tabCount-1/hasClosedTabs 逻辑保留 |
+| 5 | 链接菜单的容器子菜单动态列出所有容器 | ✓ VERIFIED | containers.map() 子菜单保留；main.js:1035 仍注入 containerManager.getContainers()（:1031-1045 handler 完整，含 T-13-01 activeWebviewContentsId 缓解） |
+| 6 | Tab 栏右键点击能触发主进程菜单弹出 | ✓ VERIFIED | renderer.js:2276-2295 contextmenu 委托保留（tabCount/tabIndex/isPinned/hasClosedTabs → showTabContextMenu）；main.js:1019-1024 → buildTabMenu |
+| 7 | webview 内右键点击能根据元素类型弹出对应菜单 | ✓ VERIFIED（增强） | renderer.js:836-853 context-menu 监听保留并新增 editFlags/pageURL；旧竞争 handler 已删（见 B-1），类型分支现在真正可达 |
+| 8 | 菜单项 click 后渲染进程正确处理所有回调 | ✓ VERIFIED | handleContextMenuAction（renderer.js:1179）完整：reopen-tab :1219-1227、toggle-pin :1229-1237（含 updateTab 持久化 + renderTabs）、open-in-new-tab :1239-1250（含 view-source 放行）、注册于 :1402 |
+| 9 | closedTabsStack 在关闭标签时正确维护 | ✓ VERIFIED | renderer.js:129 栈、:512-520 closedTabsStackPush（push+shift@10+notifyClosedTab）、:533 closeTab 调用；主进程 pushClosedTab 导出实测为 function |
+| 10 | 固定标签页后 Tab 栏 UI 正确更新（位置/样式） | ✓ VERIFIED（增强） | renderTabs（:1331-1361）pinned 分组前置 + .tab-pinned class；CSS 1119-1143 保留并新增 favicon 支持；toggle-pin 现经 updateTab 白名单持久化（WR-02 修复） |
 
-**Score:** 10/10 truths verified
+**回归结论：10/10 无回归。** 13-03 触碰的四处（main.js 删旧 handler、renderer.js 补字段+favicon+createTabElement、main.css 加样式、tab-manager.js 扩白名单）均为纯增量/删除死代码，未改动上述 truths 的支撑链路；`node --check` 对 main.js/renderer.js/tab-manager.js 全部通过。
+
+**B. 13-03 gap closure 新增 truths**
+
+| # | Truth | Status | Evidence |
+|---|-------|--------|----------|
+| 11 | 网页空白处右键弹出 buildWebMenu 构建的完整 13 项通用菜单 | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | 代码层闭环：`grep "\.on('context-menu'" main.js` 无匹配（唯一来源达成）；buildGeneralMenuItems 13 项齐全。运行时弹出内容待 UAT test 7 重验 |
+| 12 | 图片右键显示图片专属 4 项 + 通用菜单 | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | image 分支 4 项（context-menu-manager.js:431/439/447/453）+ type 判定（renderer.js:838/840）保留；运行时待 UAT test 8 重验 |
+| 13 | 链接右键显示链接专属项（含容器子菜单）+ 通用菜单 | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | link 分支（:481/489/498/505）+ 容器注入（main.js:1035）保留；运行时待 UAT test 9 重验 |
+| 14 | 输入框右键的剪切/复制/粘贴按 editFlags 正确启用/禁用 | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | 字段链全线贯通：renderer.js:850 `editFlags: params.editFlags \|\| {}` → preload 透传 → context-menu-manager.js:165 消费、:262/272/282 `enabled: !!editFlags.canCut/canCopy/canPaste`。运行时启用态待 UAT test 10 重验 |
+| 15 | 固定标签页显示网站 favicon 而非空块 | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | favicon 数据流四层全通：监听（renderer.js:807-825 取 e.favicons[0]→state→DOM img.src 取消隐藏→持久化）→ createTabElement img.tab-favicon（:384-388，无 url 时 display:none）→ CSS .tab-favicon 16px + .tab-pinned .tab-content 居中（main.css:1160-1172）→ .tab-pinned .tab-favicon margin-right:0（:1128）。运行时渲染待 UAT test 6 重验 |
+| 16 | 重启应用后固定标签 favicon 不丢失 | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | 持久化往返代码闭环：tab-manager.js:161 faviconUrl 白名单 → saveTabs 全量序列化 → initTabs 还原 → restoreTabs createTabElement（renderer.js:1144）读 tab.faviconUrl；WR-03 附加保障 did-navigate 清空旧 favicon（:712-721）。真实重启待人工验证 |
+
+**Score:** 10/16 truths verified（6 项 present + wired，行为待人工 UAT 重验 — 符合 13-03 既定的 human_verify_mode: end-of-phase）
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| context-menu-manager.js | 菜单管理模块，导出 buildTabMenu/buildWebMenu | VERIFIED | 532 lines; exports: buildTabMenu, buildWebMenu, pushClosedTab, hasClosedTabs, popClosedTab; complete menu templates with all items |
-| main.js (modified) | 导入 context-menu-manager，注册 3 个 IPC 监听器 | VERIFIED | line 24 require, line 1033/1045/1066 three ipcMain.on handlers; T-13-01 security mitigation (activeWebviewContentsId) |
-| src/preload.js (modified) | 暴露 showTabContextMenu/showWebContextMenu/onContextMenuAction/notifyClosedTab | VERIFIED | lines 520/535/550/582; 16 channels registered; JSDoc documented |
-| src/renderer.js (modified) | 右键事件监听 + 菜单回调 + 固定标签 + 已关闭栈 | VERIFIED | closedTabsStack, contextmenu handler, context-menu event, handleContextMenuAction, renderTabs — all present and substantive |
-| src/styles/main.css (modified) | .tab-pinned CSS 规则 | VERIFIED | lines 1119-1143; width constraint, title hidden, favicon reset, pin indicator pseudo-element |
+| main.js（修改） | 删除遗留 webContents context-menu handler，保留新管线 3 IPC | ✓ VERIFIED | 62693d9 删除 14 行；`\.on('context-menu'` 零匹配；:1019/:1031/:1052 三监听器保留；web-contents-created 其余用途（setWindowOpenHandler :132、before-input-event :168、will-navigate :181）未动 |
+| src/renderer.js（修改） | contextInfo 补 editFlags/pageURL；page-favicon-updated 监听；createTabElement 统一三处 DOM 创建 | ✓ VERIFIED | :850-851 字段与消费方（manager :165/:243）精确对齐；:807-825 监听实质完整；createTabElement :371-409 含 favicon/title/close 全结构，三处调用 :425/:1144/:1353，无行为漂移 |
+| tab-manager.js（修改） | updateTab 白名单 +faviconUrl（+pinned 评审追加） | ✓ VERIFIED | :161 faviconUrl、:162 pinned，均 `!== undefined` 判断（null 可写入，支撑 WR-03 清空）；saveTabs() 随后调用 |
+| src/styles/main.css（修改） | .tab-favicon 基础样式 + .tab-pinned .tab-content 居中 | ✓ VERIFIED | :1160-1166 基础（16px/flex-shrink:0/margin-right:6px）、:1168-1172 居中；与既有 :1128 pinned 覆盖规则层叠正确（0,2,0 > 0,1,0） |
+| 13-UAT.md（修改） | test 5 改判 pass + resolved-by-decision 方案 A | ✓ VERIFIED | test 5 result: pass 注明决策（:33-34）；Gaps 区 status: resolved 含 resolution（:75-89）；Summary passed: 6 / issues: 4 计数自洽 |
+| context-menu-manager.js（未变） | 四种菜单模板 | ✓ VERIFIED | require 实测 5 个导出均为 function |
+| src/preload.js（未变） | 4 个菜单 API | ✓ VERIFIED | :520/:535/:550/:582 原样保留 |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|----|-----|--------|---------|
-| Tab 栏 contextmenu 事件 | showTabContextMenu IPC | renderer.js:2273-2292 event listener -> showTabContextMenu call | WIRED | event.preventDefault, closest('.tab'), collect context, call API |
-| show-tab-context-menu IPC | buildTabMenu | main.js:1033-1038 ipcMain.on -> contextMenuManager.buildTabMenu | WIRED | BrowserWindow.fromWebContents, null check, direct call |
-| webview context-menu 事件 | showWebContextMenu IPC | renderer.js:784-799 event listener -> showWebContextMenu call | WIRED | params extraction, type detection (image/link/general), call API |
-| show-web-context-menu IPC | buildWebMenu | main.js:1045-1058 ipcMain.on -> contextMenuManager.buildWebMenu | WIRED | injects containers + activeWebviewContentsId (T-13-01) |
-| 主进程 context-menu:* 回调 | onContextMenuAction | context-menu-manager.js hostWebContents.send -> preload.js:550-572 ipcRenderer.on -> renderer.js:1152 handleContextMenuAction | WIRED | 16 channels registered, 12 explicitly handled, 4 execute in main process only |
-| context-menu:closed-tab | pushClosedTab | renderer.js:500 notifyClosedTab -> main.js:1066-1068 -> contextMenuManager.pushClosedTab | WIRED | dual-stack sync between renderer and main process |
-| tab.pinned 状态 | .tab-pinned CSS | renderer.js:1355 applies class -> main.css:1119-1143 styles | WIRED | renderTabs splits pinned/unpinned, applies class, CSS constrains width + hides title + shows pin dot |
+| webview context-menu 事件 | showWebContextMenu IPC | renderer.js:836-853（含 editFlags :850、pageURL :851） | ✓ WIRED | 类型判定 + 全字段发送 |
+| show-web-context-menu IPC | buildWebMenu | main.js:1031-1045 | ✓ WIRED | 注入 containers + activeWebviewContentsId（T-13-01 保留） |
+| contextInfo.editFlags | 菜单项 enabled | context-menu-manager.js:165 → :262/:272/:282 | ✓ WIRED | 字段名与消费方精确对齐 |
+| contextInfo.pageURL | 查看页面源代码 URL | context-menu-manager.js:243 `view-source:${pageURL}` | ✓ WIRED | 端到端见下方 CR-01 行 |
+| view-source: URL | 新 Tab 打开（CR-01 修复） | open-in-new-tab 闸口 renderer.js:1243-1244 + createWebviewForTab 闸口 :633-634 | ✓ WIRED | 双闸口均仅放行包裹 http(s) 内层的 view-source:，file:/javascript: 保持拦截 |
+| page-favicon-updated | tab.faviconUrl → DOM → 持久化 | renderer.js:807-825 | ✓ WIRED | 仿 page-title-updated 模式，四步齐全 |
+| did-navigate | favicon 清空（WR-03） | renderer.js:712-721 | ✓ WIRED | state + DOM img + updateTab(null) 三处同步，Chrome 风格 |
+| tab.faviconUrl | 跨重启还原 | tab-manager.js:161 白名单 → saveTabs → initTabs → restoreTabs:1144 | ✓ WIRED | 全量序列化/还原链路无断点 |
+| Tab 栏 contextmenu | showTabContextMenu IPC | renderer.js:2276-2295 → main.js:1019 | ✓ WIRED | 回归确认未受 13-03 影响 |
+| 主进程 context-menu:* 回调 | handleContextMenuAction | preload.js:550-572 → renderer.js:1179（注册 :1402） | ✓ WIRED | 回归确认 |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |----------|---------------|--------|-------------------|--------|
-| buildTabMenu | tabInfo.tabCount/tabIndex/isPinned/hasClosedTabs | renderer.js:2283-2290 from state.tabs and closedTabsStack | Yes — real tab state | FLOWING |
-| buildWebMenu | contextInfo.containers | main.js:1049 containerManager.getContainers() | Yes — real container list | FLOWING |
-| buildWebMenu | contextInfo.guestContentsId | main.js:1055 getActiveWebviewContentsId() | Yes — real webContents ID | FLOWING |
-| closedTabsStack | tab info (containerId, url, title) | renderer.js:496 from state.tabs.get(tabId) | Yes — real closed tab data | FLOWING |
+| buildWebMenu | contextInfo.editFlags | e.params.editFlags（Chromium 运行时生成） | Yes — 真实编辑态 | ✓ FLOWING |
+| buildWebMenu | contextInfo.pageURL | webview.getURL() | Yes — 真实页面 URL | ✓ FLOWING |
+| createTabElement | tab.faviconUrl | page-favicon-updated e.favicons[0] / restoreTabs 持久化数据 | Yes — 真实 favicon | ✓ FLOWING |
+| buildTabMenu | tabInfo.* | state.tabs + closedTabsStack（:2286-2293） | Yes — 真实 Tab 态 | ✓ FLOWING（回归） |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| context-menu-manager.js exports buildTabMenu | node -e "const m = require('./context-menu-manager'); console.log(typeof m.buildTabMenu)" | function | PASS |
-| context-menu-manager.js exports buildWebMenu | node -e "const m = require('./context-menu-manager'); console.log(typeof m.buildWebMenu)" | function | PASS |
-| context-menu-manager.js exports pushClosedTab | node -e "const m = require('./context-menu-manager'); console.log(typeof m.pushClosedTab)" | function | PASS |
-| context-menu-manager.js exports hasClosedTabs | node -e "const m = require('./context-menu-manager'); console.log(typeof m.hasClosedTabs)" | function | PASS |
+| context-menu-manager 导出完整 | `node -e "require(...)"` | buildTabMenu/buildWebMenu/pushClosedTab/hasClosedTabs/popClosedTab 均 function | ✓ PASS |
+| 遗留 handler 已删 | `grep "\.on('context-menu'" main.js` | 零匹配 | ✓ PASS |
+| 新管线 IPC 保留 | `grep "show-web-context-menu\|show-tab-context-menu\|context-menu:closed-tab" main.js` | :1019/:1031/:1052 | ✓ PASS |
+| 修改文件语法 | `node --check main.js renderer.js tab-manager.js` | 全部通过 | ✓ PASS |
+| 13-03 提交链存在 | `git log` | 62693d9/a485061/c793bc6/fe6de6d + 评审修复 56760b9 + 文档 88e4a2c/07e4529 | ✓ PASS |
+
+### Probe Execution
+
+SKIPPED — 本项目无 `scripts/*/tests/probe-*.sh` 探针，phase 文档亦未声明探针。
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
-|-------------|-----------|-------------|--------|----------|
-| CTX-01 | 13-01, 13-02 | Tab 栏右键菜单（关闭/关闭其他/关闭右侧/重新打开/固定） | SATISFIED | buildTabMenu: 6 items + 2 separators; renderer contextmenu handler wired; toggle-pin logic complete with CSS support |
-| CTX-02 | 13-01, 13-02 | 网页通用右键菜单（后退/前进/刷新/另存为/打印/源代码/检查元素） | SATISFIED | buildGeneralMenuItems: 13 items in 4 groups; webview context-menu event wired |
-| CTX-03 | 13-01, 13-02 | 图片右键菜单（打开/另存为/复制图片/复制地址） | SATISFIED | buildWebMenu type='image': 4 items + separator + general; copyImageToClipboard with nativeImage |
-| CTX-04 | 13-01, 13-02 | 链接右键菜单（打开/容器子菜单/复制地址） | SATISFIED | buildWebMenu type='link': 4 items + container submenu + general; containers injected by main.js |
-| CTX-05 | 13-01, 13-02 | 所有菜单项功能与 Chrome 一致 | SATISFIED | All menu items implemented with Electron Menu API; accelerators match Chrome conventions; navigation/clipboard/print/DevTools all functional |
+|-------------|------------|-------------|--------|----------|
+| CTX-01 | 13-01/13-02 | Tab 栏右键菜单 | ✓ SATISFIED | buildTabMenu + contextmenu 委托 + toggle-pin 全链（回归确认） |
+| CTX-02 | 13-01/13-02 | 网页通用右键菜单 | ✓ SATISFIED（代码层） | buildGeneralMenuItems 13 项 + 唯一来源达成；运行时待 UAT test 7 重验 |
+| CTX-03 | 13-01/13-02 | 图片右键菜单 | ✓ SATISFIED（代码层） | image 分支 4 项；运行时待 UAT test 8 重验 |
+| CTX-04 | 13-01/13-02 | 链接右键菜单 | ✓ SATISFIED（代码层） | link 分支 + 容器子菜单；运行时待 UAT test 9 重验 |
+| CTX-05 | 13-01/13-02 | 菜单项功能与 Chrome 一致 | ? NEEDS HUMAN | UAT tests 1-5/10 已 pass；6-9 代码修复完成待重验 |
+| GAP-5 | 13-03 | test 5 LIFO 语义决策落地 | ✓ SATISFIED | UAT 改判 pass + resolved-by-decision 方案 A（fe6de6d） |
+| GAP-6 | 13-03 | 固定标签 favicon | ✓ SATISFIED（代码层） | favicon 数据流四层 + 持久化白名单 + WR-03 清空（c793bc6/56760b9） |
+| GAP-7 | 13-03 | 通用菜单项缺失 | ✓ SATISFIED（代码层） | 遗留 handler 删除（62693d9）+ editFlags/pageURL 补发（a485061） |
+| GAP-8 | 13-03 | 图片菜单不区分 | ✓ SATISFIED（代码层） | 同 GAP-7 根因已除 |
+| GAP-9 | 13-03 | 链接菜单不区分 | ✓ SATISFIED（代码层） | 同 GAP-7 根因已除 |
+
+无 ORPHANED requirements（REQUIREMENTS.md 不存在于本仓库，CTX 系列来自 ROADMAP.md Phase 13 节，GAP 系列来自 13-UAT.md，均已对照）。
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| (none) | — | — | — | No debt markers (TBD/FIXME/XXX), no TODO/HACK/PLACEHOLDER, no stub implementations found |
+| （无） | — | — | — | 13-03 全部改动文件（main.js/renderer.js/tab-manager.js/main.css 新增行）扫描 TBD/FIXME/XXX/TODO/HACK/PLACEHOLDER/coming soon 零匹配；favicon display:none 为计划明确设计（非 stub） |
 
 ### Human Verification Required
 
-The following items require manual testing in a running Electron environment (cannot be verified programmatically):
-
-### 1. Tab 栏右键菜单完整功能
-
-**Test:** 在运行中的应用里右键点击 Tab 栏中的标签
-**Expected:** 弹出原生菜单，包含：关闭标签页(Cmd+W)、关闭其他标签页、关闭左侧标签页、关闭右侧标签页、分隔线、重新打开已关闭标签页(Cmd+Shift+T)、分隔线、固定/取消固定标签页
-**Why human:** 需要 Electron BrowserWindow 环境弹出原生 Menu
-
-### 2. 网页右键菜单 — 通用
-
-**Test:** 在网页空白区域右键点击
-**Expected:** 弹出菜单包含：后退(Cmd+[)、前进(Cmd+])、刷新(Cmd+R)、停止加载、分隔线、另存为(Cmd+S)、打印(Cmd+P)、添加到收藏夹(Cmd+D)、分隔线、查看页面源代码(Cmd+U)、检查元素(Cmd+Shift+C)、分隔线、剪切/复制/粘贴/全选
-**Why human:** 需要实际 webview 加载页面后触发 context-menu 事件
-
-### 3. 网页右键菜单 — 图片
-
-**Test:** 在包含图片的网页上右键点击图片
-**Expected:** 弹出菜单顶部包含图片专属项：在新标签页中打开图片、将图片另存为…、复制图片、复制图片地址，后接通用菜单项
-**Why human:** 需要实际图片元素触发 image 类型 context-menu 事件
-
-### 4. 网页右键菜单 — 链接
-
-**Test:** 在包含超链接的网页上右键点击链接
-**Expected:** 弹出菜单顶部包含链接专属项：在新标签页中打开链接、在后台标签页中打开、分隔线、在新容器标签页中打开（含容器子菜单）、分隔线、复制链接地址，后接通用菜单项
-**Why human:** 需要实际链接元素触发 link 类型 context-menu 事件
-
-### 5. 重新打开已关闭标签页
-
-**Test:** 关闭一个 Tab 后，右键 Tab 栏 -> "重新打开已关闭标签页"
-**Expected:** 最近关闭的 Tab 重新打开，URL 和容器恢复正确；连续关闭多个后可逐个恢复（LIFO 顺序）
-**Why human:** 需要验证 closedTabsStack 的 LIFO 行为和 createTab 的容器恢复
-
-### 6. 固定标签页视觉效果
-
-**Test:** 右键 Tab -> "固定标签页"，观察 Tab 栏变化
-**Expected:** 固定标签移到最左侧，宽度缩小（40px），标题文字隐藏，底部显示小圆点固定标识
-**Why human:** 需要 Electron 渲染环境验证 CSS 视觉效果
-
-### 7. 复制图片后 Toast 显示
-
-**Test:** 右键图片 -> "复制图片"，观察是否弹出 toast
-**Expected:** toast 显示"已复制"（成功时）或"复制失败"（失败时）
-**Why human:** 需要实际图片和 Electron 环境验证 clipboard 操作
+见 frontmatter `human_verification`（3 项）与 `behavior_unverified_items`（6 项，与 truths 11-16 一一对应）。核心动作：**重跑 UAT tests 6/7/8/9/10 + 重启持久化验证 + 查看页面源代码端到端点验**。
 
 ### Gaps Summary
 
-No gaps remaining. Previous gap (`.tab-pinned` CSS rules missing) has been fixed: `src/styles/main.css` lines 1119-1143 now contain complete `.tab-pinned` rules including width constraint (40px), title hiding, favicon margin reset, and a `::after` pseudo-element pin indicator dot.
+无代码层 gap。5 个 UAT gap 的修复全部实证落地（删除死代码/补字段/新数据流/文档改判，均逐行核对非 SUMMARY 转述），code review 的 1 Critical + 3 Warning 修复（56760b9）亦全部核实：CR-01 双闸口放行 view-source:http(s)、WR-01 JSDoc 归位、WR-02 pinned 白名单、WR-03 did-navigate 清空 favicon。前 10 truths 零回归。
+
+剩余事项仅为 13-03 计划本身既定的 end-of-phase 人工 UAT 重验（human_verify_mode），非新发现的缺陷。
 
 ---
 
-_Verified: 2026-07-28T15:00:00Z_
+_Verified: 2026-07-28T06:02:02Z_
 _Verifier: Claude (gsd-verifier)_
