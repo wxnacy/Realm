@@ -74,3 +74,71 @@
 - Roadmap: `.planning/milestones/v1.1-ROADMAP.md`
 - Requirements: `.planning/milestones/v1.1-REQUIREMENTS.md`
 - Tag: `v1.1`
+
+## v1.2 Cookie 管理增强 + 设置页面重构 + 开发者模式
+
+**Shipped:** 2026-07-27
+**Phases:** 3 (6 plans)
+**Status:** ✅ Complete
+
+### Delivered
+
+Cookie 管理面板增强，设置页面重构，开发者模式实现：
+- Cookie 管理面板多来源查看（Session/File）+ 域名过滤 + 手动保存 + 单条编辑删除
+- 设置页面左侧边栏导航（通用/分配规则/快捷键设置）+ 规则/快捷键页面化
+- 开发者模式：CDP 抓取 API 请求 + SQLite 持久化 + realm://devrequests 查看页
+
+### Key Accomplishments
+
+1. Phase 10: Cookie 管理面板完全增强（来源切换/域名过滤/保存/编辑/删除）
+2. Phase 11: 设置页面重构为侧边栏多页面布局，规则和快捷键从弹窗迁入
+3. Phase 12: 开发者模式 CDP 引擎 + 写入队列 + SQLite + 请求查看页
+
+### Verification
+
+- Closeout type: override_closeout
+- 14/14 v1.2 requirements complete
+- 12 debug sessions deferred (diagnosed)
+- 1 UAT gap deferred (Phase 06 — passed, 0 pending)
+
+### Archive
+
+- Roadmap: `.planning/milestones/v1.2-ROADMAP.md`
+- Requirements: `.planning/milestones/v1.2-REQUIREMENTS.md`
+- Phases: `.planning/milestones/v1.2-phases/`
+- Tag: `v1.2`
+
+## v1.3 右键菜单增强
+
+**Shipped:** 2026-07-27
+**Phases:** 1 (3 plans)
+**Status:** ✅ Complete
+
+### Delivered
+
+标签页和网页右键菜单完整实现：
+- 标签页右键菜单（关闭/关闭其他/左右侧/重新打开已关闭/固定）
+- 网页通用右键菜单（导航/另存为/打印/查看源代码/检查元素/文本编辑）
+- 图片右键菜单（新标签页打开/另存为/复制图片/复制图片地址）
+- 链接右键菜单（新标签页/后台打开/容器中打开/复制链接地址）
+- 已关闭标签页 LIFO 恢复 + 固定 Tab favicon 持久化
+
+### Key Accomplishments
+
+1. Phase 13: context-menu-manager.js 主进程菜单基础设施
+2. Phase 13: 渲染进程集成 + preload API + 右键事件监听
+3. Phase 13: UAT 验证 + 安全威胁缓解 + Tab DOM 统一入口
+
+### Verification
+
+- Closeout type: override_closeout
+- 5/5 v1.3 requirements complete
+- 12 debug sessions deferred (diagnosed)
+- 1 UAT gap deferred (Phase 06 — passed, 0 pending)
+
+### Archive
+
+- Roadmap: `.planning/milestones/v1.3-ROADMAP.md`
+- Requirements: `.planning/milestones/v1.3-REQUIREMENTS.md`
+- Phases: `.planning/milestones/v1.3-phases/`
+- Tag: `v1.3`

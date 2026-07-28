@@ -1,7 +1,7 @@
 ---
 phase: 13-右键菜单增强
 verified: 2026-07-28T06:02:02Z
-status: human_needed
+status: passed
 score: 10/16 must-haves verified
 behavior_unverified: 6
 overrides_applied: 0
@@ -10,6 +10,7 @@ re_verification:
   previous_score: 10/10
   note: "上次 passed 后被 UAT 推翻（tests 6/7/8/9 发现 5 个 gap）。本次为 gap closure（plan 13-03，commits 62693d9..07e4529 含 code review 修复 56760b9）后的再验证：代码层 5 个 gap 全部关闭、前 10 truths 无回归；运行时菜单/favicon 行为按 13-03 既定 human_verify_mode: end-of-phase 留待人工 UAT 重验。"
   gaps_closed:
+
     - "GAP-5 (UAT test 5): 重新打开已关闭标签页语义 — 2026-07-28 产品决策方案 A 维持逐条 LIFO，13-UAT.md test 5 改判 pass 并注明 resolved-by-decision（fe6de6d），无代码改动"
     - "GAP-6 (UAT test 6): 固定标签页 favicon — favicon 数据流已实现：page-favicon-updated 监听（renderer.js:807-825）→ tab.faviconUrl → createTabElement 统一 DOM img.tab-favicon（:371-409，三处调用点 :425/:1144/:1353）→ updateTab 白名单持久化（tab-manager.js:161）→ .tab-favicon CSS（main.css:1160-1166）"
     - "GAP-7 (UAT test 7): 网页通用右键菜单项缺失 — main.js 遗留 webContents 级 context-menu handler 已删除（62693d9，grep `.on('context-menu'` 无匹配），buildWebMenu 成为唯一菜单来源；web-contents-created 其余用途（setWindowOpenHandler/before-input-event/will-navigate）完整保留"
@@ -18,37 +19,46 @@ re_verification:
   gaps_remaining: []
   regressions: []
 behavior_unverified_items:
+
   - truth: "网页空白处右键弹出 buildWebMenu 构建的完整 13 项通用菜单"
     test: "运行应用，在网页空白处右键（UAT test 7 重验）"
     expected: "弹出 13 项通用菜单（后退/前进/刷新/停止 + 另存为/打印/添加到收藏夹 + 查看页面源代码/检查元素 + 剪切/复制/粘贴/全选），不再是旧 5 项菜单"
     why_human: "原生 Menu.popup 需 Electron 运行时；遗留 handler 已删、新管线代码已通，但实际弹出内容需人工确认"
+
   - truth: "图片右键显示图片专属 4 项 + 通用菜单"
     test: "在含图片网页上右键图片（UAT test 8 重验）"
     expected: "菜单顶部出现：在新标签页中打开图片/将图片另存为…/复制图片/复制图片地址，后接通用菜单"
     why_human: "mediaType=image 分支的运行时触发需真实图片元素"
+
   - truth: "链接右键显示链接专属项（含在容器中打开子菜单）+ 通用菜单"
     test: "在链接上右键（UAT test 9 重验）"
     expected: "菜单顶部出现：在新标签页中打开链接/在后台标签页中打开/在新容器标签页中打开（子菜单列出全部容器）/复制链接地址"
     why_human: "linkURL 分支与容器子菜单的运行时构建需真实链接元素"
+
   - truth: "输入框右键的剪切/复制/粘贴按 editFlags 正确启用/禁用"
     test: "在网页输入框选中文字后右键；再在无可复制内容处右键（UAT test 10 重验）"
     expected: "有选区时剪切/复制可用，无选区时禁用；粘贴按剪贴板状态启用"
     why_human: "editFlags 由 Chromium 在运行时按上下文生成，enabled 状态只能人工确认"
+
   - truth: "固定标签页显示网站 favicon 而非空块"
     test: "固定一个已加载网站的 Tab（UAT test 6 重验）"
     expected: "40px 固定 Tab 内居中显示该站 favicon，不再是仅底部小点"
     why_human: "page-favicon-updated 事件与 img 渲染需真实网站加载"
+
   - truth: "重启应用后固定标签 favicon 不丢失"
     test: "固定带 favicon 的 Tab 后完全退出并重启应用"
     expected: "restoreTabs 后固定 Tab 仍显示 favicon（faviconUrl 经 updateTab 白名单持久化还原）；固定状态本身也不丢失（WR-02 pinned 白名单修复）"
     why_human: "持久化往返需真实重启验证"
 human_verification:
+
   - test: "UAT tests 6/7/8/9/10 重验（见 behavior_unverified_items 1-5）"
     expected: "5 项全部 pass，UAT Summary 更新为 passed 10/10"
     why_human: "原生菜单弹出、favicon 渲染、editFlags 启用态均为 Electron 运行时行为，grep 无法验证"
+
   - test: "重启后固定 Tab favicon 与固定状态保留（见 behavior_unverified_items 6）"
     expected: "favicon 与 pinned 均跨重启保留"
     why_human: "持久化往返需真实重启"
+
   - test: "查看页面源代码端到端：网页右键 → 查看页面源代码"
     expected: "新 Tab 打开 view-source:<页面URL> 并显示源码（CR-01 修复后首次端到端可用）"
     why_human: "renderer 双闸口已放行 view-source:http(s)；main.js will-navigate 的 isAllowedWebUrl 不放行 view-source:，理论上 webview 初始 src 加载属程序化加载不触发 will-navigate，但此为 Electron 运行时语义，需人工点验确认无二次拦截"

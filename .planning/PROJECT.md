@@ -105,9 +105,9 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 ## Current State
 
-**Shipped:** v1.2 (2026-07-27)
-- 13 phases complete (5 v1.0 + 4 v1.1 + 3 v1.2 + 1 v1.3，1 plan deferred)
-- Phase 13 (v1.3) 完成，待里程碑归档
+**Shipped:** v1.3 (2026-07-27)
+- 13 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3)
+- 所有里程碑已完成归档
 - 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol
 
 **Key features delivered:**
@@ -122,7 +122,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 **Known gaps:**
 - 09-04: checkBookmarkStatus realm:// 早退守卫移除（deferred）
-- 6 个已诊断 debug session 未修复
+- 12 个已诊断 debug session 未修复
 
 ## Context
 
@@ -137,10 +137,9 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - AutoBrowser 项目的 Cookie 持久化方案（JSON 文件格式，支持 domain 前缀点号保留）
 
 **代码库状态：**
-- v1.1 已 shipped，包含完整的多容器浏览器功能 + 历史记录 + 收藏夹 + 常用网站 + 设置
-- 9 个阶段完成，21/22 计划完成，30/30 v1.1 需求全部实现
-- 61 个文件变更，+13013 行代码
-- 技术栈新增 better-sqlite3（历史记录存储）
+- v1.3 已 shipped，包含完整的多容器浏览器功能 + 历史记录 + 收藏夹 + 常用网站 + 设置 + 开发者模式 + 右键菜单
+- 13 个阶段完成，26/27 计划完成（1 plan deferred），69/69 需求全部实现
+- 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol
 
 ## Constraints
 
@@ -200,4 +199,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-28 after Phase 13（右键菜单增强，v1.3 里程碑完成待归档）*
+*Last updated: 2026-07-28 after v1.3 milestone completion*

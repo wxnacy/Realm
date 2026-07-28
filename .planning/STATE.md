@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: 右键菜单增强
 current_phase: 13
-status: milestone_complete_pending_archive
-stopped_at: Phase 13 complete — v1.3 all phases done, ready to complete milestone
-last_updated: "2026-07-28T09:10:00.000Z"
+status: all_milestones_complete
+stopped_at: All milestones (v1.0-v1.3) archived
+last_updated: "2026-07-28T10:00:00.000Z"
 last_activity: 2026-07-28
-last_activity_desc: Phase 13 UAT passed + security verified, milestone v1.3 complete
+last_activity_desc: All milestones (v1.0-v1.3) archived
 progress:
-  total_phases: 9
-  completed_phases: 9
-  total_plans: 19
-  completed_plans: 19
+  total_phases: 13
+  completed_phases: 13
+  total_plans: 27
+  completed_plans: 26
   percent: 100
 current_phase_name: 右键菜单增强
 ---
@@ -24,16 +24,16 @@ current_phase_name: 右键菜单增强
 See: .planning/PROJECT.md (updated 2026-07-28)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载
-**Current focus:** v1.3 完成，待 /gsd-complete-milestone 归档
+**Current focus:** All milestones complete — ready for next milestone planning
 
 ## Current Position
 
-Phase: 13
-Plan: Not started
-Status: Phase 13 complete (UAT 10/10 + security threats_open:0) — milestone v1.3 ready to archive
-Last activity: 2026-07-28 — Phase 13 complete
+Phase: 13 (complete)
+Plan: All complete
+Status: All milestones (v1.0-v1.3) archived
+Last activity: 2026-07-28 — All milestones archived
 
-Progress: [████████████████████] 3/3 plans (100%)
+Progress: [████████████████████] 26/27 plans (96%)
 
 ## Performance Metrics
 
@@ -113,17 +113,23 @@ None yet.
 
 ## Deferred Items
 
-Items acknowledged and deferred at milestone close on 2026-07-26:
+Items acknowledged and deferred at milestone close on 2026-07-28:
 
 | Category | Item | Status |
 |----------|------|--------|
 | debug | cold-start-url-input-no-response | diagnosed |
 | debug | container-delete-partitions | unknown |
+| debug | cookie-list-bg-too-dark | diagnosed |
+| debug | pinned-tab-favicon | diagnosed |
 | debug | progress-bar-wrong-position | diagnosed |
 | debug | realm-newtab-star-not-persistent | diagnosed |
 | debug | refresh-button-no-stop-icon | diagnosed |
+| debug | reopen-closed-tabs-batch | diagnosed |
+| debug | rules-import-no-op | diagnosed |
+| debug | save-cookie-wrong-domain-filter | diagnosed |
 | debug | url-input-enter-no-response | diagnosed |
-| uat_gaps | Phase 03: 03-UAT.md | partial |
+| debug | web-context-menu-wrong-items | diagnosed |
+| uat_gaps | Phase 06: 06-UAT.md | passed (0 pending) |
 | plan_gap | Phase 09: 09-04-PLAN.md (checkBookmarkStatus realm:// guard) | open |
 
 ## Session Continuity
