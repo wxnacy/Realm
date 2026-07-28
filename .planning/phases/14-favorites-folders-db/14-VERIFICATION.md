@@ -1,11 +1,14 @@
 ---
 phase: 14-favorites-folders-db
 verified: 2026-07-28T12:00:00Z
-re-verified: 2026-07-28T12:15:00Z
+re-verified: 2026-07-28T13:00:00Z
 status: passed
 score: 10/10 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
+uat_status: complete
+uat_passed: 7/7
+uat_automated: 33/33
 
 gaps:
   - truth: "删除文件夹时，其下的所有收藏项一并删除（级联删除）"
