@@ -1,20 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 13-右键菜单增强
 source: [13-01-SUMMARY.md, 13-02-SUMMARY.md, 13-03-SUMMARY.md]
 started: 2026-07-28T00:00:00Z
-updated: 2026-07-28T06:00:00Z
+updated: 2026-07-28T09:00:00Z
 ---
 
 ## Current Test
 
-number: 7
-name: 网页通用右键菜单（重验）
-expected: |
-  在网页空白处右键，菜单应包含：后退/前进/重新加载/强制刷新、复制页面地址、添加到收藏、
-  在新标签页打开、在后台打开、查看页面源代码、检查元素、撤销/剪切/复制/粘贴/全选
-  （部分项按上下文禁用）—— 不再是只有 5 项的旧菜单。
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -46,36 +40,35 @@ fix-commit: 7da6df0, 7b5dac3
 
 ### 7. 网页通用右键菜单（重验）
 expected: 在网页空白处右键，菜单应为：后退/前进/刷新/停止加载（加载中可用）→ 另存为…/打印…/添加到收藏夹 → 查看页面源代码/检查元素 → 剪切/复制/粘贴/全选（按 editFlags 上下文禁用）。另存为可正常保存页面，添加到收藏夹可正常收藏（2026-07-28 用户确认实际菜单结构符合浏览器需求，期望已按实际修正）
-result: [pending]
-previous-issue: "右键只有检查元素/后退/前进/刷新/复制。差距很大"
-fix-commit: 62693d9, a485061
+result: pass
+fix-commit: 62693d9, a485061, d4c133f
 
 ### 8. 图片右键菜单（重验）
 expected: 在网页中的图片上右键，菜单顶部应显示图片专属项：图片另存为、复制图片、复制图片地址、在新标签页打开图片；下方为通用菜单项 —— 应与空白处右键菜单明显不同
-result: [pending]
-previous-issue: "图片右击和空白页右键出现的内容相同，不符合讨论内容"
-fix-commit: 62693d9
+result: pass
+previous-issue: "图片右击和空白页右键出现的内容相同，不符合讨论内容；复制图片失败: 图片数据为空（webp 解码，已修）"
+fix-commit: 62693d9, 0017a09
 
 ### 9. 链接右键菜单 + 容器中打开（重验）
 expected: 在链接上右键，菜单应含：在新标签页打开链接、在后台标签页打开链接、复制链接地址、添加到收藏、"在容器中打开"子菜单（列出所有容器，选择后链接在指定容器新 Tab 打开）—— 应与空白处右键菜单明显不同
-result: [pending]
+result: pass
 previous-issue: "链接右击和空白页右键出现的内容相同，不符合讨论内容"
 fix-commit: 62693d9
 
 ### 10. 文本编辑操作（输入框右键，重验）
 expected: 在网页输入框中选中文字后右键，剪切/复制/粘贴/全选按 editFlags 正确启用；未选中文字时剪切/复制应禁用；空输入框粘贴应禁用
-result: [pending]
+result: pass
 recheck-reason: "editFlags 接线改动（commit a485061）影响此测试路径，需确认未引入回归"
 
 ## Summary
 
 total: 10
-passed: 6
+passed: 10
 issues: 0
-pending: 4
+pending: 0
 skipped: 0
 blocked: 0
-retest-of: [7, 8, 9, 10]
+retest-of: []
 
 ## Gaps
 
