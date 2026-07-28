@@ -4,7 +4,8 @@ milestone: v2.0
 milestone_name: 收藏夹文件夹支持 + AI Agent 集成
 current_phase: 16 — 收藏夹文件夹 - 增强功能
 status: planning
-last_updated: "2026-07-28T10:37:59.644Z"
+stopped_at: Phase 16 context gathered
+last_updated: "2026-07-28T11:39:03.972Z"
 progress:
   total_phases: 8
   completed_phases: 2
@@ -49,3 +50,9 @@ progress:
 
 ---
 *Updated by GSD workflow*
+
+## Session
+
+**Last session:** 2026-07-28T11:39:03.965Z
+**Stopped at:** Phase 16 context gathered
+**Resume file:** .planning/phases/16-favorites-enhancements/16-CONTEXT.md
