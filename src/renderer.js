@@ -849,6 +849,7 @@ function bindWebviewEvents(tabId, webview) {
       isLoading: webview.isLoading(),
       editFlags: params.editFlags || {},
       pageURL: webview.getURL(),
+      pageTitle: webview.getTitle() || '',
     });
   });
 
@@ -1285,6 +1286,11 @@ function handleContextMenuAction(channel, data) {
             showToast('已收藏过该页面', 'info');
           } else {
             showToast('已收藏', 'success');
+            // 刷新工具栏星标（若收藏的是当前活动 Tab 的 URL）
+            const activeTab = state.tabs.get(state.activeTabId);
+            if (activeTab && activeTab.url === data.url) {
+              checkBookmarkStatus(data.url);
+            }
           }
         }).catch(err => {
           console.error('[Realm Renderer] 收藏失败:', err);

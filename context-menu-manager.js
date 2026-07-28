@@ -13,7 +13,8 @@
  * 菜单使用 Electron 原生 Menu API（D-01），在鼠标位置弹出（D-04）。
  */
 
-const { Menu, clipboard, nativeImage, webContents } = require('electron');
+const { Menu, clipboard, nativeImage, webContents, dialog } = require('electron');
+const fs = require('fs');
 
 // ==================== 已关闭标签栈 ====================
 
@@ -83,42 +84,50 @@ function getGuestWebContents(guestContentsId) {
 }
 
 /**
+ * 下载图片数据（支持 http/https URL 和 data: URL）
+ * @param {string} imageURL - 图片 URL
+ * @param {Electron.Session} [session] - 用于继承容器 cookie/referer 的 session
+ * @returns {Promise<Buffer>} 图片二进制数据
+ */
+async function fetchImageBuffer(imageURL, session) {
+  if (imageURL.startsWith('data:')) {
+    // data: URL：直接 base64 解码
+    const matches = imageURL.match(/^data:[^;]+;base64,(.+)$/);
+    if (!matches) {
+      throw new Error('无效的 data: URL 格式');
+    }
+    return Buffer.from(matches[1], 'base64');
+  }
+
+  // http/https URL：使用 Electron net 模块下载（传入 session 继承 cookie）
+  const { net } = require('electron');
+  return new Promise((resolve, reject) => {
+    const request = net.request(session ? { url: imageURL, session } : imageURL);
+    const chunks = [];
+    request.on('response', (response) => {
+      if (response.statusCode !== 200) {
+        reject(new Error(`HTTP ${response.statusCode}`));
+        return;
+      }
+      response.on('data', (chunk) => { chunks.push(chunk); });
+      response.on('end', () => { resolve(Buffer.concat(chunks)); });
+      response.on('error', reject);
+    });
+    request.on('error', reject);
+    request.end();
+  });
+}
+
+/**
  * 复制图片到剪贴板
  * 支持 http/https URL 和 data: URL
  * @param {string} imageURL - 图片 URL
  * @param {Electron.WebContents} hostWebContents - 用于发送 toast 的 host webContents
+ * @param {Electron.Session} [session] - 用于继承容器 cookie 的 session
  */
-async function copyImageToClipboard(imageURL, hostWebContents) {
+async function copyImageToClipboard(imageURL, hostWebContents, session) {
   try {
-    let imageBuffer;
-
-    if (imageURL.startsWith('data:')) {
-      // data: URL：直接 base64 解码
-      const matches = imageURL.match(/^data:[^;]+;base64,(.+)$/);
-      if (!matches) {
-        throw new Error('无效的 data: URL 格式');
-      }
-      imageBuffer = Buffer.from(matches[1], 'base64');
-    } else {
-      // http/https URL：使用 Electron net 模块下载（继承 session cookie）
-      const { net } = require('electron');
-      imageBuffer = await new Promise((resolve, reject) => {
-        const request = net.request(imageURL);
-        const chunks = [];
-        request.on('response', (response) => {
-          if (response.statusCode !== 200) {
-            reject(new Error(`HTTP ${response.statusCode}`));
-            return;
-          }
-          response.on('data', (chunk) => { chunks.push(chunk); });
-          response.on('end', () => { resolve(Buffer.concat(chunks)); });
-          response.on('error', reject);
-        });
-        request.on('error', reject);
-        request.end();
-      });
-    }
-
+    const imageBuffer = await fetchImageBuffer(imageURL, session);
     const image = nativeImage.createFromBuffer(imageBuffer);
     if (image.isEmpty()) {
       throw new Error('图片数据为空');
@@ -208,9 +217,19 @@ function buildGeneralMenuItems(contextInfo, guestWebContents, hostWebContents) {
     {
       label: '另存为…',
       accelerator: 'CmdOrCtrl+S',
-      click: () => {
-        if (guestWebContents && !guestWebContents.isDestroyed()) {
-          guestWebContents.saveAs();
+      click: async () => {
+        if (!guestWebContents || guestWebContents.isDestroyed()) return;
+        try {
+          const pageTitle = (guestWebContents.getTitle() || 'page').replace(/[\\/:*?"<>|]/g, '_');
+          const { filePath, canceled } = await dialog.showSaveDialog({
+            defaultPath: `${pageTitle}.html`,
+          });
+          if (canceled || !filePath) return;
+          await guestWebContents.savePage(filePath, 'HTMLComplete');
+          sendToast(hostWebContents, '已保存');
+        } catch (err) {
+          console.error('[Realm] 页面另存为失败:', err.message);
+          sendToast(hostWebContents, '保存失败');
         }
       },
     },
@@ -228,7 +247,10 @@ function buildGeneralMenuItems(contextInfo, guestWebContents, hostWebContents) {
       accelerator: 'CmdOrCtrl+D',
       click: () => {
         if (hostWebContents && !hostWebContents.isDestroyed()) {
-          hostWebContents.send('context-menu:add-to-favorites', {});
+          hostWebContents.send('context-menu:add-to-favorites', {
+            url: contextInfo.pageURL || '',
+            title: contextInfo.pageTitle || contextInfo.pageURL || '',
+          });
         }
       },
     },
@@ -437,9 +459,23 @@ function buildWebMenu(contextInfo, mainWindow) {
       },
       {
         label: '将图片另存为…',
-        click: () => {
-          if (guestWebContents && !guestWebContents.isDestroyed()) {
-            guestWebContents.saveAs();
+        click: async () => {
+          if (!guestWebContents || guestWebContents.isDestroyed()) return;
+          try {
+            const url = contextInfo.srcURL;
+            const urlPath = url.split('?')[0];
+            const ext = (urlPath.match(/\.([a-zA-Z0-9]{2,5})$/) || [])[1] || 'png';
+            const { filePath, canceled } = await dialog.showSaveDialog({
+              defaultPath: `image.${ext}`,
+            });
+            if (canceled || !filePath) return;
+            // 用 guest session 下载（继承容器 cookie/referer，bilibili 等防盗链图片可正常下载）
+            const buffer = await fetchImageBuffer(url, guestWebContents.session);
+            fs.writeFileSync(filePath, buffer);
+            sendToast(hostWebContents, '已保存');
+          } catch (err) {
+            console.error('[Realm] 图片另存为失败:', err.message);
+            sendToast(hostWebContents, '保存失败');
           }
         },
       },
