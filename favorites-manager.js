@@ -42,6 +42,8 @@ function initDatabase() {
   db.pragma('journal_mode = WAL');
   // NORMAL 同步级别：平衡性能与数据安全
   db.pragma('synchronous = NORMAL');
+  // 启用外键约束（better-sqlite3 默认关闭，级联删除依赖此设置）
+  db.pragma('foreign_keys = ON');
 
   console.log(`[Realm] 收藏夹数据库已初始化: ${DB_PATH}`);
 }
@@ -57,9 +59,35 @@ function setDatabase(dbInstance) {
 // ==================== 表管理 ====================
 
 /**
- * 确保全局收藏表存在（无参数，固定操作全局 favorites 表）
+ * 确保全局收藏表和文件夹表存在（无参数，固定操作全局表）
+ *
+ * 表结构说明：
+ * - favorite_folders: 收藏夹文件夹表，支持无限层级嵌套（parent_id 自引用）
+ * - favorites: 收藏记录表，新增 folder_id（关联文件夹）和 sort_order（排序）字段
+ *
+ * 迁移策略：
+ * - folder_id 默认值 0 表示根目录（无文件夹）
+ * - sort_order 默认值 0 表示未排序
+ * - 使用 try-catch 包裹 ALTER TABLE，因为列已存在时会报错（幂等启动）
  */
 function ensureTable() {
+  // 创建收藏夹文件夹表（支持无限层级嵌套）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS favorite_folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL DEFAULT '',
+      parent_id INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+      FOREIGN KEY (parent_id) REFERENCES favorite_folders(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_favorite_folders_parent_id
+      ON favorite_folders (parent_id);
+    CREATE INDEX IF NOT EXISTS idx_favorite_folders_sort_order
+      ON favorite_folders (sort_order);
+  `);
+
+  // 确保收藏记录表存在
   db.exec(`
     CREATE TABLE IF NOT EXISTS favorites (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,6 +102,20 @@ function ensureTable() {
     CREATE INDEX IF NOT EXISTS idx_favorites_url
       ON favorites (url);
   `);
+
+  // 迁移：为 favorites 表添加 folder_id 字段（默认值 0 表示根目录）
+  try {
+    db.exec('ALTER TABLE favorites ADD COLUMN folder_id INTEGER NOT NULL DEFAULT 0');
+  } catch (e) {
+    // 列已存在时忽略（幂等启动）
+  }
+
+  // 迁移：为 favorites 表添加 sort_order 字段
+  try {
+    db.exec('ALTER TABLE favorites ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0');
+  } catch (e) {
+    // 列已存在时忽略（幂等启动）
+  }
 }
 
 /**
@@ -233,6 +275,228 @@ function getCount() {
   return row.count;
 }
 
+// ==================== 文件夹 CRUD 操作 ====================
+
+/**
+ * 检查目标文件夹是否是源文件夹的后代（防止循环引用）
+ * 递归遍历目标文件夹的祖先链，如果遇到源文件夹 ID 则说明会形成循环
+ * @param {number} sourceId - 源文件夹 ID
+ * @param {number} targetId - 目标文件夹 ID
+ * @returns {boolean} 是否会形成循环
+ */
+function isDescendant(sourceId, targetId) {
+  let currentId = targetId;
+  // 防止死循环的安全限制（最多遍历 100 层）
+  const maxDepth = 100;
+  let depth = 0;
+
+  while (currentId !== 0 && depth < maxDepth) {
+    const folder = db.prepare('SELECT parent_id FROM favorite_folders WHERE id = ?').get(currentId);
+    if (!folder) break;
+    if (folder.parent_id === sourceId) return true;
+    currentId = folder.parent_id;
+    depth++;
+  }
+
+  return false;
+}
+
+/**
+ * 创建收藏夹文件夹
+ * @param {Object} options
+ * @param {string} options.name - 文件夹名称
+ * @param {number} [options.parentId=0] - 父文件夹 ID（0 表示根目录）
+ * @returns {{id: number}|{error: string, message: string}} 新文件夹 ID 或错误
+ */
+function createFolder({ name, parentId = 0 }) {
+  ensureTable();
+
+  // 验证父文件夹存在（parentId=0 表示根目录，无需验证）
+  if (parentId !== 0) {
+    const parent = db.prepare('SELECT id FROM favorite_folders WHERE id = ?').get(parentId);
+    if (!parent) {
+      return { error: 'not_found', message: '父文件夹不存在' };
+    }
+  }
+
+  // 计算排序值：取当前最大 sort_order + 1
+  const maxSort = db.prepare(
+    'SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_sort FROM favorite_folders WHERE parent_id = ?'
+  ).get(parentId);
+
+  const result = db.prepare(`
+    INSERT INTO favorite_folders (name, parent_id, sort_order)
+    VALUES (?, ?, ?)
+  `).run(name, parentId, maxSort.next_sort);
+
+  return { id: result.lastInsertRowid };
+}
+
+/**
+ * 重命名文件夹
+ * @param {number} id - 文件夹 ID
+ * @param {Object} updates
+ * @param {string} updates.name - 新名称
+ * @returns {boolean} 是否成功
+ */
+function renameFolder(id, { name }) {
+  ensureTable();
+
+  const result = db.prepare('UPDATE favorite_folders SET name = ? WHERE id = ?').run(name, id);
+  return result.changes > 0;
+}
+
+/**
+ * 删除文件夹（级联删除子文件夹和收藏项）
+ * 依赖 SQLite ON DELETE CASCADE 外键约束
+ * @param {number} id - 文件夹 ID
+ * @returns {{success: boolean, message?: string}} 结果
+ */
+function deleteFolder(id) {
+  ensureTable();
+
+  // 不能删除根目录（id=0 是虚拟根目录，不存在于表中）
+  if (id === 0) {
+    return { success: false, message: '无法删除根目录' };
+  }
+
+  const result = db.prepare('DELETE FROM favorite_folders WHERE id = ?').run(id);
+  return { success: result.changes > 0 };
+}
+
+/**
+ * 列出指定父文件夹下的子文件夹（按 sort_order 排序）
+ * @param {number} [parentId=0] - 父文件夹 ID
+ * @returns {Array} 文件夹列表
+ */
+function listFolders(parentId = 0) {
+  ensureTable();
+
+  return db.prepare(`
+    SELECT * FROM favorite_folders
+    WHERE parent_id = ?
+    ORDER BY sort_order ASC, created_at ASC
+  `).all(parentId);
+}
+
+/**
+ * 获取完整的文件夹树结构（递归构建）
+ * @param {number} [parentId=0] - 起始父文件夹 ID
+ * @returns {Array} 树形结构的文件夹列表
+ */
+function getFolderTree(parentId = 0) {
+  ensureTable();
+
+  const folders = db.prepare(`
+    SELECT * FROM favorite_folders
+    WHERE parent_id = ?
+    ORDER BY sort_order ASC, created_at ASC
+  `).all(parentId);
+
+  return folders.map(folder => ({
+    ...folder,
+    children: getFolderTree(folder.id),
+  }));
+}
+
+/**
+ * 移动文件夹到新的父文件夹
+ * @param {number} id - 文件夹 ID
+ * @param {Object} options
+ * @param {number} options.parentId - 目标父文件夹 ID
+ * @returns {{success: boolean, message?: string}} 结果
+ */
+function moveFolder(id, { parentId }) {
+  ensureTable();
+
+  // 不能移动到自身
+  if (id === parentId) {
+    return { success: false, message: '不能将文件夹移动到自身' };
+  }
+
+  // 循环引用检测：目标不能是自己的后代
+  if (parentId !== 0 && isDescendant(id, parentId)) {
+    return { success: false, message: '不能将文件夹移动到自己的子文件夹中（循环引用）' };
+  }
+
+  // 计算排序值：取目标位置最大 sort_order + 1
+  const maxSort = db.prepare(
+    'SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_sort FROM favorite_folders WHERE parent_id = ?'
+  ).get(parentId);
+
+  const result = db.prepare('UPDATE favorite_folders SET parent_id = ?, sort_order = ? WHERE id = ?')
+    .run(parentId, maxSort.next_sort, id);
+
+  return { success: result.changes > 0 };
+}
+
+// ==================== 收藏项移动与排序 ====================
+
+/**
+ * 将收藏项移动到指定文件夹
+ * @param {number} id - 收藏项 ID
+ * @param {Object} options
+ * @param {number} options.folderId - 目标文件夹 ID（0 表示根目录）
+ * @returns {boolean} 是否成功
+ */
+function moveFavorite(id, { folderId }) {
+  ensureTable();
+
+  const result = db.prepare('UPDATE favorites SET folder_id = ? WHERE id = ?').run(folderId, id);
+  return result.changes > 0;
+}
+
+/**
+ * 批量移动收藏项到指定文件夹
+ * @param {Array<number>} ids - 收藏项 ID 数组
+ * @param {Object} options
+ * @param {number} options.folderId - 目标文件夹 ID
+ * @returns {number} 成功移动的数量
+ */
+function moveFavorites(ids, { folderId }) {
+  ensureTable();
+
+  if (!Array.isArray(ids) || ids.length === 0) return 0;
+
+  const placeholders = ids.map(() => '?').join(',');
+  const result = db.prepare(`UPDATE favorites SET folder_id = ? WHERE id IN (${placeholders})`)
+    .run(folderId, ...ids);
+
+  return result.changes;
+}
+
+/**
+ * 更新文件夹的排序位置
+ * @param {number} id - 文件夹 ID
+ * @param {Object} options
+ * @param {number} options.sortOrder - 新的排序值
+ * @returns {boolean} 是否成功
+ */
+function updateFolderSort(id, { sortOrder }) {
+  ensureTable();
+
+  const result = db.prepare('UPDATE favorite_folders SET sort_order = ? WHERE id = ?')
+    .run(sortOrder, id);
+
+  return result.changes > 0;
+}
+
+/**
+ * 更新收藏项的排序位置
+ * @param {number} id - 收藏项 ID
+ * @param {Object} options
+ * @param {number} options.sortOrder - 新的排序值
+ * @returns {boolean} 是否成功
+ */
+function updateFavoriteSort(id, { sortOrder }) {
+  ensureTable();
+
+  const result = db.prepare('UPDATE favorites SET sort_order = ? WHERE id = ?')
+    .run(sortOrder, id);
+
+  return result.changes > 0;
+}
+
 // ==================== 导出 ====================
 
 module.exports = {
@@ -247,4 +511,16 @@ module.exports = {
   searchRecords,
   checkUrl,
   getCount,
+  // 文件夹 CRUD
+  createFolder,
+  renameFolder,
+  deleteFolder,
+  listFolders,
+  getFolderTree,
+  moveFolder,
+  // 收藏项移动与排序
+  moveFavorite,
+  moveFavorites,
+  updateFolderSort,
+  updateFavoriteSort,
 };
