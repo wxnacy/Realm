@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: 收藏夹文件夹支持 + AI Agent 集成
 current_phase: 14
-current_phase_name: current
-status: in_progress
-stopped_at: Phase 14 context gathered
-last_updated: "2026-07-28T10:05:47.784Z"
+current_phase_name: 收藏夹文件夹 - 数据库层实现
+status: executing
+stopped_at: Phase 14 plan executed
+last_updated: "2026-07-28T11:00:00.000Z"
 last_activity: 2026-07-28
-last_activity_desc: v2.0 里程碑创建
+last_activity_desc: Phase 14 计划执行完成
 progress:
   total_phases: 8
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 1
+  completed_plans: 1
+  percent: 13
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-07-28)
 ## Current Position
 
 Phase: 14 (current)
-Plan: Phase 14 待规划
-Status: In progress
-Last activity: 2026-07-28 — v2.0 里程碑创建
-Next action: /gsd-plan-phase 14
+Plan: Phase 14 已执行 (6/6 tasks complete)
+Status: Execution complete, ready for verification
+Last activity: 2026-07-28 — Phase 14 计划执行完成
+Next action: Verification
 
 Progress: [████████████░░░░░░░░░░] 13/21 phases (62%)
 
@@ -106,13 +106,14 @@ See PROJECT.md Key Decisions table for complete list.
 
 ### Pending Todos
 
-**Phase 14 待完成:**
+**Phase 14 已完成:**
 
-- [ ] 创建 favorite_folders 表
-- [ ] favorites 表添加 folder_id 字段
-- [ ] 实现文件夹 CRUD API
-- [ ] 实现收藏项移动 API
-- [ ] 注册 IPC 通道
+- [x] 创建 favorite_folders 表
+- [x] favorites 表添加 folder_id 和 sort_order 字段
+- [x] 实现文件夹 CRUD API
+- [x] 实现收藏项移动 API
+- [x] 注册 IPC 通道
+- [x] 暴露 Preload API
 
 ### Blockers/Concerns
 
@@ -152,13 +153,13 @@ Items from v1.0-v1.3 deferred:
 
 ## Session Continuity
 
-Last session: 2026-07-28T10:05:47.778Z
-Stopped at: Phase 14 context gathered
-Resume file: .planning/phases/14-favorites-folders-db/14-CONTEXT.md
-Next action: /gsd-plan-phase 14
+Last session: 2026-07-28T11:00:00.000Z
+Stopped at: Phase 14 plan executed
+Resume file: .planning/phases/14-favorites-folders-db/14-01-SUMMARY.md
+Next action: Verify phase completion
 
 **Quick Resume:**
 
-1. Run `/gsd-plan-phase 14` to start Phase 14 planning
-2. Phase 14 focus: 收藏夹文件夹 - 数据库层实现
-3. Key tasks: Create favorite_folders table, add folder_id to favorites, implement folder CRUD API
+1. Phase 14 execution complete - all 6 tasks done
+2. Key files: favorites-manager.js, main.js, src/preload.js
+3. Next: Verify implementation and prepare for Phase 15

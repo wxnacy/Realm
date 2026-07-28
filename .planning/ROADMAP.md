@@ -114,13 +114,15 @@ Phase 14  Phase 15  Phase 16  Phase 17  Phase 18  Phase 19  Phase 20  Phase 21
 #### Phase 14: 收藏夹文件夹 - 数据库层实现
 **预估时间**: 2 天
 **需求覆盖**: FOLDER-01, FOLDER-02, FOLDER-03, FOLDER-04
+**状态**: 执行完成 (2026-07-28)
 
 **任务**:
-- [ ] 创建 `favorite_folders` 表
-- [ ] `favorites` 表添加 `folder_id` 字段
-- [ ] 实现文件夹 CRUD API
-- [ ] 实现收藏项移动 API
-- [ ] 注册 IPC 通道
+- [x] 创建 `favorite_folders` 表
+- [x] `favorites` 表添加 `folder_id` 和 `sort_order` 字段
+- [x] 实现文件夹 CRUD API
+- [x] 实现收藏项移动 API
+- [x] 注册 IPC 通道
+- [x] 暴露 Preload API
 
 ---
 
