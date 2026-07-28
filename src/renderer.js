@@ -364,12 +364,6 @@ async function removeBookmark() {
 }
 
 /**
- * 创建新 Tab
- * @param {string} containerId - 容器 ID
- * @param {string|null} url - 初始 URL
- * @returns {Promise<string>} 新创建的 Tab ID
- */
-/**
  * 创建 Tab DOM 元素（createTab/restoreTabs/renderTabs 三处统一入口）
  * @param {Object} tab - Tab 数据对象（含 id/containerId/title/faviconUrl）
  * @returns {HTMLElement} Tab DOM 元素
@@ -414,6 +408,12 @@ function createTabElement(tab) {
   return tabElement;
 }
 
+/**
+ * 创建新 Tab
+ * @param {string} containerId - 容器 ID
+ * @param {string|null} url - 初始 URL
+ * @returns {Promise<string>} 新创建的 Tab ID
+ */
 async function createTab(containerId, url = null) {
   // 如果没有指定 URL，使用新标签页
   const tabUrl = url || 'realm://newtab';
@@ -629,7 +629,9 @@ function createWebviewForTab(tabId, containerId, url) {
   // 规则匹配与新窗口两条路径的 URL 均来自 guest 页面，不限制 scheme 时
   // file: 可在浏览器上下文读取本地文件、data: 可注入脚本；
   // 空 URL（新标签页）与 about:blank 放行。
-  if (url && url !== 'about:blank' && !/^https?:\/\//i.test(url) && !/^realm:\/\//i.test(url)) {
+  // view-source: 仅在包裹 http(s) 内层 URL 时放行（查看页面源代码场景）。
+  const isViewSourceHttp = url && /^view-source:https?:\/\//i.test(url);
+  if (url && url !== 'about:blank' && !/^https?:\/\//i.test(url) && !/^realm:\/\//i.test(url) && !isViewSourceHttp) {
     console.warn('[Realm] 拒绝非 http(s)/realm URL:', url);
     return null;
   }
@@ -706,6 +708,17 @@ function bindWebviewEvents(tabId, webview) {
       tab.url = displayUrl;
       // 回写主进程持久化（WR-3）：否则重启后 restoreTabs 恢复到过期地址
       window.realmAPI.updateTab(tabId, { url: displayUrl });
+
+      // 导航时清空旧 favicon（Chrome 风格）：避免跨站点残留旧图标，等新 favicon 经 page-favicon-updated 到达再填充
+      if (tab.faviconUrl) {
+        tab.faviconUrl = null;
+        const faviconImg = tab.element && tab.element.querySelector('.tab-favicon');
+        if (faviconImg) {
+          faviconImg.style.display = 'none';
+          faviconImg.src = '';
+        }
+        window.realmAPI.updateTab(tabId, { faviconUrl: null });
+      }
       // 如果是活动 Tab，更新 URL 输入框
       if (tabId === state.activeTabId) {
         elements.urlInput.value = displayUrl;
@@ -1225,8 +1238,10 @@ function handleContextMenuAction(channel, data) {
 
     case 'context-menu:open-in-new-tab':
       if (data && data.url) {
-        // T-13-04 安全校验：拒绝 javascript: 等非 http(s)/realm 协议
-        if (/^(https?|realm):\/\//i.test(data.url)) {
+        // T-13-04 安全校验：拒绝 javascript: 等非 http(s)/realm 协议；
+        // view-source: 仅在包裹 http(s) 内层 URL 时放行（查看页面源代码菜单项）
+        const viewSourceMatch = data.url.match(/^view-source:(https?:\/\/.+)$/i);
+        if (/^(https?|realm):\/\//i.test(data.url) || viewSourceMatch) {
           createTab(state.currentContainer, data.url);
         } else {
           console.warn('[Realm Renderer] 拒绝非安全协议 URL:', data.url);
