@@ -387,6 +387,67 @@ app.whenReady().then(async () => {
         return;
       }
 
+      // ==================== 收藏夹文件夹 API ====================
+
+      if (route === 'create-folder' && req.method === 'POST') {
+        const { name, parentId } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.createFolder({ name, parentId }));
+        return;
+      }
+
+      if (route === 'rename-folder' && req.method === 'POST') {
+        const { id, name } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.renameFolder(id, { name }));
+        return;
+      }
+
+      if (route === 'delete-folder' && req.method === 'POST') {
+        const { id } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.deleteFolder(id));
+        return;
+      }
+
+      if (route === 'list-folders' && req.method === 'GET') {
+        const parentId = parseInt(reqUrl.searchParams.get('parentId'), 10) || 0;
+        sendJson(res, 200, favoritesManager.listFolders(parentId));
+        return;
+      }
+
+      if (route === 'folder-tree' && req.method === 'GET') {
+        sendJson(res, 200, favoritesManager.getFolderTree());
+        return;
+      }
+
+      if (route === 'move-folder' && req.method === 'POST') {
+        const { id, parentId } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.moveFolder(id, { parentId }));
+        return;
+      }
+
+      if (route === 'move-favorite' && req.method === 'POST') {
+        const { id, folderId } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.moveFavorite(id, { folderId }));
+        return;
+      }
+
+      if (route === 'move-favorites' && req.method === 'POST') {
+        const { ids, folderId } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.moveFavorites(ids, { folderId }));
+        return;
+      }
+
+      if (route === 'update-folder-sort' && req.method === 'POST') {
+        const { id, sortOrder } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.updateFolderSort(id, { sortOrder }));
+        return;
+      }
+
+      if (route === 'update-favorite-sort' && req.method === 'POST') {
+        const { id, sortOrder } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.updateFavoriteSort(id, { sortOrder }));
+        return;
+      }
+
       sendJson(res, 404, { error: 'Not Found' });
     } catch (err) {
       console.error('[Realm] 收藏 API 处理失败:', err.message);
@@ -1051,6 +1112,58 @@ app.whenReady().then(async () => {
    */
   ipcMain.on('context-menu:closed-tab', (event, tabInfo) => {
     contextMenuManager.pushClosedTab(tabInfo);
+  });
+
+  // ==================== 收藏夹文件夹 IPC ====================
+
+  // 创建文件夹
+  ipcMain.handle('favorites:create-folder', async (event, { name, parentId }) => {
+    return favoritesManager.createFolder({ name, parentId });
+  });
+
+  // 重命名文件夹
+  ipcMain.handle('favorites:rename-folder', async (event, { id, name }) => {
+    return favoritesManager.renameFolder(id, { name });
+  });
+
+  // 删除文件夹
+  ipcMain.handle('favorites:delete-folder', async (event, { id }) => {
+    return favoritesManager.deleteFolder(id);
+  });
+
+  // 列出子文件夹
+  ipcMain.handle('favorites:list-folders', async (event, { parentId }) => {
+    return favoritesManager.listFolders(parentId);
+  });
+
+  // 获取文件夹树
+  ipcMain.handle('favorites:get-folder-tree', async () => {
+    return favoritesManager.getFolderTree();
+  });
+
+  // 移动文件夹
+  ipcMain.handle('favorites:move-folder', async (event, { id, parentId }) => {
+    return favoritesManager.moveFolder(id, { parentId });
+  });
+
+  // 移动收藏项到文件夹
+  ipcMain.handle('favorites:move-favorite', async (event, { id, folderId }) => {
+    return favoritesManager.moveFavorite(id, { folderId });
+  });
+
+  // 批量移动收藏项
+  ipcMain.handle('favorites:move-favorites', async (event, { ids, folderId }) => {
+    return favoritesManager.moveFavorites(ids, { folderId });
+  });
+
+  // 更新文件夹排序
+  ipcMain.handle('favorites:update-folder-sort', async (event, { id, sortOrder }) => {
+    return favoritesManager.updateFolderSort(id, { sortOrder });
+  });
+
+  // 更新收藏项排序
+  ipcMain.handle('favorites:update-favorite-sort', async (event, { id, sortOrder }) => {
+    return favoritesManager.updateFavoriteSort(id, { sortOrder });
   });
 
   // 初始化历史记录数据库
