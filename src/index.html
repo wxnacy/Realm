@@ -4,8 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <!-- WR-7：渲染页面 CSP 纵深防御（webview 标签不受宿主页 CSP 约束，不影响浏览功能） -->
+  <!-- img-src 需放行 https:/http:：Tab favicon 来自任意网页源，被 CSP 拦截会显示为空白 -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; connect-src 'self'">
   <title>Realm Browser</title>
   <link rel="stylesheet" href="styles/main.css">
 </head>

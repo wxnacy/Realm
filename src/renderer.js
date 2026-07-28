@@ -1138,16 +1138,8 @@ async function restoreTabs() {
 
   console.log(`[Realm Renderer] 恢复 ${tabs.length} 个 Tab`);
 
-  // 为每个保存的 Tab 创建 DOM 和 webview
+  // 先把所有 Tab 注册进 state（含 faviconUrl/pinned 等持久化字段）
   for (const tab of tabs) {
-    // 创建 Tab DOM 元素（faviconUrl 随持久化数据还原）
-    const tabElement = createTabElement(tab);
-
-    // 添加到 Tab 列表
-    elements.tabList.appendChild(tabElement);
-
-    // 存储 Tab 数据（包含 DOM 引用）
-    tab.element = tabElement;
     state.tabs.set(tab.id, tab);
 
     // 如果有 URL，创建 webview
@@ -1161,6 +1153,10 @@ async function restoreTabs() {
       state.tabCounter = tabNum;
     }
   }
+
+  // 统一走 renderTabs 重建 DOM：固定 Tab 排序到最左 + 应用 tab-pinned class，
+  // 否则恢复后 pinned Tab 显示为普通 Tab（持久化是对的，只是没渲染）
+  renderTabs();
 
   // 切换到活动 Tab
   if (activeTab && state.tabs.has(activeTab.id)) {

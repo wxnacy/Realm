@@ -1,14 +1,20 @@
 ---
-status: diagnosed
+status: testing
 phase: 13-右键菜单增强
-source: [13-01-SUMMARY.md, 13-02-SUMMARY.md]
+source: [13-01-SUMMARY.md, 13-02-SUMMARY.md, 13-03-SUMMARY.md]
 started: 2026-07-28T00:00:00Z
-updated: 2026-07-28T00:35:00Z
+updated: 2026-07-28T06:00:00Z
 ---
 
 ## Current Test
 
-[testing complete]
+number: 6
+name: 固定/取消固定标签页（重验）
+expected: |
+  Tab 右键 → 固定标签页，该 Tab 移到 Tab 栏最左侧，**显示该网站的 favicon 图标**（不再只有底部小点）；
+  再次右键 → 取消固定，Tab 回到普通位置，标题恢复显示。
+  重启应用后，固定 Tab 的 favicon 仍然存在。
+awaiting: user response
 
 ## Tests
 
@@ -33,42 +39,46 @@ expected: 先关闭一个或多个 Tab，右键其他 Tab → "重新打开已�
 result: pass
 resolved-by-decision: 方案 A（原报告"批量关闭后只恢复最右侧一个"系逐条 LIFO 设计的预期行为；2026-07-28 产品决策维持逐条 LIFO，行为符合设计，期望已修正）
 
-### 6. 固定/取消固定标签页
-expected: Tab 右键 → 固定标签页，该 Tab 移到 Tab 栏最左侧（带 .tab-pinned class 标识）；再次右键 → 取消固定，Tab 回到普通位置
+### 6. 固定/取消固定标签页（重验）
+expected: Tab 右键 → 固定标签页，Tab 移到最左侧并显示网站 favicon；再次右键取消固定，标题恢复；重启应用后 favicon 不丢失
 result: issue
-reported: "固定后样式不好看，标题没有了，只有底部一个小点，应该显示下网站图标"
-severity: major
+reported: "还是没有展示 favicon。我使用的网址是 https://space.bilibili.com/43798284。重启后也没有显示固定标签，而是普通标签"
+severity: blocker
+previous-issue: "固定后样式不好看，标题没有了，只有底部一个小点，应该显示下网站图标"
+fix-commit: c793bc6
 
-### 7. 网页通用右键菜单
-expected: 在网页空白处右键，弹出菜单含：后退/前进/重新加载/强制刷新、复制页面地址、添加到收藏、在新标签页打开、在后台打开、检查元素、查看页面源代码、撤销/剪切/复制/粘贴/全选（部分项按上下文禁用）
-result: issue
-reported: "右键只有检查元素/后退/前进/刷新/复制。差距很大"
-severity: major
+### 7. 网页通用右键菜单（重验）
+expected: 在网页空白处右键，菜单应包含：后退/前进/重新加载/强制刷新、复制页面地址、添加到收藏、在新标签页打开、在后台打开、查看页面源代码、检查元素、撤销/剪切/复制/粘贴/全选（部分项按上下文禁用）—— 不再是只有 5 项的旧菜单
+result: [pending]
+previous-issue: "右键只有检查元素/后退/前进/刷新/复制。差距很大"
+fix-commit: 62693d9, a485061
 
-### 8. 图片右键菜单
-expected: 在网页中的图片上右键，菜单顶部显示图片专属项：图片另存为、复制图片、复制图片地址、在新标签页打开图片；下方为通用菜单项
-result: issue
-reported: "图片右击和空白页右键出现的内容相同，不符合讨论内容"
-severity: major
+### 8. 图片右键菜单（重验）
+expected: 在网页中的图片上右键，菜单顶部应显示图片专属项：图片另存为、复制图片、复制图片地址、在新标签页打开图片；下方为通用菜单项 —— 应与空白处右键菜单明显不同
+result: [pending]
+previous-issue: "图片右击和空白页右键出现的内容相同，不符合讨论内容"
+fix-commit: 62693d9
 
-### 9. 链接右键菜单 + 容器中打开
-expected: 在链接上右键，菜单含：在新标签页打开链接、在后台标签页打开链接、复制链接地址、添加到收藏、"在容器中打开"子菜单（列出所有容器，选择后链接在指定容器的新 Tab 中打开）
-result: issue
-reported: "链接右击和空白页右键出现的内容相同，不符合讨论内容"
-severity: major
+### 9. 链接右键菜单 + 容器中打开（重验）
+expected: 在链接上右键，菜单应含：在新标签页打开链接、在后台标签页打开链接、复制链接地址、添加到收藏、"在容器中打开"子菜单（列出所有容器，选择后链接在指定容器新 Tab 打开）—— 应与空白处右键菜单明显不同
+result: [pending]
+previous-issue: "链接右击和空白页右键出现的内容相同，不符合讨论内容"
+fix-commit: 62693d9
 
-### 10. 文本编辑操作（输入框右键）
-expected: 在网页输入框中选中文字后右键，剪切/复制/粘贴/全选可用并正常工作（使用 execCommand 白名单）
-result: pass
+### 10. 文本编辑操作（输入框右键，重验）
+expected: 在网页输入框中选中文字后右键，剪切/复制/粘贴/全选按 editFlags 正确启用；未选中文字时剪切/复制应禁用；空输入框粘贴应禁用
+result: [pending]
+recheck-reason: "editFlags 接线改动（commit a485061）影响此测试路径，需确认未引入回归"
 
 ## Summary
 
 total: 10
-passed: 6
-issues: 4
-pending: 0
+passed: 5
+issues: 0
+pending: 5
 skipped: 0
 blocked: 0
+retest-of: [6, 7, 8, 9, 10]
 
 ## Gaps
 
