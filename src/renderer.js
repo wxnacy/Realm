@@ -369,25 +369,29 @@ async function removeBookmark() {
  * @param {string|null} url - 初始 URL
  * @returns {Promise<string>} 新创建的 Tab ID
  */
-async function createTab(containerId, url = null) {
-  // 如果没有指定 URL，使用新标签页
-  const tabUrl = url || 'realm://newtab';
-
-  // 调用主进程创建 Tab
-  const tab = await window.realmAPI.createTab(containerId, tabUrl);
-
-  // 创建 Tab DOM 元素
+/**
+ * 创建 Tab DOM 元素（createTab/restoreTabs/renderTabs 三处统一入口）
+ * @param {Object} tab - Tab 数据对象（含 id/containerId/title/faviconUrl）
+ * @returns {HTMLElement} Tab DOM 元素
+ */
+function createTabElement(tab) {
   const tabElement = document.createElement('div');
   tabElement.className = 'tab';
   tabElement.dataset.tabId = tab.id;
 
-  const color = getContainerColor(containerId);
+  const color = getContainerColor(tab.containerId);
   const colorLine = document.createElement('div');
   colorLine.className = 'tab-color-line';
   colorLine.style.backgroundColor = color;
 
   const content = document.createElement('div');
   content.className = 'tab-content';
+
+  const favicon = document.createElement('img');
+  favicon.className = 'tab-favicon';
+  favicon.src = tab.faviconUrl || '';
+  favicon.style.display = tab.faviconUrl ? '' : 'none'; // 无 favicon 时不占位
+  favicon.alt = '';
 
   const title = document.createElement('span');
   title.className = 'tab-title';
@@ -401,10 +405,24 @@ async function createTab(containerId, url = null) {
     closeTab(tab.id);
   });
 
+  content.appendChild(favicon);
   content.appendChild(title);
   tabElement.appendChild(colorLine);
   tabElement.appendChild(content);
   tabElement.appendChild(closeBtn);
+
+  return tabElement;
+}
+
+async function createTab(containerId, url = null) {
+  // 如果没有指定 URL，使用新标签页
+  const tabUrl = url || 'realm://newtab';
+
+  // 调用主进程创建 Tab
+  const tab = await window.realmAPI.createTab(containerId, tabUrl);
+
+  // 创建 Tab DOM 元素
+  const tabElement = createTabElement(tab);
 
   // 添加到 Tab 列表
   elements.tabList.appendChild(tabElement);
@@ -772,6 +790,27 @@ function bindWebviewEvents(tabId, webview) {
     }
   });
 
+  // favicon 更新事件：同步 tab state、DOM img.src 并持久化
+  webview.addEventListener('page-favicon-updated', (e) => {
+    const faviconUrl = e.favicons && e.favicons[0];
+    if (!faviconUrl) return;
+
+    const tab = state.tabs.get(tabId);
+    if (!tab) return;
+
+    tab.faviconUrl = faviconUrl;
+
+    // 同步 DOM 中的 favicon img（无 img 时跳过，下次重建由 createTabElement 兜底）
+    const faviconImg = tab.element && tab.element.querySelector('.tab-favicon');
+    if (faviconImg) {
+      faviconImg.src = faviconUrl;
+      faviconImg.style.display = '';
+    }
+
+    // 持久化（tab-manager updateTab 白名单含 faviconUrl）
+    window.realmAPI.updateTab(tabId, { faviconUrl });
+  });
+
   // 注意：webview 标签的 will-navigate 事件文档明示 preventDefault 无效（WR-2），
   // 分配规则重定向已移至主进程 webContents 的 will-navigate（可同步取消），
   // 命中规则时经 open-url-in-tab 事件转交 handleOpenUrlInTab 在匹配容器新建 Tab。
@@ -1088,35 +1127,8 @@ async function restoreTabs() {
 
   // 为每个保存的 Tab 创建 DOM 和 webview
   for (const tab of tabs) {
-    // 创建 Tab DOM 元素
-    const tabElement = document.createElement('div');
-    tabElement.className = 'tab';
-    tabElement.dataset.tabId = tab.id;
-
-    const color = getContainerColor(tab.containerId);
-    const colorLine = document.createElement('div');
-    colorLine.className = 'tab-color-line';
-    colorLine.style.backgroundColor = color;
-
-    const content = document.createElement('div');
-    content.className = 'tab-content';
-
-    const title = document.createElement('span');
-    title.className = 'tab-title';
-    title.textContent = tab.title;
-
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'tab-close';
-    closeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>';
-    closeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      closeTab(tab.id);
-    });
-
-    content.appendChild(title);
-    tabElement.appendChild(colorLine);
-    tabElement.appendChild(content);
-    tabElement.appendChild(closeBtn);
+    // 创建 Tab DOM 元素（faviconUrl 随持久化数据还原）
+    const tabElement = createTabElement(tab);
 
     // 添加到 Tab 列表
     elements.tabList.appendChild(tabElement);
@@ -1323,33 +1335,7 @@ function renderTabs() {
     let tabElement = tab.element;
     if (!tabElement) {
       // 重建 DOM element（防御性：正常流程 element 应始终存在）
-      tabElement = document.createElement('div');
-      tabElement.dataset.tabId = tabId;
-
-      const color = getContainerColor(tab.containerId);
-      const colorLine = document.createElement('div');
-      colorLine.className = 'tab-color-line';
-      colorLine.style.backgroundColor = color;
-
-      const content = document.createElement('div');
-      content.className = 'tab-content';
-
-      const title = document.createElement('span');
-      title.className = 'tab-title';
-      title.textContent = tab.title;
-
-      const closeBtn = document.createElement('button');
-      closeBtn.className = 'tab-close';
-      closeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>';
-      closeBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        closeTab(tabId);
-      });
-
-      content.appendChild(title);
-      tabElement.appendChild(colorLine);
-      tabElement.appendChild(content);
-      tabElement.appendChild(closeBtn);
+      tabElement = createTabElement(tab);
       tab.element = tabElement;
     }
 

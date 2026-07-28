@@ -1157,6 +1157,20 @@ textarea::placeholder {
   overflow: hidden;
 }
 
+.tab-favicon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.tab-pinned .tab-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .tab-title {
   font-size: 13px;
   font-weight: 400;
