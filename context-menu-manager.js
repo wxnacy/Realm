@@ -87,16 +87,16 @@ function getGuestWebContents(guestContentsId) {
  * 下载图片数据（支持 http/https URL 和 data: URL）
  * @param {string} imageURL - 图片 URL
  * @param {Electron.Session} [session] - 用于继承容器 cookie/referer 的 session
- * @returns {Promise<Buffer>} 图片二进制数据
+ * @returns {Promise<{buffer: Buffer, mimeType: string}>} 图片二进制数据与 MIME 类型
  */
 async function fetchImageBuffer(imageURL, session) {
   if (imageURL.startsWith('data:')) {
     // data: URL：直接 base64 解码
-    const matches = imageURL.match(/^data:[^;]+;base64,(.+)$/);
+    const matches = imageURL.match(/^data:([^;]+);base64,(.+)$/);
     if (!matches) {
       throw new Error('无效的 data: URL 格式');
     }
-    return Buffer.from(matches[1], 'base64');
+    return { buffer: Buffer.from(matches[2], 'base64'), mimeType: matches[1] };
   }
 
   // http/https URL：使用 Electron net 模块下载（传入 session 继承 cookie）
@@ -109,13 +109,60 @@ async function fetchImageBuffer(imageURL, session) {
         reject(new Error(`HTTP ${response.statusCode}`));
         return;
       }
+      const contentType = response.headers['content-type'] || '';
+      const mimeType = contentType.split(';')[0].trim() || 'image/png';
       response.on('data', (chunk) => { chunks.push(chunk); });
-      response.on('end', () => { resolve(Buffer.concat(chunks)); });
+      response.on('end', () => { resolve({ buffer: Buffer.concat(chunks), mimeType }); });
       response.on('error', reject);
     });
     request.on('error', reject);
     request.end();
   });
+}
+
+/**
+ * 通过隐藏 offscreen 窗口的 Chromium 解码图片为 PNG nativeImage
+ * 用于 webp/avif/gif 等 nativeImage.createFromBuffer 不支持的格式
+ * @param {Buffer} imageBuffer - 图片二进制数据
+ * @param {string} mimeType - 图片 MIME 类型
+ * @returns {Promise<Electron.NativeImage>} 解码后的 PNG 图像
+ */
+async function decodeImageViaChromium(imageBuffer, mimeType) {
+  const { BrowserWindow } = require('electron');
+  const win = new BrowserWindow({
+    show: false,
+    webPreferences: { offscreen: true },
+  });
+  try {
+    await win.loadURL('about:blank');
+    const dataUrl = `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
+    // about:blank 无 CSP，data: URL 图片不污染 canvas，可安全 toDataURL
+    const pngDataUrl = await win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          if (!img.naturalWidth || !img.naturalHeight) {
+            reject(new Error('图片尺寸为空'));
+            return;
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          canvas.getContext('2d').drawImage(img, 0, 0);
+          resolve(canvas.toDataURL('image/png'));
+        };
+        img.onerror = () => reject(new Error('图片解码失败'));
+        img.src = ${JSON.stringify(dataUrl)};
+      });
+    `);
+    const image = nativeImage.createFromDataURL(pngDataUrl);
+    if (image.isEmpty()) {
+      throw new Error('图片解码失败');
+    }
+    return image;
+  } finally {
+    win.destroy();
+  }
 }
 
 /**
@@ -127,10 +174,11 @@ async function fetchImageBuffer(imageURL, session) {
  */
 async function copyImageToClipboard(imageURL, hostWebContents, session) {
   try {
-    const imageBuffer = await fetchImageBuffer(imageURL, session);
-    const image = nativeImage.createFromBuffer(imageBuffer);
+    const { buffer, mimeType } = await fetchImageBuffer(imageURL, session);
+    let image = nativeImage.createFromBuffer(buffer);
     if (image.isEmpty()) {
-      throw new Error('图片数据为空');
+      // webp/avif 等格式 nativeImage 不支持，走 Chromium 解码转 PNG
+      image = await decodeImageViaChromium(buffer, mimeType);
     }
     clipboard.writeImage(image);
     sendToast(hostWebContents, '已复制');
@@ -470,7 +518,7 @@ function buildWebMenu(contextInfo, mainWindow) {
             });
             if (canceled || !filePath) return;
             // 用 guest session 下载（继承容器 cookie/referer，bilibili 等防盗链图片可正常下载）
-            const buffer = await fetchImageBuffer(url, guestWebContents.session);
+            const { buffer } = await fetchImageBuffer(url, guestWebContents.session);
             fs.writeFileSync(filePath, buffer);
             sendToast(hostWebContents, '已保存');
           } catch (err) {
@@ -482,7 +530,12 @@ function buildWebMenu(contextInfo, mainWindow) {
       {
         label: '复制图片',
         click: () => {
-          copyImageToClipboard(contextInfo.srcURL, hostWebContents);
+          // 传 guest session（与另存为一致，防盗链图片可正常下载）
+          copyImageToClipboard(
+            contextInfo.srcURL,
+            hostWebContents,
+            guestWebContents && !guestWebContents.isDestroyed() ? guestWebContents.session : undefined
+          );
         },
       },
       {
