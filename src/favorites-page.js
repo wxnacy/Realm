@@ -360,6 +360,16 @@ function renderFavoriteItem(record) {
     window.open(record.url, '_blank');
   });
 
+  // 右键菜单
+  itemEl.addEventListener('contextmenu', (e) => {
+    showFavoriteContextMenu(e, record);
+  });
+
+  // 剪切视觉提示
+  if (state.clipboard && state.clipboard.mode === 'cut' && state.clipboard.ids.includes(record.id)) {
+    itemEl.style.opacity = '0.4';
+  }
+
   return itemEl;
 }
 
@@ -598,6 +608,490 @@ function startInlineEdit(titleEl, record) {
   input.select();
 }
 
+// ==================== 右键菜单 ====================
+
+/**
+ * 显示通用右键菜单
+ * @param {Array} items - 菜单项数组 [{label, onClick, disabled} | {type: 'separator'}]
+ * @param {number} x - 菜单 X 坐标
+ * @param {number} y - 菜单 Y 坐标
+ */
+function showContextMenu(items, x, y) {
+  // 先隐藏已有菜单
+  hideContextMenu();
+
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+
+  for (const item of items) {
+    if (item.type === 'separator') {
+      const sep = document.createElement('div');
+      sep.className = 'context-menu-separator';
+      menu.appendChild(sep);
+      continue;
+    }
+
+    const menuItem = document.createElement('div');
+    menuItem.className = 'context-menu-item';
+    if (item.disabled) {
+      menuItem.classList.add('disabled');
+    }
+    menuItem.textContent = item.label;
+
+    if (!item.disabled && item.onClick) {
+      menuItem.addEventListener('click', () => {
+        item.onClick();
+        hideContextMenu();
+      });
+    }
+
+    menu.appendChild(menuItem);
+  }
+
+  // 定位菜单（确保不超出视口）
+  document.body.appendChild(menu);
+  const menuRect = menu.getBoundingClientRect();
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+
+  let left = x;
+  let top = y;
+
+  if (x + menuRect.width > viewportWidth) {
+    left = x - menuRect.width;
+  }
+  if (y + menuRect.height > viewportHeight) {
+    top = y - menuRect.height;
+  }
+
+  menu.style.left = `${Math.max(0, left)}px`;
+  menu.style.top = `${Math.max(0, top)}px`;
+
+  state.contextMenuEl = menu;
+
+  // 点击其他地方时隐藏菜单
+  const hideHandler = (e) => {
+    if (!menu.contains(e.target)) {
+      hideContextMenu();
+      document.removeEventListener('click', hideHandler);
+      document.removeEventListener('contextmenu', hideHandler);
+    }
+  };
+  // 延迟添加监听，避免当前右键事件立即触发
+  setTimeout(() => {
+    document.addEventListener('click', hideHandler);
+    document.addEventListener('contextmenu', hideHandler);
+  }, 0);
+}
+
+/**
+ * 隐藏右键菜单
+ */
+function hideContextMenu() {
+  if (state.contextMenuEl) {
+    state.contextMenuEl.remove();
+    state.contextMenuEl = null;
+  }
+}
+
+/**
+ * 显示收藏项右键菜单
+ * @param {MouseEvent} e - 鼠标事件
+ * @param {Object} record - 收藏记录
+ */
+function showFavoriteContextMenu(e, record) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  const items = [
+    {
+      label: '打开',
+      onClick: () => window.open(record.url, '_blank'),
+    },
+    {
+      label: '在新标签页中打开',
+      onClick: () => window.open(record.url, '_blank'),
+    },
+    {
+      label: '在新窗口中打开',
+      onClick: () => window.open(record.url, '_blank', 'noopener'),
+    },
+    { type: 'separator' },
+    {
+      label: '编辑',
+      onClick: () => {
+        const titleEl = document.querySelector(`.favorite-item[data-id="${record.id}"] .favorite-item-title`);
+        if (titleEl) startInlineEdit(titleEl, record);
+      },
+    },
+    {
+      label: '剪切',
+      onClick: () => {
+        state.clipboard = { ids: [record.id], mode: 'cut', sourceFolderId: state.currentFolderId };
+        showToast('已剪切 1 项');
+        renderFavorites(state.records);
+      },
+    },
+    {
+      label: '复制',
+      onClick: () => {
+        state.clipboard = { ids: [record.id], mode: 'copy', sourceFolderId: state.currentFolderId };
+        showToast('已复制 1 项');
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '删除',
+      onClick: async () => {
+        if (confirm(`确定删除收藏 "${record.title || record.url}" 吗？`)) {
+          try {
+            await favoritesApi('delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: record.id }),
+            });
+            showToast('已删除');
+            await loadFavorites();
+            await refreshFolderTree();
+          } catch (err) {
+            console.error('[Realm Favorites] 删除失败:', err);
+            showToast('删除失败');
+          }
+        }
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '属性',
+      onClick: () => {
+        const createdTime = new Date(record.created_at).toLocaleString('zh-CN');
+        alert(`标题: ${record.title || '(无标题)'}\nURL: ${record.url}\n创建时间: ${createdTime}`);
+      },
+    },
+  ];
+
+  showContextMenu(items, e.clientX, e.clientY);
+}
+
+/**
+ * 显示文件夹右键菜单
+ * @param {MouseEvent} e - 鼠标事件
+ * @param {Object} folder - 文件夹对象
+ */
+function showFolderContextMenu(e, folder) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  const items = [
+    {
+      label: '打开',
+      onClick: () => navigateToFolder(folder.id),
+    },
+    {
+      label: '在新窗口中打开',
+      onClick: async () => {
+        try {
+          const records = await favoritesApi('list', {}, { folder_id: folder.id, limit: 1000 });
+          if (records && records.length > 0) {
+            for (const record of records) {
+              window.open(record.url, '_blank');
+            }
+          } else {
+            showToast('文件夹为空');
+          }
+        } catch (err) {
+          showToast('打开失败');
+        }
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '重命名',
+      onClick: () => startRenameFolder(folder.id, folder.name),
+    },
+    {
+      label: '添加书签',
+      onClick: () => {
+        // 在该文件夹下添加当前页（如果有）
+        showToast('请使用工具栏星标按钮添加收藏');
+      },
+    },
+    {
+      label: '添加文件夹',
+      onClick: () => startNewFolder(folder.id),
+    },
+    { type: 'separator' },
+    {
+      label: '删除',
+      onClick: async () => {
+        if (confirm(`确定删除文件夹 "${folder.name}" 及其所有内容吗？此操作不可撤销。`)) {
+          try {
+            await deleteFolderApi(folder.id);
+            showToast('文件夹已删除');
+            if (state.currentFolderId === folder.id) {
+              navigateToFolder(0);
+            }
+            await refreshFolderTree();
+            await loadFavorites();
+          } catch (err) {
+            console.error('[Realm Favorites] 删除文件夹失败:', err);
+            showToast('删除失败');
+          }
+        }
+      },
+    },
+  ];
+
+  showContextMenu(items, e.clientX, e.clientY);
+}
+
+/**
+ * 显示空白区域右键菜单
+ * @param {MouseEvent} e - 鼠标事件
+ */
+function showEmptyContextMenu(e) {
+  // 仅在点击空白区域时触发（不是点击收藏项）
+  if (e.target.closest('.favorite-item')) return;
+
+  e.preventDefault();
+
+  const items = [
+    {
+      label: '新建文件夹',
+      onClick: () => startNewFolder(state.currentFolderId),
+    },
+    {
+      label: '粘贴',
+      disabled: !state.clipboard,
+      onClick: () => pasteFromClipboard(),
+    },
+    { type: 'separator' },
+    {
+      label: '按名称排序',
+      onClick: async () => {
+        // 对当前文件夹内的收藏按 title 排序
+        state.records.sort((a, b) => (a.title || a.url).localeCompare(b.title || b.url));
+        renderFavorites(state.records);
+        showToast('已按名称排序');
+      },
+    },
+  ];
+
+  showContextMenu(items, e.clientX, e.clientY);
+}
+
+// ==================== 剪贴板操作 ====================
+
+/**
+ * 从剪贴板粘贴收藏项
+ */
+async function pasteFromClipboard() {
+  if (!state.clipboard) return;
+
+  const { ids, mode } = state.clipboard;
+  const count = ids.length;
+
+  try {
+    if (mode === 'cut') {
+      // 剪切模式：移动到当前文件夹
+      await favoritesApi('move-favorites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids, folderId: state.currentFolderId }),
+      });
+    } else if (mode === 'copy') {
+      // 复制模式：暂不支持（需要 duplicate API）
+      showToast('复制粘贴功能暂不支持');
+      state.clipboard = null;
+      return;
+    }
+
+    state.clipboard = null;
+    showToast(`已粘贴 ${count} 项`);
+    await loadFavorites();
+    await refreshFolderTree();
+  } catch (err) {
+    console.error('[Realm Favorites] 粘贴失败:', err);
+    showToast('粘贴失败');
+  }
+}
+
+// ==================== 新建文件夹 UI ====================
+
+/**
+ * 开始新建文件夹
+ * @param {number} parentId - 父文件夹 ID（0 表示根目录）
+ */
+function startNewFolder(parentId = 0) {
+  const container = elements.folderTree;
+
+  // 创建内联输入行
+  const inputRow = document.createElement('div');
+  inputRow.className = 'folder-tree-item';
+  inputRow.style.paddingLeft = parentId === 0 ? '16px' : `${16 + 16}px`;
+
+  // 文件夹图标
+  const folderIconHtml = `<svg class="folder-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+  </svg>`;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'folder-name-input';
+  input.placeholder = '新建文件夹';
+
+  inputRow.innerHTML = folderIconHtml;
+  inputRow.appendChild(input);
+
+  // 插入到容器最前面（parentId === 0）或父文件夹后面
+  if (parentId === 0) {
+    container.insertBefore(inputRow, container.firstChild);
+  } else {
+    // 找到父文件夹元素后面插入
+    const parentItems = container.querySelectorAll('.folder-tree-item');
+    let insertAfter = null;
+    for (const item of parentItems) {
+      // 简单实现：插入到容器末尾
+      insertAfter = item;
+    }
+    if (insertAfter) {
+      insertAfter.parentNode.insertBefore(inputRow, insertAfter.nextSibling);
+    } else {
+      container.appendChild(inputRow);
+    }
+  }
+
+  input.focus();
+  input.placeholder = '新建文件夹';
+
+  // Enter 确认
+  input.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const name = input.value.trim();
+      if (name) {
+        try {
+          const result = await createFolderApi(name, parentId);
+          if (result.id) {
+            showToast('文件夹已创建');
+            await refreshFolderTree();
+            navigateToFolder(result.id);
+          } else {
+            showToast('创建失败');
+          }
+        } catch (err) {
+          console.error('[Realm Favorites] 创建文件夹失败:', err);
+          showToast('创建失败');
+        }
+      }
+      inputRow.remove();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      inputRow.remove();
+    }
+  });
+
+  // blur 时也触发确认
+  input.addEventListener('blur', async () => {
+    const name = input.value.trim();
+    if (name) {
+      try {
+        const result = await createFolderApi(name, parentId);
+        if (result.id) {
+          showToast('文件夹已创建');
+          await refreshFolderTree();
+          navigateToFolder(result.id);
+        }
+      } catch (err) {
+        console.error('[Realm Favorites] 创建文件夹失败:', err);
+      }
+    }
+    inputRow.remove();
+  });
+}
+
+/**
+ * 开始重命名文件夹
+ * @param {number} folderId - 文件夹 ID
+ * @param {string} currentName - 当前名称
+ */
+function startRenameFolder(folderId, currentName) {
+  // 找到文件夹树中对应元素
+  const folderItems = elements.folderTree.querySelectorAll('.folder-tree-item');
+  let targetItem = null;
+
+  for (const item of folderItems) {
+    const nameEl = item.querySelector('.folder-name');
+    if (nameEl && nameEl.textContent === currentName) {
+      targetItem = item;
+      break;
+    }
+  }
+
+  if (!targetItem) return;
+
+  const nameEl = targetItem.querySelector('.folder-name');
+  if (!nameEl) return;
+
+  // 替换为输入框
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'folder-name-input';
+  input.value = currentName;
+
+  nameEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  // Enter 确认
+  input.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const newName = input.value.trim();
+      if (newName && newName !== currentName) {
+        try {
+          await renameFolderApi(folderId, newName);
+          showToast('文件夹已重命名');
+          await refreshFolderTree();
+        } catch (err) {
+          console.error('[Realm Favorites] 重命名失败:', err);
+          showToast('重命名失败');
+        }
+      }
+      // 恢复显示
+      const span = document.createElement('span');
+      span.className = 'folder-name';
+      span.textContent = newName || currentName;
+      input.replaceWith(span);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      const span = document.createElement('span');
+      span.className = 'folder-name';
+      span.textContent = currentName;
+      input.replaceWith(span);
+    }
+  });
+
+  // blur 时也触发确认
+  input.addEventListener('blur', async () => {
+    const newName = input.value.trim();
+    if (newName && newName !== currentName) {
+      try {
+        await renameFolderApi(folderId, newName);
+        showToast('文件夹已重命名');
+        await refreshFolderTree();
+      } catch (err) {
+        console.error('[Realm Favorites] 重命名失败:', err);
+      }
+    }
+    // 恢复显示
+    const span = document.createElement('span');
+    span.className = 'folder-name';
+    span.textContent = newName || currentName;
+    input.replaceWith(span);
+  });
+}
+
 // ==================== 数据加载 ====================
 
 /**
@@ -833,6 +1327,11 @@ function setupEventListeners() {
       }
     });
   }
+
+  // 空白区域右键菜单
+  elements.favoritesContent.addEventListener('contextmenu', (e) => {
+    showEmptyContextMenu(e);
+  });
 }
 
 // ==================== 初始化 ====================
