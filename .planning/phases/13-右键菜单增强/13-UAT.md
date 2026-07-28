@@ -73,21 +73,19 @@ blocked: 0
 
 ## Gaps
 
-- truth: "重新打开已关闭标签页应恢复所有刚被批量关闭的标签页"
+- truth: "重新打开已关闭标签页按 LIFO 逐条恢复最近关闭的 Tab（Chrome 风格，符合设计）"
   status: failed
   reason: "User reported: 点击关闭右侧标签页，再点击恢复，只恢复了最右侧的。没有一次性恢复多个"
   severity: major
   test: 5
-  root_cause: "需求/设计层偏差，非实现缺陷：Phase 13 全部设计文档（DISCUSSION-LOG/UI-SPEC/PLAN/VERIFICATION）定义的恢复语义均为逐条 LIFO（Chrome 风格），实现与设计精确一致。批量关闭的每个 Tab 都正确入栈，剩余 N-1 个仍在栈中，连续恢复可全部找回。UAT gap truth 与设计文档冲突，需产品决策：A) 维持逐条 LIFO 仅修正 UAT truth；B) 栈条目加 batchId 实现整批恢复"
+  root_cause: "需求/设计层偏差，非实现缺陷：Phase 13 全部设计文档（DISCUSSION-LOG/UI-SPEC/PLAN/VERIFICATION）定义的恢复语义均为逐条 LIFO（Chrome 风格），实现与设计精确一致。批量关闭的每个 Tab 都正确入栈，剩余 N-1 个仍在栈中，连续恢复可全部找回。2026-07-28 产品决策：方案 A 维持逐条 LIFO，仅修正 UAT 期望，无代码改动"
   artifacts:
     - path: "src/renderer.js:1182-1200"
       issue: "批量关闭循环 + 单条 pop 恢复（实现正确，符合设计）"
     - path: "context-menu-manager.js:26-63,367-377"
       issue: "主进程栈与单条 pop 恢复（实现正确，符合设计）"
   missing:
-    - "产品决策：逐条 LIFO（方案A）vs 整批恢复（方案B，栈条目加 batchId）"
-    - "若选方案A：修正 UAT gap truth，无代码改动"
-    - "若选方案B：栈条目加批次标记 + 整批恢复 IPC + 更新 UI-SPEC/PLAN/VERIFICATION"
+    - "无代码改动（方案 A 已决策）；仅需在修复计划中更新 UAT test 5 期望描述为逐条 LIFO 语义"
   debug_session: ".planning/debug/reopen-closed-tabs-batch.md"
 
 - truth: "固定标签页应显示网站图标（favicon）而非仅一个小点"
