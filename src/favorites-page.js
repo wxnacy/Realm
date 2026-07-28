@@ -850,8 +850,8 @@ function showFolderContextMenu(e, folder) {
  * @param {MouseEvent} e - 鼠标事件
  */
 function showEmptyContextMenu(e) {
-  // 仅在点击空白区域时触发（不是点击收藏项）
-  if (e.target.closest('.favorite-item')) return;
+  // 仅在点击空白区域时触发（不是点击收藏项或文件夹树节点）
+  if (e.target.closest('.favorite-item, .folder-tree-item')) return;
 
   e.preventDefault();
 
@@ -1328,10 +1328,33 @@ function setupEventListeners() {
     });
   }
 
-  // 空白区域右键菜单
-  elements.favoritesContent.addEventListener('contextmenu', (e) => {
-    showEmptyContextMenu(e);
-  });
+  /**
+   * 空白区域右键菜单（.favorites-main 级委托路由）
+   *
+   * 可见空白几何上分属 .favorites-content-area（列表下方、padding 环）
+   * 与 #folderTree（文件夹树节点下方）两个不同容器，只有公共祖先
+   * .favorites-main 能单点覆盖所有空白路径。收藏项/文件夹节点的右键
+   * 处理器已有 preventDefault + stopPropagation，事件不会冒泡到这里，
+   * 天然不冲突。
+   */
+  const favoritesMain = document.querySelector('.favorites-main');
+  if (favoritesMain) {
+    favoritesMain.addEventListener('contextmenu', (e) => {
+      // 守卫一：收藏项/文件夹节点有各自的右键处理器，防御性跳过
+      if (e.target.closest('.favorite-item, .folder-tree-item')) return;
+
+      // 守卫二：搜索框等交互元素需要默认编辑菜单（走 webview 透传管线），
+      // 按钮/链接/弹窗/已打开的自定义菜单上不应弹新建菜单
+      if (e.target.closest('input, textarea, select, button, a, dialog, .context-menu, [contenteditable]')) return;
+
+      // stopPropagation 必须在 showEmptyContextMenu 之前执行：showContextMenu
+      // 每次打开菜单都会在 document 上注册 contextmenu 隐藏监听，若事件继续
+      // 冒泡到 document，旧的隐藏监听会在同一事件分发中把刚打开的新菜单立即
+      // 关掉（菜单闪关）
+      e.stopPropagation();
+      showEmptyContextMenu(e);
+    });
+  }
 }
 
 // ==================== 初始化 ====================
