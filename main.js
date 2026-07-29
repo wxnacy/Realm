@@ -450,6 +450,26 @@ app.whenReady().then(async () => {
         return;
       }
 
+      if (route === 'compute-sort-keys' && req.method === 'POST') {
+        const { beforeKey, afterKey, count } = await readJsonBody(req);
+        const { generateNKeysBetween } = require('fractional-indexing');
+        const keys = generateNKeysBetween(beforeKey, afterKey, count);
+        sendJson(res, 200, { keys });
+        return;
+      }
+
+      if (route === 'update-batch-sort' && req.method === 'POST') {
+        const { items } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.batchUpdateSort(items));
+        return;
+      }
+
+      if (route === 'update-batch-folder-sort' && req.method === 'POST') {
+        const { folders } = await readJsonBody(req);
+        sendJson(res, 200, favoritesManager.batchUpdateFolderSort(folders));
+        return;
+      }
+
       sendJson(res, 404, { error: 'Not Found' });
     } catch (err) {
       console.error('[Realm] 收藏 API 处理失败:', err.message);

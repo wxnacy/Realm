@@ -11,6 +11,7 @@
 
 const path = require('path');
 const { app } = require('electron');
+const { generateKeyBetween, generateNKeysBetween } = require('fractional-indexing');
 
 // better-sqlite3 延迟加载：原生模块必须在 app.whenReady 之后加载
 let Database = null;
@@ -57,6 +58,86 @@ function setDatabase(dbInstance) {
 }
 
 // ==================== 表管理 ====================
+
+/**
+ * 标记 sort_order 迁移是否已完成（模块级变量，避免重复执行）
+ * @type {boolean}
+ */
+let sortOrderMigrated = false;
+
+/**
+ * 迁移 sort_order 从整数到 fractional indexing 字符串
+ *
+ * 将 favorites 和 favorite_folders 表中的整数 sort_order 值转换为
+ * fractional indexing 分数索引字符串，支持拖拽排序的插入操作。
+ *
+ * 迁移策略：
+ * - 检查是否存在整数 sort_order 记录
+ * - 按 sort_order ASC, created_at ASC 排序（per D-13：按创建时间初始化）
+ * - 使用 generateNKeysBetween 生成初始分数索引键
+ * - 迁移完成后设置标志位避免重复执行
+ *
+ * 应在 ensureTable() 中调用
+ */
+function migrateSortOrder() {
+  if (sortOrderMigrated) return;
+
+  // 检查 favorites 表是否存在整数 sort_order 记录
+  const favRows = db.prepare(
+    "SELECT COUNT(*) as count FROM favorites WHERE typeof(sort_order) = 'integer' AND sort_order != 0"
+  ).get();
+
+  if (favRows.count > 0) {
+    console.log(`[Realm] 迁移 favorites sort_order: ${favRows.count} 条记录`);
+
+    // 按 sort_order ASC, created_at ASC 排序
+    const records = db.prepare(
+      'SELECT id, sort_order FROM favorites ORDER BY sort_order ASC, created_at ASC'
+    ).all();
+
+    // 生成初始分数索引键
+    const keys = generateNKeysBetween(null, null, records.length);
+
+    // 使用事务批量更新
+    const updateStmt = db.prepare('UPDATE favorites SET sort_order = ? WHERE id = ?');
+    db.transaction(() => {
+      for (let i = 0; i < records.length; i++) {
+        updateStmt.run(keys[i], records[i].id);
+      }
+    })();
+
+    console.log('[Realm] favorites sort_order 已迁移到 fractional indexing');
+  }
+
+  // 检查 favorite_folders 表是否存在整数 sort_order 记录
+  const folderRows = db.prepare(
+    "SELECT COUNT(*) as count FROM favorite_folders WHERE typeof(sort_order) = 'integer' AND sort_order != 0"
+  ).get();
+
+  if (folderRows.count > 0) {
+    console.log(`[Realm] 迁移 favorite_folders sort_order: ${folderRows.count} 条记录`);
+
+    // 按 sort_order ASC, created_at ASC 排序
+    const folders = db.prepare(
+      'SELECT id, sort_order FROM favorite_folders ORDER BY sort_order ASC, created_at ASC'
+    ).all();
+
+    // 生成初始分数索引键
+    const keys = generateNKeysBetween(null, null, folders.length);
+
+    // 使用事务批量更新
+    const updateStmt = db.prepare('UPDATE favorite_folders SET sort_order = ? WHERE id = ?');
+    db.transaction(() => {
+      for (let i = 0; i < folders.length; i++) {
+        updateStmt.run(keys[i], folders[i].id);
+      }
+    })();
+
+    console.log('[Realm] favorite_folders sort_order 已迁移到 fractional indexing');
+  }
+
+  sortOrderMigrated = true;
+}
 
 /**
  * 确保全局收藏表和文件夹表存在（无参数，固定操作全局表）
@@ -152,6 +233,9 @@ function ensureTable() {
     CREATE INDEX IF NOT EXISTS idx_favorites_folder_id
       ON favorites (folder_id);
   `);
+
+  // 迁移 sort_order 到 fractional indexing 格式
+  migrateSortOrder();
 }
 
 /**
@@ -570,6 +654,60 @@ function updateFavoriteSort(id, { sortOrder }) {
   return result.changes > 0;
 }
 
+/**
+ * 批量更新收藏项排序
+ *
+ * 使用事务包裹所有更新，确保原子性。
+ * 拖拽排序后调用此 API 可持久化排序结果。
+ *
+ * @param {Array<{id: number, sort_order: string}>} items - 排序更新数组
+ * @returns {number} 更新的记录数
+ */
+function batchUpdateSort(items) {
+  ensureTable();
+
+  if (!Array.isArray(items) || items.length === 0) return 0;
+
+  const updateStmt = db.prepare('UPDATE favorites SET sort_order = ? WHERE id = ?');
+  const updateMany = db.transaction((rows) => {
+    let count = 0;
+    for (const { id, sort_order } of rows) {
+      const result = updateStmt.run(sort_order, id);
+      count += result.changes;
+    }
+    return count;
+  });
+
+  return updateMany(items);
+}
+
+/**
+ * 批量更新文件夹排序
+ *
+ * 使用事务包裹所有更新，确保原子性。
+ * 拖拽排序后调用此 API 可持久化文件夹排序结果。
+ *
+ * @param {Array<{id: number, sort_order: string}>} folders - 排序更新数组
+ * @returns {number} 更新的记录数
+ */
+function batchUpdateFolderSort(folders) {
+  ensureTable();
+
+  if (!Array.isArray(folders) || folders.length === 0) return 0;
+
+  const updateStmt = db.prepare('UPDATE favorite_folders SET sort_order = ? WHERE id = ?');
+  const updateMany = db.transaction((rows) => {
+    let count = 0;
+    for (const { id, sort_order } of rows) {
+      const result = updateStmt.run(sort_order, id);
+      count += result.changes;
+    }
+    return count;
+  });
+
+  return updateMany(folders);
+}
+
 // ==================== 导出 ====================
 
 module.exports = {
@@ -596,4 +734,6 @@ module.exports = {
   moveFavorites,
   updateFolderSort,
   updateFavoriteSort,
+  batchUpdateSort,
+  batchUpdateFolderSort,
 };
