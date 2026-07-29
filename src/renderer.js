@@ -93,9 +93,6 @@ const elements = {
   refreshCookiesBtn: document.getElementById('refreshCookiesBtn'),
   closeCookiesModal: document.getElementById('closeCookiesModal'),
 
-  // 工具栏按钮
-  rulesBtn: document.getElementById('rulesBtn'),
-  shortcutsBtn: document.getElementById('shortcutsBtn'),
 };
 
 // 应用状态
@@ -2675,15 +2672,6 @@ function setupEventListeners() {
     });
   }
 
-  // 规则管理按钮（跳转到设置页面分配规则区域）
-  if (elements.rulesBtn) {
-    elements.rulesBtn.addEventListener('click', () => openSettingsTab('rules'));
-  }
-
-  // 快捷键设置按钮（跳转到设置页面快捷键设置区域）
-  if (elements.shortcutsBtn) {
-    elements.shortcutsBtn.addEventListener('click', () => openSettingsTab('shortcuts'));
-  }
 
   // URL 输入框回车
   elements.urlInput.addEventListener('keydown', async (e) => {

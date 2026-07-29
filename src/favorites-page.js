@@ -388,10 +388,11 @@ function renderFolderTree(tree, level = 0) {
   for (const folder of tree) {
     const itemEl = document.createElement('div');
     itemEl.className = 'folder-tree-item';
+    itemEl.dataset.folderId = folder.id;
     if (folder.id === state.currentFolderId) {
       itemEl.classList.add('active');
     }
-    itemEl.style.paddingLeft = `${16 + level * 16}px`;
+    itemEl.style.paddingLeft = `${16 + level * 24}px`;
 
     const hasChildren = folder.children && folder.children.length > 0;
     const isExpanded = state.expandedFolders.has(folder.id);
@@ -820,6 +821,11 @@ function showFolderContextMenu(e, folder) {
       label: '添加文件夹',
       onClick: () => startNewFolder(folder.id),
     },
+    {
+      label: '粘贴',
+      disabled: !state.clipboard,
+      onClick: () => pasteFromClipboard(folder.id),
+    },
     { type: 'separator' },
     {
       label: '删除',
@@ -885,19 +891,24 @@ function showEmptyContextMenu(e) {
 /**
  * 从剪贴板粘贴收藏项
  */
-async function pasteFromClipboard() {
+/**
+ * 从剪贴板粘贴收藏项
+ * @param {number} [targetFolderId] - 目标文件夹 ID（默认使用 state.currentFolderId）
+ */
+async function pasteFromClipboard(targetFolderId) {
   if (!state.clipboard) return;
 
+  const folderId = targetFolderId !== undefined ? targetFolderId : state.currentFolderId;
   const { ids, mode } = state.clipboard;
   const count = ids.length;
 
   try {
     if (mode === 'cut') {
-      // 剪切模式：移动到当前文件夹
+      // 剪切模式：移动到目标文件夹
       await favoritesApi('move-favorites', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids, folderId: state.currentFolderId }),
+        body: JSON.stringify({ ids, folderId }),
       });
     } else if (mode === 'copy') {
       // 复制模式：暂不支持（需要 duplicate API）
@@ -925,10 +936,24 @@ async function pasteFromClipboard() {
 function startNewFolder(parentId = 0) {
   const container = elements.folderTree;
 
+  // 计算父文件夹的层级，确定输入框缩进
+  function getFolderLevel(targetId, tree, level = 0) {
+    for (const folder of tree) {
+      if (folder.id === targetId) return level;
+      if (folder.children) {
+        const found = getFolderLevel(targetId, folder.children, level + 1);
+        if (found !== -1) return found;
+      }
+    }
+    return -1;
+  }
+  const parentLevel = parentId === 0 ? -1 : getFolderLevel(parentId, state.folderTree);
+  const inputLevel = parentLevel >= 0 ? parentLevel + 1 : 0;
+
   // 创建内联输入行
   const inputRow = document.createElement('div');
   inputRow.className = 'folder-tree-item';
-  inputRow.style.paddingLeft = parentId === 0 ? '16px' : `${16 + 16}px`;
+  inputRow.style.paddingLeft = `${16 + inputLevel * 24}px`;
 
   // 文件夹图标
   const folderIconHtml = `<svg class="folder-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -947,15 +972,10 @@ function startNewFolder(parentId = 0) {
   if (parentId === 0) {
     container.insertBefore(inputRow, container.firstChild);
   } else {
-    // 找到父文件夹元素后面插入
-    const parentItems = container.querySelectorAll('.folder-tree-item');
-    let insertAfter = null;
-    for (const item of parentItems) {
-      // 简单实现：插入到容器末尾
-      insertAfter = item;
-    }
-    if (insertAfter) {
-      insertAfter.parentNode.insertBefore(inputRow, insertAfter.nextSibling);
+    // 找到父文件夹元素后面插入（通过 data-folder-id 定位）
+    const parentEl = container.querySelector(`[data-folder-id="${parentId}"]`);
+    if (parentEl) {
+      parentEl.parentNode.insertBefore(inputRow, parentEl.nextSibling);
     } else {
       container.appendChild(inputRow);
     }
@@ -964,49 +984,48 @@ function startNewFolder(parentId = 0) {
   input.focus();
   input.placeholder = '新建文件夹';
 
+  // 防止重复提交（Enter 和 blur 会同时触发）
+  let submitted = false;
+
+  async function submitFolder() {
+    if (submitted) return;
+    const name = input.value.trim();
+    if (!name) {
+      inputRow.remove();
+      return;
+    }
+    submitted = true;
+    try {
+      const result = await createFolderApi(name, parentId);
+      if (result.id) {
+        showToast('文件夹已创建');
+        await refreshFolderTree();
+        navigateToFolder(result.id);
+      } else {
+        showToast('创建失败');
+      }
+    } catch (err) {
+      console.error('[Realm Favorites] 创建文件夹失败:', err);
+      showToast('创建失败');
+    }
+    inputRow.remove();
+  }
+
   // Enter 确认
   input.addEventListener('keydown', async (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const name = input.value.trim();
-      if (name) {
-        try {
-          const result = await createFolderApi(name, parentId);
-          if (result.id) {
-            showToast('文件夹已创建');
-            await refreshFolderTree();
-            navigateToFolder(result.id);
-          } else {
-            showToast('创建失败');
-          }
-        } catch (err) {
-          console.error('[Realm Favorites] 创建文件夹失败:', err);
-          showToast('创建失败');
-        }
-      }
-      inputRow.remove();
+      await submitFolder();
     } else if (e.key === 'Escape') {
       e.preventDefault();
+      submitted = true;
       inputRow.remove();
     }
   });
 
   // blur 时也触发确认
   input.addEventListener('blur', async () => {
-    const name = input.value.trim();
-    if (name) {
-      try {
-        const result = await createFolderApi(name, parentId);
-        if (result.id) {
-          showToast('文件夹已创建');
-          await refreshFolderTree();
-          navigateToFolder(result.id);
-        }
-      } catch (err) {
-        console.error('[Realm Favorites] 创建文件夹失败:', err);
-      }
-    }
-    inputRow.remove();
+    await submitFolder();
   });
 }
 
@@ -1043,28 +1062,38 @@ function startRenameFolder(folderId, currentName) {
   input.focus();
   input.select();
 
+  // 防止重复提交（Enter 和 blur 会同时触发）
+  let submitted = false;
+
+  async function submitRename() {
+    if (submitted) return;
+    submitted = true;
+    const newName = input.value.trim();
+    if (newName && newName !== currentName) {
+      try {
+        await renameFolderApi(folderId, newName);
+        showToast('文件夹已重命名');
+        await refreshFolderTree();
+      } catch (err) {
+        console.error('[Realm Favorites] 重命名失败:', err);
+        showToast('重命名失败');
+      }
+    }
+    // 恢复显示
+    const span = document.createElement('span');
+    span.className = 'folder-name';
+    span.textContent = newName || currentName;
+    input.replaceWith(span);
+  }
+
   // Enter 确认
   input.addEventListener('keydown', async (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const newName = input.value.trim();
-      if (newName && newName !== currentName) {
-        try {
-          await renameFolderApi(folderId, newName);
-          showToast('文件夹已重命名');
-          await refreshFolderTree();
-        } catch (err) {
-          console.error('[Realm Favorites] 重命名失败:', err);
-          showToast('重命名失败');
-        }
-      }
-      // 恢复显示
-      const span = document.createElement('span');
-      span.className = 'folder-name';
-      span.textContent = newName || currentName;
-      input.replaceWith(span);
+      await submitRename();
     } else if (e.key === 'Escape') {
       e.preventDefault();
+      submitted = true;
       const span = document.createElement('span');
       span.className = 'folder-name';
       span.textContent = currentName;
@@ -1074,21 +1103,7 @@ function startRenameFolder(folderId, currentName) {
 
   // blur 时也触发确认
   input.addEventListener('blur', async () => {
-    const newName = input.value.trim();
-    if (newName && newName !== currentName) {
-      try {
-        await renameFolderApi(folderId, newName);
-        showToast('文件夹已重命名');
-        await refreshFolderTree();
-      } catch (err) {
-        console.error('[Realm Favorites] 重命名失败:', err);
-      }
-    }
-    // 恢复显示
-    const span = document.createElement('span');
-    span.className = 'folder-name';
-    span.textContent = newName || currentName;
-    input.replaceWith(span);
+    await submitRename();
   });
 }
 

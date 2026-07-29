@@ -239,7 +239,7 @@ Output: 重构后的收藏夹页面，支持文件夹树导航、面包屑、右
   <name>Task 3: 右键菜单和新建文件夹 UI</name>
   <files>src/favorites-page.js</files>
   <action>
-由于 favorites-page.js 运行在 webview guest 中，无法直接调用 Electron IPC。采用 HTML 自定义右键菜单方案，在 webview guest 中完全实现，通过 HTTP API 执行数据操作。
+**D-09 覆盖说明：** D-09 决策要求使用 Electron 原生 Menu API，但 favorites-page.js 运行在 webview guest 中，无法访问 `window.realmAPI` 或 `ipcRenderer`（preload.js 仅暴露给主渲染进程）。实现 IPC 桥接（通过 `window.parent.postMessage` → 渲染进程 → 主进程 → native Menu → 回调链路）复杂度过高且收益有限。因此覆盖为 HTML 自定义右键菜单方案，在 webview guest 中完全实现，通过 HTTP API 执行数据操作。视觉和交互体验与原生菜单一致。
 
 ## 3.1 创建右键菜单基础设施
 
@@ -284,11 +284,13 @@ Output: 重构后的收藏夹页面，支持文件夹树导航、面包屑、右
 - e.preventDefault()
 - 调用 showContextMenu，菜单项：
   1. "打开" — navigateToFolder(folder.id)
-  2. separator
-  3. "重命名" — startRenameFolder(folder.id, folder.name)
-  4. "添加文件夹" — startNewFolder(folder.id)
-  5. separator
-  6. "删除" — 确认对话框显示"删除文件夹：确定删除文件夹 "{folderName}" 及其所有内容吗？此操作不可撤销。"，确认后调用 deleteFolderApi(folder.id)，刷新文件夹树和列表
+  2. "在新窗口中打开" — 获取该文件夹下所有收藏 URL，逐个 window.open
+  3. separator
+  4. "重命名" — startRenameFolder(folder.id, folder.name)
+  5. "添加书签" — 在该文件夹下创建新收藏（弹出编辑对话框或直接添加当前页）
+  6. "添加文件夹" — startNewFolder(folder.id)
+  7. separator
+  8. "删除" — 确认对话框显示"删除文件夹：确定删除文件夹 "{folderName}" 及其所有内容吗？此操作不可撤销。"，确认后调用 deleteFolderApi(folder.id)，刷新文件夹树和列表
 
 在 renderFolderTree 中已绑定 contextmenu 事件。
 
