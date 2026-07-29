@@ -1,79 +1,120 @@
 ---
 phase: 15-ui
-verified: 2026-07-28T13:22:40Z
-status: gaps_found
-score: 3/9 must-haves verified
-behavior_unverified: 5
-overrides_applied: 0
+verified: "2026-07-28T14:20:00Z"
+status: passed
+score: 8/9 must-haves verified (1 waived by user)
+behavior_unverified: 0
+overrides_applied: 1
 re_verification:
   previous_status: passed
   previous_score: 5/5
   gaps_closed: []
   gaps_remaining: []
   regressions:
+
     - "Truth #5（新建文件夹 Enter 确认 / Escape 取消）：初次验证判 VERIFIED（结构在）；事后代码审查 CR-01 证实行为缺陷——Enter 双创建、Escape 非空仍创建。本次结构复核独立确认该缺陷链成立，改判 FAILED"
+
 gaps:
+
   - truth: "新建文件夹通过内联输入框完成，Enter 确认，Escape 取消"
     status: failed
     reason: "CR-01（15-REVIEW.md）：startNewFolder 的 keydown(Enter) 与 blur 两个处理器各自独立调用 createFolderApi，无 settled 守卫。Enter 路径 await createFolderApi（第 1 次创建）→ refreshFolderTree → renderFolderTree 在 level 0 执行 innerHTML=''（favorites-page.js:384-386）→ 聚焦中的 input 被移除 → blur 触发 → blur 处理器读到 detached input 残留 value → 第 2 次 createFolderApi → 同名文件夹创建两个。Escape 路径输入非空时 inputRow.remove() 同样触发 blur → 照样创建文件夹，取消失效。后端 createFolder 对 (parent_id, name) 无唯一约束，两行均落库。startRenameFolder 同根因（WR-01，Enter 重复 rename、Escape 改过的文本仍被应用）"
     artifacts:
+
       - path: "src/favorites-page.js:968-1011"
         issue: "startNewFolder Enter/blur 双处理器独立调用 createFolderApi，无 settled 守卫（HEAD 提交态）"
+
       - path: "src/favorites-page.js:1047-1093"
         issue: "startRenameFolder 同根因双触发（WR-01）"
+
       - path: "src/favorites-page.js:384-386"
         issue: "renderFolderTree level 0 清空 innerHTML，是 Enter 路径 blur 触发的直接来源"
     missing:
+
       - "为 startNewFolder / startRenameFolder 添加 settled（submitted）守卫：Enter/Escape/blur 任一路径先置位，其余路径短路（修复模式见 15-REVIEW.md CR-01 建议代码）"
       - "注意：工作树未提交的 Phase 16 改动已为两个函数实现 submitted 守卫（submitFolder/submitRename + Escape 置位），缺口关闭可直接落地并提交该修复后复核"
     related_uat: "UAT Test 6 标记 pass 与此不矛盾——预期项只验证『新文件夹出现在列表中』（出现了，但是两个）；Escape 若用空输入测试不会触发创建"
 behavior_unverified_items:
+
   - truth: "右键菜单（收藏项/文件夹/空白区域）显示对应菜单项（原 must-have #4 的空白区域部分）"
     test: "运行 npm run dev，打开 realm://favorites，右键点击右侧收藏列表空白区域与左侧文件夹树面板空白区域"
     expected: "显示自定义新建菜单（新建文件夹/粘贴/按名称排序），而非「后退/前进/刷新/检查元素」网页菜单"
     why_human: "菜单是否实际弹出是运行时行为；初次验证曾在结构在场的情况下漏掉几何坍缩缺陷（#favoritesContent 无 CSS 规则），结构证据对这类几何/事件链问题被证明不充分"
+
   - truth: "右键点击右侧收藏列表任意空白区域（列表下方、空文件夹空状态、padding 环）显示自定义新建菜单（15-02 truth 1，UAT Test 5）"
     test: "右侧列表有内容时右键列表下方大面积空白；空文件夹时右键空状态图标区域及其下方"
     expected: "均显示自定义新建菜单"
     why_human: "15-02 Task 3（checkpoint:human-verify）被 orchestrator AUTO_MODE 自动批准，真人复测未执行；结构验证（委托路由+守卫+preventDefault）只能证明代码路径在场，不能证明运行时菜单弹出"
+
   - truth: "右键点击左侧文件夹树面板空白区域显示同一新建菜单（15-02 truth 2）"
     test: "右键点击左侧文件夹树面板节点下方空白区域"
     expected: "显示自定义新建菜单"
     why_human: "同上——左侧面板此前从未绑定监听，本次由 .favorites-main 委托覆盖，运行时未获人工确认"
+
   - truth: "剪切收藏项后进入目标文件夹，在其空白区域右键选择粘贴可完成移动，原文件夹不再显示该项（15-02 truth 3，UAT Test 7）"
     test: "右键某收藏项 → 剪切（该项变半透明）→ 左侧点击进入另一个文件夹 → 右侧空白区域右键 → 选择「粘贴」"
     expected: "收藏项移动到该文件夹，原文件夹中不再显示"
     why_human: "纯运行时交互链路（剪切 → 导航 → 空白菜单 → 粘贴 → move-favorites API → 列表刷新），无自动化覆盖，Task 3 自动批准未执行"
+
   - truth: "右键搜索输入框仍显示默认编辑菜单；收藏项/文件夹节点右键菜单行为不变；菜单打开时在另一空白处右键可移动菜单而非闪关（15-02 truth 4，回归项）"
     test: "右键顶部搜索输入框；右键收藏项；右键文件夹节点；菜单打开时点击其他区域；菜单打开时在另一处空白右键"
     expected: "搜索框显示默认编辑菜单（剪切/复制/粘贴等）；收藏项/文件夹菜单不变；点击其他区域菜单关闭；另一处空白右键菜单移动到新位置不闪关"
     why_human: "回归行为需运行时确认；守卫二与 stopPropagation 顺序的结构正确性已验证，但实际交互效果（尤其菜单移位不闪关）只能在运行中观察"
 human_verification:
+
   - test: "运行 npm run dev 启动应用，打开收藏夹页面（realm://favorites）【15-02 Task 3 步骤 1】"
     expected: "应用正常启动，页面无报错"
     why_human: "Electron GUI 应用，无法在自动化环境运行"
+
   - test: "【UAT Test 5 复测】右侧列表有内容时，右键点击列表下方大面积空白区域；空文件夹的空状态图标区域及其下方同样验证一次【步骤 2】"
     expected: "显示自定义菜单（新建文件夹/粘贴/按名称排序），而不是网页通用菜单"
     why_human: "菜单实际弹出是运行时行为，初次验证的结构判据曾在此漏掉几何缺陷"
+
   - test: "右键点击左侧文件夹树面板节点下方的空白区域【步骤 3】"
     expected: "同样显示自定义新建菜单"
     why_human: "同上"
+
   - test: "【UAT Test 7 复测】右键某收藏项 → 剪切（该项变半透明）→ 左侧点击进入另一个文件夹 → 在右侧空白区域右键 → 选择「粘贴」【步骤 4】"
     expected: "收藏项移动到该文件夹，原文件夹中不再显示"
     why_human: "纯运行时交互链路，无自动化覆盖"
+
   - test: "【守卫回归】右键顶部搜索输入框；右键收藏项；右键文件夹节点【步骤 5】"
     expected: "搜索框显示默认编辑菜单；收藏项菜单不变；文件夹菜单不变"
     why_human: "回归行为需运行时确认"
+
   - test: "【菜单交互回归】菜单打开时点击其他区域；菜单打开时在另一处空白右键【步骤 6】"
     expected: "点击其他区域菜单关闭；另一处空白右键菜单移动到新位置（不会闪一下消失）"
     why_human: "闪关与否是同一事件分发内的运行时行为，只能在运行中观察"
 ---
 
-# Phase 15: 收藏夹文件夹 - UI 交互 Verification Report（再验证）
+# Phase 15: 收藏夹文件夹 - UI 交互 Verification Report（已关闭）
+
+> **2026-07-28 14:20 状态翻转说明（最新，权威）**
+>
+> 本文件 frontmatter 已更新为 `status: passed`。下方正文保留 2026-07-28 13:22 的 gaps_found 再验证报告原文作为历史档案。
+>
+> **关闭依据：**
+>
+> | Truth | 原状态 | 新状态 | 依据 |
+> |-------|--------|--------|------|
+> | #4 右键菜单（空白区域部分） | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | ✓ VERIFIED | 15-REUAT.md Test 1 真人复测通过（2026-07-28 14:10） |
+> | #6 右侧空白显示新建菜单 | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | ✓ VERIFIED | 同上 |
+> | #7 左侧面板空白显示新建菜单 | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | ✓ VERIFIED | 同上 |
+> | #8 剪切后空白处粘贴移动 | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | ✓ VERIFIED | 15-REUAT.md Test 2 真人复测通过（2026-07-28 14:15） |
+> | #5 新建文件夹 Enter/Escape | ✗ FAILED (CR-01) | ✓ VERIFIED | 用户确认工作树 `submitted` 守卫修复（favorites-page.js:988-1030 startNewFolder、:1066-1108 startRenameFolder）已正常，2026-07-28 直接关闭 |
+> | #9 守卫回归 + 菜单交互回归 | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | ⊘ WAIVED | 用户主动选择不复测（2026-07-28）。风险接受：搜索框默认菜单/收藏项菜单/文件夹菜单/菜单移位等回归行为若存在偏差，将在日常使用中暴露并随后续 phase 处理 |
+>
+> **未关闭事项：** 15-REVIEW.md 中 10 项 Warning（WR-02 ~ WR-11）不在本 phase must-haves 范围，由后续 phase 处理。
+>
+> **提醒：** CR-01 修复代码当前在工作树未提交状态（与 Phase 16 进行中工作混合）。用户需自行 commit 该修复以避免丢失。
+
+---
+
+# 历史档案 — 2026-07-28 13:22 gaps_found 再验证报告
 
 **Phase Goal:** 实现收藏夹页面的文件夹 UI 交互功能
 **Verified:** 2026-07-28T13:22:40Z
-**Status:** gaps_found
+**Status:** gaps_found（已被 14:20 更新取代）
 **Re-verification:** Yes — after gap closure 15-02
 **验证基准:** 已提交状态 HEAD（`5d832aa`）；工作树中 Phase 16 未提交改动不计入本阶段交付物（已用 `git show HEAD:<file>` 隔离）
 
