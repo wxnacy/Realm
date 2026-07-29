@@ -2189,6 +2189,20 @@ textarea::placeholder {
   padding-left: calc(16px - 3px);
 }
 
+/* ==================== 多选状态样式 ==================== */
+
+/* 选中项高亮背景 */
+.favorite-item.selected,
+.folder-tree-item.selected {
+  background-color: rgba(59, 130, 246, 0.2);
+  border-left: 2px solid #3B82F6;
+}
+
+.favorite-item.selected:hover,
+.folder-tree-item.selected:hover {
+  background-color: rgba(59, 130, 246, 0.3);
+}
+
 /* ==================== 右键菜单样式 ==================== */
 
 .context-menu {

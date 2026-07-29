@@ -47,6 +47,8 @@ const state = {
   contextMenuEl: null,
   /** 拖拽源数据 */
   dragSourceData: null,
+  /** 上次点击的项 ID（用于 Shift+Click 范围选择） */
+  lastClickedId: null,
 };
 
 /** API token（来自 URL 查询参数） */
@@ -304,6 +306,123 @@ function isDescendantCheck(sourceId, targetId) {
   return false;
 }
 
+// ==================== 多选交互 ====================
+
+/**
+ * 处理收藏项/文件夹行点击事件（per D-08）
+ *
+ * 根据修饰键执行不同选择逻辑：
+ * - Cmd/Ctrl+Click：切换选中/取消选中单个项
+ * - Shift+Click：范围选择从上次点击到当前项之间的所有项
+ * - 普通点击：清除所有选中（如果有多选状态）
+ *
+ * @param {MouseEvent} e - 鼠标事件
+ * @param {number} itemId - 点击的项 ID
+ */
+function handleItemClick(e, itemId) {
+  // Cmd/Ctrl+Click：切换选中
+  if (e.metaKey || e.ctrlKey) {
+    e.preventDefault();
+    toggleItemSelection(itemId);
+    state.lastClickedId = itemId;
+  } else if (e.shiftKey && state.lastClickedId !== null) {
+    // Shift+Click：范围选择
+    e.preventDefault();
+    selectRange(state.lastClickedId, itemId);
+  } else {
+    // 普通点击：如果有多选状态，先清除
+    if (state.selectedIds.size > 0 && !state.selectedIds.has(itemId)) {
+      state.selectedIds.clear();
+    }
+    state.lastClickedId = itemId;
+  }
+
+  updateSelectionUI();
+}
+
+/**
+ * 切换单个项的选中状态
+ * @param {number} itemId - 项 ID
+ */
+function toggleItemSelection(itemId) {
+  if (state.selectedIds.has(itemId)) {
+    state.selectedIds.delete(itemId);
+  } else {
+    state.selectedIds.add(itemId);
+  }
+}
+
+/**
+ * 范围选择：选中 startId 到 endId 之间的所有项（per D-08）
+ * @param {number} startId - 起始项 ID
+ * @param {number} endId - 结束项 ID
+ */
+function selectRange(startId, endId) {
+  const allIds = getAllVisibleItemIds();
+  const startIndex = allIds.indexOf(startId);
+  const endIndex = allIds.indexOf(endId);
+
+  if (startIndex === -1 || endIndex === -1) return;
+
+  const [from, to] = startIndex < endIndex ? [startIndex, endIndex] : [endIndex, startIndex];
+  const rangeIds = allIds.slice(from, to + 1);
+
+  state.selectedIds = new Set(rangeIds);
+}
+
+/**
+ * 获取当前可见的所有项 ID（按 DOM 顺序）
+ * @returns {Array<number>} 项 ID 数组
+ */
+function getAllVisibleItemIds() {
+  const ids = [];
+
+  // 收藏项
+  const favoriteEls = elements.favoritesContent.querySelectorAll('.favorite-item[data-id]');
+  favoriteEls.forEach(el => {
+    ids.push(parseInt(el.dataset.id, 10));
+  });
+
+  // 文件夹树中的文件夹项（只获取当前文件夹内的，不包括子文件夹）
+  const folderEls = elements.folderTree.querySelectorAll('.folder-tree-item[data-id]');
+  folderEls.forEach(el => {
+    ids.push(parseInt(el.dataset.id, 10));
+  });
+
+  return ids;
+}
+
+/**
+ * 更新选中状态的 UI 显示
+ * 遍历所有收藏项和文件夹行元素，添加/移除 .selected CSS 类
+ */
+function updateSelectionUI() {
+  // 更新收藏项选中状态
+  const favoriteEls = elements.favoritesContent.querySelectorAll('.favorite-item[data-id]');
+  favoriteEls.forEach(el => {
+    const id = parseInt(el.dataset.id, 10);
+    if (state.selectedIds.has(id)) {
+      el.classList.add('selected');
+    } else {
+      el.classList.remove('selected');
+    }
+  });
+
+  // 更新文件夹选中状态
+  const folderEls = elements.folderTree.querySelectorAll('.folder-tree-item[data-id]');
+  folderEls.forEach(el => {
+    const id = parseInt(el.dataset.id, 10);
+    if (state.selectedIds.has(id)) {
+      el.classList.add('selected');
+    } else {
+      el.classList.remove('selected');
+    }
+  });
+
+  // 更新批量操作栏
+  updateActionsBar();
+}
+
 // ==================== 渲染函数 ====================
 
 /**
@@ -419,6 +538,13 @@ function renderFavoriteItem(record) {
     updateActionsBar();
   });
 
+  // 多选交互：Cmd/Ctrl+Click 切换选中，Shift+Click 范围选择（per D-08）
+  itemEl.addEventListener('click', (e) => {
+    // 避免与 favicon/URL 点击、checkbox、标题编辑冲突
+    if (e.target.closest('.favorite-item-favicon, .favorite-item-url, .favorite-item-checkbox, .favorite-item-title')) return;
+    handleItemClick(e, record.id);
+  });
+
   // 打开收藏链接：favicon / URL 单击直接打开
   // window.open 走主进程 setWindowOpenHandler 拦截（main.js:121），
   // 自动在来源容器新建 Tab，无需通过 IPC 显式通知
@@ -507,9 +633,17 @@ function renderFolderTree(tree, level = 0) {
       ${countHtml}
     `;
 
-    // 点击事件：展开/收起 + 导航
+    // 点击事件：展开/收起 + 导航 + 多选
     itemEl.addEventListener('click', (e) => {
       e.stopPropagation();
+
+      // 多选交互：Cmd/Ctrl+Click 或 Shift+Click
+      if (e.metaKey || e.ctrlKey || e.shiftKey) {
+        handleItemClick(e, folder.id);
+        return;
+      }
+
+      // 普通点击：展开/收起 + 导航
       if (hasChildren) {
         if (state.expandedFolders.has(folder.id)) {
           state.expandedFolders.delete(folder.id);
@@ -790,7 +924,54 @@ function showFavoriteContextMenu(e, record) {
   e.preventDefault();
   e.stopPropagation();
 
-  const items = [
+  // 如果右键点击的项不在选中范围内，清除所有选中并选中当前项
+  if (!state.selectedIds.has(record.id)) {
+    state.selectedIds.clear();
+    state.selectedIds.add(record.id);
+    updateSelectionUI();
+  }
+
+  const count = state.selectedIds.size;
+  const isMultiSelect = count > 1;
+
+  // 批量操作菜单项（多选状态）
+  const batchItems = isMultiSelect ? [
+    {
+      label: `删除 ${count} 项`,
+      onClick: () => {
+        elements.batchDeleteBody.textContent = `确定删除选中的 ${count} 项收藏吗？此操作不可撤销。`;
+        elements.favoritesBatchDeleteModal.showModal();
+      },
+    },
+    {
+      label: `剪切 ${count} 项`,
+      onClick: () => {
+        state.clipboard = { ids: [...state.selectedIds], mode: 'cut', sourceFolderId: state.currentFolderId };
+        showToast(`已剪切 ${count} 项`);
+        state.selectedIds.clear();
+        updateSelectionUI();
+        renderFavorites(state.records);
+      },
+    },
+    {
+      label: `复制 ${count} 项`,
+      onClick: () => {
+        state.clipboard = { ids: [...state.selectedIds], mode: 'copy', sourceFolderId: state.currentFolderId };
+        showToast(`已复制 ${count} 项`);
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '取消选择',
+      onClick: () => {
+        state.selectedIds.clear();
+        updateSelectionUI();
+      },
+    },
+  ] : [];
+
+  // 单选菜单项
+  const singleItems = !isMultiSelect ? [
     {
       label: '打开',
       onClick: () => window.open(record.url, '_blank'),
@@ -855,7 +1036,19 @@ function showFavoriteContextMenu(e, record) {
         alert(`标题: ${record.title || '(无标题)'}\nURL: ${record.url}\n创建时间: ${createdTime}`);
       },
     },
+  ] : [];
+
+  // 公共菜单项
+  const commonItems = [
+    { type: 'separator' },
+    {
+      label: '粘贴',
+      disabled: !state.clipboard,
+      onClick: () => pasteFromClipboard(),
+    },
   ];
+
+  const items = [...(isMultiSelect ? batchItems : singleItems), ...commonItems];
 
   showContextMenu(items, e.clientX, e.clientY);
 }
@@ -1224,6 +1417,10 @@ async function loadFavorites() {
     state.records = results || [];
     state.hasMore = results.length === state.limit;
     renderFavorites(state.records);
+
+    // 刷新列表时清除选中状态
+    state.selectedIds.clear();
+    updateSelectionUI();
   } catch (err) {
     console.error('[Realm Favorites] 加载收藏失败:', err);
     renderEmpty();
@@ -1755,6 +1952,14 @@ function setupEventListeners() {
       showEmptyContextMenu(e);
     });
   }
+
+  // Escape 键清除所有选中状态
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && state.selectedIds.size > 0) {
+      state.selectedIds.clear();
+      updateSelectionUI();
+    }
+  });
 }
 
 // ==================== 初始化 ====================
