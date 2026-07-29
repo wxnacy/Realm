@@ -134,13 +134,13 @@ Phase 14  Phase 15  Phase 16  Phase 17  Phase 18  Phase 19  Phase 20  Phase 21
 **需求覆盖**: FOLDER-05, FOLDER-06, FOLDER-08
 **状态**: 规划完成
 
-**Plans:** 1/2 plans complete
+**Plans:** 2/2 plans complete
 
 Plans:
 
 - [ ] PLAN.md
 - [x] 15-01-PLAN.md — 后端 folder_id 过滤 + HTML 左右分栏 + 文件夹树 + 面包屑 + 右键菜单 + 新建文件夹
-- [ ] 15-02-PLAN.md — 缺口修复：空白区域右键菜单事件委托（.favorites-main 路由 + preventDefault 兜底）
+- [x] 15-02-PLAN.md — 缺口修复：空白区域右键菜单事件委托（.favorites-main 路由 + preventDefault 兜底）
 
 **任务**:
 

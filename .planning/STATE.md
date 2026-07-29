@@ -4,13 +4,13 @@ milestone: v2.0
 milestone_name: 收藏夹文件夹支持 + AI Agent 集成
 current_phase: 16 — 收藏夹文件夹 - 增强功能
 status: planning
-stopped_at: Phase 16 context gathered
-last_updated: "2026-07-28T11:39:03.972Z"
+stopped_at: Completed 15-02-PLAN.md (gap closure)
+last_updated: "2026-07-29T04:10:12.936Z"
 progress:
   total_phases: 8
   completed_phases: 2
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 6
+  completed_plans: 3
   percent: 25
 ---
 
@@ -25,9 +25,11 @@ progress:
 ### Phase 15: 收藏夹文件夹 - UI 交互
 
 - **Status:** Ready to plan
-- **Next:** Plan Phase 15
+- **Completed:** 15-02 gap closure（空白区域右键菜单修复，commits 783e10d + c975877；Task 3 人工验证由 AUTO_MODE 自动批准，待阶段级验证补验）
+- **Next:** Phase 15 阶段级 verification（orchestrator）
 - **UI-SPEC:** `.planning/phases/15-ui/15-UI-SPEC.md`
 - **Context:** `.planning/phases/15-ui/15-CONTEXT.md`
+- **Summary:** `.planning/phases/15-ui/15-02-SUMMARY.md`
 
 ### Phase 14: 收藏夹文件夹 - 数据库层实现
 
@@ -53,6 +55,6 @@ progress:
 
 ## Session
 
-**Last session:** 2026-07-28T11:39:03.965Z
-**Stopped at:** Phase 16 context gathered
-**Resume file:** .planning/phases/16-favorites-enhancements/16-CONTEXT.md
+**Last session:** 2026-07-28T12:46:34.000Z
+**Stopped at:** Completed 15-02-PLAN.md (gap closure)
+**Resume file:** .planning/phases/15-ui/15-02-SUMMARY.md
