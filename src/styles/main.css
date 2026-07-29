@@ -2136,6 +2136,59 @@ textarea::placeholder {
   flex: 1;
 }
 
+/* ==================== 拖拽排序样式 ==================== */
+
+/* 拖拽相关 CSS 变量 */
+:root {
+  --drag-insert-color: #3B82F6;       /* 蓝色插入指示线 */
+  --drag-hover-bg: rgba(59, 130, 246, 0.15);  /* 文件夹高亮背景 */
+  --dragging-opacity: 0.4;            /* 拖拽源半透明 */
+}
+
+/* 拖拽源半透明效果（per D-05） */
+.favorite-item.dragging,
+.folder-tree-item.dragging {
+  opacity: var(--dragging-opacity);
+}
+
+/* 可拖拽元素的鼠标光标和选中禁止（per D-05） */
+.favorite-item[draggable="true"],
+.folder-tree-item[draggable="true"] {
+  cursor: move;
+  user-select: none;
+}
+
+/* 收藏项和文件夹行需要相对定位以支持插入指示线（per D-07） */
+.favorite-item,
+.folder-tree-item {
+  position: relative;
+}
+
+/* 插入位置指示线样式（per D-07，参考 Chrome 书签管理器） */
+.favorite-item.drag-over-top::before,
+.folder-tree-item.drag-over-top::before,
+.favorite-item.drag-over-bottom::after,
+.folder-tree-item.drag-over-bottom::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: var(--drag-insert-color);
+  z-index: 10;
+  border-radius: 1px;
+}
+
+.drag-over-top::before { top: -1px; }
+.drag-over-bottom::after { bottom: -1px; }
+
+/* 文件夹拖入目标高亮样式（per D-06） */
+.folder-tree-item.drag-over-folder {
+  background-color: var(--drag-hover-bg);
+  border-left: 3px solid var(--drag-insert-color);
+  padding-left: calc(16px - 3px);
+}
+
 /* ==================== 右键菜单样式 ==================== */
 
 .context-menu {

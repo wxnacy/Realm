@@ -3,7 +3,8 @@
  *
  * realm://favorites 内部页面的渲染逻辑
  * 负责收藏列表展示、搜索过滤（含高亮）、
- * 行内编辑标题、单条删除、批量删除、滚动加载、空状态显示
+ * 行内编辑标题、单条删除、批量删除、滚动加载、空状态显示、
+ * 拖拽排序（同目录排序 + 跨文件夹移动）
  */
 
 // ==================== 状态管理 ====================
@@ -44,6 +45,8 @@ const state = {
   clipboard: null,
   /** 当前显示的右键菜单元素 */
   contextMenuEl: null,
+  /** 拖拽源数据 */
+  dragSourceData: null,
 };
 
 /** API token（来自 URL 查询参数） */
@@ -225,6 +228,82 @@ function formatTime(timestamp) {
   }
 }
 
+// ==================== 拖拽辅助函数 ====================
+
+/**
+ * 通过主进程 HTTP 端点计算 fractional indexing 排序键
+ *
+ * fractional-indexing 库仅在主进程中使用，前端通过 HTTP 端点获取排序键，
+ * 避免前端引入额外 npm 依赖。
+ *
+ * @param {string|null} beforeKey - 前一个位置的排序键（null 表示最前）
+ * @param {string|null} afterKey - 后一个位置的排序键（null 表示最后）
+ * @param {number} count - 需要生成的排序键数量
+ * @returns {Promise<string[]>} 排序键数组
+ */
+async function computeSortKeys(beforeKey, afterKey, count) {
+  const result = await favoritesApi('compute-sort-keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ beforeKey, afterKey, count }),
+  });
+  return result.keys;
+}
+
+/**
+ * 判断拖拽位置（目标元素的上半部分或下半部分）
+ *
+ * @param {MouseEvent} e - 鼠标事件
+ * @param {HTMLElement} targetEl - 目标元素
+ * @returns {'before'|'after'} 'before' 表示插入到目标之前，'after' 表示插入到目标之后
+ */
+function getDragPosition(e, targetEl) {
+  const rect = targetEl.getBoundingClientRect();
+  const midY = rect.top + rect.height / 2;
+  return e.clientY < midY ? 'before' : 'after';
+}
+
+/**
+ * 检查目标文件夹是否是源文件夹的后代（防止循环引用）
+ *
+ * 复用 Phase 14 的循环引用检测逻辑，在渲染进程中使用 state.folderTree 数据判断，
+ * 避免 IPC 调用。
+ *
+ * @param {number} sourceId - 源文件夹 ID
+ * @param {number} targetId - 目标文件夹 ID
+ * @returns {boolean} 是否会形成循环
+ */
+function isDescendantCheck(sourceId, targetId) {
+  if (sourceId === targetId) return true;
+
+  // 递归查找文件夹
+  function findFolder(id, tree) {
+    for (const folder of tree) {
+      if (folder.id === id) return folder;
+      if (folder.children) {
+        const found = findFolder(id, folder.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  // 从 targetId 开始向上遍历祖先链
+  let currentId = targetId;
+  const maxDepth = 100;
+  let depth = 0;
+
+  while (currentId !== 0 && depth < maxDepth) {
+    const folder = findFolder(currentId, state.folderTree);
+    if (!folder) break;
+    if (folder.parent_id === sourceId) return true;
+    currentId = folder.parent_id;
+    depth++;
+  }
+
+  return false;
+}
+
 // ==================== 渲染函数 ====================
 
 /**
@@ -285,6 +364,9 @@ function renderFavoriteItem(record) {
   const itemEl = document.createElement('div');
   itemEl.className = 'favorite-item';
   itemEl.dataset.id = record.id;
+  itemEl.dataset.type = 'favorite';
+  itemEl.dataset.folderId = record.folder_id;
+  itemEl.draggable = true;
 
   // 构建标题和 URL（搜索时高亮）
   const titleHtml = state.keyword
@@ -389,6 +471,10 @@ function renderFolderTree(tree, level = 0) {
     const itemEl = document.createElement('div');
     itemEl.className = 'folder-tree-item';
     itemEl.dataset.folderId = folder.id;
+    itemEl.dataset.type = 'folder';
+    itemEl.dataset.id = folder.id;
+    itemEl.dataset.parentId = folder.parent_id;
+    itemEl.draggable = true;
     if (folder.id === state.currentFolderId) {
       itemEl.classList.add('active');
     }
@@ -1285,6 +1371,305 @@ function showToast(message) {
   }, 2000);
 }
 
+// ==================== 拖拽排序 ====================
+
+/**
+ * 执行拖拽放置操作
+ *
+ * 根据拖拽类型（收藏项/文件夹）和目标类型（文件夹/排序位置）执行不同逻辑：
+ * - 拖到文件夹上：跨文件夹移动（per D-01）
+ * - 同目录排序：计算新位置的 fractional sort key（per D-01）
+ *
+ * @param {Object} dragData - 拖拽源数据 {type, id, folderId}
+ * @param {Object} targetData - 目标数据 {type, id, position}
+ */
+async function executeDragDrop(dragData, targetData) {
+  try {
+    if (targetData.type === 'folder' && targetData.position === 'on') {
+      // 拖到文件夹上：跨文件夹移动
+      if (dragData.type === 'favorite') {
+        await favoritesApi('move-favorite', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: dragData.id, folderId: targetData.id }),
+        });
+        showToast('已移动到文件夹');
+      } else if (dragData.type === 'folder') {
+        // 循环引用检测
+        if (isDescendantCheck(dragData.id, targetData.id)) {
+          showToast('不能将文件夹移动到自己的子文件夹中');
+          return;
+        }
+        await favoritesApi('move-folder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: dragData.id, parentId: targetData.id }),
+        });
+        showToast('已移动文件夹');
+      }
+    } else {
+      // 同目录排序：使用 fractional indexing 计算新位置
+      const parentFolderId = dragData.folderId;
+      const allItems = state.records.filter(r => r.folder_id === parentFolderId);
+
+      // 获取目标位置的前后排序键
+      let beforeKey = null;
+      let afterKey = null;
+
+      if (targetData.type === 'favorite') {
+        const targetIndex = allItems.findIndex(r => r.id === targetData.id);
+        if (targetIndex !== -1) {
+          if (targetData.position === 'before') {
+            afterKey = allItems[targetIndex].sort_order;
+            beforeKey = targetIndex > 0 ? allItems[targetIndex - 1].sort_order : null;
+          } else {
+            beforeKey = allItems[targetIndex].sort_order;
+            afterKey = targetIndex < allItems.length - 1 ? allItems[targetIndex + 1].sort_order : null;
+          }
+        }
+      } else if (targetData.type === 'folder') {
+        // 文件夹排序
+        const folders = state.folderTree;
+        const targetIndex = folders.findIndex(f => f.id === targetData.id);
+        if (targetIndex !== -1) {
+          if (targetData.position === 'before') {
+            afterKey = folders[targetIndex].sort_order;
+            beforeKey = targetIndex > 0 ? folders[targetIndex - 1].sort_order : null;
+          } else {
+            beforeKey = folders[targetIndex].sort_order;
+            afterKey = targetIndex < folders.length - 1 ? folders[targetIndex + 1].sort_order : null;
+          }
+        }
+      }
+
+      // 计算新的排序键
+      const keys = await computeSortKeys(beforeKey, afterKey, 1);
+      if (keys && keys.length > 0) {
+        const newKey = keys[0];
+        if (dragData.type === 'favorite') {
+          await favoritesApi('update-batch-sort', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: [{ id: dragData.id, sort_order: newKey }] }),
+          });
+        } else if (dragData.type === 'folder') {
+          await favoritesApi('update-batch-folder-sort', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folders: [{ id: dragData.id, sort_order: newKey }] }),
+          });
+        }
+        showToast('排序已保存');
+      }
+    }
+
+    // 刷新列表
+    await loadFavorites();
+    await refreshFolderTree();
+  } catch (err) {
+    console.error('[Realm Favorites] 拖拽操作失败:', err);
+    showToast('操作失败，请重试');
+  }
+}
+
+/**
+ * 设置拖拽排序事件监听
+ *
+ * 使用事件委托在列表容器上监听拖拽事件：
+ * - dragstart: 记录拖拽源数据，添加 .dragging 类
+ * - dragover: 检测放置位置，添加视觉反馈
+ * - dragleave: 清除视觉反馈
+ * - drop: 执行移动/排序操作
+ * - dragend: 清除所有拖拽状态
+ */
+function setupDragAndDrop() {
+  const contentArea = elements.favoritesContent;
+  const folderArea = elements.folderTree;
+
+  // ---- favoritesContent 拖拽事件 ----
+
+  contentArea.addEventListener('dragstart', (e) => {
+    const itemEl = e.target.closest('[draggable]');
+    if (!itemEl) return;
+
+    const type = itemEl.dataset.type;
+    const id = parseInt(itemEl.dataset.id, 10);
+    const folderId = type === 'favorite' ? parseInt(itemEl.dataset.folderId, 10) : parseInt(itemEl.dataset.parentId, 10);
+
+    state.dragSourceData = { type, id, folderId };
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', JSON.stringify(state.dragSourceData));
+
+    // 添加拖拽源半透明样式
+    requestAnimationFrame(() => {
+      itemEl.classList.add('dragging');
+    });
+  });
+
+  contentArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    const targetEl = e.target.closest('[data-type]');
+    if (!targetEl) return;
+
+    // 清除之前的拖拽指示
+    clearDragIndicators();
+
+    const targetType = targetEl.dataset.type;
+    const targetId = parseInt(targetEl.dataset.id, 10);
+
+    if (targetType === 'folder') {
+      // 拖到文件夹上：高亮文件夹（per D-06）
+      targetEl.classList.add('drag-over-folder');
+    } else {
+      // 拖到收藏项上：显示插入指示线（per D-07）
+      const position = getDragPosition(e, targetEl);
+      targetEl.classList.add(position === 'before' ? 'drag-over-top' : 'drag-over-bottom');
+    }
+  });
+
+  contentArea.addEventListener('dragleave', (e) => {
+    const targetEl = e.target.closest('[data-type]');
+    if (!targetEl) return;
+
+    // 只有当 relatedTarget 不在目标元素内时才清除高亮
+    const relatedTarget = e.relatedTarget;
+    if (relatedTarget && targetEl.contains(relatedTarget)) return;
+
+    targetEl.classList.remove('drag-over-folder', 'drag-over-top', 'drag-over-bottom');
+  });
+
+  contentArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    clearDragIndicators();
+
+    const targetEl = e.target.closest('[data-type]');
+    if (!targetEl || !state.dragSourceData) return;
+
+    const targetType = targetEl.dataset.type;
+    const targetId = parseInt(targetEl.dataset.id, 10);
+
+    // 不能拖到自身
+    if (state.dragSourceData.type === targetType && state.dragSourceData.id === targetId) {
+      return;
+    }
+
+    let position = 'on';
+    if (targetType !== 'folder' || !targetEl.classList.contains('drag-over-folder')) {
+      position = getDragPosition(e, targetEl);
+    }
+
+    executeDragDrop(state.dragSourceData, {
+      type: targetType,
+      id: targetId,
+      position,
+    });
+  });
+
+  contentArea.addEventListener('dragend', (e) => {
+    // 移除拖拽源半透明样式
+    const draggingEl = contentArea.querySelector('.dragging');
+    if (draggingEl) {
+      draggingEl.classList.remove('dragging');
+    }
+    clearDragIndicators();
+    state.dragSourceData = null;
+  });
+
+  // ---- folderTree 拖拽事件 ----
+
+  folderArea.addEventListener('dragstart', (e) => {
+    const itemEl = e.target.closest('[draggable]');
+    if (!itemEl) return;
+
+    const type = itemEl.dataset.type;
+    const id = parseInt(itemEl.dataset.id, 10);
+    const parentId = parseInt(itemEl.dataset.parentId, 10);
+
+    state.dragSourceData = { type, id, folderId: parentId };
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', JSON.stringify(state.dragSourceData));
+
+    requestAnimationFrame(() => {
+      itemEl.classList.add('dragging');
+    });
+  });
+
+  folderArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    const targetEl = e.target.closest('[data-type]');
+    if (!targetEl) return;
+
+    clearDragIndicators();
+
+    const targetType = targetEl.dataset.type;
+    if (targetType === 'folder') {
+      // 循环引用检测
+      if (state.dragSourceData && state.dragSourceData.type === 'folder') {
+        const targetId = parseInt(targetEl.dataset.id, 10);
+        if (isDescendantCheck(state.dragSourceData.id, targetId)) {
+          e.dataTransfer.dropEffect = 'none';
+          return;
+        }
+      }
+      targetEl.classList.add('drag-over-folder');
+    }
+  });
+
+  folderArea.addEventListener('dragleave', (e) => {
+    const targetEl = e.target.closest('[data-type]');
+    if (!targetEl) return;
+
+    const relatedTarget = e.relatedTarget;
+    if (relatedTarget && targetEl.contains(relatedTarget)) return;
+
+    targetEl.classList.remove('drag-over-folder');
+  });
+
+  folderArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    clearDragIndicators();
+
+    const targetEl = e.target.closest('[data-type]');
+    if (!targetEl || !state.dragSourceData) return;
+
+    const targetType = targetEl.dataset.type;
+    const targetId = parseInt(targetEl.dataset.id, 10);
+
+    // 不能拖到自身
+    if (state.dragSourceData.type === targetType && state.dragSourceData.id === targetId) {
+      return;
+    }
+
+    executeDragDrop(state.dragSourceData, {
+      type: targetType,
+      id: targetId,
+      position: 'on',
+    });
+  });
+
+  folderArea.addEventListener('dragend', (e) => {
+    const draggingEl = folderArea.querySelector('.dragging');
+    if (draggingEl) {
+      draggingEl.classList.remove('dragging');
+    }
+    clearDragIndicators();
+    state.dragSourceData = null;
+  });
+}
+
+/**
+ * 清除所有拖拽视觉指示器
+ */
+function clearDragIndicators() {
+  document.querySelectorAll('.drag-over-folder, .drag-over-top, .drag-over-bottom').forEach(el => {
+    el.classList.remove('drag-over-folder', 'drag-over-top', 'drag-over-bottom');
+  });
+}
+
 // ==================== 事件绑定 ====================
 
 /**
@@ -1386,6 +1771,9 @@ async function init() {
 
     // 绑定事件监听器
     setupEventListeners();
+
+    // 设置拖拽排序
+    setupDragAndDrop();
 
     // 加载文件夹树
     await refreshFolderTree();
