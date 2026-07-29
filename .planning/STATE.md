@@ -2,34 +2,39 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: 收藏夹文件夹支持 + AI Agent 集成
-current_phase: 16 — 收藏夹文件夹 - 增强功能
-status: planning
-stopped_at: Completed 15-02-PLAN.md (gap closure)
-last_updated: "2026-07-29T04:10:12.936Z"
+current_phase: 17 — Chrome 书签导入
+status: executing
+stopped_at: Completed 16-03-PLAN.md
+last_updated: "2026-07-29T05:00:00.000Z"
 progress:
   total_phases: 8
-  completed_phases: 2
-  total_plans: 6
-  completed_plans: 3
-  percent: 25
+  completed_phases: 3
+  total_plans: 9
+  completed_plans: 6
+  percent: 38
 ---
 
 # Project State: Realm Browser
 
-**Last Updated:** 2026-07-28 18:30
+**Last Updated:** 2026-07-29 13:00
 **Current Milestone:** v2.0 收藏夹文件夹支持 + AI Agent 集成
-**Current Phase:** 16 — 收藏夹文件夹 - 增强功能
+**Current Phase:** 17 — Chrome 书签导入
 
 ## Recent Activity
 
+### Phase 16: 收藏夹文件夹 - 增强功能
+
+- **Status:** Completed (2026-07-29)
+- **Output:** 拖拽排序 + 多选批量操作
+- **Plans:** 3/3 完成
+  - 16-01: 数据库层准备（fractional-indexing 迁移 + 批量排序 API）
+  - 16-02: 拖拽排序核心实现（同目录排序 + 跨文件夹移动）
+  - 16-03: 多选与批量操作（键盘多选 + 自适应右键菜单）
+
 ### Phase 15: 收藏夹文件夹 - UI 交互
 
-- **Status:** Ready to plan
-- **Completed:** 15-02 gap closure（空白区域右键菜单修复，commits 783e10d + c975877；Task 3 人工验证由 AUTO_MODE 自动批准，待阶段级验证补验）
-- **Next:** Phase 15 阶段级 verification（orchestrator）
-- **UI-SPEC:** `.planning/phases/15-ui/15-UI-SPEC.md`
-- **Context:** `.planning/phases/15-ui/15-CONTEXT.md`
-- **Summary:** `.planning/phases/15-ui/15-02-SUMMARY.md`
+- **Status:** Completed (2026-07-28)
+- **Output:** 文件夹树、面包屑导航、右键菜单
 
 ### Phase 14: 收藏夹文件夹 - 数据库层实现
 
@@ -41,20 +46,21 @@ progress:
 **v2.0 收藏夹文件夹支持 + AI Agent 集成**
 
 - Phase 14: ✅ Complete (2d)
-- Phase 15: ◆ UI-SPEC Approved (3d)
-- Phase 16-21: ○ Pending
+- Phase 15: ✅ Complete (3d)
+- Phase 16: ✅ Complete (3d)
+- Phase 17-21: ○ Pending
 
 ## Next Actions
 
-1. `/gsd-plan-phase 15` — Create detailed implementation plan for Phase 15
-2. Execute Phase 15 plans
-3. Continue with Phase 16-21
+1. `/gsd-plan-phase 17` — Create detailed implementation plan for Phase 17
+2. Execute Phase 17 plans
+3. Continue with Phase 18-21
 
 ---
 *Updated by GSD workflow*
 
 ## Session
 
-**Last session:** 2026-07-28T12:46:34.000Z
-**Stopped at:** Completed 15-02-PLAN.md (gap closure)
-**Resume file:** .planning/phases/15-ui/15-02-SUMMARY.md
+**Last session:** 2026-07-29T05:00:00.000Z
+**Stopped at:** Completed 16-03-PLAN.md
+**Resume file:** .planning/phases/16-favorites-enhancements/16-03-SUMMARY.md
