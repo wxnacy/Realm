@@ -88,6 +88,35 @@ function ensureTable() {
       ON favorite_folders (sort_order);
   `);
 
+  // 迁移：移除 favorite_folders.parent_id 上的外键约束
+  // 旧版本数据库可能带有 FOREIGN KEY (parent_id) REFERENCES favorite_folders(id)，
+  // 导致 parent_id=0（虚拟根目录）的插入失败。需要重建表去除 FK。
+  try {
+    const fkList = db.prepare('PRAGMA foreign_key_list(favorite_folders)').all();
+    if (fkList.length > 0) {
+      console.log('[Realm] 检测到 favorite_folders 表有外键约束，正在迁移...');
+      db.exec(`
+        CREATE TABLE favorite_folders_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL DEFAULT '',
+          parent_id INTEGER NOT NULL DEFAULT 0,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
+        );
+        INSERT INTO favorite_folders_new SELECT * FROM favorite_folders;
+        DROP TABLE favorite_folders;
+        ALTER TABLE favorite_folders_new RENAME TO favorite_folders;
+        CREATE INDEX IF NOT EXISTS idx_favorite_folders_parent_id
+          ON favorite_folders (parent_id);
+        CREATE INDEX IF NOT EXISTS idx_favorite_folders_sort_order
+          ON favorite_folders (sort_order);
+      `);
+      console.log('[Realm] favorite_folders 外键约束已移除');
+    }
+  } catch (e) {
+    console.error('[Realm] favorite_folders 迁移失败:', e.message);
+  }
+
   // 确保收藏记录表存在
   db.exec(`
     CREATE TABLE IF NOT EXISTS favorites (
