@@ -619,17 +619,17 @@ function isUrlDuplicate(url) {
 
 **If this table is empty:** All claims in this research were verified or cited — no user confirmation needed.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Google favicon API 是否仍可用？**
-   - What we know: Google 提供 favicon API，格式为 `https://www.google.com/s2/favicons?domain=DOMAIN&sz=SIZE`
-   - What's unclear: API 是否有速率限制或需要 API key
-   - Recommendation: 实现时添加错误处理和降级方案
+1. **Google favicon API 是否仍可用？** (RESOLVED)
+   - Resolution: 按 Claude Discretion 处理，favicon 获取失败时降级为默认图标（空字符串）
+   - Implementation: 异步获取 Google favicon API (`https://www.google.com/s2/favicons?domain=DOMAIN&sz=16`)，超时或失败时传入空字符串，不影响导入流程
+   - Decision reference: D-15, D-16
 
-2. **Chrome 多 Profile 路径如何处理？**
-   - What we know: Chrome 支持多 Profile，路径可能为 `Profile 1`、`Profile 2` 等
-   - What's unclear: 如何自动检测用户使用的 Profile
-   - Recommendation: 自动检测默认 Profile，失败时提示用户手动选择
+2. **Chrome 多 Profile 路径如何处理？** (RESOLVED)
+   - Resolution: 自动检测 Default Profile，失败时走 D-04 文件选择对话框
+   - Implementation: `detectChromeBookmarksPath()` 尝试 `~/Library/Application Support/Google/Chrome/Default/Bookmarks`，不存在时返回 null，由调用方打开文件选择对话框
+   - Decision reference: D-03, D-04
 
 ## Environment Availability
 

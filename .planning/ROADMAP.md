@@ -180,7 +180,12 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 17-01-PLAN.md — 后端书签解析与批量导入（favorites-manager.js + main.js + preload.js）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 17-02-PLAN.md — 导入功能前端 UI（favorites.html + favorites-page.js + main.css）
 
 **任务**:

@@ -4,8 +4,8 @@ milestone: v2.0
 milestone_name: 收藏夹文件夹支持 + AI Agent 集成
 current_phase: 17 — Chrome 书签导入
 status: executing
-stopped_at: Phase 17 context gathered
-last_updated: "2026-07-30T04:19:44.590Z"
+stopped_at: Phase 17 UI-SPEC approved
+last_updated: "2026-07-30T04:26:55.898Z"
 progress:
   total_phases: 8
   completed_phases: 3
@@ -61,6 +61,6 @@ progress:
 
 ## Session
 
-**Last session:** 2026-07-30T04:19:44.585Z
-**Stopped at:** Phase 17 context gathered
-**Resume file:** .planning/phases/17-chrome/17-CONTEXT.md
+**Last session:** 2026-07-30T04:26:55.893Z
+**Stopped at:** Phase 17 UI-SPEC approved
+**Resume file:** .planning/phases/17-chrome/17-UI-SPEC.md
