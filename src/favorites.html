@@ -17,13 +17,23 @@
       <h1 class="favorites-title">收藏夹</h1>
     </div>
 
-    <!-- 搜索栏 -->
-    <div class="favorites-search-wrapper">
-      <svg class="favorites-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="11" cy="11" r="8"></circle>
-        <path d="m21 21-4.35-4.35"></path>
-      </svg>
-      <input type="text" class="favorites-search" id="searchInput" placeholder="搜索收藏...">
+    <!-- 搜索栏 + 导入按钮 -->
+    <div class="favorites-search-row">
+      <div class="favorites-search-wrapper">
+        <svg class="favorites-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <path d="m21 21-4.35-4.35"></path>
+        </svg>
+        <input type="text" class="favorites-search" id="searchInput" placeholder="搜索收藏...">
+      </div>
+      <button type="button" class="btn btn-secondary btn-import-chrome" id="importBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        <span>导入书签</span>
+      </button>
     </div>
 
     <!-- 主内容区域：左右分栏 -->
@@ -72,6 +82,84 @@
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" id="cancelBatchDeleteBtn">取消</button>
         <button type="button" class="btn btn-danger" id="confirmBatchDeleteBtn">删除</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 导入进度模态框 -->
+  <dialog class="modal" id="importModal">
+    <div class="modal-content">
+      <h2 id="importModalTitle">正在导入书签...</h2>
+      <div class="import-progress-content">
+        <div class="import-progress-bar-wrapper">
+          <div class="import-progress-bar" id="importProgressBar"></div>
+        </div>
+        <p class="import-progress-text" id="importProgressText">准备导入...</p>
+        <p class="import-current-file" id="importCurrentFile"></p>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" id="importCancelBtn">取消</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 书签预览确认框 -->
+  <dialog class="modal" id="importPreviewModal">
+    <div class="modal-content">
+      <h2>书签预览</h2>
+      <div class="import-preview-content">
+        <div class="import-preview-stats">
+          <div class="import-preview-stat">
+            <span class="import-preview-label">书签总数</span>
+            <span class="import-preview-value" id="previewTotalCount">0</span>
+          </div>
+          <div class="import-preview-stat">
+            <span class="import-preview-label">文件夹数</span>
+            <span class="import-preview-value" id="previewFolderCount">0</span>
+          </div>
+        </div>
+        <div class="import-preview-folders">
+          <p class="import-preview-folders-title">顶级文件夹：</p>
+          <ul id="previewFolderList"></ul>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" id="previewCancelBtn">取消</button>
+        <button type="button" class="btn btn-primary" id="previewConfirmBtn">确认导入</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 导入结果摘要模态框 -->
+  <dialog class="modal" id="importResultModal">
+    <div class="modal-content">
+      <h2>导入完成</h2>
+      <div class="import-result-content">
+        <div class="import-result-item">
+          <span class="import-result-icon import-result-icon-success">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </span>
+          <span class="import-result-label">成功导入</span>
+          <span class="import-result-value" id="resultImported">0 条书签</span>
+        </div>
+        <div class="import-result-item">
+          <span class="import-result-icon import-result-icon-skip">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </span>
+          <span class="import-result-label">跳过重复</span>
+          <span class="import-result-value" id="resultSkipped">0 条</span>
+        </div>
+        <div class="import-result-item">
+          <span class="import-result-icon import-result-icon-folder">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+          </span>
+          <span class="import-result-label">创建文件夹</span>
+          <span class="import-result-value" id="resultFolders">0 个</span>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" id="resultCloseBtn">关闭</button>
+        <button type="button" class="btn btn-primary" id="resultViewBtn">查看导入的书签</button>
       </div>
     </div>
   </dialog>
