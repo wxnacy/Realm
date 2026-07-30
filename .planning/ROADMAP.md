@@ -102,7 +102,7 @@ Phase 14  Phase 15  Phase 16  Phase 17  Phase 18  Phase 19  Phase 20  Phase 21
 - [x] Phase 15: 收藏夹文件夹 - UI 交互 (3d) (completed 2026-07-28)
 - [x] Phase 16: 收藏夹文件夹 - 增强功能 (3d) (completed 2026-07-29)
 - [x] Phase 17: Chrome 书签导入 (2d) (completed 2026-07-30)
-- [ ] Phase 18: 收藏栏功能 (2d)
+- [x] Phase 18: 收藏栏功能 (2d) (completed 2026-07-30)
 - [ ] Phase 19: AI Agent 集成 - 基础验证 (2d)
 - [ ] Phase 20: AI Agent 集成 - 核心功能 (4d)
 - [ ] Phase 21: AI Agent 集成 - 聊天 UI (3d)
@@ -199,6 +199,7 @@ Plans:
 
 **预估时间**: 2 天
 **需求覆盖**: BAR-01, BAR-02, BAR-03, BAR-04
+**状态**: 执行完成 (2026-07-30)
 
 **Plans:** 2 plans
 
@@ -210,15 +211,15 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 18-02-PLAN.md — 收藏栏高级交互（下拉菜单 + 右键菜单 + 显示/隐藏设置）
+- [x] 18-02-PLAN.md — 收藏栏高级交互（下拉菜单 + 右键菜单 + 显示/隐藏设置）
 
 **任务**:
 
-- [ ] 收藏栏 UI 实现（HTML + CSS + IPC + Preload）
-- [ ] 收藏栏渲染与溢出计算
-- [ ] 文件夹下拉菜单与溢出菜单
-- [ ] 收藏栏右键菜单集成
-- [ ] 收藏栏显示/隐藏设置
+- [x] 收藏栏 UI 实现（HTML + CSS + IPC + Preload）
+- [x] 收藏栏渲染与溢出计算
+- [x] 文件夹下拉菜单与溢出菜单
+- [x] 收藏栏右键菜单集成
+- [x] 收藏栏显示/隐藏设置
 
 ---
 
