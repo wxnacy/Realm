@@ -106,6 +106,9 @@ function createBookmarkItem(record) {
   const item = document.createElement('div');
   item.className = 'bookmark-item';
   item.dataset.url = record.url;
+  item.dataset.bookmarkId = record.id;
+  item.dataset.bookmarkUrl = record.url;
+  item.dataset.bookmarkTitle = record.title || record.url;
   item.title = record.title || record.url;
 
   // favicon 图片（D-09：加载失败时降级到 Realm 图标）
@@ -150,6 +153,7 @@ function createFolderItem(folder) {
   const item = document.createElement('div');
   item.className = 'bookmark-folder';
   item.dataset.folderId = folder.id;
+  item.dataset.folderName = folder.name;
   item.title = folder.name;
 
   // 文件夹图标（SVG）
@@ -171,7 +175,13 @@ function createFolderItem(folder) {
   item.appendChild(title);
   item.appendChild(arrow);
 
-  // Plan 02 实现点击展开下拉菜单
+  // 点击展开下拉菜单（per D-04）
+  item.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (window.bookmarksBarMenu) {
+      window.bookmarksBarMenu.showFolderMenu(item, folder.id);
+    }
+  });
 
   return item;
 }
@@ -278,6 +288,17 @@ function initBookmarksBar() {
   window.addEventListener('resize', () => {
     calculateOverflow();
   });
+
+  // 绑定溢出按钮点击事件
+  const overflowBtn = document.getElementById('bookmarksOverflowBtn');
+  if (overflowBtn) {
+    overflowBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (window.bookmarksBarMenu) {
+        window.bookmarksBarMenu.showOverflowMenu(overflowBtn, overflowItems);
+      }
+    });
+  }
 
   // 初始化 ResizeObserver
   initResizeObserver();
