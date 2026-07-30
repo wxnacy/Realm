@@ -90,27 +90,18 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ CTX-03: 图片右键专属菜单（新标签页打开/另存为/复制图片/复制图片地址） — Phase 13
 - ✓ CTX-04: 链接右键专属菜单（新标签页/后台打开/容器中打开/复制链接地址） — Phase 13
 - ✓ CTX-05: 菜单项功能与 Chrome 浏览器一致（LIFO 恢复、固定 Tab favicon 持久化） — Phase 13
+- ✓ FOLDER-01..04: 文件夹 CRUD + 移动收藏到文件夹 — Phase 14
+- ✓ FOLDER-05/06/08: 文件夹树状导航 + 面包屑 + 右键菜单 — Phase 15
+- ✓ FOLDER-07: 拖拽排序（fractional-indexing + 多选批量操作） — Phase 16
+- ✓ IMPORT-01: 自动读取 Chrome 本地书签（含 AccountBookmarks/多 Profile 检测） — Phase 17
+- ✓ IMPORT-02: 支持 HTML 书签文件导入（预览确认两阶段） — Phase 17
+- ✓ IMPORT-03: 导入进度（HTTP 轮询 + stage 分阶段）和冲突处理（书签 URL 去重 + 文件夹同名复用） — Phase 17
 
 ### Active
 
 <!-- 当前需要构建的功能（下一里程碑定义） -->
 
 **v2.0 收藏夹文件夹支持 + AI Agent 集成** (2026-07-28)
-
-#### 收藏夹文件夹支持
-- FOLDER-01: 创建文件夹 — Phase 14
-- FOLDER-02: 重命名文件夹 — Phase 14
-- FOLDER-03: 删除文件夹 — Phase 14
-- FOLDER-04: 移动收藏到文件夹 — Phase 14
-- FOLDER-05: 文件夹树状导航 — Phase 15
-- FOLDER-06: 面包屑导航 — Phase 15
-- FOLDER-07: 拖拽排序 — Phase 16
-- FOLDER-08: 右键菜单（收藏夹页面）— Phase 15
-
-#### Chrome 书签导入
-- IMPORT-01: 自动读取 Chrome 本地书签 — Phase 17
-- IMPORT-02: 支持 HTML 书签文件导入 — Phase 17
-- IMPORT-03: 导入进度和冲突处理 — Phase 17
 
 #### 收藏栏
 - BAR-01: 收藏栏固定显示 — Phase 18
@@ -129,7 +120,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - **书签/历史同步** — 本期不实现跨容器同步
 - **网络代理隔离** — 本期不实现每个容器独立代理
 - **移动端支持** — 仅支持桌面端（macOS）
-- **Chrome 多 Profile 导入** — 仅支持 Default Profile
+- **Chrome 多 Profile 合并导入** — 检测覆盖 Default/Profile N（含 AccountBookmarks），但仅导入检测到的第一个 Profile，不做多 Profile 合并
 - **收藏栏多行显示** — 仅支持单行显示
 
 ## Current State
@@ -209,6 +200,9 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | 已关闭标签页恢复维持逐条 LIFO（Chrome 风格） | 2026-07-28 产品决策方案 A：批量关闭经连续恢复逐个找回，不做一键恢复多个 | ✓ 已验证 — Phase 13 UAT |
 | Tab DOM 创建统一入口 createTabElement(tab) | 三处创建点分叉导致 favicon 元素缺失（固定 Tab 无图标 bug 根因），统一入口防回归 | ✓ 已验证 — Phase 13 UAT |
 | 复制图片走 nativeImage 快路径 + Chromium canvas 解码兜底 | nativeImage.createFromBuffer 仅支持 PNG/JPEG，webp/avif 需 offscreen 窗口 canvas 转 PNG | ✓ 已验证 — Phase 13 UAT |
+| webview 内部页面新功能一律走 /api/* HTTP 端点，禁用 realmAPI | Phase 17 UAT 根因：webview guest 无 realmAPI（CR-4），导入前端误用 IPC 导致点击无反应；Electron 32 已移除 File.path，文件选择用原生 input 读内容上传 | ✓ 已验证 — Phase 17 UAT |
+| 导入文件夹去重按"同名同父级复用"（findFolderByName） | 书签有 INSERT OR IGNORE 兜底而文件夹没有，重复导入原样重建文件夹树 | ✓ 已验证 — Phase 17 UAT |
+| 长任务进度经 HTTP 轮询 + stage 分阶段上报；同步批处理每批 setImmediate 让出事件循环 | webview 无法接收 IPC 事件；同步循环阻塞事件循环导致轮询无响应、进度条卡 0 | ✓ 已验证 — Phase 17 UAT |
 
 ## Evolution
 
@@ -228,4 +222,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-28 after v1.3 milestone completion*
+*Last updated: 2026-07-30 after Phase 17*
