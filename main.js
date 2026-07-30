@@ -1188,6 +1188,84 @@ app.whenReady().then(async () => {
     return favoritesManager.updateFavoriteSort(id, { sortOrder });
   });
 
+  // ==================== 书签导入 IPC ====================
+
+  // 存储当前导入操作的 AbortController（用于取消支持 per IMPORT-03）
+  let currentImportAbortController = null;
+
+  // Chrome JSON 书签导入（per D-03, D-04, D-05, D-10, D-13）
+  ipcMain.handle('favorites:import-chrome', async (event, { filePath }) => {
+    const mainWindow = windowManager.getMainWindow();
+    if (!mainWindow) return { success: false, error: '主窗口不存在' };
+
+    // 创建新的 AbortController
+    currentImportAbortController = new AbortController();
+
+    const onProgress = (data) => {
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('favorites:import-progress', data);
+      }
+    };
+
+    try {
+      const result = await favoritesManager.importChromeBookmarks(
+        filePath,
+        onProgress,
+        currentImportAbortController.signal
+      );
+      return result;
+    } finally {
+      currentImportAbortController = null;
+    }
+  });
+
+  // HTML 书签导入（per D-11, D-12, D-13）
+  ipcMain.handle('favorites:import-html', async (event, { filePath }) => {
+    const mainWindow = windowManager.getMainWindow();
+    if (!mainWindow) return { success: false, error: '主窗口不存在' };
+
+    currentImportAbortController = new AbortController();
+
+    const onProgress = (data) => {
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('favorites:import-progress', data);
+      }
+    };
+
+    try {
+      const result = await favoritesManager.importHtmlBookmarks(
+        filePath,
+        onProgress,
+        currentImportAbortController.signal
+      );
+      return result;
+    } finally {
+      currentImportAbortController = null;
+    }
+  });
+
+  // 取消导入操作（per IMPORT-03）
+  ipcMain.handle('favorites:import-abort', async () => {
+    if (currentImportAbortController) {
+      currentImportAbortController.abort();
+      return { success: true };
+    }
+    return { success: false, message: '没有正在进行的导入操作' };
+  });
+
+  // 检测 Chrome 书签路径（per D-03）
+  ipcMain.handle('favorites:detect-chrome-path', async () => {
+    const chromePath = favoritesManager.detectChromeBookmarksPath();
+    return { path: chromePath };
+  });
+
+  // 打开文件选择对话框（per D-04）
+  ipcMain.handle('dialog:open', async (event, options) => {
+    const mainWindow = windowManager.getMainWindow();
+    if (!mainWindow) return { canceled: true, filePaths: [] };
+    return dialog.showOpenDialog(mainWindow, options);
+  });
+
   // 初始化历史记录数据库
   historyManager.initDatabase();
 

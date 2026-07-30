@@ -659,6 +659,59 @@ contextBridge.exposeInMainWorld('realmAPI', {
    */
   updateFavoriteSort: (id, sortOrder) => ipcRenderer.invoke('favorites:update-favorite-sort', { id, sortOrder }),
 
+  // ==================== 书签导入 ====================
+
+  /**
+   * Chrome JSON 书签导入
+   * @param {string} filePath - 书签文件路径，为空时自动检测
+   * @returns {Promise<{success: boolean, imported?: number, skipped?: number, foldersCreated?: number}>}
+   */
+  importChromeBookmarks: (filePath) => ipcRenderer.invoke('favorites:import-chrome', { filePath }),
+
+  /**
+   * HTML 书签导入
+   * @param {string} filePath - HTML 书签文件路径
+   * @returns {Promise<{success: boolean, imported?: number, skipped?: number, preview?: Object}>}
+   */
+  importHtmlBookmarks: (filePath) => ipcRenderer.invoke('favorites:import-html', { filePath }),
+
+  /**
+   * 取消正在进行的导入操作
+   * @returns {Promise<{success: boolean}>}
+   */
+  abortImport: () => ipcRenderer.invoke('favorites:import-abort'),
+
+  /**
+   * 检测 Chrome 书签文件路径
+   * @returns {Promise<{path: string|null}>}
+   */
+  detectChromePath: () => ipcRenderer.invoke('favorites:detect-chrome-path'),
+
+  /**
+   * 打开文件选择对话框
+   * @param {Object} options - 对话框选项
+   * @param {string} [options.title] - 对话框标题
+   * @param {Array} [options.filters] - 文件类型过滤器
+   * @param {string[]} [options.properties] - 对话框属性
+   * @returns {Promise<{canceled: boolean, filePaths: string[]}>}
+   */
+  showOpenDialog: (options) => ipcRenderer.invoke('dialog:open', options),
+
+  /**
+   * 监听导入进度事件
+   * @param {Function} callback - 回调函数，参数为 {progress, imported, skipped, total, current}
+   */
+  onImportProgress: (callback) => {
+    ipcRenderer.on('favorites:import-progress', (event, data) => callback(data));
+  },
+
+  /**
+   * 移除导入进度监听器
+   */
+  removeImportProgressListener: () => {
+    ipcRenderer.removeAllListeners('favorites:import-progress');
+  },
+
   // ==================== 应用设置 ====================
 
   /**
