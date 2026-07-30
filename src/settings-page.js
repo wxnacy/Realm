@@ -130,6 +130,7 @@ const elements = {
   retentionDays: document.getElementById('retentionDays'),
   defaultContainer: document.getElementById('defaultContainer'),
   restoreTabsOnLaunch: document.getElementById('restoreTabsOnLaunch'),
+  showBookmarksBar: document.getElementById('showBookmarksBar'),
   toast: document.getElementById('toast'),
 
   // 侧边栏
@@ -293,6 +294,12 @@ async function loadSettings() {
     elements.retentionDays.value = state.settings.historyRetentionDays || 30;
     renderContainerOptions(containers, state.settings.defaultContainer);
     elements.restoreTabsOnLaunch.value = state.settings.restoreTabsOnLaunch || 'ask';
+
+    // 收藏栏显示状态（默认显示）
+    if (elements.showBookmarksBar) {
+      const bookmarksBarVisible = state.settings.bookmarksBar?.visible !== false;
+      elements.showBookmarksBar.checked = bookmarksBarVisible;
+    }
 
     // 更新版本号
     const versionRes = await settingsApi('version').catch(() => null);
@@ -991,6 +998,22 @@ function setupEventListeners() {
     const value = elements.restoreTabsOnLaunch.value;
     saveSettings('restoreTabsOnLaunch', value);
   });
+
+  // 收藏栏显示/隐藏切换
+  if (elements.showBookmarksBar) {
+    elements.showBookmarksBar.addEventListener('change', () => {
+      const visible = elements.showBookmarksBar.checked;
+      // 保存设置到主进程
+      saveSettings('bookmarksBar.visible', visible);
+      // 通过 API 通知主进程切换收藏栏显示状态
+      const params = new URLSearchParams({ token: apiToken });
+      fetch(`/api/bookmarks-bar/toggle?${params.toString()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visible }),
+      }).catch(err => console.error('[Realm] 切换收藏栏失败:', err));
+    });
+  }
 
   // 规则管理事件
   elements.addRuleBtn.addEventListener('click', () => {

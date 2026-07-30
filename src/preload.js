@@ -535,6 +535,18 @@ contextBridge.exposeInMainWorld('realmAPI', {
   showWebContextMenu: (contextInfo) => ipcRenderer.send('show-web-context-menu', contextInfo),
 
   /**
+   * 发送收藏栏右键菜单请求
+   * 渲染进程检测到收藏栏右键点击后调用，主进程根据类型构建对应菜单
+   * @param {Object} info - 右键上下文信息
+   * @param {string} info.type - 元素类型：'bookmark' | 'folder' | 'blank'
+   * @param {string} [info.id] - 收藏项或文件夹 ID
+   * @param {string} [info.url] - 收藏项 URL（type=bookmark）
+   * @param {string} [info.title] - 收藏项标题（type=bookmark）
+   * @param {string} [info.name] - 文件夹名称（type=folder）
+   */
+  showBookmarksBarContextMenu: (info) => ipcRenderer.send('show-bookmarks-bar-context-menu', info),
+
+  /**
    * 注册右键菜单动作回调监听器
    * 主进程菜单项被点击后，通过对应 channel 发送回调，渲染进程据此更新 UI
    * 支持的 channel：context-menu:close-tab, context-menu:close-other-tabs,
@@ -569,6 +581,16 @@ contextBridge.exposeInMainWorld('realmAPI', {
     channels.forEach(channel => {
       ipcRenderer.on(channel, (event, data) => callback(channel, data));
     });
+  },
+
+  /**
+   * 监听收藏栏 IPC 消息
+   * 主进程右键菜单行为通过这些 channel 推送
+   * @param {string} channel - IPC channel 名称
+   * @param {Function} callback - 回调函数
+   */
+  onIpcMessage: (channel, callback) => {
+    ipcRenderer.on(channel, (event, data) => callback(data));
   },
 
   /**

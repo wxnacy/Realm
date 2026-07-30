@@ -1422,6 +1422,54 @@ async function init() {
     }
   }
 
+  // 监听收藏栏右键菜单行为事件
+  window.realmAPI.onIpcMessage('bookmarks-bar:refresh', () => {
+    if (window.bookmarksBar) window.bookmarksBar.load();
+  });
+  window.realmAPI.onIpcMessage('bookmarks-bar:visibility-changed', (data) => {
+    const bookmarksBar = document.getElementById('bookmarksBar');
+    if (bookmarksBar) bookmarksBar.style.display = data.visible ? '' : 'none';
+    if (data.visible && window.bookmarksBar) window.bookmarksBar.load();
+    // 同步设置页面开关状态
+    const toggle = document.getElementById('showBookmarksBar');
+    if (toggle) toggle.checked = data.visible;
+  });
+  window.realmAPI.onIpcMessage('bookmarks-bar:navigate', (data) => {
+    if (data.newTab) {
+      window.open(data.url, '_blank');
+    }
+  });
+  window.realmAPI.onIpcMessage('bookmarks-bar:add-bookmark', (data) => {
+    // 跳转到收藏夹页面执行添加操作
+    showToast('请在收藏夹页面添加书签', 'info');
+  });
+  window.realmAPI.onIpcMessage('bookmarks-bar:add-folder', (data) => {
+    // 跳转到收藏夹页面执行添加操作
+    showToast('请在收藏夹页面添加文件夹', 'info');
+  });
+  window.realmAPI.onIpcMessage('bookmarks-bar:edit-bookmark', (data) => {
+    // 跳转到收藏夹页面执行编辑操作
+    showToast('请在收藏夹页面编辑书签', 'info');
+  });
+  window.realmAPI.onIpcMessage('bookmarks-bar:rename-folder', (data) => {
+    // 跳转到收藏夹页面执行重命名操作
+    showToast('请在收藏夹页面重命名文件夹', 'info');
+  });
+  window.realmAPI.onIpcMessage('bookmarks-bar:open-all', (data) => {
+    // 打开文件夹中的所有书签
+    if (data.folderId) {
+      window.realmAPI.bookmarksBar.listFavorites(data.folderId).then((favorites) => {
+        if (favorites && favorites.length > 0) {
+          favorites.forEach((fav) => {
+            if (fav.url) {
+              window.open(fav.url, '_blank');
+            }
+          });
+        }
+      });
+    }
+  });
+
   console.log('[Realm Renderer] 初始化完成');
 }
 
@@ -2614,11 +2662,32 @@ function setupEventListeners() {
 
   // Escape 键：<dialog> 原生支持 Escape 关闭，无需手动监听
 
-  // 收藏栏右键事件委托（Plan 02 实现菜单内容）
+  // 收藏栏右键事件委托
   if (elements.bookmarksBar) {
     elements.bookmarksBar.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      // Plan 02: 实现收藏栏右键菜单
+      const bookmarkEl = e.target.closest('.bookmark-item');
+      const folderEl = e.target.closest('.bookmark-folder');
+
+      if (bookmarkEl) {
+        // 收藏项右键菜单（per D-12）
+        const info = {
+          id: bookmarkEl.dataset.bookmarkId,
+          url: bookmarkEl.dataset.bookmarkUrl,
+          title: bookmarkEl.dataset.bookmarkTitle,
+        };
+        window.realmAPI.showBookmarksBarContextMenu({ type: 'bookmark', ...info });
+      } else if (folderEl) {
+        // 文件夹右键菜单（per D-13）
+        const info = {
+          id: folderEl.dataset.folderId,
+          name: folderEl.dataset.folderName,
+        };
+        window.realmAPI.showBookmarksBarContextMenu({ type: 'folder', ...info });
+      } else {
+        // 空白区域右键菜单（per D-03/D-14）
+        window.realmAPI.showBookmarksBarContextMenu({ type: 'blank' });
+      }
     });
   }
 

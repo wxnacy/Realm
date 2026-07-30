@@ -1100,6 +1100,28 @@ app.whenReady().then(async () => {
       return;
     }
 
+    // 收藏栏 API（设置页面收藏栏开关）
+    if (reqPath === '/api/bookmarks-bar/toggle' && req.method === 'POST') {
+      // token 鉴权
+      if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+        sendJson(res, 403, { error: 'Forbidden' });
+        return;
+      }
+      try {
+        const { visible } = await readJsonBody(req);
+        configStore.set('bookmarksBar.visible', !!visible);
+        // 通知主窗口渲染进程
+        const mainWindow = windowManager.getMainWindow();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('bookmarks-bar:visibility-changed', { visible: !!visible });
+        }
+        sendJson(res, 200, { success: true });
+      } catch (err) {
+        sendJson(res, 500, { error: err.message });
+      }
+      return;
+    }
+
     // 路由映射：/history → src/history.html，/history/xxx.js → src/xxx.js
     let filePath;
     if (reqPath === '/history' || reqPath === '/history/') {
@@ -1212,6 +1234,140 @@ app.whenReady().then(async () => {
    */
   ipcMain.on('context-menu:closed-tab', (event, tabInfo) => {
     contextMenuManager.pushClosedTab(tabInfo);
+  });
+
+  /**
+   * 收藏栏右键菜单请求
+   * 渲染进程收藏栏右键时发送，主进程构建并弹出原生菜单
+   * @param {Object} info - 上下文信息 { type: 'bookmark'|'folder'|'blank', id?, url?, title?, name? }
+   */
+  ipcMain.on('show-bookmarks-bar-context-menu', (event, info) => {
+    const mainWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!mainWindow) return;
+
+    const hostWebContents = mainWindow.webContents;
+    let template = [];
+
+    if (info.type === 'bookmark') {
+      // D-12: 收藏项右键菜单
+      template = [
+        {
+          label: '在新标签页打开',
+          click: () => {
+            if (!hostWebContents.isDestroyed()) {
+              hostWebContents.send('bookmarks-bar:navigate', { url: info.url, newTab: true });
+            }
+          },
+        },
+        { type: 'separator' },
+        {
+          label: '编辑',
+          click: () => {
+            if (!hostWebContents.isDestroyed()) {
+              hostWebContents.send('bookmarks-bar:edit-bookmark', { id: info.id });
+            }
+          },
+        },
+        { type: 'separator' },
+        {
+          label: '删除',
+          click: async () => {
+            try {
+              await favoritesManager.deleteRecord(info.id);
+              if (!hostWebContents.isDestroyed()) {
+                hostWebContents.send('bookmarks-bar:refresh');
+              }
+            } catch (err) {
+              console.error('[Realm] 删除收藏失败:', err);
+            }
+          },
+        },
+      ];
+    } else if (info.type === 'folder') {
+      // D-13: 文件夹右键菜单
+      template = [
+        {
+          label: '在新标签页中打开所有书签',
+          click: () => {
+            if (!hostWebContents.isDestroyed()) {
+              hostWebContents.send('bookmarks-bar:open-all', { folderId: info.id });
+            }
+          },
+        },
+        { type: 'separator' },
+        {
+          label: '重命名',
+          click: () => {
+            if (!hostWebContents.isDestroyed()) {
+              hostWebContents.send('bookmarks-bar:rename-folder', { id: info.id, name: info.name });
+            }
+          },
+        },
+        {
+          label: '删除',
+          click: async () => {
+            try {
+              await favoritesManager.deleteFolder(info.id);
+              if (!hostWebContents.isDestroyed()) {
+                hostWebContents.send('bookmarks-bar:refresh');
+              }
+            } catch (err) {
+              console.error('[Realm] 删除文件夹失败:', err);
+            }
+          },
+        },
+        { type: 'separator' },
+        {
+          label: '添加书签',
+          click: () => {
+            if (!hostWebContents.isDestroyed()) {
+              hostWebContents.send('bookmarks-bar:add-bookmark', { folderId: info.id });
+            }
+          },
+        },
+        {
+          label: '添加文件夹',
+          click: () => {
+            if (!hostWebContents.isDestroyed()) {
+              hostWebContents.send('bookmarks-bar:add-folder', { parentId: info.id });
+            }
+          },
+        },
+      ];
+    } else {
+      // D-03/D-14: 空白区域右键菜单
+      template = [
+        {
+          label: '添加书签',
+          click: () => {
+            if (!hostWebContents.isDestroyed()) {
+              hostWebContents.send('bookmarks-bar:add-bookmark', { folderId: 0 });
+            }
+          },
+        },
+        {
+          label: '添加文件夹',
+          click: () => {
+            if (!hostWebContents.isDestroyed()) {
+              hostWebContents.send('bookmarks-bar:add-folder', { parentId: 0 });
+            }
+          },
+        },
+        { type: 'separator' },
+        {
+          label: '隐藏收藏栏',
+          click: () => {
+            configStore.set('bookmarksBar.visible', false);
+            if (!hostWebContents.isDestroyed()) {
+              hostWebContents.send('bookmarks-bar:visibility-changed', { visible: false });
+            }
+          },
+        },
+      ];
+    }
+
+    const menu = Menu.buildFromTemplate(template);
+    menu.popup({ window: mainWindow });
   });
 
   // ==================== 收藏夹文件夹 IPC ====================
