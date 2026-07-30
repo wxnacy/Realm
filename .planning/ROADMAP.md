@@ -101,7 +101,7 @@ Phase 14  Phase 15  Phase 16  Phase 17  Phase 18  Phase 19  Phase 20  Phase 21
 - [ ] Phase 14: 收藏夹文件夹 - 数据库层实现 (2d)
 - [x] Phase 15: 收藏夹文件夹 - UI 交互 (3d) (completed 2026-07-28)
 - [x] Phase 16: 收藏夹文件夹 - 增强功能 (3d) (completed 2026-07-29)
-- [ ] Phase 17: Chrome 书签导入 (2d)
+- [x] Phase 17: Chrome 书签导入 (2d) (completed 2026-07-30)
 - [ ] Phase 18: 收藏栏功能 (2d)
 - [ ] Phase 19: AI Agent 集成 - 基础验证 (2d)
 - [ ] Phase 20: AI Agent 集成 - 核心功能 (4d)
@@ -177,16 +177,16 @@ Plans:
 **需求覆盖**: IMPORT-01, IMPORT-02, IMPORT-03
 **状态**: 规划完成
 
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
 **Wave 1**
 
-- [ ] 17-01-PLAN.md — 后端书签解析与批量导入（favorites-manager.js + main.js + preload.js）
+- [x] 17-01-PLAN.md — 后端书签解析与批量导入（favorites-manager.js + main.js + preload.js）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 17-02-PLAN.md — 导入功能前端 UI（favorites.html + favorites-page.js + main.css）
+- [x] 17-02-PLAN.md — 导入功能前端 UI（favorites.html + favorites-page.js + main.css）
 
 **任务**:
 
