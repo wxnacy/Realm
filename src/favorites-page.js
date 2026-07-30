@@ -144,6 +144,26 @@ const elements = {
   folderTree: document.getElementById('folderTree'),
   breadcrumb: document.getElementById('breadcrumb'),
   addFolderBtn: document.getElementById('addFolderBtn'),
+  // 导入相关元素
+  importBtn: document.getElementById('importBtn'),
+  importModal: document.getElementById('importModal'),
+  importModalTitle: document.getElementById('importModalTitle'),
+  importProgressBar: document.getElementById('importProgressBar'),
+  importProgressText: document.getElementById('importProgressText'),
+  importCurrentFile: document.getElementById('importCurrentFile'),
+  importCancelBtn: document.getElementById('importCancelBtn'),
+  importPreviewModal: document.getElementById('importPreviewModal'),
+  previewTotalCount: document.getElementById('previewTotalCount'),
+  previewFolderCount: document.getElementById('previewFolderCount'),
+  previewFolderList: document.getElementById('previewFolderList'),
+  previewConfirmBtn: document.getElementById('previewConfirmBtn'),
+  previewCancelBtn: document.getElementById('previewCancelBtn'),
+  importResultModal: document.getElementById('importResultModal'),
+  resultImported: document.getElementById('resultImported'),
+  resultSkipped: document.getElementById('resultSkipped'),
+  resultFolders: document.getElementById('resultFolders'),
+  resultCloseBtn: document.getElementById('resultCloseBtn'),
+  resultViewBtn: document.getElementById('resultViewBtn'),
 };
 
 // ==================== 工具函数 ====================
@@ -2010,6 +2030,276 @@ function setupEventListeners() {
       updateSelectionUI();
     }
   });
+
+  // ==================== 导入事件绑定 ====================
+
+  // 导入按钮
+  elements.importBtn.addEventListener('click', handleImportClick);
+
+  // 导入取消按钮
+  elements.importCancelBtn.addEventListener('click', handleImportCancel);
+
+  // 预览确认框按钮
+  elements.previewCancelBtn.addEventListener('click', () => elements.importPreviewModal.close());
+  elements.previewConfirmBtn.addEventListener('click', handlePreviewConfirm);
+
+  // 结果摘要框按钮
+  elements.resultCloseBtn.addEventListener('click', () => elements.importResultModal.close());
+  elements.resultViewBtn.addEventListener('click', handleViewImported);
+}
+
+// ==================== 书签导入 ====================
+
+/**
+ * 存储当前 HTML 导入的预览数据（用于确认后重新执行导入）
+ * @type {Object|null}
+ */
+let pendingHtmlPreview = null;
+
+/**
+ * 处理导入按钮点击事件
+ *
+ * 先检测 Chrome 默认路径（per D-03），检测到直接导入；
+ * 未检测到则弹出文件选择对话框（per D-04）。
+ *
+ * 支持 .json（Chrome 格式）和 .html/.htm（Netscape 格式）。
+ */
+async function handleImportClick() {
+  try {
+    // 检测 Chrome 默认路径
+    const detectResult = await window.realmAPI.detectChromePath();
+
+    if (detectResult && detectResult.path) {
+      // 检测到 Chrome 书签文件，直接导入
+      await startChromeImport(detectResult.path);
+    } else {
+      // 未检测到，弹出文件选择对话框
+      const dialogResult = await window.realmAPI.showOpenDialog({
+        title: '选择书签文件',
+        filters: [
+          { name: '书签文件', extensions: ['html', 'htm', 'json'] },
+        ],
+        properties: ['openFile'],
+      });
+
+      // 用户取消选择
+      if (dialogResult.canceled || !dialogResult.filePaths || dialogResult.filePaths.length === 0) {
+        return;
+      }
+
+      const filePath = dialogResult.filePaths[0];
+      const ext = filePath.toLowerCase().split('.').pop();
+
+      if (ext === 'json') {
+        await startChromeImport(filePath);
+      } else if (ext === 'html' || ext === 'htm') {
+        await startHtmlImport(filePath);
+      } else {
+        showToast('不支持的文件格式');
+      }
+    }
+  } catch (err) {
+    console.error('[Realm Favorites] 导入操作失败:', err);
+    showToast('导入失败: ' + (err.message || '未知错误'));
+  }
+}
+
+/**
+ * 开始 Chrome JSON 书签导入
+ *
+ * @param {string} filePath - Chrome 书签 JSON 文件路径
+ */
+async function startChromeImport(filePath) {
+  showImportModal('正在导入 Chrome 书签...');
+
+  // 注册进度监听
+  window.realmAPI.onImportProgress(updateImportProgress);
+
+  try {
+    const result = await window.realmAPI.importChromeBookmarks(filePath);
+
+    // 清理进度监听
+    window.realmAPI.removeImportProgressListener();
+    elements.importModal.close();
+
+    if (result.success) {
+      showImportResult(result);
+      await loadFavorites();
+      await refreshFolderTree();
+    } else {
+      showToast('导入失败: ' + (result.error || '未知错误'));
+    }
+  } catch (err) {
+    window.realmAPI.removeImportProgressListener();
+    elements.importModal.close();
+    console.error('[Realm Favorites] Chrome 导入失败:', err);
+    showToast('导入失败: ' + (err.message || '未知错误'));
+  }
+}
+
+/**
+ * 开始 HTML 书签文件导入
+ *
+ * 先获取预览数据（per D-11），用户确认后再执行实际导入。
+ *
+ * @param {string} filePath - HTML 书签文件路径
+ */
+async function startHtmlImport(filePath) {
+  try {
+    // 调用导入 API 获取预览数据（第一次调用返回 preview）
+    const result = await window.realmAPI.importHtmlBookmarks(filePath);
+
+    if (result.success && result.preview) {
+      // 存储待确认的导入信息
+      pendingHtmlPreview = { filePath, preview: result.preview };
+      showImportPreview(result.preview);
+    } else if (result.success) {
+      // 没有预览数据，直接导入完成
+      showImportResult(result);
+      await loadFavorites();
+      await refreshFolderTree();
+    } else {
+      showToast('解析失败: ' + (result.error || '未知错误'));
+    }
+  } catch (err) {
+    console.error('[Realm Favorites] HTML 导入失败:', err);
+    showToast('导入失败: ' + (err.message || '未知错误'));
+  }
+}
+
+/**
+ * 显示导入进度模态框
+ *
+ * @param {string} title - 模态框标题
+ */
+function showImportModal(title) {
+  elements.importModalTitle.textContent = title;
+  elements.importProgressBar.style.width = '0%';
+  elements.importProgressText.textContent = '准备导入...';
+  elements.importCurrentFile.textContent = '';
+  elements.importModal.showModal();
+}
+
+/**
+ * 更新导入进度
+ *
+ * @param {Object} data - 进度数据
+ * @param {number} data.progress - 进度百分比（0-100）
+ * @param {number} data.imported - 已导入数量
+ * @param {number} data.total - 总数
+ * @param {string} [data.current] - 当前处理的文件名
+ */
+function updateImportProgress(data) {
+  elements.importProgressBar.style.width = data.progress + '%';
+  elements.importProgressText.textContent = '已导入 ' + data.imported + ' / ' + data.total + ' 条书签';
+  elements.importCurrentFile.textContent = data.current ? '当前处理: ' + data.current : '';
+}
+
+/**
+ * 处理取消导入操作（per IMPORT-03）
+ */
+async function handleImportCancel() {
+  try {
+    await window.realmAPI.abortImport();
+    elements.importModal.close();
+    showToast('导入已取消');
+  } catch (err) {
+    console.error('[Realm Favorites] 取消导入失败:', err);
+    elements.importModal.close();
+  }
+}
+
+/**
+ * 显示书签预览确认框（per D-11, D-12）
+ *
+ * @param {Object} preview - 预览数据
+ * @param {number} preview.total - 书签总数
+ * @param {number} preview.folderCount - 文件夹数
+ * @param {Array<string>} preview.topFolders - 顶级文件夹名称列表
+ */
+function showImportPreview(preview) {
+  elements.previewTotalCount.textContent = preview.total;
+  elements.previewFolderCount.textContent = preview.folderCount;
+
+  // 清空并填充文件夹列表
+  elements.previewFolderList.innerHTML = '';
+  if (preview.topFolders && preview.topFolders.length > 0) {
+    for (const folderName of preview.topFolders) {
+      const li = document.createElement('li');
+      li.textContent = folderName;
+      elements.previewFolderList.appendChild(li);
+    }
+  } else {
+    const li = document.createElement('li');
+    li.textContent = '（无顶级文件夹）';
+    elements.previewFolderList.appendChild(li);
+  }
+
+  elements.importPreviewModal.showModal();
+}
+
+/**
+ * 处理预览确认后的导入操作
+ */
+async function handlePreviewConfirm() {
+  if (!pendingHtmlPreview) {
+    elements.importPreviewModal.close();
+    return;
+  }
+
+  const { filePath } = pendingHtmlPreview;
+  pendingHtmlPreview = null;
+  elements.importPreviewModal.close();
+
+  showImportModal('正在导入书签...');
+
+  // 注册进度监听
+  window.realmAPI.onImportProgress(updateImportProgress);
+
+  try {
+    const result = await window.realmAPI.importHtmlBookmarks(filePath);
+
+    // 清理进度监听
+    window.realmAPI.removeImportProgressListener();
+    elements.importModal.close();
+
+    if (result.success) {
+      showImportResult(result);
+      await loadFavorites();
+      await refreshFolderTree();
+    } else {
+      showToast('导入失败: ' + (result.error || '未知错误'));
+    }
+  } catch (err) {
+    window.realmAPI.removeImportProgressListener();
+    elements.importModal.close();
+    console.error('[Realm Favorites] HTML 导入失败:', err);
+    showToast('导入失败: ' + (err.message || '未知错误'));
+  }
+}
+
+/**
+ * 显示导入结果摘要（per D-17）
+ *
+ * @param {Object} result - 导入结果
+ * @param {number} result.imported - 成功导入数量
+ * @param {number} result.skipped - 跳过重复数量
+ * @param {number} result.foldersCreated - 创建文件夹数量
+ */
+function showImportResult(result) {
+  elements.resultImported.textContent = (result.imported || 0) + ' 条书签';
+  elements.resultSkipped.textContent = (result.skipped || 0) + ' 条';
+  elements.resultFolders.textContent = (result.foldersCreated || 0) + ' 个';
+  elements.importResultModal.showModal();
+}
+
+/**
+ * 处理「查看导入的书签」按钮点击
+ * 关闭结果模态框，导航到收藏夹根目录
+ */
+function handleViewImported() {
+  elements.importResultModal.close();
+  navigateToFolder(0);
 }
 
 // ==================== 初始化 ====================
