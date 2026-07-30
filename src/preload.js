@@ -727,6 +727,51 @@ contextBridge.exposeInMainWorld('realmAPI', {
    * @returns {Promise<{success: boolean}>}
    */
   setSetting: (key, value) => ipcRenderer.invoke('settings:set', key, value),
+
+  // ==================== 收藏栏 ====================
+
+  /**
+   * 收藏栏相关 API
+   * 提供收藏数据获取和收藏栏显示/隐藏控制
+   */
+  bookmarksBar: {
+    /**
+     * 获取指定文件夹下的收藏项
+     * @param {number} [folderId=0] - 文件夹 ID，0 表示根目录
+     * @returns {Promise<Array>} 收藏项列表
+     */
+    listFavorites: (folderId) => ipcRenderer.invoke('favorites:list', {
+      folderId: folderId !== undefined ? folderId : 0,
+    }),
+
+    /**
+     * 获取完整的文件夹树结构
+     * @returns {Promise<Array>} 文件夹树
+     */
+    getFolderTree: () => ipcRenderer.invoke('favorites:get-folder-tree'),
+
+    /**
+     * 获取指定父文件夹下的子文件夹列表
+     * @param {number} [parentId=0] - 父文件夹 ID
+     * @returns {Promise<Array>} 子文件夹列表
+     */
+    listFolders: (parentId) => ipcRenderer.invoke('favorites:list-folders', {
+      parentId: parentId !== undefined ? parentId : 0,
+    }),
+
+    /**
+     * 切换收藏栏显示/隐藏
+     * @param {boolean} visible - 是否显示
+     * @returns {Promise<{success: boolean}>}
+     */
+    toggle: (visible) => ipcRenderer.invoke('bookmarks-bar:toggle', { visible }),
+
+    /**
+     * 获取收藏栏显示状态
+     * @returns {Promise<{visible: boolean}>}
+     */
+    getVisibility: () => ipcRenderer.invoke('bookmarks-bar:get-visibility'),
+  },
 });
 
 console.log('[Realm] Preload 脚本已加载');

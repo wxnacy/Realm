@@ -3453,3 +3453,6 @@ textarea::placeholder {
   color: var(--text-primary);
   font-weight: 500;
 }
+
+/* ==================== 收藏栏样式（独立文件） ==================== */
+@import url('./bookmarks-bar.css');

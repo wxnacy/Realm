@@ -1347,6 +1347,25 @@ app.whenReady().then(async () => {
     return dialog.showOpenDialog(mainWindow, options);
   });
 
+  // ==================== 收藏栏 IPC Handlers ====================
+
+  /**
+   * 切换收藏栏显示/隐藏状态
+   * 持久化到 electron-store，重启后保持用户偏好
+   */
+  ipcMain.handle('bookmarks-bar:toggle', async (event, { visible }) => {
+    configStore.set('bookmarksBar.visible', visible);
+    return { success: true };
+  });
+
+  /**
+   * 获取收藏栏显示状态
+   * 默认显示（true）
+   */
+  ipcMain.handle('bookmarks-bar:get-visibility', async () => {
+    return { visible: configStore.get('bookmarksBar.visible', true) };
+  });
+
   // 初始化历史记录数据库
   historyManager.initDatabase();
 

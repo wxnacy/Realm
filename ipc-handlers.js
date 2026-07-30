@@ -970,6 +970,7 @@ function registerHandlers() {
     return favoritesManager.listRecords({
       offset: data.offset || 0,
       limit: data.limit || 50,
+      folderId: data.folderId,
     });
   });
 
