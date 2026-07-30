@@ -951,7 +951,7 @@ function batchInsertBookmarks(bookmarks, folderIdMap, onProgress) {
     // 报告进度（per D-13）
     if (onProgress) {
       onProgress({
-        progress: Math.min(i + BATCH_SIZE, total),
+        progress: Math.round(Math.min(i + BATCH_SIZE, total) / total * 100),
         imported,
         skipped,
         total,
