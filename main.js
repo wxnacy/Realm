@@ -326,6 +326,11 @@ app.whenReady().then(async () => {
     }
   }
 
+  // 书签导入共享状态（HTTP API 与 IPC 共用）：取消控制器 + 进度快照
+  // 进度由 favoritesManager 的 onProgress 回调更新，前端轮询获取
+  let currentImportAbortController = null;
+  let currentImportProgress = null;
+
   /**
    * 处理 /api/favorites/* 收藏夹 API 请求
    * @param {http.IncomingMessage} req - 请求对象
@@ -467,6 +472,79 @@ app.whenReady().then(async () => {
       if (route === 'update-batch-folder-sort' && req.method === 'POST') {
         const { folders } = await readJsonBody(req);
         sendJson(res, 200, favoritesManager.batchUpdateFolderSort(folders));
+        return;
+      }
+
+      // ==================== 书签导入 API ====================
+
+      // 检测 Chrome 默认书签路径（per D-03）
+      if (route === 'detect-chrome-path' && req.method === 'GET') {
+        sendJson(res, 200, { path: favoritesManager.detectChromeBookmarksPath() });
+        return;
+      }
+
+      // Chrome JSON 导入：body { filePath } 或 { content }
+      if (route === 'import-chrome' && req.method === 'POST') {
+        const { filePath, content } = await readJsonBody(req);
+        currentImportAbortController = new AbortController();
+        currentImportProgress = { progress: 0, imported: 0, total: 0, current: '' };
+        try {
+          const result = await favoritesManager.importChromeBookmarks(
+            content ? { content } : { filePath },
+            (data) => { currentImportProgress = data; },
+            currentImportAbortController.signal
+          );
+          sendJson(res, 200, result);
+        } finally {
+          currentImportAbortController = null;
+          currentImportProgress = null;
+        }
+        return;
+      }
+
+      // HTML 书签导入：body { filePath | content, mode: 'preview' | 'import' }
+      if (route === 'import-html' && req.method === 'POST') {
+        const { filePath, content, mode } = await readJsonBody(req);
+
+        // 预览模式：只解析不写库（per D-11, D-12）
+        if (mode === 'preview') {
+          const result = await favoritesManager.importHtmlBookmarks(
+            content ? { content } : { filePath }, null, null, { dryRun: true }
+          );
+          sendJson(res, 200, result);
+          return;
+        }
+
+        currentImportAbortController = new AbortController();
+        currentImportProgress = { progress: 0, imported: 0, total: 0, current: '' };
+        try {
+          const result = await favoritesManager.importHtmlBookmarks(
+            content ? { content } : { filePath },
+            (data) => { currentImportProgress = data; },
+            currentImportAbortController.signal
+          );
+          sendJson(res, 200, result);
+        } finally {
+          currentImportAbortController = null;
+          currentImportProgress = null;
+        }
+        return;
+      }
+
+      // 导入进度轮询（webview 无法接收 IPC 事件，改为前端轮询）
+      if (route === 'import-progress' && req.method === 'GET') {
+        sendJson(res, 200, currentImportProgress || { progress: 0, imported: 0, total: 0, current: '' });
+        return;
+      }
+
+      // 取消导入（per IMPORT-03）
+      if (route === 'import-abort' && req.method === 'POST') {
+        if (currentImportAbortController) {
+          currentImportAbortController.abort();
+          sendJson(res, 200, { success: true });
+        } else {
+          sendJson(res, 200, { success: false, message: '没有正在进行的导入操作' });
+        }
         return;
       }
 
@@ -1189,9 +1267,8 @@ app.whenReady().then(async () => {
   });
 
   // ==================== 书签导入 IPC ====================
-
-  // 存储当前导入操作的 AbortController（用于取消支持 per IMPORT-03）
-  let currentImportAbortController = null;
+  // 注意：currentImportAbortController / currentImportProgress 已在上方
+  // HTTP 服务区声明（与 /api/favorites/* 导入端点共享），此处直接复用。
 
   // Chrome JSON 书签导入（per D-03, D-04, D-05, D-10, D-13）
   ipcMain.handle('favorites:import-chrome', async (event, { filePath }) => {
@@ -1202,6 +1279,7 @@ app.whenReady().then(async () => {
     currentImportAbortController = new AbortController();
 
     const onProgress = (data) => {
+      currentImportProgress = data;
       if (!mainWindow.isDestroyed()) {
         mainWindow.webContents.send('favorites:import-progress', data);
       }
@@ -1209,13 +1287,14 @@ app.whenReady().then(async () => {
 
     try {
       const result = await favoritesManager.importChromeBookmarks(
-        filePath,
+        { filePath },
         onProgress,
         currentImportAbortController.signal
       );
       return result;
     } finally {
       currentImportAbortController = null;
+      currentImportProgress = null;
     }
   });
 
@@ -1227,6 +1306,7 @@ app.whenReady().then(async () => {
     currentImportAbortController = new AbortController();
 
     const onProgress = (data) => {
+      currentImportProgress = data;
       if (!mainWindow.isDestroyed()) {
         mainWindow.webContents.send('favorites:import-progress', data);
       }
@@ -1234,13 +1314,14 @@ app.whenReady().then(async () => {
 
     try {
       const result = await favoritesManager.importHtmlBookmarks(
-        filePath,
+        { filePath },
         onProgress,
         currentImportAbortController.signal
       );
       return result;
     } finally {
       currentImportAbortController = null;
+      currentImportProgress = null;
     }
   });
 

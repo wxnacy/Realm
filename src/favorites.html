@@ -86,6 +86,21 @@
     </div>
   </dialog>
 
+  <!-- 导入来源选择框：检测到 Chrome 书签时先让用户选来源 -->
+  <dialog class="modal" id="importChoiceModal">
+    <div class="modal-content">
+      <h2>导入书签</h2>
+      <div class="import-choice-content">
+        <p class="import-choice-hint" id="importChoiceHint">已检测到本机 Chrome 书签</p>
+      </div>
+      <div class="form-actions form-actions-vertical">
+        <button type="button" class="btn btn-primary" id="choiceChromeBtn">从 Chrome 自动导入</button>
+        <button type="button" class="btn btn-secondary" id="choiceFileBtn">选择书签文件（JSON / HTML）</button>
+        <button type="button" class="btn btn-secondary" id="choiceCancelBtn">取消</button>
+      </div>
+    </div>
+  </dialog>
+
   <!-- 导入进度模态框 -->
   <dialog class="modal" id="importModal">
     <div class="modal-content">

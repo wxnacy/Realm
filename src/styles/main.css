@@ -3303,6 +3303,26 @@ textarea::placeholder {
   flex-shrink: 0;
 }
 
+/* 导入来源选择框 */
+.import-choice-content {
+  margin-bottom: 20px;
+}
+
+.import-choice-hint {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin: 0;
+}
+
+.form-actions-vertical {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.form-actions-vertical .btn {
+  width: 100%;
+}
+
 /* 进度条样式 */
 .import-progress-content {
   margin-bottom: 20px;
