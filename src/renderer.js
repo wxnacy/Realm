@@ -93,6 +93,11 @@ const elements = {
   refreshCookiesBtn: document.getElementById('refreshCookiesBtn'),
   closeCookiesModal: document.getElementById('closeCookiesModal'),
 
+  // 收藏栏
+  bookmarksBar: document.getElementById('bookmarksBar'),
+  bookmarksBarList: document.getElementById('bookmarksBarList'),
+  bookmarksOverflowBtn: document.getElementById('bookmarksOverflowBtn'),
+
 };
 
 // 应用状态
@@ -1400,6 +1405,23 @@ async function init() {
   // 注册右键菜单动作回调
   window.realmAPI.onContextMenuAction(handleContextMenuAction);
 
+  // 初始化收藏栏
+  if (window.bookmarksBar) {
+    try {
+      const { visible } = await window.realmAPI.bookmarksBar.getVisibility();
+      if (elements.bookmarksBar) {
+        elements.bookmarksBar.style.display = visible ? '' : 'none';
+      }
+      if (visible) {
+        await window.bookmarksBar.load();
+      }
+      // 初始化收藏栏事件和 ResizeObserver
+      window.bookmarksBar.init();
+    } catch (err) {
+      console.error('[Realm Renderer] 收藏栏初始化失败:', err);
+    }
+  }
+
   console.log('[Realm Renderer] 初始化完成');
 }
 
@@ -2591,6 +2613,14 @@ function setupEventListeners() {
   });
 
   // Escape 键：<dialog> 原生支持 Escape 关闭，无需手动监听
+
+  // 收藏栏右键事件委托（Plan 02 实现菜单内容）
+  if (elements.bookmarksBar) {
+    elements.bookmarksBar.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      // Plan 02: 实现收藏栏右键菜单
+    });
+  }
 
   // 收藏夹按钮：打开 realm://favorites 收藏列表页面（全局共享，不区分容器）
   elements.favoritesBtn.addEventListener('click', () => {
