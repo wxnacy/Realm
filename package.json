@@ -27,8 +27,7 @@
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
-    "electron-store": "^8.1.0",
-    "fractional-indexing": "^4.0.0"
+    "electron-store": "^8.1.0"
   },
   "build": {
     "appId": "com.realm.browser",

@@ -11,7 +11,7 @@
 
 const path = require('path');
 const { app } = require('electron');
-const { generateKeyBetween, generateNKeysBetween } = require('fractional-indexing');
+const { generateKeyBetween, generateNKeysBetween } = require('./vendor/fractional-indexing');
 
 // better-sqlite3 延迟加载：原生模块必须在 app.whenReady 之后加载
 let Database = null;

@@ -31,7 +31,7 @@ const state = {
   loading: false,
   /** 是否还有更多数据 */
   hasMore: true,
-  /** 已选中的记录 ID 集合 */
+  /** 已选中的命名空间 key 集合（'f:123' 收藏项 / 'd:123' 文件夹） */
   selectedIds: new Set(),
   /** 是否全选状态 */
   selectAll: false,
@@ -47,8 +47,8 @@ const state = {
   contextMenuEl: null,
   /** 拖拽源数据 */
   dragSourceData: null,
-  /** 上次点击的项 ID（用于 Shift+Click 范围选择） */
-  lastClickedId: null,
+  /** 上次点击的命名空间 key（用于 Shift+Click 范围选择） */
+  lastClickedKey: null,
 };
 
 /** API token（来自 URL 查询参数） */
@@ -308,6 +308,51 @@ function isDescendantCheck(sourceId, targetId) {
 
 // ==================== 多选交互 ====================
 
+// favorites 表 id 和 favorite_folders 表 id 是两个独立的自增序列，会碰撞。
+// 用 'f:123' / 'd:123' 形式的字符串作为 state.selectedIds 的 key 区分类型，
+// 避免 UI 选中状态在收藏项和文件夹之间串扰。
+
+/** 可选中实体类型 */
+const SELECTION_TYPE = {
+  FAVORITE: 'f',
+  FOLDER: 'd',
+};
+
+/**
+ * 构造 selectedIds 的命名空间 key
+ * @param {string} type - SELECTION_TYPE 枚举值
+ * @param {number} id - 实体 id
+ * @returns {string} 如 'f:123'
+ */
+function makeSelKey(type, id) {
+  return `${type}:${id}`;
+}
+
+/**
+ * 解析 selectedIds 的命名空间 key
+ * @param {string} key - 如 'f:123'
+ * @returns {{type: string, id: number}}
+ */
+function parseSelKey(key) {
+  const idx = key.indexOf(':');
+  return { type: key.slice(0, idx), id: parseInt(key.slice(idx + 1), 10) };
+}
+
+/**
+ * 从 selectedIds 集合中筛选出所有收藏项 id（纯数字，供批量 API 使用）
+ * @param {Set<string>} keys
+ * @returns {number[]}
+ */
+function getFavoriteIdsFromSelection(keys) {
+  const ids = [];
+  for (const key of keys) {
+    const { type, id } = parseSelKey(key);
+    if (type === SELECTION_TYPE.FAVORITE) ids.push(id);
+  }
+  return ids;
+}
+
+
 /**
  * 处理收藏项/文件夹行点击事件（per D-08）
  *
@@ -319,22 +364,23 @@ function isDescendantCheck(sourceId, targetId) {
  * @param {MouseEvent} e - 鼠标事件
  * @param {number} itemId - 点击的项 ID
  */
-function handleItemClick(e, itemId) {
+function handleItemClick(e, type, itemId) {
+  const key = makeSelKey(type, itemId);
   // Cmd/Ctrl+Click：切换选中
   if (e.metaKey || e.ctrlKey) {
     e.preventDefault();
-    toggleItemSelection(itemId);
-    state.lastClickedId = itemId;
-  } else if (e.shiftKey && state.lastClickedId !== null) {
+    toggleItemSelection(key);
+    state.lastClickedKey = key;
+  } else if (e.shiftKey && state.lastClickedKey !== null) {
     // Shift+Click：范围选择
     e.preventDefault();
-    selectRange(state.lastClickedId, itemId);
+    selectRange(state.lastClickedKey, key);
   } else {
     // 普通点击：如果有多选状态，先清除
-    if (state.selectedIds.size > 0 && !state.selectedIds.has(itemId)) {
+    if (state.selectedIds.size > 0 && !state.selectedIds.has(key)) {
       state.selectedIds.clear();
     }
-    state.lastClickedId = itemId;
+    state.lastClickedKey = key;
   }
 
   updateSelectionUI();
@@ -342,54 +388,54 @@ function handleItemClick(e, itemId) {
 
 /**
  * 切换单个项的选中状态
- * @param {number} itemId - 项 ID
+ * @param {string} key - 命名空间 key（如 'f:123'）
  */
-function toggleItemSelection(itemId) {
-  if (state.selectedIds.has(itemId)) {
-    state.selectedIds.delete(itemId);
+function toggleItemSelection(key) {
+  if (state.selectedIds.has(key)) {
+    state.selectedIds.delete(key);
   } else {
-    state.selectedIds.add(itemId);
+    state.selectedIds.add(key);
   }
 }
 
 /**
- * 范围选择：选中 startId 到 endId 之间的所有项（per D-08）
- * @param {number} startId - 起始项 ID
- * @param {number} endId - 结束项 ID
+ * 范围选择：选中 startKey 到 endKey 之间的所有项（per D-08）
+ * @param {string} startKey - 起始命名空间 key
+ * @param {string} endKey - 结束命名空间 key
  */
-function selectRange(startId, endId) {
-  const allIds = getAllVisibleItemIds();
-  const startIndex = allIds.indexOf(startId);
-  const endIndex = allIds.indexOf(endId);
+function selectRange(startKey, endKey) {
+  const allKeys = getAllVisibleSelKeys();
+  const startIndex = allKeys.indexOf(startKey);
+  const endIndex = allKeys.indexOf(endKey);
 
   if (startIndex === -1 || endIndex === -1) return;
 
   const [from, to] = startIndex < endIndex ? [startIndex, endIndex] : [endIndex, startIndex];
-  const rangeIds = allIds.slice(from, to + 1);
+  const rangeKeys = allKeys.slice(from, to + 1);
 
-  state.selectedIds = new Set(rangeIds);
+  state.selectedIds = new Set(rangeKeys);
 }
 
 /**
- * 获取当前可见的所有项 ID（按 DOM 顺序）
- * @returns {Array<number>} 项 ID 数组
+ * 获取当前可见的所有项的命名空间 key（按 DOM 顺序，收藏项在前、文件夹在后）
+ * @returns {Array<string>} 命名空间 key 数组
  */
-function getAllVisibleItemIds() {
-  const ids = [];
+function getAllVisibleSelKeys() {
+  const keys = [];
 
   // 收藏项
   const favoriteEls = elements.favoritesContent.querySelectorAll('.favorite-item[data-id]');
   favoriteEls.forEach(el => {
-    ids.push(parseInt(el.dataset.id, 10));
+    keys.push(makeSelKey(SELECTION_TYPE.FAVORITE, parseInt(el.dataset.id, 10)));
   });
 
-  // 文件夹树中的文件夹项（只获取当前文件夹内的，不包括子文件夹）
+  // 文件夹树中的文件夹项
   const folderEls = elements.folderTree.querySelectorAll('.folder-tree-item[data-id]');
   folderEls.forEach(el => {
-    ids.push(parseInt(el.dataset.id, 10));
+    keys.push(makeSelKey(SELECTION_TYPE.FOLDER, parseInt(el.dataset.id, 10)));
   });
 
-  return ids;
+  return keys;
 }
 
 /**
@@ -400,8 +446,8 @@ function updateSelectionUI() {
   // 更新收藏项选中状态
   const favoriteEls = elements.favoritesContent.querySelectorAll('.favorite-item[data-id]');
   favoriteEls.forEach(el => {
-    const id = parseInt(el.dataset.id, 10);
-    if (state.selectedIds.has(id)) {
+    const key = makeSelKey(SELECTION_TYPE.FAVORITE, parseInt(el.dataset.id, 10));
+    if (state.selectedIds.has(key)) {
       el.classList.add('selected');
     } else {
       el.classList.remove('selected');
@@ -411,8 +457,8 @@ function updateSelectionUI() {
   // 更新文件夹选中状态
   const folderEls = elements.folderTree.querySelectorAll('.folder-tree-item[data-id]');
   folderEls.forEach(el => {
-    const id = parseInt(el.dataset.id, 10);
-    if (state.selectedIds.has(id)) {
+    const key = makeSelKey(SELECTION_TYPE.FOLDER, parseInt(el.dataset.id, 10));
+    if (state.selectedIds.has(key)) {
       el.classList.add('selected');
     } else {
       el.classList.remove('selected');
@@ -500,7 +546,7 @@ function renderFavoriteItem(record) {
   const faviconFallback = (record.title || record.url).charAt(0).toUpperCase();
 
   itemEl.innerHTML = `
-    <input type="checkbox" class="favorite-item-checkbox" data-id="${record.id}" ${state.selectedIds.has(record.id) ? 'checked' : ''}>
+    <input type="checkbox" class="favorite-item-checkbox" data-id="${record.id}" ${state.selectedIds.has(makeSelKey(SELECTION_TYPE.FAVORITE, record.id)) ? 'checked' : ''}>
     <div class="favorite-item-favicon" title="打开链接">
       <img src="${escapeHtml(faviconSrc)}" alt="" style="display:none">
       <div class="favorite-item-favicon-fallback">${escapeHtml(faviconFallback)}</div>
@@ -530,10 +576,11 @@ function renderFavoriteItem(record) {
   // 绑定 checkbox 事件
   const checkbox = itemEl.querySelector('.favorite-item-checkbox');
   checkbox.addEventListener('change', () => {
+    const key = makeSelKey(SELECTION_TYPE.FAVORITE, record.id);
     if (checkbox.checked) {
-      state.selectedIds.add(record.id);
+      state.selectedIds.add(key);
     } else {
-      state.selectedIds.delete(record.id);
+      state.selectedIds.delete(key);
     }
     updateActionsBar();
   });
@@ -542,7 +589,7 @@ function renderFavoriteItem(record) {
   itemEl.addEventListener('click', (e) => {
     // 避免与 favicon/URL 点击、checkbox、标题编辑冲突
     if (e.target.closest('.favorite-item-favicon, .favorite-item-url, .favorite-item-checkbox, .favorite-item-title')) return;
-    handleItemClick(e, record.id);
+    handleItemClick(e, SELECTION_TYPE.FAVORITE, record.id);
   });
 
   // 打开收藏链接：favicon / URL 单击直接打开
@@ -639,7 +686,7 @@ function renderFolderTree(tree, level = 0) {
 
       // 多选交互：Cmd/Ctrl+Click 或 Shift+Click
       if (e.metaKey || e.ctrlKey || e.shiftKey) {
-        handleItemClick(e, folder.id);
+        handleItemClick(e, SELECTION_TYPE.FOLDER, folder.id);
         return;
       }
 
@@ -925,9 +972,10 @@ function showFavoriteContextMenu(e, record) {
   e.stopPropagation();
 
   // 如果右键点击的项不在选中范围内，清除所有选中并选中当前项
-  if (!state.selectedIds.has(record.id)) {
+  const recordKey = makeSelKey(SELECTION_TYPE.FAVORITE, record.id);
+  if (!state.selectedIds.has(recordKey)) {
     state.selectedIds.clear();
-    state.selectedIds.add(record.id);
+    state.selectedIds.add(recordKey);
     updateSelectionUI();
   }
 
@@ -946,7 +994,7 @@ function showFavoriteContextMenu(e, record) {
     {
       label: `剪切 ${count} 项`,
       onClick: () => {
-        state.clipboard = { ids: [...state.selectedIds], mode: 'cut', sourceFolderId: state.currentFolderId };
+        state.clipboard = { ids: getFavoriteIdsFromSelection(state.selectedIds), mode: 'cut', sourceFolderId: state.currentFolderId };
         showToast(`已剪切 ${count} 项`);
         state.selectedIds.clear();
         updateSelectionUI();
@@ -956,7 +1004,7 @@ function showFavoriteContextMenu(e, record) {
     {
       label: `复制 ${count} 项`,
       onClick: () => {
-        state.clipboard = { ids: [...state.selectedIds], mode: 'copy', sourceFolderId: state.currentFolderId };
+        state.clipboard = { ids: getFavoriteIdsFromSelection(state.selectedIds), mode: 'copy', sourceFolderId: state.currentFolderId };
         showToast(`已复制 ${count} 项`);
       },
     },
@@ -1472,7 +1520,7 @@ async function loadMore() {
  * 处理批量删除
  */
 async function handleBatchDelete() {
-  const ids = [...state.selectedIds];
+  const ids = getFavoriteIdsFromSelection(state.selectedIds);
   if (ids.length === 0) return;
 
   try {
@@ -1523,7 +1571,8 @@ function updateActionsBar() {
 
   // 更新全选按钮文案
   const allCheckboxes = elements.favoritesContent.querySelectorAll('.favorite-item-checkbox');
-  if (allCheckboxes.length > 0 && state.selectedIds.size === allCheckboxes.length) {
+  const selectedFavoriteCount = getFavoriteIdsFromSelection(state.selectedIds).length;
+  if (allCheckboxes.length > 0 && selectedFavoriteCount === allCheckboxes.length) {
     elements.selectAllBtn.textContent = '取消全选';
     elements.selectAllCheckbox.checked = true;
   } else {
@@ -1537,7 +1586,8 @@ function updateActionsBar() {
  */
 function toggleSelectAll() {
   const allCheckboxes = elements.favoritesContent.querySelectorAll('.favorite-item-checkbox');
-  const allSelected = state.selectedIds.size === allCheckboxes.length && allCheckboxes.length > 0;
+  const selectedFavoriteCount = getFavoriteIdsFromSelection(state.selectedIds).length;
+  const allSelected = selectedFavoriteCount === allCheckboxes.length && allCheckboxes.length > 0;
 
   if (allSelected) {
     // 取消全选
@@ -1547,7 +1597,7 @@ function toggleSelectAll() {
     // 全选
     allCheckboxes.forEach((cb) => {
       cb.checked = true;
-      state.selectedIds.add(parseInt(cb.dataset.id, 10));
+      state.selectedIds.add(makeSelKey(SELECTION_TYPE.FAVORITE, parseInt(cb.dataset.id, 10)));
     });
   }
 

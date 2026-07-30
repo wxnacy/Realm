@@ -452,7 +452,7 @@ app.whenReady().then(async () => {
 
       if (route === 'compute-sort-keys' && req.method === 'POST') {
         const { beforeKey, afterKey, count } = await readJsonBody(req);
-        const { generateNKeysBetween } = require('fractional-indexing');
+        const { generateNKeysBetween } = require('./vendor/fractional-indexing');
         const keys = generateNKeysBetween(beforeKey, afterKey, count);
         sendJson(res, 200, { keys });
         return;
