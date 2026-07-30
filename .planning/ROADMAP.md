@@ -175,13 +175,18 @@ Plans:
 
 **预估时间**: 2 天
 **需求覆盖**: IMPORT-01, IMPORT-02, IMPORT-03
+**状态**: 规划完成
+
+**Plans:** 2 plans
+
+Plans:
+- [ ] 17-01-PLAN.md — 后端书签解析与批量导入（favorites-manager.js + main.js + preload.js）
+- [ ] 17-02-PLAN.md — 导入功能前端 UI（favorites.html + favorites-page.js + main.css）
 
 **任务**:
 
-- [ ] Chrome 书签文件解析
-- [ ] HTML 书签文件解析
-- [ ] 导入流程 UI
-- [ ] 冲突处理
+- [ ] Chrome JSON 书签解析 + HTML 书签解析 + 批量导入 API + IPC handlers
+- [ ] 导入按钮 + 进度模态框 + 预览确认 + 结果摘要 UI
 
 ---
 
