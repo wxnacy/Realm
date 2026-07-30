@@ -206,7 +206,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 18-01-PLAN.md — 收藏栏基础实现（HTML/CSS + 渲染 + 溢出计算 + 点击导航）
+- [x] 18-01-PLAN.md — 收藏栏基础实现（HTML/CSS + 渲染 + 溢出计算 + 点击导航）
 
 **Wave 2** *(blocked on Wave 1)*
 
