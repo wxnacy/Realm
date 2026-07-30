@@ -10,6 +10,7 @@
  */
 
 const path = require('path');
+const fs = require('fs');
 const { app } = require('electron');
 const { generateKeyBetween, generateNKeysBetween } = require('./vendor/fractional-indexing');
 
@@ -708,6 +709,443 @@ function batchUpdateFolderSort(folders) {
   return updateMany(folders);
 }
 
+// ==================== 书签导入 ====================
+
+/**
+ * URL 规范化（per D-08）
+ *
+ * 去除 www 前缀、尾部斜杠，统一使用 https 协议，
+ * 用于导入时的重复 URL 检测与去重。
+ *
+ * @param {string} url - 原始 URL
+ * @returns {string} 规范化后的 URL
+ */
+function normalizeUrl(url) {
+  try {
+    const parsed = new URL(url);
+    // 去除 hostname 的 www. 前缀
+    let hostname = parsed.hostname;
+    if (hostname.startsWith('www.')) {
+      hostname = hostname.slice(4);
+    }
+    // 去除 pathname 末尾斜杠（长度 > 1 时）
+    let pathname = parsed.pathname;
+    if (pathname.length > 1 && pathname.endsWith('/')) {
+      pathname = pathname.slice(0, -1);
+    }
+    // 强制使用 https:// 协议
+    return `https://${hostname}${pathname}${parsed.search}${parsed.hash}`;
+  } catch (e) {
+    // 解析失败时返回原始 URL
+    return url;
+  }
+}
+
+/**
+ * 自动检测 Chrome 书签文件路径（per D-03）
+ *
+ * macOS 默认路径: ~/Library/Application Support/Google/Chrome/Default/Bookmarks
+ *
+ * @returns {string|null} 书签文件绝对路径，不存在时返回 null
+ */
+function detectChromeBookmarksPath() {
+  const chromePath = path.join(
+    app.getPath('home'),
+    'Library', 'Application Support', 'Google', 'Chrome', 'Default', 'Bookmarks'
+  );
+  return fs.existsSync(chromePath) ? chromePath : null;
+}
+
+/**
+ * 解析 Chrome JSON 书签文件（per D-05, D-06, D-09）
+ *
+ * 递归遍历 Chrome 书签 JSON 的 roots 下三个根节点（bookmark_bar, other, synced），
+ * 收集所有书签和文件夹信息。
+ *
+ * 根文件夹映射（per D-05, D-06）：
+ * - bookmark_bar → Chrome 书签栏
+ * - other → Chrome 其他
+ * - synced → Chrome 已同步
+ *
+ * @param {Object} data - Chrome 书签 JSON 数据
+ * @returns {{bookmarks: Array, folders: Array}} 解析结果
+ */
+function parseChromeJson(data) {
+  const ROOT_FOLDER_MAP = {
+    bookmark_bar: 'Chrome 书签栏',
+    other: 'Chrome 其他',
+    synced: 'Chrome 已同步',
+  };
+
+  const bookmarks = [];
+  const folders = [];
+
+  /**
+   * 递归遍历节点
+   * @param {Array} children - 子节点数组
+   * @param {string} parentPath - 父文件夹路径
+   */
+  function traverse(children, parentPath) {
+    if (!Array.isArray(children)) return;
+
+    for (const node of children) {
+      try {
+        if (node.type === 'folder') {
+          const folderPath = parentPath ? `${parentPath}/${node.name}` : node.name;
+          folders.push({
+            name: node.name,
+            parentPath,
+            dateAdded: node.date_added || '',
+          });
+          // 递归遍历子文件夹
+          if (node.children) {
+            traverse(node.children, folderPath);
+          }
+        } else if (node.type === 'url') {
+          bookmarks.push({
+            title: node.name || '',
+            url: node.url || '',
+            dateAdded: node.date_added || '',
+            parentPath,
+          });
+        }
+      } catch (e) {
+        // 节点格式异常时跳过并记录（Claude's Discretion）
+        console.error('[Realm] Chrome 书签节点解析异常，已跳过:', e.message, node);
+      }
+    }
+  }
+
+  // 遍历三个根节点
+  if (data && data.roots) {
+    for (const [rootKey, rootName] of Object.entries(ROOT_FOLDER_MAP)) {
+      const rootNode = data.roots[rootKey];
+      if (rootNode && rootNode.children) {
+        // 添加根文件夹
+        folders.push({
+          name: rootName,
+          parentPath: '',
+          dateAdded: rootNode.date_added || '',
+        });
+        traverse(rootNode.children, rootName);
+      }
+    }
+  }
+
+  return { bookmarks, folders };
+}
+
+/**
+ * 解析 Netscape HTML 书签文件（per IMPORT-02）
+ *
+ * 使用 cheerio 解析标准的 Netscape Bookmark File Format，
+ * 递归处理 <DL> 下的 <DT> 节点。
+ *
+ * @param {string} html - HTML 书签文件内容
+ * @returns {{bookmarks: Array, folders: Array}} 解析结果
+ */
+function parseNetscapeHtml(html) {
+  const cheerio = require('cheerio');
+  const $ = cheerio.load(html);
+  const bookmarks = [];
+  const folders = [];
+
+  /**
+   * 递归解析 DL 节点
+   * @param {Cheerio} dlElement - DL 元素
+   * @param {string} parentPath - 父文件夹路径
+   */
+  function parseDl(dlElement, parentPath) {
+    dlElement.children('dt').each((_, dt) => {
+      const $dt = $(dt);
+
+      // 处理 <A> 标签（书签）
+      const $a = $dt.find('> a').first();
+      if ($a.length > 0) {
+        bookmarks.push({
+          title: $a.text().trim(),
+          url: $a.attr('href') || '',
+          dateAdded: $a.attr('add_date') || '',
+          parentPath,
+        });
+        return;
+      }
+
+      // 处理 <H3> 标签（文件夹）
+      const $h3 = $dt.find('> h3').first();
+      if ($h3.length > 0) {
+        const folderName = $h3.text().trim();
+        const folderPath = parentPath ? `${parentPath}/${folderName}` : folderName;
+        folders.push({
+          name: folderName,
+          parentPath,
+          dateAdded: $h3.attr('add_date') || '',
+        });
+        // 递归解析下一个 <DL>（子文件夹内容）
+        const $nextDl = $dt.find('> dl').first();
+        if ($nextDl.length > 0) {
+          parseDl($nextDl, folderPath);
+        }
+      }
+    });
+  }
+
+  // 从根 <DL> 开始解析
+  const rootDl = $('dl').first();
+  if (rootDl.length > 0) {
+    parseDl(rootDl, '');
+  }
+
+  return { bookmarks, folders };
+}
+
+/**
+ * 批量插入书签到数据库（per D-07, D-13）
+ *
+ * 使用事务包裹批量操作，每 100 条为一批报告进度。
+ * 重复 URL 通过 INSERT OR IGNORE 自动跳过（per D-07）。
+ * URL 经 normalizeUrl 规范化后插入（per D-08）。
+ *
+ * @param {Array} bookmarks - 书签数组 [{title, url, parentPath, ...}]
+ * @param {Object} folderIdMap - parentPath → folderId 映射
+ * @param {Function} [onProgress] - 进度回调 ({progress, imported, skipped, total, current})
+ * @returns {{imported: number, skipped: number}} 导入结果
+ */
+function batchInsertBookmarks(bookmarks, folderIdMap, onProgress) {
+  ensureTable();
+
+  const BATCH_SIZE = 100;
+  const total = bookmarks.length;
+  let imported = 0;
+  let skipped = 0;
+
+  const insertStmt = db.prepare(
+    'INSERT OR IGNORE INTO favorites (url, title, favicon_url, folder_id, sort_order) VALUES (?, ?, ?, ?, ?)'
+  );
+
+  // 使用事务包裹批量操作
+  const insertBatch = db.transaction((batch) => {
+    for (const item of batch) {
+      const normalizedUrl = normalizeUrl(item.url);
+      const folderId = folderIdMap[item.parentPath] || 0;
+      const result = insertStmt.run(
+        normalizedUrl,
+        item.title || '',
+        item.faviconUrl || '',
+        folderId,
+        '0'
+      );
+      if (result.changes > 0) {
+        imported++;
+      } else {
+        skipped++;
+      }
+    }
+  });
+
+  // 分批处理
+  for (let i = 0; i < total; i += BATCH_SIZE) {
+    const batch = bookmarks.slice(i, Math.min(i + BATCH_SIZE, total));
+    insertBatch(batch);
+
+    // 报告进度（per D-13）
+    if (onProgress) {
+      onProgress({
+        progress: Math.min(i + BATCH_SIZE, total),
+        imported,
+        skipped,
+        total,
+        current: Math.min(i + BATCH_SIZE, total),
+      });
+    }
+  }
+
+  return { imported, skipped };
+}
+
+/**
+ * Chrome JSON 书签导入入口（per D-03, D-04, D-05, D-09, D-10）
+ *
+ * 完整导入流程：
+ * 1. 自动检测或使用指定的 Chrome 书签文件路径
+ * 2. 解析 Chrome JSON 格式
+ * 3. 创建文件夹结构
+ * 4. 批量导入书签（含 favicon 获取）
+ *
+ * @param {string} [filePath] - 书签文件路径，为空时自动检测
+ * @param {Function} [onProgress] - 进度回调
+ * @param {AbortSignal} [abortSignal] - 取消信号（per IMPORT-03）
+ * @returns {Promise<Object>} 导入结果
+ */
+async function importChromeBookmarks(filePath, onProgress, abortSignal) {
+  // 自动检测 Chrome 书签路径（per D-03, D-04）
+  if (!filePath) {
+    filePath = detectChromeBookmarksPath();
+    if (!filePath) {
+      return { success: false, needFileSelect: true };
+    }
+  }
+
+  // 读取并解析文件
+  let data;
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    data = JSON.parse(content);
+  } catch (e) {
+    return { success: false, error: `文件读取或解析失败: ${e.message}` };
+  }
+
+  // 解析 Chrome JSON（per D-05, D-06, D-09）
+  const { bookmarks, folders } = parseChromeJson(data);
+
+  if (bookmarks.length === 0) {
+    return { success: true, imported: 0, skipped: 0, foldersCreated: 0 };
+  }
+
+  // 创建文件夹结构
+  const folderIdMap = {}; // parentPath → folderId
+  let foldersCreated = 0;
+
+  // 按层级排序创建文件夹（先父后子）
+  const sortedFolders = folders.sort((a, b) => {
+    const depthA = a.parentPath ? a.parentPath.split('/').length : 0;
+    const depthB = b.parentPath ? b.parentPath.split('/').length : 0;
+    return depthA - depthB;
+  });
+
+  for (const folder of sortedFolders) {
+    // 检查取消信号（per IMPORT-03）
+    if (abortSignal && abortSignal.aborted) {
+      return { success: false, cancelled: true, imported: 0, skipped: 0, foldersCreated };
+    }
+
+    const parentFolderId = folderIdMap[folder.parentPath] || 0;
+    const result = createFolder({ name: folder.name, parentId: parentFolderId });
+    if (result.id) {
+      const folderPath = folder.parentPath
+        ? `${folder.parentPath}/${folder.name}`
+        : folder.name;
+      folderIdMap[folderPath] = result.id;
+      foldersCreated++;
+    }
+  }
+
+  // 为书签异步获取 favicon（per D-15, D-16）
+  const bookmarksWithFavicon = await Promise.all(
+    bookmarks.map(async (bm) => {
+      // 检查取消信号
+      if (abortSignal && abortSignal.aborted) return bm;
+
+      try {
+        const urlObj = new URL(bm.url);
+        const domain = urlObj.hostname;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3000);
+        const resp = await fetch(
+          `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=16`,
+          { signal: controller.signal }
+        );
+        clearTimeout(timer);
+        if (resp.ok) {
+          bm.faviconUrl = resp.url;
+        }
+      } catch (e) {
+        // favicon 获取失败时降级处理（per D-15, D-16）
+        bm.faviconUrl = '';
+      }
+      return bm;
+    })
+  );
+
+  // 批量导入书签（per D-07, D-13）
+  const { imported, skipped } = batchInsertBookmarks(
+    bookmarksWithFavicon,
+    folderIdMap,
+    onProgress
+  );
+
+  return { success: true, imported, skipped, foldersCreated };
+}
+
+/**
+ * HTML 书签导入入口（per D-11, D-12）
+ *
+ * 导入 Netscape HTML 格式的书签文件，
+ * 返回 preview 数据供前端预览（per D-12）。
+ *
+ * @param {string} [filePath] - HTML 书签文件路径
+ * @param {Function} [onProgress] - 进度回调
+ * @param {AbortSignal} [abortSignal] - 取消信号（per IMPORT-03）
+ * @returns {Promise<Object>} 导入结果（含 preview）
+ */
+async function importHtmlBookmarks(filePath, onProgress, abortSignal) {
+  if (!filePath) {
+    return { success: false, error: '未指定文件路径' };
+  }
+
+  // 读取文件
+  let html;
+  try {
+    html = fs.readFileSync(filePath, 'utf-8');
+  } catch (e) {
+    return { success: false, error: `文件读取失败: ${e.message}` };
+  }
+
+  // 解析 HTML 书签（per IMPORT-02）
+  const { bookmarks, folders } = parseNetscapeHtml(html);
+
+  if (bookmarks.length === 0) {
+    return { success: true, imported: 0, skipped: 0, foldersCreated: 0, preview: { total: 0, folderCount: 0, topFolders: [] } };
+  }
+
+  // 创建文件夹结构
+  const folderIdMap = {};
+  let foldersCreated = 0;
+
+  const sortedFolders = folders.sort((a, b) => {
+    const depthA = a.parentPath ? a.parentPath.split('/').length : 0;
+    const depthB = b.parentPath ? b.parentPath.split('/').length : 0;
+    return depthA - depthB;
+  });
+
+  for (const folder of sortedFolders) {
+    if (abortSignal && abortSignal.aborted) {
+      return { success: false, cancelled: true, imported: 0, skipped: 0, foldersCreated };
+    }
+
+    const parentFolderId = folderIdMap[folder.parentPath] || 0;
+    const result = createFolder({ name: folder.name, parentId: parentFolderId });
+    if (result.id) {
+      const folderPath = folder.parentPath
+        ? `${folder.parentPath}/${folder.name}`
+        : folder.name;
+      folderIdMap[folderPath] = result.id;
+      foldersCreated++;
+    }
+  }
+
+  // 批量导入书签
+  const { imported, skipped } = batchInsertBookmarks(bookmarks, folderIdMap, onProgress);
+
+  // preview 数据（per D-12）
+  const topFolders = folders
+    .filter(f => !f.parentPath)
+    .map(f => f.name)
+    .slice(0, 10);
+
+  return {
+    success: true,
+    imported,
+    skipped,
+    foldersCreated,
+    preview: {
+      total: bookmarks.length,
+      folderCount: folders.length,
+      topFolders,
+    },
+  };
+}
+
 // ==================== 导出 ====================
 
 module.exports = {
@@ -736,4 +1174,12 @@ module.exports = {
   updateFavoriteSort,
   batchUpdateSort,
   batchUpdateFolderSort,
+  // 书签导入
+  parseChromeJson,
+  parseNetscapeHtml,
+  normalizeUrl,
+  batchInsertBookmarks,
+  detectChromeBookmarksPath,
+  importChromeBookmarks,
+  importHtmlBookmarks,
 };
