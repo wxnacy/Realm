@@ -2,7 +2,7 @@
  * Realm Browser - 收藏栏组件
  *
  * Chrome 风格收藏栏，显示根目录收藏项和文件夹
- * 支持点击导航、溢出计算（>> 按钮）、favicon 降级
+ * 支持点击导航、溢出计算（» 按钮）、favicon 降级
  *
  * 使用方式：
  *   window.bookmarksBar.load()      - 加载并渲染收藏栏
@@ -29,16 +29,25 @@ function escapeHtml(text) {
 /** Realm 应用图标路径（favicon 降级用，per D-09） */
 const REALM_ICON_PATH = '../icons/icon.png';
 
-/** 溢出按钮宽度（px），用于计算可用宽度 */
-const OVERFLOW_BTN_WIDTH = 32;
+/** 溢出按钮预留宽度（px） */
+const OVERFLOW_BTN_WIDTH = 30;
+
+/** 收藏栏列表 gap（px），与 CSS 保持一致 */
+const LIST_GAP = 0;
+
+/** 收藏栏 padding 总和（px）：padding: 0 6px */
+const BAR_PADDING_TOTAL = 12;
 
 // ==================== 状态 ====================
 
-/** 收藏栏溢出项数据（供后续 Plan 使用） */
+/** 收藏栏溢出项数据 */
 let overflowItems = [];
 
 /** ResizeObserver 实例 */
 let resizeObserver = null;
+
+/** 收藏栏完整数据缓存（用于溢出菜单） */
+let barData = { folders: [], favorites: [] };
 
 // ==================== 核心函数 ====================
 
@@ -56,7 +65,17 @@ async function loadBookmarksBar() {
     // 从文件夹树中提取根级文件夹（parentId = 0 或 null）
     const rootFolders = folderTree.filter(f => !f.parent_id || f.parent_id === 0);
 
-    renderBookmarksBar(favorites || [], rootFolders || []);
+    // 缓存完整数据
+    barData.folders = rootFolders || [];
+    barData.favorites = favorites || [];
+
+    // 调试：输出第一个收藏项的完整字段，确认 favicon 数据是否存在
+    if (favorites && favorites.length > 0) {
+      console.log('[BookmarksBar] First record keys:', Object.keys(favorites[0]));
+      console.log('[BookmarksBar] First record:', JSON.stringify(favorites[0], null, 2));
+    }
+
+    renderBookmarksBar(barData.favorites, barData.folders);
   } catch (err) {
     console.error('[Realm Renderer] 加载收藏栏失败:', err);
   }
@@ -87,9 +106,11 @@ function renderBookmarksBar(favorites, folders) {
     list.appendChild(el);
   });
 
-  // 渲染完成后计算溢出
+  // 渲染完成后计算溢出（双重 rAF 确保布局完成）
   requestAnimationFrame(() => {
-    calculateOverflow();
+    requestAnimationFrame(() => {
+      calculateOverflow();
+    });
   });
 }
 
@@ -105,6 +126,7 @@ function renderBookmarksBar(favorites, folders) {
 function createBookmarkItem(record) {
   const item = document.createElement('div');
   item.className = 'bookmark-item';
+  item.dataset.type = 'bookmark';
   item.dataset.url = record.url;
   item.dataset.bookmarkId = record.id;
   item.dataset.bookmarkUrl = record.url;
@@ -112,16 +134,21 @@ function createBookmarkItem(record) {
   item.title = record.title || record.url;
 
   // favicon 图片（D-09：加载失败时降级到 Realm 图标）
+  // 兼容 favicon_url / faviconUrl 两种字段名
+  const faviconUrl = record.favicon_url || record.faviconUrl || '';
+  // 调试：输出 favicon 数据，帮助确认数据库中是否有值
+  if (faviconUrl) {
+    console.log('[BookmarksBar] favicon found:', faviconUrl.substring(0, 60), 'for', record.title);
+  }
   const favicon = document.createElement('img');
   favicon.className = 'bookmark-favicon';
-  favicon.src = record.favicon_url || '';
+  favicon.src = faviconUrl;
   favicon.alt = '';
   favicon.onerror = function() {
-    this.onerror = null; // 防止循环
+    this.onerror = null;
     this.src = REALM_ICON_PATH;
   };
-  // 无 favicon 时直接使用降级图标
-  if (!record.favicon_url) {
+  if (!faviconUrl) {
     favicon.src = REALM_ICON_PATH;
   }
 
@@ -143,7 +170,6 @@ function createBookmarkItem(record) {
 
 /**
  * 创建文件夹项 DOM 元素
- * 点击和悬停交互在 Plan 02 实现，本 task 仅创建占位 DOM
  * @param {Object} folder - 文件夹数据
  * @param {number} folder.id - 文件夹 ID
  * @param {string} folder.name - 文件夹名称
@@ -152,14 +178,15 @@ function createBookmarkItem(record) {
 function createFolderItem(folder) {
   const item = document.createElement('div');
   item.className = 'bookmark-folder';
+  item.dataset.type = 'folder';
   item.dataset.folderId = folder.id;
   item.dataset.folderName = folder.name;
   item.title = folder.name;
 
-  // 文件夹图标（SVG）
+  // 文件夹图标（SVG）- Chrome 风格黄色文件夹
   const icon = document.createElement('div');
   icon.className = 'folder-icon';
-  icon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>';
+  icon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg>';
 
   // 文件夹名称
   const title = document.createElement('span');
@@ -169,13 +196,13 @@ function createFolderItem(folder) {
   // 展开箭头
   const arrow = document.createElement('div');
   arrow.className = 'folder-arrow';
-  arrow.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"></path></svg>';
+  arrow.innerHTML = '<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M9 18l6-6-6-6"></path></svg>';
 
   item.appendChild(icon);
   item.appendChild(title);
   item.appendChild(arrow);
 
-  // 点击展开下拉菜单（per D-04）
+  // 点击展开下拉菜单
   item.addEventListener('click', (e) => {
     e.stopPropagation();
     if (window.bookmarksBarMenu) {
@@ -218,39 +245,84 @@ function handleBookmarkClick(url, event) {
 
 /**
  * 计算收藏栏溢出
- * 测量每项宽度，超出可用宽度的项隐藏，>> 按钮显示/隐藏
+ * 测量每项宽度，超出可用宽度的项隐藏，» 按钮显示/隐藏
+ *
+ * 关键修复：使用 bookmarksBar 的 getBoundingClientRect 获取可靠宽度，
+ * 避免 clientWidth 在 flex 布局初始化时为 0 或极小值导致全隐藏。
  */
 function calculateOverflow() {
+  const bar = document.getElementById('bookmarksBar');
   const list = document.getElementById('bookmarksBarList');
   const overflowBtn = document.getElementById('bookmarksOverflowBtn');
-  if (!list || !overflowBtn) return;
+  if (!bar || !list || !overflowBtn) return;
 
-  const containerWidth = list.clientWidth;
-  const items = list.children;
+  const items = Array.from(list.children);
+  if (items.length === 0) {
+    overflowBtn.classList.remove('visible');
+    return;
+  }
+
+  // 使用 bookmarksBar 的精确宽度（比 list.clientWidth 更可靠）
+  const barRect = bar.getBoundingClientRect();
+  const containerWidth = barRect.width - BAR_PADDING_TOTAL;
+  const availableWidth = Math.max(0, containerWidth - OVERFLOW_BTN_WIDTH);
+
+  // 保护：可用宽度不足一个最小项宽度时，不隐藏任何项
+  // 这防止了初始化时宽度为极小正值（如 2px）导致几乎全部隐藏
+  const MIN_ITEM_WIDTH = 30;
+  if (availableWidth < MIN_ITEM_WIDTH) {
+    // 宽度未就绪，直接返回，不隐藏任何项
+    // ResizeObserver 会在宽度变化时自动重新计算
+    return;
+  }
+
+  // 第一步：确保所有项可见，以便测量真实宽度
+  items.forEach(item => {
+    item.style.display = '';
+    item.style.visibility = 'visible';
+  });
+
+  // 第二步：计算总宽度，找出溢出点（一旦某项溢出，其后所有项都隐藏）
   let usedWidth = 0;
-  overflowItems = [];
+  let overflowStartIndex = -1;
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
-    // 确保项可见以测量宽度
-    item.style.display = '';
-    const itemWidth = item.offsetWidth;
+    const rect = item.getBoundingClientRect();
+    const itemWidth = rect.width + LIST_GAP;
 
-    if (usedWidth + itemWidth > containerWidth - OVERFLOW_BTN_WIDTH) {
-      // 超出可用宽度，隐藏该项
+    if (usedWidth + itemWidth > availableWidth && i > 0) {
+      overflowStartIndex = i;
+      break;
+    }
+    usedWidth += itemWidth;
+  }
+
+  // 第三步：隐藏溢出项并收集数据
+  overflowItems = [];
+  if (overflowStartIndex !== -1) {
+    for (let i = overflowStartIndex; i < items.length; i++) {
+      const item = items[i];
       item.style.display = 'none';
-      overflowItems.push({
-        index: i,
-        url: item.dataset.url || '',
-        folderId: item.dataset.folderId || '',
-        title: item.title || '',
-      });
-    } else {
-      usedWidth += itemWidth;
+
+      const type = item.dataset.type;
+      if (type === 'folder') {
+        const folderId = item.dataset.folderId;
+        const folder = barData.folders.find(f => String(f.id) === String(folderId));
+        if (folder) {
+          overflowItems.push({ type: 'folder', data: folder });
+        }
+      } else {
+        const bookmarkId = item.dataset.bookmarkId;
+        const bookmark = barData.favorites.find(f => String(f.id) === String(bookmarkId));
+        if (bookmark) {
+          overflowItems.push({ type: 'bookmark', data: bookmark });
+        }
+      }
     }
   }
 
-  // 显示/隐藏 >> 按钮
+  // 显示/隐藏 » 按钮
   if (overflowItems.length > 0) {
     overflowBtn.classList.add('visible');
   } else {
@@ -262,8 +334,8 @@ function calculateOverflow() {
  * 初始化 ResizeObserver 监听收藏栏尺寸变化
  */
 function initResizeObserver() {
-  const list = document.getElementById('bookmarksBarList');
-  if (!list) return;
+  const bar = document.getElementById('bookmarksBar');
+  if (!bar) return;
 
   // 清理旧的 observer
   if (resizeObserver) {
@@ -274,7 +346,8 @@ function initResizeObserver() {
     calculateOverflow();
   });
 
-  resizeObserver.observe(list);
+  // 观察整个收藏栏（确保宽度变化都被捕获）
+  resizeObserver.observe(bar);
 }
 
 // ==================== 初始化 ====================

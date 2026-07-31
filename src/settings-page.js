@@ -1393,6 +1393,34 @@ async function init() {
   // 避免仅依赖 HTML 内联 display:none 兜底（内联样式失效会导致多个 section 同时显示）
   const tabParam = pageParams.get('tab');
   switchSettingsPage(tabParam || 'general');
+
+  // webview 可见性变化时刷新设置（同步收藏栏显示等外部变更）
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState !== 'visible') return;
+    try {
+      const settings = await settingsApi('get');
+      if (elements.showBookmarksBar && settings.bookmarksBar) {
+        elements.showBookmarksBar.checked = settings.bookmarksBar.visible !== false;
+      }
+    } catch (e) {
+      // 忽略刷新失败
+    }
+  });
+
+  // 轮询后备：每 2 秒同步一次收藏栏开关状态
+  setInterval(async () => {
+    try {
+      const settings = await settingsApi('get');
+      if (elements.showBookmarksBar && settings.bookmarksBar) {
+        const expected = settings.bookmarksBar.visible !== false;
+        if (elements.showBookmarksBar.checked !== expected) {
+          elements.showBookmarksBar.checked = expected;
+        }
+      }
+    } catch (e) {
+      // 忽略
+    }
+  }, 2000);
 }
 
 // 页面加载完成后初始化

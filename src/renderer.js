@@ -302,11 +302,13 @@ async function saveBookmark() {
       state.currentBookmarkTitle = title; // 同步 state，避免下次打开仍是旧值
       toastMessage = '已更新收藏';
     } else {
-      // 新增模式：插入新记录
+      // 新增模式：插入新记录，从当前 tab 获取 favicon
+      const activeTab = state.tabs.get(state.activeTabId);
+      const faviconUrl = activeTab ? (activeTab.faviconUrl || '') : '';
       const result = await window.realmAPI.favoritesAdd({
         url,
         title,
-        faviconUrl: '' // favicon 暂不获取
+        faviconUrl,
       });
 
       if (result.error === 'duplicate') {
@@ -331,6 +333,11 @@ async function saveBookmark() {
   hideBookmarkEditPanel();
   if (toastMessage) {
     showToast(toastMessage, toastType);
+  }
+
+  // 刷新收藏栏显示
+  if (window.bookmarksBar) {
+    window.bookmarksBar.load();
   }
 }
 
@@ -362,6 +369,11 @@ async function removeBookmark() {
   hideBookmarkEditPanel();
   if (toastMessage) {
     showToast(toastMessage, toastType);
+  }
+
+  // 刷新收藏栏显示
+  if (window.bookmarksBar) {
+    window.bookmarksBar.load();
   }
 }
 
@@ -1430,30 +1442,148 @@ async function init() {
     const bookmarksBar = document.getElementById('bookmarksBar');
     if (bookmarksBar) bookmarksBar.style.display = data.visible ? '' : 'none';
     if (data.visible && window.bookmarksBar) window.bookmarksBar.load();
-    // 同步设置页面开关状态
+    // 同步主窗口内设置开关
     const toggle = document.getElementById('showBookmarksBar');
     if (toggle) toggle.checked = data.visible;
+    // 同步所有 settings webview 内的开关
+    const webviews = document.querySelectorAll('webview');
+    webviews.forEach((wv) => {
+      try {
+        const url = wv.getURL ? wv.getURL() : (wv.src || '');
+        if (url && url.includes('/settings')) {
+          wv.executeJavaScript(`
+            (function() {
+              const toggle = document.getElementById('showBookmarksBar');
+              if (toggle) toggle.checked = ${data.visible};
+            })();
+          `).catch(() => {});
+        }
+      } catch (e) {
+        // webview 可能已销毁
+      }
+    });
   });
   window.realmAPI.onIpcMessage('bookmarks-bar:navigate', (data) => {
     if (data.newTab) {
-      window.open(data.url, '_blank');
+      createTab(state.currentContainer, data.url);
+    }
+  });
+  window.realmAPI.onIpcMessage('bookmarks-bar:edit-bookmark', (data) => {
+    // 设置编辑状态，然后弹出收藏编辑面板
+    state.isCurrentPageBookmarked = true;
+    state.currentBookmarkId = data.id;
+    state.currentBookmarkTitle = data.title;
+    showBookmarkEditPanel(data.title, data.url, true);
+  });
+
+  /**
+   * 显示简单的文本输入对话框（Electron 不支持 window.prompt）
+   * @param {string} title - 对话框标题
+   * @param {string} [defaultValue=''] - 默认值
+   * @returns {Promise<string|null>} 用户输入的值，取消则返回 null
+   */
+  function showInputDialog(title, defaultValue = '') {
+    return new Promise((resolve) => {
+      const dialog = document.createElement('dialog');
+      dialog.className = 'modal';
+      dialog.style.cssText = 'padding:20px;border-radius:8px;border:none;min-width:300px;background:#2d2d2d;color:#fff;';
+
+      const heading = document.createElement('h3');
+      heading.textContent = title;
+      heading.style.cssText = 'margin:0 0 16px 0;font-size:16px;';
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = defaultValue;
+      input.style.cssText = 'width:100%;padding:8px;margin-bottom:16px;border-radius:4px;border:1px solid #444;background:#1e1e1e;color:#fff;box-sizing:border-box;';
+
+      const btnWrap = document.createElement('div');
+      btnWrap.style.cssText = 'display:flex;justify-content:flex-end;gap:10px;';
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = '取消';
+      cancelBtn.style.cssText = 'padding:6px 16px;border-radius:4px;border:none;background:#444;color:#fff;cursor:pointer;';
+
+      const confirmBtn = document.createElement('button');
+      confirmBtn.textContent = '确定';
+      confirmBtn.style.cssText = 'padding:6px 16px;border-radius:4px;border:none;background:#4a9eff;color:#fff;cursor:pointer;';
+
+      btnWrap.appendChild(cancelBtn);
+      btnWrap.appendChild(confirmBtn);
+      dialog.appendChild(heading);
+      dialog.appendChild(input);
+      dialog.appendChild(btnWrap);
+      document.body.appendChild(dialog);
+
+      dialog.showModal();
+      input.focus();
+      input.select();
+
+      const cleanup = (value) => {
+        if (dialog.parentNode) dialog.parentNode.removeChild(dialog);
+        resolve(value);
+      };
+
+      confirmBtn.addEventListener('click', () => cleanup(input.value));
+      cancelBtn.addEventListener('click', () => cleanup(null));
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') cleanup(input.value);
+        if (e.key === 'Escape') cleanup(null);
+      });
+      dialog.addEventListener('close', () => cleanup(null));
+    });
+  }
+
+  window.realmAPI.onIpcMessage('bookmarks-bar:rename-folder', async (data) => {
+    const newName = await showInputDialog('重命名文件夹', data.name || '');
+    if (newName && newName.trim() && newName.trim() !== data.name) {
+      window.realmAPI.renameFavoriteFolder(data.id, newName.trim()).then(() => {
+        showToast('文件夹已重命名', 'success');
+        if (window.bookmarksBar) window.bookmarksBar.load();
+      }).catch((err) => {
+        console.error('[Realm] 重命名文件夹失败:', err);
+        showToast('重命名失败', 'error');
+      });
     }
   });
   window.realmAPI.onIpcMessage('bookmarks-bar:add-bookmark', (data) => {
-    // 跳转到收藏夹页面执行添加操作
-    showToast('请在收藏夹页面添加书签', 'info');
+    // 将当前页面添加到指定文件夹
+    const activeTab = state.tabs.get(state.activeTabId);
+    if (!activeTab || !activeTab.url) {
+      showToast('当前标签页无有效页面', 'error');
+      return;
+    }
+    const title = activeTab.title || activeTab.url;
+    const faviconUrl = activeTab.faviconUrl || '';
+    window.realmAPI.favoritesAdd({ url: activeTab.url, title, faviconUrl }).then(async (result) => {
+      if (result.error) {
+        showToast(result.message || '添加失败', 'error');
+        return;
+      }
+      if (data.folderId) {
+        await window.realmAPI.moveFavorite(result.id, data.folderId);
+      }
+      state.isCurrentPageBookmarked = true;
+      state.currentBookmarkId = result.id;
+      updateStarButton(true);
+      showToast('已添加书签', 'success');
+      if (window.bookmarksBar) window.bookmarksBar.load();
+    }).catch((err) => {
+      console.error('[Realm] 添加书签失败:', err);
+      showToast('添加失败', 'error');
+    });
   });
-  window.realmAPI.onIpcMessage('bookmarks-bar:add-folder', (data) => {
-    // 跳转到收藏夹页面执行添加操作
-    showToast('请在收藏夹页面添加文件夹', 'info');
-  });
-  window.realmAPI.onIpcMessage('bookmarks-bar:edit-bookmark', (data) => {
-    // 跳转到收藏夹页面执行编辑操作
-    showToast('请在收藏夹页面编辑书签', 'info');
-  });
-  window.realmAPI.onIpcMessage('bookmarks-bar:rename-folder', (data) => {
-    // 跳转到收藏夹页面执行重命名操作
-    showToast('请在收藏夹页面重命名文件夹', 'info');
+  window.realmAPI.onIpcMessage('bookmarks-bar:add-folder', async (data) => {
+    const name = await showInputDialog('新建文件夹');
+    if (name && name.trim()) {
+      window.realmAPI.createFavoriteFolder(name.trim(), data.parentId || 0).then(() => {
+        showToast('文件夹已创建', 'success');
+        if (window.bookmarksBar) window.bookmarksBar.load();
+      }).catch((err) => {
+        console.error('[Realm] 创建文件夹失败:', err);
+        showToast('创建失败', 'error');
+      });
+    }
   });
   window.realmAPI.onIpcMessage('bookmarks-bar:open-all', (data) => {
     // 打开文件夹中的所有书签
@@ -1462,7 +1592,7 @@ async function init() {
         if (favorites && favorites.length > 0) {
           favorites.forEach((fav) => {
             if (fav.url) {
-              window.open(fav.url, '_blank');
+              createTab(state.currentContainer, fav.url);
             }
           });
         }

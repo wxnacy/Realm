@@ -2,75 +2,46 @@
  * Realm Browser - 收藏栏样式
  *
  * Chrome 风格收藏栏，位于地址栏下方
- * 高度 32px，显示根目录收藏项和文件夹
+ * 背景与工具栏一致，无独立边框，紧凑排列
  */
 
 :root {
-  --bookmarks-bar-height: 32px;
+  --bookmarks-bar-height: 30px;
   --bookmarks-item-height: 24px;
-  --bookmarks-dropdown-max-width: 300px;
+  --bookmarks-dropdown-max-width: 280px;
+  --bookmarks-dropdown-min-width: 180px;
   --bookmarks-dropdown-item-height: 28px;
 }
 
 /* ==================== 收藏栏整体 ==================== */
 
 .bookmarks-bar {
+  width: 100%;
   height: var(--bookmarks-bar-height);
-  background-color: var(--bg-primary);
-  border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
   display: flex;
   align-items: center;
-  padding: 0 8px;
-  gap: 2px;
+  padding: 0 6px;
   overflow: hidden;
   flex-shrink: 0;
+  box-sizing: border-box;
+  position: relative;
+  /* 极淡的底部分割线，和 Chrome 一致 */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .bookmarks-bar-list {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 2px;
   overflow: hidden;
+  min-width: 0;
+  height: 100%;
 }
 
-/* ==================== 收藏项 ==================== */
+/* ==================== 收藏项 & 文件夹项（统一基础样式） ==================== */
 
-.bookmark-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  height: var(--bookmarks-item-height);
-  border-radius: 4px;
-  cursor: pointer;
-  flex-shrink: 0;
-  max-width: 160px;
-  transition: background-color 0.15s ease;
-}
-
-.bookmark-item:hover {
-  background-color: var(--bg-hover);
-}
-
-.bookmark-item .bookmark-favicon {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  object-fit: contain;
-}
-
-.bookmark-item .bookmark-title {
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* ==================== 文件夹项 ==================== */
-
+.bookmark-item,
 .bookmark-folder {
   display: flex;
   align-items: center;
@@ -81,27 +52,50 @@
   cursor: pointer;
   flex-shrink: 0;
   max-width: 160px;
-  transition: background-color 0.15s ease;
-  position: relative;
+  transition: background-color 0.1s ease;
+  user-select: none;
 }
 
+.bookmark-item:hover,
 .bookmark-folder:hover {
-  background-color: var(--bg-hover);
+  background-color: rgba(255, 255, 255, 0.08);
 }
+
+.bookmark-item:active,
+.bookmark-folder:active {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+/* ==================== 收藏项 ==================== */
+
+.bookmark-item .bookmark-favicon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  object-fit: contain;
+  border-radius: 2px;
+}
+
+.bookmark-item .bookmark-title {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ==================== 文件夹项 ==================== */
 
 .bookmark-folder .folder-icon {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
-  color: var(--text-secondary);
-}
-
-.bookmark-folder:hover .folder-icon {
-  color: var(--accent-color);
+  color: #fbbf24;
 }
 
 .bookmark-folder .folder-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 400;
   color: var(--text-primary);
   white-space: nowrap;
@@ -110,11 +104,12 @@
 }
 
 .bookmark-folder .folder-arrow {
-  width: 10px;
-  height: 10px;
-  margin-left: 2px;
+  width: 8px;
+  height: 8px;
+  margin-left: 1px;
   color: var(--text-muted);
   flex-shrink: 0;
+  opacity: 0.55;
 }
 
 /* ==================== 溢出按钮 ==================== */
@@ -123,24 +118,28 @@
   display: none;
   align-items: center;
   justify-content: center;
-  padding: 0 8px;
+  padding: 0 6px;
   height: var(--bookmarks-item-height);
   border-radius: 4px;
   cursor: pointer;
   flex-shrink: 0;
-  margin-left: auto;
-  transition: background-color 0.15s ease;
+  margin-left: 2px;
+  transition: background-color 0.1s ease;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  background: none;
+  border: none;
 }
 
 .bookmarks-overflow-btn:hover {
-  background-color: var(--bg-hover);
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
 }
 
-.bookmarks-overflow-btn span {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  letter-spacing: 1px;
+.bookmarks-overflow-btn:active {
+  background-color: rgba(255, 255, 255, 0.12);
 }
 
 .bookmarks-overflow-btn.visible {
@@ -150,58 +149,67 @@
 /* ==================== 下拉菜单 ==================== */
 
 .bookmarks-dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  min-width: 180px;
+  position: fixed;
+  min-width: var(--bookmarks-dropdown-min-width);
   max-width: var(--bookmarks-dropdown-max-width);
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  background-color: #2d2d2d;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
-  padding: 4px 0;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  z-index: 9999;
+  padding: 6px 0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  z-index: 99999;
   overflow-y: auto;
   overflow-x: hidden;
-  max-height: 400px;
+  max-height: 520px;
 
-  /* 从上往下滑入动画 */
+  /* 淡入动画 */
   opacity: 0;
-  transform: translateY(-4px);
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transform: scale(0.96);
+  transition: opacity 0.08s ease, transform 0.08s ease;
   pointer-events: none;
+  transform-origin: top left;
 }
 
 .bookmarks-dropdown.visible {
   opacity: 1;
-  transform: translateY(0);
+  transform: scale(1);
   pointer-events: auto;
 }
 
 .bookmarks-dropdown-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
+  gap: 10px;
+  padding: 0 12px;
   height: var(--bookmarks-dropdown-item-height);
   cursor: pointer;
-  transition: background-color 0.1s ease;
+  transition: background-color 0.06s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0 4px;
+  border-radius: 4px;
 }
 
 .bookmarks-dropdown-item:hover {
-  background-color: var(--bg-hover);
+  background-color: rgba(255, 255, 255, 0.08);
 }
 
-.bookmarks-dropdown-item .item-favicon,
-.bookmarks-dropdown-item .item-icon {
+.bookmarks-dropdown-item .bookmark-favicon,
+.bookmarks-dropdown-item .folder-icon {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
   object-fit: contain;
 }
 
-.bookmarks-dropdown-item .item-title {
-  font-size: 13px;
+.bookmarks-dropdown-item .folder-icon {
+  color: #fbbf24;
+}
+
+.bookmarks-dropdown-item .bookmark-title,
+.bookmarks-dropdown-item .folder-title {
+  font-size: 12.5px;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -209,44 +217,68 @@
   flex: 1;
 }
 
-.bookmarks-dropdown-item .item-arrow {
-  width: 10px;
-  height: 10px;
+.bookmarks-dropdown-item .folder-arrow {
+  width: 8px;
+  height: 8px;
   color: var(--text-muted);
   flex-shrink: 0;
+  opacity: 0.5;
 }
 
 /* ==================== 级联子菜单 ==================== */
 
 .bookmarks-submenu {
-  position: absolute;
-  top: -4px;
-  left: 100%;
-  min-width: 180px;
+  position: fixed;
+  min-width: var(--bookmarks-dropdown-min-width);
   max-width: var(--bookmarks-dropdown-max-width);
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  background-color: #2d2d2d;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
-  padding: 4px 0;
-  box-shadow: 4px 4px 16px rgba(0, 0, 0, 0.4);
+  padding: 6px 0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  z-index: 100000;
   overflow-y: auto;
-  max-height: 400px;
+  overflow-x: hidden;
+  max-height: 520px;
 
-  /* 从左往右滑入动画 */
+  /* 淡入动画 */
   opacity: 0;
-  transform: translateX(-4px);
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transform: scale(0.96);
+  transition: opacity 0.08s ease, transform 0.08s ease;
   pointer-events: none;
+  transform-origin: top left;
 }
 
 .bookmarks-submenu.visible {
   opacity: 1;
-  transform: translateX(0);
+  transform: scale(1);
   pointer-events: auto;
 }
 
 .bookmarks-dropdown-separator {
   height: 1px;
-  background-color: var(--border-color);
-  margin: 4px 0;
+  background-color: rgba(255, 255, 255, 0.08);
+  margin: 4px 10px;
+}
+
+/* ==================== 空状态 ==================== */
+
+.bookmarks-dropdown-empty {
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ==================== 滚动条美化 ==================== */
+
+.bookmarks-dropdown::-webkit-scrollbar,
+.bookmarks-submenu::-webkit-scrollbar {
+  width: 3px;
+}
+
+.bookmarks-dropdown::-webkit-scrollbar-thumb,
+.bookmarks-submenu::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
 }

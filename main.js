@@ -337,6 +337,14 @@ app.whenReady().then(async () => {
    * @param {http.ServerResponse} res - 响应对象
    * @param {URL} reqUrl - 解析后的请求 URL
    */
+  /** 收藏栏数据变更后，向所有渲染进程广播刷新事件 */
+  function _notifyBookmarksBarRefresh() {
+    const mainWindow = windowManager.getMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('bookmarks-bar:refresh');
+    }
+  }
+
   async function handleFavoritesApi(req, res, reqUrl) {
     // token 鉴权：防 CSRF 与 localhost 端口扫描读取/篡改收藏
     if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
@@ -372,25 +380,33 @@ app.whenReady().then(async () => {
 
       if (route === 'add' && req.method === 'POST') {
         const { url, title, faviconUrl } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.addRecord({ url, title, faviconUrl }));
+        const result = favoritesManager.addRecord({ url, title, faviconUrl });
+        _notifyBookmarksBarRefresh();
+        sendJson(res, 200, result);
         return;
       }
 
       if (route === 'update' && req.method === 'POST') {
         const { id, title } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.updateRecord(id, { title }));
+        const result = favoritesManager.updateRecord(id, { title });
+        _notifyBookmarksBarRefresh();
+        sendJson(res, 200, result);
         return;
       }
 
       if (route === 'delete' && req.method === 'POST') {
         const { id } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.deleteRecord(id));
+        const result = favoritesManager.deleteRecord(id);
+        _notifyBookmarksBarRefresh();
+        sendJson(res, 200, result);
         return;
       }
 
       if (route === 'delete-batch' && req.method === 'POST') {
         const { ids } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.deleteRecords(ids));
+        const result = favoritesManager.deleteRecords(ids);
+        _notifyBookmarksBarRefresh();
+        sendJson(res, 200, result);
         return;
       }
 
@@ -398,19 +414,25 @@ app.whenReady().then(async () => {
 
       if (route === 'create-folder' && req.method === 'POST') {
         const { name, parentId } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.createFolder({ name, parentId }));
+        const result = favoritesManager.createFolder({ name, parentId });
+        _notifyBookmarksBarRefresh();
+        sendJson(res, 200, result);
         return;
       }
 
       if (route === 'rename-folder' && req.method === 'POST') {
         const { id, name } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.renameFolder(id, { name }));
+        const result = favoritesManager.renameFolder(id, { name });
+        _notifyBookmarksBarRefresh();
+        sendJson(res, 200, result);
         return;
       }
 
       if (route === 'delete-folder' && req.method === 'POST') {
         const { id } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.deleteFolder(id));
+        const result = favoritesManager.deleteFolder(id);
+        _notifyBookmarksBarRefresh();
+        sendJson(res, 200, result);
         return;
       }
 
@@ -427,31 +449,41 @@ app.whenReady().then(async () => {
 
       if (route === 'move-folder' && req.method === 'POST') {
         const { id, parentId } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.moveFolder(id, { parentId }));
+        const result = favoritesManager.moveFolder(id, { parentId });
+        _notifyBookmarksBarRefresh();
+        sendJson(res, 200, result);
         return;
       }
 
       if (route === 'move-favorite' && req.method === 'POST') {
         const { id, folderId } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.moveFavorite(id, { folderId }));
+        const result = favoritesManager.moveFavorite(id, { folderId });
+        _notifyBookmarksBarRefresh();
+        sendJson(res, 200, result);
         return;
       }
 
       if (route === 'move-favorites' && req.method === 'POST') {
         const { ids, folderId } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.moveFavorites(ids, { folderId }));
+        const result = favoritesManager.moveFavorites(ids, { folderId });
+        _notifyBookmarksBarRefresh();
+        sendJson(res, 200, result);
         return;
       }
 
       if (route === 'update-folder-sort' && req.method === 'POST') {
         const { id, sortOrder } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.updateFolderSort(id, { sortOrder }));
+        const result = favoritesManager.updateFolderSort(id, { sortOrder });
+        _notifyBookmarksBarRefresh();
+        sendJson(res, 200, result);
         return;
       }
 
       if (route === 'update-favorite-sort' && req.method === 'POST') {
         const { id, sortOrder } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.updateFavoriteSort(id, { sortOrder }));
+        const result = favoritesManager.updateFavoriteSort(id, { sortOrder });
+        _notifyBookmarksBarRefresh();
+        sendJson(res, 200, result);
         return;
       }
 
@@ -465,13 +497,17 @@ app.whenReady().then(async () => {
 
       if (route === 'update-batch-sort' && req.method === 'POST') {
         const { items } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.batchUpdateSort(items));
+        const result = favoritesManager.batchUpdateSort(items);
+        _notifyBookmarksBarRefresh();
+        sendJson(res, 200, result);
         return;
       }
 
       if (route === 'update-batch-folder-sort' && req.method === 'POST') {
         const { folders } = await readJsonBody(req);
-        sendJson(res, 200, favoritesManager.batchUpdateFolderSort(folders));
+        const result = favoritesManager.batchUpdateFolderSort(folders);
+        _notifyBookmarksBarRefresh();
+        sendJson(res, 200, result);
         return;
       }
 
@@ -494,6 +530,7 @@ app.whenReady().then(async () => {
             (data) => { currentImportProgress = data; },
             currentImportAbortController.signal
           );
+          _notifyBookmarksBarRefresh();
           sendJson(res, 200, result);
         } finally {
           currentImportAbortController = null;
@@ -523,6 +560,7 @@ app.whenReady().then(async () => {
             (data) => { currentImportProgress = data; },
             currentImportAbortController.signal
           );
+          _notifyBookmarksBarRefresh();
           sendJson(res, 200, result);
         } finally {
           currentImportAbortController = null;
@@ -679,6 +717,12 @@ app.whenReady().then(async () => {
           isDefaultBrowser: false,
           restoreTabsOnLaunch: 'ask',
         });
+        // 合并收藏栏显示状态：优先读取 settings.bookmarksBar.visible（设置页面写入），
+        // 不存在时回退到根路径 bookmarksBar.visible（主进程早期代码写入）
+        const fromSettings = configStore.get('settings.bookmarksBar.visible');
+        settings.bookmarksBar = {
+          visible: fromSettings !== undefined ? fromSettings : configStore.get('bookmarksBar.visible', true),
+        };
         sendJson(res, 200, settings);
         return;
       }
@@ -1048,7 +1092,7 @@ app.whenReady().then(async () => {
     }
   }
 
-  const realmServer = http.createServer((req, res) => {
+  const realmServer = http.createServer(async (req, res) => {
     const reqUrl = new URL(req.url, 'http://localhost');
     const reqPath = reqUrl.pathname;
 
@@ -1110,6 +1154,7 @@ app.whenReady().then(async () => {
       try {
         const { visible } = await readJsonBody(req);
         configStore.set('bookmarksBar.visible', !!visible);
+        configStore.set('settings.bookmarksBar.visible', !!visible);
         // 通知主窗口渲染进程
         const mainWindow = windowManager.getMainWindow();
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1264,7 +1309,7 @@ app.whenReady().then(async () => {
           label: '编辑',
           click: () => {
             if (!hostWebContents.isDestroyed()) {
-              hostWebContents.send('bookmarks-bar:edit-bookmark', { id: info.id });
+              hostWebContents.send('bookmarks-bar:edit-bookmark', { id: info.id, url: info.url, title: info.title });
             }
           },
         },
@@ -1358,6 +1403,7 @@ app.whenReady().then(async () => {
           label: '隐藏收藏栏',
           click: () => {
             configStore.set('bookmarksBar.visible', false);
+            configStore.set('settings.bookmarksBar.visible', false);
             if (!hostWebContents.isDestroyed()) {
               hostWebContents.send('bookmarks-bar:visibility-changed', { visible: false });
             }
@@ -1511,6 +1557,7 @@ app.whenReady().then(async () => {
    */
   ipcMain.handle('bookmarks-bar:toggle', async (event, { visible }) => {
     configStore.set('bookmarksBar.visible', visible);
+    configStore.set('settings.bookmarksBar.visible', visible);
     return { success: true };
   });
 
