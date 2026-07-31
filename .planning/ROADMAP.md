@@ -228,6 +228,19 @@ Plans:
 **预估时间**: 2 天
 **需求覆盖**: AI-01
 **对应**: pi-agent-integration.md Phase 1
+**状态**: 规划完成
+
+**Plans:** 2 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 19-01-PLAN.md — Node 版本验证 + 依赖安装 + AI Manager 骨架
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 19-02-PLAN.md — Demo 验证：Agent + get_tabs 工具执行
 
 **任务**:
 
