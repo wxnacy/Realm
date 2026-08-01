@@ -83,9 +83,11 @@ let sortOrderMigrated = false;
 function migrateSortOrder() {
   if (sortOrderMigrated) return;
 
-  // 检查 favorites 表是否存在整数 sort_order 记录
+  // 检查 favorites 表是否存在非法 sort_order 记录：
+  // INTEGER（addRecord 历史落列默认值 0）或文本 '0'（导入历史残留），
+  // 二者与 fractional 文本键混合会导致 SQLite 类型序/字典序排序错乱
   const favRows = db.prepare(
-    "SELECT COUNT(*) as count FROM favorites WHERE typeof(sort_order) = 'integer' AND sort_order != 0"
+    "SELECT COUNT(*) as count FROM favorites WHERE typeof(sort_order) = 'integer' OR sort_order = '0'"
   ).get();
 
   if (favRows.count > 0) {
@@ -111,8 +113,9 @@ function migrateSortOrder() {
   }
 
   // 检查 favorite_folders 表是否存在整数 sort_order 记录
+  // （含旧 createFolder MAX+1 逻辑产生的整数与列默认值 0）
   const folderRows = db.prepare(
-    "SELECT COUNT(*) as count FROM favorite_folders WHERE typeof(sort_order) = 'integer' AND sort_order != 0"
+    "SELECT COUNT(*) as count FROM favorite_folders WHERE typeof(sort_order) = 'integer'"
   ).get();
 
   if (folderRows.count > 0) {
@@ -266,6 +269,28 @@ function migrateToGlobal() {
 // ==================== CRUD 操作 ====================
 
 /**
+ * 取表中当前最大的合法 fractional 排序键
+ *
+ * 历史脏数据（addRecord 落列默认值的 INTEGER 0、导入残留的文本 '0'）不参与：
+ * 它们按 SQLite 类型序/字典序都小于任何合法键（'a0' 起），新键只需接续
+ * 合法键末尾，即可自然排到脏数据之后。
+ *
+ * @param {string} table - 表名（favorites / favorite_folders）
+ * @returns {string|null} 最大排序键，无合法键时返回 null
+ */
+function _getLastSortKey(table) {
+  if (table !== 'favorites' && table !== 'favorite_folders') {
+    throw new Error(`非法表名: ${table}`);
+  }
+  const row = db.prepare(
+    `SELECT sort_order FROM ${table}
+     WHERE typeof(sort_order) = 'text' AND sort_order != '0'
+     ORDER BY sort_order DESC LIMIT 1`
+  ).get();
+  return row ? row.sort_order : null;
+}
+
+/**
  * 添加收藏记录
  * @param {Object} record - 记录数据
  * @param {string} record.url - 页面 URL
@@ -276,11 +301,15 @@ function migrateToGlobal() {
 function addRecord({ url, title = '', faviconUrl = '' }) {
   ensureTable();
 
+  // 新记录追加到排序末尾（fractional 键），避免落列默认值 INTEGER 0
+  // 造成 INTEGER/TEXT 混合类型排序错乱（拖拽排序不生效的根因之一）
+  const sortKey = generateKeyBetween(_getLastSortKey('favorites'), null);
+
   // 使用 INSERT OR IGNORE 处理 UNIQUE 约束冲突
   const result = db.prepare(`
-    INSERT OR IGNORE INTO favorites (url, title, favicon_url)
-    VALUES (?, ?, ?)
-  `).run(url, title, faviconUrl);
+    INSERT OR IGNORE INTO favorites (url, title, favicon_url, sort_order)
+    VALUES (?, ?, ?, ?)
+  `).run(url, title, faviconUrl, sortKey);
 
   // lastInsertRowid 为 0 表示插入被忽略（URL 已存在）
   if (result.lastInsertRowid === 0n || result.lastInsertRowid === 0) {
@@ -365,12 +394,12 @@ function deleteRecords(ids) {
 function listRecords({ offset = 0, limit = 50, folderId = undefined }) {
   ensureTable();
 
-  // 当指定 folderId 时，按文件夹过滤并按 sort_order ASC, created_at DESC 排序
+  // 当指定 folderId 时，按文件夹过滤并按 sort_order ASC, created_at ASC 排序
   if (folderId !== undefined) {
     return db.prepare(`
       SELECT * FROM favorites
       WHERE folder_id = ?
-      ORDER BY sort_order ASC, created_at DESC
+      ORDER BY sort_order ASC, created_at ASC
       LIMIT ? OFFSET ?
     `).all(folderId, limit, offset);
   }
@@ -378,7 +407,7 @@ function listRecords({ offset = 0, limit = 50, folderId = undefined }) {
   // 未指定 folderId 时，返回所有记录（向后兼容）
   return db.prepare(`
     SELECT * FROM favorites
-    ORDER BY created_at DESC
+    ORDER BY created_at ASC
     LIMIT ? OFFSET ?
   `).all(limit, offset);
 }
@@ -398,7 +427,7 @@ function searchRecords({ keyword, offset = 0, limit = 50 }) {
   return db.prepare(`
     SELECT * FROM favorites
     WHERE url LIKE ? OR title LIKE ?
-    ORDER BY created_at DESC
+    ORDER BY created_at ASC
     LIMIT ? OFFSET ?
   `).all(pattern, pattern, limit, offset);
 }
@@ -472,15 +501,15 @@ function createFolder({ name, parentId = 0 }) {
     }
   }
 
-  // 计算排序值：取当前最大 sort_order + 1
-  const maxSort = db.prepare(
-    'SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_sort FROM favorite_folders WHERE parent_id = ?'
-  ).get(parentId);
+  // 计算排序键：追加到末尾（fractional indexing）。
+  // 旧逻辑 MAX(sort_order)+1 对字符串键失效（'a0'+1 得整数 1），
+  // 会重新引入 INTEGER/TEXT 混合类型排序错乱
+  const sortKey = generateKeyBetween(_getLastSortKey('favorite_folders'), null);
 
   const result = db.prepare(`
     INSERT INTO favorite_folders (name, parent_id, sort_order)
     VALUES (?, ?, ?)
-  `).run(name, parentId, maxSort.next_sort);
+  `).run(name, parentId, sortKey);
 
   return { id: result.lastInsertRowid };
 }
@@ -991,9 +1020,15 @@ async function batchInsertBookmarks(bookmarks, folderIdMap, onProgress) {
     'INSERT OR IGNORE INTO favorites (url, title, favicon_url, folder_id, sort_order) VALUES (?, ?, ?, ?, ?)'
   );
 
+  // 为导入书签顺序分配 fractional 排序键（接续现有键末尾）：
+  // 既避免写入文本 '0' 脏数据，又让同文件夹内保持源书签原始顺序
+  // （created_at 同毫秒时 SQLite 不保证相对顺序，排序键是唯一可靠依据）
+  const sortKeys = generateNKeysBetween(_getLastSortKey('favorites'), null, total);
+
   // 使用事务包裹批量操作
-  const insertBatch = db.transaction((batch) => {
-    for (const item of batch) {
+  const insertBatch = db.transaction((batch, startIndex) => {
+    for (let j = 0; j < batch.length; j++) {
+      const item = batch[j];
       const normalizedUrl = normalizeUrl(item.url);
       const folderId = folderIdMap[item.parentPath] || 0;
       const result = insertStmt.run(
@@ -1001,7 +1036,7 @@ async function batchInsertBookmarks(bookmarks, folderIdMap, onProgress) {
         item.title || '',
         item.faviconUrl || '',
         folderId,
-        '0'
+        sortKeys[startIndex + j]
       );
       if (result.changes > 0) {
         imported++;
@@ -1014,7 +1049,7 @@ async function batchInsertBookmarks(bookmarks, folderIdMap, onProgress) {
   // 分批处理
   for (let i = 0; i < total; i += BATCH_SIZE) {
     const batch = bookmarks.slice(i, Math.min(i + BATCH_SIZE, total));
-    insertBatch(batch);
+    insertBatch(batch, i);
 
     // 报告进度（per D-13）
     if (onProgress) {
