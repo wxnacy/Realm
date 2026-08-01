@@ -803,6 +803,57 @@ contextBridge.exposeInMainWorld('realmAPI', {
      */
     getVisibility: () => ipcRenderer.invoke('bookmarks-bar:get-visibility'),
   },
+
+  // ==================== AI 助手 ====================
+
+  /**
+   * AI 相关 API
+   * 提供 AI Agent 的消息发送、取消、配置和状态查询功能
+   */
+  ai: {
+    /**
+     * 发送用户消息给 AI Agent
+     * @param {string} message - 用户输入的消息
+     * @returns {Promise<{success: boolean, error?: string}>}
+     */
+    prompt: (message) => ipcRenderer.invoke('ai:prompt', message),
+
+    /**
+     * 取消当前 Agent 执行
+     * @returns {Promise<{success: boolean}>}
+     */
+    abort: () => ipcRenderer.invoke('ai:abort'),
+
+    /**
+     * 监听 Agent 事件（批量）
+     * 高频事件（message_update, tool_execution_update）使用 debounce 16ms 批量合并
+     * @param {function} callback - 接收事件数组的回调
+     * @returns {function} 取消监听的清理函数
+     */
+    onEventsBatch: (callback) => {
+      ipcRenderer.on('ai:events-batch', (_, data) => callback(data.events));
+      return () => ipcRenderer.removeAllListeners('ai:events-batch');
+    },
+
+    /**
+     * 配置 AI 提供商 API Key
+     * @param {Object} config - { provider: string, apiKey: string }
+     * @returns {Promise<{success: boolean, error?: string}>}
+     */
+    configureProviders: (config) => ipcRenderer.invoke('ai:configure', config),
+
+    /**
+     * 获取可用模型列表
+     * @returns {Promise<{models: Array<{provider: string, id: string, name: string}>}>}
+     */
+    getAvailableModels: () => ipcRenderer.invoke('ai:get-models'),
+
+    /**
+     * 获取当前 Agent 状态
+     * @returns {Promise<{initialized: boolean, model: string|null, toolsCount: number}>}
+     */
+    getState: () => ipcRenderer.invoke('ai:get-state'),
+  },
 });
 
 console.log('[Realm] Preload 脚本已加载');
