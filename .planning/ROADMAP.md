@@ -228,7 +228,7 @@ Plans:
 **预估时间**: 2 天
 **需求覆盖**: AI-01
 **对应**: pi-agent-integration.md Phase 1
-**状态**: 规划完成
+**状态**: 执行中（Plan 01 完成，Plan 02 待执行）
 
 **Plans:** 2 plans
 
@@ -236,7 +236,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 19-01-PLAN.md — Node 版本验证 + 依赖安装 + AI Manager 骨架
+- [x] 19-01-PLAN.md — Node 版本验证 + 依赖安装 + AI Manager 骨架 (DONE: 174085e, 0f04b5e)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -244,9 +244,9 @@ Plans:
 
 **任务**:
 
-- [ ] Node.js 版本验证
-- [ ] pi-ai/pi-agent-core 安装验证
-- [ ] AI Manager 骨架
+- [x] Node.js 版本验证
+- [x] pi-ai/pi-agent-core 安装验证
+- [x] AI Manager 骨架
 - [ ] 最小可行 Demo
 
 **重要说明**: AI 功能完全基于 pi-agent-core 集成，不自行开发 Agent 循环
