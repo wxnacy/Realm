@@ -104,7 +104,7 @@ Phase 14  Phase 15  Phase 16  Phase 17  Phase 18  Phase 19  Phase 20  Phase 21
 - [x] Phase 17: Chrome 书签导入 (2d) (completed 2026-07-30)
 - [x] Phase 18: 收藏栏功能 (2d) (completed 2026-07-30)
 - [x] Phase 19: AI Agent 集成 - 基础验证 (2d) (completed 2026-07-31)
-- [ ] Phase 20: AI Agent 集成 - 核心功能 (4d)
+- [x] Phase 20: AI Agent 集成 - 核心功能 (4d) (completed 2026-08-01)
 - [ ] Phase 21: AI Agent 集成 - 聊天 UI (3d)
 
 </details>
