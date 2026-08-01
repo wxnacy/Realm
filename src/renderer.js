@@ -3660,9 +3660,7 @@ function showAIError(errorMessage) {
  * 打开设置页面并滚动到"AI 助手"分区（Phase 20 已实现）
  */
 function openAISettings() {
-  if (window.realmAPI.openSettings) {
-    window.realmAPI.openSettings('ai');
-  }
+  openSettingsTab('ai');
 }
 
 /**
