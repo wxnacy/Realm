@@ -288,7 +288,7 @@ Plans:
 **需求覆盖**: AI-03
 **对应**: pi-agent-integration.md Phase 3
 
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 
@@ -298,7 +298,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 21-02-PLAN.md — AI 聊天面板增强功能（工具卡片 + 消息操作 + 拖拽调整 + 空状态 + 动画）
+- [x] 21-02-PLAN.md — AI 聊天面板增强功能（工具卡片 + 消息操作 + 拖拽调整 + 空状态 + 动画）
 
 **任务**:
 
