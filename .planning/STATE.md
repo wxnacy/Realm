@@ -4,8 +4,8 @@ milestone: v2.0
 milestone_name: 收藏夹文件夹支持 + AI Agent 集成
 current_phase: 21 — AI Agent 集成 - 聊天 UI
 status: planning
-stopped_at: Phase 20 complete, ready to plan Phase 21
-last_updated: "2026-08-01T09:11:40Z"
+stopped_at: Phase 21 context gathered
+last_updated: "2026-08-01T09:17:30.094Z"
 progress:
   total_phases: 8
   completed_phases: 7
@@ -97,6 +97,6 @@ progress:
 
 ## Session
 
-**Last session:** 2026-08-01T09:11:40Z
-**Stopped at:** Phase 20 complete, ready to plan Phase 21
-**Resume file:** None
+**Last session:** 2026-08-01T09:17:30.090Z
+**Stopped at:** Phase 21 context gathered
+**Resume file:** .planning/phases/21-ai-agent-ui/21-CONTEXT.md
