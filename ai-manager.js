@@ -16,6 +16,9 @@
  */
 
 const tabManager = require('./tab-manager');
+const historyManager = require('./history-manager');
+const favoritesManager = require('./favorites-manager');
+const windowManager = require('./window-manager');
 
 // ==================== 常量 ====================
 
@@ -251,7 +254,6 @@ class AIManager {
             url: tab.url,
             title: tab.title,
             containerId: tab.containerId,
-            isActive: tab.isActive,
           }));
           return {
             content: [{
@@ -259,6 +261,229 @@ class AIManager {
               text: JSON.stringify(tabList, null, 2),
             }],
             details: { count: tabList.length },
+          };
+        },
+      },
+      {
+        name: 'navigate',
+        label: '导航到网址',
+        description: '在指定容器中打开一个网页，支持在当前标签页或新标签页中打开',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: {
+              type: 'string',
+              description: '要导航到的 URL 地址',
+            },
+            containerId: {
+              type: 'string',
+              description: '目标容器 ID（可选，默认使用当前容器）',
+            },
+            newTab: {
+              type: 'boolean',
+              description: '是否在新标签页中打开（可选，默认 false）',
+            },
+          },
+          required: ['url'],
+        },
+        execute: async (toolCallId, params) => {
+          const { url, containerId = 'default', newTab = false } = params;
+          if (!url) {
+            throw new Error('URL 不能为空');
+          }
+          // 使用 tabManager.createTab 创建新标签页
+          const tab = tabManager.createTab(containerId, url);
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                tabId: tab.id,
+                url: tab.url,
+                containerId: tab.containerId,
+              }, null, 2),
+            }],
+            details: { tabId: tab.id },
+          };
+        },
+      },
+      {
+        name: 'search_history',
+        label: '搜索历史记录',
+        description: '在指定容器的浏览历史中搜索记录，支持按 URL 和标题模糊匹配',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: '搜索关键词',
+            },
+            containerId: {
+              type: 'string',
+              description: '容器 ID（可选，默认使用 default 容器）',
+            },
+            limit: {
+              type: 'number',
+              description: '返回结果数量上限（可选，默认 10）',
+            },
+          },
+          required: ['query'],
+        },
+        execute: async (toolCallId, params) => {
+          const { query, containerId = 'default', limit = 10 } = params;
+          if (!query) {
+            throw new Error('搜索关键词不能为空');
+          }
+          const results = historyManager.searchRecords(containerId, {
+            keyword: query,
+            limit,
+          });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                results: results.map(r => ({
+                  id: r.id,
+                  url: r.url,
+                  title: r.title,
+                  visitedAt: r.visited_at,
+                })),
+                count: results.length,
+              }, null, 2),
+            }],
+            details: { count: results.length },
+          };
+        },
+      },
+      {
+        name: 'manage_favorites',
+        label: '管理收藏夹',
+        description: '管理收藏夹：添加收藏、查看收藏列表、删除收藏',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: {
+              type: 'string',
+              description: '操作类型：add（添加）、get（查看列表）、delete（删除）',
+              enum: ['add', 'get', 'delete'],
+            },
+            url: {
+              type: 'string',
+              description: '添加收藏时的页面 URL',
+            },
+            title: {
+              type: 'string',
+              description: '添加收藏时的页面标题（可选）',
+            },
+            id: {
+              type: 'number',
+              description: '删除收藏时的记录 ID',
+            },
+          },
+          required: ['action'],
+        },
+        execute: async (toolCallId, params) => {
+          const { action, url, title, id } = params;
+
+          if (action === 'add') {
+            if (!url) {
+              throw new Error('添加收藏时 URL 不能为空');
+            }
+            const result = favoritesManager.addRecord({ url, title: title || '' });
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2),
+              }],
+              details: result,
+            };
+          }
+
+          if (action === 'get') {
+            const records = favoritesManager.listRecords({ limit: 50 });
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  favorites: records.map(r => ({
+                    id: r.id,
+                    url: r.url,
+                    title: r.title,
+                    createdAt: r.created_at,
+                  })),
+                  count: records.length,
+                }, null, 2),
+              }],
+              details: { count: records.length },
+            };
+          }
+
+          if (action === 'delete') {
+            if (!id) {
+              throw new Error('删除收藏时 ID 不能为空');
+            }
+            const success = favoritesManager.deleteRecord(id);
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({ success, id }, null, 2),
+              }],
+              details: { success, id },
+            };
+          }
+
+          throw new Error(`未知操作: ${action}`);
+        },
+      },
+      {
+        name: 'switch_container',
+        label: '切换容器',
+        description: '切换当前窗口到指定容器，后续新标签页将在该容器中打开',
+        parameters: {
+          type: 'object',
+          properties: {
+            containerId: {
+              type: 'string',
+              description: '目标容器 ID',
+            },
+          },
+          required: ['containerId'],
+        },
+        execute: async (toolCallId, params) => {
+          const { containerId } = params;
+          if (!containerId) {
+            throw new Error('容器 ID 不能为空');
+          }
+
+          // 获取当前主窗口
+          const mainWindow = windowManager.getMainWindow();
+          if (!mainWindow) {
+            throw new Error('未找到主窗口');
+          }
+
+          // 获取容器配置（通过 configStore）
+          const containers = this.configStore ? this.configStore.get('containers', []) : [];
+          const container = containers.find(c => c.id === containerId);
+          if (!container) {
+            throw new Error(`容器不存在: ${containerId}`);
+          }
+
+          // 调用 windowManager 切换容器
+          const success = windowManager.switchContainer(mainWindow.id, containerId, container);
+          if (!success) {
+            throw new Error(`切换容器失败: ${containerId}`);
+          }
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                containerId,
+                containerName: container.name,
+              }, null, 2),
+            }],
+            details: { containerId },
           };
         },
       },
