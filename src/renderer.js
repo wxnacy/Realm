@@ -3285,6 +3285,57 @@ function renderAIMessages() {
 }
 
 /**
+ * 定向更新流式输出中的 AI 气泡内容
+ * 只替换当前流式气泡的 .ai-message-content，不重建整个消息列表，
+ * 避免 16ms 批次下的全量 innerHTML 重建导致气泡闪烁
+ * 若气泡尚未渲染（竞态），回退到完整 renderAIMessages()
+ */
+function updateAIStreamingBubble() {
+  const msg = state.aiMessages.find(
+    m => m.role === 'assistant' && m.id === state.aiCurrentMessageId
+  );
+  if (!msg) return;
+
+  const wrapper = elements.aiMessageList.querySelector(
+    `[data-message-id="${msg.id}"]`
+  );
+  if (!wrapper) {
+    renderAIMessages();
+    return;
+  }
+
+  const content = wrapper.querySelector('.ai-message-content');
+  if (!content) return;
+
+  // Markdown 渲染（与 renderAIMessages 同一逻辑）
+  const rawText = msg.content || '';
+  if (typeof marked !== 'undefined' && marked.parse) {
+    content.innerHTML = marked.parse(rawText);
+  } else {
+    content.textContent = rawText;
+  }
+
+  // 代码高亮（innerHTML 替换后节点是新的，需要重新高亮）
+  content.querySelectorAll('pre code').forEach((block) => {
+    if (typeof hljs !== 'undefined' && hljs.highlightElement) {
+      hljs.highlightElement(block);
+    }
+  });
+
+  // 维持流式光标（innerHTML 替换会清掉旧光标）
+  if (state.aiStreaming && !content.querySelector('.ai-streaming-cursor')) {
+    const cursor = document.createElement('span');
+    cursor.className = 'ai-streaming-cursor';
+    content.appendChild(cursor);
+  }
+
+  // 自动滚动
+  if (state.aiAutoScroll) {
+    scrollToBottom();
+  }
+}
+
+/**
  * 发送 AI 消息
  * 获取输入框内容，添加用户消息到列表，调用 AI API
  */
@@ -3339,7 +3390,9 @@ function handleAIStream() {
           );
           if (aiMsg) {
             aiMsg.content = event.content || '';
-            needsRender = true;
+            // 定向更新流式气泡，不做整列表重建（innerHTML 全量重建
+            // 每 16ms 一次会导致气泡闪烁）
+            updateAIStreamingBubble();
           }
           break;
         }
