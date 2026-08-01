@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: 收藏夹文件夹支持 + AI Agent 集成
 current_phase: 21 — AI Agent 集成 - 聊天 UI
-status: planning
-stopped_at: Phase 21 context gathered
-last_updated: "2026-08-01T09:17:30.094Z"
+status: ready_to_execute
+stopped_at: Phase 21 plans verified
+last_updated: "2026-08-01T17:35:00.000Z"
 progress:
   total_phases: 8
   completed_phases: 7
@@ -21,6 +21,17 @@ progress:
 **Current Phase:** 21 — AI Agent 集成 - 聊天 UI
 
 ## Recent Activity
+
+### Phase 21: AI Agent 集成 - 聊天 UI
+
+- **Status:** Ready to Execute
+- **Output:** AI 聊天面板 UI（右侧侧边栏 + 气泡对话 + 流式渲染 + 工具卡片 + 拖拽调整）
+- **Plans:** 2/2 已创建
+  - 21-01: AI 聊天面板基础框架（依赖安装 + HTML/CSS + 面板逻辑） — CREATED
+  - 21-02: AI 聊天面板增强功能（工具卡片 + 消息操作 + 拖拽调整 + 设置集成） — CREATED
+- **Research:** 已完成，确认 pi-agent-core 事件格式（message_update 为累积全文，tool_execution 三阶段事件）
+- **Verification:** 全部 12 维度通过
+- **Last:** 计划验证通过，等待执行
 
 ### Phase 20: AI Agent 集成 - AI Manager 核心功能
 
@@ -97,6 +108,6 @@ progress:
 
 ## Session
 
-**Last session:** 2026-08-01T09:17:30.090Z
-**Stopped at:** Phase 21 context gathered
-**Resume file:** .planning/phases/21-ai-agent-ui/21-CONTEXT.md
+**Last session:** 2026-08-01T09:19:31.603Z
+**Stopped at:** Phase 21 UI-SPEC approved
+**Resume file:** .planning/phases/21-ai-agent-ui/21-UI-SPEC.md
