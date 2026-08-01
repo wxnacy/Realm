@@ -125,25 +125,43 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 ## Current State
 
-**Shipped:** v1.3 (2026-07-27)
-- 13 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3)
+**Shipped:** v2.0 (2026-08-01)
+- 21 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0)
 - 所有里程碑已完成归档
-- v2.0 Phase 21 complete — AI 聊天面板 UI 全部 12 个 must-have 验证通过
-- 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol
+- v2.0 Phase 21 complete — AI 聊天面板 UI 全部 13 个 UAT 验证通过
+- 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core
 
 **Key features delivered:**
 - 多容器隔离浏览器（Cookie/Session/Storage/缓存完全隔离）
 - 容器 CRUD + 多 Tab + URL 导航 + 分配规则 + 快捷键
 - 容器扩展属性（手机号/邮箱/备注）+ 惰性填充兼容
 - 浏览历史记录（SQLite + 每容器隔离 + realm:// 协议）
-- 收藏夹管理（全局共享数据库 + 星标按钮 + CRUD）
+- 收藏夹管理（全局共享数据库 + 星标按钮 + CRUD + 文件夹支持）
 - frecency 常用网站推荐 + 应用设置页面（侧边栏多页面布局）
 - Cookie 管理面板（session/file 双视图）+ 开发者模式（CDP 抓取 API 请求 + devrequests 查看页）
 - 右键菜单增强（Tab/网页通用/图片/链接上下文菜单，固定 Tab favicon，已关闭标签 LIFO 恢复）
+- 收藏夹文件夹系统（数据库层 + UI 交互 + 拖拽排序 + 多选批量操作）
+- Chrome 书签导入（JSON/HTML 解析 + 批量导入 + 进度预览）
+- 收藏栏功能（固定显示 + 交互 + 右键菜单 + 设置）
+- AI Agent 集成（pi-agent-core + AI Manager + 5 个 Realm 工具 + 聊天 UI）
 
 **Known gaps:**
-- 09-04: checkBookmarkStatus realm:// 早退守卫移除（deferred）
-- 12 个已诊断 debug session 未修复
+- 13 个已诊断 debug session 未修复
+- 1 个 UAT 差距（Phase 18，0 个待处理场景）
+
+## Next Milestone Goals
+
+**v2.1 Bug Fixes + Polish** (planned)
+- 修复 13 个已诊断的 debug session
+- 解决 Phase 18 UAT 差距
+- 性能优化和 UI 打磨
+- 文档更新
+
+**Future Features:**
+- 浏览器扩展支持
+- 书签/历史同步
+- 网络代理隔离
+- 移动端支持
 
 ## Context
 
@@ -158,9 +176,9 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - AutoBrowser 项目的 Cookie 持久化方案（JSON 文件格式，支持 domain 前缀点号保留）
 
 **代码库状态：**
-- v1.3 已 shipped，包含完整的多容器浏览器功能 + 历史记录 + 收藏夹 + 常用网站 + 设置 + 开发者模式 + 右键菜单
-- 13 个阶段完成，26/27 计划完成（1 plan deferred），69/69 需求全部实现
-- 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol
+- v2.0 已 shipped，包含完整的多容器浏览器功能 + 历史记录 + 收藏夹 + 常用网站 + 设置 + 开发者模式 + 右键菜单 + 收藏夹文件夹 + Chrome 导入 + 收藏栏 + AI Agent
+- 21 个阶段完成，所有计划完成，所有需求全部实现
+- 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core
 
 ## Constraints
 
@@ -233,4 +251,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-01 after Phase 21*
+*Last updated: 2026-08-02 after v2.0 milestone*

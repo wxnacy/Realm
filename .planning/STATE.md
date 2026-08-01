@@ -113,6 +113,27 @@ progress:
 **Stopped at:** Phase 21 complete（UAT 13/13）— 里程碑 v2.0 全部完成，待归档
 **Resume file:** None
 
+## Deferred Items
+
+Items acknowledged and deferred at milestone close on 2026-08-02:
+
+| Category | Item | Status |
+|----------|------|--------|
+| debug | cold-start-url-input-no-response | diagnosed |
+| debug | container-delete-partitions | unknown |
+| debug | cookie-list-bg-too-dark | diagnosed |
+| debug | favorites-blank-area-context-menu | diagnosed |
+| debug | pinned-tab-favicon | diagnosed |
+| debug | progress-bar-wrong-position | diagnosed |
+| debug | realm-newtab-star-not-persistent | diagnosed |
+| debug | refresh-button-no-stop-icon | diagnosed |
+| debug | reopen-closed-tabs-batch | diagnosed |
+| debug | rules-import-no-op | diagnosed |
+| debug | save-cookie-wrong-domain-filter | diagnosed |
+| debug | url-input-enter-no-response | diagnosed |
+| debug | web-context-menu-wrong-items | diagnosed |
+| uat | Phase 18 UAT gap | 0 pending scenarios |
+
 ## Decisions
 
 - [Phase ?]: 避免新增 IPC 通道，与快捷键入口保持一致

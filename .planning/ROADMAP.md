@@ -10,6 +10,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 - ✅ **v1.1 容器属性增强 + 收藏历史 + 常用网站 + 设置页面** — Phases 5-9 (shipped 2026-07-26)
 - ✅ **v1.2 Cookie 管理增强 + 设置页面重构 + 开发者模式** — Phases 10-12 (shipped 2026-07-27)
 - ✅ **v1.3 右键菜单增强** — Phase 13 (shipped 2026-07-27)
+- ✅ **v2.0 收藏夹文件夹支持 + AI Agent 集成** — Phases 14-21 (shipped 2026-08-01)
 
 ## Phases
 
@@ -53,7 +54,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18 → 19 → 20 → 21
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -70,8 +71,19 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 11. 设置页面重构 | v1.2 | 2/2 | Complete | 2026-07-27 |
 | 12. 开发者模式 | v1.2 | 2/2 | Complete | 2026-07-27 |
 | 13. 右键菜单增强 | v1.3 | 3/3 | Complete | 2026-07-27 |
+| 14. 收藏夹文件夹 - 数据库层实现 | v2.0 | 1/1 | Complete | 2026-07-28 |
+| 15. 收藏夹文件夹 - UI 交互 | v2.0 | 2/2 | Complete | 2026-07-28 |
+| 16. 收藏夹文件夹 - 增强功能 | v2.0 | 3/3 | Complete | 2026-07-29 |
+| 17. Chrome 书签导入 | v2.0 | 2/2 | Complete | 2026-07-30 |
+| 18. 收藏栏功能 | v2.0 | 2/2 | Complete | 2026-07-30 |
+| 19. AI Agent 集成 - 基础验证 | v2.0 | 2/2 | Complete | 2026-07-31 |
+| 20. AI Agent 集成 - 核心功能 | v2.0 | 2/2 | Complete | 2026-08-01 |
+| 21. AI Agent 集成 - 聊天 UI | v2.0 | 3/3 | Complete | 2026-08-01 |
 
 ---
+
+<details>
+<summary>✅ v2.0 收藏夹文件夹支持 + AI Agent 集成 (Phases 14-21) — SHIPPED 2026-08-01</summary>
 
 ## v2.0 收藏夹文件夹支持 + AI Agent 集成
 
@@ -95,10 +107,7 @@ Phase 14  Phase 15  Phase 16  Phase 17  Phase 18  Phase 19  Phase 20  Phase 21
 
 ### Phases
 
-<details>
-<summary>v2.0 收藏夹文件夹 + Chrome 导入 + 收藏栏 + AI Agent (Phases 14-21)</summary>
-
-- [ ] Phase 14: 收藏夹文件夹 - 数据库层实现 (2d)
+- [x] Phase 14: 收藏夹文件夹 - 数据库层实现 (2d) (completed 2026-07-28)
 - [x] Phase 15: 收藏夹文件夹 - UI 交互 (3d) (completed 2026-07-28)
 - [x] Phase 16: 收藏夹文件夹 - 增强功能 (3d) (completed 2026-07-29)
 - [x] Phase 17: Chrome 书签导入 (2d) (completed 2026-07-30)
@@ -106,8 +115,6 @@ Phase 14  Phase 15  Phase 16  Phase 17  Phase 18  Phase 19  Phase 20  Phase 21
 - [x] Phase 19: AI Agent 集成 - 基础验证 (2d) (completed 2026-07-31)
 - [x] Phase 20: AI Agent 集成 - 核心功能 (4d) (completed 2026-08-01)
 - [x] Phase 21: AI Agent 集成 - 聊天 UI (3d) (completed 2026-08-01)
-
-</details>
 
 ### Phase 详情
 
@@ -308,3 +315,5 @@ Plans:
 - [ ] 流式消息渲染（Markdown + 代码高亮 + 逐字显示）
 - [ ] 快捷键和设置（Cmd+] + 面板宽度持久化）
 - [ ] 面板交互增强（工具卡片 + 复制/重新生成 + 拖拽调整）
+
+</details>
