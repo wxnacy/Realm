@@ -3097,12 +3097,15 @@ function setupEventListeners() {
 /**
  * 切换 AI 面板的显示/隐藏状态
  * 同时更新按钮激活态和面板可见性，持久化状态到 electron-store
+ * 打开时加载持久化的面板宽度（D-04, D-17）
  */
 function toggleAIPanel() {
   state.aiPanelOpen = !state.aiPanelOpen;
 
   if (state.aiPanelOpen) {
     elements.aiPanel.classList.remove('hidden');
+    // 加载持久化的面板宽度
+    loadAIPanelWidth();
   } else {
     elements.aiPanel.classList.add('hidden');
   }
@@ -3114,6 +3117,22 @@ function toggleAIPanel() {
     window.realmAPI.setSetting('aiPanelOpen', state.aiPanelOpen);
   } catch (err) {
     console.error('[Realm Renderer] 保存 AI 面板状态失败:', err);
+  }
+}
+
+/**
+ * 加载持久化的 AI 面板宽度
+ * 从 electron-store 读取 ai.panelWidth，如果有效则应用到面板
+ */
+async function loadAIPanelWidth() {
+  try {
+    const settings = await window.realmAPI.getSettings();
+    const width = settings['ai.panelWidth'];
+    if (width && width >= 280 && width <= 600) {
+      elements.aiPanel.style.width = width + 'px';
+    }
+  } catch (err) {
+    console.error('[Realm Renderer] 加载 AI 面板宽度失败:', err);
   }
 }
 
@@ -3156,7 +3175,7 @@ function renderAIMessages() {
       });
     }
 
-    // 添加消息 ID 属性（用于工具卡片定位）
+    // 添加消息 ID 属性（用于工具卡片定位和操作按钮）
     if (msg.id) {
       wrapper.dataset.messageId = msg.id;
     }
@@ -3171,6 +3190,30 @@ function renderAIMessages() {
         toolContainer.appendChild(renderToolCard(toolExec));
       });
       wrapper.appendChild(toolContainer);
+    }
+
+    // 添加消息操作按钮（非流式状态下显示）
+    if (msg.id && !state.aiStreaming) {
+      const actions = document.createElement('div');
+      actions.className = 'message-actions';
+
+      // 复制按钮（所有消息都有）
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'message-action-btn';
+      copyBtn.textContent = '复制';
+      copyBtn.addEventListener('click', () => copyMessage(msg.id));
+      actions.appendChild(copyBtn);
+
+      // 重新生成按钮（仅 AI 消息）
+      if (!isUser) {
+        const regenBtn = document.createElement('button');
+        regenBtn.className = 'message-action-btn';
+        regenBtn.textContent = '重新生成';
+        regenBtn.addEventListener('click', () => regenerateMessage(msg.id));
+        actions.appendChild(regenBtn);
+      }
+
+      wrapper.appendChild(actions);
     }
 
     // 流式输出中且是最后一条 AI 消息时，添加闪烁光标
@@ -3452,6 +3495,87 @@ function renderToolCards(messageId) {
 }
 
 /**
+ * 复制消息内容到剪贴板
+ * 使用 navigator.clipboard API（T-21-04：浏览器原生安全机制）
+ * @param {string} messageId - 消息 ID
+ */
+async function copyMessage(messageId) {
+  const msg = state.aiMessages.find(m => m.id === messageId);
+  if (!msg) return;
+
+  try {
+    await navigator.clipboard.writeText(msg.content || '');
+    showCopyToast('已复制到剪贴板');
+  } catch (err) {
+    console.error('[Realm Renderer] 复制消息失败:', err);
+  }
+}
+
+/**
+ * 重新生成 AI 消息
+ * 删除当前消息及其之后的所有消息，重新发送被删除消息之前的用户消息
+ * @param {string} messageId - 消息 ID
+ */
+async function regenerateMessage(messageId) {
+  if (state.aiStreaming) return;
+
+  const msgIndex = state.aiMessages.findIndex(m => m.id === messageId);
+  if (msgIndex < 0) return;
+
+  // 找到该消息之前的最近一条用户消息
+  let userMsgContent = null;
+  for (let i = msgIndex - 1; i >= 0; i--) {
+    if (state.aiMessages[i].role === 'user') {
+      userMsgContent = state.aiMessages[i].content;
+      break;
+    }
+  }
+
+  if (!userMsgContent) return;
+
+  // 删除该消息及其之后的所有消息
+  state.aiMessages = state.aiMessages.slice(0, msgIndex);
+
+  // 重新发送用户消息
+  state.aiMessages.push({ role: 'user', content: userMsgContent });
+
+  // 添加 AI 消息占位符
+  const aiMsgId = 'ai-msg-' + Date.now();
+  state.aiMessages.push({ role: 'assistant', content: '', id: aiMsgId });
+  state.aiCurrentMessageId = aiMsgId;
+  state.aiStreaming = true;
+
+  renderAIMessages();
+
+  // 调用 AI API
+  try {
+    window.realmAPI.ai.prompt(userMsgContent);
+  } catch (err) {
+    console.error('[Realm Renderer] AI 重新生成失败:', err);
+    state.aiStreaming = false;
+    renderAIMessages();
+  }
+}
+
+/**
+ * 显示复制成功提示
+ * 底部居中显示，2 秒后自动消失
+ * @param {string} message - 提示文字
+ */
+function showCopyToast(message) {
+  const toast = document.createElement('div');
+  toast.className = 'copy-toast';
+  toast.textContent = message;
+  document.body.appendChild(toast);
+
+  // 2 秒后自动消失
+  setTimeout(() => {
+    toast.classList.add('fade-out');
+    setTimeout(() => toast.remove(), 300);
+  }, 2000);
+}
+
+/**
  * 滚动消息列表到底部
  * 使用平滑滚动效果
  */
@@ -3559,6 +3683,14 @@ function initAIPanelResize() {
     document.removeEventListener('mouseup', onMouseUp);
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
+
+    // 持久化面板宽度到 electron-store（D-17）
+    const currentWidth = elements.aiPanel.offsetWidth;
+    try {
+      window.realmAPI.setSetting('ai.panelWidth', currentWidth);
+    } catch (err) {
+      console.error('[Realm Renderer] 保存 AI 面板宽度失败:', err);
+    }
   }
 
   handle.addEventListener('mousedown', onMouseDown);
