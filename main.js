@@ -57,6 +57,10 @@ const faviconFetcher = require('./favicon-fetcher');
 const frequentSitesManager = require('./frequent-sites-manager');
 const cdpManager = require('./cdp-manager');
 const devRequestsWriter = require('./dev-requests-writer');
+const AIManager = require('./ai-manager');
+
+// AI Manager 实例（在 app.whenReady 中初始化，供后续 Phase 通过 require('./main').aiManager 访问）
+let aiManager = null;
 
 // ==================== webview guest 拦截（WR-1/WR-2/WR-9） ====================
 
@@ -1590,6 +1594,12 @@ app.whenReady().then(async () => {
   devRequestsWriter.init();
   cdpManager.setWriter(devRequestsWriter);
 
+  // 初始化 AI Manager（per Phase 19）
+  aiManager = new AIManager();
+  aiManager.init(configStore).catch(err => {
+    console.error('[Realm AI] 初始化失败:', err.message);
+  });
+
   // 清理孤儿 Partitions 目录（必须在 initContainers 之前：
   // 此时被删容器的 partition session 尚未创建，目录无句柄占用，
   // 运行中删除失败的残留由这里兜底，下次启动必定清干净）
@@ -1792,3 +1802,11 @@ app.on('will-quit', () => {
 
 // 日志输出
 console.log('[Realm] 主进程已加载');
+
+// ==================== 模块导出 ====================
+
+/**
+ * 模块导出：供后续 Phase（20/21）通过 require('./main') 访问共享实例
+ * aiManager: AI Manager 实例，在 app.whenReady 中初始化
+ */
+module.exports = { aiManager };
