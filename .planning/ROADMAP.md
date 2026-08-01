@@ -177,7 +177,7 @@ Plans:
 **需求覆盖**: IMPORT-01, IMPORT-02, IMPORT-03
 **状态**: 规划完成
 
-**Plans:** 2/2 plans complete
+**Plans:** 3/3 plans complete
 
 Plans:
 **Wave 1**
@@ -201,7 +201,7 @@ Plans:
 **需求覆盖**: BAR-01, BAR-02, BAR-03, BAR-04
 **状态**: 执行完成 (2026-07-30)
 
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
 

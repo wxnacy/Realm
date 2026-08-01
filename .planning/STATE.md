@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: 收藏夹文件夹支持 + AI Agent 集成
-current_phase: 21
-status: completed
+current_phase: 19 — AI Agent 集成 - 基础验证
+status: planning
 stopped_at: Phase 21 UI-SPEC approved
-last_updated: "2026-08-01T09:55:08.736Z"
+last_updated: "2026-08-01T10:33:58.458Z"
 progress:
   total_phases: 8
   completed_phases: 8
@@ -18,13 +18,13 @@ progress:
 
 **Last Updated:** 2026-08-01
 **Current Milestone:** v2.0 收藏夹文件夹支持 + AI Agent 集成
-**Current Phase:** 21
+**Current Phase:** 19 — AI Agent 集成 - 基础验证
 
 ## Recent Activity
 
 ### Phase 21: AI Agent 集成 - 聊天 UI
 
-- **Status:** Milestone complete
+- **Status:** Ready to plan
 - **Output:** AI 聊天面板 UI（右侧侧边栏 + 气泡对话 + 流式渲染 + 工具卡片 + 拖拽调整）
 - **Plans:** 2/2 已创建
   - 21-01: AI 聊天面板基础框架（依赖安装 + HTML/CSS + 面板逻辑） — CREATED
