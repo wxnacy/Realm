@@ -316,11 +316,12 @@ class AIManager {
   /**
    * 设置事件广播机制（per D-05~D-08）
    *
-   * 订阅 Agent 事件并广播到渲染进程：
-   * - 高频事件（message_update, tool_execution_update）使用 debounce 16ms 批量合并（per D-06）
-   * - 非高频事件立即发送
-   * - 使用 webContents.send() 单向推送模式（per D-07）
-   * - 批量事件通道为 ai:events-batch（per D-08）
+   * 订阅 Agent 事件，翻译为渲染端 UI 契约后广播：
+   * - SDK message_update {message, assistantMessageEvent} → {content}（提取 text 块累积全文）
+   * - SDK tool_execution_start/update/end → {tool_execution_id, tool_name, status, params, result, error}
+   * - SDK turn_end（每轮）→ 仅同步文本（一轮 run 可能多轮，工具调用后还有后续轮）
+   * - SDK agent_end（run 结束）→ 最终文本 + turn_end 信号
+   * - 高频事件（message_update, tool_execution_update）debounce 16ms 批量合并（per D-06）
    *
    * @private
    */
@@ -332,28 +333,139 @@ class AIManager {
     /** @type {NodeJS.Timeout|null} 批量发送定时器 */
     let batchTimer = null;
 
-    this.agent.subscribe((event) => {
-      // 为事件添加时间戳
-      const enrichedEvent = {
-        ...event,
-        timestamp: Date.now(),
-      };
+    const enqueue = (uiEvent) => {
+      eventBatch.push({ ...uiEvent, timestamp: Date.now() });
+      if (!batchTimer) {
+        batchTimer = setTimeout(() => {
+          this._sendEventsBatch(eventBatch);
+          eventBatch = [];
+          batchTimer = null;
+        }, 16);
+      }
+    };
 
-      // 高频事件使用 debounce 批量合并（per D-06）
-      if (event.type === 'message_update' || event.type === 'tool_execution_update') {
-        eventBatch.push(enrichedEvent);
-        if (!batchTimer) {
-          batchTimer = setTimeout(() => {
-            this._sendEventsBatch(eventBatch);
-            eventBatch = [];
-            batchTimer = null;
-          }, 16);
+    const sendNow = (uiEvent) => {
+      this._sendEventsBatch([{ ...uiEvent, timestamp: Date.now() }]);
+    };
+
+    this.agent.subscribe((event) => {
+      switch (event.type) {
+        case 'message_update': {
+          // SDK: { message, assistantMessageEvent } → UI: { content }
+          enqueue({ type: 'message_update', content: this._extractText(event.message) });
+          break;
         }
-      } else {
-        // 非高频事件立即发送
-        this._sendEventsBatch([enrichedEvent]);
+
+        case 'tool_execution_start': {
+          console.log(`[Realm AI] 工具调用: ${event.toolName}`, JSON.stringify(event.args || {}));
+          sendNow({
+            type: 'tool_execution_update',
+            tool_execution_id: event.toolCallId,
+            tool_name: event.toolName,
+            status: 'running',
+            params: event.args,
+          });
+          break;
+        }
+
+        case 'tool_execution_update': {
+          enqueue({
+            type: 'tool_execution_update',
+            tool_execution_id: event.toolCallId,
+            tool_name: event.toolName,
+            status: 'running',
+            result: event.partialResult,
+          });
+          break;
+        }
+
+        case 'tool_execution_end': {
+          const status = event.isError ? 'failed' : 'completed';
+          const resultText = this._safePreview(event.result);
+          console.log(`[Realm AI] 工具${status === 'failed' ? '失败' : '完成'}: ${event.toolName} → ${resultText}`);
+          sendNow({
+            type: 'tool_execution_update',
+            tool_execution_id: event.toolCallId,
+            tool_name: event.toolName,
+            status,
+            result: event.result,
+            error: event.isError ? resultText : undefined,
+          });
+          break;
+        }
+
+        case 'turn_end': {
+          // 一轮结束（一轮 run 可能有多轮：工具调用后还有后续轮）
+          // 只同步该轮文本，不发终止信号
+          const text = this._extractText(event.message);
+          if (text) {
+            console.log(`[Realm AI] 本轮回复: ${this._truncate(text)}`);
+            sendNow({ type: 'message_update', content: text });
+          }
+          break;
+        }
+
+        case 'agent_end': {
+          // 整个 run 结束：取最后一条 assistant 消息的文本作为最终内容
+          const lastAssistant = [...(event.messages || [])].reverse()
+            .find(m => m && m.role === 'assistant');
+          const finalText = this._extractText(lastAssistant);
+          console.log(`[Realm AI] 回复完成: ${this._truncate(finalText) || '(无文本内容)'}`);
+          // 空文本不覆盖气泡（避免清掉中间轮已渲染的内容）
+          if (finalText) {
+            sendNow({ type: 'message_update', content: finalText });
+          }
+          sendNow({ type: 'turn_end' });
+          break;
+        }
+
+        default:
+          // agent_start / turn_start / message_start / message_end：UI 无需感知
+          break;
       }
     });
+  }
+
+  /**
+   * 从 AgentMessage 中提取文本内容
+   * AssistantMessage.content 为内容块数组：[{type:'text',text}, {type:'thinking',...}, ToolCall]
+   * @param {Object} message - Agent 消息对象
+   * @returns {string} 拼接后的文本
+   * @private
+   */
+  _extractText(message) {
+    if (!message || !Array.isArray(message.content)) return '';
+    return message.content
+      .filter(block => block && block.type === 'text')
+      .map(block => block.text || '')
+      .join('');
+  }
+
+  /**
+   * 截断长文本用于日志输出
+   * @param {string} text - 原始文本
+   * @param {number} [max=1000] - 最大长度
+   * @returns {string} 截断后的文本
+   * @private
+   */
+  _truncate(text, max = 1000) {
+    if (!text) return '';
+    return text.length > max ? text.slice(0, max) + `…（共 ${text.length} 字）` : text;
+  }
+
+  /**
+   * 安全地将工具结果转为日志可读的短文本
+   * @param {*} result - 工具执行结果
+   * @returns {string} 预览文本（截断 200 字符）
+   * @private
+   */
+  _safePreview(result) {
+    try {
+      const text = typeof result === 'string' ? result : JSON.stringify(result);
+      return this._truncate(text || '(空)', 200);
+    } catch {
+      return '(无法序列化)';
+    }
   }
 
   /**

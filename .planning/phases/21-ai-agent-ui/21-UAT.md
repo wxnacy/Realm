@@ -177,3 +177,18 @@ blocked: 0
   - 设置页 AI 分区：提供商筛选下拉（输入过滤 + 已配置徽标）+ 模型联动下拉 + Key 占位符显示保存状态
   - main.js 路由 ai/models 异步化、ai/configure 透传 model
   - 功能测试 6 项全过（迁移/xiaomi 配置/目录/状态/错误事件）
+
+## 第三轮：事件契约翻译层（2026-08-01 晚）
+
+用户实测：xiaomi 配置成功、状态已连接，但发送 hi 后回复是空白气泡（高度塌陷）。
+
+- **根因**：`_setupEventBroadcasting` 把 pi-agent-core SDK 事件**原样透传**，但渲染端按 21-01 设计的简化契约读取，字段完全对不上：
+  - SDK `message_update` 携带 `{message, assistantMessageEvent}`（content 是内容块数组），渲染端读 `event.content` → undefined → 空白气泡
+  - SDK 工具事件是 `tool_execution_start/update/end`（toolCallId/toolName/args），渲染端读 `tool_execution_id/tool_name/status` → 工具卡片也永远不会渲染
+  - SDK 每轮（含工具调用中间轮）都发 `turn_end`，渲染端把它当 run 结束 → 多轮场景会提前终止流式状态
+- **修复**：主进程新增翻译层——SDK 事件 → UI 契约：
+  - `_extractText()` 从内容块数组提取 text 块累积全文 → `{content}`
+  - 工具 start/update/end → `{tool_execution_id, tool_name, status, params, result, error}`（running/completed/failed）
+  - 中间轮 `turn_end` 只同步文本；`agent_end` 才发最终文本 + `turn_end` 终止信号（空文本不覆盖气泡）
+- **日志**：按用户要求补充 AI 返回内容日志——本轮回复、回复完成（截断 1000 字）、工具调用参数/结果预览
+- 模拟事件序列测试通过：文本累积、工具状态映射、turn_end 仅在 run 末尾出现一次
