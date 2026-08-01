@@ -294,13 +294,13 @@
 **描述**: 验证 pi-ai 和 pi-agent-core 在 Electron 主进程中的兼容性，建立 AI 模块基础架构
 
 **验收标准**:
-- [ ] 验证 Electron 32.x 内置 Node.js 版本是否满足 pi-agent-core 要求（>= 22.19.0）
-- [ ] 如不满足，实施方案（按优先级）：
+- [x] 验证 Electron 32.x 内置 Node.js 版本是否满足 pi-agent-core 要求（>= 22.19.0）**结果: 32.3.3 内置 Node 20.18.x，不满足**
+- [ ] 如不满足，实施方案（按优先级）：（**留到后续 Phase 评估**）
   - 方案 A：升级 Electron 版本至内置 Node >= 22.19.0
   - 方案 B：使用独立子进程运行 Agent（使用系统 Node.js），通过 IPC 与主进程通信
   - ~~方案 C：仅使用 pi-ai，自行实现 Agent 循环~~（**废弃，用户明确要求使用 pi-agent-core**）
-- [ ] 安装 `@earendil-works/pi-ai` 和 `@earendil-works/pi-agent-core`
-- [ ] 创建 `ai-manager.js` 模块骨架
+- [x] 安装 `@earendil-works/pi-ai` 和 `@earendil-works/pi-agent-core`
+- [x] 创建 `ai-manager.js` 模块骨架
 - [ ] 实现最小可行 Demo：
   - 在主进程使用 pi-agent-core 的 `Agent` 类创建 Agent 实例
   - 实现 1 个简单工具（如 `get_tabs`），使用 `AgentTool` 接口
