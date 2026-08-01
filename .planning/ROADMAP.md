@@ -259,12 +259,26 @@ Plans:
 **需求覆盖**: AI-02
 **对应**: pi-agent-integration.md Phase 2
 
+**Plans:** 2 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 20-01-PLAN.md — AI Manager 核心 + 工具注册 + 事件广播
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 20-02-PLAN.md — IPC + Preload + 设置页面 AI 分区
+
 **任务**:
 
-- [ ] AI Manager 完整实现
+- [ ] AI Manager 完整实现（configureProviders, getAvailableModels, getState, 错误处理）
 - [ ] Realm 工具注册（navigate, search_history, manage_favorites, switch_container, get_tabs）
-- [ ] IPC 通道实现
-- [ ] Preload.js API 暴露
+- [ ] 事件广播机制（debounce 16ms 批量合并）
+- [ ] IPC 通道实现（ai:prompt, ai:abort, ai:configure, ai:get-models, ai:get-state）
+- [ ] Preload.js API 暴露（window.realmAPI.ai）
+- [ ] 设置页面 "AI 助手" 分区（API Key 配置、模型选择、连接状态）
 
 ---
 
