@@ -66,6 +66,8 @@ class AIManager {
     this.configStore = null;
     /** @type {boolean} 是否已成功初始化 */
     this.isInitialized = false;
+    /** @type {boolean} 是否正在处理消息（防止并发调用） */
+    this.isProcessing = false;
   }
 
   /**
@@ -171,6 +173,11 @@ class AIManager {
    * 调用 agent.prompt() 触发一轮对话，Agent 可能会调用工具（如 get_tabs），
    * 然后基于工具结果生成回复。事件通过 _setupEventBroadcasting() 统一广播到渲染进程。
    *
+   * 错误处理策略（per D-10~D-12）：
+   * - 自动重试 3 次，指数退避（1s, 2s, 4s）
+   * - 错误事件广播到渲染进程（per D-11）
+   * - 使用 isProcessing 标志防止并发调用
+   *
    * @param {string} message - 用户输入的消息
    * @returns {Promise<void>}
    */
@@ -180,13 +187,46 @@ class AIManager {
       return;
     }
 
+    // 防止并发调用
+    if (this.isProcessing) {
+      console.warn('[Realm AI] 正在处理中，请等待完成');
+      return;
+    }
+
+    this.isProcessing = true;
     console.log(`[Realm AI] 发送消息: ${message}`);
 
-    try {
-      await this.agent.prompt(message);
-      await this.agent.waitForIdle();
-    } catch (err) {
-      console.error('[Realm AI] 消息处理失败:', err.message);
+    const maxRetries = 3;
+    const retryDelays = [1000, 2000, 4000]; // 指数退避：1s, 2s, 4s
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        await this.agent.prompt(message);
+        await this.agent.waitForIdle();
+        this.isProcessing = false;
+        return;
+      } catch (err) {
+        const isLastAttempt = attempt === maxRetries;
+
+        if (isLastAttempt) {
+          console.error('[Realm AI] 消息处理失败（已重试 3 次）:', err.message);
+          this.isProcessing = false;
+
+          // 广播错误事件到渲染进程（per D-11）
+          this._sendEventsBatch([{
+            type: 'error',
+            error: {
+              message: err.message,
+              code: 'PROMPT_FAILED',
+            },
+            timestamp: Date.now(),
+          }]);
+          return;
+        }
+
+        console.warn(`[Realm AI] 第 ${attempt + 1} 次尝试失败，${retryDelays[attempt]}ms 后重试:`, err.message);
+        await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
+      }
     }
   }
 
@@ -196,6 +236,7 @@ class AIManager {
   abort() {
     if (this.agent) {
       this.agent.abort();
+      this.isProcessing = false;
       console.log('[Realm AI] 操作已取消');
     }
   }
@@ -257,6 +298,77 @@ class AIManager {
     if (win && !win.isDestroyed()) {
       win.webContents.send('ai:events-batch', { events });
     }
+  }
+
+  /**
+   * 配置 AI 提供商
+   *
+   * 更新 API Key 并重新初始化 Agent 实例。
+   * 当用户在设置页面更新 API Key 时调用。
+   *
+   * @param {Object} config - 配置对象
+   * @param {string} config.provider - 提供商名称（如 'openai'）
+   * @param {string} config.apiKey - API Key
+   * @returns {Promise<{success: boolean}>} 操作结果
+   */
+  async configureProviders(config) {
+    const { provider, apiKey } = config;
+
+    if (!provider || !apiKey) {
+      throw new Error('提供商和 API Key 不能为空');
+    }
+
+    // 更新 configStore
+    if (this.configStore) {
+      this.configStore.set('ai.apiKey', apiKey);
+    }
+
+    // 重新初始化 Agent
+    if (this.configStore) {
+      await this.init(this.configStore);
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * 获取可用的 AI 模型列表
+   *
+   * 返回当前提供商支持的模型列表。
+   * 初始仅支持 OpenAI 模型（per D-14）。
+   *
+   * @returns {{models: Array<{provider: string, id: string, name: string}>}} 模型列表
+   */
+  getAvailableModels() {
+    // 初始支持的模型列表（per D-14）
+    const models = [
+      { provider: 'openai', id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+      { provider: 'openai', id: 'gpt-4o', name: 'GPT-4o' },
+      { provider: 'openai', id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
+    ];
+
+    return { models };
+  }
+
+  /**
+   * 获取 AI Manager 当前状态
+   *
+   * 返回初始化状态、当前模型和工具数量等信息。
+   * 用于 UI 显示 AI 助手的连接状态。
+   *
+   * @returns {{initialized: boolean, model: string|null, toolsCount: number}} 状态信息
+   */
+  getState() {
+    let model = null;
+    if (this.agent && this.agent.state) {
+      model = this.agent.state.model ? this.agent.state.model.id : null;
+    }
+
+    return {
+      initialized: this.isInitialized,
+      model,
+      toolsCount: this.tools.length,
+    };
   }
 
   /**
