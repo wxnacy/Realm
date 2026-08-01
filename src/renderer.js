@@ -98,6 +98,17 @@ const elements = {
   bookmarksBarList: document.getElementById('bookmarksBarList'),
   bookmarksOverflowBtn: document.getElementById('bookmarksOverflowBtn'),
 
+  // AI 助手面板
+  aiPanel: document.getElementById('aiPanel'),
+  aiPanelBtn: document.getElementById('aiPanelBtn'),
+  aiPanelHeader: document.getElementById('aiPanelHeader'),
+  aiPanelCloseBtn: document.getElementById('aiPanelCloseBtn'),
+  aiMessageList: document.getElementById('aiMessageList'),
+  aiInput: document.getElementById('aiInput'),
+  aiSendBtn: document.getElementById('aiSendBtn'),
+  aiScrollToBottom: document.getElementById('aiScrollToBottom'),
+  aiPanelResizeHandle: document.getElementById('aiPanelResizeHandle'),
+
 };
 
 // 应用状态
@@ -125,6 +136,13 @@ const state = {
   isCurrentPageBookmarked: false,
   currentBookmarkId: null,
   currentBookmarkTitle: null,
+
+  // AI 助手状态
+  aiPanelOpen: false,
+  aiMessages: [],
+  aiStreaming: false,
+  aiCurrentMessageId: null,
+  aiAutoScroll: true,
 };
 
 // 已关闭标签栈（LIFO，最多 10 条），用于"重新打开已关闭标签页"功能
@@ -1053,6 +1071,9 @@ function initShortcuts() {
           showToast('当前页面不可收藏', 'info');
         }
         break;
+      case 'toggleAIPanel':
+        toggleAIPanel();
+        break;
     }
   });
 }
@@ -1638,6 +1659,9 @@ async function init() {
   });
 
   console.log('[Realm Renderer] 初始化完成');
+
+  // 初始化 AI 事件流监听
+  handleAIStream();
 }
 
 /**
@@ -3028,8 +3052,331 @@ function setupEventListeners() {
     }
   });
 
+  // ==================== AI 助手面板事件 ====================
+
+  // AI 面板按钮点击：打开/关闭面板
+  if (elements.aiPanelBtn) {
+    elements.aiPanelBtn.addEventListener('click', toggleAIPanel);
+  }
+
+  // AI 面板关闭按钮
+  if (elements.aiPanelCloseBtn) {
+    elements.aiPanelCloseBtn.addEventListener('click', toggleAIPanel);
+  }
+
+  // AI 发送按钮
+  if (elements.aiSendBtn) {
+    elements.aiSendBtn.addEventListener('click', handleSendAIMessage);
+  }
+
+  // AI 输入框键盘事件（Enter 发送，Shift+Enter 换行）
+  if (elements.aiInput) {
+    elements.aiInput.addEventListener('keydown', handleAIInputKeydown);
+    elements.aiInput.addEventListener('input', handleAIInputAutoResize);
+  }
+
+  // AI 消息列表滚动事件（智能滚动控制）
+  if (elements.aiMessageList) {
+    elements.aiMessageList.addEventListener('scroll', handleAIMessageScroll);
+  }
+
+  // 回到底部按钮
+  if (elements.aiScrollToBottom) {
+    elements.aiScrollToBottom.addEventListener('click', handleScrollToBottomClick);
+  }
+
+  // 初始化 AI 面板拖拽调整宽度
+  initAIPanelResize();
+
   // 初始化快捷键监听
   initShortcuts();
+}
+
+// ==================== AI 助手 ====================
+
+/**
+ * 切换 AI 面板的显示/隐藏状态
+ * 同时更新按钮激活态和面板可见性，持久化状态到 electron-store
+ */
+function toggleAIPanel() {
+  state.aiPanelOpen = !state.aiPanelOpen;
+
+  if (state.aiPanelOpen) {
+    elements.aiPanel.classList.remove('hidden');
+  } else {
+    elements.aiPanel.classList.add('hidden');
+  }
+
+  elements.aiPanelBtn.classList.toggle('active', state.aiPanelOpen);
+
+  // 持久化面板状态
+  try {
+    window.realmAPI.setSetting('aiPanelOpen', state.aiPanelOpen);
+  } catch (err) {
+    console.error('[Realm Renderer] 保存 AI 面板状态失败:', err);
+  }
+}
+
+/**
+ * 渲染 AI 消息列表
+ * 遍历 state.aiMessages，为每条消息创建气泡元素
+ * 用户消息靠右蓝色，AI 消息靠左深色
+ * AI 消息内容使用 marked.parse() 转换 Markdown，代码块应用语法高亮
+ */
+function renderAIMessages() {
+  elements.aiMessageList.innerHTML = '';
+
+  state.aiMessages.forEach((msg, index) => {
+    const isUser = msg.role === 'user';
+    const isLast = index === state.aiMessages.length - 1;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = `ai-message ${isUser ? 'ai-message-user' : 'ai-message-ai'}`;
+
+    const content = document.createElement('div');
+    content.className = 'ai-message-content';
+
+    if (isUser) {
+      // 用户消息：纯文本
+      content.textContent = msg.content || '';
+    } else {
+      // AI 消息：Markdown 渲染
+      const rawHtml = msg.content || '';
+      if (typeof marked !== 'undefined' && marked.parse) {
+        content.innerHTML = marked.parse(rawHtml);
+      } else {
+        content.textContent = rawHtml;
+      }
+
+      // 代码高亮
+      content.querySelectorAll('pre code').forEach((block) => {
+        if (typeof hljs !== 'undefined' && hljs.highlightElement) {
+          hljs.highlightElement(block);
+        }
+      });
+    }
+
+    wrapper.appendChild(content);
+
+    // 流式输出中且是最后一条 AI 消息时，添加闪烁光标
+    if (state.aiStreaming && !isUser && isLast) {
+      const cursor = document.createElement('span');
+      cursor.className = 'ai-streaming-cursor';
+      content.appendChild(cursor);
+    }
+
+    elements.aiMessageList.appendChild(wrapper);
+  });
+
+  // 自动滚动到底部
+  if (state.aiAutoScroll) {
+    scrollToBottom();
+  }
+}
+
+/**
+ * 发送 AI 消息
+ * 获取输入框内容，添加用户消息到列表，调用 AI API
+ */
+function handleSendAIMessage() {
+  const text = elements.aiInput.value.trim();
+  if (!text) return;
+  if (state.aiStreaming) return;
+
+  // 清空输入框并重置高度
+  elements.aiInput.value = '';
+  elements.aiInput.style.height = 'auto';
+
+  // 添加用户消息
+  state.aiMessages.push({ role: 'user', content: text });
+
+  // 添加 AI 消息占位符
+  const aiMsgId = 'ai-msg-' + Date.now();
+  state.aiMessages.push({ role: 'assistant', content: '', id: aiMsgId });
+  state.aiCurrentMessageId = aiMsgId;
+  state.aiStreaming = true;
+
+  renderAIMessages();
+
+  // 调用 AI API 发送消息
+  try {
+    window.realmAPI.ai.prompt(text);
+  } catch (err) {
+    console.error('[Realm Renderer] AI 发送消息失败:', err);
+    state.aiStreaming = false;
+    renderAIMessages();
+  }
+}
+
+/**
+ * 初始化 AI 事件流监听
+ * 监听主进程推送的 AI 事件批量更新，处理消息更新、工具执行和错误
+ */
+function handleAIStream() {
+  if (!window.realmAPI.ai || !window.realmAPI.ai.onEventsBatch) return;
+
+  window.realmAPI.ai.onEventsBatch((events) => {
+    if (!events || !Array.isArray(events)) return;
+
+    let needsRender = false;
+
+    events.forEach((event) => {
+      switch (event.type) {
+        case 'message_update': {
+          // message_update 携带完整消息内容（累积全文，非增量）
+          const aiMsg = state.aiMessages.find(
+            m => m.role === 'assistant' && m.id === state.aiCurrentMessageId
+          );
+          if (aiMsg) {
+            aiMsg.content = event.content || '';
+            needsRender = true;
+          }
+          break;
+        }
+
+        case 'turn_end': {
+          // 一轮对话结束
+          state.aiStreaming = false;
+          state.aiCurrentMessageId = null;
+          needsRender = true;
+          break;
+        }
+
+        case 'error': {
+          // 错误事件
+          const errMsg = state.aiMessages.find(
+            m => m.role === 'assistant' && m.id === state.aiCurrentMessageId
+          );
+          if (errMsg) {
+            errMsg.content = errMsg.content
+              ? errMsg.content + '\n\n**错误:** ' + (event.message || '未知错误')
+              : '**错误:** ' + (event.message || '未知错误');
+          }
+          state.aiStreaming = false;
+          state.aiCurrentMessageId = null;
+          needsRender = true;
+          break;
+        }
+      }
+    });
+
+    if (needsRender) {
+      renderAIMessages();
+    }
+  });
+}
+
+/**
+ * 滚动消息列表到底部
+ * 使用平滑滚动效果
+ */
+function scrollToBottom() {
+  if (!elements.aiMessageList) return;
+  requestAnimationFrame(() => {
+    elements.aiMessageList.scrollTop = elements.aiMessageList.scrollHeight;
+  });
+}
+
+/**
+ * 处理消息列表的滚动事件
+ * 判断用户是否滚动到接近底部，控制自动滚动状态和回到底部按钮的显示
+ */
+function handleAIMessageScroll() {
+  const list = elements.aiMessageList;
+  if (!list) return;
+
+  const distanceFromBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
+
+  // 超过 100px 时暂停自动滚动
+  if (distanceFromBottom > 100) {
+    state.aiAutoScroll = false;
+    elements.aiScrollToBottom.classList.add('visible');
+  } else {
+    state.aiAutoScroll = true;
+    elements.aiScrollToBottom.classList.remove('visible');
+  }
+}
+
+/**
+ * 点击"回到底部"按钮的处理函数
+ * 平滑滚动到底部并恢复自动滚动
+ */
+function handleScrollToBottomClick() {
+  state.aiAutoScroll = true;
+  elements.aiScrollToBottom.classList.remove('visible');
+  scrollToBottom();
+}
+
+/**
+ * 处理输入框的键盘事件
+ * Enter 发送消息，Shift+Enter 换行
+ * @param {KeyboardEvent} e - 键盘事件
+ */
+function handleAIInputKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    handleSendAIMessage();
+  }
+}
+
+/**
+ * 自动调整输入框高度
+ * 根据内容自动增高，限制在最小和最大高度之间
+ */
+function handleAIInputAutoResize() {
+  const input = elements.aiInput;
+  if (!input) return;
+
+  // 重置高度以获取实际 scrollHeight
+  input.style.height = 'auto';
+
+  // 计算目标高度
+  const minHeight = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--ai-input-min-height')) || 40;
+  const maxHeight = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--ai-input-max-height')) || 120;
+  const newHeight = Math.min(Math.max(input.scrollHeight, minHeight), maxHeight);
+
+  input.style.height = newHeight + 'px';
+}
+
+/**
+ * 初始化面板拖拽调整宽度
+ * 支持鼠标拖拽左边缘手柄来调整面板宽度
+ */
+function initAIPanelResize() {
+  const handle = elements.aiPanelResizeHandle;
+  if (!handle) return;
+
+  let startX = 0;
+  let startWidth = 0;
+
+  function onMouseDown(e) {
+    e.preventDefault();
+    startX = e.clientX;
+    startWidth = elements.aiPanel.offsetWidth;
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }
+
+  function onMouseMove(e) {
+    const delta = startX - e.clientX;
+    const newWidth = Math.min(
+      Math.max(startWidth + delta, parseInt(getComputedStyle(document.documentElement).getPropertyValue('--ai-panel-min-width')) || 280),
+      parseInt(getComputedStyle(document.documentElement).getPropertyValue('--ai-panel-max-width')) || 600
+    );
+    elements.aiPanel.style.width = newWidth + 'px';
+  }
+
+  function onMouseUp() {
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }
+
+  handle.addEventListener('mousedown', onMouseDown);
 }
 
 // 初始化应用
