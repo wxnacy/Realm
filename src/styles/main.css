@@ -3790,6 +3790,67 @@ textarea::placeholder {
 
 /* ==================== AI 助手设置分区样式 ==================== */
 
+/* 提供商筛选下拉组合框 */
+.ai-provider-combobox {
+  position: relative;
+  flex: 1;
+}
+
+.ai-provider-combobox .text-input {
+  width: 100%;
+}
+
+.ai-provider-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+}
+
+.ai-provider-dropdown.hidden {
+  display: none;
+}
+
+.ai-provider-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.ai-provider-option:hover {
+  background-color: var(--bg-hover, rgba(255, 255, 255, 0.06));
+}
+
+.ai-provider-option.empty {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.ai-provider-option.empty:hover {
+  background-color: transparent;
+}
+
+.ai-provider-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background-color: var(--success-color, #10b981);
+  color: #fff;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
 .ai-status-indicator {
   display: flex;
   align-items: center;

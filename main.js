@@ -848,23 +848,24 @@ app.whenReady().then(async () => {
 
       if (route === 'ai/models' && req.method === 'GET') {
         if (!aiManager) {
-          sendJson(res, 200, { models: [] });
+          sendJson(res, 200, { providers: [], activeProvider: null, activeModel: null });
           return;
         }
-        sendJson(res, 200, aiManager.getAvailableModels());
+        sendJson(res, 200, await aiManager.getAvailableModels());
         return;
       }
 
       if (route === 'ai/configure' && req.method === 'POST') {
         const config = await readJsonBody(req);
-        if (!config || !config.apiKey) {
-          sendJson(res, 400, { error: 'API Key 不能为空' });
+        if (!config || !config.provider || !config.apiKey) {
+          sendJson(res, 400, { error: '提供商和 API Key 不能为空' });
           return;
         }
         if (aiManager) {
           await aiManager.configureProviders({
-            provider: config.provider || 'openai',
+            provider: config.provider,
             apiKey: config.apiKey,
+            model: config.model,
           });
         }
         sendJson(res, 200, { success: true });

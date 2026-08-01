@@ -10,7 +10,8 @@
  * 采用子进程方案（见 D-03 决策）。
  *
  * API Key 通过 CredentialStore 注入（per pi-ai 的认证模型），
- * 存储在 electron-store 的 `ai.apiKey` 路径下。
+ * 按提供商存储在 electron-store 的 `ai.providers` 路径下：
+ * { [providerId]: { apiKey, model } }，激活提供商在 `ai.activeProvider`。
  *
  * @module ai-manager
  */
@@ -68,21 +69,24 @@ class AIManager {
     this.isInitialized = false;
     /** @type {boolean} 是否正在处理消息（防止并发调用） */
     this.isProcessing = false;
+    /** @type {string|null} 当前激活提供商 ID */
+    this.activeProvider = null;
+    /** @type {string|null} 当前激活模型 ID */
+    this.activeModelId = null;
   }
 
   /**
    * 初始化 AI Manager
    *
    * 流程：
-   * 1. 从 configStore 读取 API Key
-   * 2. 创建 pi-ai CredentialStore 并注入 OpenAI API Key
-   * 3. 创建 pi-ai Models 实例（builtinModels，注册所有内置提供商）
-   * 4. 构建 Realm 工具列表
-   * 5. 创建 pi-agent-core Agent 实例
+   * 1. 迁移旧版单 OpenAI 配置（ai.apiKey → ai.providers.openai）
+   * 2. 读取 ai.providers 中所有已配置提供商，注入各自的 API Key
+   * 3. 创建 pi-ai Models 实例（builtinModels，注册全部内置提供商）
+   * 4. 按 ai.activeProvider + 提供商的 model 配置确定使用模型
+   * 5. 构建 Realm 工具列表并创建 Agent 实例
    *
-   * API Key 通过 CredentialStore 机制注入（pi-ai 的标准认证方式），
-   * 而非直接传入 builtinModels 参数。builtinModels 的 options 参数
-   * 仅接受 { credentials, modelsStore, authContext }。
+   * 注意：builtinModels 从 '@earendil-works/pi-ai/providers/all' 导出，
+   * 包根入口不导出该函数（曾导致初始化必败的隐性 bug）。
    *
    * @param {Object} configStore - electron-store 实例，用于读取 AI 配置
    * @returns {Promise<void>}
@@ -90,46 +94,64 @@ class AIManager {
   async init(configStore) {
     this.configStore = configStore;
 
-    // 检查 API Key
-    const apiKey = configStore.get('ai.apiKey');
-    if (!apiKey) {
-      console.log('[Realm AI] 未配置 API Key，跳过初始化');
+    // 迁移旧版配置
+    this._migrateLegacyConfig();
+
+    const providersCfg = configStore.get('ai.providers', {});
+    const configuredIds = Object.keys(providersCfg).filter(
+      id => providersCfg[id] && providersCfg[id].apiKey
+    );
+
+    if (configuredIds.length === 0) {
+      console.log('[Realm AI] 未配置任何提供商 API Key，跳过初始化');
       this.isInitialized = false;
       return;
     }
+
 
     try {
       // 动态导入 ESM-only 的 pi 包
       // pi-ai 和 pi-agent-core 的 package.json 声明 "type": "module"，
       // CommonJS 的 require() 无法加载，必须用动态 import()
-      const { builtinModels } = await import('@earendil-works/pi-ai');
-      const { Agent } = await import('@earendil-works/pi-agent-core');
+      const { builtinModels } = await import('@earendil-works/pi-ai/providers/all');
       const { InMemoryCredentialStore } = await import('@earendil-works/pi-ai');
+      const { Agent } = await import('@earendil-works/pi-agent-core');
 
-      // 创建凭证存储并注入 OpenAI API Key（per pi-ai 认证模型）
+      // 创建凭证存储并注入所有已配置提供商的 API Key
       // CredentialStore 是 pi-ai 的标准认证机制：每个 provider 一个凭证条目
       const credentialStore = new InMemoryCredentialStore();
-      await credentialStore.modify('openai', async () => ({
-        type: 'api_key',
-        key: apiKey,
-      }));
+      for (const providerId of configuredIds) {
+        await credentialStore.modify(providerId, async () => ({
+          type: 'api_key',
+          key: providersCfg[providerId].apiKey,
+        }));
+      }
 
-      // 创建 Models 实例（注册所有内置提供商，初始支持 OpenAI per D-14）
-      // builtinModels 的 options 仅接受 { credentials, modelsStore, authContext }
+      // 创建 Models 实例（注册所有内置提供商）
       this.models = builtinModels({
         credentials: credentialStore,
       });
 
-      // 构建工具列表
-      this.tools = this._buildRealmTools();
+      // 确定激活提供商：优先 ai.activeProvider，须已配置；否则取第一个已配置项
+      const savedActive = configStore.get('ai.activeProvider');
+      const activeProvider = savedActive && configuredIds.includes(savedActive)
+        ? savedActive
+        : configuredIds[0];
 
-      // 获取 OpenAI 模型（per D-14：初始使用 gpt-4o-mini）
-      const model = this.models.getModel('openai', 'gpt-4o-mini');
+      // 确定模型：提供商配置中的 model，否则取该提供商目录中的第一个模型
+      const providerCfg = providersCfg[activeProvider];
+      const providerModels = this.models.getModels(activeProvider);
+      const modelId = providerCfg.model || (providerModels[0] && providerModels[0].id);
+
+      const model = modelId ? this.models.getModel(activeProvider, modelId) : null;
       if (!model) {
-        console.error('[Realm AI] 未找到 openai/gpt-4o-mini 模型');
+        console.error(`[Realm AI] 未找到模型 ${activeProvider}/${modelId}`);
         this.isInitialized = false;
         return;
       }
+
+      // 构建工具列表
+      this.tools = this._buildRealmTools();
 
       // 创建 Agent 实例
       // Agent 需要：
@@ -156,15 +178,56 @@ class AIManager {
       });
 
       this.isInitialized = true;
+      this.activeProvider = activeProvider;
+      this.activeModelId = model.id;
 
       // 设置事件广播（per D-05~D-08）
       this._setupEventBroadcasting();
 
-      console.log('[Realm AI] AI Manager 初始化完成');
+      console.log(`[Realm AI] AI Manager 初始化完成: ${activeProvider}/${model.id}`);
     } catch (err) {
       console.error('[Realm AI] 初始化失败:', err.message);
       this.isInitialized = false;
     }
+  }
+
+  /**
+   * 迁移旧版单 OpenAI 配置到多提供商结构
+   * ai.apiKey → ai.providers.openai.apiKey（模型默认 gpt-4o-mini）
+   * @private
+   */
+  _migrateLegacyConfig() {
+    const legacyKey = this.configStore.get('ai.apiKey');
+    if (!legacyKey) return;
+
+    const providers = this.configStore.get('ai.providers', {});
+    if (!providers.openai) {
+      providers.openai = { apiKey: legacyKey, model: 'gpt-4o-mini' };
+      this.configStore.set('ai.providers', providers);
+      if (!this.configStore.get('ai.activeProvider')) {
+        this.configStore.set('ai.activeProvider', 'openai');
+      }
+      console.log('[Realm AI] 已迁移旧版 OpenAI 配置到 ai.providers');
+    }
+    this.configStore.delete('ai.apiKey');
+  }
+
+  /**
+   * 获取（或惰性创建）用于枚举提供商/模型的目录实例
+   * 目录枚举不依赖初始化状态——设置页在任何时刻都需要完整提供商列表
+   * @returns {Promise<Object>} pi-ai Models 实例
+   * @private
+   */
+  async _getCatalog() {
+    if (this.models) return this.models;
+    if (!this._catalogPromise) {
+      this._catalogPromise = (async () => {
+        const { builtinModels } = await import('@earendil-works/pi-ai/providers/all');
+        const { InMemoryCredentialStore } = await import('@earendil-works/pi-ai');
+        return builtinModels({ credentials: new InMemoryCredentialStore() });
+      })();
+    }
+    return this._catalogPromise;
   }
 
   /**
@@ -184,12 +247,23 @@ class AIManager {
   async prompt(message) {
     if (!this.isInitialized || !this.agent) {
       console.error('[Realm AI] AI Manager 未初始化，无法处理消息');
+      // 广播错误事件：否则渲染进程流式占位符会永久卡住，且 aiStreaming 锁死后续发送
+      this._sendEventsBatch([{
+        type: 'error',
+        message: 'AI 助手未初始化，请先在「设置 → AI 助手」中配置提供商和 API Key',
+        timestamp: Date.now(),
+      }]);
       return;
     }
 
     // 防止并发调用
     if (this.isProcessing) {
       console.warn('[Realm AI] 正在处理中，请等待完成');
+      this._sendEventsBatch([{
+        type: 'error',
+        message: 'AI 正在处理上一条消息，请稍候再试',
+        timestamp: Date.now(),
+      }]);
       return;
     }
 
@@ -213,12 +287,10 @@ class AIManager {
           this.isProcessing = false;
 
           // 广播错误事件到渲染进程（per D-11）
+          // 注意 payload 形状：渲染端 handleAIStream 读取 event.message
           this._sendEventsBatch([{
             type: 'error',
-            error: {
-              message: err.message,
-              code: 'PROMPT_FAILED',
-            },
+            message: err.message,
             timestamp: Date.now(),
           }]);
           return;
@@ -303,28 +375,41 @@ class AIManager {
   /**
    * 配置 AI 提供商
    *
-   * 更新 API Key 并重新初始化 Agent 实例。
-   * 当用户在设置页面更新 API Key 时调用。
+   * 保存指定提供商的 API Key 和模型，设为激活提供商并重新初始化 Agent。
+   * 当用户在设置页面更新配置时调用。
    *
    * @param {Object} config - 配置对象
-   * @param {string} config.provider - 提供商名称（如 'openai'）
+   * @param {string} config.provider - 提供商 ID（如 'openai'、'xiaomi'）
    * @param {string} config.apiKey - API Key
+   * @param {string} [config.model] - 模型 ID（可选，默认取提供商目录第一个模型）
    * @returns {Promise<{success: boolean}>} 操作结果
    */
   async configureProviders(config) {
-    const { provider, apiKey } = config;
+    const { provider, apiKey, model } = config;
 
     if (!provider || !apiKey) {
       throw new Error('提供商和 API Key 不能为空');
     }
 
+    // 校验提供商存在，并解析有效模型 ID
+    const catalog = await this._getCatalog();
+    const catalogProvider = catalog.getProviders().find(p => p.id === provider);
+    if (!catalogProvider) {
+      throw new Error(`未知提供商: ${provider}`);
+    }
+    const providerModels = catalogProvider.getModels();
+    const validModel = model && providerModels.some(m => m.id === model)
+      ? model
+      : (providerModels[0] && providerModels[0].id);
+
     // 更新 configStore
     if (this.configStore) {
-      this.configStore.set('ai.apiKey', apiKey);
-    }
+      const providers = this.configStore.get('ai.providers', {});
+      providers[provider] = { apiKey, model: validModel };
+      this.configStore.set('ai.providers', providers);
+      this.configStore.set('ai.activeProvider', provider);
 
-    // 重新初始化 Agent
-    if (this.configStore) {
+      // 重新初始化 Agent
       await this.init(this.configStore);
     }
 
@@ -332,22 +417,39 @@ class AIManager {
   }
 
   /**
-   * 获取可用的 AI 模型列表
+   * 获取可用的 AI 提供商和模型目录
    *
-   * 返回当前提供商支持的模型列表。
-   * 初始仅支持 OpenAI 模型（per D-14）。
+   * 返回 pi-ai 全部内置提供商（37+）及其模型列表，
+   * 附带每个提供商的配置状态（是否已保存 Key、Key 尾号预览）。
+   * 目录枚举不依赖初始化状态，设置页在任何时刻都可获取。
    *
-   * @returns {{models: Array<{provider: string, id: string, name: string}>}} 模型列表
+   * @returns {Promise<{providers: Array, activeProvider: string|null, activeModel: string|null}>}
    */
-  getAvailableModels() {
-    // 初始支持的模型列表（per D-14）
-    const models = [
-      { provider: 'openai', id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
-      { provider: 'openai', id: 'gpt-4o', name: 'GPT-4o' },
-      { provider: 'openai', id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
-    ];
+  async getAvailableModels() {
+    const catalog = await this._getCatalog();
+    const providersCfg = this.configStore ? this.configStore.get('ai.providers', {}) : {};
+    const activeProvider = this.configStore ? this.configStore.get('ai.activeProvider', null) : null;
 
-    return { models };
+    const providers = catalog.getProviders().map(p => {
+      const saved = providersCfg[p.id];
+      const apiKey = saved && saved.apiKey ? saved.apiKey : '';
+      return {
+        id: p.id,
+        name: p.name,
+        configured: Boolean(apiKey),
+        keyPreview: apiKey ? `…${apiKey.slice(-4)}` : null,
+        activeModel: saved && saved.model ? saved.model : null,
+        models: p.getModels().map(m => ({ id: m.id, name: m.name })),
+      };
+    });
+
+    return {
+      providers,
+      activeProvider,
+      activeModel: activeProvider && providersCfg[activeProvider]
+        ? providersCfg[activeProvider].model
+        : null,
+    };
   }
 
   /**
@@ -356,7 +458,7 @@ class AIManager {
    * 返回初始化状态、当前模型和工具数量等信息。
    * 用于 UI 显示 AI 助手的连接状态。
    *
-   * @returns {{initialized: boolean, model: string|null, toolsCount: number}} 状态信息
+   * @returns {{initialized: boolean, model: string|null, toolsCount: number, activeProvider: string|null}} 状态信息
    */
   getState() {
     let model = null;
@@ -368,6 +470,7 @@ class AIManager {
       initialized: this.isInitialized,
       model,
       toolsCount: this.tools.length,
+      activeProvider: this.activeProvider || null,
     };
   }
 

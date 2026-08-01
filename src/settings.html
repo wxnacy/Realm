@@ -237,18 +237,26 @@
           <h3 class="settings-group-title">API 配置</h3>
 
           <div class="settings-item">
-            <label for="aiApiKey">API Key</label>
-            <div class="settings-input-wrapper">
-              <input type="password" id="aiApiKey" class="text-input" placeholder="输入你的 OpenAI API Key">
-              <button class="btn btn-secondary btn-sm" id="aiToggleKeyVisibility" title="显示/隐藏">显示</button>
+            <label for="aiProviderInput">提供商</label>
+            <div class="ai-provider-combobox" id="aiProviderCombobox">
+              <input type="text" id="aiProviderInput" class="text-input" placeholder="输入以筛选提供商（如 xiaomi、openai）" autocomplete="off">
+              <div class="ai-provider-dropdown hidden" id="aiProviderDropdown"></div>
             </div>
           </div>
 
           <div class="settings-item">
-            <label for="aiModelSelect">默认模型</label>
-            <select class="settings-select" id="aiModelSelect">
-              <option value="">选择模型</option>
+            <label for="aiModelSelect">模型</label>
+            <select class="settings-select" id="aiModelSelect" disabled>
+              <option value="">先选择提供商</option>
             </select>
+          </div>
+
+          <div class="settings-item">
+            <label for="aiApiKey">API Key</label>
+            <div class="settings-input-wrapper">
+              <input type="password" id="aiApiKey" class="text-input" placeholder="先选择提供商">
+              <button class="btn btn-secondary btn-sm" id="aiToggleKeyVisibility" title="显示/隐藏">显示</button>
+            </div>
           </div>
 
           <div class="settings-item">

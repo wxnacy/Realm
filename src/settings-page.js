@@ -1379,9 +1379,14 @@ function escapeHtml(text) {
 
 // ==================== AI 助手设置 ====================
 
+/** AI 提供商目录缓存（含模型列表和配置状态） */
+let aiProvidersCatalog = [];
+/** 当前选中的提供商 ID */
+let aiSelectedProviderId = null;
+
 /**
  * 加载 AI 助手设置
- * 获取当前 AI 状态和可用模型列表，更新 UI
+ * 获取提供商目录（37+）和 AI 状态，渲染提供商下拉和状态指示器
  */
 async function loadAISettings() {
   try {
@@ -1389,18 +1394,13 @@ async function loadAISettings() {
     const aiState = await settingsApi('ai/state');
     updateAIStatusIndicator(aiState);
 
-    // 获取可用模型列表
-    const modelsData = await settingsApi('ai/models');
-    const modelSelect = document.getElementById('aiModelSelect');
-    if (modelSelect && modelsData.models) {
-      // 清空现有选项（保留默认提示）
-      modelSelect.innerHTML = '<option value="">选择模型</option>';
-      modelsData.models.forEach(model => {
-        const option = document.createElement('option');
-        option.value = model.id;
-        option.textContent = model.name;
-        modelSelect.appendChild(option);
-      });
+    // 获取提供商目录（含模型列表、配置状态）
+    const catalogData = await settingsApi('ai/models');
+    aiProvidersCatalog = catalogData.providers || [];
+
+    // 预选激活提供商（无激活项时不预选，等用户筛选选择）
+    if (catalogData.activeProvider) {
+      selectAIProvider(catalogData.activeProvider, { silent: true });
     }
   } catch (error) {
     console.error('[Realm] 加载 AI 设置失败:', error);
@@ -1422,11 +1422,103 @@ function updateAIStatusIndicator(aiState) {
   if (aiState.initialized) {
     statusDot.className = 'ai-status-dot connected';
     statusText.className = 'ai-status-text connected';
-    statusText.textContent = `已连接 (${aiState.model || '未知模型'}, ${aiState.toolsCount} 个工具)`;
+    statusText.textContent = `已连接 (${aiState.activeProvider || '?'} / ${aiState.model || '未知模型'}, ${aiState.toolsCount} 个工具)`;
   } else {
     statusDot.className = 'ai-status-dot';
     statusText.className = 'ai-status-text';
     statusText.textContent = '未配置 API Key';
+  }
+}
+
+/**
+ * 渲染提供商下拉列表（按筛选文本过滤）
+ * 选项显示提供商名称，已配置的显示徽标
+ * @param {string} filterText - 筛选关键词（匹配 id 和 name）
+ */
+function renderAIProviderDropdown(filterText) {
+  const dropdown = document.getElementById('aiProviderDropdown');
+  if (!dropdown) return;
+
+  const keyword = (filterText || '').trim().toLowerCase();
+  const matched = aiProvidersCatalog.filter(p =>
+    !keyword || p.id.toLowerCase().includes(keyword) || p.name.toLowerCase().includes(keyword)
+  );
+
+  dropdown.innerHTML = '';
+
+  if (matched.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'ai-provider-option empty';
+    empty.textContent = '无匹配提供商';
+    dropdown.appendChild(empty);
+    return;
+  }
+
+  matched.forEach(p => {
+    const option = document.createElement('div');
+    option.className = 'ai-provider-option';
+    option.dataset.providerId = p.id;
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'ai-provider-name';
+    nameSpan.textContent = `${p.name} (${p.id})`;
+    option.appendChild(nameSpan);
+
+    if (p.configured) {
+      const badge = document.createElement('span');
+      badge.className = 'ai-provider-badge';
+      badge.textContent = '已配置';
+      option.appendChild(badge);
+    }
+
+    option.addEventListener('click', () => selectAIProvider(p.id));
+    dropdown.appendChild(option);
+  });
+}
+
+/**
+ * 选择提供商：填充模型下拉、更新 API Key 占位符、收起下拉
+ * @param {string} providerId - 提供商 ID
+ * @param {Object} [options] - 选项；silent 时不聚焦输入框
+ */
+function selectAIProvider(providerId, options = {}) {
+  const provider = aiProvidersCatalog.find(p => p.id === providerId);
+  if (!provider) return;
+
+  aiSelectedProviderId = providerId;
+
+  // 输入框显示选中的提供商
+  const input = document.getElementById('aiProviderInput');
+  if (input) {
+    input.value = `${provider.name} (${provider.id})`;
+  }
+
+  // 收起下拉
+  const dropdown = document.getElementById('aiProviderDropdown');
+  if (dropdown) dropdown.classList.add('hidden');
+
+  // 填充模型下拉
+  const modelSelect = document.getElementById('aiModelSelect');
+  if (modelSelect) {
+    modelSelect.innerHTML = '';
+    provider.models.forEach(m => {
+      const option = document.createElement('option');
+      option.value = m.id;
+      option.textContent = m.name;
+      modelSelect.appendChild(option);
+    });
+    modelSelect.disabled = provider.models.length === 0;
+    // 预选该提供商已保存的模型，否则第一个
+    modelSelect.value = provider.activeModel || (provider.models[0] && provider.models[0].id) || '';
+  }
+
+  // 更新 API Key 占位符
+  const apiKeyInput = document.getElementById('aiApiKey');
+  if (apiKeyInput) {
+    apiKeyInput.value = '';
+    apiKeyInput.placeholder = provider.configured
+      ? `已保存 (${provider.keyPreview})，输入新 Key 覆盖`
+      : `输入 ${provider.name} API Key`;
   }
 }
 
@@ -1437,11 +1529,40 @@ function setupAISettingsListeners() {
   const saveBtn = document.getElementById('aiSaveConfig');
   const toggleBtn = document.getElementById('aiToggleKeyVisibility');
   const apiKeyInput = document.getElementById('aiApiKey');
+  const providerInput = document.getElementById('aiProviderInput');
+  const providerDropdown = document.getElementById('aiProviderDropdown');
+
+  // 提供商筛选输入：聚焦展开、输入过滤
+  if (providerInput && providerDropdown) {
+    providerInput.addEventListener('focus', () => {
+      renderAIProviderDropdown('');
+      providerDropdown.classList.remove('hidden');
+    });
+    providerInput.addEventListener('input', () => {
+      renderAIProviderDropdown(providerInput.value);
+      providerDropdown.classList.remove('hidden');
+    });
+    // 点击页面其他位置收起下拉
+    document.addEventListener('click', (e) => {
+      const combobox = document.getElementById('aiProviderCombobox');
+      if (combobox && !combobox.contains(e.target)) {
+        providerDropdown.classList.add('hidden');
+      }
+    });
+  }
 
   // 保存配置按钮
   if (saveBtn) {
     saveBtn.addEventListener('click', async () => {
+      const modelSelect = document.getElementById('aiModelSelect');
+      const provider = aiSelectedProviderId;
+      const model = modelSelect ? modelSelect.value : '';
       const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+
+      if (!provider) {
+        showToast('请先选择提供商', 'error');
+        return;
+      }
       if (!apiKey) {
         showToast('请输入 API Key', 'error');
         return;
@@ -1454,14 +1575,15 @@ function setupAISettingsListeners() {
         await settingsApi('ai/configure', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider: 'openai', apiKey }),
+          body: JSON.stringify({ provider, apiKey, model }),
         });
 
         showToast('配置已保存');
 
-        // 重新加载状态
-        const aiState = await settingsApi('ai/state');
-        updateAIStatusIndicator(aiState);
+        // 重新加载目录（更新已配置徽标/Key 预览）和状态
+        await loadAISettings();
+        // 保留当前选中项的 Key 占位符（loadAISettings 只预选激活项）
+        selectAIProvider(provider, { silent: true });
       } catch (error) {
         console.error('[Realm] 保存 AI 配置失败:', error);
         showToast('保存失败: ' + error.message, 'error');
