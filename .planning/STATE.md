@@ -4,8 +4,8 @@ milestone: v2.0
 milestone_name: 收藏夹文件夹支持 + AI Agent 集成
 current_phase: 21 — AI Agent 集成 - 聊天 UI
 status: planning
-stopped_at: Phase 20 UI-SPEC approved
-last_updated: "2026-08-01T08:44:46.463Z"
+stopped_at: Phase 20 complete, ready to plan Phase 21
+last_updated: "2026-08-01T09:11:40Z"
 progress:
   total_phases: 8
   completed_phases: 7
@@ -16,15 +16,26 @@ progress:
 
 # Project State: Realm Browser
 
-**Last Updated:** 2026-07-30
+**Last Updated:** 2026-08-01
 **Current Milestone:** v2.0 收藏夹文件夹支持 + AI Agent 集成
 **Current Phase:** 21 — AI Agent 集成 - 聊天 UI
 
 ## Recent Activity
 
+### Phase 20: AI Agent 集成 - AI Manager 核心功能
+
+- **Status:** Completed (2026-08-01)
+- **Output:** 5 个 Realm 工具 + 事件广播 + 错误重试 + AI IPC 通道 + 设置页 "AI 助手" 分区
+- **Plans:** 2/2 完成
+  - 20-01: AIManager 核心（工具注册 + 事件广播 + 重试） — DONE (c51b8b4, 07d6d76, 34e066e)
+  - 20-02: AI IPC 通道 + Preload API + 设置页 AI 分区 — DONE (b7374fa, e637d24, 5c6f930)
+- **UAT:** 12/12 通过（含冷启动冒烟 + 10 项自动化覆盖复核）；SECURITY.md threats_open: 0
+- **关键决策:** 事件广播 debounce 16ms 批量合并；错误 3 次指数退避重试；setAIManager setter 延迟注入
+- **Last:** UAT + 安全审计完成，进入 Phase 21 规划
+
 ### Phase 19: AI Agent 集成 - 基础验证
 
-- **Status:** Ready to plan
+- **Status:** Completed
 - **Output:** AIManager 完整实现 + Agent + get_tabs 工具端到端验证
 - **Plans:** 2/2 完成
   - 19-01: 验证 pi-agent-core SDK + 创建 AI Manager 骨架 — DONE (174085e, 0f04b5e)
@@ -74,17 +85,18 @@ progress:
 - Phase 17: ✅ Complete (1d)
 - Phase 18: ✅ Complete (1d) — 收藏栏功能
 - Phase 19: ✅ Complete (1d) — AI Agent 基础验证（AIManager + get_tabs 工具）
-- Phase 20-21: ○ Pending
+- Phase 20: ✅ Complete (1d) — AI Manager 核心功能（5 工具 + IPC + 设置页 AI 分区）
+- Phase 21: ○ Pending — AI Agent 聊天 UI
 
 ## Next Actions
 
-1. Continue with Phase 20-21
+1. Plan Phase 21 — AI Agent 集成 - 聊天 UI
 
 ---
 *Updated by GSD workflow*
 
 ## Session
 
-**Last session:** 2026-08-01T08:32:40.165Z
-**Stopped at:** Phase 20 UI-SPEC approved
-**Resume file:** .planning/phases/20-ai-agent/20-UI-SPEC.md
+**Last session:** 2026-08-01T09:11:40Z
+**Stopped at:** Phase 20 complete, ready to plan Phase 21
+**Resume file:** None

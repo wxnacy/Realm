@@ -96,6 +96,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ IMPORT-01: 自动读取 Chrome 本地书签（含 AccountBookmarks/多 Profile 检测） — Phase 17
 - ✓ IMPORT-02: 支持 HTML 书签文件导入（预览确认两阶段） — Phase 17
 - ✓ IMPORT-03: 导入进度（HTTP 轮询 + stage 分阶段）和冲突处理（书签 URL 去重 + 文件夹同名复用） — Phase 17
+- ✓ AI-02: AI Manager 核心功能（5 个 Realm 工具 + 事件广播 + 错误重试 + IPC 通道 + 设置页 AI 分区） — Phase 20
 
 ### Active
 
@@ -111,7 +112,6 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 #### AI Agent 集成（基于 pi-agent-core）
 - AI-01: Node.js 版本验证和基础架构 — Phase 19
-- AI-02: AI Manager 核心功能 — Phase 20
 - AI-03: AI 聊天面板 UI — Phase 21
 
 ### Out of Scope
@@ -203,6 +203,9 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | webview 内部页面新功能一律走 /api/* HTTP 端点，禁用 realmAPI | Phase 17 UAT 根因：webview guest 无 realmAPI（CR-4），导入前端误用 IPC 导致点击无反应；Electron 32 已移除 File.path，文件选择用原生 input 读内容上传 | ✓ 已验证 — Phase 17 UAT |
 | 导入文件夹去重按"同名同父级复用"（findFolderByName） | 书签有 INSERT OR IGNORE 兜底而文件夹没有，重复导入原样重建文件夹树 | ✓ 已验证 — Phase 17 UAT |
 | 长任务进度经 HTTP 轮询 + stage 分阶段上报；同步批处理每批 setImmediate 让出事件循环 | webview 无法接收 IPC 事件；同步循环阻塞事件循环导致轮询无响应、进度条卡 0 | ✓ 已验证 — Phase 17 UAT |
+| AI 事件广播：高频 debounce 16ms 批量合并，低频立即发送 | 避免高频事件冲刷渲染进程，同时保证低频事件实时性 | ✓ 已验证 — Phase 20 UAT |
+| AI 错误处理：3 次重试 + 指数退避（1s/2s/4s）+ 错误事件广播 | LLM 调用瞬态失败可自愈，最终失败经事件通知 UI | ✓ 已验证 — Phase 20 UAT |
+| setAIManager setter 延迟注入 IPC 处理器 | main.js 已初始化 AIManager，setter 注入避免重复实例化 | ✓ 已验证 — Phase 20 UAT |
 
 ## Evolution
 
@@ -222,4 +225,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-30 after Phase 17*
+*Last updated: 2026-08-01 after Phase 20*
