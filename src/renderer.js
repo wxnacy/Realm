@@ -3249,11 +3249,9 @@ function renderAIMessages() {
       wrapper.appendChild(createMessageActions(msg));
     }
 
-    // 流式输出中且是最后一条 AI 消息时，添加闪烁光标
-    if (state.aiStreaming && !isUser && isLast) {
-      const cursor = document.createElement('span');
-      cursor.className = 'ai-streaming-cursor';
-      content.appendChild(cursor);
+    // 等待 AI 回复时（尚无内容），显示 typing 指示器
+    if (state.aiStreaming && !isUser && isLast && !msg.content) {
+      content.appendChild(createTypingIndicator());
     }
 
     elements.aiMessageList.appendChild(wrapper);
@@ -3288,32 +3286,48 @@ function updateAIStreamingBubble() {
   const content = wrapper.querySelector('.ai-message-content');
   if (!content) return;
 
-  // Markdown 渲染（与 renderAIMessages 同一逻辑）
   const rawText = msg.content || '';
-  if (typeof marked !== 'undefined' && marked.parse) {
-    content.innerHTML = marked.parse(rawText);
-  } else {
-    content.textContent = rawText;
-  }
 
-  // 代码高亮（innerHTML 替换后节点是新的，需要重新高亮）
-  content.querySelectorAll('pre code').forEach((block) => {
-    if (typeof hljs !== 'undefined' && hljs.highlightElement) {
-      hljs.highlightElement(block);
+  if (!rawText) {
+    // 等待回复中：显示 typing 指示器
+    // 已存在则不重复操作（每 16ms 重建会重启跳动动画，看起来像在闪）
+    if (!content.querySelector('.ai-typing-indicator')) {
+      content.innerHTML = '';
+      content.appendChild(createTypingIndicator());
     }
-  });
+  } else {
+    // 有内容：渲染 Markdown 文本（不显示光标/指示器）
+    if (typeof marked !== 'undefined' && marked.parse) {
+      content.innerHTML = marked.parse(rawText);
+    } else {
+      content.textContent = rawText;
+    }
 
-  // 维持流式光标（innerHTML 替换会清掉旧光标）
-  if (state.aiStreaming && !content.querySelector('.ai-streaming-cursor')) {
-    const cursor = document.createElement('span');
-    cursor.className = 'ai-streaming-cursor';
-    content.appendChild(cursor);
+    // 代码高亮（innerHTML 替换后节点是新的，需要重新高亮）
+    content.querySelectorAll('pre code').forEach((block) => {
+      if (typeof hljs !== 'undefined' && hljs.highlightElement) {
+        hljs.highlightElement(block);
+      }
+    });
   }
 
   // 自动滚动
   if (state.aiAutoScroll) {
     scrollToBottom();
   }
+}
+
+/**
+ * 创建等待 AI 回复的 typing 指示器（三点跳动 loading）
+ * @returns {HTMLElement} 指示器元素
+ */
+function createTypingIndicator() {
+  const indicator = document.createElement('span');
+  indicator.className = 'ai-typing-indicator';
+  for (let i = 0; i < 3; i++) {
+    indicator.appendChild(document.createElement('span'));
+  }
+  return indicator;
 }
 
 /**
