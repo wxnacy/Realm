@@ -124,6 +124,14 @@
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
           </svg>
         </button>
+        <button class="btn-icon" id="aiPanelBtn" title="AI 助手">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2a4 4 0 0 1 4 4v1a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"></path>
+            <path d="M9 14h6"></path>
+            <path d="M10 18h4"></path>
+            <path d="M8 22h8a4 4 0 0 0 4-4v-1a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v1a4 4 0 0 0 4 4z"></path>
+          </svg>
+        </button>
       </div>
       <div class="loading-bar" id="loadingBar"></div>
     </div>
@@ -407,5 +415,38 @@
   <script src="bookmarks-bar-menu.js"></script>
   <script src="bookmarks-bar.js"></script>
   <script src="renderer.js"></script>
+
+  <!-- AI 助手面板 -->
+  <div class="ai-panel" id="aiPanel">
+    <div class="ai-panel-header" id="aiPanelHeader">
+      <span class="ai-panel-title">AI 助手</span>
+      <div class="ai-panel-header-actions">
+        <button class="btn-icon ai-panel-close-btn" id="aiPanelCloseBtn" title="关闭">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div class="ai-message-list" id="aiMessageList">
+      <!-- 消息气泡由 JavaScript 动态生成 -->
+    </div>
+    <div class="ai-input-area" id="aiInputArea">
+      <div class="ai-input-wrapper">
+        <textarea class="ai-input" id="aiInput" placeholder="输入消息..." rows="1"></textarea>
+        <button class="btn-icon ai-send-btn" id="aiSendBtn" title="发送">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <button class="ai-scroll-to-bottom" id="aiScrollToBottom" title="回到底部">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 5v14M5 12l7 7 7-7"></path>
+      </svg>
+    </button>
+    <div class="ai-panel-resize-handle" id="aiPanelResizeHandle"></div>
+  </div>
 </body>
 </html>
