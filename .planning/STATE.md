@@ -5,7 +5,7 @@ milestone_name: 收藏夹文件夹支持 + AI Agent 集成
 current_phase: 19
 status: completed
 stopped_at: Phase 19 context gathered
-last_updated: "2026-08-01T07:40:47.366Z"
+last_updated: "2026-08-01T08:16:39.710Z"
 progress:
   total_phases: 8
   completed_phases: 6
@@ -24,7 +24,7 @@ progress:
 
 ### Phase 19: AI Agent 集成 - 基础验证
 
-- **Status:** Phase 19 complete
+- **Status:** Phase 19 complete — local only (no remote)
 - **Output:** AIManager 完整实现 + Agent + get_tabs 工具端到端验证
 - **Plans:** 2/2 完成
   - 19-01: 验证 pi-agent-core SDK + 创建 AI Manager 骨架 — DONE (174085e, 0f04b5e)
