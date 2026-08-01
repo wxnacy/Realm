@@ -3156,7 +3156,22 @@ function renderAIMessages() {
       });
     }
 
+    // 添加消息 ID 属性（用于工具卡片定位）
+    if (msg.id) {
+      wrapper.dataset.messageId = msg.id;
+    }
+
     wrapper.appendChild(content);
+
+    // 渲染工具卡片
+    if (msg.toolExecutions && msg.toolExecutions.length > 0) {
+      const toolContainer = document.createElement('div');
+      toolContainer.className = 'tool-cards-container';
+      msg.toolExecutions.forEach(toolExec => {
+        toolContainer.appendChild(renderToolCard(toolExec));
+      });
+      wrapper.appendChild(toolContainer);
+    }
 
     // 流式输出中且是最后一条 AI 消息时，添加闪烁光标
     if (state.aiStreaming && !isUser && isLast) {
@@ -3234,6 +3249,42 @@ function handleAIStream() {
           break;
         }
 
+        case 'tool_execution_update': {
+          // 工具执行状态更新（三阶段：running/completed/failed）
+          const toolMsg = state.aiMessages.find(
+            m => m.role === 'assistant' && m.id === state.aiCurrentMessageId
+          );
+          if (toolMsg) {
+            if (!toolMsg.toolExecutions) {
+              toolMsg.toolExecutions = [];
+            }
+            const existingIdx = toolMsg.toolExecutions.findIndex(
+              t => t.id === event.tool_execution_id
+            );
+            if (existingIdx >= 0) {
+              // 更新已存在的工具执行状态
+              toolMsg.toolExecutions[existingIdx] = {
+                ...toolMsg.toolExecutions[existingIdx],
+                status: event.status,
+                result: event.result,
+                error: event.error
+              };
+            } else {
+              // 添加新的工具执行
+              toolMsg.toolExecutions.push({
+                id: event.tool_execution_id,
+                name: event.tool_name,
+                status: event.status,
+                params: event.params,
+                result: event.result,
+                error: event.error
+              });
+            }
+            renderToolCards(state.aiCurrentMessageId);
+          }
+          break;
+        }
+
         case 'turn_end': {
           // 一轮对话结束
           state.aiStreaming = false;
@@ -3263,6 +3314,140 @@ function handleAIStream() {
     if (needsRender) {
       renderAIMessages();
     }
+  });
+}
+
+/**
+ * 渲染单个工具执行卡片
+ * 创建可折叠的工具卡片，显示工具名称、状态图标和执行详情
+ * 参数和结果使用 textContent 设置，防止 XSS（T-21-03 缓解）
+ * @param {Object} toolExecution - 工具执行对象
+ * @param {string} toolExecution.id - 工具执行 ID
+ * @param {string} toolExecution.name - 工具名称
+ * @param {string} toolExecution.status - 执行状态：'running' | 'completed' | 'failed'
+ * @param {Object} toolExecution.params - 工具参数
+ * @param {*} toolExecution.result - 执行结果
+ * @param {string} toolExecution.error - 错误信息
+ * @returns {HTMLElement} 工具卡片 DOM 元素
+ */
+function renderToolCard(toolExecution) {
+  const card = document.createElement('div');
+  card.className = 'tool-card';
+  card.dataset.toolId = toolExecution.id;
+
+  // 状态图标
+  const statusIcon = document.createElement('span');
+  statusIcon.className = 'tool-card-icon';
+  if (toolExecution.status === 'running') {
+    statusIcon.classList.add('tool-icon-spin');
+    statusIcon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"></path></svg>';
+  } else if (toolExecution.status === 'completed') {
+    statusIcon.classList.add('tool-icon-success');
+    statusIcon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"></path></svg>';
+  } else {
+    statusIcon.classList.add('tool-icon-error');
+    statusIcon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>';
+  }
+
+  // 工具名称
+  const name = document.createElement('span');
+  name.className = 'tool-card-name';
+  name.textContent = toolExecution.name;
+
+  // 状态文字
+  const statusText = document.createElement('span');
+  statusText.className = 'tool-card-status';
+  if (toolExecution.status === 'running') {
+    statusText.textContent = '正在执行...';
+  } else if (toolExecution.status === 'completed') {
+    statusText.textContent = '完成';
+  } else {
+    statusText.textContent = '失败';
+  }
+
+  // 折叠头部
+  const header = document.createElement('div');
+  header.className = 'tool-card-header';
+  header.appendChild(statusIcon);
+  header.appendChild(name);
+  header.appendChild(statusText);
+
+  // 展开内容
+  const content = document.createElement('div');
+  content.className = 'tool-card-content';
+
+  // 参数区域（使用 textContent 防止 XSS）
+  if (toolExecution.params) {
+    const paramsSection = document.createElement('div');
+    paramsSection.className = 'tool-card-params';
+    const paramsLabel = document.createElement('div');
+    paramsLabel.className = 'tool-card-label';
+    paramsLabel.textContent = '参数';
+    const paramsValue = document.createElement('pre');
+    paramsValue.className = 'tool-card-value';
+    paramsValue.textContent = JSON.stringify(toolExecution.params, null, 2);
+    paramsSection.appendChild(paramsLabel);
+    paramsSection.appendChild(paramsValue);
+    content.appendChild(paramsSection);
+  }
+
+  // 结果区域（使用 textContent 防止 XSS）
+  if (toolExecution.result || toolExecution.error) {
+    const resultSection = document.createElement('div');
+    resultSection.className = 'tool-card-result';
+    const resultLabel = document.createElement('div');
+    resultLabel.className = 'tool-card-label';
+    resultLabel.textContent = toolExecution.status === 'failed' ? '错误' : '结果';
+    const resultValue = document.createElement('pre');
+    resultValue.className = 'tool-card-value';
+    if (toolExecution.status === 'failed') {
+      resultValue.textContent = toolExecution.error || '未知错误';
+    } else {
+      resultValue.textContent = typeof toolExecution.result === 'string'
+        ? toolExecution.result
+        : JSON.stringify(toolExecution.result, null, 2);
+    }
+    resultSection.appendChild(resultLabel);
+    resultSection.appendChild(resultValue);
+    content.appendChild(resultSection);
+  }
+
+  // 点击展开/折叠
+  header.addEventListener('click', () => {
+    card.classList.toggle('expanded');
+  });
+
+  card.appendChild(header);
+  card.appendChild(content);
+
+  return card;
+}
+
+/**
+ * 渲染指定消息的所有工具卡片
+ * 清空并重新渲染该消息中的所有工具执行卡片
+ * 多工具调用纵向堆叠，间距 8px
+ * @param {string} messageId - 消息 ID
+ */
+function renderToolCards(messageId) {
+  const msg = state.aiMessages.find(m => m.id === messageId);
+  if (!msg || !msg.toolExecutions || msg.toolExecutions.length === 0) return;
+
+  // 找到消息元素中的工具卡片容器
+  const msgElement = document.querySelector(`[data-message-id="${messageId}"]`);
+  if (!msgElement) return;
+
+  let container = msgElement.querySelector('.tool-cards-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'tool-cards-container';
+    msgElement.appendChild(container);
+  }
+
+  // 清空并重新渲染
+  container.innerHTML = '';
+  msg.toolExecutions.forEach(toolExec => {
+    container.appendChild(renderToolCard(toolExec));
   });
 }
 
