@@ -103,7 +103,7 @@ Phase 14  Phase 15  Phase 16  Phase 17  Phase 18  Phase 19  Phase 20  Phase 21
 - [x] Phase 16: 收藏夹文件夹 - 增强功能 (3d) (completed 2026-07-29)
 - [x] Phase 17: Chrome 书签导入 (2d) (completed 2026-07-30)
 - [x] Phase 18: 收藏栏功能 (2d) (completed 2026-07-30)
-- [ ] Phase 19: AI Agent 集成 - 基础验证 (2d)
+- [x] Phase 19: AI Agent 集成 - 基础验证 (2d) (completed 2026-07-31)
 - [ ] Phase 20: AI Agent 集成 - 核心功能 (4d)
 - [ ] Phase 21: AI Agent 集成 - 聊天 UI (3d)
 
@@ -228,9 +228,9 @@ Plans:
 **预估时间**: 2 天
 **需求覆盖**: AI-01
 **对应**: pi-agent-integration.md Phase 1
-**状态**: 执行中（Plan 01 完成，Plan 02 待执行）
+**状态**: ✅ 完成
 
-**Plans:** 2 plans
+**Plans:** 2/2 plans
 
 Plans:
 
@@ -240,14 +240,14 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 19-02-PLAN.md — Demo 验证：Agent + get_tabs 工具执行
+- [x] 19-02-PLAN.md — Demo 验证：Agent + get_tabs 工具执行 (DONE: d184c32)
 
 **任务**:
 
 - [x] Node.js 版本验证
 - [x] pi-ai/pi-agent-core 安装验证
 - [x] AI Manager 骨架
-- [ ] 最小可行 Demo
+- [x] 最小可行 Demo
 
 **重要说明**: AI 功能完全基于 pi-agent-core 集成，不自行开发 Agent 循环
 
