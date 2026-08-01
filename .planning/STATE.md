@@ -5,13 +5,13 @@ milestone_name: 收藏夹文件夹支持 + AI Agent 集成
 current_phase: 21
 status: executing
 stopped_at: Phase 21 plans verified
-last_updated: "2026-08-01T09:37:32.683Z"
+last_updated: "2026-08-01T09:54:26.166Z"
 progress:
   total_phases: 8
-  completed_phases: 7
-  total_plans: 16
-  completed_plans: 14
-  percent: 88
+  completed_phases: 8
+  total_plans: 17
+  completed_plans: 17
+  percent: 100
 ---
 
 # Project State: Realm Browser
@@ -108,6 +108,10 @@ progress:
 
 ## Session
 
-**Last session:** 2026-08-01T09:19:31.603Z
+**Last session:** 2026-08-01T09:54:24.278Z
 **Stopped at:** Phase 21 UI-SPEC approved
 **Resume file:** .planning/phases/21-ai-agent-ui/21-UI-SPEC.md
+
+## Decisions
+
+- [Phase ?]: 避免新增 IPC 通道，与快捷键入口保持一致
