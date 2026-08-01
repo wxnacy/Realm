@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: 收藏夹文件夹支持 + AI Agent 集成
-current_phase: 19 — AI Agent 集成 - 基础验证
-status: planning
+current_phase: 21
+status: completed
 stopped_at: Phase 21 UI-SPEC approved
-last_updated: "2026-08-01T10:33:58.458Z"
+last_updated: "2026-08-01T15:09:05.167Z"
 progress:
   total_phases: 8
   completed_phases: 8
@@ -18,20 +18,21 @@ progress:
 
 **Last Updated:** 2026-08-01
 **Current Milestone:** v2.0 收藏夹文件夹支持 + AI Agent 集成
-**Current Phase:** 19 — AI Agent 集成 - 基础验证
+**Current Phase:** 21
 
 ## Recent Activity
 
 ### Phase 21: AI Agent 集成 - 聊天 UI
 
-- **Status:** Ready to plan
-- **Output:** AI 聊天面板 UI（右侧侧边栏 + 气泡对话 + 流式渲染 + 工具卡片 + 拖拽调整）
-- **Plans:** 2/2 已创建
-  - 21-01: AI 聊天面板基础框架（依赖安装 + HTML/CSS + 面板逻辑） — CREATED
-  - 21-02: AI 聊天面板增强功能（工具卡片 + 消息操作 + 拖拽调整 + 设置集成） — CREATED
-- **Research:** 已完成，确认 pi-agent-core 事件格式（message_update 为累积全文，tool_execution 三阶段事件）
-- **Verification:** 全部 12 维度通过
-- **Last:** 计划验证通过，等待执行
+- **Status:** Completed (2026-08-01) — 里程碑 v2.0 全部完成
+- **Output:** AI 聊天面板 UI（右侧侧边栏 + 气泡对话 + 流式渲染 + 工具卡片 + 拖拽调整 + 多提供商设置）
+- **Plans:** 3/3 完成
+  - 21-01: AI 聊天面板基础框架（依赖安装 + HTML/CSS + 面板逻辑）
+  - 21-02: AI 聊天面板增强功能（工具卡片 + 消息操作 + 拖拽调整 + 设置集成）
+  - 21-03: 设置按钮 gap 修复（openAISettings 跳转）
+- **UAT:** 13/13 通过；期间修复 11 个问题（elements DOM 快照、builtinModels 导入路径、SDK 事件翻译层、多提供商配置、DOMPurify 消毒、流式闪烁、webview 拖拽、模型级错误检测等）
+- **VALIDATION:** 手动验证约定（同 Phase 17/20）
+- **SECURITY:** threats_open: 0（T-21-01 经 DOMPurify 强化）
 
 ### Phase 20: AI Agent 集成 - AI Manager 核心功能
 
@@ -97,20 +98,20 @@ progress:
 - Phase 18: ✅ Complete (1d) — 收藏栏功能
 - Phase 19: ✅ Complete (1d) — AI Agent 基础验证（AIManager + get_tabs 工具）
 - Phase 20: ✅ Complete (1d) — AI Manager 核心功能（5 工具 + IPC + 设置页 AI 分区）
-- Phase 21: ○ Pending — AI Agent 聊天 UI
+- Phase 21: ✅ Complete (2026-08-01) — AI Agent 聊天 UI（UAT 13/13）
 
 ## Next Actions
 
-1. Plan Phase 21 — AI Agent 集成 - 聊天 UI
+1. 里程碑 v2.0 100% 完成（8/8 阶段）——运行 `/gsd-complete-milestone v2.0` 归档
 
 ---
 *Updated by GSD workflow*
 
 ## Session
 
-**Last session:** 2026-08-01T09:54:24.278Z
-**Stopped at:** Phase 21 UI-SPEC approved
-**Resume file:** .planning/phases/21-ai-agent-ui/21-UI-SPEC.md
+**Last session:** 2026-08-01T15:15:00Z
+**Stopped at:** Phase 21 complete（UAT 13/13）— 里程碑 v2.0 全部完成，待归档
+**Resume file:** None
 
 ## Decisions
 

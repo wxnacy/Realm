@@ -207,6 +207,13 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | AI 事件广播：高频 debounce 16ms 批量合并，低频立即发送 | 避免高频事件冲刷渲染进程，同时保证低频事件实时性 | ✓ 已验证 — Phase 20 UAT |
 | AI 错误处理：3 次重试 + 指数退避（1s/2s/4s）+ 错误事件广播 | LLM 调用瞬态失败可自愈，最终失败经事件通知 UI | ✓ 已验证 — Phase 20 UAT |
 | setAIManager setter 延迟注入 IPC 处理器 | main.js 已初始化 AIManager，setter 注入避免重复实例化 | ✓ 已验证 — Phase 20 UAT |
+| renderer 顶层 elements 快照要求所有 script 标签置于全部 DOM 之后 | 面板 HTML 在 script 后解析导致 7 个元素引用为 null，面板交互全灭 | ✓ 已验证 — Phase 21 UAT |
+| builtinModels 从 pi-ai/providers/all 子路径导入 | 包根入口不导出该函数，根路径导入使 AI init 必败（隐性两阶段） | ✓ 已验证 — Phase 21 UAT |
+| 主进程承担 SDK→UI 事件契约翻译层 | pi-agent-core 事件形状（message 内容块数组/start-update-end 三段/每轮 turn_end）与 UI 契约不同，渲染端不应感知 SDK | ✓ 已验证 — Phase 21 UAT |
+| AI 配置按提供商存储（ai.providers.{id}.{apiKey,model}） | pi-ai 内置 38 提供商，用户按需配置多家；设置页可筛选下拉选择 | ✓ 已验证 — Phase 21 UAT（xiaomi 实测） |
+| AI 消息 Markdown 渲染必须 DOMPurify 消毒 | marked v5+ 移除 sanitize，原生 HTML 透传；恶意网页提示注入可借模型输出 XSS 访问 realmAPI | ✓ 已验证 — Phase 21 安全审计 |
+| 流式渲染定向更新气泡，禁止 16ms 全量列表重建 | 全量 innerHTML 重建 60 次/秒导致气泡闪烁；webview 区域拖拽需禁用 pointer-events | ✓ 已验证 — Phase 21 UAT |
+| LLM 级错误检测 AssistantMessage.errorMessage | pi-agent-core 对 401 等错误不抛异常，产出 errorMessage 消息正常结束，agent_end 必须显式检测转 error 事件 | ✓ 已验证 — Phase 21 UAT |
 
 ## Evolution
 
