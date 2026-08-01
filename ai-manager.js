@@ -154,6 +154,10 @@ class AIManager {
       });
 
       this.isInitialized = true;
+
+      // 设置事件广播（per D-05~D-08）
+      this._setupEventBroadcasting();
+
       console.log('[Realm AI] AI Manager 初始化完成');
     } catch (err) {
       console.error('[Realm AI] 初始化失败:', err.message);
@@ -165,7 +169,7 @@ class AIManager {
    * 发送用户消息给 AI Agent
    *
    * 调用 agent.prompt() 触发一轮对话，Agent 可能会调用工具（如 get_tabs），
-   * 然后基于工具结果生成回复。回复结果输出到主进程控制台（per D-06）。
+   * 然后基于工具结果生成回复。事件通过 _setupEventBroadcasting() 统一广播到渲染进程。
    *
    * @param {string} message - 用户输入的消息
    * @returns {Promise<void>}
@@ -179,33 +183,8 @@ class AIManager {
     console.log(`[Realm AI] 发送消息: ${message}`);
 
     try {
-      // 订阅 Agent 事件以输出回复到控制台（per D-06）
-      const unsubscribe = this.agent.subscribe((event) => {
-        if (event.type === 'message') {
-          const msg = event.message;
-          if (msg.role === 'assistant' && msg.content) {
-            // 提取文本内容输出到控制台
-            const textParts = msg.content
-              .filter(c => c.type === 'text')
-              .map(c => c.text);
-            if (textParts.length > 0) {
-              console.log('[Realm AI] Agent 回复:', textParts.join(''));
-            }
-          }
-        }
-        if (event.type === 'tool_execution_start') {
-          console.log(`[Realm AI] 调用工具: ${event.toolName}`);
-        }
-        if (event.type === 'tool_execution_end') {
-          console.log(`[Realm AI] 工具执行完成: ${event.toolName}`);
-        }
-      });
-
       await this.agent.prompt(message);
       await this.agent.waitForIdle();
-
-      // 取消订阅
-      unsubscribe();
     } catch (err) {
       console.error('[Realm AI] 消息处理失败:', err.message);
     }
@@ -218,6 +197,65 @@ class AIManager {
     if (this.agent) {
       this.agent.abort();
       console.log('[Realm AI] 操作已取消');
+    }
+  }
+
+  /**
+   * 设置事件广播机制（per D-05~D-08）
+   *
+   * 订阅 Agent 事件并广播到渲染进程：
+   * - 高频事件（message_update, tool_execution_update）使用 debounce 16ms 批量合并（per D-06）
+   * - 非高频事件立即发送
+   * - 使用 webContents.send() 单向推送模式（per D-07）
+   * - 批量事件通道为 ai:events-batch（per D-08）
+   *
+   * @private
+   */
+  _setupEventBroadcasting() {
+    if (!this.agent) return;
+
+    /** @type {Array} 高频事件批次 */
+    let eventBatch = [];
+    /** @type {NodeJS.Timeout|null} 批量发送定时器 */
+    let batchTimer = null;
+
+    this.agent.subscribe((event) => {
+      // 为事件添加时间戳
+      const enrichedEvent = {
+        ...event,
+        timestamp: Date.now(),
+      };
+
+      // 高频事件使用 debounce 批量合并（per D-06）
+      if (event.type === 'message_update' || event.type === 'tool_execution_update') {
+        eventBatch.push(enrichedEvent);
+        if (!batchTimer) {
+          batchTimer = setTimeout(() => {
+            this._sendEventsBatch(eventBatch);
+            eventBatch = [];
+            batchTimer = null;
+          }, 16);
+        }
+      } else {
+        // 非高频事件立即发送
+        this._sendEventsBatch([enrichedEvent]);
+      }
+    });
+  }
+
+  /**
+   * 批量发送事件到渲染进程（per D-07, D-08）
+   *
+   * 使用 webContents.send() 将事件推送到主窗口的渲染进程。
+   * 事件通道为 ai:events-batch，渲染进程通过 ipcRenderer.on() 接收。
+   *
+   * @param {Array} events - 事件数组
+   * @private
+   */
+  _sendEventsBatch(events) {
+    const win = windowManager.getMainWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('ai:events-batch', { events });
     }
   }
 
