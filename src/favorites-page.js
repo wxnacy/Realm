@@ -291,6 +291,41 @@ function getDragPosition(e, targetEl) {
 }
 
 /**
+ * 计算文件夹树的拖拽放置位置（三段式）
+ *
+ * 上/下 25% 区域为排序位置（插入目标前/后），中间 50% 为移入目标文件夹，
+ * 兼顾「排序」与「移入」两种语义。
+ *
+ * @param {MouseEvent} e - 鼠标事件
+ * @param {HTMLElement} targetEl - 目标元素
+ * @returns {'before'|'on'|'after'}
+ */
+function getFolderTreeDropPosition(e, targetEl) {
+  const rect = targetEl.getBoundingClientRect();
+  const ratio = (e.clientY - rect.top) / rect.height;
+  if (ratio < 0.25) return 'before';
+  if (ratio > 0.75) return 'after';
+  return 'on';
+}
+
+/**
+ * 在嵌套文件夹树中查找目标文件夹所在的兄弟数组
+ * @param {Array} tree - 文件夹树（可能为某层的 children）
+ * @param {number} targetId - 目标文件夹 ID
+ * @returns {Array|null} 包含目标的兄弟数组（顶层或非顶层），未找到返回 null
+ */
+function findFolderSiblings(tree, targetId) {
+  if (tree.some(f => f.id === targetId)) return tree;
+  for (const folder of tree) {
+    if (folder.children && folder.children.length > 0) {
+      const found = findFolderSiblings(folder.children, targetId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
  * 检查目标文件夹是否是源文件夹的后代（防止循环引用）
  *
  * 复用 Phase 14 的循环引用检测逻辑，在渲染进程中使用 state.folderTree 数据判断，
@@ -1687,29 +1722,36 @@ async function executeDragDrop(dragData, targetData) {
       // 获取目标位置的前后排序键
       let beforeKey = null;
       let afterKey = null;
+      let targetFolder = null;
 
       if (targetData.type === 'favorite') {
-        const targetIndex = allItems.findIndex(r => r.id === targetData.id);
+        // 排除拖拽源自身：相邻拖动时前后键若取到源键，排序会退化为无效 no-op
+        const others = allItems.filter(r => r.id !== dragData.id);
+        const targetIndex = others.findIndex(r => r.id === targetData.id);
         if (targetIndex !== -1) {
           if (targetData.position === 'before') {
-            afterKey = allItems[targetIndex].sort_order;
-            beforeKey = targetIndex > 0 ? allItems[targetIndex - 1].sort_order : null;
+            afterKey = others[targetIndex].sort_order;
+            beforeKey = targetIndex > 0 ? others[targetIndex - 1].sort_order : null;
           } else {
-            beforeKey = allItems[targetIndex].sort_order;
-            afterKey = targetIndex < allItems.length - 1 ? allItems[targetIndex + 1].sort_order : null;
+            beforeKey = others[targetIndex].sort_order;
+            afterKey = targetIndex < others.length - 1 ? others[targetIndex + 1].sort_order : null;
           }
         }
       } else if (targetData.type === 'folder') {
-        // 文件夹排序
-        const folders = state.folderTree;
-        const targetIndex = folders.findIndex(f => f.id === targetData.id);
-        if (targetIndex !== -1) {
-          if (targetData.position === 'before') {
-            afterKey = folders[targetIndex].sort_order;
-            beforeKey = targetIndex > 0 ? folders[targetIndex - 1].sort_order : null;
-          } else {
-            beforeKey = folders[targetIndex].sort_order;
-            afterKey = targetIndex < folders.length - 1 ? folders[targetIndex + 1].sort_order : null;
+        // 嵌套树中定位目标所在兄弟数组（顶层/非顶层均适用），排除源自身
+        const siblings = findFolderSiblings(state.folderTree, targetData.id);
+        if (siblings) {
+          const others = siblings.filter(f => f.id !== dragData.id);
+          const targetIndex = others.findIndex(f => f.id === targetData.id);
+          if (targetIndex !== -1) {
+            targetFolder = others[targetIndex];
+            if (targetData.position === 'before') {
+              afterKey = targetFolder.sort_order;
+              beforeKey = targetIndex > 0 ? others[targetIndex - 1].sort_order : null;
+            } else {
+              beforeKey = targetFolder.sort_order;
+              afterKey = targetIndex < others.length - 1 ? others[targetIndex + 1].sort_order : null;
+            }
           }
         }
       }
@@ -1725,6 +1767,14 @@ async function executeDragDrop(dragData, targetData) {
             body: JSON.stringify({ items: [{ id: dragData.id, sort_order: newKey }] }),
           });
         } else if (dragData.type === 'folder') {
+          // 跨父目录排序：先移动到目标所在父目录，再写入排序键
+          if (targetFolder && dragData.folderId !== targetFolder.parent_id) {
+            await favoritesApi('move-folder', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: dragData.id, parentId: targetFolder.parent_id }),
+            });
+          }
           await favoritesApi('update-batch-folder-sort', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1887,7 +1937,18 @@ function setupDragAndDrop() {
           return;
         }
       }
-      targetEl.classList.add('drag-over-folder');
+      // 文件夹拖文件夹：三段式（上/下 25% 排序，中间 50% 移入）；
+      // 收藏项拖到文件夹树只能移入，无排序语义
+      if (state.dragSourceData && state.dragSourceData.type === 'folder') {
+        const position = getFolderTreeDropPosition(e, targetEl);
+        if (position === 'on') {
+          targetEl.classList.add('drag-over-folder');
+        } else {
+          targetEl.classList.add(position === 'before' ? 'drag-over-top' : 'drag-over-bottom');
+        }
+      } else {
+        targetEl.classList.add('drag-over-folder');
+      }
     }
   });
 
@@ -1898,7 +1959,7 @@ function setupDragAndDrop() {
     const relatedTarget = e.relatedTarget;
     if (relatedTarget && targetEl.contains(relatedTarget)) return;
 
-    targetEl.classList.remove('drag-over-folder');
+    targetEl.classList.remove('drag-over-folder', 'drag-over-top', 'drag-over-bottom');
   });
 
   folderArea.addEventListener('drop', (e) => {
@@ -1916,10 +1977,16 @@ function setupDragAndDrop() {
       return;
     }
 
+    // 收藏项只能移入（on）；文件夹按三段位置区分排序（before/after）与移入（on）
+    let position = 'on';
+    if (targetType === 'folder' && state.dragSourceData.type === 'folder') {
+      position = getFolderTreeDropPosition(e, targetEl);
+    }
+
     executeDragDrop(state.dragSourceData, {
       type: targetType,
       id: targetId,
-      position: 'on',
+      position,
     });
   });
 
