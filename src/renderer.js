@@ -3064,6 +3064,12 @@ function setupEventListeners() {
     elements.aiPanelCloseBtn.addEventListener('click', toggleAIPanel);
   }
 
+  // AI 设置按钮
+  const aiSettingsBtn = document.getElementById('aiSettingsBtn');
+  if (aiSettingsBtn) {
+    aiSettingsBtn.addEventListener('click', openAISettings);
+  }
+
   // AI 发送按钮
   if (elements.aiSendBtn) {
     elements.aiSendBtn.addEventListener('click', handleSendAIMessage);
@@ -3137,13 +3143,43 @@ async function loadAIPanelWidth() {
 }
 
 /**
+ * 渲染 AI 面板空状态
+ * 当没有消息时显示引导文案（per UI-SPEC.md 文案合约）
+ * @returns {HTMLElement} 空状态 DOM 元素
+ */
+function renderAIEmptyState() {
+  const container = document.createElement('div');
+  container.className = 'ai-empty-state';
+
+  const title = document.createElement('div');
+  title.className = 'ai-empty-state-title';
+  title.textContent = '准备好聊天了吗？';
+
+  const text = document.createElement('div');
+  text.className = 'ai-empty-state-text';
+  text.textContent = '输入消息开始与 AI 助手对话。我可以帮你导航网页、搜索历史、管理收藏。';
+
+  container.appendChild(title);
+  container.appendChild(text);
+
+  return container;
+}
+
+/**
  * 渲染 AI 消息列表
  * 遍历 state.aiMessages，为每条消息创建气泡元素
  * 用户消息靠右蓝色，AI 消息靠左深色
  * AI 消息内容使用 marked.parse() 转换 Markdown，代码块应用语法高亮
+ * 如果没有消息，显示空状态
  */
 function renderAIMessages() {
   elements.aiMessageList.innerHTML = '';
+
+  // 如果没有消息，显示空状态
+  if (state.aiMessages.length === 0) {
+    elements.aiMessageList.appendChild(renderAIEmptyState());
+    return;
+  }
 
   state.aiMessages.forEach((msg, index) => {
     const isUser = msg.role === 'user';
@@ -3337,18 +3373,12 @@ function handleAIStream() {
         }
 
         case 'error': {
-          // 错误事件
-          const errMsg = state.aiMessages.find(
-            m => m.role === 'assistant' && m.id === state.aiCurrentMessageId
-          );
-          if (errMsg) {
-            errMsg.content = errMsg.content
-              ? errMsg.content + '\n\n**错误:** ' + (event.message || '未知错误')
-              : '**错误:** ' + (event.message || '未知错误');
-          }
+          // 错误事件：停止流式状态，显示错误提示和重试按钮
           state.aiStreaming = false;
           state.aiCurrentMessageId = null;
           needsRender = true;
+          // 延迟调用 showAIError，确保 renderAIMessages 先执行
+          setTimeout(() => showAIError(event.message), 0);
           break;
         }
       }
@@ -3573,6 +3603,66 @@ function showCopyToast(message) {
     toast.classList.add('fade-out');
     setTimeout(() => toast.remove(), 300);
   }, 2000);
+}
+
+/**
+ * 显示 AI 错误消息
+ * 在消息列表底部显示错误提示，包含重试按钮
+ * @param {string} errorMessage - 错误描述
+ */
+function showAIError(errorMessage) {
+  const errorDiv = document.createElement('div');
+  errorDiv.className = 'ai-error-container';
+
+  const errorText = document.createElement('div');
+  errorText.className = 'ai-error-message';
+  errorText.textContent = `出现问题 — ${errorMessage || '未知错误'}。请重试或检查 AI 设置。`;
+
+  const retryBtn = document.createElement('button');
+  retryBtn.className = 'ai-retry-btn';
+  retryBtn.textContent = '重试';
+  retryBtn.addEventListener('click', () => {
+    errorDiv.remove();
+    // 找到最后一条用户消息重新发送
+    let lastUserMsgIndex = -1;
+    for (let i = state.aiMessages.length - 1; i >= 0; i--) {
+      if (state.aiMessages[i].role === 'user') {
+        lastUserMsgIndex = i;
+        break;
+      }
+    }
+    if (lastUserMsgIndex >= 0) {
+      const userMsg = state.aiMessages[lastUserMsgIndex].content;
+      state.aiMessages = state.aiMessages.slice(0, lastUserMsgIndex + 1);
+      const aiMsgId = 'ai-msg-' + Date.now();
+      state.aiMessages.push({ role: 'assistant', content: '', id: aiMsgId });
+      state.aiCurrentMessageId = aiMsgId;
+      state.aiStreaming = true;
+      renderAIMessages();
+      try {
+        window.realmAPI.ai.prompt(userMsg);
+      } catch (err) {
+        console.error('[Realm Renderer] AI 重试失败:', err);
+        state.aiStreaming = false;
+        renderAIMessages();
+      }
+    }
+  });
+
+  errorDiv.appendChild(errorText);
+  errorDiv.appendChild(retryBtn);
+
+  elements.aiMessageList.appendChild(errorDiv);
+}
+
+/**
+ * 打开 AI 设置页面
+ * 打开设置页面并滚动到"AI 助手"分区（Phase 20 已实现）
+ */
+function openAISettings() {
+  if (window.realmAPI.openSettings) {
+    window.realmAPI.openSettings('ai');
+  }
 }
 
 /**
