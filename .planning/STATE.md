@@ -4,8 +4,8 @@ milestone: v2.0
 milestone_name: 收藏夹文件夹支持 + AI Agent 集成
 current_phase: 19
 status: completed
-stopped_at: Phase 19 context gathered
-last_updated: "2026-08-01T08:16:39.710Z"
+stopped_at: Phase 20 context gathered
+last_updated: "2026-08-01T08:31:36.691Z"
 progress:
   total_phases: 8
   completed_phases: 6
@@ -85,6 +85,6 @@ progress:
 
 ## Session
 
-**Last session:** 2026-08-01T07:40:47Z
-**Stopped at:** Phase 19 complete
-**Resume file:** .planning/phases/20-ai-core/20-PLAN.md
+**Last session:** 2026-08-01T08:31:36.686Z
+**Stopped at:** Phase 20 context gathered
+**Resume file:** .planning/phases/20-ai-agent/20-CONTEXT.md
