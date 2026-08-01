@@ -3883,6 +3883,11 @@ function handleAIInputAutoResize() {
 /**
  * 初始化面板拖拽调整宽度
  * 支持鼠标拖拽左边缘手柄来调整面板宽度
+ *
+ * 注意两个 Electron/webview 环境的坑：
+ * 1. 拖拽时鼠标经过 webview 区域会被 guest 页吞掉事件，导致 mousemove 断流
+ *    （拖几像素就卡住）——拖拽期间需禁用所有 webview 的 pointer-events
+ * 2. 面板的 width 过渡动画会让拖拽滞后——拖拽期间加 .resizing 类关闭过渡
  */
 function initAIPanelResize() {
   const handle = elements.aiPanelResizeHandle;
@@ -3900,6 +3905,13 @@ function initAIPanelResize() {
     document.addEventListener('mouseup', onMouseUp);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
+
+    // 关闭过渡动画，拖拽实时跟手
+    elements.aiPanel.classList.add('resizing');
+    // 防止 webview 吞掉鼠标事件
+    document.querySelectorAll('webview').forEach(wv => {
+      wv.style.pointerEvents = 'none';
+    });
   }
 
   function onMouseMove(e) {
@@ -3916,6 +3928,12 @@ function initAIPanelResize() {
     document.removeEventListener('mouseup', onMouseUp);
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
+
+    // 恢复过渡动画和 webview 事件
+    elements.aiPanel.classList.remove('resizing');
+    document.querySelectorAll('webview').forEach(wv => {
+      wv.style.pointerEvents = '';
+    });
 
     // 持久化面板宽度到 electron-store（D-17）
     const currentWidth = elements.aiPanel.offsetWidth;

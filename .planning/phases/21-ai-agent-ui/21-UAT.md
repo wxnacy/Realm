@@ -9,35 +9,38 @@ updated: 2026-08-01T11:10:00Z
 ## Current Test
 <!-- OVERWRITE each test - shows where we are -->
 
-number: 1
-name: 打开/关闭 AI 面板（修复后复测）
+number: 5
+name: 拖拽调整面板宽度
 expected: |
-  修复已应用（见 Gaps 根因）。重启应用后复测：面板默认收起；点击工具栏 AI 按钮或 Cmd/Ctrl+] 滑出/收起；X 按钮可关闭。
+  鼠标悬停面板左边缘显示调整光标，拖拽可在 280px-600px 范围内实时调整宽度。
 awaiting: user response
 
 ## Tests
 
 ### 1. 打开/关闭 AI 面板
 expected: 点击工具栏 AI 按钮或按 Cmd/Ctrl+] → 右侧面板 250ms 动画滑出，网页区域自动缩小；再次触发收起
-result: [pending]
-prev_report: "快捷键没有反应；启动默认展开；X按钮无反应"（根因已修复，待复测）
+result: pass
+prev_report: "快捷键没有反应；启动默认展开；X按钮无反应"（根因已修复）
+note: 修复后用户全程实测面板开关、设置跳转、消息交互均正常（截图确认）
 
 ### 2. 发送消息与流式输出
 expected: 输入消息按 Enter 发送 → 用户消息靠右显示（深色气泡），AI 占位符出现并逐字流式输出，光标闪烁；结束后光标消失
-result: [pending]
-prev_report: "Enter变换行；发送按钮无反应"（根因已修复，待复测）
+result: pass
+prev_report: "Enter变换行；发送按钮无反应"（根因已修复）
+note: 用户实测发送、流式输出、typing 指示器均正常（"非常完美"）；光标已按需求替换为 typing 三点指示器
 
 ### 3. Markdown 渲染与代码高亮
 expected: AI 回复中的 Markdown（标题、列表、粗体等）正确渲染为格式化内容；代码块有语法高亮而非纯文本
-result: [pending]
+result: pass
 
 ### 4. 智能滚动与回到底部
 expected: 新消息到达时自动滚到底部；手动上滚超过 100px 后自动滚动暂停，右下角出现"回到底部"按钮；点击后回到底部并恢复自动滚动
-result: [pending]
+result: pass
 
 ### 5. 拖拽调整面板宽度
 expected: 鼠标悬停面板左边缘显示调整光标，拖拽可在 280px-600px 范围内实时调整宽度
 result: [pending]
+prev_report: "拖几像素就卡住"——webview 吞鼠标事件 + width 过渡滞后；已修复待复测
 
 ### 6. 输入框行为
 expected: Enter 发送消息；Shift+Enter 换行；多行输入时输入框自动增高（约 40px-120px 封顶），发送后复位
@@ -77,9 +80,9 @@ prev_report: "进入设置空白页面"（分区名 'ai' → 'ai-assistant' 已�
 ## Summary
 
 total: 13
-passed: 1
+passed: 5
 issues: 0
-pending: 12
+pending: 8
 skipped: 0
 blocked: 0
 
@@ -193,3 +196,6 @@ blocked: 0
 - **日志**：按用户要求补充 AI 返回内容日志——本轮回复、回复完成（截断 1000 字）、工具调用参数/结果预览
 - 模拟事件序列测试通过：文本累积、工具状态映射、turn_end 仅在 run 末尾出现一次
 - **闪烁修复（484f4b1）**：流式期间气泡整块闪烁——message_update 批次每 16ms 触发 `renderAIMessages()` 全量 innerHTML 重建（60 次/秒整树重绘）。改为 `updateAIStreamingBubble()` 定向替换当前气泡 content 节点；turn_end 才全量渲染
+- **完成瞬间闪烁修复（3e362be）**：turn_end 的一次全量重建导致完成时整体闪一下。改为 `finalizeAIStreamingBubble()` 定向收尾（最终渲染去光标 + 追加操作按钮），操作按钮提取为 `createMessageActions()` 共用
+- **typing 指示器（52c4962）**：按用户 UI 优化需求，等待期（气泡无内容时）显示三点跳动 loading，去掉流式光标；文字流出后指示器消失
+- **拖拽卡顿修复**：用户报"拖几像素就不动"。根因：①鼠标经过 webview 区域时 guest 页吞掉 mousemove（Electron webview 经典坑）②250ms width 过渡让拖拽滞后。修复：拖拽期间禁用所有 webview pointer-events + `.resizing` 类关闭过渡

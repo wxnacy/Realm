@@ -3938,6 +3938,11 @@ textarea::placeholder {
   opacity: 1;
 }
 
+/* 拖拽调整宽度期间关闭过渡动画，保证实时跟手 */
+.ai-panel.resizing {
+  transition: none;
+}
+
 /* 面板头部 */
 .ai-panel-header {
   height: var(--ai-panel-header-height);
