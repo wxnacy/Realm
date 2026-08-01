@@ -97,6 +97,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ IMPORT-02: 支持 HTML 书签文件导入（预览确认两阶段） — Phase 17
 - ✓ IMPORT-03: 导入进度（HTTP 轮询 + stage 分阶段）和冲突处理（书签 URL 去重 + 文件夹同名复用） — Phase 17
 - ✓ AI-02: AI Manager 核心功能（5 个 Realm 工具 + 事件广播 + 错误重试 + IPC 通道 + 设置页 AI 分区） — Phase 20
+- ✓ AI-03: AI 聊天面板 UI（面板开关/消息渲染/流式输出/工具卡片/消息操作/拖拽宽度/设置集成） — Phase 21
 
 ### Active
 
@@ -112,7 +113,6 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 #### AI Agent 集成（基于 pi-agent-core）
 - AI-01: Node.js 版本验证和基础架构 — Phase 19
-- AI-03: AI 聊天面板 UI — Phase 21
 
 ### Out of Scope
 
@@ -128,6 +128,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 **Shipped:** v1.3 (2026-07-27)
 - 13 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3)
 - 所有里程碑已完成归档
+- v2.0 Phase 21 complete — AI 聊天面板 UI 全部 12 个 must-have 验证通过
 - 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol
 
 **Key features delivered:**
@@ -225,4 +226,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-01 after Phase 20*
+*Last updated: 2026-08-01 after Phase 21*
