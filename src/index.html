@@ -9,6 +9,8 @@
         content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; connect-src 'self'">
   <title>Realm Browser</title>
   <link rel="stylesheet" href="styles/main.css?v=2">
+  <!-- AI 消息代码块语法高亮主题（highlight.js，配合 renderer.js 的 hljs.highlightElement） -->
+  <link rel="stylesheet" href="../node_modules/highlight.js/styles/github-dark.min.css">
 </head>
 <body>
   <!-- 侧边栏 - 容器列表 -->
@@ -412,12 +414,8 @@
     </div>
   </dialog>
 
-  <script src="bookmarks-bar-menu.js"></script>
-  <script src="bookmarks-bar.js"></script>
-  <script src="renderer.js"></script>
-
-  <!-- AI 助手面板 -->
-  <div class="ai-panel" id="aiPanel">
+  <!-- AI 助手面板（hidden：默认收起，CSS 设计中 .ai-panel:not(.hidden) 才展开） -->
+  <div class="ai-panel hidden" id="aiPanel">
     <div class="ai-panel-header" id="aiPanelHeader">
       <span class="ai-panel-title">AI 助手</span>
       <div class="ai-panel-header-actions">
@@ -454,5 +452,13 @@
     </button>
     <div class="ai-panel-resize-handle" id="aiPanelResizeHandle"></div>
   </div>
+
+  <!-- 脚本必须放在所有 DOM 之后：renderer.js 顶层 elements 对象在脚本解析时即执行 getElementById -->
+  <script src="bookmarks-bar-menu.js"></script>
+  <script src="bookmarks-bar.js"></script>
+  <!-- marked UMD（全局 marked）+ highlight.js 浏览器构建（全局 hljs），供 AI 消息 Markdown 渲染/代码高亮 -->
+  <script src="../node_modules/marked/lib/marked.umd.js"></script>
+  <script src="vendor/highlight.min.js"></script>
+  <script src="renderer.js"></script>
 </body>
 </html>

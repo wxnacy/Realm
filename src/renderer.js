@@ -1662,6 +1662,22 @@ async function init() {
 
   // 初始化 AI 事件流监听
   handleAIStream();
+
+  // 恢复 AI 面板开关状态（D-04：electron-store 持久化；默认收起）
+  try {
+    const settings = await window.realmAPI.getSettings();
+    if (settings['aiPanelOpen']) {
+      state.aiPanelOpen = true;
+      elements.aiPanel.classList.remove('hidden');
+      elements.aiPanelBtn.classList.add('active');
+      loadAIPanelWidth();
+    }
+  } catch (err) {
+    console.error('[Realm Renderer] 恢复 AI 面板状态失败:', err);
+  }
+
+  // 初始渲染空状态引导文案
+  renderAIMessages();
 }
 
 /**
@@ -3128,12 +3144,12 @@ function toggleAIPanel() {
 
 /**
  * 加载持久化的 AI 面板宽度
- * 从 electron-store 读取 ai.panelWidth，如果有效则应用到面板
+ * 从 electron-store 读取 aiPanelWidth，如果有效则应用到面板
  */
 async function loadAIPanelWidth() {
   try {
     const settings = await window.realmAPI.getSettings();
-    const width = settings['ai.panelWidth'];
+    const width = settings['aiPanelWidth'];
     if (width && width >= 280 && width <= 600) {
       elements.aiPanel.style.width = width + 'px';
     }
@@ -3657,10 +3673,10 @@ function showAIError(errorMessage) {
 
 /**
  * 打开 AI 设置页面
- * 打开设置页面并滚动到"AI 助手"分区（Phase 20 已实现）
+ * 打开设置页面并切换到"AI 助手"分区（settings.html 中分区 id 为 ai-assistant）
  */
 function openAISettings() {
-  openSettingsTab('ai');
+  openSettingsTab('ai-assistant');
 }
 
 /**
@@ -3775,7 +3791,7 @@ function initAIPanelResize() {
     // 持久化面板宽度到 electron-store（D-17）
     const currentWidth = elements.aiPanel.offsetWidth;
     try {
-      window.realmAPI.setSetting('ai.panelWidth', currentWidth);
+      window.realmAPI.setSetting('aiPanelWidth', currentWidth);
     } catch (err) {
       console.error('[Realm Renderer] 保存 AI 面板宽度失败:', err);
     }
