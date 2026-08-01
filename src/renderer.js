@@ -3211,12 +3211,12 @@ function renderAIMessages() {
       // 用户消息：纯文本
       content.textContent = msg.content || '';
     } else {
-      // AI 消息：Markdown 渲染
-      const rawHtml = msg.content || '';
-      if (typeof marked !== 'undefined' && marked.parse) {
-        content.innerHTML = marked.parse(rawHtml);
+      // AI 消息：Markdown 渲染 + DOMPurify 消毒（T-21-01）
+      const sanitized = renderAIMarkdown(msg.content || '');
+      if (sanitized !== null) {
+        content.innerHTML = sanitized;
       } else {
-        content.textContent = rawHtml;
+        content.textContent = msg.content || '';
       }
 
       // 代码高亮
@@ -3296,9 +3296,10 @@ function updateAIStreamingBubble() {
       content.appendChild(createTypingIndicator());
     }
   } else {
-    // 有内容：渲染 Markdown 文本（不显示光标/指示器）
-    if (typeof marked !== 'undefined' && marked.parse) {
-      content.innerHTML = marked.parse(rawText);
+    // 有内容：渲染 Markdown 文本（DOMPurify 消毒，不显示光标/指示器）
+    const sanitized = renderAIMarkdown(rawText);
+    if (sanitized !== null) {
+      content.innerHTML = sanitized;
     } else {
       content.textContent = rawText;
     }
@@ -3315,6 +3316,26 @@ function updateAIStreamingBubble() {
   if (state.aiAutoScroll) {
     scrollToBottom();
   }
+}
+
+/**
+ * 渲染 AI 消息的 Markdown 文本（XSS 消毒）
+ * marked v5+ 移除了 HTML 转义选项，原生 HTML 会原样输出（T-21-01 原缓解
+ * "marked 默认转义"实际无效）——AI 回复可能包含恶意网页提示注入的 HTML/JS，
+ * 渲染到主窗口即可访问 realmAPI（读取 Cookie/历史等），必须经 DOMPurify 消毒
+ * @param {string} rawText - Markdown 源文本
+ * @returns {string|null} 消毒后的 HTML；marked 不可用时返回 null（调用方回退 textContent）
+ */
+function renderAIMarkdown(rawText) {
+  if (typeof marked === 'undefined' || !marked.parse) return null;
+  const html = marked.parse(rawText || '');
+  if (typeof DOMPurify !== 'undefined' && DOMPurify.sanitize) {
+    return DOMPurify.sanitize(html);
+  }
+  // DOMPurify 未加载时降级：转义全部 HTML（宁可丢失格式，不放行 XSS）
+  const div = document.createElement('div');
+  div.textContent = html;
+  return div.innerHTML;
 }
 
 /**
@@ -3386,12 +3407,13 @@ function finalizeAIStreamingBubble() {
     return;
   }
 
-  // 最终内容渲染（无光标）
+  // 最终内容渲染（DOMPurify 消毒，无光标）
   const content = wrapper.querySelector('.ai-message-content');
   if (content) {
     const rawText = msg.content || '';
-    if (typeof marked !== 'undefined' && marked.parse) {
-      content.innerHTML = marked.parse(rawText);
+    const sanitized = renderAIMarkdown(rawText);
+    if (sanitized !== null) {
+      content.innerHTML = sanitized;
     } else {
       content.textContent = rawText;
     }

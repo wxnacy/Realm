@@ -456,9 +456,10 @@
   <!-- 脚本必须放在所有 DOM 之后：renderer.js 顶层 elements 对象在脚本解析时即执行 getElementById -->
   <script src="bookmarks-bar-menu.js"></script>
   <script src="bookmarks-bar.js"></script>
-  <!-- marked UMD（全局 marked）+ highlight.js 浏览器构建（全局 hljs），供 AI 消息 Markdown 渲染/代码高亮 -->
+  <!-- marked UMD（全局 marked）+ highlight.js 浏览器构建（全局 hljs）+ DOMPurify（XSS 消毒），供 AI 消息 Markdown 渲染/代码高亮 -->
   <script src="../node_modules/marked/lib/marked.umd.js"></script>
   <script src="vendor/highlight.min.js"></script>
+  <script src="../node_modules/dompurify/dist/purify.min.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>
