@@ -409,6 +409,17 @@ class AIManager {
           // 整个 run 结束：取最后一条 assistant 消息的文本作为最终内容
           const lastAssistant = [...(event.messages || [])].reverse()
             .find(m => m && m.role === 'assistant');
+
+          // LLM 级错误（401/403/限流/网络等）：SDK 不抛异常，而是产出
+          // 带 errorMessage 的 AssistantMessage——必须转为 error 事件，
+          // 否则渲染端只会留下一个空气泡，没有错误提示
+          const errorMessage = lastAssistant && lastAssistant.errorMessage;
+          if (errorMessage) {
+            console.error(`[Realm AI] 模型返回错误: ${errorMessage}`);
+            sendNow({ type: 'error', message: errorMessage });
+            break;
+          }
+
           const finalText = this._extractText(lastAssistant);
           console.log(`[Realm AI] 回复完成: ${this._truncate(finalText) || '(无文本内容)'}`);
           // 空文本不覆盖气泡（避免清掉中间轮已渲染的内容）

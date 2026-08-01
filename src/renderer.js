@@ -3519,6 +3519,18 @@ function handleAIStream() {
 
         case 'error': {
           // 错误事件：停止流式状态，显示错误提示和重试按钮
+          // 若 AI 占位气泡仍为空（无内容无工具卡片），移除它——
+          // 错误条本身就是反馈，留个空气泡没有意义
+          const placeholderIdx = state.aiMessages.findIndex(
+            m => m.role === 'assistant' && m.id === state.aiCurrentMessageId
+          );
+          if (placeholderIdx >= 0) {
+            const placeholder = state.aiMessages[placeholderIdx];
+            if (!placeholder.content &&
+                (!placeholder.toolExecutions || placeholder.toolExecutions.length === 0)) {
+              state.aiMessages.splice(placeholderIdx, 1);
+            }
+          }
           state.aiStreaming = false;
           state.aiCurrentMessageId = null;
           needsRender = true;
