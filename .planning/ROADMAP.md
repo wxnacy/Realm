@@ -259,7 +259,7 @@ Plans:
 **需求覆盖**: AI-02
 **对应**: pi-agent-integration.md Phase 2
 
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 
@@ -269,7 +269,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 20-02-PLAN.md — IPC + Preload + 设置页面 AI 分区
+- [x] 20-02-PLAN.md — IPC + Preload + 设置页面 AI 分区
 
 **任务**:
 
