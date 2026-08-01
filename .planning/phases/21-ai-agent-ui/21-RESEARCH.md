@@ -336,19 +336,21 @@ function initAutoExpandInput(textarea) {
 | A3 | marked.parse() 在 Electron 渲染进程中正常工作（无 Node.js API 依赖） | Architecture | 需确认 marked 纯浏览器兼容 |
 | A4 | ai:events-batch 事件中 message_update 包含完整累积文本（非增量 delta） | Code Examples | 如为增量 delta，需要在渲染进程维护累积缓冲区 |
 
-**A4 关键说明：** 根据 ai-manager.js 代码，`_setupEventBroadcasting()` 将 pi-agent-core 的 `message_update` 事件原样转发。pi-agent-core 的 `message_update` 事件格式需要确认是包含完整累积文本还是增量 delta。如果是增量 delta，渲染进程需要维护一个消息 ID → 累积文本的 Map。Planner 应在实现前验证此格式。
+**A4 关键说明：** ✅ RESOLVED — 通过阅读 `node_modules/@earendil-works/pi-agent-core/dist/types.d.ts` 确认：`message_update` 事件包含完整 `message: AgentMessage` 对象（累积式全文，非增量 delta）。渲染进程无需维护累积缓冲区，直接用 `event.message` 替换当前消息即可。
 
 ## Open Questions
 
-1. **pi-agent-core message_update 事件格式**
+1. ✅ RESOLVED — **pi-agent-core message_update 事件格式**
    - What we know: ai-manager.js 将 Agent 事件原样转发到渲染进程
-   - What's unclear: message_update 事件的 payload 结构 — 是 `{ messageId, text: "完整文本" }` 还是 `{ messageId, delta: "增量文本" }`？
-   - Recommendation: 在实现第一个任务前，通过 `console.log` 打印 `ai:events-batch` 事件内容确认格式。如果是增量 delta，需要在 renderer.js 中维护 `aiMessageBuffers = new Map()` 累积缓冲区。
+   - **RESOLVED (2026-08-01):** 通过 pi-agent-core types.d.ts 确认事件格式为 `{ type: "message_update", message: AgentMessage, assistantMessageEvent: AssistantMessageEvent }`。`message` 是完整消息对象（累积全文），`assistantMessageEvent` 包含流式文本事件。渲染进程直接用 `event.message` 替换消息列表中对应项即可，无需累积缓冲区。
 
-2. **tool_execution_update 事件的完整 payload**
+2. ✅ RESOLVED — **tool_execution_update 事件的完整 payload**
    - What we know: 事件包含工具名和执行状态
-   - What's unclear: 具体字段结构（toolName, status, params, result, error 等）
-   - Recommendation: 同上，通过实际调用确认格式
+   - **RESOLVED (2026-08-01):** 通过 pi-agent-core types.d.ts 确认完整事件类型：
+     - `tool_execution_start`: `{ type, toolCallId: string, toolName: string, args: any }`
+     - `tool_execution_update`: `{ type, toolCallId: string, toolName: string, args: any, partialResult: any }`
+     - `tool_execution_end`: `{ type, toolCallId: string, toolName: string, result: any, isError: boolean }`
+     - 渲染进程通过 `toolCallId` 关联同一工具调用的生命周期事件。
 
 ## Environment Availability
 
