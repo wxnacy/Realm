@@ -192,3 +192,4 @@ blocked: 0
   - 中间轮 `turn_end` 只同步文本；`agent_end` 才发最终文本 + `turn_end` 终止信号（空文本不覆盖气泡）
 - **日志**：按用户要求补充 AI 返回内容日志——本轮回复、回复完成（截断 1000 字）、工具调用参数/结果预览
 - 模拟事件序列测试通过：文本累积、工具状态映射、turn_end 仅在 run 末尾出现一次
+- **闪烁修复（484f4b1）**：流式期间气泡整块闪烁——message_update 批次每 16ms 触发 `renderAIMessages()` 全量 innerHTML 重建（60 次/秒整树重绘）。改为 `updateAIStreamingBubble()` 定向替换当前气泡 content 节点；turn_end 才全量渲染

@@ -3246,26 +3246,7 @@ function renderAIMessages() {
 
     // 添加消息操作按钮（非流式状态下显示）
     if (msg.id && !state.aiStreaming) {
-      const actions = document.createElement('div');
-      actions.className = 'message-actions';
-
-      // 复制按钮（所有消息都有）
-      const copyBtn = document.createElement('button');
-      copyBtn.className = 'message-action-btn';
-      copyBtn.textContent = '复制';
-      copyBtn.addEventListener('click', () => copyMessage(msg.id));
-      actions.appendChild(copyBtn);
-
-      // 重新生成按钮（仅 AI 消息）
-      if (!isUser) {
-        const regenBtn = document.createElement('button');
-        regenBtn.className = 'message-action-btn';
-        regenBtn.textContent = '重新生成';
-        regenBtn.addEventListener('click', () => regenerateMessage(msg.id));
-        actions.appendChild(regenBtn);
-      }
-
-      wrapper.appendChild(actions);
+      wrapper.appendChild(createMessageActions(msg));
     }
 
     // 流式输出中且是最后一条 AI 消息时，添加闪烁光标
@@ -3330,6 +3311,88 @@ function updateAIStreamingBubble() {
   }
 
   // 自动滚动
+  if (state.aiAutoScroll) {
+    scrollToBottom();
+  }
+}
+
+/**
+ * 创建消息操作按钮组（复制 / 重新生成）
+ * 供 renderAIMessages 全量渲染和 finalizeAIStreamingBubble 定向收尾共用
+ * @param {Object} msg - 消息对象
+ * @returns {HTMLElement} 操作按钮容器
+ */
+function createMessageActions(msg) {
+  const actions = document.createElement('div');
+  actions.className = 'message-actions';
+
+  // 复制按钮（所有消息都有）
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'message-action-btn';
+  copyBtn.textContent = '复制';
+  copyBtn.addEventListener('click', () => copyMessage(msg.id));
+  actions.appendChild(copyBtn);
+
+  // 重新生成按钮（仅 AI 消息）
+  if (msg.role !== 'user') {
+    const regenBtn = document.createElement('button');
+    regenBtn.className = 'message-action-btn';
+    regenBtn.textContent = '重新生成';
+    regenBtn.addEventListener('click', () => regenerateMessage(msg.id));
+    actions.appendChild(regenBtn);
+  }
+
+  return actions;
+}
+
+/**
+ * 流式输出结束时的定向收尾
+ * 只更新当前气泡：最终内容渲染（去光标）+ 追加操作按钮，
+ * 不做整列表重建，消除完成瞬间的整体闪烁
+ * 内部完成状态位清理（aiStreaming=false, aiCurrentMessageId=null）
+ */
+function finalizeAIStreamingBubble() {
+  const msg = state.aiMessages.find(
+    m => m.role === 'assistant' && m.id === state.aiCurrentMessageId
+  );
+
+  state.aiStreaming = false;
+  state.aiCurrentMessageId = null;
+
+  if (!msg) {
+    renderAIMessages();
+    return;
+  }
+
+  const wrapper = elements.aiMessageList.querySelector(
+    `[data-message-id="${msg.id}"]`
+  );
+  if (!wrapper) {
+    renderAIMessages();
+    return;
+  }
+
+  // 最终内容渲染（无光标）
+  const content = wrapper.querySelector('.ai-message-content');
+  if (content) {
+    const rawText = msg.content || '';
+    if (typeof marked !== 'undefined' && marked.parse) {
+      content.innerHTML = marked.parse(rawText);
+    } else {
+      content.textContent = rawText;
+    }
+    content.querySelectorAll('pre code').forEach((block) => {
+      if (typeof hljs !== 'undefined' && hljs.highlightElement) {
+        hljs.highlightElement(block);
+      }
+    });
+  }
+
+  // 追加操作按钮（防重复）
+  if (!wrapper.querySelector('.message-actions')) {
+    wrapper.appendChild(createMessageActions(msg));
+  }
+
   if (state.aiAutoScroll) {
     scrollToBottom();
   }
@@ -3434,10 +3497,9 @@ function handleAIStream() {
         }
 
         case 'turn_end': {
-          // 一轮对话结束
-          state.aiStreaming = false;
-          state.aiCurrentMessageId = null;
-          needsRender = true;
+          // 一轮对话结束：定向收尾当前气泡（最终渲染+操作按钮），
+          // 不做整列表重建，消除完成瞬间闪烁
+          finalizeAIStreamingBubble();
           break;
         }
 
