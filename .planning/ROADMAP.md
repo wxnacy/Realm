@@ -259,13 +259,13 @@ Plans:
 **需求覆盖**: AI-02
 **对应**: pi-agent-integration.md Phase 2
 
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 
 **Wave 1**
 
-- [ ] 20-01-PLAN.md — AI Manager 核心 + 工具注册 + 事件广播
+- [x] 20-01-PLAN.md — AI Manager 核心 + 工具注册 + 事件广播
 
 **Wave 2** *(blocked on Wave 1)*
 
