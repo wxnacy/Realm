@@ -46,6 +46,7 @@ const DEFAULT_SHORTCUTS = {
   'forward': 'CmdOrCtrl+Right',
   'bookmark': 'CmdOrCtrl+D',
   'openSettings': 'CmdOrCtrl+,',
+  'toggleAIPanel': 'CmdOrCtrl+]',
 };
 
 // ==================== 读写函数 ====================

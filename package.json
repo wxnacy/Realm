@@ -30,7 +30,9 @@
     "@earendil-works/pi-ai": "^0.82.1",
     "better-sqlite3": "^11.7.0",
     "cheerio": "^1.2.0",
-    "electron-store": "^8.1.0"
+    "electron-store": "^8.1.0",
+    "highlight.js": "^11.11.1",
+    "marked": "^18.0.7"
   },
   "build": {
     "appId": "com.realm.browser",
