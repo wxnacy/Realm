@@ -15,6 +15,7 @@ const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
 const historyManager = require('./history-manager');
 const favoritesManager = require('./favorites-manager');
+const faviconFetcher = require('./favicon-fetcher');
 
 // 与 main.js 共享 realm-config.json（settings:* 命名空间）
 const configStore = new Store({ name: 'realm-config' });
@@ -897,18 +898,23 @@ function registerHandlers() {
    * @param {Object} data - 收藏数据
    * @param {string} data.url - 页面 URL
    * @param {string} [data.title] - 页面标题
-   * @param {string} [data.faviconUrl] - favicon URL
+   * @param {string} [data.faviconUrl] - favicon 源 URL（主进程统一抓取转 data URL 入库）
    * @returns {{id: number}|{error: string, message: string}}
    */
-  ipcMain.handle('favorites:add', (event, data) => {
+  ipcMain.handle('favorites:add', async (event, data) => {
     assertTrustedSender(event);
     if (!data || typeof data !== 'object') {
       throw new Error('无效的参数');
     }
+    // 远程 favicon URL 统一转 data URL（favicon-fetcher 为唯一实现点）；
+    // 抓取失败得 '' 以空图标入库，之后访问时经 favorites:update-favicon 回写补齐
+    const faviconUrl = data.faviconUrl
+      ? await faviconFetcher.fetchAsDataUrl(data.faviconUrl)
+      : '';
     return favoritesManager.addRecord({
       url: data.url || '',
       title: data.title || '',
-      faviconUrl: data.faviconUrl || '',
+      faviconUrl,
     });
   });
 
@@ -925,6 +931,36 @@ function registerHandlers() {
       throw new Error('无效的参数');
     }
     return favoritesManager.updateRecord(data.id, { title: data.title });
+  });
+
+  /**
+   * 回填收藏 favicon（访问已收藏页面时由渲染进程触发）
+   *
+   * 抓取 sourceUrl 转 data URL 后写入，仅当记录当前无图标时生效（只补空不覆盖）。
+   * 写入成功后广播 bookmarks-bar:refresh 刷新收藏栏。
+   *
+   * @param {Object} data - 参数
+   * @param {number} data.id - 收藏记录 ID
+   * @param {string} data.sourceUrl - favicon 源 URL（http/https/data）
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('favorites:update-favicon', async (event, data) => {
+    assertTrustedSender(event);
+    if (!data || typeof data !== 'object' || typeof data.id !== 'number') {
+      throw new Error('无效的参数');
+    }
+    const dataUrl = await faviconFetcher.fetchAsDataUrl(data.sourceUrl);
+    if (!dataUrl) {
+      return { success: false };
+    }
+    const updated = favoritesManager.updateFavicon(data.id, dataUrl);
+    if (updated) {
+      const mainWindow = windowManager.getMainWindow();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('bookmarks-bar:refresh');
+      }
+    }
+    return { success: updated };
   });
 
   /**

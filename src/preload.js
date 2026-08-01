@@ -407,6 +407,15 @@ contextBridge.exposeInMainWorld('realmAPI', {
   favoritesUpdate: (id, title) => ipcRenderer.invoke('favorites:update', { id, title }),
 
   /**
+   * 回填收藏 favicon（仅当记录当前无图标时生效）
+   * 主进程抓取 sourceUrl 转 data URL 入库，成功后广播收藏栏刷新
+   * @param {number} id - 记录 ID
+   * @param {string} sourceUrl - favicon 源 URL（http/https/data）
+   * @returns {Promise<{success: boolean}>}
+   */
+  favoritesUpdateFavicon: (id, sourceUrl) => ipcRenderer.invoke('favorites:update-favicon', { id, sourceUrl }),
+
+  /**
    * 删除单条收藏
    * @param {number} id - 记录 ID
    * @returns {Promise<boolean>}

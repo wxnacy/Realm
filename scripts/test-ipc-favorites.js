@@ -28,6 +28,10 @@ const path = require('path');
 const handlers = {};
 /** favoritesManager 调用记录：[函数名, ...实参] */
 const calls = [];
+/** faviconFetcher 调用记录：[函数名, ...实参] */
+const fetcherCalls = [];
+/** 主窗口 webContents.send 广播记录：[channel, ...args] */
+const sentMessages = [];
 
 /** electron 桩：ipcMain.handle 捕获注册；BrowserWindow 返回固定窗口 id */
 const electronStub = {
@@ -42,9 +46,16 @@ const electronStub = {
   },
 };
 
-/** window-manager 桩：与 BrowserWindow 返回相同 id，使 assertTrustedSender 通过 */
+/** window-manager 桩：与 BrowserWindow 返回相同 id，使 assertTrustedSender 通过；
+ * 附带 isDestroyed/webContents.send 供 favorites:update-favicon 广播断言 */
 const windowManagerStub = {
-  getMainWindow: () => ({ id: 1 }),
+  getMainWindow: () => ({
+    id: 1,
+    isDestroyed: () => false,
+    webContents: {
+      send: (channel, ...args) => sentMessages.push([channel, ...args]),
+    },
+  }),
 };
 
 /**
@@ -55,11 +66,24 @@ const favoritesManagerStub = {
   checkUrl: (...args) => { calls.push(['checkUrl', ...args]); return null; },
   addRecord: (...args) => { calls.push(['addRecord', ...args]); return { id: 1 }; },
   updateRecord: (...args) => { calls.push(['updateRecord', ...args]); return true; },
+  updateFavicon: (...args) => { calls.push(['updateFavicon', ...args]); return true; },
   deleteRecord: (...args) => { calls.push(['deleteRecord', ...args]); return true; },
   deleteRecords: (...args) => { calls.push(['deleteRecords', ...args]); return args[0].length; },
   listRecords: (...args) => { calls.push(['listRecords', ...args]); return []; },
   searchRecords: (...args) => { calls.push(['searchRecords', ...args]); return []; },
   getCount: (...args) => { calls.push(['getCount', ...args]); return 0; },
+};
+
+/**
+ * favicon-fetcher 桩：不发起真实网络请求，固定返回 data URL
+ * （handler 应将远程 faviconUrl 统一经此转换后再入库）
+ */
+const FAKE_DATA_URL = 'data:image/png;base64,U1RVQg==';
+const faviconFetcherStub = {
+  fetchAsDataUrl: async (url) => {
+    fetcherCalls.push(['fetchAsDataUrl', url]);
+    return FAKE_DATA_URL;
+  },
 };
 
 /**
@@ -77,6 +101,7 @@ const STUBS = {
   electron: electronStub,
   './window-manager': windowManagerStub,
   './favorites-manager': favoritesManagerStub,
+  './favicon-fetcher': faviconFetcherStub,
   './container-manager': noopManagerStub,
   './tab-manager': noopManagerStub,
   './cookie-manager': noopManagerStub,
@@ -121,8 +146,27 @@ const cases = [
   {
     channel: 'favorites:add',
     payload: { url: 'https://example.com', title: 'Example', faviconUrl: 'https://example.com/favicon.ico' },
-    expectCall: ['addRecord', { url: 'https://example.com', title: 'Example', faviconUrl: 'https://example.com/favicon.ico' }],
+    // handler 应先将远程 faviconUrl 经 favicon-fetcher 转 data URL 再入库
+    expectCall: ['addRecord', { url: 'https://example.com', title: 'Example', faviconUrl: FAKE_DATA_URL }],
+    expectFetcherCall: ['fetchAsDataUrl', 'https://example.com/favicon.ico'],
     expectReturn: { id: 1 },
+  },
+  {
+    // 无 faviconUrl 时不得调用 fetcher（右键菜单添加等空图标场景）
+    channel: 'favorites:add',
+    payload: { url: 'https://example.com', title: 'Example' },
+    expectCall: ['addRecord', { url: 'https://example.com', title: 'Example', faviconUrl: '' }],
+    expectNoFetcher: true,
+    expectReturn: { id: 1 },
+  },
+  {
+    // 访问时回写：抓取转 data URL → updateFavicon 只补空 → 广播刷新收藏栏
+    channel: 'favorites:update-favicon',
+    payload: { id: 7, sourceUrl: 'https://example.com/favicon.ico' },
+    expectCall: ['updateFavicon', 7, FAKE_DATA_URL],
+    expectFetcherCall: ['fetchAsDataUrl', 'https://example.com/favicon.ico'],
+    expectSent: ['bookmarks-bar:refresh'],
+    expectReturn: { success: true },
   },
   {
     channel: 'favorites:update',
@@ -145,7 +189,9 @@ const cases = [
   {
     channel: 'favorites:list',
     payload: { offset: 0, limit: 50 },
-    expectCall: ['listRecords', { offset: 0, limit: 50 }],
+    // handler 固定透传 folderId 键（payload 未提供时为 undefined），
+    // deepStrictEqual 对键存在性敏感，期望值必须显式列出
+    expectCall: ['listRecords', { offset: 0, limit: 50, folderId: undefined }],
     expectReturn: [],
   },
   {
@@ -167,29 +213,46 @@ const cases = [
 let passCount = 0;
 let failCount = 0;
 
-for (const c of cases) {
-  const handler = handlers[c.channel];
-  calls.length = 0;
-  try {
-    assert.strictEqual(typeof handler, 'function', `handler 未注册: ${c.channel}`);
-    const ret = handler(event, c.payload);
-    // 断言 1：favoritesManager 恰好被调用 1 次
-    assert.strictEqual(calls.length, 1, `favoritesManager 调用次数应为 1，实际 ${calls.length}`);
-    // 断言 2：函数名 + 实参个数与内容精确匹配（多一个位置参数即失败）
-    assert.deepStrictEqual(calls[0], c.expectCall,
-      `manager 调用签名不匹配（含实参个数精确断言）`);
-    // 断言 3：handler 返回值与 manager 预设值一致
-    assert.deepStrictEqual(ret, c.expectReturn, 'handler 返回值与 manager 返回值不一致');
-    passCount += 1;
-    console.log(`PASS ${c.channel}`);
-  } catch (err) {
-    failCount += 1;
-    console.log(`FAIL ${c.channel} — ${err.message}`);
+(async () => {
+  for (const c of cases) {
+    const handler = handlers[c.channel];
+    calls.length = 0;
+    fetcherCalls.length = 0;
+    sentMessages.length = 0;
+    try {
+      assert.strictEqual(typeof handler, 'function', `handler 未注册: ${c.channel}`);
+      // handler 可能为 async（favorites:add / favorites:update-favicon 含 favicon 抓取）
+      const ret = await handler(event, c.payload);
+      // 断言 1：favoritesManager 恰好被调用 1 次
+      assert.strictEqual(calls.length, 1, `favoritesManager 调用次数应为 1，实际 ${calls.length}`);
+      // 断言 2：函数名 + 实参个数与内容精确匹配（多一个位置参数即失败）
+      assert.deepStrictEqual(calls[0], c.expectCall,
+        `manager 调用签名不匹配（含实参个数精确断言）`);
+      // 断言 3：handler 返回值与 manager 预设值一致
+      assert.deepStrictEqual(ret, c.expectReturn, 'handler 返回值与 manager 返回值不一致');
+      // 断言 4（可选）：favicon-fetcher 调用符合预期
+      if (c.expectFetcherCall) {
+        assert.strictEqual(fetcherCalls.length, 1, `fetcher 调用次数应为 1，实际 ${fetcherCalls.length}`);
+        assert.deepStrictEqual(fetcherCalls[0], c.expectFetcherCall, 'fetcher 调用入参不匹配');
+      }
+      if (c.expectNoFetcher) {
+        assert.strictEqual(fetcherCalls.length, 0, `不应调用 fetcher，实际 ${fetcherCalls.length} 次`);
+      }
+      // 断言 5（可选）：主窗口广播符合预期
+      if (c.expectSent) {
+        assert.deepStrictEqual(sentMessages, [c.expectSent], 'webContents.send 广播不匹配');
+      }
+      passCount += 1;
+      console.log(`PASS ${c.channel}`);
+    } catch (err) {
+      failCount += 1;
+      console.log(`FAIL ${c.channel} — ${err.message}`);
+    }
   }
-}
 
-console.log(`\nSummary: ${passCount}/${cases.length} PASS, ${failCount} FAIL`);
+  console.log(`\nSummary: ${passCount}/${cases.length} PASS, ${failCount} FAIL`);
 
-if (failCount > 0) {
-  process.exit(1);
-}
+  if (failCount > 0) {
+    process.exit(1);
+  }
+})();

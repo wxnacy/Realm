@@ -53,6 +53,7 @@ const shortcutManager = require('./shortcut-manager');
 const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer } = require('./ipc-handlers');
 const historyManager = require('./history-manager');
 const favoritesManager = require('./favorites-manager');
+const faviconFetcher = require('./favicon-fetcher');
 const frequentSitesManager = require('./frequent-sites-manager');
 const cdpManager = require('./cdp-manager');
 const devRequestsWriter = require('./dev-requests-writer');
@@ -379,7 +380,12 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'add' && req.method === 'POST') {
-        const { url, title, faviconUrl } = await readJsonBody(req);
+        const { url, title, faviconUrl: rawFaviconUrl } = await readJsonBody(req);
+        // 远程 favicon URL 统一经 favicon-fetcher 转 data URL（与 IPC favorites:add 同一实现）；
+        // 抓取失败得 '' 以空图标入库，之后访问时回写补齐
+        const faviconUrl = rawFaviconUrl
+          ? await faviconFetcher.fetchAsDataUrl(rawFaviconUrl)
+          : '';
         const result = favoritesManager.addRecord({ url, title, faviconUrl });
         _notifyBookmarksBarRefresh();
         sendJson(res, 200, result);

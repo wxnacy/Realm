@@ -2266,15 +2266,11 @@ function showImportModal(title) {
  * @param {number} data.imported - 已处理/已导入数量
  * @param {number} data.total - 总数
  * @param {string} [data.current] - 当前处理的文件名
- * @param {string} [data.stage] - 阶段：prepare（准备）/ favicon（获取图标）/ insert（写入）
+ * @param {string} [data.stage] - 阶段：prepare（准备）/ insert（写入）
  */
 function updateImportProgress(data) {
   elements.importProgressBar.style.width = data.progress + '%';
-  if (data.stage === 'favicon') {
-    elements.importProgressText.textContent = '正在获取网站图标 ' + data.imported + ' / ' + data.total;
-  } else {
-    elements.importProgressText.textContent = '已导入 ' + data.imported + ' / ' + data.total + ' 条书签';
-  }
+  elements.importProgressText.textContent = '已导入 ' + data.imported + ' / ' + data.total + ' 条书签';
   elements.importCurrentFile.textContent = data.current ? '当前处理: ' + data.current : '';
 }
 

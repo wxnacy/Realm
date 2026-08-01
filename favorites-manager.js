@@ -308,6 +308,26 @@ function updateRecord(id, { title }) {
 }
 
 /**
+ * 回填收藏记录 favicon（仅当当前为空时写入）
+ *
+ * 只补空不覆盖：天然幂等；多容器/多 Tab 并发访问同一 URL 时先到先写；
+ * 不会覆盖用户已有图标。
+ *
+ * @param {number} id - 记录 ID
+ * @param {string} faviconUrl - favicon data URL
+ * @returns {boolean} 是否实际写入（false = 已有图标或记录不存在）
+ */
+function updateFavicon(id, faviconUrl) {
+  ensureTable();
+
+  const result = db.prepare(`
+    UPDATE favorites SET favicon_url = ? WHERE id = ? AND favicon_url = ''
+  `).run(faviconUrl, id);
+
+  return result.changes > 0;
+}
+
+/**
  * 删除单条收藏记录
  * @param {number} id - 记录 ID
  * @returns {boolean} 是否删除成功
@@ -1106,52 +1126,14 @@ async function importChromeBookmarks(source, onProgress, abortSignal) {
     }
   }
 
-  // 为书签异步获取 favicon（per D-15, D-16）
-  // 这是最耗时的阶段（每项最长 3s 超时），逐项上报进度（0% → 90%）
-  let faviconDone = 0;
-  const bookmarksWithFavicon = await Promise.all(
-    bookmarks.map(async (bm) => {
-      // 检查取消信号
-      if (abortSignal && abortSignal.aborted) return bm;
-
-      try {
-        const urlObj = new URL(bm.url);
-        const domain = urlObj.hostname;
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 3000);
-        const resp = await fetch(
-          `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=16`,
-          { signal: controller.signal }
-        );
-        clearTimeout(timer);
-        if (resp.ok) {
-          bm.faviconUrl = resp.url;
-        }
-      } catch (e) {
-        // favicon 获取失败时降级处理（per D-15, D-16）
-        bm.faviconUrl = '';
-      }
-
-      faviconDone++;
-      if (onProgress) {
-        onProgress({
-          progress: Math.round(faviconDone / total * 90),
-          imported: faviconDone,
-          total,
-          current: bm.title || bm.url,
-          stage: 'favicon',
-        });
-      }
-      return bm;
-    })
-  );
-
-  // 批量导入书签（per D-07, D-13），进度区间 90% → 100%
+  // 批量导入书签（per D-07, D-13），进度区间 0% → 100%
+  // favicon 不在导入时抓取（Chrome 范式）：记录以空图标入库，
+  // 之后访问对应页面时由渲染进程经 favorites:update-favicon 回写真实图标
   const { imported, skipped } = await batchInsertBookmarks(
-    bookmarksWithFavicon,
+    bookmarks,
     folderIdMap,
     onProgress
-      ? (data) => onProgress({ ...data, progress: 90 + Math.round(data.progress * 0.1), stage: 'insert' })
+      ? (data) => onProgress({ ...data, stage: 'insert' })
       : null
   );
 
@@ -1271,6 +1253,7 @@ module.exports = {
   migrateToGlobal,
   addRecord,
   updateRecord,
+  updateFavicon,
   deleteRecord,
   deleteRecords,
   listRecords,

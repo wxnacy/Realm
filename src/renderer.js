@@ -227,12 +227,46 @@ async function checkBookmarkStatus(url) {
   }
 }
 
+/** 正在回写 favicon 的页面 URL 集合（防 page-favicon-updated 多次触发重复 IPC） */
+const faviconBackfillInflight = new Set();
+
+/**
+ * 访问已收藏页面时回写真实 favicon（Chrome 范式惰性填充）
+ *
+ * 收藏记录 favicon 为空（UI 显示 realm 默认图标）时，把 tab 实时加载到的
+ * favicon 源 URL 交给主进程抓取转 data URL 入库；写入成功由主进程广播
+ * bookmarks-bar:refresh，收藏栏/文件夹菜单重开即显示新图标。
+ *
+ * 独立执行 favoritesCheck 查询，不依赖 checkBookmarkStatus 的全局 state
+ * （多 Tab 场景下全局 state 只对活动 Tab 有效，会串）。
+ *
+ * @param {Object} tab - Tab 对象
+ * @param {string} faviconUrl - webview page-favicon-updated 给出的 favicon 源 URL
+ */
+async function maybeBackfillBookmarkFavicon(tab, faviconUrl) {
+  if (!tab || !tab.url || !faviconUrl) return;
+  if (tab.url === 'about:blank' || tab.url.startsWith('realm:')) return;
+  if (faviconBackfillInflight.has(tab.url)) return;
+
+  faviconBackfillInflight.add(tab.url);
+  try {
+    const record = await window.realmAPI.favoritesCheck(tab.url);
+    // 未收藏或已有图标时无需回写
+    if (!record || record.favicon_url) return;
+    await window.realmAPI.favoritesUpdateFavicon(record.id, faviconUrl);
+  } catch (err) {
+    console.error('[Realm Renderer] 收藏 favicon 回写失败:', err);
+  } finally {
+    // 成功失败都允许未来重试：成功后 DB 非空，下次 favoritesCheck 自然跳过
+    faviconBackfillInflight.delete(tab.url);
+  }
+}
+
 /**
  * 更新星标按钮显示状态
  * @param {boolean} bookmarked - 是否已收藏
  */
-function updateStarButton(bookmarked) {
-  const outline = elements.bookmarkStarBtn.querySelector('.star-outline');
+function updateStarButton(bookmarked) {  const outline = elements.bookmarkStarBtn.querySelector('.star-outline');
   const filled = elements.bookmarkStarBtn.querySelector('.star-filled');
   if (bookmarked) {
     outline.style.display = 'none';
@@ -836,6 +870,9 @@ function bindWebviewEvents(tabId, webview) {
 
     // 持久化（tab-manager updateTab 白名单含 faviconUrl）
     window.realmAPI.updateTab(tabId, { faviconUrl });
+
+    // 若该页已收藏且无图标，回写真实 favicon（主进程抓取转 data URL）
+    maybeBackfillBookmarkFavicon(tab, faviconUrl);
   });
 
   // 注意：webview 标签的 will-navigate 事件文档明示 preventDefault 无效（WR-2），
