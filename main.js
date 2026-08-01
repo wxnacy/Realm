@@ -50,7 +50,7 @@ const tabManager = require('./tab-manager');
 const cookieManager = require('./cookie-manager');
 const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
-const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer } = require('./ipc-handlers');
+const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager } = require('./ipc-handlers');
 const historyManager = require('./history-manager');
 const favoritesManager = require('./favorites-manager');
 const faviconFetcher = require('./favicon-fetcher');
@@ -1596,7 +1596,10 @@ app.whenReady().then(async () => {
 
   // 初始化 AI Manager（per Phase 19）
   aiManager = new AIManager();
-  aiManager.init(configStore).catch(err => {
+  aiManager.init(configStore).then(() => {
+    // 初始化完成后注入 IPC 处理器，使 AI IPC 通道可正常工作
+    setAIManager(aiManager);
+  }).catch(err => {
     console.error('[Realm AI] 初始化失败:', err.message);
   });
 

@@ -17,6 +17,9 @@ const historyManager = require('./history-manager');
 const favoritesManager = require('./favorites-manager');
 const faviconFetcher = require('./favicon-fetcher');
 
+// AI Manager 实例（由 main.js 通过 setAIManager 注入）
+let aiManager = null;
+
 // 与 main.js 共享 realm-config.json（settings:* 命名空间）
 const configStore = new Store({ name: 'realm-config' });
 
@@ -1068,6 +1071,77 @@ function registerHandlers() {
     guestContainerMap.set(contentsId, containerId);
   });
 
+  // ==================== AI 相关 ====================
+
+  /**
+   * 发送用户消息给 AI Agent
+   * @param {string} message - 用户输入的消息
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('ai:prompt', async (event, message) => {
+    assertTrustedSender(event);
+    if (!message || typeof message !== 'string') {
+      throw new Error('无效的消息');
+    }
+    if (!aiManager) {
+      throw new Error('AI Manager 未初始化');
+    }
+    await aiManager.prompt(message);
+    return { success: true };
+  });
+
+  /**
+   * 取消当前 AI 操作
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('ai:abort', async (event) => {
+    assertTrustedSender(event);
+    if (aiManager) {
+      aiManager.abort();
+    }
+    return { success: true };
+  });
+
+  /**
+   * 配置 AI 提供商 API Key
+   * @param {Object} config - { provider: string, apiKey: string }
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('ai:configure', async (event, config) => {
+    assertTrustedSender(event);
+    if (!config || !config.apiKey) {
+      throw new Error('无效的配置');
+    }
+    if (aiManager) {
+      await aiManager.configureProviders(config);
+    }
+    return { success: true };
+  });
+
+  /**
+   * 获取可用的 AI 模型列表
+   * @returns {Promise<{models: Array}>}
+   */
+  ipcMain.handle('ai:get-models', async (event) => {
+    assertTrustedSender(event);
+    if (!aiManager) {
+      return { models: [] };
+    }
+    return aiManager.getAvailableModels();
+  });
+
+  /**
+   * 获取 AI Manager 当前状态
+   * @returns {Promise<{initialized: boolean, model: string|null, toolsCount: number}>}
+   */
+  ipcMain.handle('ai:get-state', async (event) => {
+    assertTrustedSender(event);
+    if (!aiManager) {
+      return { initialized: false, model: null, toolsCount: 0 };
+    }
+    return aiManager.getState();
+  });
+
   // ==================== 应用设置 ====================
   // 与 main.js handleSettingsApi 的 get 路由共享默认值，新增 key 时两处必须同步
 
@@ -1103,4 +1177,13 @@ function registerHandlers() {
   console.log('[Realm] IPC 处理器已注册');
 }
 
-module.exports = { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer };
+/**
+ * 设置 AI Manager 实例
+ * 由 main.js 在 AIManager 初始化完成后调用，供 IPC 处理器访问
+ * @param {Object} manager - AIManager 实例
+ */
+function setAIManager(manager) {
+  aiManager = manager;
+}
+
+module.exports = { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager };
