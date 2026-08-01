@@ -9,6 +9,9 @@
  * pi-agent-core 要求的 22.19.0。如遇兼容性问题，需评估升级 Electron 或
  * 采用子进程方案（见 D-03 决策）。
  *
+ * API Key 通过 CredentialStore 注入（per pi-ai 的认证模型），
+ * 存储在 electron-store 的 `ai.apiKey` 路径下。
+ *
  * @module ai-manager
  */
 
@@ -40,6 +43,13 @@ const MAX_CONTEXT_MESSAGES = 20;
  * - 创建 pi-agent-core Agent 实例（管理对话和工具执行）
  * - 注册 Realm 工具（get_tabs 等）
  * - 处理用户消息和取消操作
+ *
+ * 初始化流程（init 方法）：
+ * 1. 从 configStore 读取 OpenAI API Key
+ * 2. 创建 InMemoryCredentialStore 并写入 API Key
+ * 3. 创建 builtinModels 实例（注册所有内置提供商）
+ * 4. 构建 Realm 工具列表（get_tabs）
+ * 5. 创建 Agent 实例（绑定 systemPrompt、model、tools、streamFn）
  */
 class AIManager {
   constructor() {
@@ -60,9 +70,14 @@ class AIManager {
    *
    * 流程：
    * 1. 从 configStore 读取 API Key
-   * 2. 创建 pi-ai Models 实例
-   * 3. 构建 Realm 工具列表
-   * 4. 创建 pi-agent-core Agent 实例
+   * 2. 创建 pi-ai CredentialStore 并注入 OpenAI API Key
+   * 3. 创建 pi-ai Models 实例（builtinModels，注册所有内置提供商）
+   * 4. 构建 Realm 工具列表
+   * 5. 创建 pi-agent-core Agent 实例
+   *
+   * API Key 通过 CredentialStore 机制注入（pi-ai 的标准认证方式），
+   * 而非直接传入 builtinModels 参数。builtinModels 的 options 参数
+   * 仅接受 { credentials, modelsStore, authContext }。
    *
    * @param {Object} configStore - electron-store 实例，用于读取 AI 配置
    * @returns {Promise<void>}
@@ -73,29 +88,66 @@ class AIManager {
     // 检查 API Key
     const apiKey = configStore.get('ai.apiKey');
     if (!apiKey) {
-      console.log('[Realm AI] 未配置 API Key，请在设置中配置');
+      console.log('[Realm AI] 未配置 API Key，跳过初始化');
       this.isInitialized = false;
       return;
     }
 
     try {
       // 动态导入 ESM-only 的 pi 包
+      // pi-ai 和 pi-agent-core 的 package.json 声明 "type": "module"，
+      // CommonJS 的 require() 无法加载，必须用动态 import()
       const { builtinModels } = await import('@earendil-works/pi-ai');
       const { Agent } = await import('@earendil-works/pi-agent-core');
+      const { InMemoryCredentialStore } = await import('@earendil-works/pi-ai');
 
-      // 创建 Models 实例（初始支持 OpenAI，per D-14）
+      // 创建凭证存储并注入 OpenAI API Key（per pi-ai 认证模型）
+      // CredentialStore 是 pi-ai 的标准认证机制：每个 provider 一个凭证条目
+      const credentialStore = new InMemoryCredentialStore();
+      await credentialStore.modify('openai', async () => ({
+        type: 'api_key',
+        key: apiKey,
+      }));
+
+      // 创建 Models 实例（注册所有内置提供商，初始支持 OpenAI per D-14）
+      // builtinModels 的 options 仅接受 { credentials, modelsStore, authContext }
       this.models = builtinModels({
-        openai: { apiKey },
+        credentials: credentialStore,
       });
 
       // 构建工具列表
       this.tools = this._buildRealmTools();
 
+      // 获取 OpenAI 模型（per D-14：初始使用 gpt-4o-mini）
+      const model = this.models.getModel('openai', 'gpt-4o-mini');
+      if (!model) {
+        console.error('[Realm AI] 未找到 openai/gpt-4o-mini 模型');
+        this.isInitialized = false;
+        return;
+      }
+
       // 创建 Agent 实例
+      // Agent 需要：
+      // - streamFn: 绑定 Models 的 streamSimple 方法（流式 LLM 调用）
+      // - initialState.systemPrompt: 系统提示词
+      // - initialState.model: 使用的 LLM 模型
+      // - initialState.tools: 可用工具列表
+      // - convertToLlm: 消息格式转换（过滤非 user/assistant/toolResult 角色）
+      // - transformContext: 上下文裁剪（保留最近消息）
       this.agent = new Agent({
-        systemPrompt: REALM_SYSTEM_PROMPT,
-        model: this.models.defaultModel,
-        tools: this.tools,
+        initialState: {
+          systemPrompt: REALM_SYSTEM_PROMPT,
+          model,
+          tools: this.tools,
+        },
+        streamFn: this.models.streamSimple.bind(this.models),
+        convertToLlm: (messages) => {
+          // 过滤消息，只保留 LLM 能理解的角色类型
+          return messages.filter(msg =>
+            msg.role === 'user' || msg.role === 'assistant' || msg.role === 'toolResult'
+          );
+        },
+        transformContext: this._compactContext.bind(this),
       });
 
       this.isInitialized = true;
@@ -109,6 +161,9 @@ class AIManager {
   /**
    * 发送用户消息给 AI Agent
    *
+   * 调用 agent.prompt() 触发一轮对话，Agent 可能会调用工具（如 get_tabs），
+   * 然后基于工具结果生成回复。回复结果输出到主进程控制台（per D-06）。
+   *
    * @param {string} message - 用户输入的消息
    * @returns {Promise<void>}
    */
@@ -118,11 +173,36 @@ class AIManager {
       return;
     }
 
-    console.log(`[Realm AI] 发送消息: ${message.substring(0, 50)}...`);
+    console.log(`[Realm AI] 发送消息: ${message}`);
 
     try {
-      const result = await this.agent.prompt(message);
-      console.log('[Realm AI] Agent 回复:', result);
+      // 订阅 Agent 事件以输出回复到控制台（per D-06）
+      const unsubscribe = this.agent.subscribe((event) => {
+        if (event.type === 'message') {
+          const msg = event.message;
+          if (msg.role === 'assistant' && msg.content) {
+            // 提取文本内容输出到控制台
+            const textParts = msg.content
+              .filter(c => c.type === 'text')
+              .map(c => c.text);
+            if (textParts.length > 0) {
+              console.log('[Realm AI] Agent 回复:', textParts.join(''));
+            }
+          }
+        }
+        if (event.type === 'tool_execution_start') {
+          console.log(`[Realm AI] 调用工具: ${event.toolName}`);
+        }
+        if (event.type === 'tool_execution_end') {
+          console.log(`[Realm AI] 工具执行完成: ${event.toolName}`);
+        }
+      });
+
+      await this.agent.prompt(message);
+      await this.agent.waitForIdle();
+
+      // 取消订阅
+      unsubscribe();
     } catch (err) {
       console.error('[Realm AI] 消息处理失败:', err.message);
     }
@@ -142,7 +222,13 @@ class AIManager {
    * 构建 Realm Browser 工具列表
    *
    * Phase 19 注册 get_tabs 工具，Phase 20 扩展其他工具。
-   * 工具定义遵循 pi-agent-core 的 AgentTool 接口。
+   * 工具定义遵循 pi-agent-core 的 AgentTool 接口：
+   * - name: 工具名称（LLM 调用时的标识符）
+   * - description: 工具描述（LLM 用于理解工具用途）
+   * - parameters: TypeBox schema（工具参数定义，无参数用空 object）
+   * - label: 人类可读标签（UI 显示用）
+   * - execute: 异步执行函数，签名为 (toolCallId, params, signal?, onUpdate?)
+   *   返回 { content: [...], details: any }
    *
    * @returns {Array} 工具定义数组
    * @private
@@ -151,7 +237,8 @@ class AIManager {
     return [
       {
         name: 'get_tabs',
-        description: '获取当前所有标签页列表',
+        label: '获取标签页',
+        description: '获取当前所有标签页列表，返回每个标签页的 ID、标题、URL 和所属容器',
         parameters: {
           type: 'object',
           properties: {},
@@ -159,13 +246,20 @@ class AIManager {
         },
         execute: async () => {
           const tabs = tabManager.getTabs();
-          return JSON.stringify(tabs.map(tab => ({
+          const tabList = tabs.map(tab => ({
             id: tab.id,
             url: tab.url,
             title: tab.title,
             containerId: tab.containerId,
             isActive: tab.isActive,
-          })));
+          }));
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(tabList, null, 2),
+            }],
+            details: { count: tabList.length },
+          };
         },
       },
     ];
@@ -178,10 +272,10 @@ class AIManager {
    * 保留最近 MAX_CONTEXT_MESSAGES 条消息。
    *
    * @param {Array} messages - 完整消息历史
-   * @returns {Array} 裁剪后的消息数组
+   * @returns {Promise<Array>} 裁剪后的消息数组
    * @private
    */
-  _compactContext(messages) {
+  async _compactContext(messages) {
     if (!Array.isArray(messages)) return [];
     return messages.slice(-MAX_CONTEXT_MESSAGES);
   }
