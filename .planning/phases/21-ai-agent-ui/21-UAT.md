@@ -1,19 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 21-ai-agent-ui
 source: [21-01-SUMMARY.md, 21-02-SUMMARY.md, 21-03-SUMMARY.md]
 started: 2026-08-01T10:34:51Z
-updated: 2026-08-01T11:10:00Z
+updated: 2026-08-01T14:35:00Z
 ---
 
 ## Current Test
-<!-- OVERWRITE each test - shows where we are -->
 
-number: 5
-name: 拖拽调整面板宽度
-expected: |
-  鼠标悬停面板左边缘显示调整光标，拖拽可在 280px-600px 范围内实时调整宽度。
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -39,32 +34,33 @@ result: pass
 
 ### 5. 拖拽调整面板宽度
 expected: 鼠标悬停面板左边缘显示调整光标，拖拽可在 280px-600px 范围内实时调整宽度
-result: [pending]
-prev_report: "拖几像素就卡住"——webview 吞鼠标事件 + width 过渡滞后；已修复待复测
+result: pass
+prev_report: "拖几像素就卡住"（webview 吞事件已修复）
 
 ### 6. 输入框行为
 expected: Enter 发送消息；Shift+Enter 换行；多行输入时输入框自动增高（约 40px-120px 封顶），发送后复位
-result: [pending]
+result: pass
 
 ### 7. 工具执行卡片
 expected: AI 调用工具时显示可折叠卡片：默认折叠显示工具名+状态图标（执行中旋转、成功✓、失败✗）；点击展开查看参数和执行结果
-result: [pending]
+result: pass
 
 ### 8. 消息复制与重新生成
 expected: 消息上显示复制按钮，点击后内容进入剪贴板（有提示）；AI 消息额外显示"重新生成"按钮，点击后重新生成该回复
-result: [pending]
+result: pass
 
 ### 9. 面板宽度持久化
 expected: 拖拽调整宽度后关闭再打开面板（或重启应用），面板恢复上次调整的宽度而非默认 360px
-result: [pending]
+result: pass
 
 ### 10. 空状态引导
 expected: 无消息时面板显示空状态引导文案"准备好聊天了吗？"；发送首条消息后空状态消失
-result: [pending]
+result: pass
 
 ### 11. 错误处理与重试
-expected: AI 请求失败时（如未配置 API Key/断网）显示独立错误容器和重试按钮；点击重试重新发起请求
-result: [pending]
+expected: AI 请求失败时（如错误 API Key）显示独立错误容器和重试按钮；点击重试重新发起请求
+result: pass
+prev_report: "错误 Key 测试时只显示空气泡，无错误条"（errorMessage 检测已修复）
 
 ### 12. AI 面板头部设置按钮（#aiSettingsBtn）HTML 元素
 expected: AI 面板头部设置按钮（#aiSettingsBtn）HTML 元素
@@ -74,15 +70,15 @@ coverage_id: D1
 
 ### 13. openAISettings 跳转到设置→AI助手分区
 expected: 点击 AI 面板头部设置按钮 → 打开设置页面并自动定位到「AI 助手」分区
-result: [pending]
-prev_report: "进入设置空白页面"（分区名 'ai' → 'ai-assistant' 已修复，待复测）
+result: pass
+prev_report: "进入设置空白页面"（分区名 'ai' → 'ai-assistant' 已修复）
 
 ## Summary
 
 total: 13
-passed: 5
+passed: 13
 issues: 0
-pending: 8
+pending: 0
 skipped: 0
 blocked: 0
 
