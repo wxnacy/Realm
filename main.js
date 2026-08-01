@@ -835,6 +835,42 @@ app.whenReady().then(async () => {
         return;
       }
 
+      // ==================== AI 助手 API ====================
+
+      if (route === 'ai/state' && req.method === 'GET') {
+        if (!aiManager) {
+          sendJson(res, 200, { initialized: false, model: null, toolsCount: 0 });
+          return;
+        }
+        sendJson(res, 200, aiManager.getState());
+        return;
+      }
+
+      if (route === 'ai/models' && req.method === 'GET') {
+        if (!aiManager) {
+          sendJson(res, 200, { models: [] });
+          return;
+        }
+        sendJson(res, 200, aiManager.getAvailableModels());
+        return;
+      }
+
+      if (route === 'ai/configure' && req.method === 'POST') {
+        const config = await readJsonBody(req);
+        if (!config || !config.apiKey) {
+          sendJson(res, 400, { error: 'API Key 不能为空' });
+          return;
+        }
+        if (aiManager) {
+          await aiManager.configureProviders({
+            provider: config.provider || 'openai',
+            apiKey: config.apiKey,
+          });
+        }
+        sendJson(res, 200, { success: true });
+        return;
+      }
+
       sendJson(res, 404, { error: 'Not Found' });
     } catch (err) {
       console.error('[Realm] 设置 API 处理失败:', err.message);

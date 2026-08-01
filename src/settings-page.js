@@ -211,6 +211,8 @@ function switchSettingsPage(pageName) {
   } else if (pageName === 'devmode') {
     loadDevModeSettings();
     startQueueStatusPolling();
+  } else if (pageName === 'ai-assistant') {
+    loadAISettings();
   } else {
     // 离开开发者模式页面时停止轮询
     stopQueueStatusPolling();
@@ -1375,6 +1377,111 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// ==================== AI 助手设置 ====================
+
+/**
+ * 加载 AI 助手设置
+ * 获取当前 AI 状态和可用模型列表，更新 UI
+ */
+async function loadAISettings() {
+  try {
+    // 获取 AI 状态
+    const aiState = await settingsApi('ai/state');
+    updateAIStatusIndicator(aiState);
+
+    // 获取可用模型列表
+    const modelsData = await settingsApi('ai/models');
+    const modelSelect = document.getElementById('aiModelSelect');
+    if (modelSelect && modelsData.models) {
+      // 清空现有选项（保留默认提示）
+      modelSelect.innerHTML = '<option value="">选择模型</option>';
+      modelsData.models.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model.id;
+        option.textContent = model.name;
+        modelSelect.appendChild(option);
+      });
+    }
+  } catch (error) {
+    console.error('[Realm] 加载 AI 设置失败:', error);
+  }
+}
+
+/**
+ * 更新 AI 连接状态指示器
+ * @param {Object} aiState - AI Manager 状态
+ * @param {boolean} aiState.initialized - 是否已初始化
+ * @param {string|null} aiState.model - 当前模型
+ * @param {number} aiState.toolsCount - 工具数量
+ */
+function updateAIStatusIndicator(aiState) {
+  const statusDot = document.getElementById('aiStatusDot');
+  const statusText = document.getElementById('aiStatusText');
+  if (!statusDot || !statusText) return;
+
+  if (aiState.initialized) {
+    statusDot.className = 'ai-status-dot connected';
+    statusText.className = 'ai-status-text connected';
+    statusText.textContent = `已连接 (${aiState.model || '未知模型'}, ${aiState.toolsCount} 个工具)`;
+  } else {
+    statusDot.className = 'ai-status-dot';
+    statusText.className = 'ai-status-text';
+    statusText.textContent = '未配置 API Key';
+  }
+}
+
+/**
+ * 初始化 AI 助手设置事件监听
+ */
+function setupAISettingsListeners() {
+  const saveBtn = document.getElementById('aiSaveConfig');
+  const toggleBtn = document.getElementById('aiToggleKeyVisibility');
+  const apiKeyInput = document.getElementById('aiApiKey');
+
+  // 保存配置按钮
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async () => {
+      const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+      if (!apiKey) {
+        showToast('请输入 API Key', 'error');
+        return;
+      }
+
+      try {
+        saveBtn.disabled = true;
+        saveBtn.textContent = '保存中...';
+
+        await settingsApi('ai/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: 'openai', apiKey }),
+        });
+
+        showToast('配置已保存');
+
+        // 重新加载状态
+        const aiState = await settingsApi('ai/state');
+        updateAIStatusIndicator(aiState);
+      } catch (error) {
+        console.error('[Realm] 保存 AI 配置失败:', error);
+        showToast('保存失败: ' + error.message, 'error');
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = '保存配置';
+      }
+    });
+  }
+
+  // API Key 显示/隐藏切换
+  if (toggleBtn && apiKeyInput) {
+    toggleBtn.addEventListener('click', () => {
+      const isPassword = apiKeyInput.type === 'password';
+      apiKeyInput.type = isPassword ? 'text' : 'password';
+      toggleBtn.textContent = isPassword ? '隐藏' : '显示';
+    });
+  }
+}
+
 // ==================== 初始化 ====================
 
 /**
@@ -1388,6 +1495,9 @@ async function init() {
 
   // 初始化事件监听
   setupEventListeners();
+
+  // 初始化 AI 助手设置事件监听
+  setupAISettingsListeners();
 
   // 检查 URL 参数中的 tab 指示；无参数时显式落在通用页，
   // 避免仅依赖 HTML 内联 display:none 兜底（内联样式失效会导致多个 section 同时显示）
