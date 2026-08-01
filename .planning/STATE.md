@@ -2,29 +2,39 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: 收藏夹文件夹支持 + AI Agent 集成
-current_phase: 18 — 收藏栏功能 (Complete)
-status: complete
+current_phase: 19
+status: executing
 stopped_at: Phase 19 context gathered
-last_updated: "2026-07-31T03:21:40.123Z"
+last_updated: "2026-08-01T07:38:05Z"
 progress:
   total_phases: 8
   completed_phases: 5
-  total_plans: 10
-  completed_plans: 10
-  percent: 63
+  total_plans: 12
+  completed_plans: 11
+  percent: 69
 ---
 
 # Project State: Realm Browser
 
 **Last Updated:** 2026-07-30
 **Current Milestone:** v2.0 收藏夹文件夹支持 + AI Agent 集成
-**Current Phase:** 18 — 收藏栏功能 (Complete)
+**Current Phase:** 19
 
 ## Recent Activity
 
+### Phase 19: AI Agent 集成 - 基础验证
+
+- **Status:** Executing (Plan 01 Complete)
+- **Output:** AIManager 骨架模块 + pi SDK 依赖验证
+- **Plans:** 1/2 完成
+  - 19-01: 验证 pi-agent-core SDK + 创建 AI Manager 骨架 — DONE (174085e, 0f04b5e)
+  - 19-02: Pending
+- **关键发现:** Electron 32.3.3 内置 Node.js 20.18.x（不满足 pi-agent-core >= 22.19.0），pi 包为 ESM-only
+- **Last:** Plan 01 完成，AIManager 骨架集成到 main.js
+
 ### Phase 18: 收藏栏功能
 
-- **Status:** Complete (2026-07-30)
+- **Status:** Executing Phase 19
 - **Output:** Chrome 风格收藏栏（固定显示 + 交互 + 右键菜单 + 设置）
 - **Plans:** 2/2 完成
   - 18-01: 收藏栏基础实现 — DONE (24dc4ca, 6cd27e3)
@@ -63,7 +73,8 @@ progress:
 - Phase 16: ✅ Complete (3d)
 - Phase 17: ✅ Complete (1d)
 - Phase 18: ✅ Complete (1d) — 收藏栏功能
-- Phase 19-21: ○ Pending
+- Phase 19: 🔄 Executing (Plan 01/02 done) — AI Manager 骨架
+- Phase 20-21: ○ Pending
 
 ## Next Actions
 
@@ -74,6 +85,6 @@ progress:
 
 ## Session
 
-**Last session:** 2026-07-31T03:21:40.119Z
-**Stopped at:** Phase 19 context gathered
-**Resume file:** .planning/phases/19-ai-agent/19-CONTEXT.md
+**Last session:** 2026-08-01T07:38:05Z
+**Stopped at:** Phase 19 Plan 01 completed, Plan 02 pending
+**Resume file:** .planning/phases/19-ai-agent/19-PLAN.md
