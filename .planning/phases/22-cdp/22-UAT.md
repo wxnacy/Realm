@@ -3,7 +3,7 @@ status: diagnosed
 phase: 22-cdp
 source: 22-01-SUMMARY.md, 22-02-SUMMARY.md, 22-03-SUMMARY.md, 22-04-SUMMARY.md
 started: 2026-08-02T07:35:37Z
-updated: 2026-08-02T08:05:00Z
+updated: 2026-08-02T08:40:00Z
 ---
 
 ## Current Test
@@ -29,6 +29,7 @@ expected: ① 模拟全新 profile（备份后移除 realm-config.json 的 conta
 result: issue
 reported: "当前标签页打开网址有正确回复，但是没有真的打开网页。日志显示 AI 调用 navigate 工具 → 主进程创建 tab-469 记录（[Realm] Tab 创建: tab-469 容器: default），工具返回 success，但页面实际未加载。"
 severity: major
+retest_22_05: "复测场景（22-05 新增）：用「当前标签打开 <URL>」措辞重测 — AI 应选择 open_link 且设 newTab 为 false，当前活跃 webview 真实导航（终端出现 did-navigate 日志、页面可见加载），工具卡片成功。navigate 工具已移除（Gap 1 修复方式：删工具消除歧义，非改实现），AI 不再可能在两个打开链接工具间误选。"
 
 ### 5. DevTools 冲突与错误提示呈现
 expected: 对当前 tab 打开 DevTools 后调用「读取当前页面内容」→ 工具卡片显示「失败」+「DevTools 已打开，请关闭后重试」；新建空 tab（未加载页面）调用工具 → 工具卡片「失败」+「当前标签页未加载页面，请先打开网页」。tool_execution_update running/completed/failed 状态在渲染进程正确呈现。
@@ -44,6 +45,7 @@ expected: 打开 >1MB 大页面（长文新闻/文档站），调用「读取当
 result: issue
 reported: "打开第一个链接（zh.wikipedia.org/wiki/第二次世界大战），5秒内也返回了内容，但好像没有截断（AI 回复为完整结构化总结，未见 100KB 截断中文标记）"
 severity: minor
+expectation_correction_22_05: "期望修正（22-05）：性能期望不变（5 秒内返回、UI 可交互）。截断标记期望改条件式 — 仅当 Readability 提取后正文超 102,400 字符时，内容应截断并附字符语义截断标记（新措辞）；未超阈值时完整返回属正确行为。附注：原始 HTML 大小 ≠ 提取后文本量（wiki 案例提取率约 7.3%，99,630 < 102,400 故未截断），复测选页可用调试会话的 Electron 复现脚本预验证提取后长度（.planning/debug/truncation-marker-missing.md 记载 /tmp/readability_test.js 方法）。"
 
 ### 8. cdp-manager.js 导出 attachForAI/detachForAI/executeCommand 三个 AI 工具调试器管理方法
 expected: cdp-manager.js 导出 attachForAI/detachForAI/executeCommand 三个 AI 工具调试器管理方法
@@ -159,3 +161,9 @@ blocked: 0
     - "修正 UAT 用例：选用提取后正文确定超 102,400 字符的页面（可脚本预验证）或改条件式期望"
     - "可选：系统提示引导 AI 转述截断标记，或工具卡片基于 details.contentLength 显示截断状态"
   debug_session: ".planning/debug/truncation-marker-missing.md"
+
+## 附注（22-05）
+
+- 工具总数由 8 变为 7（navigate 已移除）— Test 15 等历史自动化用例若复跑，期望数量与工具集合相应更新
+- Test 5 的 DevTools 子项用户决策已同步至 22-UI-SPEC 契约变更记录
+- navigate 工具已移除（22-05 Gap 1 修复方式：删工具消除歧义，非改实现），AI 不再可能在两个打开链接工具间误选

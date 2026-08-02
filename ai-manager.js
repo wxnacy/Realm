@@ -106,7 +106,10 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 /** 上下文裁剪：保留最近的消息数量 */
 const MAX_CONTEXT_MESSAGES = 20;
 
-/** read_page_content 正文截断阈值（100KB，D-07：覆盖 99%+ 网页） */
+/**
+ * read_page_content 正文截断阈值
+ * D-07：覆盖 99%+ 网页。单位按 JS string.length（UTF-16 code unit）计数字符而非字节
+ */
 const MAX_CONTENT_SIZE = 100 * 1024;
 
 /**
@@ -1005,7 +1008,7 @@ class AIManager {
             // 100KB 截断（D-07）
             if (data.content && data.content.length > MAX_CONTENT_SIZE) {
               data.content = data.content.substring(0, MAX_CONTENT_SIZE) +
-                `\n[截断：原始大小 ${data.content.length} bytes，已截断至 100KB]`;
+                `\n[截断：原始长度 ${data.content.length} 字符，已截断至 102400 字符]`;
             }
 
             // 空状态契约文案（22-UI-SPEC）：正文为空是合法结果而非错误，
