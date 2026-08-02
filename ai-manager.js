@@ -77,6 +77,168 @@ function getContainersLazy() {
   return require('./container-manager').getContainers();
 }
 
+// ==================== 安全辅助函数 ====================
+
+/**
+ * 输入消毒函数（per D-13 输入消毒层）
+ *
+ * 对所有字符串参数执行消毒，防止 Runtime.evaluate 注入攻击。
+ * 在调用 cdpManager.fillForm/executeAction 之前必须先调用此函数。
+ *
+ * 消毒规则：
+ * 1. 转义反引号（` → \`）防止模板字符串注入
+ * 2. 移除 ${...} 模板字面量表达式
+ * 3. 转义单引号和双引号防止字符串逃逸
+ * 4. 过滤 null 字节（\x00）
+ *
+ * @param {Object} params - 原始参数对象
+ * @returns {Object} 消毒后的参数副本
+ */
+function sanitizeInput(params) {
+  if (!params || typeof params !== 'object') return params;
+
+  /**
+   * 对单个字符串值执行消毒
+   * @param {string} str - 原始字符串
+   * @returns {string} 消毒后的字符串
+   */
+  function sanitizeString(str) {
+    if (typeof str !== 'string') return str;
+    let result = str;
+    // 1. 过滤 null 字节
+    result = result.replace(/\x00/g, '');
+    // 2. 移除 ${...} 模板字面量表达式
+    result = result.replace(/\$\{[^}]*\}/g, '');
+    // 3. 转义反引号防止模板字符串注入
+    result = result.replace(/`/g, '\\`');
+    // 4. 转义单引号和双引号防止字符串逃逸
+    result = result.replace(/'/g, "\\'");
+    result = result.replace(/"/g, '\\"');
+    return result;
+  }
+
+  /**
+   * 递归消毒对象的所有字符串值
+   * @param {*} value - 要消毒的值
+   * @returns {*} 消毒后的值
+   */
+  function deepSanitize(value) {
+    if (typeof value === 'string') return sanitizeString(value);
+    if (Array.isArray(value)) return value.map(deepSanitize);
+    if (value && typeof value === 'object') {
+      const result = {};
+      for (const key of Object.keys(value)) {
+        result[key] = deepSanitize(value[key]);
+      }
+      return result;
+    }
+    return value;
+  }
+
+  return deepSanitize(params);
+}
+
+/**
+ * 脚本静态分析（per D-16 白名单脚本安全）
+ *
+ * 检测 execute_script 参数中的危险调用，包括 eval、Function、import、
+ * require、fs/net/http 模块访问、child_process、process 等。
+ *
+ * @param {string} script - 要检查的脚本内容
+ * @returns {{safe: boolean, reason?: string}} 检查结果
+ */
+function validateScript(script) {
+  if (!script || typeof script !== 'string') {
+    return { safe: false, reason: '脚本内容为空' };
+  }
+
+  /** 危险模式列表（与 cdp-manager.js DANGEROUS_SCRIPT_PATTERNS 一致） */
+  const dangerousPatterns = [
+    { pattern: /\beval\s*\(/, name: 'eval' },
+    { pattern: /\bnew\s+Function\s*\(/, name: 'new Function' },
+    { pattern: /\bimport\s*\(/, name: 'import()' },
+    { pattern: /\brequire\s*\(/, name: 'require()' },
+    { pattern: /\bfs\./, name: 'fs 模块' },
+    { pattern: /\bnet\./, name: 'net 模块' },
+    { pattern: /\bhttp\./, name: 'http 模块' },
+    { pattern: /\bhttps\./, name: 'https 模块' },
+    { pattern: /\bchild_process\b/, name: 'child_process' },
+    { pattern: /\bprocess\./, name: 'process 对象' },
+    { pattern: /\bexec\s*\(/, name: 'exec' },
+    { pattern: /\bspawn\s*\(/, name: 'spawn' },
+  ];
+
+  for (const { pattern, name } of dangerousPatterns) {
+    if (pattern.test(script)) {
+      return { safe: false, reason: `检测到危险调用: ${name}` };
+    }
+  }
+
+  return { safe: true };
+}
+
+/**
+ * 请求高风险操作确认（per D-05/D-06/D-07）
+ *
+ * 通过 IPC 发送确认请求到渲染进程，在 AI 聊天面板内显示确认卡片。
+ * 用户点击确认或取消后返回结果，30 秒超时自动取消。
+ *
+ * @param {Object} data - 确认请求数据
+ * @param {string} data.actionId - 操作唯一 ID
+ * @param {string} data.type - 操作类型（submit/upload/execute_script/payment）
+ * @param {string} data.title - 确认卡片标题
+ * @param {string} data.description - 确认卡片描述
+ * @param {string} data.url - 目标页面 URL
+ * @param {string} data.containerId - 容器 ID
+ * @param {string} data.riskLevel - 风险等级（high/critical）
+ * @returns {Promise<{confirmed: boolean, reason?: string}>} 用户确认结果
+ */
+function requestActionConfirmation(data) {
+  return new Promise((resolve) => {
+    const { ipcMain } = require('electron');
+    const actionId = data.actionId;
+    let resolved = false;
+
+    // 30 秒超时自动取消
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        cleanup();
+        resolve({ confirmed: false, reason: 'timeout' });
+      }
+    }, 30000);
+
+    // 监听用户响应
+    const channel = `action:confirm-response:${actionId}`;
+    const handler = (event, response) => {
+      if (!resolved) {
+        resolved = true;
+        cleanup();
+        resolve({ confirmed: response.confirmed === true });
+      }
+    };
+
+    function cleanup() {
+      clearTimeout(timeout);
+      ipcMain.removeListener(channel, handler);
+    }
+
+    ipcMain.on(channel, handler);
+
+    // 发送确认请求到渲染进程
+    const mainWindow = windowManager.getMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('action:request-confirmation', data);
+    } else {
+      if (!resolved) {
+        resolved = true;
+        cleanup();
+        resolve({ confirmed: false, reason: 'no-window' });
+      }
+    }
+  });
+}
+
 // ==================== 常量 ====================
 
 /**
@@ -94,17 +256,23 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - read_page_content: 读取当前标签页的页面内容，包括标题、正文、元信息和 Open Graph 数据。用于理解用户正在浏览的网页。
 - extract_links: 提取当前页面的所有有效链接，自动过滤非 HTTP 协议和锚点链接。用于收集页面中的所有可导航链接。
 - open_link: 在指定容器中打开一个链接，支持在当前标签页或新标签页中打开。默认使用当前活跃容器和新标签页。
+- fill_form: 自动填写网页表单。参数格式为 fields 数组，每个元素包含 field（字段名称）和 value（填写值）。低风险操作自动执行，文件上传需要用户确认。
+- execute_action: 在当前页面执行操作（点击、滚动、提交等）。参数格式为 action + target + options。低风险操作自动执行，表单提交、文件上传、脚本执行、支付操作需要用户确认。
 
 使用指南：
 - 当用户询问"当前页面是什么"、"读取页面内容"等，使用 read_page_content
 - 当用户询问"页面有哪些链接"、"提取链接"等，使用 extract_links
 - 当用户要求打开链接或网址时，一律使用 open_link：默认新标签页打开（newTab 省略或为 true）；用户明确要求"在当前标签页打开"时设 newTab 为 false；containerId 省略时使用当前活跃容器
 - 当用户要求搜索收藏时，使用 search_favorites_fulltext 进行全文检索
+- 当用户要求填写表单（如"帮我填邮箱"、"填写注册表单"）时，使用 fill_form
+- 当用户要求执行页面操作（如"点击提交按钮"、"滚动到底部"）时，使用 execute_action
 - 用户消息中可能附带 <referenced-tab> 块：这是用户通过 @ 显式引用的标签页内容（含标题、URL、正文）。请直接基于这些已提供的内容回答，不要再调用 read_page_content 读取当前页面
 - 【禁止】不得为了读取某个页面的内容而调用 open_link 打开它、或把当前标签页导航到该 URL——这会破坏用户正在浏览的页面。若 <referenced-tab> 块的内容为空，直接告知用户「该页面内容提取失败」，建议用户切换到该标签页后重试，而不是自行打开
 - open_link 的 newTab:false（在当前标签页打开）仅在用户明确要求「在当前标签页打开」时使用；其余情况一律新标签页
 - 这些工具需要访问页面的调试器，如果提示"DevTools 已打开"，请让用户关闭开发者工具后重试
 - read_page_content 返回内容若包含截断标记，回复时明确告知用户内容已截断及原始长度
+- fill_form 的 field 参数支持 label 文本、placeholder、aria-label、name、id 或 CSS 选择器
+- execute_action 支持的操作类型：click、scroll、type、select、check、uncheck、focus、blur、submit、upload、drag、hover、keydown、keyup、execute_script、screenshot、wait_for_element
 
 请用简洁、专业的语气回答用户问题。当需要执行操作时，使用提供的工具函数。`;
 
@@ -1390,6 +1558,304 @@ ${content}
               }, null, 2),
             }],
             details: { tabId: activeTab.id, url },
+          };
+        },
+      },
+
+      // ==================== fill_form 工具 ====================
+      {
+        name: 'fill_form',
+        label: '填写表单',
+        description: '自动填写网页表单字段。支持 input/textarea/select/checkbox/radio 等类型。低风险操作自动执行，文件上传需要用户确认。',
+        parameters: {
+          type: 'object',
+          properties: {
+            fields: {
+              type: 'array',
+              description: '要填写的字段列表，每个元素包含 field（字段名称/label/placeholder）和 value（填写值）',
+              items: {
+                type: 'object',
+                properties: {
+                  field: { type: 'string', description: '字段名称（label 文本、placeholder、aria-label、name 或 id）' },
+                  value: { type: 'string', description: '要填写的值' },
+                },
+                required: ['field', 'value'],
+              },
+            },
+          },
+          required: ['fields'],
+        },
+        execute: async (toolCallId, params) => {
+          // 1. 获取当前活跃标签页
+          const { tab, webContentsId } = resolveToolTargetTab();
+
+          // 2. 输入消毒（per D-13）
+          const sanitized = sanitizeInput(params);
+          const fields = sanitized.fields || [];
+
+          if (!Array.isArray(fields) || fields.length === 0) {
+            throw new Error('fields 参数不能为空，请提供要填写的字段列表');
+          }
+
+          // 3. 风险评估（per D-07）：检查是否包含 file 类型字段
+          const hasFileField = fields.some(f => {
+            const fieldLower = (f.field || '').toLowerCase();
+            return fieldLower.includes('file') || fieldLower.includes('upload') ||
+                   fieldLower.includes('文件') || fieldLower.includes('上传');
+          });
+
+          if (hasFileField) {
+            // 高风险：文件上传，需要用户确认
+            const actionId = `fill_form_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            const fieldNames = fields.map(f => f.field).join(', ');
+            const confirmation = await requestActionConfirmation({
+              actionId,
+              type: 'upload',
+              title: '文件上传确认',
+              description: `确认上传文件？字段: ${fieldNames}`,
+              url: tab.url,
+              containerId: tab.containerId,
+              riskLevel: 'high',
+            });
+
+            if (!confirmation.confirmed) {
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    success: false,
+                    cancelled: true,
+                    message: '用户取消了文件上传操作',
+                  }, null, 2),
+                }],
+                details: { cancelled: true },
+              };
+            }
+          }
+
+          // 4. 调用 cdpManager.fillForm 执行填写
+          const result = await cdpManager.fillForm(webContentsId, fields);
+
+          // 5. CAPTCHA 检测处理（per D-14/D-15）
+          if (result.captchaDetected) {
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  success: false,
+                  captchaDetected: true,
+                  captchaType: result.captchaType,
+                  message: `检测到验证码（${result.captchaType || 'unknown'}），请手动完成验证后重试`,
+                  filled: result.filled,
+                  failed: result.failed,
+                }, null, 2),
+              }],
+              details: { captchaDetected: true, captchaType: result.captchaType },
+            };
+          }
+
+          // 6. 字段未找到处理（per D-04）
+          if (!result.success && result.failed && result.failed.length > 0) {
+            const notFoundFields = result.failed.filter(f => f.error === '字段未找到');
+            if (notFoundFields.length > 0) {
+              const allAvailable = notFoundFields.reduce((acc, f) => {
+                if (f.availableFields) acc.push(...f.availableFields);
+                return acc;
+              }, []);
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    success: false,
+                    filled: result.filled,
+                    failed: result.failed,
+                    availableFields: [...new Set(allAvailable)],
+                    message: `部分字段未找到，已填写 ${result.filled.length} 个字段，${result.failed.length} 个失败。可用字段列表已返回，请根据可用字段重新指定。`,
+                  }, null, 2),
+                }],
+                details: { filled: result.filled.length, failed: result.failed.length },
+              };
+            }
+          }
+
+          // 7. 返回结果
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: result.success,
+                filled: result.filled,
+                failed: result.failed,
+                message: result.success
+                  ? `成功填写 ${result.filled.length} 个字段`
+                  : `填写完成，${result.filled.length} 个成功，${result.failed.length} 个失败`,
+              }, null, 2),
+            }],
+            details: { filled: result.filled.length, failed: result.failed.length },
+          };
+        },
+      },
+
+      // ==================== execute_action 工具 ====================
+      {
+        name: 'execute_action',
+        label: '执行操作',
+        description: '在当前页面执行操作，如点击按钮、滚动页面、填写输入框等。低风险操作自动执行，表单提交、文件上传、脚本执行需要用户确认。',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: {
+              type: 'string',
+              description: '操作类型',
+              enum: ['click', 'scroll', 'type', 'select', 'check', 'uncheck', 'focus', 'blur', 'submit', 'upload', 'drag', 'hover', 'keydown', 'keyup', 'execute_script', 'screenshot', 'wait_for_element'],
+            },
+            target: {
+              type: 'string',
+              description: '目标元素描述（文本内容或 CSS 选择器）',
+            },
+            options: {
+              type: 'object',
+              description: '操作参数（如 type 的文本内容、scroll 的距离、execute_script 的脚本内容等）',
+              properties: {
+                text: { type: 'string', description: 'type 操作的文本内容' },
+                value: { type: 'string', description: 'select 操作的选项值，或 upload 操作的文件路径' },
+                script: { type: 'string', description: 'execute_script 操作的脚本内容' },
+                x: { type: 'number', description: 'scroll 操作的横向距离' },
+                y: { type: 'number', description: 'scroll 操作的纵向距离' },
+                key: { type: 'string', description: 'keydown/keyup 操作的键名' },
+                code: { type: 'string', description: 'keydown/keyup 操作的键码' },
+                keyCode: { type: 'number', description: 'keydown/keyup 操作的虚拟键码' },
+                format: { type: 'string', description: 'screenshot 操作的图片格式' },
+                quality: { type: 'number', description: 'screenshot 操作的图片质量' },
+                timeout: { type: 'number', description: 'wait_for_element 操作的超时毫秒数' },
+                clearFirst: { type: 'boolean', description: 'type 操作是否先清空输入框' },
+                filePath: { type: 'string', description: 'upload 操作的文件路径' },
+                toX: { type: 'number', description: 'drag 操作的目标 X 坐标' },
+                toY: { type: 'number', description: 'drag 操作的目标 Y 坐标' },
+              },
+            },
+          },
+          required: ['action'],
+        },
+        execute: async (toolCallId, params) => {
+          // 1. 获取当前活跃标签页
+          const { tab, webContentsId } = resolveToolTargetTab();
+
+          // 2. 输入消毒（per D-13）
+          const sanitized = sanitizeInput(params);
+          const { action, target, options } = sanitized;
+
+          if (!action) {
+            throw new Error('操作类型不能为空');
+          }
+
+          // 3. 风险评估（per D-07）
+          const highRiskActions = ['submit', 'upload', 'execute_script'];
+          let isHighRisk = highRiskActions.includes(action);
+
+          // 支付检测逻辑：检查 target 或页面 URL 是否包含支付关键词
+          const paymentKeywords = ['pay', 'payment', '付款', '支付', 'confirm order', 'place order', '下单', '结算'];
+          let isPayment = false;
+
+          if (action === 'submit') {
+            const targetLower = (target || '').toLowerCase();
+            const urlLower = (tab.url || '').toLowerCase();
+            isPayment = paymentKeywords.some(kw =>
+              targetLower.includes(kw) || urlLower.includes(kw)
+            );
+            if (isPayment) isHighRisk = true;
+          }
+
+          // 4. 高风险操作确认
+          if (isHighRisk) {
+            const actionId = `execute_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            let confirmTitle, confirmDesc, riskLevel;
+
+            if (isPayment) {
+              confirmTitle = '支付操作';
+              confirmDesc = `确认在 ${tab.url} 执行支付？请仔细核对金额。`;
+              riskLevel = 'critical';
+            } else if (action === 'submit') {
+              confirmTitle = '提交表单';
+              confirmDesc = `确认向 ${tab.url} 提交数据？此操作不可撤销。`;
+              riskLevel = 'high';
+            } else if (action === 'upload') {
+              confirmTitle = '上传文件';
+              confirmDesc = `确认向 ${tab.url} 上传文件？`;
+              riskLevel = 'high';
+            } else if (action === 'execute_script') {
+              confirmTitle = '执行脚本';
+              confirmDesc = '确认在页面中执行脚本？';
+              riskLevel = 'high';
+            }
+
+            const confirmation = await requestActionConfirmation({
+              actionId,
+              type: isPayment ? 'payment' : action,
+              title: confirmTitle,
+              description: confirmDesc,
+              url: tab.url,
+              containerId: tab.containerId,
+              riskLevel,
+            });
+
+            if (!confirmation.confirmed) {
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    success: false,
+                    cancelled: true,
+                    message: `用户取消了${confirmTitle}操作`,
+                  }, null, 2),
+                }],
+                details: { cancelled: true, action },
+              };
+            }
+          }
+
+          // 5. execute_script 安全检查（per D-13/D-16）
+          if (action === 'execute_script') {
+            const script = options?.script || options?.value || '';
+            const validation = validateScript(script);
+            if (!validation.safe) {
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    success: false,
+                    blocked: true,
+                    message: `脚本安全检查未通过: ${validation.reason}`,
+                    reason: validation.reason,
+                  }, null, 2),
+                }],
+                details: { blocked: true, action, reason: validation.reason },
+              };
+            }
+          }
+
+          // 6. 调用 cdpManager.executeAction 执行操作
+          const result = await cdpManager.executeAction(webContentsId, action, target, options);
+
+          // 7. 返回操作结果 + 页面变化信息（per D-12）
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: result.success,
+                result: result.result,
+                pageChanges: result.pageChanges,
+                message: result.success
+                  ? `${action} 操作执行成功`
+                  : `操作执行失败: ${result.error}`,
+                error: result.error,
+              }, null, 2),
+            }],
+            details: {
+              action,
+              success: result.success,
+              pageChanges: result.pageChanges,
+            },
           };
         },
       },
