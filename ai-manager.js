@@ -1023,6 +1023,97 @@ class AIManager {
           }
         },
       },
+      {
+        name: 'extract_links',
+        label: '提取页面链接',
+        description: '提取当前页面的所有有效链接，自动过滤非 HTTP 协议和锚点链接，返回去重后的链接列表。用于收集页面中的所有可导航链接。仅支持当前活跃标签页。',
+        parameters: {
+          type: 'object',
+          properties: {
+            tabId: {
+              type: 'string',
+              description: '标签页 ID（可选，默认使用当前活跃标签页；暂仅支持活跃标签页）',
+            },
+          },
+        },
+        execute: async (toolCallId, params) => {
+          const { tab, webContentsId } = resolveToolTargetTab(params && params.tabId);
+
+          const attachResult = await cdpManager.attachForAI(webContentsId, ['Runtime']);
+          if (!attachResult.success) {
+            throw new Error(attachResult.error);
+          }
+
+          try {
+            // D-08 过滤规则：仅 http/https、过滤本页锚点链接、过滤空文本、URL 去重
+            // D-09 返回字段：URL + 链接文本（截取 200 字符）
+            const extractScript = `
+              (function() {
+                const links = Array.from(document.querySelectorAll('a[href]'))
+                  .map(a => {
+                    try {
+                      const url = new URL(a.href, window.location.origin);
+                      return {
+                        url: url.href,
+                        text: (a.textContent || '').trim().substring(0, 200)
+                      };
+                    } catch {
+                      return null;
+                    }
+                  })
+                  .filter(link => {
+                    if (!link) return false;
+                    if (!link.url.startsWith('http://') && !link.url.startsWith('https://')) {
+                      return false;
+                    }
+                    if (link.url.includes('#') &&
+                        link.url.split('#')[0] === window.location.href.split('#')[0]) {
+                      return false;
+                    }
+                    if (!link.text) return false;
+                    return true;
+                  });
+                const seen = new Set();
+                const uniqueLinks = links.filter(link => {
+                  if (seen.has(link.url)) return false;
+                  seen.add(link.url);
+                  return true;
+                });
+                return JSON.stringify({
+                  total: uniqueLinks.length,
+                  links: uniqueLinks
+                });
+              })()
+            `;
+
+            const cmdResult = await cdpManager.executeCommand(
+              webContentsId,
+              'Runtime.evaluate',
+              { expression: extractScript, returnByValue: true }
+            );
+            if (!cmdResult.success) {
+              throw new Error(cmdResult.error);
+            }
+
+            const evalResult = cmdResult.result || {};
+            if (evalResult.exceptionDetails) {
+              throw new Error(`页面脚本执行失败: ${evalResult.exceptionDetails.text || '未知错误'}`);
+            }
+            if (!evalResult.result || typeof evalResult.result.value !== 'string') {
+              throw new Error('链接提取失败：未返回有效结果');
+            }
+
+            const data = JSON.parse(evalResult.result.value);
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
+              details: { totalLinks: data.total },
+            };
+          } finally {
+            cdpManager.detachForAI(webContentsId);
+          }
+        },
+      },
     ];
   }
 
