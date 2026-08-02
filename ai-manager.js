@@ -89,6 +89,7 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - get_tabs: 获取当前所有标签页列表
 - search_history: 搜索浏览历史记录
 - manage_favorites: 管理收藏夹（添加、查看、删除）
+- search_favorites_fulltext: 使用全文检索搜索收藏夹中的页面，支持中文分词。当用户说"搜索收藏 XXX"或"找收藏 XXX"时使用此工具。
 - switch_container: 切换当前容器
 - read_page_content: 读取当前标签页的页面内容，包括标题、正文、元信息和 Open Graph 数据。用于理解用户正在浏览的网页。
 - extract_links: 提取当前页面的所有有效链接，自动过滤非 HTTP 协议和锚点链接。用于收集页面中的所有可导航链接。
@@ -98,6 +99,10 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - 当用户询问"当前页面是什么"、"读取页面内容"等，使用 read_page_content
 - 当用户询问"页面有哪些链接"、"提取链接"等，使用 extract_links
 - 当用户要求打开链接或网址时，一律使用 open_link：默认新标签页打开（newTab 省略或为 true）；用户明确要求"在当前标签页打开"时设 newTab 为 false；containerId 省略时使用当前活跃容器
+- 当用户要求搜索收藏时，使用 search_favorites_fulltext 进行全文检索
+- 用户消息中可能附带 <referenced-tab> 块：这是用户通过 @ 显式引用的标签页内容（含标题、URL、正文）。请直接基于这些已提供的内容回答，不要再调用 read_page_content 读取当前页面
+- 【禁止】不得为了读取某个页面的内容而调用 open_link 打开它、或把当前标签页导航到该 URL——这会破坏用户正在浏览的页面。若 <referenced-tab> 块的内容为空，直接告知用户「该页面内容提取失败」，建议用户切换到该标签页后重试，而不是自行打开
+- open_link 的 newTab:false（在当前标签页打开）仅在用户明确要求「在当前标签页打开」时使用；其余情况一律新标签页
 - 这些工具需要访问页面的调试器，如果提示"DevTools 已打开"，请让用户关闭开发者工具后重试
 - read_page_content 返回内容若包含截断标记，回复时明确告知用户内容已截断及原始长度
 
@@ -408,6 +413,123 @@ class AIManager {
         await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
       }
     }
+  }
+
+  /**
+   * 发送带上下文引用的用户消息给 AI Agent
+   *
+   * 将引用的标签页内容注入到用户消息中，让 AI 能够理解引用页面的内容。
+   * 内容以 XML 格式的 <referenced-tab> 块注入到消息前缀。
+   *
+   * @param {string} message - 用户输入的消息
+   * @param {Array} referencedTabs - 引用的标签页列表，每项包含 {tabId, title, url, content}
+   * @returns {Promise<void>}
+   */
+  async promptWithContext(message, referencedTabs) {
+    if (!this.isInitialized || !this.agent) {
+      console.error('[Realm AI] AI Manager 未初始化，无法处理消息');
+      this._sendEventsBatch([{
+        type: 'error',
+        message: 'AI 助手未初始化，请先在「设置 → AI 助手」中配置提供商和 API Key',
+        timestamp: Date.now(),
+      }]);
+      return;
+    }
+
+    // 防止并发调用
+    if (this.isProcessing) {
+      console.warn('[Realm AI] 正在处理中，请等待完成');
+      this._sendEventsBatch([{
+        type: 'error',
+        message: 'AI 正在处理上一条消息，请稍候再试',
+        timestamp: Date.now(),
+      }]);
+      return;
+    }
+
+    this.isProcessing = true;
+    console.log(`[Realm AI] 发送带上下文消息: ${message}，引用 ${referencedTabs.length} 个标签页`);
+
+    try {
+      // 构建增强消息
+      const enhancedMessage = this._buildMessageWithContext(message, referencedTabs);
+
+      // 调用 agent.prompt
+      await this.agent.prompt(enhancedMessage);
+      await this.agent.waitForIdle();
+      this.isProcessing = false;
+    } catch (err) {
+      console.error('[Realm AI] 带上下文消息处理失败:', err.message);
+      this.isProcessing = false;
+
+      // 广播错误事件到渲染进程
+      this._sendEventsBatch([{
+        type: 'error',
+        message: err.message,
+        timestamp: Date.now(),
+      }]);
+    }
+  }
+
+  /**
+   * 获取缓存的 Readability 库源码
+   * 供渲染进程经 IPC 拉取后内联注入 webview，提取 @ 引用标签页内容
+   *
+   * @returns {string} Readability bundle 源码（加载失败为空字符串）
+   */
+  getReadabilityScript() {
+    return READABILITY_SCRIPT || '';
+  }
+
+  /**
+   * 构建带上下文的消息
+   *
+   * 将引用的标签页内容以 XML 格式注入到用户消息前缀。
+   * 每个标签页内容最多 102,400 字符（per D-07）。
+   *
+   * @param {string} message - 原始用户消息
+   * @param {Array} referencedTabs - 引用的标签页列表
+   * @returns {string} 增强后的消息
+   * @private
+   */
+  _buildMessageWithContext(message, referencedTabs) {
+    if (!referencedTabs || referencedTabs.length === 0) {
+      return message;
+    }
+
+    const MAX_CONTENT_SIZE = 102400; // 100KB per D-07
+
+    // 构建 XML 格式的上下文块
+    const contextBlocks = referencedTabs.map((tab, index) => {
+      let content = tab.content || '';
+
+      // 截断内容
+      if (content.length > MAX_CONTENT_SIZE) {
+        content = content.substring(0, MAX_CONTENT_SIZE) +
+          `\n[截断：原始长度 ${tab.content.length} 字符，已截断至 ${MAX_CONTENT_SIZE} 字符]`;
+      }
+
+      return `<referenced-tab index="${index + 1}" title="${this._escapeXml(tab.title || '')}" url="${this._escapeXml(tab.url || '')}">
+${content}
+</referenced-tab>`;
+    }).join('\n\n');
+
+    return `${contextBlocks}\n\n用户消息：${message}`;
+  }
+
+  /**
+   * 转义 XML 特殊字符
+   * @param {string} str - 原始字符串
+   * @returns {string} 转义后的字符串
+   * @private
+   */
+  _escapeXml(str) {
+    return str
+      .replace(/&/g, '&')
+      .replace(/</g, '<')
+      .replace(/>/g, '>')
+      .replace(/"/g, '"')
+      .replace(/'/g, '\'');
   }
 
   /**
@@ -874,6 +996,47 @@ class AIManager {
           }
 
           throw new Error(`未知操作: ${action}`);
+        },
+      },
+      {
+        name: 'search_favorites_fulltext',
+        label: '全文搜索收藏',
+        description: '使用全文检索搜索收藏夹中的页面，支持中文分词。返回匹配的收藏列表，包含标题和 URL。',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: '搜索关键词，支持中文',
+            },
+            limit: {
+              type: 'number',
+              description: '返回结果数量（可选，默认 50）',
+            },
+          },
+          required: ['query'],
+        },
+        execute: async (toolCallId, params) => {
+          const { query, limit = 50 } = params;
+          if (!query) {
+            throw new Error('搜索关键词不能为空');
+          }
+          const results = favoritesManager.searchFulltext({ keyword: query, limit });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                results: results.map(r => ({
+                  id: r.id,
+                  url: r.url,
+                  title: r.title,
+                  createdAt: r.created_at,
+                })),
+                count: results.length,
+              }, null, 2),
+            }],
+            details: { count: results.length },
+          };
         },
       },
       {

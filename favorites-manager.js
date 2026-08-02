@@ -17,6 +17,9 @@ const { generateKeyBetween, generateNKeysBetween } = require('./vendor/fractiona
 // better-sqlite3 延迟加载：原生模块必须在 app.whenReady 之后加载
 let Database = null;
 
+// nodejieba 延迟加载：原生模块必须在 app.whenReady 之后加载
+let nodejieba = null;
+
 // 数据库路径（延迟初始化，避免 app.getPath 在 ready 前调用）
 let DB_PATH = null;
 
@@ -240,6 +243,170 @@ function ensureTable() {
 
   // 迁移 sort_order 到 fractional indexing 格式
   migrateSortOrder();
+
+  // 初始化 FTS5 全文检索索引
+  ensureFts5Index();
+}
+
+// ==================== FTS5 全文检索 ====================
+
+/**
+ * 使用 nodejieba 对文本进行分词，用于 FTS5 索引
+ *
+ * FTS5 unicode61 tokenizer 按空格分隔 token，因此需要预分词
+ * 将中文文本分词后用空格连接，以便 FTS5 正确索引
+ *
+ * @param {string} text - 待分词的文本
+ * @returns {string} 分词后用空格连接的文本
+ */
+function segmentForFts5(text) {
+  if (!text) return '';
+
+  // nodejieba 未加载时回退到原文（不预分词）
+  if (!nodejieba) {
+    try {
+      nodejieba = require('nodejieba');
+    } catch (e) {
+      console.error('[Realm] nodejieba 加载失败，使用原文:', e.message);
+      return text;
+    }
+  }
+
+  try {
+    const words = nodejieba.cut(text);
+    return words.join(' ');
+  } catch (e) {
+    console.error('[Realm] nodejieba 分词失败，使用原文:', e.message);
+    return text;
+  }
+}
+
+/**
+ * 确保 FTS5 全文检索索引存在
+ *
+ * 创建 favorites_fts 虚拟表和触发器，用于支持中文全文检索。
+ * 启动时全量构建索引，触发器自动维护增量更新。
+ *
+ * FTS5 索引策略（per D-10）：
+ * - 仅索引 title 和 url 字段
+ * - 使用 unicode61 tokenizer（支持 Unicode）
+ * - 通过 nodejieba 预分词实现中文分词支持
+ */
+function ensureFts5Index() {
+  if (!db) return;
+
+  try {
+    // 检查 favorites_fts 虚拟表是否存在
+    const ftsExists = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'favorites_fts'"
+    ).get();
+
+    if (!ftsExists) {
+      console.log('[Realm] 创建 FTS5 全文检索索引...');
+
+      // 创建 FTS5 虚拟表
+      db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS favorites_fts USING fts5(
+          content,
+          tokenize = 'unicode61'
+        );
+      `);
+
+      // 全量构建索引：遍历 favorites 表所有记录
+      const records = db.prepare('SELECT id, title, url FROM favorites').all();
+      if (records.length > 0) {
+        const insertStmt = db.prepare('INSERT INTO favorites_fts (rowid, content) VALUES (?, ?)');
+        const insertMany = db.transaction((rows) => {
+          for (const row of rows) {
+            const content = segmentForFts5(`${row.title} ${row.url}`);
+            insertStmt.run(row.id, content);
+          }
+        });
+        insertMany(records);
+        console.log(`[Realm] FTS5 索引已构建: ${records.length} 条记录`);
+      }
+
+      // 创建触发器：自动维护 FTS5 索引
+      // INSERT 触发器
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS favorites_ai AFTER INSERT ON favorites BEGIN
+          INSERT INTO favorites_fts (rowid, content)
+          VALUES (new.id, segmentForFts5(new.title || ' ' || new.url));
+        END;
+      `);
+
+      // DELETE 触发器
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS favorites_ad AFTER DELETE ON favorites BEGIN
+          INSERT INTO favorites_fts (favorites_fts, rowid, content)
+          VALUES ('delete', old.id, segmentForFts5(old.title || ' ' || old.url));
+        END;
+      `);
+
+      // UPDATE 触发器
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS favorites_au AFTER UPDATE ON favorites BEGIN
+          INSERT INTO favorites_fts (favorites_fts, rowid, content)
+          VALUES ('delete', old.id, segmentForFts5(old.title || ' ' || old.url));
+          INSERT INTO favorites_fts (rowid, content)
+          VALUES (new.id, segmentForFts5(new.title || ' ' || new.url));
+        END;
+      `);
+
+      console.log('[Realm] FTS5 触发器已创建');
+    }
+  } catch (e) {
+    console.error('[Realm] FTS5 索引初始化失败:', e.message);
+  }
+}
+
+/**
+ * 全文检索收藏记录
+ *
+ * 使用 FTS5 虚拟表进行全文检索，支持中文分词。
+ * 如果 FTS5 不可用或 nodejieba 未加载，回退到 LIKE 模式搜索。
+ *
+ * @param {Object} options - 搜索选项
+ * @param {string} options.keyword - 搜索关键词
+ * @param {number} [options.limit=50] - 返回结果数量限制
+ * @returns {Array} 匹配的收藏记录列表
+ */
+function searchFulltext({ keyword, limit = 50 }) {
+  ensureTable();
+
+  if (!keyword || keyword.trim() === '') {
+    return [];
+  }
+
+  try {
+    // 检查 FTS5 虚拟表是否存在
+    const ftsExists = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'favorites_fts'"
+    ).get();
+
+    if (!ftsExists) {
+      // FTS5 不可用，回退到 LIKE 模式
+      console.log('[Realm] FTS5 索引不存在，回退到 LIKE 模式');
+      return searchRecords({ keyword, limit });
+    }
+
+    // 使用 FTS5 全文检索
+    const segmentedKeyword = segmentForFts5(keyword);
+    const results = db.prepare(`
+      SELECT f.*
+      FROM favorites_fts fts
+      JOIN favorites f ON fts.rowid = f.id
+      WHERE fts.content MATCH ?
+      ORDER BY rank
+      LIMIT ?
+    `).all(segmentedKeyword, limit);
+
+    return results;
+  } catch (e) {
+    // FTS5 查询失败，回退到 LIKE 模式
+    console.error('[Realm] FTS5 搜索失败，回退到 LIKE 模式:', e.message);
+    return searchRecords({ keyword, limit });
+  }
 }
 
 /**
@@ -1293,6 +1460,7 @@ module.exports = {
   deleteRecords,
   listRecords,
   searchRecords,
+  searchFulltext,
   checkUrl,
   getCount,
   // 文件夹 CRUD

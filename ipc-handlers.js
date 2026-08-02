@@ -1091,6 +1091,38 @@ function registerHandlers() {
   });
 
   /**
+   * 发送带上下文引用的 AI 消息
+   * @param {Object} data - 消息数据
+   * @param {string} data.message - 用户消息
+   * @param {Array} data.referencedTabs - 引用的标签页列表
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('ai:prompt-with-context', async (event, data) => {
+    assertTrustedSender(event);
+    if (!data || !data.message || typeof data.message !== 'string') {
+      throw new Error('无效的消息');
+    }
+    if (!aiManager) {
+      throw new Error('AI Manager 未初始化');
+    }
+    await aiManager.promptWithContext(data.message, data.referencedTabs || []);
+    return { success: true };
+  });
+
+  /**
+   * 获取主进程缓存的 Readability 库源码
+   * 供渲染进程内联注入 webview 提取引用标签页内容（与 read_page_content 同一 bundle）
+   * @returns {string} Readability bundle 源码（加载失败为空字符串）
+   */
+  ipcMain.handle('ai:get-readability-script', (event) => {
+    assertTrustedSender(event);
+    if (!aiManager) {
+      return '';
+    }
+    return aiManager.getReadabilityScript();
+  });
+
+  /**
    * 取消当前 AI 操作
    * @returns {Promise<{success: boolean}>}
    */

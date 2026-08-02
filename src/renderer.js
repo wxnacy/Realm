@@ -109,6 +109,13 @@ const elements = {
   aiScrollToBottom: document.getElementById('aiScrollToBottom'),
   aiPanelResizeHandle: document.getElementById('aiPanelResizeHandle'),
 
+  // @ 引用标签页
+  aiContextPills: document.getElementById('aiContextPills'),
+  contextPickerPanel: document.getElementById('contextPickerPanel'),
+  contextPickerSearch: document.getElementById('contextPickerSearch'),
+  contextPickerList: document.getElementById('contextPickerList'),
+  contextPickerEmpty: document.getElementById('contextPickerEmpty'),
+
 };
 
 // 应用状态
@@ -143,6 +150,11 @@ const state = {
   aiStreaming: false,
   aiCurrentMessageId: null,
   aiAutoScroll: true,
+
+  // @ 引用标签页状态
+  contextPickerOpen: false,
+  contextPickerSearch: '',
+  referencedTabs: [],
 };
 
 // 已关闭标签栈（LIFO，最多 10 条），用于"重新打开已关闭标签页"功能
@@ -3097,6 +3109,45 @@ function setupEventListeners() {
     elements.aiInput.addEventListener('input', handleAIInputAutoResize);
   }
 
+  // @ 引用面板事件
+  if (elements.contextPickerSearch) {
+    elements.contextPickerSearch.addEventListener('input', (e) => {
+      state.contextPickerSearch = e.target.value;
+      renderContextPickerList();
+    });
+
+    elements.contextPickerSearch.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeContextPicker();
+        elements.aiInput.focus();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        closeContextPicker();
+        elements.aiInput.focus();
+      }
+    });
+  }
+
+  // 点击外部关闭 @ 引用面板
+  document.addEventListener('click', (e) => {
+    if (state.contextPickerOpen &&
+        !elements.contextPickerPanel.contains(e.target) &&
+        e.target !== elements.aiInput) {
+      closeContextPicker();
+    }
+  });
+
+  // AI 输入框 Escape 键关闭 @ 引用面板
+  if (elements.aiInput) {
+    elements.aiInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && state.contextPickerOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeContextPicker();
+      }
+    });
+  }
+
   // AI 消息列表滚动事件（智能滚动控制）
   if (elements.aiMessageList) {
     elements.aiMessageList.addEventListener('scroll', handleAIMessageScroll);
@@ -3208,8 +3259,33 @@ function renderAIMessages() {
     content.className = 'ai-message-content';
 
     if (isUser) {
+      // @ 引用标签页标记（在气泡顶部展示，便于确认引用已随消息发出）
+      if (msg.referencedTabs && msg.referencedTabs.length > 0) {
+        const refRow = document.createElement('div');
+        refRow.className = 'ai-message-refs';
+        msg.referencedTabs.forEach(t => {
+          const pill = document.createElement('span');
+          pill.className = 'ai-message-ref-pill';
+
+          const dot = document.createElement('span');
+          dot.className = 'ai-message-ref-dot';
+          dot.style.backgroundColor = t.containerColor || '#666';
+
+          const title = document.createElement('span');
+          title.className = 'ai-message-ref-title';
+          title.textContent = t.title || '标签页';
+
+          pill.appendChild(dot);
+          pill.appendChild(title);
+          refRow.appendChild(pill);
+        });
+        content.appendChild(refRow);
+      }
+
       // 用户消息：纯文本
-      content.textContent = msg.content || '';
+      const textDiv = document.createElement('div');
+      textDiv.textContent = msg.content || '';
+      content.appendChild(textDiv);
     } else {
       // AI 消息：Markdown 渲染 + DOMPurify 消毒（T-21-01）
       const sanitized = renderAIMarkdown(msg.content || '');
@@ -3437,8 +3513,9 @@ function finalizeAIStreamingBubble() {
 /**
  * 发送 AI 消息
  * 获取输入框内容，添加用户消息到列表，调用 AI API
+ * 支持 @ 引用标签页内容注入
  */
-function handleSendAIMessage() {
+async function handleSendAIMessage() {
   const text = elements.aiInput.value.trim();
   if (!text) return;
   if (state.aiStreaming) return;
@@ -3447,8 +3524,24 @@ function handleSendAIMessage() {
   elements.aiInput.value = '';
   elements.aiInput.style.height = 'auto';
 
-  // 添加用户消息
-  state.aiMessages.push({ role: 'user', content: text });
+  // 保存并清空引用的标签页
+  const referencedTabs = [...state.referencedTabs];
+  state.referencedTabs = [];
+  renderContextPills();
+  if (state.contextPickerOpen) {
+    closeContextPicker();
+  }
+
+  // 添加用户消息（附带引用标签页标记，气泡中展示）
+  state.aiMessages.push({
+    role: 'user',
+    content: text,
+    referencedTabs: referencedTabs.map(t => ({
+      tabId: t.tabId,
+      title: t.title,
+      containerColor: t.containerColor
+    }))
+  });
 
   // 添加 AI 消息占位符
   const aiMsgId = 'ai-msg-' + Date.now();
@@ -3460,12 +3553,132 @@ function handleSendAIMessage() {
 
   // 调用 AI API 发送消息
   try {
-    window.realmAPI.ai.prompt(text);
+    if (referencedTabs.length > 0 && window.realmAPI.ai && window.realmAPI.ai.promptWithContext) {
+      // 有 @ 引用：提取 webview 内容并通过新 IPC 发送
+      const tabsWithContent = await extractReferencedTabsContent(referencedTabs);
+      await window.realmAPI.ai.promptWithContext({
+        message: text,
+        referencedTabs: tabsWithContent
+      });
+    } else {
+      // 无 @ 引用：走原有通道
+      await window.realmAPI.ai.prompt(text);
+    }
   } catch (err) {
     console.error('[Realm Renderer] AI 发送消息失败:', err);
     state.aiStreaming = false;
     renderAIMessages();
   }
+}
+
+// Readability 库源码缓存（null=未拉取，''=拉取失败，非空=bundle 源码）
+let cachedReadabilityScript = null;
+
+/**
+ * 提取引用标签页的 webview 内容
+ * 使用 webview.executeJavaScript 在 guest 上下文执行 Readability 提取
+ *
+ * @param {Array} referencedTabs - 引用的标签页列表
+ * @returns {Promise<Array>} 包含内容的标签页数组
+ */
+async function extractReferencedTabsContent(referencedTabs) {
+  const MAX_CONTENT_SIZE = 102400; // 100KB per D-07
+  const MAX_CONCURRENT = 5; // per Pitfall 4
+
+  // 获取 Readability 库源码（主进程缓存，首次调用后经 IPC 拉取并缓存于渲染进程）
+  // 与 Phase 22 read_page_content 同一范式：bundle 直接内联进提取脚本，
+  // 不走 fetch（guest 站点相对路径会 404）和 eval（严格 CSP 站点会拦截）
+  if (cachedReadabilityScript === null && window.realmAPI.ai && window.realmAPI.ai.getReadabilityScript) {
+    try {
+      cachedReadabilityScript = await window.realmAPI.ai.getReadabilityScript() || '';
+    } catch (err) {
+      console.warn('[Realm Renderer] 获取 Readability 库失败，回退 innerText 提取:', err.message);
+      cachedReadabilityScript = '';
+    }
+  }
+
+  // 获取 webview 元素映射（state.webviews 是 tabId→webview 权威映射；
+  // 不要查 DOM dataset——webview 元素未设置 data-tab-id）
+  const webviewElements = state.webviews;
+
+  // 并发提取内容（限制并发数）
+  const results = [];
+  for (let i = 0; i < referencedTabs.length; i += MAX_CONCURRENT) {
+    const batch = referencedTabs.slice(i, i + MAX_CONCURRENT);
+    const batchResults = await Promise.allSettled(
+      batch.map(async (tab) => {
+        const webview = webviewElements.get(tab.tabId);
+        if (!webview) {
+          console.warn(`[Realm Renderer] 标签页 ${tab.tabId} 的 webview 不存在（可能已关闭），跳过内容提取`);
+          return { ...tab, content: '' };
+        }
+
+        try {
+          // 使用 executeJavaScript 提取内容（同步 IIFE，返回 JSON 字符串）
+          const script = `
+(function() {
+  try {
+    ${cachedReadabilityScript || ''}
+    let content = '';
+    if (typeof Readability !== 'undefined') {
+      const article = new Readability(document.cloneNode(true)).parse();
+      content = article && article.textContent ? article.textContent : '';
+    }
+    if (!content && document.body) {
+      content = document.body.innerText || '';
+    }
+    return JSON.stringify({
+      title: document.title,
+      url: window.location.href,
+      content: content
+    });
+  } catch(e) {
+    return JSON.stringify({
+      title: document.title,
+      url: window.location.href,
+      content: ''
+    });
+  }
+})()
+          `;
+
+          const resultStr = await webview.executeJavaScript(script);
+          const result = JSON.parse(resultStr);
+
+          // 截断内容
+          let content = result.content || '';
+          if (content.length > MAX_CONTENT_SIZE) {
+            content = content.substring(0, MAX_CONTENT_SIZE) +
+              `\n[截断：原始长度 ${result.content.length} 字符]`;
+          }
+
+          return {
+            tabId: tab.tabId,
+            title: result.title || tab.title,
+            url: result.url || tab.url,
+            content
+          };
+        } catch (err) {
+          console.warn(`[Realm Renderer] 提取标签页 ${tab.tabId} 内容失败:`, err.message);
+          // 回退到仅 title + url
+          return {
+            tabId: tab.tabId,
+            title: tab.title,
+            url: tab.url,
+            content: ''
+          };
+        }
+      })
+    );
+
+    batchResults.forEach(result => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+  }
+
+  return results;
 }
 
 /**
@@ -3898,6 +4111,7 @@ function handleAIInputKeydown(e) {
 /**
  * 自动调整输入框高度
  * 根据内容自动增高，限制在最小和最大高度之间
+ * 同时检测 @ 触发字符
  */
 function handleAIInputAutoResize() {
   const input = elements.aiInput;
@@ -3912,6 +4126,173 @@ function handleAIInputAutoResize() {
   const newHeight = Math.min(Math.max(input.scrollHeight, minHeight), maxHeight);
 
   input.style.height = newHeight + 'px';
+
+  // 检测 @ 触发字符
+  const value = input.value;
+  const lastChar = value[value.length - 1];
+
+  if (lastChar === '@' && !state.contextPickerOpen) {
+    // 打开 @ 引用面板，同时清除触发字符（避免残留，选中后无需手动删除）
+    input.value = value.slice(0, -1);
+    state.contextPickerOpen = true;
+    state.contextPickerSearch = '';
+    elements.contextPickerPanel.style.display = 'flex';
+    elements.contextPickerSearch.value = '';
+    elements.contextPickerSearch.focus();
+    renderContextPickerList();
+  } else if (state.contextPickerOpen) {
+    // 检查是否还有 @ 字符
+    if (!value.includes('@')) {
+      closeContextPicker();
+    }
+  }
+}
+
+/**
+ * 关闭 @ 引用面板
+ */
+function closeContextPicker() {
+  state.contextPickerOpen = false;
+  state.contextPickerSearch = '';
+  elements.contextPickerPanel.style.display = 'none';
+}
+
+/**
+ * 渲染 @ 引用标签页列表
+ * 获取所有容器的标签页，按搜索关键字过滤，渲染可选列表
+ */
+function renderContextPickerList() {
+  const list = elements.contextPickerList;
+  const empty = elements.contextPickerEmpty;
+  if (!list) return;
+
+  // 获取所有标签页和容器
+  const tabs = window.realmAPI.getTabs ? [] : [];
+  const containers = window.realmAPI.getContainers ? [] : [];
+
+  // 这里需要异步获取数据，先渲染加载状态
+  list.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--text-muted);">加载中...</div>';
+
+  // 异步获取数据
+  Promise.all([
+    window.realmAPI.getTabs(),
+    window.realmAPI.getContainers()
+  ]).then(([allTabs, allContainers]) => {
+    const containerMap = {};
+    allContainers.forEach(c => {
+      containerMap[c.id] = c;
+    });
+
+    // 按搜索关键字过滤
+    const keyword = state.contextPickerSearch.toLowerCase();
+    const filteredTabs = allTabs.filter(tab => {
+      if (!keyword) return true;
+      return (tab.title && tab.title.toLowerCase().includes(keyword)) ||
+             (tab.url && tab.url.toLowerCase().includes(keyword));
+    });
+
+    // 渲染列表
+    if (filteredTabs.length === 0) {
+      list.innerHTML = '';
+      empty.style.display = 'block';
+      return;
+    }
+
+    empty.style.display = 'none';
+    list.innerHTML = filteredTabs.map(tab => {
+      const container = containerMap[tab.containerId] || { name: '未知', color: '#666' };
+      const isSelected = state.referencedTabs.some(t => t.tabId === tab.id);
+      return `
+        <div class="context-picker-row ${isSelected ? 'selected' : ''}" data-tab-id="${tab.id}">
+          <span class="context-picker-dot" style="background-color: ${container.color}"></span>
+          <span class="context-picker-container-name">${container.name}</span>
+          <span class="context-picker-tab-title">${tab.title || tab.url || '空白标签页'}</span>
+          ${isSelected ? '<svg class="context-picker-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ''}
+        </div>
+      `;
+    }).join('');
+
+    // 绑定点击事件
+    list.querySelectorAll('.context-picker-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const tabId = row.dataset.tabId;
+        toggleContextPickerTab(tabId, allTabs, containerMap);
+      });
+    });
+  }).catch(err => {
+    console.error('[Realm Renderer] 获取标签页列表失败:', err);
+    list.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--danger-color);">加载失败</div>';
+  });
+}
+
+/**
+ * 切换标签页的选中状态
+ * @param {string} tabId - 标签页 ID
+ * @param {Array} allTabs - 所有标签页
+ * @param {Object} containerMap - 容器映射
+ */
+function toggleContextPickerTab(tabId, allTabs, containerMap) {
+  const existingIndex = state.referencedTabs.findIndex(t => t.tabId === tabId);
+
+  if (existingIndex >= 0) {
+    // 取消选中
+    state.referencedTabs.splice(existingIndex, 1);
+  } else {
+    // 选中
+    const tab = allTabs.find(t => t.id === tabId);
+    if (tab) {
+      const container = containerMap[tab.containerId] || { name: '未知', color: '#666' };
+      state.referencedTabs.push({
+        tabId: tab.id,
+        title: tab.title || tab.url || '空白标签页',
+        url: tab.url || '',
+        containerId: tab.containerId,
+        containerName: container.name,
+        containerColor: container.color
+      });
+    }
+  }
+
+  // 重新渲染
+  renderContextPickerList();
+  renderContextPills();
+}
+
+/**
+ * 渲染 @ 引用 Pill 列表
+ * 显示已选中的标签页，支持点击 x 取消
+ */
+function renderContextPills() {
+  const container = elements.aiContextPills;
+  if (!container) return;
+
+  if (state.referencedTabs.length === 0) {
+    container.classList.remove('has-items');
+    container.innerHTML = '';
+    return;
+  }
+
+  container.classList.add('has-items');
+  container.innerHTML = state.referencedTabs.map(tab => `
+    <div class="ai-context-pill" data-tab-id="${tab.tabId}">
+      <span class="ai-context-pill-dot" style="background-color: ${tab.containerColor}"></span>
+      <span class="ai-context-pill-title">${tab.title}</span>
+      <span class="ai-context-pill-close" data-tab-id="${tab.tabId}">×</span>
+    </div>
+  `).join('');
+
+  // 绑定关闭事件
+  container.querySelectorAll('.ai-context-pill-close').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const tabId = btn.dataset.tabId;
+      state.referencedTabs = state.referencedTabs.filter(t => t.tabId !== tabId);
+      renderContextPills();
+      if (state.contextPickerOpen) {
+        renderContextPickerList();
+      }
+    });
+  });
 }
 
 /**

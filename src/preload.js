@@ -819,6 +819,22 @@ contextBridge.exposeInMainWorld('realmAPI', {
     prompt: (message) => ipcRenderer.invoke('ai:prompt', message),
 
     /**
+     * 发送带上下文引用的用户消息给 AI Agent
+     * @param {Object} data - 消息数据
+     * @param {string} data.message - 用户输入的消息
+     * @param {Array} data.referencedTabs - 引用的标签页列表，每项包含 {tabId, title, url, content}
+     * @returns {Promise<{success: boolean, error?: string}>}
+     */
+    promptWithContext: (data) => ipcRenderer.invoke('ai:prompt-with-context', data),
+
+    /**
+     * 获取主进程缓存的 Readability 库源码
+     * 用于渲染进程内联注入 webview 提取引用标签页内容
+     * @returns {Promise<string>} Readability bundle 源码（加载失败为空字符串）
+     */
+    getReadabilityScript: () => ipcRenderer.invoke('ai:get-readability-script'),
+
+    /**
      * 取消当前 Agent 执行
      * @returns {Promise<{success: boolean}>}
      */

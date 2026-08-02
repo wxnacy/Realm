@@ -4278,6 +4278,7 @@ textarea::placeholder {
 
 /* 输入区域 */
 .ai-input-area {
+  position: relative;
   padding: 8px 12px 12px;
   border-top: 1px solid var(--border-color);
   flex-shrink: 0;
@@ -4490,4 +4491,213 @@ textarea::placeholder {
 #aiPanelBtn.active {
   color: var(--accent-color);
   background-color: var(--bg-hover);
+}
+
+/* ==================== @ 引用标签页面板 ==================== */
+
+/* Pill 容器 */
+.ai-context-pills {
+  display: none;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.ai-context-pills.has-items {
+  display: flex;
+}
+
+/* 单个 Pill */
+.ai-context-pill {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding: 2px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  font-size: 12px;
+  color: var(--text-primary);
+  max-width: 200px;
+}
+
+.ai-context-pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.ai-context-pill-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.ai-context-pill-close {
+  width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+
+.ai-context-pill-close:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
+/* 用户气泡内的 @ 引用标记 */
+.ai-message-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.ai-message-ref-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+  max-width: 180px;
+}
+
+.ai-message-ref-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.ai-message-ref-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* @ 浮动面板 */
+.context-picker-panel {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  max-height: 300px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 4px;
+}
+
+/* 搜索框 */
+.context-picker-search {
+  height: 32px;
+  width: 100%;
+  background: var(--bg-tertiary);
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 14px;
+  padding: 0 12px;
+  border-radius: 8px 8px 0 0;
+  box-sizing: border-box;
+}
+
+.context-picker-search:focus {
+  outline: none;
+  border-bottom-color: var(--accent-color);
+}
+
+.context-picker-search::placeholder {
+  color: var(--text-muted);
+}
+
+/* 标签页列表 */
+.context-picker-list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 250px;
+}
+
+/* 标签页行 */
+.context-picker-row {
+  height: 36px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.context-picker-row:hover {
+  background: var(--bg-hover);
+}
+
+.context-picker-row.selected {
+  background: rgba(59, 130, 246, 0.2);
+  border-left: 2px solid var(--accent-color);
+  padding-left: 10px;
+}
+
+/* 容器颜色圆点 */
+.context-picker-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+/* 容器名称 */
+.context-picker-container-name {
+  font-size: 12px;
+  color: var(--text-muted);
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+/* 标签页标题 */
+.context-picker-tab-title {
+  font-size: 14px;
+  color: var(--text-primary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 空状态 */
+.context-picker-empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 24px 12px;
+  font-size: 14px;
+}
+
+/* 选中勾选图标 */
+.context-picker-check {
+  width: 16px;
+  height: 16px;
+  margin-left: 8px;
+  color: var(--accent-color);
+  flex-shrink: 0;
 }
