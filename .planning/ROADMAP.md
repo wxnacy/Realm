@@ -121,7 +121,14 @@ Plans:
   4. @ 引用仅限当前容器的标签页，不会泄露其他容器的页面内容
   5. 全文检索索引在收藏新增/更新时自动维护，无需手动重建
 
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+
+**Wave 1**
+
+- [ ] 23-01-PLAN.md — FTS5 全文检索索引 + search_favorites_fulltext AI 工具
+- [ ] 23-02-PLAN.md — @ 引用浮动面板 + Pill + IPC 通道 + AI 上下文注入
+
 **UI hint**: yes
 
 ### Phase 24: 任务自主执行
@@ -184,7 +191,7 @@ Phases execute in numeric order: 22 → 23 → 24 → 25
 | 19. AI Agent 集成 - 基础验证 | v2.0 | 2/2 | Complete | 2026-07-31 |
 | 20. AI Agent 集成 - 核心功能 | v2.0 | 2/2 | Complete | 2026-08-01 |
 | 21. AI Agent 集成 - 聊天 UI | v2.0 | 3/3 | Complete | 2026-08-01 |
-| 22. CDP 管理器扩展 + 基础网页操控工具 | v2.1 | 5/5 | Complete   | 2026-08-02 |
+| 22. CDP 管理器扩展 + 基础网页操控工具 | v2.1 | 5/5 | Complete    | 2026-08-02 |
 | 23. 智能上下文引用 + 全文检索 | v2.1 | 0/TBD | Not started | - |
 | 24. 任务自主执行 | v2.1 | 0/TBD | Not started | - |
 | 25. 脚本生成 + 智能标签整理 | v2.1 | 0/TBD | Not started | - |
