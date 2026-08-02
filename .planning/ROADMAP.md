@@ -90,12 +90,12 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
   4. CDP 会话在 webview 销毁时自动清理，不会因会话泄漏导致内存持续增长
   5. 大页面（>1MB）内容提取在 5 秒内返回，不阻塞 UI 交互
 
-**Plans**: 3/4 plans complete
+**Plans**: 4/4 plans complete
 Plans:
 **Wave 1**
 
 - [x] 22-01-PLAN.md — CDP 管理器扩展 + Readability 库准备
-- [ ] 22-04-PLAN.md — Gap 修复（CR-01 容器校验数据源 + UI-SPEC 空状态文案 2 条）
+- [x] 22-04-PLAN.md — Gap 修复（CR-01 容器校验数据源 + UI-SPEC 空状态文案 2 条）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
