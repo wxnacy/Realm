@@ -1539,6 +1539,195 @@ async function _collectPageChanges(webContentsId) {
   return changes;
 }
 
+// ==================== CAPTCHA/2FA 检测 ====================
+
+/**
+ * 检测页面中的 CAPTCHA/2FA 特征（D-15）
+ *
+ * 通过 Runtime.evaluate 在页面上下文执行检测脚本，结合 DOM 特征和页面关键词
+ * 双重验证减少误报。检测范围包括 reCAPTCHA、hCaptcha、Turnstile 以及 2FA 页面。
+ *
+ * 置信度规则：
+ * - 仅 DOM 特征 → detected=true, confidence='high'
+ * - 仅关键词（>=2 个）→ detected=true, confidence='medium'
+ * - DOM 特征 + 关键词 → detected=true, confidence='high'
+ * - 关键词 < 2 个 → detected=false
+ *
+ * @param {number} webContentsId - webContents ID
+ * @returns {Promise<{detected: boolean, type?: string|null, confidence?: 'high'|'medium'|'low'}>}
+ */
+async function detectCaptcha(webContentsId) {
+  const wc = webContents.fromId(webContentsId);
+  if (!wc || wc.isDestroyed()) {
+    return { detected: false, type: null, confidence: 'low' };
+  }
+
+  // 检查调试器是否已被占用（不自动附加，由调用方管理生命周期）
+  const shouldDetach = !wc.debugger.isAttached();
+  if (shouldDetach) {
+    try {
+      wc.debugger.attach('1.3');
+    } catch {
+      return { detected: false, type: null, confidence: 'low' };
+    }
+  }
+
+  try {
+    // 检测脚本：在页面上下文中执行，返回 DOM 特征和关键词匹配结果
+    const detectScript = `
+(function() {
+  var result = {
+    domFeatures: [],
+    matchedKeywords: [],
+    twofaDetected: false
+  };
+
+  // ==================== DOM 特征检测（高置信度）====================
+
+  // reCAPTCHA（per D-15）
+  if (document.querySelector('.g-recaptcha, iframe[src*="recaptcha"], .g-recaptcha-response, #recaptcha')) {
+    result.domFeatures.push('recaptcha');
+  }
+
+  // hCaptcha（per D-15）
+  if (document.querySelector('.h-captcha, iframe[src*="hcaptcha"]')) {
+    result.domFeatures.push('hcaptcha');
+  }
+
+  // Turnstile（per D-15）
+  if (document.querySelector('.cf-turnstile, iframe[src*="turnstile"]')) {
+    result.domFeatures.push('turnstile');
+  }
+
+  // ==================== 关键词检测（中置信度）====================
+
+  var bodyText = document.body ? document.body.innerText : '';
+
+  // 中文关键词（per D-15）
+  var cnKeywords = [
+    '验证码', '机器人检测', '安全验证', '人机验证',
+    '请完成安全验证', '请进行安全验证', '身份验证'
+  ];
+
+  // 英文关键词（per D-15）
+  var enKeywords = [
+    'CAPTCHA', 'verify you are human', 'prove you are not a robot',
+    'security check', 'human verification', 'bot detection',
+    'I\\'m not a robot', 'im not a robot'
+  ];
+
+  var allKeywords = cnKeywords.concat(enKeywords);
+  for (var i = 0; i < allKeywords.length; i++) {
+    if (bodyText.toLowerCase().indexOf(allKeywords[i].toLowerCase()) !== -1) {
+      result.matchedKeywords.push(allKeywords[i]);
+    }
+  }
+
+  // ==================== 2FA 页面检测（中置信度）====================
+
+  // 检测 input[type="tel"] + 周围文本包含 2FA 关键词
+  var telInputs = document.querySelectorAll('input[type="tel"]');
+  if (telInputs.length > 0) {
+    var twofaKeywords = ['验证码', '双重认证', '两步验证', '安全码', 'verification code', 'two-factor', '2fa', 'authenticator'];
+    for (var j = 0; j < telInputs.length; j++) {
+      var parent = telInputs[j].closest('form') || telInputs[j].parentElement || document.body;
+      var parentText = parent.innerText || '';
+      for (var k = 0; k < twofaKeywords.length; k++) {
+        if (parentText.toLowerCase().indexOf(twofaKeywords[k].toLowerCase()) !== -1) {
+          result.twofaDetected = true;
+          break;
+        }
+      }
+      if (result.twofaDetected) break;
+    }
+  }
+
+  // 检测 input[inputmode="numeric"] + maxlength=6（典型 TOTP 输入框）
+  if (!result.twofaDetected) {
+    var numericInputs = document.querySelectorAll('input[inputmode="numeric"]');
+    for (var m = 0; m < numericInputs.length; m++) {
+      var maxLen = numericInputs[m].getAttribute('maxlength');
+      if (maxLen && parseInt(maxLen, 10) >= 4 && parseInt(maxLen, 10) <= 8) {
+        var numParent = numericInputs[m].closest('form') || numericInputs[m].parentElement || document.body;
+        var numParentText = numParent.innerText || '';
+        var totpKeywords = ['验证码', 'code', 'verification', '验证'];
+        for (var n = 0; n < totpKeywords.length; n++) {
+          if (numParentText.toLowerCase().indexOf(totpKeywords[n].toLowerCase()) !== -1) {
+            result.twofaDetected = true;
+            break;
+          }
+        }
+      }
+      if (result.twofaDetected) break;
+    }
+  }
+
+  return JSON.stringify(result);
+})()`;
+
+    const cmdResult = await executeCommand(webContentsId, 'Runtime.evaluate', {
+      expression: detectScript,
+      returnByValue: true,
+    }, 10000);
+
+    if (!cmdResult.success || !cmdResult.result?.result?.value) {
+      return { detected: false, type: null, confidence: 'low' };
+    }
+
+    const data = JSON.parse(cmdResult.result.result.value);
+    const { domFeatures, matchedKeywords, twofaDetected } = data;
+
+    // ==================== 双重验证逻辑（per D-15）====================
+
+    // DOM 特征 + 关键词 → high confidence
+    if (domFeatures.length > 0 && matchedKeywords.length > 0) {
+      return {
+        detected: true,
+        type: domFeatures[0], // 取第一个 DOM 特征类型
+        confidence: 'high',
+      };
+    }
+
+    // 仅 DOM 特征 → high confidence
+    if (domFeatures.length > 0) {
+      return {
+        detected: true,
+        type: domFeatures[0],
+        confidence: 'high',
+      };
+    }
+
+    // 仅关键词（>=2 个）→ medium confidence
+    if (matchedKeywords.length >= 2) {
+      return {
+        detected: true,
+        type: 'keyword-detected',
+        confidence: 'medium',
+      };
+    }
+
+    // 2FA 检测 → medium confidence
+    if (twofaDetected) {
+      return {
+        detected: true,
+        type: '2fa',
+        confidence: 'medium',
+      };
+    }
+
+    // 未检测到
+    return { detected: false, type: null, confidence: 'low' };
+  } catch (err) {
+    console.error('[Realm CDP] CAPTCHA 检测失败:', err.message);
+    return { detected: false, type: null, confidence: 'low' };
+  } finally {
+    // 仅断开由本方法附加的调试器
+    if (shouldDetach && wc && !wc.isDestroyed() && wc.debugger.isAttached()) {
+      try { wc.debugger.detach(); } catch {}
+    }
+  }
+}
+
 // ==================== 模块导出 ====================
 
 module.exports = {
@@ -1562,4 +1751,5 @@ module.exports = {
   matchesDomain,
   fillForm,
   executeAction,
+  detectCaptcha,
 };
