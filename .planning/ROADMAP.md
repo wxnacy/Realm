@@ -2,7 +2,7 @@
 
 ## Overview
 
-Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理、浏览历史记录、收藏夹、常用网站推荐和应用设置。每个容器完全隔离（Cookie、缓存、存储），未来将集成 AI Agent SDK。
+Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理、浏览历史记录、收藏夹、常用网站推荐和应用设置。每个容器完全隔离（Cookie、缓存、存储），已集成 AI Agent SDK。
 
 ## Milestones
 
@@ -11,6 +11,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 - ✅ **v1.2 Cookie 管理增强 + 设置页面重构 + 开发者模式** — Phases 10-12 (shipped 2026-07-27)
 - ✅ **v1.3 右键菜单增强** — Phase 13 (shipped 2026-07-27)
 - ✅ **v2.0 收藏夹文件夹支持 + AI Agent 集成** — Phases 14-21 (shipped 2026-08-01)
+- 🚧 **v2.1 AI CDP 增强 + Tabbrowser 功能集成** — Phases 22-25 (in progress)
 
 ## Phases
 
@@ -51,10 +52,87 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 
 </details>
 
+<details>
+<summary>✅ v2.0 收藏夹文件夹支持 + AI Agent 集成 (Phases 14-21) — SHIPPED 2026-08-01</summary>
+
+- [x] Phase 14: 收藏夹文件夹 - 数据库层实现 — completed 2026-07-28
+- [x] Phase 15: 收藏夹文件夹 - UI 交互 — completed 2026-07-28
+- [x] Phase 16: 收藏夹文件夹 - 增强功能 — completed 2026-07-29
+- [x] Phase 17: Chrome 书签导入 — completed 2026-07-30
+- [x] Phase 18: 收藏栏功能 — completed 2026-07-30
+- [x] Phase 19: AI Agent 集成 - 基础验证 — completed 2026-07-31
+- [x] Phase 20: AI Agent 集成 - 核心功能 — completed 2026-08-01
+- [x] Phase 21: AI Agent 集成 - 聊天 UI — completed 2026-08-01
+
+</details>
+
+### 🚧 v2.1 AI CDP 增强 + Tabbrowser 功能集成 (In Progress)
+
+**Milestone Goal:** 为 AI Agent 增加深度浏览器控制能力 — 从只能调用 5 个基础工具升级为能深度操控网页内容、引用标签页上下文、自动执行任务、生成脚本和智能整理标签页。
+
+- [ ] **Phase 22: CDP 管理器扩展 + 基础网页操控工具** - 独立 CDP 管理器 + read_page_content + extract_links + open_link
+- [ ] **Phase 23: 智能上下文引用 + 全文检索** - @ 引用标签页上下文 + FTS5 全文检索收藏
+- [ ] **Phase 24: 任务自主执行** - 自动化填表 + 自动化操作 + 操作确认 + 安全防护
+- [ ] **Phase 25: 脚本生成 + 智能标签整理** - 一句话生成脚本 + AI 自动标签分组
+
+## Phase Details
+
+### Phase 22: CDP 管理器扩展 + 基础网页操控工具
+**Goal**: AI Agent 能够读取网页内容、提取链接、在容器中打开链接 — 所有后续阶段的 CDP 基础
+**Depends on**: Nothing (本里程碑第一阶段)
+**Requirements**: CDP-01, CDP-02, CDP-03, CDP-04
+**Success Criteria** (what must be TRUE):
+  1. 用户在 AI 聊天面板中输入"读取当前页面内容"，AI 返回页面标题、正文摘要和元信息
+  2. 用户在 AI 聊天面板中输入"提取页面链接"，AI 返回当前页面所有有效链接列表（去重、过滤非 HTTP 协议）
+  3. 用户在 AI 聊天面板中输入"打开某链接"，AI 在指定容器的当前标签页或新标签页中打开该链接
+  4. CDP 会话在 webview 销毁时自动清理，不会因会话泄漏导致内存持续增长
+  5. 大页面（>1MB）内容提取在 5 秒内返回，不阻塞 UI 交互
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 23: 智能上下文引用 + 全文检索
+**Goal**: 用户在 AI 对话中可以引用特定标签页内容作为上下文，并通过全文检索搜索收藏内容
+**Depends on**: Phase 22
+**Requirements**: CTX-01, CTX-02, CTX-03, CTX-04, CTX-05
+**Success Criteria** (what must be TRUE):
+  1. 用户在 AI 聊天输入框中输入 @ 符号，弹出当前标签页选择器，可选择一个或多个标签页
+  2. 选择标签页后发送消息，AI 能引用所选标签页的页面内容回答问题
+  3. 用户在 AI 聊天中输入"搜索收藏 XXX"，AI 通过全文检索返回包含 XXX 内容的收藏项（支持中文搜索）
+  4. @ 引用仅限当前容器的标签页，不会泄露其他容器的页面内容
+  5. 全文检索索引在收藏新增/更新时自动维护，无需手动重建
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 24: 任务自主执行
+**Goal**: AI Agent 能够自动填写网页表单和执行页面操作，所有写操作必须用户确认
+**Depends on**: Phase 22
+**Requirements**: AUTO-01, AUTO-02, AUTO-03, AUTO-04, AUTO-05, AUTO-06
+**Success Criteria** (what must be TRUE):
+  1. 用户在 AI 聊天中描述填表需求（如"帮我填写登录表单，用户名 test@example.com"），AI 定位表单字段并填入值
+  2. 用户在 AI 聊天中描述操作需求（如"点击提交按钮"），AI 执行对应的页面操作
+  3. 所有写操作（填表、点击、提交）执行前弹出确认对话框，显示具体操作内容，用户确认后才执行
+  4. 遇到 CAPTCHA 或 2FA 页面时，AI 提示用户手动操作，不尝试绕过
+  5. 恶意网页的 Prompt Injection 攻击被输入消毒和脚本静态分析拦截，不会导致非预期操作
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 25: 脚本生成 + 智能标签整理
+**Goal**: 用户可以用自然语言描述生成可执行脚本，并通过 AI 智能分组整理标签页
+**Depends on**: Phase 22, Phase 24
+**Requirements**: SCRIPT-01, SCRIPT-02, SCRIPT-03, TAG-01, TAG-02
+**Success Criteria** (what must be TRUE):
+  1. 用户在 AI 聊天中输入自然语言描述（如"每天早上打开新闻网站并截取标题"），AI 生成可执行脚本并展示预览
+  2. 生成的脚本在执行前经过静态分析验证，包含危险操作（eval、文件系统访问）的脚本被拦截并提示用户
+  3. 用户确认脚本内容后，脚本在当前容器中执行，执行结果实时反馈
+  4. 用户在 AI 聊天中输入"整理标签页"，AI 按主题或域名智能分组当前所有标签页并展示分组建议
+  5. 用户确认分组建议后，标签页按分组重新排列，视觉上清晰区分不同组
+**Plans**: TBD
+**UI hint**: yes
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18 → 19 → 20 → 21
+Phases execute in numeric order: 22 → 23 → 24 → 25
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -79,241 +157,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 19. AI Agent 集成 - 基础验证 | v2.0 | 2/2 | Complete | 2026-07-31 |
 | 20. AI Agent 集成 - 核心功能 | v2.0 | 2/2 | Complete | 2026-08-01 |
 | 21. AI Agent 集成 - 聊天 UI | v2.0 | 3/3 | Complete | 2026-08-01 |
-
----
-
-<details>
-<summary>✅ v2.0 收藏夹文件夹支持 + AI Agent 集成 (Phases 14-21) — SHIPPED 2026-08-01</summary>
-
-## v2.0 收藏夹文件夹支持 + AI Agent 集成
-
-> 创建日期：2026-07-28
-> 总计：8 个阶段，18 个需求
-> 预估时间：21 天
-
-### 路线图总览
-
-```
-Phase 14  Phase 15  Phase 16  Phase 17  Phase 18  Phase 19  Phase 20  Phase 21
-   │         │         │         │         │         │         │         │
-   ▼         ▼         ▼         ▼         ▼         ▼         ▼         ▼
-┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐
-│文件夹│  │文件夹│  │收藏夹│  │Chrome│  │收藏栏│  │ AI  │  │ AI  │  │ AI  │
-│ DB  │→│ UI  │→│增强  │→│导入  │→│功能  │→│验证 │→│核心 │→│ UI  │
-│层实现│  │交互  │  │功能  │  │功能  │  │     │  │     │  │功能  │  │     │
-└─────┘  └─────┘  └─────┘  └─────┘  └─────┘  └─────┘  └─────┘  └─────┘
-   2d        3d       3d       2d       2d       2d       4d       3d
-```
-
-### Phases
-
-- [x] Phase 14: 收藏夹文件夹 - 数据库层实现 (2d) (completed 2026-07-28)
-- [x] Phase 15: 收藏夹文件夹 - UI 交互 (3d) (completed 2026-07-28)
-- [x] Phase 16: 收藏夹文件夹 - 增强功能 (3d) (completed 2026-07-29)
-- [x] Phase 17: Chrome 书签导入 (2d) (completed 2026-07-30)
-- [x] Phase 18: 收藏栏功能 (2d) (completed 2026-07-30)
-- [x] Phase 19: AI Agent 集成 - 基础验证 (2d) (completed 2026-07-31)
-- [x] Phase 20: AI Agent 集成 - 核心功能 (4d) (completed 2026-08-01)
-- [x] Phase 21: AI Agent 集成 - 聊天 UI (3d) (completed 2026-08-01)
-
-### Phase 详情
-
-#### Phase 14: 收藏夹文件夹 - 数据库层实现
-
-**预估时间**: 2 天
-**需求覆盖**: FOLDER-01, FOLDER-02, FOLDER-03, FOLDER-04
-**状态**: 执行完成 (2026-07-28)
-
-**任务**:
-
-- [x] 创建 `favorite_folders` 表
-- [x] `favorites` 表添加 `folder_id` 和 `sort_order` 字段
-- [x] 实现文件夹 CRUD API
-- [x] 实现收藏项移动 API
-- [x] 注册 IPC 通道
-- [x] 暴露 Preload API
-
----
-
-#### Phase 15: 收藏夹文件夹 - UI 交互
-
-**预估时间**: 3 天
-**需求覆盖**: FOLDER-05, FOLDER-06, FOLDER-08
-**状态**: 规划完成
-
-**Plans:** 2/2 plans complete
-
-Plans:
-
-- [ ] PLAN.md
-- [x] 15-01-PLAN.md — 后端 folder_id 过滤 + HTML 左右分栏 + 文件夹树 + 面包屑 + 右键菜单 + 新建文件夹
-- [x] 15-02-PLAN.md — 缺口修复：空白区域右键菜单事件委托（.favorites-main 路由 + preventDefault 兜底）
-
-**任务**:
-
-- [ ] 后端支持 folder_id 过滤 + HTML 左右分栏布局 + CSS 样式
-- [ ] 文件夹树渲染、导航逻辑和面包屑
-- [ ] 右键菜单和新建文件夹 UI
-
----
-
-#### Phase 16: 收藏夹文件夹 - 增强功能
-
-**预估时间**: 3 天
-**需求覆盖**: FOLDER-07
-**状态**: 执行完成 (2026-07-29)
-**计划**: 3/3 完成
-
-**计划列表**:
-
-- [x] 16-01-PLAN.md — 数据库迁移与排序持久化（fractional indexing 迁移 + 批量排序 API + compute-sort-keys 端点）
-- [x] 16-02-PLAN.md — 拖拽排序核心实现（同目录排序 + 跨文件夹移动 + 视觉反馈）
-- [x] 16-03-PLAN.md — 多选与批量操作（键盘多选 + 右键菜单自适应 + 批量操作）
-
-**任务**:
-
-- [x] 拖拽排序实现
-- [x] 排序持久化
-- [x] 批量操作增强
-
----
-
-#### Phase 17: Chrome 书签导入
-
-**预估时间**: 2 天
-**需求覆盖**: IMPORT-01, IMPORT-02, IMPORT-03
-**状态**: 规划完成
-
-**Plans:** 3/3 plans complete
-
-Plans:
-**Wave 1**
-
-- [x] 17-01-PLAN.md — 后端书签解析与批量导入（favorites-manager.js + main.js + preload.js）
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 17-02-PLAN.md — 导入功能前端 UI（favorites.html + favorites-page.js + main.css）
-
-**任务**:
-
-- [ ] Chrome JSON 书签解析 + HTML 书签解析 + 批量导入 API + IPC handlers
-- [ ] 导入按钮 + 进度模态框 + 预览确认 + 结果摘要 UI
-
----
-
-#### Phase 18: 收藏栏功能
-
-**预估时间**: 2 天
-**需求覆盖**: BAR-01, BAR-02, BAR-03, BAR-04
-**状态**: 执行完成 (2026-07-30)
-
-**Plans:** 2/2 plans complete
-
-Plans:
-
-**Wave 1**
-
-- [x] 18-01-PLAN.md — 收藏栏基础实现（HTML/CSS + 渲染 + 溢出计算 + 点击导航）
-
-**Wave 2** *(blocked on Wave 1)*
-
-- [x] 18-02-PLAN.md — 收藏栏高级交互（下拉菜单 + 右键菜单 + 显示/隐藏设置）
-
-**任务**:
-
-- [x] 收藏栏 UI 实现（HTML + CSS + IPC + Preload）
-- [x] 收藏栏渲染与溢出计算
-- [x] 文件夹下拉菜单与溢出菜单
-- [x] 收藏栏右键菜单集成
-- [x] 收藏栏显示/隐藏设置
-
----
-
-#### Phase 19: AI Agent 集成 - 基础验证
-
-**预估时间**: 2 天
-**需求覆盖**: AI-01
-**对应**: pi-agent-integration.md Phase 1
-**状态**: ✅ 完成
-
-**Plans:** 2/2 plans
-
-Plans:
-
-**Wave 1**
-
-- [x] 19-01-PLAN.md — Node 版本验证 + 依赖安装 + AI Manager 骨架 (DONE: 174085e, 0f04b5e)
-
-**Wave 2** *(blocked on Wave 1)*
-
-- [x] 19-02-PLAN.md — Demo 验证：Agent + get_tabs 工具执行 (DONE: d184c32)
-
-**任务**:
-
-- [x] Node.js 版本验证
-- [x] pi-ai/pi-agent-core 安装验证
-- [x] AI Manager 骨架
-- [x] 最小可行 Demo
-
-**重要说明**: AI 功能完全基于 pi-agent-core 集成，不自行开发 Agent 循环
-
----
-
-#### Phase 20: AI Agent 集成 - 核心功能
-
-**预估时间**: 4 天
-**需求覆盖**: AI-02
-**对应**: pi-agent-integration.md Phase 2
-
-**Plans:** 2/2 plans complete
-
-Plans:
-
-**Wave 1**
-
-- [x] 20-01-PLAN.md — AI Manager 核心 + 工具注册 + 事件广播
-
-**Wave 2** *(blocked on Wave 1)*
-
-- [x] 20-02-PLAN.md — IPC + Preload + 设置页面 AI 分区
-
-**任务**:
-
-- [ ] AI Manager 完整实现（configureProviders, getAvailableModels, getState, 错误处理）
-- [ ] Realm 工具注册（navigate, search_history, manage_favorites, switch_container, get_tabs）
-- [ ] 事件广播机制（debounce 16ms 批量合并）
-- [ ] IPC 通道实现（ai:prompt, ai:abort, ai:configure, ai:get-models, ai:get-state）
-- [ ] Preload.js API 暴露（window.realmAPI.ai）
-- [ ] 设置页面 "AI 助手" 分区（API Key 配置、模型选择、连接状态）
-
----
-
-#### Phase 21: AI Agent 集成 - 聊天 UI
-
-**预估时间**: 3 天
-**需求覆盖**: AI-03
-**对应**: pi-agent-integration.md Phase 3
-
-**Plans:** 3/3 plans complete
-
-Plans:
-
-- [x] 21-03-PLAN.md
-
-**Wave 1**
-
-- [x] 21-01-PLAN.md — AI 聊天面板基础框架（依赖安装 + HTML/CSS + 面板开关 + 消息渲染 + 输入发送 + 流式输出）
-
-**Wave 2** *(blocked on Wave 1)*
-
-- [x] 21-02-PLAN.md — AI 聊天面板增强功能（工具卡片 + 消息操作 + 拖拽调整 + 空状态 + 动画）
-
-**任务**:
-
-- [ ] AI 聊天面板 UI（右侧侧边栏 + 消息气泡 + 输入框）
-- [ ] 流式消息渲染（Markdown + 代码高亮 + 逐字显示）
-- [ ] 快捷键和设置（Cmd+] + 面板宽度持久化）
-- [ ] 面板交互增强（工具卡片 + 复制/重新生成 + 拖拽调整）
-
-</details>
+| 22. CDP 管理器扩展 + 基础网页操控工具 | v2.1 | 0/TBD | Not started | - |
+| 23. 智能上下文引用 + 全文检索 | v2.1 | 0/TBD | Not started | - |
+| 24. 任务自主执行 | v2.1 | 0/TBD | Not started | - |
+| 25. 脚本生成 + 智能标签整理 | v2.1 | 0/TBD | Not started | - |
