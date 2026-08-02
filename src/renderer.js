@@ -3158,6 +3158,9 @@ function setupEventListeners() {
     elements.aiScrollToBottom.addEventListener('click', handleScrollToBottomClick);
   }
 
+  // 初始化操作确认 IPC 监听
+  initActionConfirmation();
+
   // 初始化 AI 面板拖拽调整宽度
   initAIPanelResize();
 
@@ -4292,6 +4295,332 @@ function renderContextPills() {
         renderContextPickerList();
       }
     });
+  });
+}
+
+// ==================== 操作确认卡片 ====================
+
+/**
+ * 获取操作类型对应的 SVG 图标
+ * @param {string} type - 操作类型：submit/upload/payment/click
+ * @returns {string} SVG 图标 HTML 字符串
+ */
+function getActionIcon(type) {
+  const icons = {
+    submit: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="22" y1="2" x2="11" y2="13"></line>
+      <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+    </svg>`,
+    upload: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="16 16 12 12 8 16"></polyline>
+      <line x1="12" y1="12" x2="12" y2="21"></line>
+      <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"></path>
+    </svg>`,
+    payment: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
+      <line x1="1" y1="10" x2="23" y2="10"></line>
+    </svg>`,
+    click: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5"></path>
+    </svg>`,
+  };
+  return icons[type] || `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="3"></circle>
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+  </svg>`;
+}
+
+/**
+ * 获取风险等级中文标签
+ * @param {string} level - 风险等级：low/medium/high
+ * @returns {string} 中文标签
+ */
+function getRiskLabel(level) {
+  const labels = { low: '低风险', medium: '中风险', high: '高风险' };
+  return labels[level] || '未知';
+}
+
+/**
+ * 渲染操作确认卡片
+ *
+ * 收到 action:request-confirmation 事件时，在 AI 聊天面板渲染确认卡片。
+ * 卡片显示操作图标 + 操作标题 + 风险等级标签 + 详情 + 操作按钮。
+ *
+ * @param {Object} actionData - 操作数据
+ * @param {string} actionData.actionId - 操作唯一 ID
+ * @param {string} actionData.type - 操作类型
+ * @param {string} actionData.title - 操作标题
+ * @param {string} [actionData.description] - 操作描述
+ * @param {string} [actionData.url] - 目标 URL
+ * @param {string} [actionData.containerId] - 容器 ID
+ * @param {string} [actionData.containerName] - 容器名称
+ * @param {string} [actionData.riskLevel] - 风险等级
+ */
+function renderConfirmationCard(actionData) {
+  const card = document.createElement('div');
+  card.className = 'action-confirm-card';
+  card.dataset.actionId = actionData.actionId;
+  card.dataset.state = 'pending';
+
+  // 头部：图标 + 标题 + 风险标签
+  const header = document.createElement('div');
+  header.className = 'action-confirm-header';
+
+  const icon = document.createElement('div');
+  icon.className = 'action-confirm-icon';
+  icon.innerHTML = getActionIcon(actionData.type);
+
+  const info = document.createElement('div');
+  info.className = 'action-confirm-info';
+
+  const title = document.createElement('div');
+  title.className = 'action-confirm-title';
+  title.textContent = actionData.title || '确认操作';
+
+  const description = document.createElement('div');
+  description.className = 'action-confirm-description';
+  description.textContent = actionData.description || '';
+
+  info.appendChild(title);
+  if (actionData.description) {
+    info.appendChild(description);
+  }
+
+  const riskBadge = document.createElement('div');
+  riskBadge.className = `action-confirm-risk risk-${actionData.riskLevel || 'medium'}`;
+  riskBadge.textContent = getRiskLabel(actionData.riskLevel);
+
+  header.appendChild(icon);
+  header.appendChild(info);
+  header.appendChild(riskBadge);
+  card.appendChild(header);
+
+  // 详情区域
+  const details = document.createElement('div');
+  details.className = 'action-confirm-details';
+
+  if (actionData.url) {
+    const urlRow = document.createElement('div');
+    urlRow.className = 'action-confirm-detail-row';
+    urlRow.innerHTML = `<span class="detail-label">目标页面</span><span class="detail-value" title="${actionData.url}">${actionData.url}</span>`;
+    details.appendChild(urlRow);
+  }
+
+  if (actionData.containerName || actionData.containerId) {
+    const containerRow = document.createElement('div');
+    containerRow.className = 'action-confirm-detail-row';
+    containerRow.innerHTML = `<span class="detail-label">容器</span><span class="detail-value">${actionData.containerName || actionData.containerId}</span>`;
+    details.appendChild(containerRow);
+  }
+
+  if (details.children.length > 0) {
+    card.appendChild(details);
+  }
+
+  // 操作按钮
+  const actions = document.createElement('div');
+  actions.className = 'action-confirm-actions';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'action-confirm-btn action-confirm-btn-cancel';
+  cancelBtn.textContent = '取消';
+  cancelBtn.addEventListener('click', async () => {
+    if (card.dataset.state !== 'pending') return;
+    updateCardState(card, 'cancelled');
+    await window.realmAPI.actionCancel(actionData.actionId);
+  });
+
+  const confirmBtn = document.createElement('button');
+  confirmBtn.className = 'action-confirm-btn action-confirm-btn-confirm';
+  confirmBtn.textContent = '确认执行';
+  confirmBtn.addEventListener('click', async () => {
+    if (card.dataset.state !== 'pending') return;
+    updateCardState(card, 'executing');
+    const result = await window.realmAPI.actionConfirm(actionData.actionId);
+    if (result && !result.success) {
+      updateCardState(card, 'error', result.error || '操作确认失败');
+    }
+  });
+
+  actions.appendChild(cancelBtn);
+  actions.appendChild(confirmBtn);
+  card.appendChild(actions);
+
+  // 插入到 AI 聊天面板
+  if (elements.aiMessageList) {
+    const msgWrapper = document.createElement('div');
+    msgWrapper.className = 'ai-message ai-message-ai';
+    const msgContent = document.createElement('div');
+    msgContent.className = 'ai-message-content';
+    msgContent.appendChild(card);
+    msgWrapper.appendChild(msgContent);
+    elements.aiMessageList.appendChild(msgWrapper);
+
+    // 滚动到底部
+    if (state.aiAutoScroll) {
+      scrollToBottom();
+    }
+  }
+}
+
+/**
+ * 更新确认卡片状态
+ *
+ * 状态机：pending → executing → success/error/cancelled
+ *
+ * @param {HTMLElement} card - 卡片 DOM 元素
+ * @param {string} newState - 新状态
+ * @param {string} [result] - 结果消息（error 状态用）
+ */
+function updateCardState(card, newState, result) {
+  card.dataset.state = newState;
+
+  // 获取按钮区域
+  const actions = card.querySelector('.action-confirm-actions');
+
+  // 移除已有的状态指示
+  const existingStatus = card.querySelector('.action-confirm-status');
+  if (existingStatus) existingStatus.remove();
+
+  switch (newState) {
+    case 'executing':
+      // 禁用按钮
+      if (actions) {
+        const btns = actions.querySelectorAll('.action-confirm-btn');
+        btns.forEach(btn => { btn.disabled = true; });
+        const confirmBtn = actions.querySelector('.action-confirm-btn-confirm');
+        if (confirmBtn) confirmBtn.textContent = '执行中...';
+      }
+      break;
+
+    case 'success': {
+      // 隐藏按钮区域，显示成功状态
+      if (actions) actions.style.display = 'none';
+      const status = document.createElement('div');
+      status.className = 'action-confirm-status status-success';
+      status.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> 操作完成`;
+      card.appendChild(status);
+      break;
+    }
+
+    case 'error': {
+      // 隐藏按钮区域，显示错误状态
+      if (actions) actions.style.display = 'none';
+      const status = document.createElement('div');
+      status.className = 'action-confirm-status status-error';
+      const errorMsg = result ? `操作失败：${result}` : '操作执行失败';
+      status.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg> ${errorMsg}`;
+      card.appendChild(status);
+      break;
+    }
+
+    case 'cancelled': {
+      // 隐藏按钮区域，显示取消状态
+      if (actions) actions.style.display = 'none';
+      const status = document.createElement('div');
+      status.className = 'action-confirm-status status-cancelled';
+      status.textContent = '已取消';
+      card.appendChild(status);
+      break;
+    }
+  }
+}
+
+/**
+ * 渲染 CAPTCHA/2FA 等待指示器卡片
+ *
+ * 检测到验证码或双因素认证时，在 AI 聊天面板显示等待指示器。
+ * 验证完成后自动更新为"验证完成"状态并消失。
+ *
+ * @param {Object} [data] - 等待数据
+ * @param {string} [data.message] - 自定义提示信息
+ * @returns {HTMLElement} 卡片 DOM 元素（用于后续更新状态）
+ */
+function renderCaptchaWaitingCard(data = {}) {
+  const card = document.createElement('div');
+  card.className = 'captcha-waiting-card';
+
+  // 盾牌/锁图标
+  const icon = document.createElement('div');
+  icon.className = 'captcha-waiting-icon';
+  icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+  </svg>`;
+
+  // 文本区域
+  const text = document.createElement('div');
+  text.className = 'captcha-waiting-text';
+
+  const title = document.createElement('div');
+  title.className = 'captcha-waiting-title';
+  title.textContent = '需要手动验证';
+
+  const description = document.createElement('div');
+  description.className = 'captcha-waiting-description';
+  description.textContent = data.message || '检测到验证码/双因素认证，请在页面中完成验证。完成后我会自动继续。';
+
+  text.appendChild(title);
+  text.appendChild(description);
+
+  // 旋转指示器
+  const spinner = document.createElement('div');
+  spinner.className = 'captcha-waiting-spinner';
+
+  card.appendChild(icon);
+  card.appendChild(text);
+  card.appendChild(spinner);
+
+  // 插入到 AI 聊天面板
+  if (elements.aiMessageList) {
+    const msgWrapper = document.createElement('div');
+    msgWrapper.className = 'ai-message ai-message-ai';
+    const msgContent = document.createElement('div');
+    msgContent.className = 'ai-message-content';
+    msgContent.appendChild(card);
+    msgWrapper.appendChild(msgContent);
+    elements.aiMessageList.appendChild(msgWrapper);
+
+    // 滚动到底部
+    if (state.aiAutoScroll) {
+      scrollToBottom();
+    }
+  }
+
+  // 返回卡片元素，供外部更新状态（如验证完成时调用）
+  return card;
+}
+
+/**
+ * 更新 CAPTCHA 等待卡片为完成状态
+ * @param {HTMLElement} card - 卡片 DOM 元素
+ */
+function completeCaptchaWaitingCard(card) {
+  if (!card) return;
+  card.classList.add('completed');
+  const title = card.querySelector('.captcha-waiting-title');
+  if (title) title.textContent = '验证完成，继续执行...';
+  // 2 秒后自动移除
+  setTimeout(() => {
+    const wrapper = card.closest('.ai-message');
+    if (wrapper) {
+      wrapper.style.transition = 'opacity 0.3s';
+      wrapper.style.opacity = '0';
+      setTimeout(() => wrapper.remove(), 300);
+    }
+  }, 2000);
+}
+
+/**
+ * 初始化操作确认 IPC 监听器
+ * 在 init() 中调用，注册 action:request-confirmation 事件监听
+ */
+function initActionConfirmation() {
+  if (!window.realmAPI || !window.realmAPI.onActionRequestConfirmation) return;
+
+  window.realmAPI.onActionRequestConfirmation((data) => {
+    console.log('[Realm Renderer] 收到操作确认请求:', data);
+    renderConfirmationCard(data);
   });
 }
 

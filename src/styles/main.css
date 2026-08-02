@@ -4701,3 +4701,289 @@ textarea::placeholder {
   color: var(--accent-color);
   flex-shrink: 0;
 }
+
+/* ==================== 操作确认卡片 ==================== */
+
+/* 确认卡片外层容器 */
+.action-confirm-card {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* 卡片头部：图标 + 标题 + 风险标签 */
+.action-confirm-header {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  padding: 12px;
+  align-items: center;
+}
+
+/* 操作图标 */
+.action-confirm-icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.action-confirm-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* 标题和描述信息区 */
+.action-confirm-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* 操作标题 */
+.action-confirm-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+/* 操作描述 */
+.action-confirm-description {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 风险等级标签 */
+.action-confirm-risk {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* 低风险 */
+.risk-low {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10B981;
+}
+
+/* 中风险 */
+.risk-medium {
+  background: rgba(245, 158, 11, 0.15);
+  color: #F59E0B;
+}
+
+/* 高风险 */
+.risk-high {
+  background: rgba(239, 68, 68, 0.15);
+  color: #EF4444;
+}
+
+/* 详情区域 */
+.action-confirm-details {
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--border-color);
+  margin-top: 4px;
+}
+
+/* 详情行 */
+.action-confirm-detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 12px;
+  gap: 12px;
+}
+
+/* 详情标签 */
+.action-confirm-detail-row .detail-label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* 详情值 */
+.action-confirm-detail-row .detail-value {
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  text-align: right;
+  min-width: 0;
+}
+
+/* 操作按钮区域 */
+.action-confirm-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+/* 按钮基础样式 */
+.action-confirm-btn {
+  flex: 1;
+  height: 32px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 取消按钮 */
+.action-confirm-btn-cancel {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.action-confirm-btn-cancel:hover {
+  background: #505050;
+}
+
+/* 确认按钮 */
+.action-confirm-btn-confirm {
+  background: var(--accent-color);
+  color: #ffffff;
+}
+
+.action-confirm-btn-confirm:hover {
+  background: var(--accent-hover);
+}
+
+/* 禁用状态 */
+.action-confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 状态指示：执行中、完成、错误、已取消 */
+.action-confirm-status {
+  padding: 8px 12px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.action-confirm-status.status-executing {
+  color: var(--text-secondary);
+}
+
+.action-confirm-status.status-success {
+  color: var(--success-color);
+}
+
+.action-confirm-status.status-error {
+  color: var(--danger-color);
+}
+
+.action-confirm-status.status-cancelled {
+  color: var(--text-muted);
+}
+
+/* 执行中 spinner（小） */
+.action-confirm-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-color);
+  border-top: 2px solid var(--accent-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ==================== CAPTCHA/2FA 等待指示器 ==================== */
+
+/* 等待卡片容器 */
+.captcha-waiting-card {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  align-items: flex-start;
+}
+
+/* 等待图标 */
+.captcha-waiting-icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: var(--accent-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.captcha-waiting-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* 文本区域 */
+.captcha-waiting-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 等待标题 */
+.captcha-waiting-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+/* 等待描述 */
+.captcha-waiting-description {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* 等待旋转指示器 */
+.captcha-waiting-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border-color);
+  border-top: 2px solid var(--accent-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* 完成状态 */
+.captcha-waiting-card.completed .captcha-waiting-spinner {
+  border-color: var(--success-color);
+  border-top-color: var(--success-color);
+  animation: none;
+}
+
+.captcha-waiting-card.completed .captcha-waiting-title {
+  color: var(--success-color);
+}
+
+/* ==================== 旋转动画 ==================== */
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
