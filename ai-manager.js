@@ -56,6 +56,27 @@ function getActiveWebviewContentsIdLazy() {
   return require('./ipc-handlers').getActiveWebviewContentsId();
 }
 
+/**
+ * 获取全部容器配置列表（纯配置字段，不含 session 对象）
+ *
+ * 容器列表的权威来源是 container-manager 的内存 Map：
+ * initContainers() 以 DEFAULT_CONTAINERS 为兜底值读入内存且从不写回
+ * store，因此全新 profile（realm-config.json 无 containers 键）下从
+ * store 以空数组兜底读取会返回 []，导致 open_link / switch_container
+ * 误判「default」容器不存在。getContainers() 返回纯配置字段
+ * {id,name,color,icon,phone,email,notes}，与原 store 数据形状一致。
+ *
+ * 惰性 require 的原因与上方 ipc-handlers 一致：纯 Node 环境（语法
+ * 检查/注册验证）下 container-manager 依赖链（electron-store 构造时
+ * app.getPath 为 undefined）不可加载；Electron 主进程运行时直接命中
+ * 模块缓存，无循环依赖风险。
+ *
+ * @returns {Array<{id: string, name: string, color: string, icon: string, phone: string, email: string, notes: string}>}
+ */
+function getContainersLazy() {
+  return require('./container-manager').getContainers();
+}
+
 // ==================== 常量 ====================
 
 /**
@@ -921,9 +942,8 @@ class AIManager {
             throw new Error('未找到主窗口');
           }
 
-          // 获取容器配置（通过 configStore）
-          const containers = this.configStore ? this.configStore.get('containers', []) : [];
-          const container = containers.find(c => c.id === containerId);
+          // 获取容器配置（container-manager 内存权威数据，含 DEFAULT_CONTAINERS）
+          const container = getContainersLazy().find(c => c.id === containerId);
           if (!container) {
             throw new Error(`容器不存在: ${containerId}`);
           }
@@ -1168,9 +1188,10 @@ class AIManager {
             containerId = (mainWindow && windowManager.getCurrentContainer(mainWindow.id)) || 'default';
           }
 
-          // 验证容器存在
-          const containers = this.configStore ? this.configStore.get('containers', []) : [];
-          const container = containers.find(c => c.id === containerId);
+          // 验证容器存在（container-manager 内存权威数据：initContainers 以
+          // DEFAULT_CONTAINERS 兜底且从不写回 store，全新 profile 下 store
+          // 无 containers 键，空数组兜底读取会误判 default 不存在）
+          const container = getContainersLazy().find(c => c.id === containerId);
           if (!container) {
             throw new Error('指定容器不存在或已删除');
           }
