@@ -133,6 +133,10 @@ app.on('web-contents-created', (event, contents) => {
   // guest 销毁时清理容器映射，避免 Map 泄漏
   contents.on('destroyed', () => {
     unregisterGuestContainer(contents.id);
+    // D-03 用完即卸兜底：webview 销毁时清理 AI 工具附加的 CDP 调试器状态
+    // （debuggerStates Map 条目；无 ai-tool 状态时 detachForAI 内部静默返回）
+    cdpManager.detachForAI(contents.id);
+    console.log(`[Realm] webview 销毁，已清理容器映射与 CDP 调试器状态: ${contents.id}`);
   });
   contents.setWindowOpenHandler(({ url, disposition, frameName, features }) => {
     console.log(`[Realm] 新窗口请求: ${url}, disposition: ${disposition}, frameName: ${frameName}`);
