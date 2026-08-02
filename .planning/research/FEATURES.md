@@ -1,381 +1,270 @@
-# Feature Research - Multi-Container Isolation Browser
+# Feature Landscape — v2.1 AI CDP 增强 + Tabbrowser 功能集成
 
-**Domain:** 多容器隔离浏览器
-**Researched:** 2026-07-23
-**Confidence:** MEDIUM（基于官方产品页面的一手信息，但未经用户验证）
+**Domain:** Electron 多容器隔离浏览器 — AI 能力深度增强 + 智能标签管理
+**Researched:** 2026-08-02
+**Overall confidence:** MEDIUM（基于 CDP 协议官方文档和 Electron API 一手知识，部分自动化场景未经端到端验证）
 
-## 竞品概览
+## 研究范围
 
-研究了以下竞品的功能集：
+本次研究聚焦 v2.1 新增功能，不重复 v1.x 已验证的 Table Stakes。现有能力基线：
 
-| 产品 | 类型 | 核心定位 | 价格模型 |
-|------|------|---------|---------|
-| Firefox Multi-Account Containers | 浏览器扩展 | 隐私隔离 + 多账号 | 免费 |
-| Ghost Browser | 独立浏览器（Chromium） | 专业多账号管理 | 免费 + 付费 |
-| Multilogin | 独立浏览器 + 云手机 | 反检测/多账号运营 | 付费订阅 |
-| GoLogin | 独立浏览器 | 反检测/指纹伪装 | 付费订阅 + 免费试用 |
-| SessionBox | 浏览器扩展 | 多账号会话管理 | 免费 + 付费 |
+| 已有能力 | 说明 |
+|----------|------|
+| CDP 网络抓取 | `cdp-manager.js` — 域名匹配 + Network 域事件监听 + 请求/响应捕获 |
+| AI Manager | `ai-manager.js` — 5 个工具（get_tabs / navigate / search_history / manage_favorites / switch_container）|
+| AI Chat UI | 流式输出 + 工具卡片 + 消息操作 + 拖拽面板 |
+| 收藏全文搜索 | `favorites-manager.js` — SQLite FTS5 虚拟表 + porter unicode61 分词 |
+| 多 Tab 容器隔离 | tab-manager.js + window-manager.js + Session partition |
 
-## Feature Landscape
+---
 
-### Table Stakes（用户必须有的功能）
+## Table Stakes（本里程碑必须有）
 
-没有这些功能，产品就不完整，用户会直接离开。
+这些功能是 v2.1 核心价值，缺失则里程碑目标不完整。
+
+### Phase 22: CDP 管理器 + 网页读取与链接操作
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| 容器隔离（Cookie/Session/存储） | 这是产品的核心价值，所有竞品都支持 | MEDIUM | Realm 已有 Session partition 机制，需确保 LocalStorage、IndexedDB、HTTP 缓存也完全隔离 |
-| 容器 CRUD（创建/编辑/删除） | 用户需要管理自己的容器 | LOW | Firefox MAC 和 Ghost Browser 都支持自定义容器 |
-| 容器自定义（名称/颜色/图标） | 视觉区分是基本需求 | LOW | Firefox MAC 支持颜色+名称+图标，Ghost Browser 也支持 |
-| 多账号同时登录同一网站 | 这是用户使用容器浏览器的核心动机 | MEDIUM | 所有竞品的 primary use case |
-| 容器列表/管理界面 | 用户需要看到和管理所有容器 | LOW | 下拉面板或侧边栏 |
-| URL 导航 | 浏览器的基本功能 | MEDIUM | Realm 当前未实现，需要 webview 或 BrowserView |
-| 前进/后退/刷新 | 浏览器基本导航 | LOW | 标准浏览器功能 |
+| **独立 CDP 管理器** (`cdp-manager.js` 扩展) | 当前 CDP 仅用于网络抓取（Network 域），AI Agent 需要读取页面内容和操作 DOM | Medium | 复用 `cdp-manager.js` 的 attach/detach 生命周期，新增 `Page`/`DOM`/`Runtime` 域支持 |
+| **read_page_content 工具** | AI 需要理解当前页面内容才能回答问题或执行操作 | Medium | 通过 `Runtime.evaluate` 执行 `document.title` / `document.body.innerText` / `document.querySelector('meta[name="description"]')` 获取标题、正文、元信息 |
+| **extract_links 工具** | AI 需要提取页面链接供用户选择或批量操作 | Low | `Runtime.evaluate` 执行 `Array.from(document.querySelectorAll('a[href]')).map(a => ({text: a.textContent.trim(), href: a.href}))` |
+| **open_link 工具** | 用户或 AI 指定链接后需要在容器中打开 | Low | 复用 `tabManager.createTab(containerId, url)` 或在指定 webview 中 `loadURL(url)` |
 
-### Differentiators（竞争优势功能）
+**依赖链：**
+```
+独立 CDP 管理器
+  ├── read_page_content 工具（需要 Runtime.evaluate 能力）
+  ├── extract_links 工具（需要 Runtime.evaluate 能力）
+  └── open_link 工具（需要 tabManager / webview 导航）
+```
 
-这些功能让产品脱颖而出。Realm 应选择性实现，聚焦核心价值。
+**与现有 CDP 的关系：**
+现有 `cdp-manager.js` 负责网络请求抓取（Network 域），新功能需要 DOM/Runtime 域。两种方案：
+1. **扩展现有 cdp-manager.js**（推荐）：复用 attach/detach 和 debuggerStates，新增方法
+2. **独立模块**：新建 `cdp-page-reader.js`，共享 debugger 连接
+
+方案 1 更优，因为 debugger 同一 webContents 只能 attach 一次，共享连接避免冲突。
+
+### Phase 23: 智能上下文引用 + 全文检索
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| **@ 引用标签页上下文** | 用户在 AI 对话中需要引用特定标签页内容，而非手动描述 | Medium | 需要：(1) 渲染进程解析 `@tab-title` 语法 (2) 提取被引用标签页的 URL/标题/内容摘要 (3) 将上下文注入 AI 对话的 system prompt 或 user message |
+| **全文检索收藏内容** | 当前 `manage_favorites` 工具仅支持标题/URL 搜索，用户期望搜索页面正文内容 | Medium | 需要：(1) 收藏时抓取页面正文存入 FTS5 (2) 搜索时匹配正文内容 (3) 返回匹配片段高亮 |
+
+**@ 引用标签页交互流程：**
+```
+用户输入 "@GitHub - realm 项目 read_page_content 的实现"
+  → 渲染进程解析 @ 前缀
+  → 匹配当前标签页列表（模糊匹配标题）
+  → 选中 "GitHub - realm-browser" 标签页
+  → 自动调用 read_page_content 获取该标签页内容
+  → 将内容摘要注入 AI 对话上下文
+  → AI 基于注入的上下文回答问题
+```
+
+**全文检索收藏的技术路径：**
+现有 `favorites-manager.js` 已有 FTS5 虚拟表（`porter unicode61` 分词），当前仅索引 `title` 和 `url`。扩展方案：
+1. 收藏时通过 CDP 抓取页面 `document.body.innerText`
+2. 存入 `favorites_content` FTS5 表（关联 favorites.id）
+3. 搜索时 JOIN 查询返回匹配片段
+
+### Phase 24: 任务自主执行
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| **自动化填表** | 用户期望 AI 能自动填写网页表单（登录、注册、搜索等） | High | 需要：(1) CDP Runtime.evaluate 定位表单元素 (2) Input.dispatchKeyEvent 模拟输入 (3) 理解表单语义（email/password/submit） |
+| **自动化操作** | 用户期望 AI 能执行页面操作（点击按钮、选择选项、滚动等） | High | 需要：(1) CDP Input.dispatchMouseEvent 模拟点击 (2) Runtime.evaluate 执行 JS 操作 (3) 操作序列化和错误恢复 |
+
+**自动化填表技术路径：**
+```javascript
+// 步骤 1: 识别表单元素
+const formElements = await cdp.sendCommand('Runtime.evaluate', {
+  expression: `
+    Array.from(document.querySelectorAll('input, textarea, select')).map(el => ({
+      tag: el.tagName,
+      type: el.type,
+      name: el.name,
+      id: el.id,
+      placeholder: el.placeholder,
+      value: el.value,
+      label: el.labels?.[0]?.textContent?.trim()
+    }))
+  `
+});
+
+// 步骤 2: 聚焦并输入
+await cdp.sendCommand('Runtime.evaluate', {
+  expression: `document.querySelector('#email').focus()`
+});
+await cdp.sendCommand('Input.dispatchKeyEvent', {
+  type: 'keyDown', text: 'user@example.com'
+});
+
+// 步骤 3: 提交
+await cdp.sendCommand('Runtime.evaluate', {
+  expression: `document.querySelector('form').submit()`
+});
+```
+
+**关键风险：**
+- 网站反自动化检测（reCAPTCHA、Cloudflare）→ 需要人工确认机制
+- 动态渲染的 SPA 表单（React/Vue）→ 需要等待元素渲染完成
+- 跨 iframe 表单 → 需要 Frame 域支持
+
+### Phase 25: 脚本生成 + 智能标签整理
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| **一句话生成脚本** | 用户用自然语言描述操作，AI 生成可执行的自动化脚本 | High | 需要：(1) LLM 理解用户意图 (2) 生成 CDP 操作序列 (3) 脚本持久化和回放 |
+| **AI 自动标签分组** | 用户打开大量标签页后，AI 自动按主题/域名/用途分组 | Medium | 需要：(1) 分析标签页标题/URL/内容 (2) LLM 或聚类算法分组 (3) 应用 Tab Group API 或 UI 分组 |
+
+**脚本生成架构：**
+```
+用户: "帮我登录 GitHub 并查看 realm 仓库的 Issues"
+  → LLM 解析意图
+  → 生成脚本 AST:
+     1. navigate('https://github.com/login')
+     2. fill('#login_field', 'username')
+     3. fill('#password', '***')
+     4. click('input[type=submit]')
+     5. wait('.dashboard')
+     6. navigate('https://github.com/user/realm/issues')
+  → 序列化为可执行格式
+  → 用户确认后执行
+```
+
+**智能标签分组方案：**
+| 方案 | 优点 | 缺点 | 推荐场景 |
+|------|------|------|----------|
+| 域名聚合 | 简单、确定性高 | 无法识别跨域相关性 | 基础分组 |
+| LLM 分析标题 | 理解语义 | API 调用成本 | 中等规模标签 |
+| 嵌入向量聚类 | 精度高 | 实现复杂 | 大量标签页 |
+| 混合方案 | 平衡成本和精度 | 需要调优 | **推荐** |
+
+---
+
+## Differentiators（竞争优势功能）
+
+这些功能让 Realm 在容器浏览器赛道中脱颖而出。
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Cookie 文件持久化 | 用户可以备份/迁移容器数据，跨设备同步 | MEDIUM | 参考 AutoBrowser 的 JSON 文件格式。Ghost Browser 和 Multilogin 都有数据持久化，但实现方式不同 |
-| 容器分配规则（URL 自动归类） | 指定网站自动在特定容器打开，减少手动切换 | MEDIUM | Firefox MAC 的杀手功能之一。用户可以设定 "github.com 总是在 Work 容器打开" |
-| 容器间数据导入导出 | 方便迁移和备份 | LOW | 所有竞品都有某种形式的数据导出 |
-| 快捷键支持 | 提高效率用户的操作速度 | LOW | Firefox MAC 支持长按新标签页按钮快速打开容器标签 |
-| 容器颜色标识的 Tab UI | 视觉区分当前容器 | LOW | Firefox MAC 用颜色条标识容器，非常直观 |
-| 每容器独立代理 | 不同容器走不同 IP | HIGH | Ghost Browser 和 GoLogin 的核心功能。Realm PROJECT.md 明确标注为 Out of Scope |
-| 浏览器指纹伪装 | 防止网站通过指纹关联账号 | HIGH | Multilogin 和 GoLogin 的核心卖点（53+ 指纹参数）。技术复杂度极高，且与 Realm 的核心定位不同 |
-| 团队协作/共享容器 | 团队成员共享容器配置 | HIGH | Multilogin 和 Ghost Browser 的付费功能。需要云同步和权限管理 |
+| **容器感知的 AI 上下文** | AI 理解当前容器身份（工作/个人），自动调整回答风格 | Low | 在 system prompt 中注入容器名称、属性（手机号/邮箱/备注） |
+| **跨容器内容对比** | AI 对比不同容器中同一网站的内容差异 | Medium | 需要同时读取多个容器的页面内容 |
+| **自动化脚本市场** | 用户分享和导入自动化脚本 | Medium | 需要脚本格式标准化 + 导入导出 |
+| **操作录制回放** | 录制用户操作生成脚本，支持编辑和重放 | High | 类似 Playwright codegen，但集成在浏览器内 |
+| **智能表单记忆** | 记住用户在特定网站的填写内容，下次自动填充 | Medium | 按容器隔离存储表单数据 |
+| **AI 浏览摘要** | AI 自动生成当前页面的结构化摘要 | Low | 基于 read_page_content + LLM 摘要 |
+| **标签页智能休眠** | AI 判断不活跃标签页并自动休眠，释放内存 | Medium | 结合最后访问时间和内容分析 |
 
-### Anti-Features（应该避免的功能）
+---
 
-这些功能看起来不错，但会带来问题或偏离核心定位。
+## Anti-Features（应该避免的功能）
 
-| Anti-Feature | Why Requested | Why Problematic | Alternative |
-|--------------|---------------|-----------------|-------------|
-| 浏览器扩展支持 | 用户可能想用 Chrome 扩展 | Electron 的扩展支持不稳定，维护成本极高，且安全模型与容器隔离冲突 | 聚焦原生功能，不依赖扩展生态 |
-| 完整的反检测浏览器功能 | 市场有需求 | 技术复杂度极高（53+ 指纹参数），需要持续对抗网站检测，且可能涉及法律灰色地带 | 专注隐私隔离，不追求反检测 |
-| 云同步/跨设备同步 | 用户期望跨设备使用 | 需要后端基础设施，增加运维成本和安全风险 | 先做本地 JSON 导入导出，未来可选云同步 |
-| 内置 VPN/代理服务 | Ghost Browser 和 GoLogin 都有 | 需要代理基础设施，成本高，且与浏览器核心功能耦合 | 支持用户配置外部代理，或预留接口 |
-| AI Agent 集成 | 项目规划中有 | 当前阶段会分散精力，且 AI Agent 的浏览器自动化场景尚未成熟 | 预留架构接口，但本期不实现 |
-| 自动化脚本/宏录制 | Multilogin 和 GoLogin 支持 Selenium/Puppeteer | 技术复杂度高，且主要面向批量操作场景，与 Realm 的个人用户定位不符 | 预留 API 接口，未来可考虑 |
-| 移动端支持 | 市场覆盖 | Electron 不适合移动端，需要完全不同的技术栈 | 专注桌面端 macOS |
+| Anti-Feature | Why Avoid | What to Do Instead |
+|--------------|-----------|-------------------|
+| **无确认的自动化操作** | 安全风险：AI 可能执行恶意操作（删除、转账等） | 所有写操作（填表、点击、提交）必须用户确认 |
+| **页面内容持久化存储** | 隐私风险：用户浏览的页面正文可能包含敏感信息 | 仅在内存中缓存，会话结束即清除 |
+| **外部脚本执行** | 安全风险：用户导入的脚本可能包含恶意代码 | 沙箱化执行 + 权限声明 + 用户确认 |
+| **跨容器数据泄露** | 违反容器隔离核心价值 | AI 上下文严格按容器隔离，不混合 |
+| **自动化绕过网站安全机制** | 法律风险 + 伦理问题 | 遇到 CAPTCHA/2FA 时提示用户手动操作 |
+| **LLM 调用阻塞 UI** | 用户体验差 | 所有 LLM 调用异步 + 加载状态 + 取消机制 |
+| **全局脚本共享** | 隐私风险：脚本可能包含用户凭证 | 脚本按容器隔离存储，凭证使用占位符 |
+
+---
 
 ## Feature Dependencies
 
 ```
-容器 CRUD
-    └──requires──> 容器管理 UI（下拉面板）
-                       └──requires──> 容器列表渲染
+Phase 22: CDP 管理器扩展
+  ├── read_page_content（需要 Runtime.evaluate）
+  ├── extract_links（需要 Runtime.evaluate）
+  └── open_link（需要 tabManager）
 
-容器切换
-    └──requires──> 容器 CRUD
-        └──requires──> URL 导航（webview/BrowserView）
+Phase 23: 智能上下文 + 全文检索
+  ├── @ 引用标签页 → 依赖 read_page_content（Phase 22）
+  └── 全文检索收藏 → 依赖 read_page_content（Phase 22）+ FTS5 扩展
 
-多账号登录
-    └──requires──> 容器隔离（Cookie/Session/存储）
-        └──requires──> 容器 CRUD
+Phase 24: 任务自主执行
+  ├── 自动化填表 → 依赖 Runtime.evaluate + Input 域（Phase 22 CDP 扩展）
+  └── 自动化操作 → 依赖 Runtime.evaluate + Input 域 + DOM 域
 
-Cookie 文件持久化
-    └──requires──> 容器隔离
-        └──enhances──> 容器间数据导入导出
-
-容器分配规则
-    └──requires──> 容器 CRUD
-        └──requires──> URL 导航
-
-容器颜色标识 Tab UI
-    └──requires──> 容器自定义（颜色）
-        └──enhances──> 容器切换体验
-```
-
-### Dependency Notes
-
-- **容器 CRUD 是所有功能的基础**：没有容器管理，其他功能都无法工作
-- **URL 导航是关键瓶颈**：Realm 当前未实现 webview 导航，这是阻塞项
-- **容器隔离是核心价值**：必须确保 Cookie、Session、LocalStorage、IndexedDB、HTTP 缓存全部隔离
-- **Cookie 持久化增强可靠性**：用户关闭应用后数据不丢失，是信任基础
-
-## MVP Definition
-
-### Launch With (v1)
-
-最小可行产品 — 验证核心概念所需的最少功能。
-
-- [ ] **容器 CRUD** — 创建、编辑、删除容器，自定义名称/颜色/图标
-- [ ] **容器管理 UI** — 下拉面板显示容器列表，支持切换
-- [ ] **完整数据隔离** — Cookie、Session、LocalStorage、IndexedDB、HTTP 缓存
-- [ ] **URL 导航** — 在容器中打开和浏览网页
-- [ ] **多 Tab 支持** — 同一窗口内多个容器的 Tab
-- [ ] **基础导航** — 前进、后退、刷新、URL 输入
-
-### Add After Validation (v1.x)
-
-核心验证通过后添加的功能。
-
-- [ ] **Cookie 文件持久化** — 触发条件：用户反馈关闭应用后登录状态丢失
-- [ ] **容器分配规则** — 触发条件：用户频繁手动切换容器到同一网站
-- [ ] **快捷键支持** — 触发条件：效率用户反馈操作繁琐
-- [ ] **容器间数据导入导出** — 触发条件：用户需要备份或迁移
-- [ ] **容器颜色标识 Tab** — 触发条件：用户反馈难以区分当前容器
-
-### Future Consideration (v2+)
-
-产品市场验证后再考虑的功能。
-
-- [ ] **每容器独立代理** — 需要代理基础设施，成本高
-- [ ] **团队协作** — 需要云同步和权限系统
-- [ ] **AI Agent 集成** — 预留架构，等待市场成熟
-- [ ] **浏览器扩展支持** — 技术复杂度高，维护成本大
-
-## Feature Prioritization Matrix
-
-| Feature | User Value | Implementation Cost | Priority |
-|---------|------------|---------------------|----------|
-| 容器 CRUD | HIGH | LOW | P1 |
-| 容器管理 UI | HIGH | LOW | P1 |
-| 完整数据隔离 | HIGH | MEDIUM | P1 |
-| URL 导航 | HIGH | MEDIUM | P1 |
-| 多 Tab 支持 | HIGH | MEDIUM | P1 |
-| 容器自定义（名称/颜色/图标） | MEDIUM | LOW | P1 |
-| Cookie 文件持久化 | MEDIUM | MEDIUM | P2 |
-| 容器分配规则 | MEDIUM | MEDIUM | P2 |
-| 快捷键支持 | LOW | LOW | P2 |
-| 容器颜色标识 Tab | MEDIUM | LOW | P2 |
-| 数据导入导出 | LOW | LOW | P2 |
-| 每容器独立代理 | MEDIUM | HIGH | P3 |
-| 团队协作 | LOW | HIGH | P3 |
-| AI Agent 集成 | LOW | HIGH | P3 |
-
-**Priority key:**
-- P1: Must have for launch（v1 必须有）
-- P2: Should have, add when possible（v1.x 添加）
-- P3: Nice to have, future consideration（v2+ 考虑）
-
-## Competitor Feature Analysis
-
-| Feature | Firefox MAC | Ghost Browser | Multilogin | GoLogin | Realm |
-|---------|-------------|---------------|------------|---------|-------|
-| 容器/Profile 隔离 | 完整支持 | 完整支持 | 完整支持 | 完整支持 | 核心功能 |
-| 自定义容器名称/颜色/图标 | 支持 | 支持 | 支持 | 支持 | 支持 |
-| 多账号同时登录 | 支持 | 支持 | 支持 | 支持 | 支持 |
-| URL 自动归类 | 支持 | 不明确 | 不明确 | 不明确 | 计划中 |
-| Cookie 持久化 | 浏览器管理 | 支持 | 支持 | 支持 | 计划中 |
-| 独立代理 | Mozilla VPN 集成 | 支持 | 支持 | 内置代理 | Out of Scope |
-| 指纹伪装 | 不支持 | 不支持 | 53+ 参数 | 53+ 参数 | Out of Scope |
-| 团队协作 | 不支持 | 支持 | 支持 | 支持 | 未来考虑 |
-| Chrome 扩展兼容 | N/A（Firefox） | 支持 | 支持 | 支持 | Out of Scope |
-| 自动化/Selenium | 不支持 | 不明确 | 支持 | 支持 | 未来考虑 |
-| 云同步 | Firefox Sync | 支持 | 支持 | 支持 | 未来考虑 |
-| 平台 | Firefox | Win/Mac/Linux | 云端 | 云端 | macOS |
-
-### Realm 的差异化定位
-
-Realm 不是反检测浏览器（Multilogin/GoLogin），也不是企业协作工具（Ghost Browser）。
-
-Realm 的定位是：**个人用户的多容器隔离浏览器**，类似于 Firefox Multi-Account Containers 的独立应用版本。
-
-核心差异：
-1. **独立应用**：不依赖 Firefox/Chrome，基于 Electron 构建
-2. **简单易用**：比 Firefox MAC 更直观的 UI，比 Multilogin 更轻量
-3. **数据主权**：Cookie 本地持久化，用户完全控制数据
-4. **预留 AI 能力**：未来可集成 AI Agent，这是竞品都没有的
-
-## Sources
-
-- [Firefox Multi-Account Containers - addons.mozilla.org](https://addons.mozilla.org/en-US/firefox/addon/multi-account-containers/) — 官方扩展页面，一手信息
-- [Ghost Browser - ghostbrowser.com](https://ghostbrowser.com/) — 官方网站，一手信息
-- [Multilogin - multilogin.com](https://multilogin.com/) — 官方网站，一手信息
-- [GoLogin - gologin.com](https://gologin.com/) — 官方网站，一手信息
-
----
-*Feature research for: Multi-Container Isolation Browser*
-*Researched: 2026-07-23*
-
----
-
-# v1.1 Feature Landscape
-
-**Domain:** Electron 多容器隔离浏览器 v1.1 — 容器属性增强 + 收藏历史 + 常用网站 + 设置页面
-**Researched:** 2026-07-25
-**Overall confidence:** MEDIUM（基于浏览器通用实现模式和 Electron API 知识，LOW confidence 来源于 websearch，MEDIUM confidence 来源于现有代码结构验证）
-
-## v1.1 Table Stakes
-
-用户在容器浏览器中期望的基础功能，缺失会导致产品不完整。
-
-### 容器属性扩展
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| 容器备注（notes） | Firefox Multi-Account Containers 用户常用场景：记录容器用途、登录账号等 | Low | 现有 `electron-store` 容器对象直接扩展字段即可 |
-| 容器手机号/邮箱 | 多账号管理场景下标记容器对应的联系方式 | Low | 同上，纯数据字段扩展 |
-| 容器属性编辑 UI | 用户需要可视化编辑扩展属性 | Med | 现有容器编辑模态框需扩展字段区域 |
-| 容器属性展示 | 侧边栏或下拉面板中展示容器的关键属性摘要 | Med | 需要设计信息密度平衡 |
-
-**依赖现有实现：**
-- `container-manager.js` 中 `DEFAULT_CONTAINERS` 数据结构（line 24-29）→ 扩展字段
-- `container-manager.js` 中 `configStore` 持久化机制 → 无需改动
-- `src/renderer.js` 中容器编辑模态框 → 扩展 UI
-
-### 收藏夹管理
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| 添加收藏（星号按钮/Cmd+D） | 所有浏览器标配，用户肌肉记忆 | Low | 需要捕获当前 Tab 的 URL 和标题 |
-| 收藏列表展示 | 用户需要查看和管理已收藏内容 | Med | 需要新的 UI 面板（侧边栏或独立页面） |
-| 收藏编辑（标题/URL 修改） | 网站标题过长或不直观时用户需要自定义 | Low | CRUD 中的基础 Update |
-| 收藏删除 | 基础 CRUD | Low | 单个删除 + 确认提示 |
-| 收藏文件夹 | 当收藏量增大后需要分类组织 | Med | 需要树形数据结构和嵌套 UI |
-| 收藏搜索 | 收藏量大时快速定位 | Low | 匹配标题和 URL |
-| 收藏栏显示 | 快速访问常用收藏 | Med | 工具栏下方的书签栏 |
-
-**依赖现有实现：**
-- `main.js` 中 webview 的 `did-navigate` 事件 → 获取当前页面 URL/标题
-- `src/preload.js` 中 `contextBridge` → 新增收藏相关 IPC
-- `electron-store` → 收藏数据持久化（建议使用独立 store 文件）
-
-### 浏览历史
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| 自动记录访问（URL/标题/时间） | 所有浏览器标配 | Low | 监听 webview 导航事件 |
-| 历史列表展示 | 用户查看最近访问记录 | Med | 按日期分组的列表 UI |
-| 历史搜索 | 在大量历史记录中定位 | Med | 需要全文搜索或前缀匹配 |
-| 历史条目点击跳转 | 点击历史记录重新访问该页面 | Low | 基础导航功能 |
-| 历史删除 | 清除单条或批量历史 | Low | 单条 + 批量 + 清空全部 |
-| 历史自动过期 | 避免历史数据无限增长 | Med | 可配置保留天数，默认 90 天 |
-
-**依赖现有实现：**
-- `main.js` 中 `webview` guest 拦截逻辑（line 38-76）→ 可在此处追踪导航
-- `src/renderer.js` 中 webview 事件监听 → `did-navigate`、`did-navigate-in-page`
-- 每个容器的 Session 隔离 → 历史也应按容器隔离
-
-### 常用网站推荐
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| 新标签页常用网站网格 | Chrome/Firefox/Safari 新标签页标配 | Med | 需要新的新标签页 UI |
-| 按访问频率排序 | 基础排序逻辑 | Med | 需要历史记录数据支持 |
-| 时间衰减权重 | 近期访问权重更高 | Med | 类似 Firefox frecency 算法 |
-| 网站图标/缩略图展示 | 视觉识别，提升点击率 | Med | 需要 favicon 获取机制 |
-| 用户置顶/固定 | 显式操作覆盖算法推荐 | Low | 类似 Safari 固定网站功能 |
-| 按容器过滤 | 常用网站应按当前容器上下文展示 | Med | 不同容器显示不同常用网站 |
-
-**依赖现有实现：**
-- 浏览历史数据 → 计算频率/最近性
-- `src/renderer.js` 中 Tab 创建逻辑 → 新标签页需要特殊处理
-- 容器 Session 隔离 → 常用网站按容器隔离
-
-### 设置页面
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| 设置页面入口 | macOS 菜单"偏好设置"，用户期望标准位置 | Low | 应用菜单中添加设置项 |
-| 通用设置（启动行为） | 控制应用启动时的行为 | Low | electron-store 持久化 |
-| 隐私设置（清除数据） | 用户需要清除浏览数据的能力 | Med | 需要调用 session.clearStorageData |
-| 默认浏览器设置 | 引导用户设置为默认浏览器 | Med | macOS 平台限制较多 |
-| 设置持久化 | 设置项需要在重启后保持 | Low | 使用 electron-store |
-| 设置变更即时生效 | 修改设置后立即生效，无需重启 | Med | 需要 IPC 通知主进程 |
-
-**依赖现有实现：**
-- `electron-store` → 设置持久化
-- `main.js` 中 `configStore` → 可复用或扩展
-- Electron `session` API → 清除浏览数据
-
-## v1.1 Differentiators
-
-区别于其他浏览器的差异化特性，提升产品竞争力。
-
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| 收藏按容器隔离 | 每个容器拥有独立的收藏夹，避免工作/个人收藏混在一起 | Med | Firefox Multi-Account Containers 不支持此功能，是显著差异化点 |
-| 容器属性自动填充 | 根据容器的手机号/邮箱属性自动填充网页表单 | High | 需要 DOM 注入 + 表单识别，复杂度高但价值大 |
-| 常用网站域名聚合 | 同一域名下多个页面合并为一个常用网站卡片 | Med | Chrome 已支持，但按容器隔离是新体验 |
-| 收藏智能分类建议 | 基于 URL 模式自动建议收藏文件夹 | High | 需要 URL 分析和模式识别，可后续迭代 |
-| 历史记录跨 Tab 关联 | 显示从哪个页面跳转到当前页面的链路 | Med | 需要记录 referrer 信息，构建导航图 |
-| 设置页面容器级配置 | 每个容器可独立配置行为（如是否记录历史、是否保存 Cookie） | Med | 与现有 assignment-rules 模式一致 |
-| 默认浏览器一键设置 | 应用内引导用户设置为默认浏览器 | Low | 利用 Electron API + 系统设置引导 |
-
-## v1.1 Anti-Features
-
-明确不在本期构建的功能，避免范围蔓延。
-
-| Anti-Feature | Why Avoid | What to Do Instead |
-|--------------|-----------|-------------------|
-| 收藏/历史同步 | 跨设备同步需要后端服务，架构复杂度极高 | 仅本地存储，预留数据导出接口 |
-| 书签标签系统 | 标签系统需要全新的搜索和筛选 UI，与文件夹系统重复 | 使用文件夹组织，保持简单 |
-| 历史记录死链检测 | 需要后台网络请求，影响性能 | 用户点击时自然发现死链 |
-| 收藏重复检测 | 需要 URL 标准化和模糊匹配逻辑 | 允许重复，用户自行管理 |
-| 收藏导入（从其他浏览器） | 需要解析多种格式（Chrome JSON、Firefox HTML 等） | 仅支持标准 HTML 格式导出，不支持导入 |
-| AI 驱动的智能推荐 | 需要 ML 模型和用户行为分析 | 使用简单的频率+最近性算法 |
-| 容器属性加密存储 | 增加复杂度，用户可能不需要 | 明文存储在 electron-store 中 |
-| 历史记录云端备份 | 需要后端服务 | 仅本地存储 |
-
-## v1.1 Feature Dependencies
-
-```
-浏览历史记录 ──→ 常用网站推荐（需要历史数据计算频率和最近性）
-浏览历史记录 ──→ 历史搜索（需要历史数据）
-收藏夹管理 ──→ 收藏栏显示（需要收藏数据）
-收藏夹管理 ──→ 收藏按容器隔离（需要收藏 + 容器关联）
-容器属性扩展 ──→ 容器属性自动填充（需要属性数据 + DOM 注入）
-容器属性扩展 ──→ 容器属性编辑 UI（需要属性数据模型）
-常用网站推荐 ──→ 新标签页 UI（需要展示框架）
+Phase 25: 脚本生成 + 智能标签
+  ├── 脚本生成 → 依赖 Phase 24 的自动化能力
+  └── 智能标签分组 → 依赖 get_tabs + LLM 分析（Phase 20 AI Manager）
 ```
 
 ### 关键路径
 
 ```
-容器属性扩展（独立，无依赖）
-    └── 容器属性编辑 UI
-    └── 容器属性展示
+CDP 管理器扩展（Phase 22 基础）
+  ├── read_page_content（Phase 22 核心工具）
+  │   ├── @ 引用标签页（Phase 23）
+  │   ├── 全文检索收藏（Phase 23）
+  │   └── 自动化填表（Phase 24）
+  └── extract_links + open_link（Phase 22 工具）
 
-浏览历史记录（独立，无依赖）
-    ├── 常用网站推荐（依赖历史数据）
-    └── 历史搜索（依赖历史数据）
+任务自主执行（Phase 24 基础）
+  └── 脚本生成（Phase 25 依赖 Phase 24）
 
-收藏夹管理（独立，无依赖）
-    ├── 收藏栏显示（依赖收藏数据）
-    └── 收藏按容器隔离（依赖收藏 + 容器）
-
-设置页面（独立，无依赖）
-    └── 默认浏览器设置
+智能标签分组（独立，仅依赖 AI Manager）
 ```
 
-## v1.1 MVP Recommendation
+---
 
-### 优先构建（Phase 1）
+## MVP Recommendation
 
-1. **容器属性扩展** — 低成本高价值，直接扩展现有数据结构
-2. **浏览历史记录** — 基础数据层，为常用网站推荐提供数据支持
-3. **收藏夹管理** — 基础 CRUD，浏览器必备功能
-4. **设置页面** — 独立模块，可并行开发
+### Phase 22 MVP（CDP + 网页读取）
 
-### 延后构建（Phase 2）
+优先构建：
+1. **CDP 管理器扩展** — 复用现有 attach/detach，新增 Runtime.evaluate 支持
+2. **read_page_content** — 最核心工具，后续所有功能的基础
+3. **extract_links** — 低成本高价值
+4. **open_link** — 复用现有 tabManager
 
-- **常用网站推荐** — 需要历史数据积累，建议在历史记录功能稳定后实现
-- **收藏按容器隔离** — 需要设计容器与收藏的关联模型
-- **收藏文件夹** — 初期可只支持扁平收藏列表
+### Phase 23 MVP（上下文 + 搜索）
 
-### 不构建
+优先构建：
+1. **@ 引用标签页** — 交互创新，差异化亮点
+2. **全文检索收藏** — 扩展 FTS5 索引字段
 
-- 收藏导入/同步、标签系统、死链检测、AI 推荐等 — 见 Anti-Features
+### Phase 24 MVP（自动化）
 
-## v1.1 Confidence Notes
+优先构建：
+1. **自动化填表** — 实用价值最高
+2. **自动化操作** — 需要设计确认机制
 
-| 领域 | 置信度 | 原因 |
-|------|--------|------|
-| 容器属性扩展 | HIGH | 现有代码结构清晰，扩展路径明确 |
-| 收藏夹管理 | MEDIUM | 浏览器通用模式成熟，但 UI 设计需结合项目风格 |
-| 浏览历史 | MEDIUM | 实现模式成熟，但 Electron webview 事件需验证 |
-| 常用网站推荐 | MEDIUM | 算法模式成熟，但 frecency 实现细节需确认 |
-| 设置页面 | HIGH | Electron 标准模式，无技术风险 |
-| 默认浏览器 | LOW | macOS 平台限制较多，需实际测试验证 |
+### Phase 25 MVP（脚本 + 标签）
 
-## v1.1 Sources
+优先构建：
+1. **AI 自动标签分组** — 实现相对简单，用户感知强
+2. **一句话生成脚本** — 依赖 Phase 24 稳定后实现
 
-- 浏览器通用实现模式（Chrome/Firefox/Safari 公开文档和源码）
-- Firefox Multi-Account Containers 扩展源码（Mozilla GitHub）
-- Electron 官方文档（app.setAsDefaultProtocolClient、webview 事件）
-- 项目现有代码结构（container-manager.js、main.js、renderer.js）
+---
+
+## Confidence Assessment
+
+| Area | Confidence | Reason |
+|------|------------|--------|
+| CDP 页面读取 | HIGH | CDP 协议文档完善，Electron debugger API 成熟 |
+| 自动化填表 | MEDIUM | CDP Input 域可用，但网站反自动化检测是未知变量 |
+| 全文检索收藏 | HIGH | FTS5 已在项目中使用，扩展路径明确 |
+| @ 引用标签页 | MEDIUM | 交互设计需迭代，技术实现路径清晰 |
+| 脚本生成 | LOW | 高度依赖 LLM 能力和脚本格式设计，需要原型验证 |
+| 智能标签分组 | MEDIUM | 算法成熟，但分组质量需要实际数据验证 |
+
+---
+
+## Sources
+
+- [Chrome DevTools Protocol Documentation](https://chromedevtools.github.io/devtools-protocol/) — CDP 域和方法参考
+- [Electron webContents.debugger API](https://www.electronjs.org/docs/latest/api/web-contents#class-debugger) — Electron 调试器 API
+- [SQLite FTS5 Extension](https://www.sqlite.org/fts5.html) — FTS5 全文搜索文档
+- [better-sqlite3 GitHub](https://github.com/WiseLibs/better-sqlite3) — Node.js SQLite 绑定
+- 项目现有代码：`cdp-manager.js`、`ai-manager.js`、`favorites-manager.js`
+
+---
+*Feature research for: Realm Browser v2.1 AI CDP Enhancement + Tabbrowser Integration*
+*Researched: 2026-08-02*

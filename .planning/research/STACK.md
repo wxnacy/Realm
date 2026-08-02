@@ -1,445 +1,230 @@
-# Technology Stack — v1.1 容器属性增强 + 收藏历史 + 常用网站 + 设置页面
+# Stack Research: AI CDP 增强 + Tabbrowser 功能集成 (v2.1)
 
-**Project:** Realm Browser
-**Researched:** 2026-07-25
-**Mode:** Ecosystem
-**Scope:** 仅覆盖 v1.1 新增能力所需的栈补充，基础栈（Electron 32.x、electron-store、Session API）不在本文件重复。
+**Domain:** Electron 多容器浏览器 - AI Agent 深度控制
+**Researched:** 2026-08-02
+**Confidence:** HIGH
 
----
+## Recommended Stack
 
-## Executive Summary
+### 核心发现：无需新增依赖
 
-v1.1 的四个功能（容器属性扩展、收藏与历史、常用网站推荐、设置页面）**不需要引入任何新的 npm 依赖**。所有数据持久化通过扩展现有 electron-store schema 完成；浏览历史通过 webview 内置导航事件采集；默认浏览器注册使用 Electron 内置 API。
+v2.1 里程碑的所有功能都可以用现有技术栈实现。这是本次研究最重要的结论。
 
-**核心决策：继续使用 electron-store（JSON 文件）作为唯一数据存储，不引入 SQLite。**
+### 现有技术栈（已验证可用）
 
-理由：
-- 当前容器配置 + 收藏 + 历史的数据量远低于 electron-store 性能瓶颈（约 10 万条记录以内）
-- 项目已有 electron-store 依赖，零迁移成本
-- 避免引入 better-sqlite3 等原生编译依赖（增加构建复杂度、平台兼容问题）
-- 如果未来数据量成为瓶颈，可单独迁移历史模块到 SQLite，不影响其他功能
+| Technology | Version | Purpose | 状态 |
+|------------|---------|---------|------|
+| Electron | 32.x | CDP (webContents.debugger) + 主进程/渲染进程架构 | 已集成 |
+| better-sqlite3 | 11.7.0 | FTS5 全文检索（SQLite 3.46.x 内置） | 已集成 |
+| cheerio | 1.2.0 | HTML 解析（CDP 取回 HTML 后的服务端解析备选） | 已集成 |
+| electron-store | 8.1.0 | 配置持久化（CDP 管理器配置、AI 配置） | 已集成 |
+| pi-agent-core | 0.82.1 | AI Agent 框架（工具注册、对话管理、流式输出） | 已集成 |
+| pi-ai | 0.82.1 | LLM 统一 API 层（38+ 提供商） | 已集成 |
 
----
+### CDP 域需求分析
 
-## 1. 容器属性扩展（phone / email / notes）
+当前 `cdp-manager.js` 仅使用 `Network` 域（请求抓取）。新功能需要扩展到以下 CDP 域：
 
-### 需要什么
+| CDP Domain | Methods | 用途 | 复杂度 |
+|------------|---------|------|--------|
+| **Runtime** | `evaluate`, `callFunctionOn` | 在页面上下文执行 JS（最灵活的 DOM 交互方式） | 低 |
+| **DOM** | `getDocument`, `getOuterHTML`, `querySelectorAll` | 读取页面 DOM 结构 | 低 |
+| **Page** | `navigate`, `reload` | 页面导航控制 | 低 |
+| **Network** (已有) | 现有方法 | 继续用于请求抓取 | 已实现 |
 
-扩展容器 schema，增加 `phone`、`email`、`notes` 三个可选字段。
+**关键决策：优先使用 `Runtime.evaluate`**
 
-### 技术方案
+`Runtime.evaluate` 可以在页面上下文中执行任意 JavaScript，这意味着：
+- 读取页面内容：`document.title`, `document.body.innerText`, `document.querySelector('article')?.textContent`
+- 提取链接：`Array.from(document.querySelectorAll('a[href]')).map(a => ({text: a.textContent, href: a.href}))`
+- 点击链接：`document.querySelector('a[href="..."]').click()`
+- 填写表单：`document.querySelector('input[name="email"]').value = '...'`
 
-**不需要新依赖。** 直接在 electron-store 的 `containers` 数组元素中增加字段。
+这比用 DOM 域逐节点操作更简单、更强大。cheerio 作为备选方案，用于需要服务端解析的场景（如页面尚未加载完成时解析缓存的 HTML）。
 
-```javascript
-// 容器 schema 扩展示例
-{
-  id: 'work',
-  name: '工作',
-  color: '#3B82F6',
-  icon: '💼',
-  // v1.1 新增字段
-  phone: '+86 138xxxx1234',
-  email: 'user@company.com',
-  notes: '公司账号，用于内部系统登录'
-}
+### SQLite FTS5 全文检索
+
+better-sqlite3 11.7.0 内置 SQLite 3.46.x，FTS5 默认编译启用。
+
+```sql
+-- FTS5 虚拟表示例（用于收藏全文检索）
+CREATE VIRTUAL TABLE favorites_fts USING fts5(
+  title,
+  url,
+  content='favorites',
+  content_rowid='id'
+);
+
+-- 触发器保持同步
+CREATE TRIGGER favorites_ai AFTER INSERT ON favorites BEGIN
+  INSERT INTO favorites_fts(rowid, title, url)
+  VALUES (new.id, new.title, new.url);
+END;
 ```
 
-### 需要修改的文件
-
-| 文件 | 修改内容 |
-|------|----------|
-| `container-manager.js` | `DEFAULT_CONTAINERS` 增加默认空值；`createContainer`/`updateContainer` 接受新字段 |
-| `src/preload.js` | IPC 接口透传新字段 |
-| `src/renderer.js` | 容器编辑表单增加三个输入框 |
-| `src/index.html` | 容器编辑模态框增加表单元素 |
-
-### 风险评估
-
-**风险：极低。** 纯 schema 扩展，向后兼容（新字段可选，旧数据自动补空值）。
-
----
-
-## 2. 收藏夹管理（Bookmarks）
-
-### 需要什么
-
-在 electron-store 中新增 `bookmarks` 存储键，管理用户收藏的 URL。
-
-### 技术方案
-
-**不需要新依赖。** 使用 electron-store 新增一个独立的 `bookmarks` 键。
-
-```javascript
-// bookmarks schema
-{
-  bookmarks: [
-    {
-      id: 'bm-1721884800000',       // 唯一 ID（时间戳）
-      containerId: 'work',           // 所属容器（可选，null 表示全局）
-      url: 'https://github.com',
-      title: 'GitHub',
-      favicon: '',                   // 可选，favicon URL
-      createdAt: '2026-07-25T08:00:00.000Z'
-    }
-  ]
-}
-```
-
-### 数据操作
-
-| 操作 | 方法 | 说明 |
-|------|------|------|
-| 添加收藏 | `configStore.set('bookmarks', [...])` | 从当前页面 URL + title 一键收藏 |
-| 删除收藏 | 过滤后 `configStore.set()` | 按 id 删除 |
-| 按容器筛选 | 渲染进程 `.filter(b => b.containerId === id)` | 内存过滤，无需索引 |
-| 导入/导出 | JSON 文件读写 | electron-store 原生支持 `.store` 读取 |
-
-### UI 集成
-
-- 工具栏增加「收藏」按钮（星标图标），点击收藏当前 Tab 的 URL
-- 侧边栏或新标签页显示收藏列表
-- 支持右键菜单删除收藏
-
-### 风险评估
-
-**风险：低。** 纯 CRUD 操作，electron-store 完全胜任。
-
----
-
-## 3. 浏览历史记录（Browsing History）
-
-### 需要什么
-
-追踪用户在每个容器内的页面导航，存储为可查询的历史记录。
-
-### 技术方案
-
-**不需要新依赖。** 利用 webview 内置导航事件 + electron-store 持久化。
-
-#### 数据采集（渲染进程侧）
-
-```javascript
-// webview 导航事件监听
-webview.addEventListener('did-navigate', (event) => {
-  // 发送到主进程存储
-  window.realmAPI.addHistoryEntry({
-    containerId: currentContainerId,
-    url: event.url,
-    title: webview.getTitle(),  // executeJavaScript 获取
-    timestamp: Date.now()
-  });
-});
-
-// 同时监听 in-page 导航（SPA 路由变化）
-webview.addEventListener('did-navigate-in-page', (event) => {
-  if (event.isMainFrame) {
-    window.realmAPI.addHistoryEntry({ ... });
-  }
-});
-```
-
-#### 数据存储（主进程侧）
-
-```javascript
-// history schema
-{
-  history: {
-    'work': [
-      {
-        id: 'hist-1721884800000',
-        url: 'https://github.com/org/repo',
-        title: 'GitHub - org/repo',
-        visitedAt: '2026-07-25T08:00:00.000Z',
-        visitCount: 5
-      }
-    ],
-    'personal': [ ... ]
-  }
-}
-```
-
-#### 去重与合并策略
-
-- **相同 URL 连续访问**：合并为一条记录，更新 `visitedAt` 和 `visitCount`
-- **相同 URL 非连续访问**：保留最新记录，`visitCount` 递增
-- **每个容器上限**：10,000 条记录（FIFO 淘汰最旧条目）
-
-#### 历史搜索
-
-- 渲染进程内存过滤（从主进程一次性加载当前容器的历史）
-- 支持按 URL 和 title 模糊匹配
-
-### 关键注意事项
-
-**webview 的 `did-navigate` 事件不提供页面 title。** 需要在导航完成后通过 `webview.executeJavaScript('document.title')` 获取。这需要异步操作，历史记录可能先以 URL 为 title 入库，后续更新。
-
-### 风险评估
-
-**风险：中低。**
-- 数据量可控（每容器 1 万条上限，每条约 200 字节，总计约 2MB）
-- electron-store 的 JSON 读写在 1 万条以内性能可接受（< 100ms）
-- 如果未来性能不足，可单独将 history 迁移到 better-sqlite3
-
----
-
-## 4. 常用网站智能推荐（Frequently Visited Sites）
-
-### 需要什么
-
-基于浏览历史数据，计算「常用网站」得分，在新标签页展示 Top N 推荐。
-
-### 技术方案
-
-**不需要新依赖。** 纯算法计算，基于已有的 history 数据。
-
-#### 排名算法
-
-```javascript
-/**
- * 计算常用网站得分
- *
- * 公式：score = visitCount × recencyWeight
- *
- * recencyWeight 基于最后一次访问的时间衰减：
- * - 24 小时内：1.0
- * - 7 天内：0.7
- * - 30 天内：0.4
- * - 30 天以上：0.1
- *
- * @param {Object} entry - 历史记录条目
- * @returns {number} 得分
- */
-function calculateScore(entry) {
-  const now = Date.now();
-  const lastVisit = new Date(entry.visitedAt).getTime();
-  const daysSinceVisit = (now - lastVisit) / (1000 * 60 * 60 * 24);
-
-  let recencyWeight;
-  if (daysSinceVisit < 1) recencyWeight = 1.0;
-  else if (daysSinceVisit < 7) recencyWeight = 0.7;
-  else if (daysSinceVisit < 30) recencyWeight = 0.4;
-  else recencyWeight = 0.1;
-
-  return entry.visitCount * recencyWeight;
-}
-```
-
-#### 域名聚合
-
-将同一域名的访问记录聚合（如 `github.com/a` 和 `github.com/b` 合并为 `github.com`）：
-
-```javascript
-function aggregateByDomain(historyEntries) {
-  const domainMap = new Map();
-
-  for (const entry of historyEntries) {
-    const domain = new URL(entry.url).hostname;
-    if (!domainMap.has(domain)) {
-      domainMap.set(domain, { domain, visitCount: 0, lastVisited: entry.visitedAt, sampleUrl: entry.url, sampleTitle: entry.title });
-    }
-    const agg = domainMap.get(domain);
-    agg.visitCount += entry.visitCount;
-    if (entry.visitedAt > agg.lastVisited) {
-      agg.lastVisited = entry.visitedAt;
-      agg.sampleUrl = entry.url;
-      agg.sampleTitle = entry.title;
-    }
-  }
-
-  return Array.from(domainMap.values())
-    .map(site => ({ ...site, score: calculateScore(site) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 12); // Top 12
-}
-```
-
-#### 展示位置
-
-- 新标签页（Tab 打开时的默认页面）
-- 按容器隔离：每个容器只显示该容器的常用网站
-- 支持用户手动固定/隐藏特定网站
-
-### 风险评估
-
-**风险：低。** 纯读取 history 数据 + 排序，计算量极小。
-
----
-
-## 5. 设置页面（Settings Page）
-
-### 需要什么
-
-应用设置界面，包含默认浏览器注册、通用偏好设置等。
-
-### 技术方案
-
-#### 5.1 默认浏览器注册
-
-**不需要新依赖。** 使用 Electron 内置 API：
-
-```javascript
-const { app, shell } = require('electron');
-
-/**
- * 检查是否为默认浏览器
- * @returns {boolean}
- */
-function isDefaultBrowser() {
-  return app.isDefaultProtocolClient('http') && app.isDefaultProtocolClient('https');
-}
-
-/**
- * 设置为默认浏览器
- * macOS: 通过 LSSetDefaultHandlerForURLScheme 注册 http/https 处理程序
- * 需要应用已签名且 notarized，否则注册静默失败
- * @returns {boolean} 是否成功
- */
-function setAsDefaultBrowser() {
-  try {
-    // 注册 http 和 https 协议
-    app.setAsDefaultProtocolClient('http');
-    app.setAsDefaultProtocolClient('https');
-    return true;
-  } catch (error) {
-    console.error('[Realm] 设置默认浏览器失败:', error);
-    return false;
-  }
-}
-
-/**
- * 打开系统默认应用设置（macOS）
- * 作为 fallback，让用户手动设置
- */
-function openSystemDefaultAppSettings() {
-  // macOS: 打开「系统设置 > 通用 > 默认网页浏览器」
-  shell.openExternal('x-apple.systempreferences:com.apple.preference');
-}
-```
-
-**macOS 注意事项：**
-- 应用必须代码签名 + notarized 才能注册为 http/https 处理程序
-- 开发模式下注册可能不生效（需要 `process.execPath` 参数）
-- macOS 15 (Sequoia) 对默认浏览器注册有更严格的安全要求
-
-#### 5.2 通用设置项
-
-使用 electron-store 存储应用偏好：
-
-```javascript
-// settings schema
-{
-  settings: {
-    defaultSearchEngine: 'google',    // google | bing | duckduckgo | custom
-    customSearchUrl: '',               // 自定义搜索引擎 URL
-    newTabBehavior: 'frequent',        // frequent | blank | custom
-    customNewTabUrl: '',               // 自定义新标签页 URL
-    historyRetentionDays: 90,          // 历史记录保留天数（0=永久）
-    maxHistoryEntries: 10000,          // 每个容器最大历史条目数
-    showFrequentSites: true,           // 新标签页显示常用网站
-    theme: 'dark'                      // dark | light | system
-  }
-}
-```
-
-#### 5.3 设置页面 UI
-
-使用独立 BrowserWindow 打开设置页：
-
-```javascript
-// main.js
-function openSettingsWindow() {
-  const settingsWin = new BrowserWindow({
-    width: 600,
-    height: 500,
-    title: '设置',
-    parent: mainWindow,
-    modal: false,
-    webPreferences: {
-      preload: path.join(__dirname, 'src/preload.js'),
-      contextIsolation: true
-    }
-  });
-  settingsWin.loadFile('src/settings.html');
-}
-```
-
-### 风险评估
-
-**风险：中。**
-- 默认浏览器注册依赖代码签名，开发阶段可能无法测试完整流程
-- macOS 15 的安全策略可能需要额外适配
-- 设置页面 UI 是新增的 BrowserWindow，需确保与主窗口的 IPC 通信正常
-
----
-
-## 6. 不需要引入的依赖（Anti-Stack）
-
-| 库 | 为什么不需要 |
-|----|-------------|
-| `better-sqlite3` | electron-store 在万级数据量下性能足够；原生编译依赖增加构建复杂度 |
-| `nedb-promises` | 内存数据库不支持持久化，需要额外持久化层，不如直接用 electron-store |
-| `lowdb` | 功能与 electron-store 重叠，且缺少 schema 验证 |
-| `lodash/underscore` | 项目使用原生 JS，排序/过滤/聚合用原生方法即可 |
-| `uuid` | `crypto.randomUUID()` 已内置，无需额外依赖 |
-| `date-fns` | 日期格式化用原生 `Date` / `Intl.DateTimeFormat` 即可 |
-| `fuse.js` | 历史搜索用原生 `String.includes()` / `RegExp` 即可，数据量小 |
-
----
-
-## 7. 文件变更清单
-
-### 新增文件
-
-| 文件 | 用途 |
-|------|------|
-| `src/settings.html` | 设置页面 HTML 结构 |
-| `src/styles/settings.css` | 设置页面样式 |
-| `src/new-tab.html` | 新标签页（常用网站展示） |
-| `src/styles/new-tab.css` | 新标签页样式 |
-
-### 修改文件
-
-| 文件 | 修改内容 |
-|------|----------|
-| `container-manager.js` | schema 扩展（phone/email/notes）、history CRUD、bookmarks CRUD |
-| `src/preload.js` | 新增 IPC 接口（history、bookmarks、settings） |
-| `src/renderer.js` | 容器编辑表单、收藏按钮、历史记录 UI |
-| `src/index.html` | 收藏按钮、设置入口、历史侧边栏 |
-| `src/styles/main.css` | 新增组件样式 |
-| `main.js` | 新增 IPC handlers、settings window、默认浏览器逻辑 |
-| `shortcut-manager.js` | 可能增加快捷键（如 Cmd+D 收藏、Cmd+H 历史） |
-
----
-
-## 8. 安装命令
+**中文分词**：SQLite FTS5 内置 `unicode61` tokenizer 对 CJK 字符按单字分词，对中文搜索"足够好"。如需更精准的中文分词，可考虑 `icu` tokenizer（需要 SQLite ICU 编译支持），但 MVP 阶段不需要。
+
+### 支持库分析
+
+| Library | Version | Purpose | 需要？ |
+|---------|---------|---------|--------|
+| cheerio | 1.2.0 | HTML 解析（CDP 取回 HTML 后的服务端解析） | 已有，备选方案 |
+| highlight.js | 11.11.1 | 代码高亮（脚本生成展示） | 已有 |
+| marked | 18.0.7 | Markdown 渲染（AI 回复） | 已有 |
+| dompurify | 3.4.12 | XSS 防护（AI 输出消毒） | 已有 |
+| **puppeteer-core** | - | CDP 自动化 | **不需要**（Electron 内置 CDP） |
+| **playwright** | - | 浏览器自动化 | **不需要**（同上） |
+| **jieba** | - | 中文分词 | **不需要**（FTS5 unicode61 够用） |
+| **lunr.js** | - | 客户端全文检索 | **不需要**（SQLite FTS5 更强） |
+
+## Installation
 
 ```bash
-# 无新增依赖！
-# v1.1 所有功能基于现有 electron-store + Electron 内置 API
+# 无新增依赖
+# 所有功能基于现有技术栈实现
 
-# 如果后续发现 history 性能瓶颈，可选择性引入：
-# npm install better-sqlite3@^11.0.0  # 仅在需要时
+# 如需 ICU tokenizer（中文分词增强，可选）：
+# better-sqlite3 需要从源码编译并启用 ICU
+# npm rebuild better-sqlite3 --build-from-source
+# 不推荐 MVP 阶段使用
 ```
 
----
+## Alternatives Considered
+
+| 推荐方案 | 替代方案 | 何时考虑替代 |
+|----------|----------|-------------|
+| Electron CDP (webContents.debugger) | Puppeteer / Playwright | 不需要 — Electron 原生 CDP 无需额外浏览器进程 |
+| Runtime.evaluate | DOM 域逐节点操作 | 当需要精确 DOM 节点引用时（如修改单个节点属性） |
+| SQLite FTS5 | lunr.js / flexsearch | 当需要纯客户端搜索且无法访问 SQLite 时 |
+| cheerio (HTML 解析) | DOMParser (页面内) | 当需要在主进程解析 HTML 而非页面上下文时 |
+| unicode61 tokenizer | ICU tokenizer | 当中文搜索召回率不足时（需编译 SQLite ICU 支持） |
+
+## What NOT to Use
+
+| 避免 | 原因 | 替代方案 |
+|------|------|----------|
+| Puppeteer | Electron 已内置 CDP 支持，Puppeteer 会启动额外的 Chromium 实例，与 Electron 的 webContents 冲突 | 直接使用 `webContents.debugger` API |
+| Playwright | 同 Puppeteer，且 Playwright 的 Electron 支持有限 | 同上 |
+| node-html-parser | cheerio 已集成且社区更成熟 | 继续使用 cheerio |
+| elasticlunr / mini-search | SQLite FTS5 是更好的选择：性能更好、支持前缀搜索、支持高亮 | 使用 better-sqlite3 FTS5 |
+| RobotJS / nut.js | 原生键鼠模拟库，但 CDP 可以直接操作 DOM，不需要模拟物理输入 | Runtime.evaluate + DOM 操作 |
+
+## CDP API 使用模式
+
+### 读取页面内容（read_page_content）
+
+```javascript
+// cdp-manager.js 扩展
+async function readPageContent(webContents) {
+  if (!webContents || webContents.isDestroyed()) {
+    throw new Error('webContents 无效');
+  }
+
+  // 确保调试器已附加
+  if (!webContents.debugger.isPaused()) {
+    webContents.debugger.attach('1.3');
+  }
+
+  // 使用 Runtime.evaluate 在页面上下文执行
+  const result = await webContents.debugger.sendCommand('Runtime.evaluate', {
+    expression: `JSON.stringify({
+      title: document.title,
+      url: location.href,
+      text: document.body?.innerText?.substring(0, 50000) || '',
+      meta: {
+        description: document.querySelector('meta[name="description"]')?.content || '',
+        keywords: document.querySelector('meta[name="keywords"]')?.content || '',
+        author: document.querySelector('meta[name="author"]')?.content || '',
+      }
+    })`,
+    returnByValue: true,
+  });
+
+  return JSON.parse(result.result.value);
+}
+```
+
+### 提取链接（extract_links）
+
+```javascript
+async function extractLinks(webContents) {
+  const result = await webContents.debugger.sendCommand('Runtime.evaluate', {
+    expression: `JSON.stringify(
+      Array.from(document.querySelectorAll('a[href]')).map(a => ({
+        text: (a.textContent || '').trim().substring(0, 200),
+        href: a.href,
+        title: a.title || '',
+      })).filter(l => l.href && l.href.startsWith('http'))
+    )`,
+    returnByValue: true,
+  });
+
+  return JSON.parse(result.result.value);
+}
+```
+
+### 打开链接（open_link）
+
+```javascript
+async function openLink(webContents, url, newTab = false) {
+  if (newTab) {
+    // 通过主进程创建新 Tab
+    tabManager.createTab(containerId, url);
+  } else {
+    // 在当前页面导航
+    await webContents.debugger.sendCommand('Page.navigate', { url });
+  }
+}
+```
+
+### 全文检索（FTS5）
+
+```javascript
+const Database = require('better-sqlite3');
+const db = new Database('favorites.db');
+
+// 创建 FTS5 虚拟表
+db.exec(`
+  CREATE VIRTUAL TABLE IF NOT EXISTS favorites_fts USING fts5(
+    title,
+    url,
+    content='favorites',
+    content_rowid='id'
+  )
+`);
+
+// 搜索
+function searchFavorites(query) {
+  return db.prepare(`
+    SELECT f.* FROM favorites f
+    JOIN favorites_fts fts ON f.id = fts.rowid
+    WHERE favorites_fts MATCH ?
+    ORDER BY rank
+    LIMIT 50
+  `).all(query);
+}
+```
+
+## 版本兼容性
+
+| Package | Compatible With | Notes |
+|---------|-----------------|-------|
+| better-sqlite3@11.7.0 | Electron 32.x (Node 20.18.x) | 需要 electron-rebuild 编译 |
+| cheerio@1.2.0 | Node.js 20+ | 纯 JS，无需编译 |
+| pi-agent-core@0.82.1 | Node.js 22.19.0+ (理想) | 当前 Node 20.18.x 可用，ESM 动态 import 兼容 |
+| electron-store@8.1.0 | Electron 32.x | 稳定 |
+
+**注意**：better-sqlite3 是原生模块，必须为 Electron 的 Node.js 版本编译。`npm run dev` 和 `npm start` 使用相同的编译版本，无需额外配置。
 
 ## Sources
 
-- [Electron app API — setAsDefaultProtocolClient](https://www.electronjs.org/docs/latest/api/app#appsetasdefaultprotocolclientprotocol-path-args) — HIGH confidence
-- [Electron webview tag — Navigation Events](https://www.electronjs.org/docs/latest/api/webview-tag#did-navigate) — HIGH confidence
-- [electron-store — GitHub](https://github.com/sindresorhus/electron-store) — HIGH confidence
-- 项目现有代码（container-manager.js、main.js、src/renderer.js）— HIGH confidence
+- Electron webContents.debugger API — 官方文档，CDP 会话管理
+- Chrome DevTools Protocol 规范 — Runtime, DOM, Page, Network 域
+- SQLite FTS5 文档 — 全文检索扩展
+- better-sqlite3 文档 — Node.js SQLite 绑定
+- pi-agent-core README — Agent 工具注册接口
 
 ---
-
-## Confidence Assessment
-
-| Area | Confidence | Notes |
-|------|------------|-------|
-| 容器属性扩展 | HIGH | 纯 schema 扩展，向后兼容 |
-| 收藏夹管理 | HIGH | 标准 CRUD，electron-store 完全胜任 |
-| 浏览历史 | MEDIUM | 数据量是唯一不确定因素，万级以内无风险 |
-| 常用网站推荐 | HIGH | 纯算法计算，基于已有数据 |
-| 设置页面 | MEDIUM | 默认浏览器注册依赖代码签名，开发阶段难以完整测试 |
-| 不引入新依赖的决策 | HIGH | 所有功能在现有栈内可实现 |
+*Stack research for: AI CDP 增强 + Tabbrowser 功能集成*
+*Researched: 2026-08-02*
+*Confidence: HIGH — 所有推荐基于已验证的现有技术栈*
