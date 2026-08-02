@@ -16,10 +16,45 @@
  * @module ai-manager
  */
 
+const fs = require('fs');
+const path = require('path');
+const { webContents } = require('electron');
 const tabManager = require('./tab-manager');
 const historyManager = require('./history-manager');
 const favoritesManager = require('./favorites-manager');
 const windowManager = require('./window-manager');
+const cdpManager = require('./cdp-manager');
+
+// ==================== Readability 库缓存 ====================
+
+/**
+ * Mozilla Readability minified IIFE（lib/readability-bundle.js，Phase 22-01 打包）
+ * read_page_content 工具经 Runtime.evaluate 注入 webview 后在页面上下文执行。
+ * 模块加载时读取一次并缓存，避免每次工具调用都读盘。
+ */
+let READABILITY_SCRIPT = '';
+try {
+  READABILITY_SCRIPT = fs.readFileSync(path.join(__dirname, 'lib/readability-bundle.js'), 'utf8');
+} catch (err) {
+  console.error('[Realm AI] Readability 库加载失败:', err.message);
+}
+
+/**
+ * 获取当前活跃标签页的 webview guest webContents ID
+ *
+ * 主进程 tab 对象不维护 webContentsId（tab↔webview 关联由渲染进程
+ * state.webviews 持有），活跃 guest ID 的唯一权威来源是渲染进程经
+ * webview:set-active 上报到 ipc-handlers 的值。
+ *
+ * 惰性 require 的原因：纯 Node 环境（语法检查/注册验证）下 ipc-handlers
+ * 依赖链（cookie-manager 顶层 app.getPath）不可加载；Electron 主进程
+ * 运行时 main.js 已完成加载，此处直接命中模块缓存，无循环依赖风险。
+ *
+ * @returns {number|null} webContents ID，未上报时返回 null
+ */
+function getActiveWebviewContentsIdLazy() {
+  return require('./ipc-handlers').getActiveWebviewContentsId();
+}
 
 // ==================== 常量 ====================
 
@@ -36,6 +71,38 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 
 /** 上下文裁剪：保留最近的消息数量 */
 const MAX_CONTEXT_MESSAGES = 20;
+
+/** read_page_content 正文截断阈值（100KB，D-07：覆盖 99%+ 网页） */
+const MAX_CONTENT_SIZE = 100 * 1024;
+
+/**
+ * 解析工具目标标签页并定位其 webview guest webContents ID
+ *
+ * 主进程 tab 对象不维护 webContentsId，仅活跃标签页的 guest ID 可经
+ * 渲染进程上报值定位；指定非活跃 tabId 时明确报错（后续版本建立
+ * tabId→guestId 映射后可扩展支持）。
+ *
+ * @param {string|undefined} requestedTabId - 工具参数中的 tabId（可选）
+ * @returns {{tab: Object, webContentsId: number}} 目标 tab 与 guest ID
+ * @throws {Error} 标签页不存在、非活跃或 webview 未就绪时抛出
+ * @private
+ */
+function resolveToolTargetTab(requestedTabId) {
+  const activeTab = tabManager.getActiveTab();
+  const tabId = requestedTabId || (activeTab && activeTab.id);
+  const tab = tabId ? tabManager.getTab(tabId) : null;
+  if (!tab) {
+    throw new Error('标签页不存在');
+  }
+  if (!activeTab || tab.id !== activeTab.id) {
+    throw new Error('暂仅支持当前活跃标签页，非活跃标签页的页面内容无法定位');
+  }
+  const webContentsId = getActiveWebviewContentsIdLazy();
+  if (!webContentsId) {
+    throw new Error('标签页 webview 尚未就绪，请稍后重试');
+  }
+  return { tab, webContentsId };
+}
 
 // ==================== AI Manager ====================
 
@@ -861,6 +928,99 @@ class AIManager {
             }],
             details: { containerId },
           };
+        },
+      },
+      {
+        name: 'read_page_content',
+        label: '读取页面内容',
+        description: '读取当前标签页的页面内容，包括标题、正文、元信息和 Open Graph 数据。用于理解当前正在浏览的网页内容。仅支持当前活跃标签页。',
+        parameters: {
+          type: 'object',
+          properties: {
+            tabId: {
+              type: 'string',
+              description: '标签页 ID（可选，默认使用当前活跃标签页；暂仅支持活跃标签页）',
+            },
+          },
+        },
+        execute: async (toolCallId, params) => {
+          const { tab, webContentsId } = resolveToolTargetTab(params && params.tabId);
+
+          if (!READABILITY_SCRIPT) {
+            throw new Error('Readability 库未加载，无法提取页面内容');
+          }
+
+          // 按需附加调试器（D-01），用完即卸（D-03）
+          const attachResult = await cdpManager.attachForAI(webContentsId, ['Runtime']);
+          if (!attachResult.success) {
+            throw new Error(attachResult.error);
+          }
+
+          try {
+            // 注入 Readability 提取可读内容（D-05）+ 全部元信息（D-06）
+            const extractScript = `
+              (function() {
+                ${READABILITY_SCRIPT}
+                const doc = document.cloneNode(true);
+                const reader = new Readability(doc);
+                const article = reader.parse();
+                const meta = {
+                  description: document.querySelector('meta[name="description"]')?.content || '',
+                  keywords: document.querySelector('meta[name="keywords"]')?.content || '',
+                  author: document.querySelector('meta[name="author"]')?.content || ''
+                };
+                const og = {
+                  title: document.querySelector('meta[property="og:title"]')?.content || '',
+                  description: document.querySelector('meta[property="og:description"]')?.content || '',
+                  image: document.querySelector('meta[property="og:image"]')?.content || ''
+                };
+                const properties = {
+                  canonical: document.querySelector('link[rel="canonical"]')?.href || '',
+                  language: document.documentElement.lang || '',
+                  charset: document.characterSet || ''
+                };
+                return JSON.stringify({
+                  title: document.title,
+                  url: window.location.href,
+                  favicon: document.querySelector('link[rel="icon"]')?.href || '',
+                  meta, og, properties,
+                  content: article ? article.textContent : ''
+                });
+              })()
+            `;
+
+            const cmdResult = await cdpManager.executeCommand(
+              webContentsId,
+              'Runtime.evaluate',
+              { expression: extractScript, returnByValue: true }
+            );
+            if (!cmdResult.success) {
+              throw new Error(cmdResult.error);
+            }
+
+            const evalResult = cmdResult.result || {};
+            if (evalResult.exceptionDetails) {
+              throw new Error(`页面脚本执行失败: ${evalResult.exceptionDetails.text || '未知错误'}`);
+            }
+            if (!evalResult.result || typeof evalResult.result.value !== 'string') {
+              throw new Error('页面内容提取失败：未返回有效结果');
+            }
+
+            const data = JSON.parse(evalResult.result.value);
+
+            // 100KB 截断（D-07）
+            if (data.content && data.content.length > MAX_CONTENT_SIZE) {
+              data.content = data.content.substring(0, MAX_CONTENT_SIZE) +
+                `\n[截断：原始大小 ${data.content.length} bytes，已截断至 100KB]`;
+            }
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
+              details: { title: data.title, contentLength: (data.content || '').length },
+            };
+          } finally {
+            cdpManager.detachForAI(webContentsId);
+          }
         },
       },
     ];
