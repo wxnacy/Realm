@@ -256,8 +256,8 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - read_page_content: 读取当前标签页的页面内容，包括标题、正文、元信息和 Open Graph 数据。用于理解用户正在浏览的网页。
 - extract_links: 提取当前页面的所有有效链接，自动过滤非 HTTP 协议和锚点链接。用于收集页面中的所有可导航链接。
 - open_link: 在指定容器中打开一个链接，支持在当前标签页或新标签页中打开。默认使用当前活跃容器和新标签页。
-- fill_form: 自动填写网页表单。参数格式为 fields 数组，每个元素包含 field（字段名称）和 value（填写值）。低风险操作自动执行，文件上传需要用户确认。
-- execute_action: 在当前页面执行操作（点击、滚动、提交等）。参数格式为 action + target + options。低风险操作自动执行，表单提交、文件上传、脚本执行、支付操作需要用户确认。
+- fill_form: 自动填写网页表单。参数格式为 fields 数组，每个元素包含 field（字段名称）和 value（填写值）。低风险操作自动执行，文件上传需要用户确认。执行前会自动检测 CAPTCHA/2FA 验证码，检测到时暂停并提示用户手动完成验证。
+- execute_action: 在当前页面执行操作（点击、滚动、提交等）。参数格式为 action + target + options。低风险操作自动执行，表单提交、文件上传、脚本执行、支付操作需要用户确认。执行前会自动检测 CAPTCHA/2FA 验证码，检测到时暂停并提示用户手动完成验证。
 
 使用指南：
 - 当用户询问"当前页面是什么"、"读取页面内容"等，使用 read_page_content
@@ -1589,7 +1589,25 @@ ${content}
           // 1. 获取当前活跃标签页
           const { tab, webContentsId } = resolveToolTargetTab();
 
-          // 2. 输入消毒（per D-13）
+          // 2. CAPTCHA 预检（per D-14/D-15）
+          const captchaCheck = await this._preCheckCaptcha(webContentsId, tab.url);
+          if (captchaCheck.captchaDetected) {
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  success: false,
+                  captchaDetected: true,
+                  captchaType: captchaCheck.captchaType,
+                  confidence: captchaCheck.confidence,
+                  message: captchaCheck.message,
+                }, null, 2),
+              }],
+              details: { captchaDetected: true, captchaType: captchaCheck.captchaType },
+            };
+          }
+
+          // 3. 输入消毒（per D-13）
           const sanitized = sanitizeInput(params);
           const fields = sanitized.fields || [];
 
@@ -1597,7 +1615,7 @@ ${content}
             throw new Error('fields 参数不能为空，请提供要填写的字段列表');
           }
 
-          // 3. 风险评估（per D-07）：检查是否包含 file 类型字段
+          // 4. 风险评估（per D-07）：检查是否包含 file 类型字段
           const hasFileField = fields.some(f => {
             const fieldLower = (f.field || '').toLowerCase();
             return fieldLower.includes('file') || fieldLower.includes('upload') ||
@@ -1741,7 +1759,25 @@ ${content}
           // 1. 获取当前活跃标签页
           const { tab, webContentsId } = resolveToolTargetTab();
 
-          // 2. 输入消毒（per D-13）
+          // 2. CAPTCHA 预检（per D-14/D-15）
+          const captchaCheck = await this._preCheckCaptcha(webContentsId, tab.url);
+          if (captchaCheck.captchaDetected) {
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  success: false,
+                  captchaDetected: true,
+                  captchaType: captchaCheck.captchaType,
+                  confidence: captchaCheck.confidence,
+                  message: captchaCheck.message,
+                }, null, 2),
+              }],
+              details: { captchaDetected: true, captchaType: captchaCheck.captchaType },
+            };
+          }
+
+          // 3. 输入消毒（per D-13）
           const sanitized = sanitizeInput(params);
           const { action, target, options } = sanitized;
 
@@ -1749,7 +1785,7 @@ ${content}
             throw new Error('操作类型不能为空');
           }
 
-          // 3. 风险评估（per D-07）
+          // 4. 风险评估（per D-07）
           const highRiskActions = ['submit', 'upload', 'execute_script'];
           let isHighRisk = highRiskActions.includes(action);
 
@@ -1860,6 +1896,78 @@ ${content}
         },
       },
     ];
+  }
+
+  /**
+   * CAPTCHA 预检（per D-14/D-15）
+   *
+   * 在 fill_form/execute_action 执行前调用 detectCaptcha 进行预检。
+   * 检测到 CAPTCHA 时返回特殊结果，暂停当前任务。
+   *
+   * @param {number} webContentsId - webContents ID
+   * @param {string} tabUrl - 当前标签页 URL（用于错误信息）
+   * @returns {Promise<{captchaDetected: boolean, captchaType?: string|null, confidence?: string, message?: string}>}
+   * @private
+   */
+  async _preCheckCaptcha(webContentsId, tabUrl) {
+    try {
+      const result = await cdpManager.detectCaptcha(webContentsId);
+      if (result.detected && (result.confidence === 'high' || result.confidence === 'medium')) {
+        const typeLabel = {
+          'recaptcha': 'reCAPTCHA',
+          'hcaptcha': 'hCaptcha',
+          'turnstile': 'Turnstile',
+          '2fa': '双重认证',
+          'keyword-detected': '安全验证',
+        }[result.type] || result.type || '验证码';
+
+        return {
+          captchaDetected: true,
+          captchaType: result.type,
+          confidence: result.confidence,
+          message: `检测到${typeLabel}验证，请在页面中完成验证后重试。`,
+        };
+      }
+      return { captchaDetected: false };
+    } catch (err) {
+      // 预检失败不阻塞操作，仅记录日志
+      console.warn('[Realm AI] CAPTCHA 预检异常:', err.message);
+      return { captchaDetected: false };
+    }
+  }
+
+  /**
+   * 等待 CAPTCHA 验证完成（per D-14/D-15）
+   *
+   * 轮询 detectCaptcha 检测 CAPTCHA 是否已消失。
+   * 每 3 秒检测一次，最多等待 120 秒。
+   *
+   * @param {number} webContentsId - webContents ID
+   * @returns {Promise<{captchaCleared: boolean, message?: string}>}
+   */
+  async wait_for_captcha_completion(webContentsId) {
+    const POLL_INTERVAL = 3000; // 3 秒
+    const MAX_WAIT = 120000; // 120 秒
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < MAX_WAIT) {
+      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL));
+
+      try {
+        const result = await cdpManager.detectCaptcha(webContentsId);
+        if (!result.detected) {
+          console.log('[Realm AI] CAPTCHA 已消失，任务可恢复');
+          return { captchaCleared: true };
+        }
+      } catch (err) {
+        console.warn('[Realm AI] CAPTCHA 轮询检测异常:', err.message);
+      }
+    }
+
+    return {
+      captchaCleared: false,
+      message: '验证码等待超时，请手动完成后重试',
+    };
   }
 
   /**
