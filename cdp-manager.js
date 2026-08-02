@@ -12,7 +12,7 @@
  * 依赖：electron（主进程）、dev-requests-writer（写入队列）
  */
 
-const { ipcMain } = require('electron');
+const { ipcMain, webContents } = require('electron');
 
 // ==================== 状态管理 ====================
 
@@ -285,6 +285,113 @@ function detachDebugger(webContents) {
   }
 
   state.attached = false;
+}
+
+// ==================== AI 工具调试器管理 ====================
+
+/**
+ * 为 AI 工具附加调试器并启用指定域（D-01/D-02/D-04）
+ *
+ * 按需附加：AI 工具调用时才 attach，用完经 detachForAI 立即断开。
+ * 与 Network 抓取的 attachDebugger 通过 state.source 区分，互不干扰。
+ *
+ * @param {number} webContentsId - webContents ID
+ * @param {string[]} [domains=['Runtime']] - 要启用的 CDP 域列表
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+async function attachForAI(webContentsId, domains = ['Runtime']) {
+  const wc = webContents.fromId(webContentsId);
+  if (!wc || wc.isDestroyed()) {
+    return { success: false, error: '标签页已关闭' };
+  }
+
+  // DevTools 冲突处理（D-04）：调试器已被占用时明确报错
+  if (wc.debugger.isAttached()) {
+    return { success: false, error: 'DevTools 已打开，请关闭后重试' };
+  }
+
+  try {
+    // 附加 CDP 调试器（协议版本 1.3）
+    wc.debugger.attach('1.3');
+
+    // 逐个启用请求的域
+    for (const domain of domains) {
+      await wc.debugger.sendCommand(`${domain}.enable`);
+    }
+
+    // 更新状态（source 标记区分 AI 附加和 Network 抓取附加）
+    debuggerStates.set(wc.id, {
+      attached: true,
+      source: 'ai-tool',
+      domains,
+    });
+
+    console.log(`[Realm CDP] AI 调试器已附加, webContents: ${wc.id}, 域: ${domains.join(', ')}`);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Realm CDP] AI 调试器附加失败: ${err.message}`);
+    try { wc.debugger.detach(); } catch {}
+    return { success: false, error: `CDP 附加失败: ${err.message}` };
+  }
+}
+
+/**
+ * AI 工具完成后断开调试器（D-03：用完即卸）
+ *
+ * 仅断开 source === 'ai-tool' 的调试器，Network 抓取附加的不受影响。
+ * webContents 已销毁时调试器由 Electron 自动断开，仅需清理状态条目。
+ *
+ * @param {number} webContentsId - webContents ID
+ */
+function detachForAI(webContentsId) {
+  const state = debuggerStates.get(webContentsId);
+  if (!state || state.source !== 'ai-tool') return;
+
+  const wc = webContents.fromId(webContentsId);
+  if (wc && !wc.isDestroyed()) {
+    try {
+      wc.debugger.detach();
+      console.log(`[Realm CDP] AI 调试器已断开, webContents: ${webContentsId}`);
+    } catch (err) {
+      console.error(`[Realm CDP] AI 调试器断开失败: ${err.message}`);
+    }
+  }
+
+  debuggerStates.delete(webContentsId);
+}
+
+/**
+ * 执行 CDP 命令（带超时保护）
+ *
+ * 命令执行超过 timeout 毫秒后返回超时错误而非挂起。
+ *
+ * @param {number} webContentsId - webContents ID
+ * @param {string} method - CDP 方法名（如 'Runtime.evaluate'）
+ * @param {object} [params={}] - 方法参数
+ * @param {number} [timeout=10000] - 超时毫秒数
+ * @returns {Promise<{success: boolean, result?: object, error?: string}>}
+ */
+async function executeCommand(webContentsId, method, params = {}, timeout = 10000) {
+  const wc = webContents.fromId(webContentsId);
+  if (!wc || wc.isDestroyed()) {
+    return { success: false, error: '标签页已关闭' };
+  }
+
+  let timeoutId;
+  try {
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error('CDP 命令执行超时')), timeout);
+    });
+    const result = await Promise.race([
+      wc.debugger.sendCommand(method, params),
+      timeoutPromise,
+    ]);
+    return { success: true, result };
+  } catch (err) {
+    return { success: false, error: err.message };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // ==================== CDP 事件处理 ====================
@@ -583,6 +690,16 @@ function handleNavigation(webContents, url, containerId) {
  * 清理资源（应用退出时调用）
  */
 function cleanup() {
+  // 断开 AI 工具附加的调试器（source === 'ai-tool'）
+  for (const [webContentsId, state] of debuggerStates) {
+    if (state && state.source === 'ai-tool') {
+      const wc = webContents.fromId(webContentsId);
+      if (wc && !wc.isDestroyed()) {
+        try { wc.debugger.detach(); } catch {}
+      }
+    }
+  }
+
   // 清理暂存的请求数据
   pendingRequests.clear();
   pendingExtraRequestHeaders.clear();
@@ -624,6 +741,9 @@ module.exports = {
   getQueueStats,
   attachDebugger,
   detachDebugger,
+  attachForAI,
+  detachForAI,
+  executeCommand,
   handleNavigation,
   cleanup,
   matchesDomain,
