@@ -733,6 +733,812 @@ function notifyToast(message) {
   }
 }
 
+// ==================== 表单填写辅助函数 ====================
+
+/**
+ * 构建表单字段查找脚本（D-01 定义的查找链）
+ *
+ * 查找链：label 文本 → placeholder → aria-label → name 属性 → id 属性 → CSS 选择器
+ * 每一步找到唯一匹配即返回，全部失败则返回 null
+ *
+ * @param {string} fieldName - 字段名称（label/placeholder/aria-label/name/id/selector）
+ * @returns {string} Runtime.evaluate 可执行的 JavaScript 脚本
+ */
+function _buildFieldLookupScript(fieldName) {
+  const escaped = fieldName.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+  return `
+(function() {
+  var target = '${escaped}';
+
+  // 1. label 文本匹配（label.textContent → htmlFor → 关联元素）
+  var labels = document.querySelectorAll('label');
+  for (var i = 0; i < labels.length; i++) {
+    var label = labels[i];
+    if (label.textContent && label.textContent.trim().includes(target)) {
+      if (label.htmlFor) {
+        var el = document.getElementById(label.htmlFor);
+        if (el) return el;
+      }
+      var child = label.querySelector('input, textarea, select');
+      if (child) return child;
+      var next = label.nextElementSibling;
+      if (next && /^(INPUT|TEXTAREA|SELECT)$/i.test(next.tagName)) return next;
+    }
+  }
+
+  // 2. placeholder 匹配
+  var byPlaceholder = document.querySelector('[placeholder*="' + target + '"]');
+  if (byPlaceholder) return byPlaceholder;
+
+  // 3. aria-label 匹配
+  var byAriaLabel = document.querySelector('[aria-label*="' + target + '"]');
+  if (byAriaLabel) return byAriaLabel;
+
+  // 4. name 属性匹配
+  var byName = document.querySelector('[name="' + target + '"]');
+  if (byName) return byName;
+
+  // 5. id 属性匹配
+  var byId = document.getElementById(target);
+  if (byId) return byId;
+
+  // 6. CSS 选择器兜底
+  try {
+    var bySelector = document.querySelector(target);
+    if (bySelector) return bySelector;
+  } catch (e) {}
+
+  return null;
+})()`;
+}
+
+/**
+ * 构建元素定位脚本（D-09：文本优先 + 选择器兜底）
+ *
+ * 查找顺序：文本内容匹配 → aria-label/title/placeholder 匹配 → CSS 选择器
+ *
+ * @param {string} target - 目标元素描述（文本或 CSS 选择器）
+ * @returns {string} Runtime.evaluate 可执行的 JavaScript 脚本
+ */
+function _buildFindElementScript(target) {
+  const escaped = target.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+  return `
+(function() {
+  var target = '${escaped}';
+
+  // 1. 文本内容匹配（可点击元素优先）
+  var clickables = document.querySelectorAll('button, a, [role="button"], input[type="submit"], input[type="button"], [onclick], [tabindex]');
+  for (var i = 0; i < clickables.length; i++) {
+    var el = clickables[i];
+    if (el.textContent && el.textContent.trim().includes(target)) return el;
+  }
+
+  // 2. aria-label / title / placeholder 匹配
+  var byAria = document.querySelector('[aria-label*="' + target + '"], [title*="' + target + '"], [placeholder*="' + target + '"]');
+  if (byAria) return byAria;
+
+  // 3. label 文本匹配（复用表单字段查找链）
+  var labels = document.querySelectorAll('label');
+  for (var j = 0; j < labels.length; j++) {
+    var label = labels[j];
+    if (label.textContent && label.textContent.trim().includes(target)) {
+      if (label.htmlFor) {
+        var el2 = document.getElementById(label.htmlFor);
+        if (el2) return el2;
+      }
+      var child = label.querySelector('input, textarea, select, button');
+      if (child) return child;
+    }
+  }
+
+  // 4. CSS 选择器兜底
+  try {
+    var bySelector = document.querySelector(target);
+    if (bySelector) return bySelector;
+  } catch (e) {}
+
+  return null;
+})()`;
+}
+
+/**
+ * 执行页面脚本并返回结果（Runtime.evaluate 封装）
+ *
+ * @param {number} webContentsId - webContents ID
+ * @param {string} script - 要执行的 JavaScript 脚本
+ * @param {number} [timeout=10000] - 超时毫秒数
+ * @returns {Promise<{success: boolean, result?: any, error?: string}>}
+ */
+async function _evalScript(webContentsId, script, timeout = 10000) {
+  return executeCommand(webContentsId, 'Runtime.evaluate', {
+    expression: script,
+    returnByValue: true,
+    awaitPromise: false,
+  }, timeout);
+}
+
+/**
+ * 获取元素的 CDP RemoteObjectId
+ *
+ * @param {number} webContentsId - webContents ID
+ * @param {string} script - 返回 DOM 元素的脚本
+ * @param {number} [timeout=10000] - 超时毫秒数
+ * @returns {Promise<{success: boolean, objectId?: string, error?: string}>}
+ */
+async function _getElementObjectId(webContentsId, script, timeout = 10000) {
+  return executeCommand(webContentsId, 'Runtime.evaluate', {
+    expression: script,
+    returnByValue: false,
+    awaitPromise: false,
+  }, timeout);
+}
+
+// ==================== 脚本安全检查 ====================
+
+/** execute_script 禁止的危险模式列表（D-16） */
+const DANGEROUS_SCRIPT_PATTERNS = [
+  /\beval\s*\(/,
+  /\bnew\s+Function\s*\(/,
+  /\bimport\s*\(/,
+  /\brequire\s*\(/,
+  /\bfs\./,
+  /\bnet\./,
+  /\bhttp\./,
+  /\bhttps\./,
+  /\bchild_process\b/,
+  /\bprocess\./,
+  /\bexec\s*\(/,
+  /\bspawn\s*\(/,
+  /\bfetch\s*\(/,
+  /\bXMLHttpRequest\b/,
+  /\bWebSocket\b/,
+];
+
+/**
+ * 静态分析脚本内容，检测危险调用（D-16）
+ *
+ * @param {string} script - 要检查的脚本内容
+ * @returns {{safe: boolean, reason?: string}}
+ */
+function _validateScript(script) {
+  if (!script || typeof script !== 'string') {
+    return { safe: false, reason: '脚本内容为空' };
+  }
+  for (const pattern of DANGEROUS_SCRIPT_PATTERNS) {
+    if (pattern.test(script)) {
+      return { safe: false, reason: '检测到危险调用: ' + pattern.source };
+    }
+  }
+  return { safe: true };
+}
+
+// ==================== AI 自动化操作 ====================
+
+/**
+ * 自动填写网页表单（D-01/D-02/D-03/D-04）
+ *
+ * 通过 CDP 在页面上下文中定位表单字段并填入值。
+ * 字段定位链：label 文本 → placeholder → aria-label → name → id → CSS 选择器。
+ * 支持 input/textarea/select/checkbox/radio/contenteditable/file/date-time 等类型。
+ *
+ * @param {number} webContentsId - webContents ID
+ * @param {Array<{field: string, value: string}>} fields - 要填写的字段列表
+ * @returns {Promise<{success: boolean, filled?: string[], failed?: Array<{field: string, error: string}>, captchaDetected?: boolean, captchaType?: string|null, availableFields?: string[]}>}
+ */
+async function fillForm(webContentsId, fields) {
+  if (!fields || !Array.isArray(fields) || fields.length === 0) {
+    return { success: false, filled: [], failed: [{ field: '(empty)', error: 'fields 参数不能为空' }] };
+  }
+
+  const filled = [];
+  const failed = [];
+  let captchaDetected = false;
+  let captchaType = null;
+
+  const attachResult = await attachForAI(webContentsId, ['Runtime', 'DOM', 'Input']);
+  if (!attachResult.success) {
+    return {
+      success: false,
+      filled: [],
+      failed: fields.map(f => ({ field: f.field, error: attachResult.error })),
+    };
+  }
+
+  try {
+    for (const fieldDef of fields) {
+      const { field, value } = fieldDef;
+      if (!field) {
+        failed.push({ field: '(unknown)', error: '字段名不能为空' });
+        continue;
+      }
+
+      try {
+        // 查找元素
+        const lookupScript = _buildFieldLookupScript(field);
+        const objResult = await _getElementObjectId(webContentsId, lookupScript);
+
+        if (!objResult.success || !objResult.result?.result?.objectId) {
+          // 字段未找到，收集可用字段信息
+          const availableFieldsResult = await _evalScript(webContentsId, `
+(function() {
+  var fields = [];
+  var els = document.querySelectorAll('input, textarea, select, [contenteditable="true"]');
+  for (var i = 0; i < els.length; i++) {
+    var el = els[i];
+    var label = '';
+    var labels = document.querySelectorAll('label');
+    for (var j = 0; j < labels.length; j++) {
+      if (labels[j].htmlFor === el.id || labels[j].contains(el)) {
+        label = labels[j].textContent.trim();
+        break;
+      }
+    }
+    fields.push({
+      tag: el.tagName.toLowerCase(),
+      type: el.type || '',
+      name: el.name || '',
+      id: el.id || '',
+      placeholder: el.placeholder || '',
+      label: label,
+      ariaLabel: el.getAttribute('aria-label') || '',
+    });
+  }
+  return fields;
+})()`);
+          const availableFields = [];
+          if (availableFieldsResult.success && Array.isArray(availableFieldsResult.result?.result?.value)) {
+            for (const f of availableFieldsResult.result.result.value) {
+              const parts = [];
+              if (f.label) parts.push('label:' + f.label);
+              if (f.placeholder) parts.push('placeholder:' + f.placeholder);
+              if (f.ariaLabel) parts.push('aria:' + f.ariaLabel);
+              if (f.name) parts.push('name:' + f.name);
+              if (f.id) parts.push('id:' + f.id);
+              if (parts.length === 0) parts.push(f.tag + (f.type ? '[type=' + f.type + ']' : ''));
+              availableFields.push(parts.join(' | '));
+            }
+          }
+
+          failed.push({ field, error: '字段未找到', availableFields });
+          continue;
+        }
+
+        const objectId = objResult.result.result.objectId;
+
+        // 获取元素类型信息
+        const infoResult = await executeCommand(webContentsId, 'Runtime.evaluate', {
+          expression: `(function(el) {
+            return {
+              tag: el.tagName ? el.tagName.toLowerCase() : '',
+              type: el.type || '',
+              contentEditable: el.contentEditable === 'true',
+              isFile: el.tagName === 'INPUT' && el.type === 'file',
+              isCheckbox: el.tagName === 'INPUT' && el.type === 'checkbox',
+              isRadio: el.tagName === 'INPUT' && el.type === 'radio',
+              isSelect: el.tagName === 'SELECT',
+              isDateOrTime: el.tagName === 'INPUT' && /^(date|time|datetime-local|month|week)$/.test(el.type),
+            };
+          })(document.querySelector(':hover') || document.activeElement || document.body)`,
+          returnByValue: true,
+        });
+
+        // 使用 Runtime.callFunctionOn 获取元素信息
+        const elInfoResult = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: `function() {
+            return {
+              tag: this.tagName ? this.tagName.toLowerCase() : '',
+              type: this.type || '',
+              contentEditable: this.contentEditable === 'true',
+              isFile: this.tagName === 'INPUT' && this.type === 'file',
+              isCheckbox: this.tagName === 'INPUT' && this.type === 'checkbox',
+              isRadio: this.tagName === 'INPUT' && this.type === 'radio',
+              isSelect: this.tagName === 'SELECT',
+              isDateOrTime: this.tagName === 'INPUT' && /^(date|time|datetime-local|month|week)$/.test(this.type),
+              isContentEditable: this.contentEditable === 'true' || this.isContentEditable,
+            };
+          }`,
+          returnByValue: true,
+        });
+
+        const elInfo = elInfoResult.success ? elInfoResult.result?.result?.value : {};
+        const tag = elInfo?.tag || 'input';
+
+        // CAPTCHA 检测（D-15）
+        const captchaCheckResult = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: `function() {
+            var el = this;
+            var parent = el.closest('form') || el.parentElement || document.body;
+            var html = parent.innerHTML || '';
+            var hasRecaptcha = /g-recaptcha|recaptcha/i.test(html);
+            var hasHcaptcha = /h-captcha/i.test(html);
+            var hasTurnstile = /cf-turnstile|turnstile/i.test(html);
+            return {
+              detected: hasRecaptcha || hasHcaptcha || hasTurnstile,
+              type: hasRecaptcha ? 'recaptcha' : hasHcaptcha ? 'hcaptcha' : hasTurnstile ? 'turnstile' : null,
+            };
+          }`,
+          returnByValue: true,
+        });
+
+        if (captchaCheckResult.success && captchaCheckResult.result?.result?.value?.detected) {
+          captchaDetected = true;
+          captchaType = captchaCheckResult.result.result.value.type;
+        }
+
+        // 根据元素类型选择填写策略
+        if (elInfo?.isFile) {
+          // 文件上传（D-03）
+          if (!value) {
+            failed.push({ field, error: '文件上传需要提供文件路径' });
+            continue;
+          }
+          // 需要通过 DOM.setFileInputFiles 设置文件
+          const nodeResult = await executeCommand(webContentsId, 'DOM.describeNode', { objectId });
+          if (nodeResult.success && nodeResult.result?.node?.backendNodeId) {
+            await executeCommand(webContentsId, 'DOM.setFileInputFiles', {
+              files: [value],
+              backendNodeId: nodeResult.result.node.backendNodeId,
+            });
+            filled.push(field);
+          } else {
+            failed.push({ field, error: '无法获取文件输入元素节点' });
+          }
+        } else if (elInfo?.isContentEditable) {
+          // contenteditable 元素（D-03）：先 focus 再 Input.insertText
+          await executeCommand(webContentsId, 'DOM.focus', { objectId });
+          await executeCommand(webContentsId, 'Input.insertText', { text: value || '' });
+          filled.push(field);
+        } else if (elInfo?.isSelect) {
+          // select 元素：设置 selectedIndex 或 value
+          const selectResult = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+            objectId,
+            functionDeclaration: `function(val) {
+              var matched = false;
+              for (var i = 0; i < this.options.length; i++) {
+                if (this.options[i].value === val || this.options[i].textContent.trim() === val) {
+                  this.selectedIndex = i;
+                  matched = true;
+                  break;
+                }
+              }
+              if (!matched) {
+                this.value = val;
+              }
+              this.dispatchEvent(new Event('change', { bubbles: true }));
+              this.dispatchEvent(new Event('input', { bubbles: true }));
+              return { success: matched || this.value === val };
+            }`,
+            arguments: [value || ''],
+            returnByValue: true,
+          });
+          if (selectResult.success) {
+            filled.push(field);
+          } else {
+            failed.push({ field, error: '设置 select 值失败' });
+          }
+        } else if (elInfo?.isCheckbox || elInfo?.isRadio) {
+          // checkbox/radio（D-03）
+          const boolVal = value === 'true' || value === '1' || value === 'yes' || value === 'on';
+          await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+            objectId,
+            functionDeclaration: `function(checked) {
+              if (this.checked !== checked) {
+                this.checked = checked;
+              }
+              this.dispatchEvent(new Event('change', { bubbles: true }));
+              this.dispatchEvent(new Event('input', { bubbles: true }));
+            }`,
+            arguments: [boolVal],
+            returnByValue: true,
+          });
+          filled.push(field);
+        } else if (elInfo?.isDateOrTime) {
+          // date/time（D-03）
+          await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+            objectId,
+            functionDeclaration: `function(val) {
+              this.value = val;
+              this.dispatchEvent(new Event('change', { bubbles: true }));
+              this.dispatchEvent(new Event('input', { bubbles: true }));
+            }`,
+            arguments: [value || ''],
+            returnByValue: true,
+          });
+          filled.push(field);
+        } else {
+          // 普通 input/textarea（D-03）：设置 value + 触发事件
+          await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+            objectId,
+            functionDeclaration: `function(val) {
+              this.focus();
+              this.value = val;
+              this.dispatchEvent(new Event('input', { bubbles: true }));
+              this.dispatchEvent(new Event('change', { bubbles: true }));
+              this.dispatchEvent(new Event('blur', { bubbles: true }));
+            }`,
+            arguments: [value || ''],
+            returnByValue: true,
+          });
+          filled.push(field);
+        }
+      } catch (fieldErr) {
+        failed.push({ field, error: fieldErr.message || '填写失败' });
+      }
+    }
+
+    return {
+      success: failed.length === 0,
+      filled,
+      failed,
+      captchaDetected,
+      captchaType,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      filled,
+      failed: [...failed, { field: '(system)', error: err.message || '表单填写异常' }],
+    };
+  } finally {
+    detachForAI(webContentsId);
+  }
+}
+
+/**
+ * 执行页面操作（D-09/D-10/D-11/D-12/D-16）
+ *
+ * 通过 CDP 在页面上下文中定位目标元素并执行指定操作。
+ * 元素定位：文本优先 + 选择器兜底。
+ * 支持 15 种操作：click/scroll/type/select/check/focus/submit/upload/drag/hover/keydown/execute_script/screenshot/wait_for_element/blur
+ *
+ * @param {number} webContentsId - webContents ID
+ * @param {string} action - 操作类型
+ * @param {string} target - 目标元素描述（文本或 CSS 选择器）
+ * @param {object} [options] - 操作参数（如键码、滚动距离、脚本内容等）
+ * @returns {Promise<{success: boolean, result?: any, pageChanges?: object, error?: string}>}
+ */
+async function executeAction(webContentsId, action, target, options) {
+  if (!action) {
+    return { success: false, error: '操作类型不能为空' };
+  }
+
+  // screenshot 和 wait_for_element 不需要 target
+  const noTargetActions = ['screenshot'];
+  if (!target && !noTargetActions.includes(action)) {
+    return { success: false, error: '目标元素不能为空' };
+  }
+
+  const attachResult = await attachForAI(webContentsId, ['Runtime', 'DOM', 'Input']);
+  if (!attachResult.success) {
+    return { success: false, error: attachResult.error };
+  }
+
+  try {
+    // screenshot 特殊处理：不需要元素定位
+    if (action === 'screenshot') {
+      const result = await executeCommand(webContentsId, 'Page.captureScreenshot', {
+        format: options?.format || 'png',
+        quality: options?.quality || 80,
+      });
+      if (!result.success) {
+        return { success: false, error: result.error || '截图失败' };
+      }
+      const pageChanges = await _collectPageChanges(webContentsId);
+      return { success: true, result: result.result?.data, pageChanges };
+    }
+
+    // wait_for_element 特殊处理：轮询 DOM
+    if (action === 'wait_for_element') {
+      const timeout = options?.timeout || 10000;
+      const startTime = Date.now();
+      while (Date.now() - startTime < timeout) {
+        const checkResult = await _evalScript(webContentsId, `
+(function() {
+  try {
+    var el = document.querySelector('${target.replace(/'/g, "\\'")}');
+    return el !== null;
+  } catch (e) {
+    return false;
+  }
+})()`);
+        if (checkResult.success && checkResult.result?.result?.value === true) {
+          const pageChanges = await _collectPageChanges(webContentsId);
+          return { success: true, result: '元素已出现', pageChanges };
+        }
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+      return { success: false, error: '等待元素超时' };
+    }
+
+    // 其他操作需要定位元素
+    const findScript = _buildFindElementScript(target);
+    const objResult = await _getElementObjectId(webContentsId, findScript);
+
+    if (!objResult.success || !objResult.result?.result?.objectId) {
+      return { success: false, error: '元素未找到: ' + target };
+    }
+
+    const objectId = objResult.result.result.objectId;
+
+    // 根据操作类型执行
+    switch (action) {
+      case 'click': {
+        // 获取元素中心坐标
+        const rectResult = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: `function() {
+            var rect = this.getBoundingClientRect();
+            return {
+              x: rect.left + rect.width / 2,
+              y: rect.top + rect.height / 2,
+              width: rect.width,
+              height: rect.height,
+            };
+          }`,
+          returnByValue: true,
+        });
+        if (!rectResult.success || !rectResult.result?.result?.value) {
+          return { success: false, error: '获取元素位置失败' };
+        }
+        const { x, y } = rectResult.result.result.value;
+        // mousePressed + mouseReleased = click
+        await executeCommand(webContentsId, 'Input.dispatchMouseEvent', {
+          type: 'mousePressed', x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1,
+        });
+        await executeCommand(webContentsId, 'Input.dispatchMouseEvent', {
+          type: 'mouseReleased', x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1,
+        });
+        break;
+      }
+
+      case 'scroll': {
+        const scrollX = options?.x || 0;
+        const scrollY = options?.y || 300;
+        if (target && target !== 'window' && target !== 'page') {
+          // 滚动指定元素
+          await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+            objectId,
+            functionDeclaration: `function(x, y) { this.scrollBy(x, y); }`,
+            arguments: [scrollX, scrollY],
+            returnByValue: true,
+          });
+        } else {
+          // 滚动整个页面
+          await _evalScript(webContentsId, `window.scrollBy(${scrollX}, ${scrollY})`);
+        }
+        break;
+      }
+
+      case 'type': {
+        const text = options?.text || '';
+        await executeCommand(webContentsId, 'DOM.focus', { objectId });
+        if (options?.clearFirst) {
+          await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+            objectId,
+            functionDeclaration: `function() { this.value = ''; }`,
+            returnByValue: true,
+          });
+        }
+        await executeCommand(webContentsId, 'Input.insertText', { text });
+        // 触发事件
+        await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: `function() {
+            this.dispatchEvent(new Event('input', { bubbles: true }));
+            this.dispatchEvent(new Event('change', { bubbles: true }));
+          }`,
+          returnByValue: true,
+        });
+        break;
+      }
+
+      case 'select': {
+        const selectValue = options?.value || '';
+        await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: `function(val) {
+            var matched = false;
+            for (var i = 0; i < this.options.length; i++) {
+              if (this.options[i].value === val || this.options[i].textContent.trim() === val) {
+                this.selectedIndex = i;
+                matched = true;
+                break;
+              }
+            }
+            if (!matched) this.value = val;
+            this.dispatchEvent(new Event('change', { bubbles: true }));
+            this.dispatchEvent(new Event('input', { bubbles: true }));
+            return matched || this.value === val;
+          }`,
+          arguments: [selectValue],
+          returnByValue: true,
+        });
+        break;
+      }
+
+      case 'check':
+      case 'uncheck': {
+        const checked = action === 'check';
+        await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: `function(checked) {
+            if (this.checked !== checked) this.checked = checked;
+            this.dispatchEvent(new Event('change', { bubbles: true }));
+            this.dispatchEvent(new Event('input', { bubbles: true }));
+          }`,
+          arguments: [checked],
+          returnByValue: true,
+        });
+        break;
+      }
+
+      case 'focus': {
+        await executeCommand(webContentsId, 'DOM.focus', { objectId });
+        break;
+      }
+
+      case 'blur': {
+        await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: `function() { this.blur(); }`,
+          returnByValue: true,
+        });
+        break;
+      }
+
+      case 'submit': {
+        await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: `function() {
+            var form = this.closest('form') || this;
+            if (form.tagName === 'FORM') {
+              form.submit();
+            } else {
+              this.click();
+            }
+          }`,
+          returnByValue: true,
+        });
+        break;
+      }
+
+      case 'upload': {
+        const filePath = options?.filePath || options?.value || '';
+        if (!filePath) {
+          return { success: false, error: '文件上传需要提供文件路径' };
+        }
+        const nodeResult = await executeCommand(webContentsId, 'DOM.describeNode', { objectId });
+        if (!nodeResult.success || !nodeResult.result?.node?.backendNodeId) {
+          return { success: false, error: '无法获取文件输入元素节点' };
+        }
+        await executeCommand(webContentsId, 'DOM.setFileInputFiles', {
+          files: Array.isArray(filePath) ? filePath : [filePath],
+          backendNodeId: nodeResult.result.node.backendNodeId,
+        });
+        break;
+      }
+
+      case 'drag': {
+        const fromRect = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: `function() {
+            var rect = this.getBoundingClientRect();
+            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+          }`,
+          returnByValue: true,
+        });
+        if (!fromRect.success) return { success: false, error: '获取拖拽起始位置失败' };
+        const from = fromRect.result.result.value;
+        const toX = options?.toX || from.x;
+        const toY = options?.toY || from.y;
+        // dragstart → drag → dragend
+        await executeCommand(webContentsId, 'Input.dispatchMouseEvent', {
+          type: 'mousePressed', x: Math.round(from.x), y: Math.round(from.y), button: 'left', clickCount: 1,
+        });
+        await executeCommand(webContentsId, 'Input.dispatchMouseEvent', {
+          type: 'mouseMoved', x: Math.round(toX), y: Math.round(toY), button: 'left',
+        });
+        await executeCommand(webContentsId, 'Input.dispatchMouseEvent', {
+          type: 'mouseReleased', x: Math.round(toX), y: Math.round(toY), button: 'left', clickCount: 1,
+        });
+        break;
+      }
+
+      case 'hover': {
+        const hoverRect = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: `function() {
+            var rect = this.getBoundingClientRect();
+            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+          }`,
+          returnByValue: true,
+        });
+        if (!hoverRect.success) return { success: false, error: '获取元素位置失败' };
+        const hPos = hoverRect.result.result.value;
+        await executeCommand(webContentsId, 'Input.dispatchMouseEvent', {
+          type: 'mouseMoved', x: Math.round(hPos.x), y: Math.round(hPos.y),
+        });
+        break;
+      }
+
+      case 'keydown':
+      case 'keyup': {
+        const key = options?.key || options?.code || '';
+        if (!key) return { success: false, error: '键盘事件需要提供 key 参数' };
+        await executeCommand(webContentsId, 'Input.dispatchKeyEvent', {
+          type: action,
+          key,
+          code: options?.code || key,
+          windowsVirtualKeyCode: options?.keyCode || 0,
+          nativeVirtualKeyCode: options?.keyCode || 0,
+        });
+        break;
+      }
+
+      case 'execute_script': {
+        const script = options?.script || options?.value || '';
+        if (!script) return { success: false, error: '脚本内容不能为空' };
+        // 安全检查（D-16）
+        const validation = _validateScript(script);
+        if (!validation.safe) {
+          return { success: false, error: '脚本安全检查未通过: ' + validation.reason };
+        }
+        const scriptResult = await _evalScript(webContentsId, script);
+        if (!scriptResult.success) {
+          return { success: false, error: scriptResult.error || '脚本执行失败' };
+        }
+        const pageChanges = await _collectPageChanges(webContentsId);
+        return { success: true, result: scriptResult.result?.result?.value, pageChanges };
+      }
+
+      default:
+        return { success: false, error: '不支持的操作类型: ' + action };
+    }
+
+    const pageChanges = await _collectPageChanges(webContentsId);
+    return { success: true, result: action + ' 操作执行成功', pageChanges };
+  } catch (err) {
+    return { success: false, error: err.message || '操作执行异常' };
+  } finally {
+    detachForAI(webContentsId);
+  }
+}
+
+/**
+ * 收集页面变化信息（D-12）
+ *
+ * 操作执行后收集：当前 URL、是否有弹窗、表单验证错误
+ *
+ * @param {number} webContentsId - webContents ID
+ * @returns {Promise<{url?: string, alerts?: string[], validationErrors?: string[]}>}
+ */
+async function _collectPageChanges(webContentsId) {
+  const changes = {};
+  try {
+    const urlResult = await _evalScript(webContentsId, 'window.location.href');
+    if (urlResult.success) {
+      changes.url = urlResult.result?.result?.value;
+    }
+    const validationResult = await _evalScript(webContentsId, `
+(function() {
+  var errors = [];
+  var invalids = document.querySelectorAll(':invalid, [aria-invalid="true"]');
+  for (var i = 0; i < Math.min(invalids.length, 10); i++) {
+    var msg = invalids[i].validationMessage || invalids[i].getAttribute('aria-errormessage') || '';
+    if (msg) errors.push(msg);
+  }
+  return errors;
+})()`);
+    if (validationResult.success && Array.isArray(validationResult.result?.result?.value)) {
+      const errors = validationResult.result.result.value;
+      if (errors.length > 0) changes.validationErrors = errors;
+    }
+  } catch {}
+  return changes;
+}
+
 // ==================== 模块导出 ====================
 
 module.exports = {
@@ -754,4 +1560,6 @@ module.exports = {
   handleNavigation,
   cleanup,
   matchesDomain,
+  fillForm,
+  executeAction,
 };
