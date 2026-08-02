@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: complete
 phase: 22-cdp
-source: 22-01-SUMMARY.md, 22-02-SUMMARY.md, 22-03-SUMMARY.md, 22-04-SUMMARY.md
+source: 22-01-SUMMARY.md, 22-02-SUMMARY.md, 22-03-SUMMARY.md, 22-04-SUMMARY.md, 22-05-SUMMARY.md
 started: 2026-08-02T07:35:37Z
-updated: 2026-08-02T08:40:00Z
+updated: 2026-08-02T09:40:00Z
 ---
 
 ## Current Test
@@ -25,11 +25,12 @@ expected: 真实页面上 AI 对话输入「提取页面链接」。仅返回 ht
 result: pass
 
 ### 4. open_link 双模式 + 全新 profile 回归
-expected: ① 模拟全新 profile（备份后移除 realm-config.json 的 containers 键，重启），AI 输入「打开 https://example.com」→ 默认路径成功打开（不再报「指定容器不存在或已删除」）；② 指定 containerId 在目标容器打开；③ newTab=true 新建标签页 / newTab=false 当前标签页导航两种模式均正常。
-result: issue
-reported: "当前标签页打开网址有正确回复，但是没有真的打开网页。日志显示 AI 调用 navigate 工具 → 主进程创建 tab-469 记录（[Realm] Tab 创建: tab-469 容器: default），工具返回 success，但页面实际未加载。"
-severity: major
-retest_22_05: "复测场景（22-05 新增）：用「当前标签打开 <URL>」措辞重测 — AI 应选择 open_link 且设 newTab 为 false，当前活跃 webview 真实导航（终端出现 did-navigate 日志、页面可见加载），工具卡片成功。navigate 工具已移除（Gap 1 修复方式：删工具消除歧义，非改实现），AI 不再可能在两个打开链接工具间误选。"
+expected: ① 模拟全新 profile（备份后移除 realm-config.json 的 containers 键，重启），AI 输入「打开 https://example.com」→ 默认路径成功打开（不再报「指定容器不存在或已删除」）；② 指定 containerId 在目标容器打开；③ newTab=true 新建标签页 / newTab=false 当前标签页导航两种模式均正常。【22-05 复测重点】用「当前标签打开 <URL>」措辞 — AI 应选择 open_link 且 newTab=false，当前活跃 webview 真实导航（did-navigate 日志 + 页面可见加载）。
+result: pass
+retest_22_05: pass
+prev_result: issue
+prev_reported: "当前标签页打开网址有正确回复，但是没有真的打开网页。日志显示 AI 调用 navigate 工具 → 主进程创建 tab-469 记录（[Realm] Tab 创建: tab-469 容器: default），工具返回 success，但页面实际未加载。"
+prev_severity: major
 
 ### 5. DevTools 冲突与错误提示呈现
 expected: 对当前 tab 打开 DevTools 后调用「读取当前页面内容」→ 工具卡片显示「失败」+「DevTools 已打开，请关闭后重试」；新建空 tab（未加载页面）调用工具 → 工具卡片「失败」+「当前标签页未加载页面，请先打开网页」。tool_execution_update running/completed/failed 状态在渲染进程正确呈现。
@@ -41,11 +42,12 @@ expected: AI 工具执行期间或执行后关闭对应 tab，主进程终端日
 result: pass
 
 ### 7. 大页面性能（ROADMAP SC#5）
-expected: 打开 >1MB 大页面（长文新闻/文档站），调用「读取当前页面内容」计时。5 秒内返回截断结果，期间 UI 可交互（可滚动、切换 tab 不卡顿）。
-result: issue
-reported: "打开第一个链接（zh.wikipedia.org/wiki/第二次世界大战），5秒内也返回了内容，但好像没有截断（AI 回复为完整结构化总结，未见 100KB 截断中文标记）"
-severity: minor
-expectation_correction_22_05: "期望修正（22-05）：性能期望不变（5 秒内返回、UI 可交互）。截断标记期望改条件式 — 仅当 Readability 提取后正文超 102,400 字符时，内容应截断并附字符语义截断标记（新措辞）；未超阈值时完整返回属正确行为。附注：原始 HTML 大小 ≠ 提取后文本量（wiki 案例提取率约 7.3%，99,630 < 102,400 故未截断），复测选页可用调试会话的 Electron 复现脚本预验证提取后长度（.planning/debug/truncation-marker-missing.md 记载 /tmp/readability_test.js 方法）。"
+expected: 打开 >1MB 大页面（长文新闻/文档站），调用「读取当前页面内容」计时。5 秒内返回，期间 UI 可交互（可滚动、切换 tab 不卡顿）。【22-05 期望修正·条件式】仅当 Readability 提取后正文超 102,400 字符时，内容应截断并附字符语义截断标记「已截断至 102400 字符…」；未超阈值时完整返回属正确行为（原始 HTML 大小 ≠ 提取后文本量，可用 .planning/debug/truncation-marker-missing.md 记载的 /tmp/readability_test.js 脚本预验证提取后长度）。
+result: pass
+retest_22_05: pass
+prev_result: issue
+prev_reported: "打开第一个链接（zh.wikipedia.org/wiki/第二次世界大战），5秒内也返回了内容，但好像没有截断（AI 回复为完整结构化总结，未见 100KB 截断中文标记）"
+prev_severity: minor
 
 ### 8. cdp-manager.js 导出 attachForAI/detachForAI/executeCommand 三个 AI 工具调试器管理方法
 expected: cdp-manager.js 导出 attachForAI/detachForAI/executeCommand 三个 AI 工具调试器管理方法
@@ -116,8 +118,8 @@ coverage_id: 22-04-D2
 ## Summary
 
 total: 18
-passed: 16
-issues: 2
+passed: 18
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
@@ -125,7 +127,8 @@ blocked: 0
 ## Gaps
 
 - truth: "AI 打开链接时目标网页在窗口中真实加载（当前标签页模式）"
-  status: failed
+  status: resolved
+  resolved_by: "22-05 移除 navigate 工具，打开链接唯一入口收敛为 open_link；2026-08-02 复测 pass"
   reason: "User reported: 当前标签页打开网址有正确回复，但是没有真的打开网页。日志：AI 调用 navigate {\"url\":\"https://www.baidu.com\"} → 主进程 [Realm] Tab 创建: tab-469 (容器: default) → 工具返回 success，但渲染进程未创建 webview，URL 从未加载（疑似幽灵 Tab）"
   severity: major
   test: 4
@@ -142,7 +145,8 @@ blocked: 0
     - "UAT Test 4 补「当前标签打开」措辞回归场景"
   debug_session: ".planning/debug/open-link-ghost-tab.md"
 - truth: "大页面（>1MB）内容在 100KB 处截断并附加中文标记（用户可感知）"
-  status: failed
+  status: resolved
+  resolved_by: "22-05 截断标记字符语义化（「已截断至 102400 字符」）+ UAT 期望改条件式；2026-08-02 复测 pass"
   reason: "User reported: 打开第一个链接（zh.wikipedia.org/wiki/第二次世界大战），5秒内也返回了内容，但好像没有截断（AI 回复为完整结构化总结，未见 100KB 截断中文标记）"
   severity: minor
   test: 7
