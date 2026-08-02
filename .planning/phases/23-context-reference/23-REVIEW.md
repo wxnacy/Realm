@@ -11,6 +11,8 @@ findings:
   warning: 8
   info: 5
   total: 19
+resolved:
+  - CR-06
 ---
 
 # Phase 23 — Code Review
@@ -123,7 +125,7 @@ VALUES ('delete', old.id, segmentForFts5(...));
 
 ---
 
-### CR-06 — `src/index.html` 的改动未提交，干净检出上 @ 面板直接崩
+### CR-06 — `src/index.html` 的改动未提交，干净检出上 @ 面板直接崩 ✅ 已修复（`c910959`）
 
 **位置：** 工作区（`git status` 显示 ` M src/index.html`，`d1062d0` 的文件清单中不含该文件）
 
@@ -132,6 +134,8 @@ VALUES ('delete', old.id, segmentForFts5(...));
 在一份干净检出上，`elements.contextPickerPanel`（`src/renderer.js:114`）为 `null`，用户键入 `@` 时 `src/renderer.js:4139` 访问 `.style` 抛 TypeError。整个 @ 引用功能在版本库里是坏的。
 
 **修复：** 提交 `src/index.html`。同时值得复盘 executor 的提交协议为何漏掉了这个文件。
+
+**已于 2026-08-02 提交（`c910959`）** —— 5 个 DOM 节点（`aiContextPills` / `contextPickerPanel` / `contextPickerSearch` / `contextPickerList` / `contextPickerEmpty`）与 `src/renderer.js:113-117` 的 `getElementById` 一一对应，已核对齐全。
 
 ---
 
@@ -211,7 +215,7 @@ VALUES ('delete', old.id, segmentForFts5(...));
 
 ## 建议处置顺序
 
-1. **CR-06** — 提交 `src/index.html`（否则功能在版本库里根本不存在）
+1. ~~**CR-06** — 提交 `src/index.html`~~ ✅ 已完成（`c910959`）
 2. **CR-01 + CR-05** — 注册 UDF + 改用标准 DELETE 语法，恢复收藏写入
 3. **CR-04** — 渲染改 `textContent`，堵住 Cookie 泄露路径
 4. **CR-02 + CR-03** — 修复转义并隔离引用正文

@@ -69,7 +69,7 @@ known_followups: 23-REVIEW.md
 | CR-01 / CR-05 | FTS5 触发器调用未注册的 UDF `segmentForFts5`；DELETE/UPDATE 使用 contentless 表专用的 `'delete'` 语法 | 收藏写路径（UAT 仅覆盖读路径） |
 | CR-02 / CR-03 | `_escapeXml` 五个 replace 均为恒等替换（no-op）；引用正文未做分隔符隔离 | prompt 注入面，与 T-23-03 声称的缓解不符 |
 | CR-04 | `renderContextPickerList` / `renderContextPills` 用 innerHTML 插值网页标题 | 渲染进程 XSS → `realmAPI.getContainerCookies` 提权 |
-| CR-06 | `src/index.html` 的 DOM 结构改动未随 `d1062d0` 提交 | 干净检出上 @ 面板不可用 |
+| ~~CR-06~~ | ~~`src/index.html` 的 DOM 结构改动未随 `d1062d0` 提交~~ | ✅ 已于 `c910959` 补提 |
 | WR-01/02/03/08 | 分词降级不完整、FTS5 查询语法注入、触发器不重建、`asarUnpack` 未配置（打包后词典可能读不到） | 搜索正确性与打包产物 |
 
 完整清单与修复建议见 `23-REVIEW.md`。
