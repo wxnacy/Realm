@@ -4,9 +4,9 @@ milestone: v2.1
 milestone_name: AI CDP 增强 + Tabbrowser 功能集成
 current_phase: 22
 current_phase_name: cdp
-status: executing
+status: Phase 22 executed — awaiting UAT (human_needed)
 stopped_at: Phase 22 UI-SPEC approved
-last_updated: "2026-08-02T07:18:12.047Z"
+last_updated: "2026-08-02T07:30:41.427Z"
 last_activity: 2026-08-02
 last_activity_desc: Phase 22 execution started
 progress:
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-02)
 
 Phase: 22 (cdp) — EXECUTING
 Plan: 2 of 4
-Status: Ready to execute
+Status: Phase 22 executed — awaiting UAT (human_needed)
 Last activity: 2026-08-02 — Phase 22 execution started
 
 Progress: [░░░░░░░░░░] 0%
