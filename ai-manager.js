@@ -1114,6 +1114,107 @@ class AIManager {
           }
         },
       },
+      {
+        name: 'open_link',
+        label: '打开链接',
+        description: '在指定容器中打开一个链接，支持在当前标签页或新标签页中打开。默认使用当前活跃容器和新标签页。',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: {
+              type: 'string',
+              description: '要打开的 URL 地址',
+            },
+            containerId: {
+              type: 'string',
+              description: '目标容器 ID（可选，默认使用当前活跃容器）',
+            },
+            newTab: {
+              type: 'boolean',
+              description: '是否在新标签页中打开（可选，默认 true）',
+            },
+          },
+          required: ['url'],
+        },
+        execute: async (toolCallId, params) => {
+          const { url, newTab = true } = params;
+
+          // URL 白名单校验（与导航入口统一，仅 http/https）
+          if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+            throw new Error('无效的 URL，仅支持 http/https 协议');
+          }
+
+          // D-10：默认使用当前活跃容器，跟随用户操作上下文
+          const mainWindow = windowManager.getMainWindow();
+          let containerId = params.containerId;
+          if (!containerId) {
+            containerId = (mainWindow && windowManager.getCurrentContainer(mainWindow.id)) || 'default';
+          }
+
+          // 验证容器存在
+          const containers = this.configStore ? this.configStore.get('containers', []) : [];
+          const container = containers.find(c => c.id === containerId);
+          if (!container) {
+            throw new Error('指定容器不存在或已删除');
+          }
+
+          if (newTab) {
+            // D-11：新标签页打开（不影响当前页面）
+            // webview 只能由渲染进程创建 —— 复用 window.open 拦截同款
+            // open-url-in-tab 通道，渲染进程走完整 createTab 链路
+            // （DOM + webview + URL 加载），主进程直接 tabManager.createTab
+            // 只会产生无 webview 的幽灵 Tab。
+            // tabId 由渲染进程异步创建，主进程无法同步得知（返回 null，
+            // 可随后经 get_tabs 按 URL 查询）。
+            if (!mainWindow || mainWindow.isDestroyed()) {
+              throw new Error('未找到主窗口');
+            }
+            mainWindow.webContents.send('open-url-in-tab', { url, containerId, guestId: undefined });
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  success: true,
+                  tabId: null,
+                  url,
+                  containerId,
+                  isNewTab: true,
+                }, null, 2),
+              }],
+              details: { tabId: null, url },
+            };
+          }
+
+          // newTab === false：当前标签页内导航
+          const activeTab = tabManager.getActiveTab();
+          if (!activeTab) {
+            throw new Error('没有活跃的标签页');
+          }
+          const activeWcId = getActiveWebviewContentsIdLazy();
+          const wc = activeWcId ? webContents.fromId(activeWcId) : null;
+          if (!wc || wc.isDestroyed()) {
+            throw new Error('标签页已关闭');
+          }
+          // fire-and-forget：不等待页面加载完成，导航结果经渲染进程
+          // did-navigate 事件链路自动回写 tab.url 并持久化
+          wc.loadURL(url).catch(err => {
+            console.warn('[Realm AI] open_link 导航失败:', err.message);
+          });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                tabId: activeTab.id,
+                url,
+                containerId,
+                isNewTab: false,
+              }, null, 2),
+            }],
+            details: { tabId: activeTab.id, url },
+          };
+        },
+      },
     ];
   }
 
