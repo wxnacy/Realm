@@ -137,7 +137,8 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - 所有里程碑已完成归档
 - v2.0 Phase 21 complete — AI 聊天面板 UI 全部 13 个 UAT 验证通过
 - v2.1 Phase 22 complete — CDP 管理器 + 3 个网页操控工具，18/18 UAT 通过（含 2 轮 gap 修复复测）
-- 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core
+- v2.1 Phase 23 complete — @ 引用标签页上下文 + FTS5 收藏全文检索，7/7 UAT 通过（含 3 个 gap 修复复测）
+- 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core + nodejieba
 
 **Key features delivered:**
 - 多容器隔离浏览器（Cookie/Session/Storage/缓存完全隔离）
@@ -152,10 +153,12 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - Chrome 书签导入（JSON/HTML 解析 + 批量导入 + 进度预览）
 - 收藏栏功能（固定显示 + 交互 + 右键菜单 + 设置）
 - AI Agent 集成（pi-agent-core + AI Manager + 5 个 Realm 工具 + 聊天 UI）
+- AI 智能上下文引用（@ 引用标签页正文注入）+ 收藏 FTS5 中文全文检索
 
 **Known gaps:**
 - 13 个已诊断 debug session 未修复
 - 1 个 UAT 差距（Phase 18，0 个待处理场景）
+- Phase 23 代码审查遗留 19 项（6 Critical），详见 `.planning/phases/23-context-reference/23-REVIEW.md`
 
 ## Current Milestone: v2.1 AI CDP 增强 + Tabbrowser 功能集成
 
@@ -163,7 +166,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 **Target features:**
 - ✓ Phase 22: CDP 管理器 + read_page_content + extract_links + open_link（2026-08-02 完成）
-- Phase 23: 智能上下文引用（@ 引用标签页）+ 全文检索
+- ✓ Phase 23: 智能上下文引用（@ 引用标签页）+ 全文检索（2026-08-02 完成）
 - Phase 24: 任务自主执行（自动化填表、操作）
 - Phase 25: 脚本生成 + 智能标签整理
 
@@ -275,4 +278,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-02 after Phase 22*
+*Last updated: 2026-08-02 after Phase 23*
