@@ -98,18 +98,16 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ IMPORT-03: 导入进度（HTTP 轮询 + stage 分阶段）和冲突处理（书签 URL 去重 + 文件夹同名复用） — Phase 17
 - ✓ AI-02: AI Manager 核心功能（5 个 Realm 工具 + 事件广播 + 错误重试 + IPC 通道 + 设置页 AI 分区） — Phase 20
 - ✓ AI-03: AI 聊天面板 UI（面板开关/消息渲染/流式输出/工具卡片/消息操作/拖拽宽度/设置集成） — Phase 21
+- ✓ CDP-01: 独立 CDP 管理器（cdp-manager.js，attachForAI/detachForAI/executeCommand + 超时 + 自动清理） — Phase 22
+- ✓ CDP-02: read_page_content 工具（Readability 注入提取，102400 字符截断，空状态文案） — Phase 22
+- ✓ CDP-03: extract_links 工具（http/https 过滤 + 锚点过滤 + URL 去重） — Phase 22
+- ✓ CDP-04: open_link 工具（双模式 + 内存权威容器校验，打开链接唯一入口） — Phase 22
 
 ### Active
 
 <!-- 当前需要构建的功能（下一里程碑定义） -->
 
 **v2.1 AI CDP 增强 + Tabbrowser 功能集成** (2026-08-02)
-
-#### Phase 22: CDP 管理器 + 网页读取与链接操作
-- CDP-01: 独立 CDP 管理器（cdp-manager.js）
-- CDP-02: read_page_content 工具（读取网页标题、正文、元信息）
-- CDP-03: extract_links 工具（提取页面所有链接）
-- CDP-04: open_link 工具（打开指定链接）
 
 #### Phase 23: 智能上下文引用 + 全文检索
 - CTX-01: @ 引用标签页上下文
@@ -138,6 +136,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - 21 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0)
 - 所有里程碑已完成归档
 - v2.0 Phase 21 complete — AI 聊天面板 UI 全部 13 个 UAT 验证通过
+- v2.1 Phase 22 complete — CDP 管理器 + 3 个网页操控工具，18/18 UAT 通过（含 2 轮 gap 修复复测）
 - 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core
 
 **Key features delivered:**
@@ -163,7 +162,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 **Goal:** 为 AI Agent 增加深度浏览器控制能力，集成 Tabbrowser 核心功能
 
 **Target features:**
-- Phase 22: CDP 管理器 + read_page_content + extract_links + open_link
+- ✓ Phase 22: CDP 管理器 + read_page_content + extract_links + open_link（2026-08-02 完成）
 - Phase 23: 智能上下文引用（@ 引用标签页）+ 全文检索
 - Phase 24: 任务自主执行（自动化填表、操作）
 - Phase 25: 脚本生成 + 智能标签整理
@@ -251,6 +250,12 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | AI 消息 Markdown 渲染必须 DOMPurify 消毒 | marked v5+ 移除 sanitize，原生 HTML 透传；恶意网页提示注入可借模型输出 XSS 访问 realmAPI | ✓ 已验证 — Phase 21 安全审计 |
 | 流式渲染定向更新气泡，禁止 16ms 全量列表重建 | 全量 innerHTML 重建 60 次/秒导致气泡闪烁；webview 区域拖拽需禁用 pointer-events | ✓ 已验证 — Phase 21 UAT |
 | LLM 级错误检测 AssistantMessage.errorMessage | pi-agent-core 对 401 等错误不抛异常，产出 errorMessage 消息正常结束，agent_end 必须显式检测转 error 事件 | ✓ 已验证 — Phase 21 UAT |
+| AI 工具 CDP 调试器独立通道 attachForAI/detachForAI | 与 dev-mode 抓包调试器隔离，工具 finally 块保证断开，webview destroyed 兜底清理 | ✓ 已验证 — Phase 22 UAT |
+| Readability 打包为可注入 IIFE bundle（lib/readability-bundle.js） | Runtime.evaluate 注入真实页面提取正文，避免主进程解析 HTML | ✓ 已验证 — Phase 22 UAT |
+| 容器校验数据源切换为 getContainersLazy() 内存权威数据 | electron-store 磁盘读取在全新 profile 下误报「容器不存在」（CR-01 根因），内存 Map 由 initContainers 启动建立 | ✓ 已验证 — Phase 22（22-04） |
+| 职责重叠工具取删除而非复用实现（navigate 移除，open_link 唯一入口） | navigate 三重根因（幽灵 Tab + 死参数 + 选择歧义）均为独立缺陷，保留则歧义永存 | ✓ 已验证 — Phase 22（22-05）UAT 复测 |
+| 截断阈值采用字符语义（102,400 字符）而非字节 | Readability 提取率约 7%，按字节推断截断前提会选中阈值边缘页面；契约/标记/UAT 三处统一字符措辞 | ✓ 已验证 — Phase 22（22-05） |
+| AI 工具与 DevTools 共存（不互斥） | Electron 允许 AI debugger 与用户 DevTools 并存，冲突检测为过期预期，用户确认共存行为更好 | ✓ 已验证 — Phase 22 UAT Test 5 用户决策 |
 
 ## Evolution
 
@@ -270,4 +275,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-02 after v2.0 milestone*
+*Last updated: 2026-08-02 after Phase 22*

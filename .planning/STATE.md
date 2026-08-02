@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: AI CDP 增强 + Tabbrowser 功能集成
-current_phase: 22
-current_phase_name: cdp
-status: Phase 22 executed — awaiting UAT (human_needed)
-stopped_at: Phase 22 UI-SPEC approved
-last_updated: "2026-08-02T07:30:41.427Z"
+current_phase: 23
+current_phase_name: 智能上下文引用 + 全文检索
+status: Phase 22 complete — ready to plan Phase 23
+stopped_at: Phase 22 complete, transitioned to Phase 23
+last_updated: "2026-08-02T09:45:00.000Z"
 last_activity: 2026-08-02
-last_activity_desc: Phase 22 execution started
+last_activity_desc: Phase 22 complete, transitioned to Phase 23
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 5
+  completed_plans: 5
   percent: 25
 ---
 
@@ -24,22 +24,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-02)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 22 — cdp
+**Current focus:** Phase 23 — 智能上下文引用 + 全文检索
 
 ## Current Position
 
-Phase: 22 (cdp) — EXECUTING
-Plan: 2 of 4
-Status: Phase 22 executed — awaiting UAT (human_needed)
-Last activity: 2026-08-02 — Phase 22 execution started
+Phase: 23 — 智能上下文引用 + 全文检索
+Plan: Not started
+Status: Phase 22 complete — ready to plan Phase 23
+Last activity: 2026-08-02 — Phase 22 complete, transitioned to Phase 23
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█████░░░░░] 25%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0
+- Total plans completed: 5
 - Average duration: —
 - Total execution time: —
 
@@ -51,6 +51,7 @@ Progress: [░░░░░░░░░░] 0%
 | 23. 智能上下文引用 | TBD | — | — |
 | 24. 任务自主执行 | TBD | — | — |
 | 25. 脚本生成 + 标签整理 | TBD | — | — |
+| 22 | 5 | - | - |
 
 *Updated after each plan completion*
 
@@ -61,9 +62,10 @@ Progress: [░░░░░░░░░░] 0%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- 优先使用 Runtime.evaluate 而非 DOM 域逐节点操作（更灵活、更强大）
-- 零新增依赖：所有功能基于现有技术栈（Electron CDP、better-sqlite3 FTS5、pi-agent-core）
-- Phase 22 必须最先：CDP Manager 扩展是所有网页操控功能的前提
+- 职责重叠工具取删除而非复用实现（navigate 移除，open_link 为打开链接唯一入口）— Phase 22
+- 截断阈值采用字符语义（102,400 字符），契约/标记/UAT 三处统一 — Phase 22
+- 容器校验数据源为 getContainersLazy() 内存权威数据，不再读 electron-store 磁盘 — Phase 22
+- AI 工具与 DevTools 共存不互斥（Electron 允许双 debugger）— Phase 22
 - Phase 24-25 安全防护：输入消毒、脚本静态分析、沙箱执行、高风险操作用户确认
 
 ### Pending Todos
@@ -97,6 +99,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-02T04:18:07.084Z
-Stopped at: Phase 22 UI-SPEC approved
-Resume file: .planning/phases/22-cdp/22-UI-SPEC.md
+Last session: 2026-08-02T09:45:00Z
+Stopped at: Phase 22 complete, ready to plan Phase 23
+Resume file: None
