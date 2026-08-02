@@ -8,6 +8,12 @@
  * - 匹配时附加 CDP 调试器，启用 Network 域
  * - 监听 CDP 网络事件，收集请求数据
  * - 处理调试器断开事件（用户打开 DevTools 触发 detach）
+ * - AI 工具调试器管理（attachForAI/detachForAI/executeCommand）
+ *
+ * Readability 库说明：
+ * - lib/readability-bundle.js 为 Mozilla Readability（Apache 2.0）的 minified IIFE 打包
+ * - 用途：read_page_content 工具经 executeCommand('Runtime.evaluate') 注入 webview，
+ *   在页面上下文执行 `new Readability(document.cloneNode(true)).parse()` 提取可读内容
  *
  * 依赖：electron（主进程）、dev-requests-writer（写入队列）
  */

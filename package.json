@@ -21,9 +21,11 @@
   "license": "MIT",
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
+    "@mozilla/readability": "^0.6.0",
     "electron": "^32.0.0",
     "electron-builder": "^24.13.0",
-    "electron-reloader": "^1.2.3"
+    "electron-reloader": "^1.2.3",
+    "esbuild": "^0.28.1"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.82.1",
