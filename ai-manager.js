@@ -87,7 +87,6 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 
 你的能力：
 - get_tabs: 获取当前所有标签页列表
-- navigate: 在指定容器中打开网页
 - search_history: 搜索浏览历史记录
 - manage_favorites: 管理收藏夹（添加、查看、删除）
 - switch_container: 切换当前容器
@@ -98,8 +97,9 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 使用指南：
 - 当用户询问"当前页面是什么"、"读取页面内容"等，使用 read_page_content
 - 当用户询问"页面有哪些链接"、"提取链接"等，使用 extract_links
-- 当用户要求打开某个链接时，使用 open_link
+- 当用户要求打开链接或网址时，一律使用 open_link：默认新标签页打开（newTab 省略或为 true）；用户明确要求"在当前标签页打开"时设 newTab 为 false；containerId 省略时使用当前活跃容器
 - 这些工具需要访问页面的调试器，如果提示"DevTools 已打开"，请让用户关闭开发者工具后重试
+- read_page_content 返回内容若包含截断标记，回复时明确告知用户内容已截断及原始长度
 
 请用简洁、专业的语气回答用户问题。当需要执行操作时，使用提供的工具函数。`;
 
@@ -742,49 +742,6 @@ class AIManager {
               text: JSON.stringify(tabList, null, 2),
             }],
             details: { count: tabList.length },
-          };
-        },
-      },
-      {
-        name: 'navigate',
-        label: '导航到网址',
-        description: '在指定容器中打开一个网页，支持在当前标签页或新标签页中打开',
-        parameters: {
-          type: 'object',
-          properties: {
-            url: {
-              type: 'string',
-              description: '要导航到的 URL 地址',
-            },
-            containerId: {
-              type: 'string',
-              description: '目标容器 ID（可选，默认使用当前容器）',
-            },
-            newTab: {
-              type: 'boolean',
-              description: '是否在新标签页中打开（可选，默认 false）',
-            },
-          },
-          required: ['url'],
-        },
-        execute: async (toolCallId, params) => {
-          const { url, containerId = 'default', newTab = false } = params;
-          if (!url) {
-            throw new Error('URL 不能为空');
-          }
-          // 使用 tabManager.createTab 创建新标签页
-          const tab = tabManager.createTab(containerId, url);
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                success: true,
-                tabId: tab.id,
-                url: tab.url,
-                containerId: tab.containerId,
-              }, null, 2),
-            }],
-            details: { tabId: tab.id },
           };
         },
       },
