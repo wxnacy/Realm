@@ -5,18 +5,18 @@
 
 ## Phase 22: CDP 管理器扩展 + 基础网页操控工具
 
-- [ ] **CDP-01**: 独立 CDP 管理器扩展（Runtime/DOM/Page 域支持 + 资源监控和自动清理）
-- [ ] **CDP-02**: read_page_content 工具（读取当前标签页的页面标题、正文、元信息）
-- [ ] **CDP-03**: extract_links 工具（提取页面所有有效链接，支持过滤和去重）
-- [ ] **CDP-04**: open_link 工具（在指定容器中打开链接，支持当前标签页或新标签页）
+- [x] **CDP-01**: 独立 CDP 管理器扩展（Runtime/DOM/Page 域支持 + 资源监控和自动清理）
+- [x] **CDP-02**: read_page_content 工具（读取当前标签页的页面标题、正文、元信息）
+- [x] **CDP-03**: extract_links 工具（提取页面所有有效链接，支持过滤和去重）
+- [x] **CDP-04**: open_link 工具（在指定容器中打开链接，支持当前标签页或新标签页）
 
 ## Phase 23: 智能上下文引用 + 全文检索
 
-- [ ] **CTX-01**: @ 引用标签页 UI（输入框 + Tab 选择器，支持多标签页引用）
-- [ ] **CTX-02**: ai:prompt-with-context IPC 通道（渲染进程传递 Tab 元数据到主进程）
-- [ ] **CTX-03**: AI 上下文注入逻辑（将引用的标签页内容注入到 AI 对话上下文）
-- [ ] **CTX-04**: FTS5 全文检索索引扩展（favorites-manager.js 新增 FTS5 虚拟表和触发器）
-- [ ] **CTX-05**: search_favorites_fulltext 工具（AI 可搜索收藏内容）
+- [x] **CTX-01**: @ 引用标签页 UI（输入框 + Tab 选择器，支持多标签页引用）
+- [x] **CTX-02**: ai:prompt-with-context IPC 通道（渲染进程传递 Tab 元数据到主进程）
+- [x] **CTX-03**: AI 上下文注入逻辑（将引用的标签页内容注入到 AI 对话上下文）
+- [x] **CTX-04**: FTS5 全文检索索引扩展（favorites-manager.js 新增 FTS5 虚拟表和触发器）
+- [x] **CTX-05**: search_favorites_fulltext 工具（AI 可搜索收藏内容）
 
 ## Phase 24: 任务自主执行
 
@@ -57,15 +57,15 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CDP-01 | 22 | Pending |
-| CDP-02 | 22 | Pending |
-| CDP-03 | 22 | Pending |
-| CDP-04 | 22 | Pending |
-| CTX-01 | 23 | Pending |
-| CTX-02 | 23 | Pending |
-| CTX-03 | 23 | Pending |
-| CTX-04 | 23 | Pending |
-| CTX-05 | 23 | Pending |
+| CDP-01 | 22 | Complete |
+| CDP-02 | 22 | Complete |
+| CDP-03 | 22 | Complete |
+| CDP-04 | 22 | Complete |
+| CTX-01 | 23 | Complete |
+| CTX-02 | 23 | Complete |
+| CTX-03 | 23 | Complete |
+| CTX-04 | 23 | Complete |
+| CTX-05 | 23 | Complete |
 | AUTO-01 | 24 | Pending |
 | AUTO-02 | 24 | Pending |
 | AUTO-03 | 24 | Pending |

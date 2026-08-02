@@ -71,7 +71,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 **Milestone Goal:** 为 AI Agent 增加深度浏览器控制能力 — 从只能调用 5 个基础工具升级为能深度操控网页内容、引用标签页上下文、自动执行任务、生成脚本和智能整理标签页。
 
 - [x] **Phase 22: CDP 管理器扩展 + 基础网页操控工具** - 独立 CDP 管理器 + read_page_content + extract_links + open_link (completed 2026-08-02)
-- [ ] **Phase 23: 智能上下文引用 + 全文检索** - @ 引用标签页上下文 + FTS5 全文检索收藏
+- [x] **Phase 23: 智能上下文引用 + 全文检索** - @ 引用标签页上下文 + FTS5 全文检索收藏 (completed 2026-08-02)
 - [ ] **Phase 24: 任务自主执行** - 自动化填表 + 自动化操作 + 操作确认 + 安全防护
 - [ ] **Phase 25: 脚本生成 + 智能标签整理** - 一句话生成脚本 + AI 自动标签分组
 
@@ -126,8 +126,8 @@ Plans:
 
 **Wave 1**
 
-- [ ] 23-01-PLAN.md — FTS5 全文检索索引 + search_favorites_fulltext AI 工具
-- [ ] 23-02-PLAN.md — @ 引用浮动面板 + Pill + IPC 通道 + AI 上下文注入
+- [x] 23-01-PLAN.md — FTS5 全文检索索引 + search_favorites_fulltext AI 工具
+- [x] 23-02-PLAN.md — @ 引用浮动面板 + Pill + IPC 通道 + AI 上下文注入
 
 **UI hint**: yes
 
@@ -144,7 +144,25 @@ Plans:
   4. 遇到 CAPTCHA 或 2FA 页面时，AI 提示用户手动操作，不尝试绕过
   5. 恶意网页的 Prompt Injection 攻击被输入消毒和脚本静态分析拦截，不会导致非预期操作
 
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+
+**Wave 1** (no dependencies)
+
+- [ ] 24-01-PLAN.md — CDP 底层：fillForm + executeAction 方法
+
+**Wave 2** (depends on Wave 1)
+
+- [ ] 24-02-PLAN.md — AI 工具：fill_form + execute_action 注册 + 风险评估
+
+**Wave 3** (depends on Wave 2)
+
+- [ ] 24-03-PLAN.md — 安全防护：CAPTCHA/2FA 检测 + 暂停恢复机制
+
+**Wave 4** (depends on Wave 3)
+
+- [ ] 24-04-PLAN.md — UI：操作确认卡片 + IPC 通信 + CAPTCHA 等待指示器
+
 **UI hint**: yes
 
 ### Phase 25: 脚本生成 + 智能标签整理
@@ -192,6 +210,6 @@ Phases execute in numeric order: 22 → 23 → 24 → 25
 | 20. AI Agent 集成 - 核心功能 | v2.0 | 2/2 | Complete | 2026-08-01 |
 | 21. AI Agent 集成 - 聊天 UI | v2.0 | 3/3 | Complete | 2026-08-01 |
 | 22. CDP 管理器扩展 + 基础网页操控工具 | v2.1 | 5/5 | Complete    | 2026-08-02 |
-| 23. 智能上下文引用 + 全文检索 | v2.1 | 0/TBD | Not started | - |
-| 24. 任务自主执行 | v2.1 | 0/TBD | Not started | - |
+| 23. 智能上下文引用 + 全文检索 | v2.1 | 2/2 | Complete    | 2026-08-02 |
+| 24. 任务自主执行 | v2.1 | 0/4 | Ready | - |
 | 25. 脚本生成 + 智能标签整理 | v2.1 | 0/TBD | Not started | - |
