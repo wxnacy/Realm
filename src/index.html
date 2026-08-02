@@ -436,6 +436,8 @@
       <!-- 消息气泡由 JavaScript 动态生成 -->
     </div>
     <div class="ai-input-area" id="aiInputArea">
+      <!-- @ 引用标签页 Pill 容器 -->
+      <div class="ai-context-pills" id="aiContextPills"></div>
       <div class="ai-input-wrapper">
         <textarea class="ai-input" id="aiInput" placeholder="输入消息..." rows="1"></textarea>
         <button class="btn-icon ai-send-btn" id="aiSendBtn" title="发送">
@@ -443,6 +445,12 @@
             <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"></path>
           </svg>
         </button>
+      </div>
+      <!-- @ 引用浮动面板 -->
+      <div class="context-picker-panel" id="contextPickerPanel" style="display:none">
+        <input type="text" class="context-picker-search" id="contextPickerSearch" placeholder="输入关键字过滤标签页...">
+        <div class="context-picker-list" id="contextPickerList"></div>
+        <div class="context-picker-empty" id="contextPickerEmpty" style="display:none">未找到匹配的标签页</div>
       </div>
     </div>
     <button class="ai-scroll-to-bottom" id="aiScrollToBottom" title="回到底部">
