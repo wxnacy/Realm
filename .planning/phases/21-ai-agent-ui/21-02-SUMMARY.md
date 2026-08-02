@@ -85,11 +85,13 @@ None - all functionality完整实现。
 | T-21-03 mitigated | src/renderer.js | 工具结果使用 textContent 设置，不使用 innerHTML |
 | T-21-04 accepted | src/renderer.js | 复制功能使用 navigator.clipboard API，浏览器原生安全机制 |
 
-## Self-Check
+## Self-Check: PASSED
 
-- [x] 所有创建的文件存在
-- [x] 所有 commit 存在（983d61f, ea925dd, c567d29）
-- [x] SUMMARY.md 创建成功
+- [x] SUMMARY.md 存在
+- [x] Commit 983d61f 存在（Task 1: 工具执行卡片）
+- [x] Commit ea925dd 存在（Task 2: 消息操作和拖拽调整）
+- [x] Commit c567d29 存在（Task 3: 设置集成和空状态）
+- [x] Commit defa816 存在（SUMMARY.md）
 
 ---
 *Phase: 21-ai-agent-ui*
