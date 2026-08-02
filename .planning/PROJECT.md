@@ -102,6 +102,12 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ CDP-02: read_page_content 工具（Readability 注入提取，102400 字符截断，空状态文案） — Phase 22
 - ✓ CDP-03: extract_links 工具（http/https 过滤 + 锚点过滤 + URL 去重） — Phase 22
 - ✓ CDP-04: open_link 工具（双模式 + 内存权威容器校验，打开链接唯一入口） — Phase 22
+- ✓ AUTO-01: fillForm CDP 方法（六级字段定位链，支持 9 种表单类型） — Phase 24
+- ✓ AUTO-02: executeAction CDP 方法（支持 17 种页面操作类型） — Phase 24
+- ✓ AUTO-03: fill_form AI 工具（风险评估 + 输入消毒 + CAPTCHA 预检） — Phase 24
+- ✓ AUTO-04: execute_action AI 工具（风险评估 + 脚本安全检查 + CAPTCHA 预检） — Phase 24
+- ✓ AUTO-05: 高风险操作确认 UI（IPC 处理器 + 确认卡片 + 状态机） — Phase 24
+- ✓ AUTO-06: Prompt Injection 防护（sanitizeInput + validateScript + CDP 双层防护） — Phase 24
 
 ### Active
 
@@ -113,9 +119,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - CTX-01: @ 引用标签页上下文
 - CTX-02: 全文检索收藏内容
 
-#### Phase 24: 任务自主执行
-- AUTO-01: 自动化填表能力
-- AUTO-02: 自动化操作能力
+#### Phase 24: 任务自主执行 (✓ 2026-08-02 完成)
 
 #### Phase 25: 脚本生成 + 智能标签整理
 - SCRIPT-01: 一句话生成脚本
@@ -133,11 +137,12 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 ## Current State
 
 **Shipped:** v2.0 (2026-08-01)
-- 21 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0)
+- 22 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0 + 1 v2.1)
 - 所有里程碑已完成归档
 - v2.0 Phase 21 complete — AI 聊天面板 UI 全部 13 个 UAT 验证通过
 - v2.1 Phase 22 complete — CDP 管理器 + 3 个网页操控工具，18/18 UAT 通过（含 2 轮 gap 修复复测）
 - v2.1 Phase 23 complete — @ 引用标签页上下文 + FTS5 收藏全文检索，7/7 UAT 通过（含 3 个 gap 修复复测）
+- v2.1 Phase 24 complete — 任务自主执行（fillForm/executeAction + AI 工具 + CAPTCHA 检测 + 确认 UI），6/6 需求验证通过
 - 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core + nodejieba
 
 **Key features delivered:**
@@ -167,7 +172,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 **Target features:**
 - ✓ Phase 22: CDP 管理器 + read_page_content + extract_links + open_link（2026-08-02 完成）
 - ✓ Phase 23: 智能上下文引用（@ 引用标签页）+ 全文检索（2026-08-02 完成）
-- Phase 24: 任务自主执行（自动化填表、操作）
+- ✓ Phase 24: 任务自主执行（fillForm/executeAction + AI 工具 + CAPTCHA 检测 + 确认 UI）（2026-08-02 完成）
 - Phase 25: 脚本生成 + 智能标签整理
 
 ## Next Milestone Goals
