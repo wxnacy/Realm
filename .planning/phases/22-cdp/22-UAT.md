@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 22-cdp
 source: 22-01-SUMMARY.md, 22-02-SUMMARY.md, 22-03-SUMMARY.md, 22-04-SUMMARY.md
 started: 2026-08-02T07:35:37Z
@@ -127,12 +127,35 @@ blocked: 0
   reason: "User reported: 当前标签页打开网址有正确回复，但是没有真的打开网页。日志：AI 调用 navigate {\"url\":\"https://www.baidu.com\"} → 主进程 [Realm] Tab 创建: tab-469 (容器: default) → 工具返回 success，但渲染进程未创建 webview，URL 从未加载（疑似幽灵 Tab）"
   severity: major
   test: 4
-  artifacts: []  # Filled by diagnosis
-  missing: []    # Filled by diagnosis
+  root_cause: "三重根因：① Phase 20 遗留 navigate 工具（ai-manager.js:776）直接调 tabManager.createTab（tab-manager.js:102-125 仅写主进程记录/持久化，不通知渲染进程）→ 与 open_link 已修复的同款幽灵 Tab；② navigate 声明 newTab 参数（默认 false）但 execute 从未使用（:771 死代码），永远创建新 tab 记录、从不执行当前标签导航；③ REALM_SYSTEM_PROMPT 中 navigate/open_link 职责重叠、指引不足，AI 对「当前标签打开」误选 navigate。次生危害：主进程活跃指针被劫持到幽灵 tab、saveTabs 持久化后重启可能物化。"
+  artifacts:
+    - path: "ai-manager.js:748-790"
+      issue: "navigate 工具直接调 tabManager.createTab 产生幽灵 Tab；newTab 参数被忽略；无 URL 白名单校验"
+    - path: "ai-manager.js:86-104"
+      issue: "REALM_SYSTEM_PROMPT navigate/open_link 职责重叠，工具选择歧义"
+    - path: "tab-manager.js:102-125"
+      issue: "createTab 设计上由渲染进程 IPC 驱动，被 navigate 误用为完整创建入口"
+  missing:
+    - "navigate 双模式修复：newTab=true 走 open-url-in-tab 渲染进程全链路，newTab=false 走活跃 webview loadURL；或移除 navigate 仅保留 open_link 并重写系统提示词消除歧义"
+    - "UAT Test 4 补「当前标签打开」措辞回归场景"
+  debug_session: ".planning/debug/open-link-ghost-tab.md"
 - truth: "大页面（>1MB）内容在 100KB 处截断并附加中文标记（用户可感知）"
   status: failed
   reason: "User reported: 打开第一个链接（zh.wikipedia.org/wiki/第二次世界大战），5秒内也返回了内容，但好像没有截断（AI 回复为完整结构化总结，未见 100KB 截断中文标记）"
   severity: minor
   test: 7
-  artifacts: []  # Filled by diagnosis
-  missing: []    # Filled by diagnosis
+  root_cause: "截断未触发（非代码 bug）：该页原始 HTML 1.36MB，但经项目真实 readability-bundle 提取后正文仅 99,630 UTF-16 字符，恰低于 MAX_CONTENT_SIZE=102,400（差 2.7%），ai-manager.js:1049 截断分支不执行，标记从未生成；AI 输出完整总结是实现下的正确行为。叠加单位语义错位（IN-01）：契约/标记文案写 bytes，实现按 UTF-16 字符比较（该页按字节 173,889 > 阈值，按字符 99,630 < 阈值）。UAT 用例前提错配：以原始 HTML 大小推断截断，未考虑 Readability 提取率（本页 ~7.3%）。"
+  artifacts:
+    - path: "ai-manager.js:110"
+      issue: "MAX_CONTENT_SIZE = 100*1024 语义为字符数而非字节"
+    - path: "ai-manager.js:1049-1052"
+      issue: "截断逻辑本身无 bug；标记文案 bytes 与字符实现不符（IN-01）"
+    - path: ".planning/phases/22-cdp/22-UI-SPEC.md:139"
+      issue: "契约文案同样写 bytes，措辞不准"
+    - path: ".planning/phases/22-cdp/22-UAT.md"
+      issue: "Test 7 以 HTML 大小作截断前提，选中阈值边缘页面"
+  missing:
+    - "明确契约单位：字节语义改 Buffer.byteLength 比较，或字符语义修订 UI-SPEC/标记措辞（落地 REVIEW IN-01）"
+    - "修正 UAT 用例：选用提取后正文确定超 102,400 字符的页面（可脚本预验证）或改条件式期望"
+    - "可选：系统提示引导 AI 转述截断标记，或工具卡片基于 details.contentLength 显示截断状态"
+  debug_session: ".planning/debug/truncation-marker-missing.md"
