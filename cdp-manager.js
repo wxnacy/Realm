@@ -337,7 +337,8 @@ async function attachForAI(webContentsId, domains = ['Runtime']) {
   } catch (err) {
     console.error(`[Realm CDP] AI 调试器附加失败: ${err.message}`);
     try { wc.debugger.detach(); } catch {}
-    return { success: false, error: `CDP 附加失败: ${err.message}` };
+    // 用户可见文案按 22-UI-SPEC 契约，技术细节保留在上方日志
+    return { success: false, error: '无法连接到页面调试器，请刷新页面后重试' };
   }
 }
 

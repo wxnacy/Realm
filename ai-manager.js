@@ -110,6 +110,10 @@ function resolveToolTargetTab(requestedTabId) {
   if (!activeTab || tab.id !== activeTab.id) {
     throw new Error('暂仅支持当前活跃标签页，非活跃标签页的页面内容无法定位');
   }
+  // 页面未加载（新建 tab url 为空 / realm:// 内部页）：按 22-UI-SPEC 文案报错
+  if (!tab.url || (!tab.url.startsWith('http://') && !tab.url.startsWith('https://'))) {
+    throw new Error('当前标签页未加载页面，请先打开网页');
+  }
   const webContentsId = getActiveWebviewContentsIdLazy();
   if (!webContentsId) {
     throw new Error('标签页 webview 尚未就绪，请稍后重试');
@@ -1180,9 +1184,14 @@ class AIManager {
             // tabId 由渲染进程异步创建，主进程无法同步得知（返回 null，
             // 可随后经 get_tabs 按 URL 查询）。
             if (!mainWindow || mainWindow.isDestroyed()) {
-              throw new Error('未找到主窗口');
+              throw new Error('无法在容器中打开链接，请检查容器状态');
             }
-            mainWindow.webContents.send('open-url-in-tab', { url, containerId, guestId: undefined });
+            try {
+              mainWindow.webContents.send('open-url-in-tab', { url, containerId, guestId: undefined });
+            } catch (err) {
+              console.warn('[Realm AI] open_link 发送打开请求失败:', err.message);
+              throw new Error('无法在容器中打开链接，请检查容器状态');
+            }
             return {
               content: [{
                 type: 'text',
