@@ -870,6 +870,36 @@ contextBridge.exposeInMainWorld('realmAPI', {
      */
     getState: () => ipcRenderer.invoke('ai:get-state'),
   },
+
+  // ==================== 操作确认 ====================
+
+  /**
+   * 确认高风险操作
+   * 渲染进程确认卡片点击"确认执行"时调用
+   * @param {string} actionId - 操作唯一 ID
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  actionConfirm: (actionId) => ipcRenderer.invoke('action:confirm', actionId),
+
+  /**
+   * 取消高风险操作
+   * 渲染进程确认卡片点击"取消"时调用
+   * @param {string} actionId - 操作唯一 ID
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  actionCancel: (actionId) => ipcRenderer.invoke('action:cancel', actionId),
+
+  /**
+   * 监听高风险操作确认请求
+   * 主进程检测到高风险操作时推送，渲染进程据此渲染确认卡片
+   * @param {Function} callback - 回调函数，参数为操作数据对象
+   * @returns {Function} 移除监听器的清理函数
+   */
+  onActionRequestConfirmation: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('action:request-confirmation', handler);
+    return () => ipcRenderer.removeListener('action:request-confirmation', handler);
+  },
 });
 
 console.log('[Realm] Preload 脚本已加载');

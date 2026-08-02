@@ -62,6 +62,60 @@ const AIManager = require('./ai-manager');
 // AI Manager 实例（在 app.whenReady 中初始化，供后续 Phase 通过 require('./main').aiManager 访问）
 let aiManager = null;
 
+// ==================== 操作确认 IPC 基础设施 ====================
+
+/**
+ * 待确认操作存储：actionId → { resolve, timer }
+ * AI Manager 发起高风险操作确认时，Promise 的 resolve 回调存入此 Map，
+ * 渲染进程用户点击确认/取消后通过 action:confirm/action:cancel IPC 触发。
+ */
+const pendingActions = new Map();
+
+/**
+ * 发起高风险操作确认请求
+ *
+ * AI Manager 检测到高风险操作（表单提交、文件上传、支付等）时调用。
+ * 返回 Promise，等待用户在渲染进程确认卡片中点击确认或取消。
+ *
+ * @param {Object} actionData - 操作数据
+ * @param {string} [actionData.actionId] - 操作唯一 ID（未提供则自动生成）
+ * @param {string} actionData.type - 操作类型：submit/upload/payment/click
+ * @param {string} actionData.title - 操作标题（如"提交表单"）
+ * @param {string} [actionData.description] - 操作描述
+ * @param {string} [actionData.url] - 目标页面 URL
+ * @param {string} [actionData.containerId] - 容器 ID
+ * @param {string} [actionData.containerName] - 容器名称
+ * @param {string} [actionData.riskLevel] - 风险等级：low/medium/high
+ * @param {Object} [actionData.details] - 附加详情
+ * @returns {Promise<{confirmed: boolean, reason?: string}>} 用户确认结果
+ */
+function requestActionConfirmation(actionData) {
+  const mainWindow = windowManager.getMainWindow();
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return Promise.resolve({ confirmed: false, reason: 'no-window' });
+  }
+
+  const actionId = actionData.actionId || `action-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const data = { ...actionData, actionId };
+
+  return new Promise((resolve) => {
+    // 30 秒超时自动取消
+    const timer = setTimeout(() => {
+      if (pendingActions.has(actionId)) {
+        pendingActions.delete(actionId);
+        console.log(`[Realm] 操作确认超时，自动取消: ${actionId}`);
+        resolve({ confirmed: false, reason: 'timeout' });
+      }
+    }, 30000);
+
+    pendingActions.set(actionId, { resolve, timer });
+
+    // 发送确认请求到渲染进程
+    mainWindow.webContents.send('action:request-confirmation', data);
+    console.log(`[Realm] 操作确认请求已发送: ${actionId}, 类型: ${data.type}, 风险: ${data.riskLevel}`);
+  });
+}
+
 // ==================== webview guest 拦截（WR-1/WR-2/WR-9） ====================
 
 /**
@@ -1620,6 +1674,48 @@ app.whenReady().then(async () => {
     return { visible: configStore.get('bookmarksBar.visible', true) };
   });
 
+  // ==================== 操作确认 IPC 处理器 ====================
+
+  /**
+   * 用户确认高风险操作
+   * 渲染进程确认卡片点击"确认执行"时调用
+   * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+   * @param {string} actionId - 操作唯一 ID
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('action:confirm', (event, actionId) => {
+    const pending = pendingActions.get(actionId);
+    if (!pending) {
+      console.warn(`[Realm] action:confirm 未找到待确认操作: ${actionId}`);
+      return { success: false, error: '操作不存在或已超时' };
+    }
+    clearTimeout(pending.timer);
+    pendingActions.delete(actionId);
+    pending.resolve({ confirmed: true });
+    console.log(`[Realm] 操作已确认: ${actionId}`);
+    return { success: true };
+  });
+
+  /**
+   * 用户取消高风险操作
+   * 渲染进程确认卡片点击"取消"时调用
+   * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+   * @param {string} actionId - 操作唯一 ID
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('action:cancel', (event, actionId) => {
+    const pending = pendingActions.get(actionId);
+    if (!pending) {
+      console.warn(`[Realm] action:cancel 未找到待确认操作: ${actionId}`);
+      return { success: false, error: '操作不存在或已超时' };
+    }
+    clearTimeout(pending.timer);
+    pendingActions.delete(actionId);
+    pending.resolve({ confirmed: false, reason: 'user-cancelled' });
+    console.log(`[Realm] 操作已取消: ${actionId}`);
+    return { success: true };
+  });
+
   // 初始化历史记录数据库
   historyManager.initDatabase();
 
@@ -1852,5 +1948,6 @@ console.log('[Realm] 主进程已加载');
 /**
  * 模块导出：供后续 Phase（20/21）通过 require('./main') 访问共享实例
  * aiManager: AI Manager 实例，在 app.whenReady 中初始化
+ * requestActionConfirmation: 发起高风险操作确认请求（供 AI Manager 调用）
  */
-module.exports = { aiManager };
+module.exports = { aiManager, requestActionConfirmation };
