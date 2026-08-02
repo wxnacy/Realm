@@ -87,7 +87,11 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
   3. 用户在 AI 聊天面板中输入"打开某链接"，AI 在指定容器的当前标签页或新标签页中打开该链接
   4. CDP 会话在 webview 销毁时自动清理，不会因会话泄漏导致内存持续增长
   5. 大页面（>1MB）内容提取在 5 秒内返回，不阻塞 UI 交互
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 22-01-PLAN.md — CDP 管理器扩展 + Readability 库准备
+- [ ] 22-02-PLAN.md — 实现 read_page_content/extract_links/open_link 三个 AI 工具
+- [ ] 22-03-PLAN.md — 集成测试 + 系统提示词更新 + webview 销毁清理
 **UI hint**: yes
 
 ### Phase 23: 智能上下文引用 + 全文检索
@@ -157,7 +161,7 @@ Phases execute in numeric order: 22 → 23 → 24 → 25
 | 19. AI Agent 集成 - 基础验证 | v2.0 | 2/2 | Complete | 2026-07-31 |
 | 20. AI Agent 集成 - 核心功能 | v2.0 | 2/2 | Complete | 2026-08-01 |
 | 21. AI Agent 集成 - 聊天 UI | v2.0 | 3/3 | Complete | 2026-08-01 |
-| 22. CDP 管理器扩展 + 基础网页操控工具 | v2.1 | 0/TBD | Not started | - |
+| 22. CDP 管理器扩展 + 基础网页操控工具 | v2.1 | 0/3 | Planning complete | - |
 | 23. 智能上下文引用 + 全文检索 | v2.1 | 0/TBD | Not started | - |
 | 24. 任务自主执行 | v2.1 | 0/TBD | Not started | - |
 | 25. 脚本生成 + 智能标签整理 | v2.1 | 0/TBD | Not started | - |
