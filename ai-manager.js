@@ -1051,6 +1051,12 @@ class AIManager {
                 `\n[截断：原始大小 ${data.content.length} bytes，已截断至 100KB]`;
             }
 
+            // 空状态契约文案（22-UI-SPEC）：正文为空是合法结果而非错误，
+            // 不 throw；与截断互斥（空内容不可能超 100KB），顺序无干扰
+            if (!data.content) {
+              data.message = '页面无可读内容，可能是纯应用页面或空白页';
+            }
+
             return {
               content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
               details: { title: data.title, contentLength: (data.content || '').length },
@@ -1141,6 +1147,12 @@ class AIManager {
             }
 
             const data = JSON.parse(evalResult.result.value);
+
+            // 空状态契约文案（22-UI-SPEC）：0 链接是合法结果而非错误，
+            // 不 throw、不改变 return 结构（details.totalLinks 逻辑不变）
+            if (data.total === 0) {
+              data.message = '未找到有效链接（仅保留 http/https 协议）';
+            }
 
             return {
               content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
