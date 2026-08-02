@@ -20,12 +20,12 @@
 
 ## Phase 24: 任务自主执行
 
-- [ ] **AUTO-01**: fillForm CDP 方法（自动化填写网页表单）
-- [ ] **AUTO-02**: executeAction CDP 方法（执行点击、滚动等页面操作）
-- [ ] **AUTO-03**: fill_form AI 工具（AI 调用填表能力）
-- [ ] **AUTO-04**: execute_action AI 工具（AI 调用操作能力）
-- [ ] **AUTO-05**: 操作确认 UI（高风险操作必须用户确认）
-- [ ] **AUTO-06**: Prompt Injection 防护（输入消毒、脚本静态分析、沙箱执行）
+- [x] **AUTO-01**: fillForm CDP 方法（自动化填写网页表单）
+- [x] **AUTO-02**: executeAction CDP 方法（执行点击、滚动等页面操作）
+- [x] **AUTO-03**: fill_form AI 工具（AI 调用填表能力）
+- [x] **AUTO-04**: execute_action AI 工具（AI 调用操作能力）
+- [x] **AUTO-05**: 操作确认 UI（高风险操作必须用户确认）
+- [x] **AUTO-06**: Prompt Injection 防护（输入消毒、脚本静态分析、沙箱执行）
 
 ## Phase 25: 脚本生成 + 智能标签整理
 
@@ -66,12 +66,12 @@
 | CTX-03 | 23 | Complete |
 | CTX-04 | 23 | Complete |
 | CTX-05 | 23 | Complete |
-| AUTO-01 | 24 | Pending |
-| AUTO-02 | 24 | Pending |
-| AUTO-03 | 24 | Pending |
-| AUTO-04 | 24 | Pending |
-| AUTO-05 | 24 | Pending |
-| AUTO-06 | 24 | Pending |
+| AUTO-01 | 24 | Complete |
+| AUTO-02 | 24 | Complete |
+| AUTO-03 | 24 | Complete |
+| AUTO-04 | 24 | Complete |
+| AUTO-05 | 24 | Complete |
+| AUTO-06 | 24 | Complete |
 | SCRIPT-01 | 25 | Pending |
 | SCRIPT-02 | 25 | Pending |
 | SCRIPT-03 | 25 | Pending |

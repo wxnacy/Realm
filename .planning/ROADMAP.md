@@ -72,7 +72,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 
 - [x] **Phase 22: CDP 管理器扩展 + 基础网页操控工具** - 独立 CDP 管理器 + read_page_content + extract_links + open_link (completed 2026-08-02)
 - [x] **Phase 23: 智能上下文引用 + 全文检索** - @ 引用标签页上下文 + FTS5 全文检索收藏 (completed 2026-08-02)
-- [ ] **Phase 24: 任务自主执行** - 自动化填表 + 自动化操作 + 操作确认 + 安全防护
+- [x] **Phase 24: 任务自主执行** - 自动化填表 + 自动化操作 + 操作确认 + 安全防护 (completed 2026-08-02)
 - [ ] **Phase 25: 脚本生成 + 智能标签整理** - 一句话生成脚本 + AI 自动标签分组
 
 ## Phase Details
@@ -144,24 +144,24 @@ Plans:
   4. 遇到 CAPTCHA 或 2FA 页面时，AI 提示用户手动操作，不尝试绕过
   5. 恶意网页的 Prompt Injection 攻击被输入消毒和脚本静态分析拦截，不会导致非预期操作
 
-**Plans**: 4 plans
+**Plans**: 4/4 plans complete
 Plans:
 
 **Wave 1** (no dependencies)
 
-- [ ] 24-01-PLAN.md — CDP 底层：fillForm + executeAction 方法
+- [x] 24-01-PLAN.md — CDP 底层：fillForm + executeAction 方法
 
 **Wave 2** (depends on Wave 1)
 
-- [ ] 24-02-PLAN.md — AI 工具：fill_form + execute_action 注册 + 风险评估
+- [x] 24-02-PLAN.md — AI 工具：fill_form + execute_action 注册 + 风险评估
 
 **Wave 3** (depends on Wave 2)
 
-- [ ] 24-03-PLAN.md — 安全防护：CAPTCHA/2FA 检测 + 暂停恢复机制
+- [x] 24-03-PLAN.md — 安全防护：CAPTCHA/2FA 检测 + 暂停恢复机制
 
 **Wave 4** (depends on Wave 3)
 
-- [ ] 24-04-PLAN.md — UI：操作确认卡片 + IPC 通信 + CAPTCHA 等待指示器
+- [x] 24-04-PLAN.md — UI：操作确认卡片 + IPC 通信 + CAPTCHA 等待指示器
 
 **UI hint**: yes
 
@@ -211,5 +211,5 @@ Phases execute in numeric order: 22 → 23 → 24 → 25
 | 21. AI Agent 集成 - 聊天 UI | v2.0 | 3/3 | Complete | 2026-08-01 |
 | 22. CDP 管理器扩展 + 基础网页操控工具 | v2.1 | 5/5 | Complete    | 2026-08-02 |
 | 23. 智能上下文引用 + 全文检索 | v2.1 | 2/2 | Complete    | 2026-08-02 |
-| 24. 任务自主执行 | v2.1 | 0/4 | Ready | - |
+| 24. 任务自主执行 | v2.1 | 4/4 | Complete    | 2026-08-02 |
 | 25. 脚本生成 + 智能标签整理 | v2.1 | 0/TBD | Not started | - |
