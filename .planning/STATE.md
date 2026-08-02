@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: 收藏夹文件夹支持 + AI Agent 集成
-current_phase: 21
-status: completed
-stopped_at: Phase 21 UI-SPEC approved
-last_updated: "2026-08-01T15:09:05.167Z"
+milestone: v2.1
+milestone_name: AI CDP 增强 + Tabbrowser 功能集成
+status: planning
+last_updated: "2026-08-02T03:50:29.291Z"
+last_activity: 2026-08-02
 progress:
-  total_phases: 8
-  completed_phases: 8
-  total_plans: 17
-  completed_plans: 17
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State: Realm Browser
@@ -137,3 +136,10 @@ Items acknowledged and deferred at milestone close on 2026-08-02:
 ## Decisions
 
 - [Phase ?]: 避免新增 IPC 通道，与快捷键入口保持一致
+
+## Current Position
+
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-08-02 — Milestone v2.1 started

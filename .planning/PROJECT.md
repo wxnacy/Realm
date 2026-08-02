@@ -103,16 +103,25 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 <!-- 当前需要构建的功能（下一里程碑定义） -->
 
-**v2.0 收藏夹文件夹支持 + AI Agent 集成** (2026-07-28)
+**v2.1 AI CDP 增强 + Tabbrowser 功能集成** (2026-08-02)
 
-#### 收藏栏
-- BAR-01: 收藏栏固定显示 — Phase 18
-- BAR-02: 收藏栏项目交互 — Phase 18
-- BAR-03: 收藏栏右键菜单 — Phase 18
-- BAR-04: 收藏栏显示/隐藏设置 — Phase 18
+#### Phase 22: CDP 管理器 + 网页读取与链接操作
+- CDP-01: 独立 CDP 管理器（cdp-manager.js）
+- CDP-02: read_page_content 工具（读取网页标题、正文、元信息）
+- CDP-03: extract_links 工具（提取页面所有链接）
+- CDP-04: open_link 工具（打开指定链接）
 
-#### AI Agent 集成（基于 pi-agent-core）
-- AI-01: Node.js 版本验证和基础架构 — Phase 19
+#### Phase 23: 智能上下文引用 + 全文检索
+- CTX-01: @ 引用标签页上下文
+- CTX-02: 全文检索收藏内容
+
+#### Phase 24: 任务自主执行
+- AUTO-01: 自动化填表能力
+- AUTO-02: 自动化操作能力
+
+#### Phase 25: 脚本生成 + 智能标签整理
+- SCRIPT-01: 一句话生成脚本
+- TAG-01: AI 自动标签分组
 
 ### Out of Scope
 
@@ -149,9 +158,19 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - 13 个已诊断 debug session 未修复
 - 1 个 UAT 差距（Phase 18，0 个待处理场景）
 
+## Current Milestone: v2.1 AI CDP 增强 + Tabbrowser 功能集成
+
+**Goal:** 为 AI Agent 增加深度浏览器控制能力，集成 Tabbrowser 核心功能
+
+**Target features:**
+- Phase 22: CDP 管理器 + read_page_content + extract_links + open_link
+- Phase 23: 智能上下文引用（@ 引用标签页）+ 全文检索
+- Phase 24: 任务自主执行（自动化填表、操作）
+- Phase 25: 脚本生成 + 智能标签整理
+
 ## Next Milestone Goals
 
-**v2.1 Bug Fixes + Polish** (planned)
+**v2.2 Bug Fixes + Polish** (planned)
 - 修复 13 个已诊断的 debug session
 - 解决 Phase 18 UAT 差距
 - 性能优化和 UI 打磨
