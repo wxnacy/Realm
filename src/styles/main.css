@@ -5243,6 +5243,80 @@ textarea::placeholder {
   opacity: 0.5;
 }
 
+/* ==================== 步骤执行动画和错误面板 ==================== */
+
+/* 加载旋转动画 */
+@keyframes stepSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.step-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--accent-color);
+  border-radius: 50%;
+  animation: stepSpin 0.8s linear infinite;
+}
+
+/* 错误面板 */
+.step-error-panel {
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.step-error-message {
+  color: var(--danger-color);
+  margin-bottom: 8px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.step-error-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.step-error-actions button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: all 0.15s ease;
+}
+
+.step-error-actions button:hover {
+  background: var(--bg-secondary);
+}
+
+.step-retry-btn {
+  border-color: var(--accent-color) !important;
+  color: var(--accent-color) !important;
+}
+
+.step-retry-btn:hover {
+  background: rgba(59, 130, 246, 0.1) !important;
+}
+
+.step-abort-btn {
+  border-color: var(--danger-color) !important;
+  color: var(--danger-color) !important;
+}
+
+.step-abort-btn:hover {
+  background: rgba(239, 68, 68, 0.1) !important;
+}
+
 /* ==================== 步骤内联编辑器 ==================== */
 
 /* 编辑器容器 */

@@ -3161,6 +3161,9 @@ function setupEventListeners() {
   // 初始化操作确认 IPC 监听
   initActionConfirmation();
 
+  // 初始化脚本执行步骤状态监听
+  initScriptStepUpdate();
+
   // 初始化 AI 面板拖拽调整宽度
   initAIPanelResize();
 
@@ -4693,16 +4696,39 @@ function renderScriptPreviewCard(script) {
         steps: currentSteps,
         containerId: script.containerId
       };
-      // 通过 IPC 发送到主进程执行
-      if (window.realmAPI && window.realmAPI.sendToAI) {
-        window.realmAPI.sendToAI({
-          type: 'script:execute',
-          script: scriptData
-        });
-      }
+
       // 禁用按钮防止重复执行
       executeBtn.disabled = true;
       executeBtn.textContent = '执行中...';
+
+      // 重置所有步骤状态
+      stepsList.querySelectorAll('.script-step-item').forEach(item => {
+        item.classList.remove('step-executing', 'step-success', 'step-error', 'step-skipped');
+        const errorPanel = item.querySelector('.step-error-panel');
+        if (errorPanel) errorPanel.remove();
+      });
+
+      // 通过 IPC 发送到主进程执行
+      if (window.realmAPI && window.realmAPI.scriptExecute) {
+        window.realmAPI.scriptExecute(scriptData).then(result => {
+          // 执行完成后恢复按钮
+          executeBtn.disabled = false;
+          executeBtn.textContent = '重新执行';
+
+          // 显示执行结果摘要
+          if (result.success) {
+            console.log('[Realm Renderer] 脚本执行成功');
+          } else if (result.aborted) {
+            console.log('[Realm Renderer] 脚本执行已停止');
+          } else {
+            console.warn('[Realm Renderer] 脚本执行失败:', result.error);
+          }
+        }).catch(err => {
+          console.error('[Realm Renderer] 脚本执行异常:', err.message);
+          executeBtn.disabled = false;
+          executeBtn.textContent = '重新执行';
+        });
+      }
     });
   }
 
@@ -4737,6 +4763,157 @@ function renderScriptPreviewCard(script) {
   }
 
   return card;
+}
+
+/**
+ * 处理脚本步骤状态更新
+ *
+ * 主进程每执行完一步后通过 script:step-update IPC 推送状态到渲染进程。
+ * 根据 update.index 定位对应的 .script-step-item 元素，更新其视觉状态。
+ *
+ * 状态说明：
+ * - executing: 步骤正在执行，显示加载动画
+ * - success: 步骤执行成功，序号变为绿色对勾
+ * - error: 步骤执行失败，显示错误信息和重试/跳过/终止按钮
+ * - aborted: 执行已停止，标记为灰色
+ *
+ * @param {Object} update - 步骤状态更新数据
+ * @param {number} update.index - 步骤索引（0-based）
+ * @param {string} update.status - 状态：executing/success/error/aborted
+ * @param {Object} [update.step] - 步骤数据
+ * @param {Object} [update.result] - 执行结果（success 时）
+ * @param {string} [update.error] - 错误信息（error/aborted 时）
+ */
+function handleStepUpdate(update) {
+  const { index, status, error } = update;
+
+  // 定位脚本预览卡片中的步骤元素
+  // 脚本卡片可能在任意消息中，遍历所有卡片查找对应索引
+  const allCards = document.querySelectorAll('.script-preview-card');
+  let targetItem = null;
+  let targetStepsList = null;
+
+  for (const card of allCards) {
+    const stepsList = card.querySelector('.script-steps-list');
+    if (stepsList) {
+      const items = stepsList.querySelectorAll('.script-step-item');
+      if (items[index]) {
+        targetItem = items[index];
+        targetStepsList = stepsList;
+        break;
+      }
+    }
+  }
+
+  if (!targetItem) {
+    console.warn(`[Realm Renderer] 步骤 ${index + 1} 的 DOM 元素未找到`);
+    return;
+  }
+
+  // 清除旧状态类
+  targetItem.classList.remove('step-executing', 'step-success', 'step-error', 'step-skipped');
+
+  // 移除已有的错误面板
+  const existingPanel = targetItem.querySelector('.step-error-panel');
+  if (existingPanel) existingPanel.remove();
+
+  switch (status) {
+    case 'executing': {
+      targetItem.classList.add('step-executing');
+      // 更新序号为加载动画
+      const numberEl = targetItem.querySelector('.step-number');
+      if (numberEl) {
+        numberEl.innerHTML = '<span class="step-spinner"></span>';
+      }
+      break;
+    }
+
+    case 'success': {
+      targetItem.classList.add('step-success');
+      // 更新序号为绿色对勾
+      const numberEl = targetItem.querySelector('.step-number');
+      if (numberEl) {
+        numberEl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+        numberEl.style.color = '#10b981';
+      }
+      break;
+    }
+
+    case 'error': {
+      targetItem.classList.add('step-error');
+      // 更新序号为红色叉号
+      const numberEl = targetItem.querySelector('.step-number');
+      if (numberEl) {
+        numberEl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+        numberEl.style.color = '#ef4444';
+      }
+
+      // 添加错误信息和操作按钮面板
+      const errorPanel = document.createElement('div');
+      errorPanel.className = 'step-error-panel';
+      errorPanel.innerHTML = `
+        <div class="step-error-message">${error || '操作执行失败'}</div>
+        <div class="step-error-actions">
+          <button class="step-retry-btn">重试</button>
+          <button class="step-skip-btn">跳过</button>
+          <button class="step-abort-btn">终止</button>
+        </div>
+      `;
+
+      // 重试按钮：重新执行当前步骤
+      const retryBtn = errorPanel.querySelector('.step-retry-btn');
+      if (retryBtn) {
+        retryBtn.addEventListener('click', () => {
+          errorPanel.remove();
+          // 收集当前脚本数据并从失败步骤重新执行
+          if (targetStepsList) {
+            const card = targetStepsList.closest('.script-preview-card');
+            const executeBtn = card ? card.querySelector('.script-execute-btn') : null;
+            if (executeBtn) executeBtn.click();
+          }
+        });
+      }
+
+      // 跳过按钮：标记为已跳过，继续执行下一步
+      const skipBtn = errorPanel.querySelector('.step-skip-btn');
+      if (skipBtn) {
+        skipBtn.addEventListener('click', () => {
+          errorPanel.remove();
+          targetItem.classList.remove('step-error');
+          targetItem.classList.add('step-skipped');
+          const numEl = targetItem.querySelector('.step-number');
+          if (numEl) {
+            numEl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 4 12 12 4 20"></polyline><line x1="12" y1="4" x2="20" y2="20"></line></svg>';
+            numEl.style.color = '#6b7280';
+          }
+        });
+      }
+
+      // 终止按钮：调用 scriptStop 停止执行
+      const abortBtn = errorPanel.querySelector('.step-abort-btn');
+      if (abortBtn) {
+        abortBtn.addEventListener('click', () => {
+          if (window.realmAPI && window.realmAPI.scriptStop) {
+            window.realmAPI.scriptStop();
+          }
+          errorPanel.remove();
+        });
+      }
+
+      targetItem.appendChild(errorPanel);
+      break;
+    }
+
+    case 'aborted': {
+      targetItem.classList.add('step-error');
+      const numberEl = targetItem.querySelector('.step-number');
+      if (numberEl) {
+        numberEl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg>';
+        numberEl.style.color = '#6b7280';
+      }
+      break;
+    }
+  }
 }
 
 /**
@@ -5135,6 +5312,22 @@ function initActionConfirmation() {
       actionCards.delete(data.actionId);
     });
   }
+}
+
+/**
+ * 初始化脚本执行步骤状态 IPC 监听器
+ * 在 init() 中调用，注册 script:step-update 事件监听
+ *
+ * 主进程每执行完一步脚本后推送步骤状态到渲染进程，
+ * 此监听器调用 handleStepUpdate 更新对应步骤的 UI 状态。
+ */
+function initScriptStepUpdate() {
+  if (!window.realmAPI || !window.realmAPI.onScriptStepUpdate) return;
+
+  window.realmAPI.onScriptStepUpdate((update) => {
+    console.log('[Realm Renderer] 脚本步骤更新:', update);
+    handleStepUpdate(update);
+  });
 }
 
 /**

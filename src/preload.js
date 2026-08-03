@@ -871,6 +871,34 @@ contextBridge.exposeInMainWorld('realmAPI', {
     getState: () => ipcRenderer.invoke('ai:get-state'),
   },
 
+  // ==================== 脚本执行 ====================
+
+  /**
+   * 执行脚本：逐步执行脚本步骤
+   * 渲染进程确认脚本后调用，每步结果通过 onScriptStepUpdate 实时接收
+   * @param {Object} script - 脚本对象，包含 steps 数组
+   * @returns {Promise<{success: boolean, stoppedAt?: number, error?: string}>}
+   */
+  scriptExecute: (script) => ipcRenderer.invoke('script:execute', script),
+
+  /**
+   * 停止脚本执行：中断当前正在执行的脚本
+   * @returns {Promise<{stopped: boolean}>}
+   */
+  scriptStop: () => ipcRenderer.invoke('script:stop'),
+
+  /**
+   * 监听脚本步骤状态更新
+   * 主进程每执行完一步后推送状态到渲染进程
+   * @param {Function} callback - 回调函数，参数为 { index, status, step?, result?, error? }
+   * @returns {Function} 取消监听的清理函数
+   */
+  onScriptStepUpdate: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('script:step-update', handler);
+    return () => ipcRenderer.removeListener('script:step-update', handler);
+  },
+
   // ==================== 操作确认 ====================
 
   /**
