@@ -29,11 +29,11 @@
 
 ## Phase 25: 脚本生成 + 智能标签整理
 
-- [ ] **SCRIPT-01**: generate_script 工具（自然语言描述生成可执行脚本）
-- [ ] **SCRIPT-02**: 脚本预览/确认 UI（用户确认后执行）
-- [ ] **SCRIPT-03**: 脚本静态分析和安全验证（防止代码注入和权限提升）
-- [ ] **TAG-01**: suggest_tab_groups 工具（AI 按主题/域名智能分组标签页）
-- [ ] **TAG-02**: 标签分组 UI（展示和应用分组建议）
+- [x] **SCRIPT-01**: generate_script 工具（自然语言描述生成可执行脚本）
+- [x] **SCRIPT-02**: 脚本预览/确认 UI（用户确认后执行）
+- [x] **SCRIPT-03**: 脚本静态分析和安全验证（防止代码注入和权限提升）
+- [x] **TAG-01**: suggest_tab_groups 工具（AI 按主题/域名智能分组标签页）
+- [x] **TAG-02**: 标签分组 UI（展示和应用分组建议）
 
 ## Future Requirements
 
@@ -72,8 +72,8 @@
 | AUTO-04 | 24 | Complete |
 | AUTO-05 | 24 | Complete |
 | AUTO-06 | 24 | Complete |
-| SCRIPT-01 | 25 | Pending |
-| SCRIPT-02 | 25 | Pending |
-| SCRIPT-03 | 25 | Pending |
-| TAG-01 | 25 | Pending |
-| TAG-02 | 25 | Pending |
+| SCRIPT-01 | 25 | Complete |
+| SCRIPT-02 | 25 | Complete |
+| SCRIPT-03 | 25 | Complete |
+| TAG-01 | 25 | Complete |
+| TAG-02 | 25 | Complete |

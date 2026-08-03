@@ -178,7 +178,7 @@ Plans:
   4. 用户在 AI 聊天中输入"整理标签页"，AI 按主题或域名智能分组当前所有标签页并展示分组建议
   5. 用户确认分组建议后，标签页按分组重新排列，视觉上清晰区分不同组
 
-**Plans**: 6 plans
+**Plans**: 6/6 plans executed
 
 **Wave 1** (no dependencies)
 
@@ -196,7 +196,7 @@ Plans:
 
 **Wave 4** (gap closure, G-25-23)
 
-- [ ] 25-06-PLAN.md — Gap 修复：apply_tab_groups 工具回传 + 卡片渲染链路打通
+- [x] 25-06-PLAN.md — Gap 修复：apply_tab_groups 工具回传 + 卡片渲染链路打通
 
 **UI hint**: yes
 
@@ -231,4 +231,4 @@ Phases execute in numeric order: 22 → 23 → 24 → 25
 | 22. CDP 管理器扩展 + 基础网页操控工具 | v2.1 | 5/5 | Complete    | 2026-08-02 |
 | 23. 智能上下文引用 + 全文检索 | v2.1 | 2/2 | Complete    | 2026-08-02 |
 | 24. 任务自主执行 | v2.1 | 4/4 | Complete    | 2026-08-02 |
-| 25. 脚本生成 + 智能标签整理 | v2.1 | 5/5 | Complete    | 2026-08-03 |
+| 25. 脚本生成 + 智能标签整理 | v2.1 | 6/6 | In Progress|  |

@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 25-script-tab
 source: [25-01-SUMMARY.md, 25-02-SUMMARY.md, 25-03-SUMMARY.md, 25-04-SUMMARY.md, 25-05-SUMMARY.md]
 started: 2026-08-03T10:45:45Z
@@ -146,14 +146,38 @@ result: pass
 source: automated
 coverage_id: 25-05-D2
 
+### 23. 端到端：AI 整理标签页并实际应用分组
+expected: 在 AI 面板输入「整理标签页」，出现可交互的分组建议卡片，点击「应用分组」后标签栏实际按组重排
+result: issue
+reported: "AI 只输出 markdown 表格回答，实际标签页没有整理，AI 自称没有移动标签页的权限"
+severity: major
+
 ## Summary
 
-total: 22
+total: 23
 passed: 22
-issues: 0
+issues: 1
 pending: 0
 skipped: 0
 
 ## Gaps
 
-[none yet]
+- gap_id: G-25-23
+  truth: "AI 整理标签页后用户可通过卡片「应用分组」实际重排标签栏（默认 semantic 策略下同样可用）"
+  status: resolved
+  reason: "User reported: AI 只输出 markdown 表格回答，实际标签页没有整理，AI 自称没有移动标签页的权限"
+  severity: major
+  test: 23
+  root_cause: "suggest_tab_groups 三种策略返回结构不一致：domain 返回 {groups}（卡片可渲染），semantic 返回 {tabs,message}、mixed 返回 {stableGroups,refineableGroups}（ai-manager.js:2307-2362）。渲染端仅在 resultData.groups 存在时渲染卡片（src/renderer.js:3935），而默认策略恰是 semantic（ai-manager.js:443），导致默认路径卡片永不渲染。且 AI 无 apply_tab_groups 工具，语义分组结论只存在于 AI 文本回复中，无结构化回传通道；系统提示词也未告知卡片存在"
+  artifacts:
+    - path: "ai-manager.js"
+      issue: "semantic/mixed 策略不返回 {groups} 结构，分组结论无结构化回传"
+    - path: "src/renderer.js"
+      issue: "renderToolCards 仅识别 resultData.groups，semantic/mixed 结果不触发卡片"
+    - path: "ai-manager.js REALM_SYSTEM_PROMPT"
+      issue: "未告知 AI 分组卡片的存在与应用方式，AI 误判自己无操作权限"
+  missing:
+    - "semantic/mixed 策略的结构化 groups 回传机制（AI 二次调用提交分组结果，或工具内完成确定性分组）"
+    - "渲染端对 semantic/mixed 结果形态的卡片渲染支持"
+    - "系统提示词补充分组卡片的应用引导"
+  debug_session: "verify-work 主会话内联诊断（2026-08-03）"

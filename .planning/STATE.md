@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: AI CDP 增强 + Tabbrowser 功能集成 (In Progress)
 current_phase: 25
-status: completed
-stopped_at: Phase 25 complete - milestone v2.1 ready to close
-last_updated: "2026-08-03T11:09:22.188Z"
+current_phase_name: script-tab
+status: executing
+stopped_at: Completed 25-06-PLAN.md
+last_updated: "2026-08-03T16:07:20.395Z"
 last_activity: 2026-08-03
-last_activity_desc: Phase 25 complete
+last_activity_desc: Phase 25 execution started
 progress:
   total_phases: 4
   completed_phases: 4
-  total_plans: 16
-  completed_plans: 16
+  total_plans: 17
+  completed_plans: 17
   percent: 100
-current_phase_name: 脚本生成 + 智能标签整理
 ---
 
 # Project State: Realm Browser
@@ -24,16 +24,16 @@ current_phase_name: 脚本生成 + 智能标签整理
 See: .planning/PROJECT.md (updated 2026-08-03)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Milestone v2.1 收尾 — 全部 4 阶段完成
+**Current focus:** Phase 25 — script-tab
 
 ## Current Position
 
-Phase: 25
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-08-03 — Phase 25 complete
+Phase: 25 (script-tab) — EXECUTING
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-08-03 — Phase 25 execution started
 
-Progress: [████████████████████] 16/16 plans (100%)
+Progress: [████████████████████] 16/16 plans ([██████████] 100%)
 
 ## Performance Metrics
 
@@ -57,6 +57,11 @@ Progress: [████████████████████] 16/16 p
 | 25 | 5 | - | - |
 
 *Updated after each plan completion*
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 25 P06 | 4h 19m | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -76,6 +81,9 @@ Recent decisions affecting current work:
 - 脚本步骤状态经 script:step-update IPC 逐步实时推送，失败即停可中断 — Phase 25
 - 标签分组策略参数化（domain/semantic/mixed，默认 semantic）— Phase 25
 - Phase 24-25 安全防护：输入消毒、脚本静态分析、沙箱执行、高风险操作用户确认
+- [Phase 25]: apply_tab_groups 作为 AI 结构化回传通道：semantic/mixed 分组结论由 AI 二次调用提交 {groups}，不改造 suggest 工具返回结构 — 复用既有 renderTabGroupCard 与 tab:reorder 链路，修复 G-25-23 默认 semantic 路径卡片不渲染
+- [Phase 25]: 工具结果 content 信封解包契约：renderToolCards 先解包 {content:[{text}]} 再判定 groups — toolExec.result 顶层无业务字段，不解包卡片永不渲染
+- [Phase 25]: 卡片操作只删卡片自身；标签重排限定在 #tabList 容器内执行 — closest('.ai-message') 误删整条回复；appendChild 到 #tabBar 会使 .tab 脱离点击事件委托（25-05 潜伏 bug）
 
 ### Pending Todos
 
@@ -108,6 +116,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-03T11:15:00.000Z
-Stopped at: Phase 25 complete - milestone v2.1 ready to close
+Last session: 2026-08-03T16:07:20.387Z
+Stopped at: Completed 25-06-PLAN.md
 Resume file: None
