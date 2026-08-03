@@ -4615,6 +4615,505 @@ function completeCaptchaWaitingCard(card) {
   }, 2000);
 }
 
+// ==================== 脚本预览卡片 ====================
+
+/**
+ * 操作类型到中文标签的映射
+ *
+ * @param {string} action - 操作类型标识
+ * @returns {string} 中文标签
+ */
+function getActionLabel(action) {
+  const labels = {
+    navigate: '导航',
+    click: '点击',
+    type: '输入',
+    scroll: '滚动',
+    wait: '等待',
+    select: '选择',
+    check: '勾选',
+    uncheck: '取消勾选',
+    focus: '聚焦',
+    blur: '失焦',
+    submit: '提交',
+    keydown: '按下按键',
+    keyup: '松开按键'
+  };
+  return labels[action] || action;
+}
+
+/**
+ * 脚本预览卡片主渲染函数
+ *
+ * 克隆 script-preview-template 模板，填充脚本名称、描述和步骤列表，
+ * 绑定执行、取消、添加步骤按钮事件。
+ *
+ * @param {Object} script - 脚本数据对象
+ * @param {string} script.name - 脚本名称
+ * @param {string} script.description - 脚本描述
+ * @param {Array} script.steps - 步骤数组
+ * @param {string} [script.containerId] - 目标容器 ID
+ * @returns {HTMLElement} 渲染好的卡片 DOM 元素
+ */
+function renderScriptPreviewCard(script) {
+  const template = document.getElementById('script-preview-template');
+  if (!template) {
+    console.error('[Realm Renderer] script-preview-template 未找到');
+    return null;
+  }
+
+  const fragment = template.content.cloneNode(true);
+  const card = fragment.querySelector('.script-preview-card');
+
+  // 使用 textContent 防止 XSS（T-25-04）
+  const nameEl = card.querySelector('.script-card-name');
+  if (nameEl) nameEl.textContent = script.name || '未命名脚本';
+
+  const descEl = card.querySelector('.script-card-desc');
+  if (descEl) descEl.textContent = script.description || '';
+
+  // 渲染步骤列表
+  const stepsList = card.querySelector('.script-steps-list');
+  if (stepsList && script.steps) {
+    script.steps.forEach((step, index) => {
+      const stepItem = renderScriptStepItem(step, index, stepsList, card);
+      stepsList.appendChild(stepItem);
+    });
+  }
+
+  // 绑定"执行脚本"按钮
+  const executeBtn = card.querySelector('.script-execute-btn');
+  if (executeBtn) {
+    executeBtn.addEventListener('click', () => {
+      // 收集当前步骤数据
+      const currentSteps = collectStepsFromDOM(stepsList);
+      const scriptData = {
+        name: script.name,
+        description: script.description,
+        steps: currentSteps,
+        containerId: script.containerId
+      };
+      // 通过 IPC 发送到主进程执行
+      if (window.realmAPI && window.realmAPI.sendToAI) {
+        window.realmAPI.sendToAI({
+          type: 'script:execute',
+          script: scriptData
+        });
+      }
+      // 禁用按钮防止重复执行
+      executeBtn.disabled = true;
+      executeBtn.textContent = '执行中...';
+    });
+  }
+
+  // 绑定"取消"按钮
+  const cancelBtn = card.querySelector('.script-cancel-btn');
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => {
+      const wrapper = card.closest('.ai-message');
+      if (wrapper) {
+        wrapper.style.transition = 'opacity 0.3s';
+        wrapper.style.opacity = '0';
+        setTimeout(() => wrapper.remove(), 300);
+      } else {
+        card.remove();
+      }
+    });
+  }
+
+  // 绑定"+ 添加步骤"按钮
+  const addStepBtn = card.querySelector('.script-add-step-btn');
+  if (addStepBtn) {
+    addStepBtn.addEventListener('click', () => {
+      const newStep = { action: 'click', target: '' };
+      const newIndex = stepsList.children.length;
+      const stepItem = renderScriptStepItem(newStep, newIndex, stepsList, card);
+      stepsList.appendChild(stepItem);
+      renumberSteps(stepsList);
+      // 自动展开编辑模式
+      const editBtn = stepItem.querySelector('.step-edit-btn');
+      if (editBtn) editBtn.click();
+    });
+  }
+
+  return card;
+}
+
+/**
+ * 渲染单个步骤项
+ *
+ * 创建 .script-step-item 容器，包含拖拽手柄、序号、操作标签、目标描述、参数和操作按钮。
+ * 支持拖拽排序和内联编辑。
+ *
+ * @param {Object} step - 步骤数据
+ * @param {number} index - 步骤索引
+ * @param {HTMLElement} stepsList - 步骤列表容器
+ * @param {HTMLElement} card - 所属卡片元素
+ * @returns {HTMLElement} 步骤项 DOM 元素
+ */
+function renderScriptStepItem(step, index, stepsList, card) {
+  const item = document.createElement('div');
+  item.className = 'script-step-item';
+  item.draggable = true;
+  item.dataset.index = index;
+
+  // 拖拽手柄
+  const dragHandle = document.createElement('div');
+  dragHandle.className = 'step-drag-handle';
+  dragHandle.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.5"/><circle cx="11" cy="3" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="5" cy="13" r="1.5"/><circle cx="11" cy="13" r="1.5"/></svg>';
+
+  // 序号
+  const numberEl = document.createElement('div');
+  numberEl.className = 'step-number';
+  numberEl.textContent = String(index + 1);
+
+  // 步骤内容区
+  const content = document.createElement('div');
+  content.className = 'step-content';
+
+  const contentRow = document.createElement('div');
+  contentRow.className = 'step-content-row';
+
+  // 操作类型标签
+  const actionLabel = document.createElement('span');
+  actionLabel.className = 'step-action-label';
+  actionLabel.textContent = getActionLabel(step.action);
+
+  // 目标描述（使用 textContent 防止 XSS）
+  const targetEl = document.createElement('span');
+  targetEl.className = 'step-target';
+  targetEl.textContent = step.target || '(未设置目标)';
+
+  contentRow.appendChild(actionLabel);
+  contentRow.appendChild(targetEl);
+
+  // 参数值（如果有）
+  if (step.options) {
+    const paramsEl = document.createElement('span');
+    paramsEl.className = 'step-params';
+    const paramStr = typeof step.options === 'object'
+      ? JSON.stringify(step.options)
+      : String(step.options);
+    // 截断过长的参数显示
+    paramsEl.textContent = paramStr.length > 50 ? paramStr.substring(0, 50) + '...' : paramStr;
+    contentRow.appendChild(paramsEl);
+  }
+
+  content.appendChild(contentRow);
+
+  // 操作按钮组
+  const actions = document.createElement('div');
+  actions.className = 'step-actions';
+
+  // 编辑按钮
+  const editBtn = document.createElement('button');
+  editBtn.className = 'step-action-btn step-edit-btn';
+  editBtn.title = '编辑';
+  editBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+  editBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // 如果已有编辑器则关闭
+    const existingEditor = item.querySelector('.step-editor');
+    if (existingEditor) {
+      existingEditor.remove();
+      return;
+    }
+    const editor = renderStepEditor(step, index, (updatedStep) => {
+      // 更新步骤数据并重新渲染内容
+      step.action = updatedStep.action;
+      step.target = updatedStep.target;
+      if (updatedStep.options !== undefined) {
+        step.options = updatedStep.options;
+      }
+      // 更新显示
+      actionLabel.textContent = getActionLabel(step.action);
+      targetEl.textContent = step.target || '(未设置目标)';
+      editor.remove();
+    });
+    content.appendChild(editor);
+  });
+
+  // 删除按钮
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'step-action-btn step-delete-btn';
+  deleteBtn.title = '删除';
+  deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+  deleteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    item.style.transition = 'opacity 0.2s';
+    item.style.opacity = '0';
+    setTimeout(() => {
+      item.remove();
+      renumberSteps(stepsList);
+    }, 200);
+  });
+
+  actions.appendChild(editBtn);
+  actions.appendChild(deleteBtn);
+
+  item.appendChild(dragHandle);
+  item.appendChild(numberEl);
+  item.appendChild(content);
+  item.appendChild(actions);
+
+  // 拖拽事件
+  let dragStartIndex = -1;
+
+  item.addEventListener('dragstart', (e) => {
+    dragStartIndex = parseInt(item.dataset.index, 10);
+    item.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(dragStartIndex));
+  });
+
+  item.addEventListener('dragend', () => {
+    item.classList.remove('dragging');
+    // 清除所有 drag-over 状态
+    stepsList.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+  });
+
+  item.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    // 添加插入指示
+    const rect = item.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    if (e.clientY < midY) {
+      item.classList.add('drag-over');
+    } else {
+      item.classList.remove('drag-over');
+    }
+  });
+
+  item.addEventListener('dragleave', () => {
+    item.classList.remove('drag-over');
+  });
+
+  item.addEventListener('drop', (e) => {
+    e.preventDefault();
+    item.classList.remove('drag-over');
+    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
+    const toIndex = parseInt(item.dataset.index, 10);
+    if (fromIndex === toIndex) return;
+
+    // 重新排列 DOM
+    const allItems = Array.from(stepsList.children);
+    const draggedItem = allItems[fromIndex];
+    if (!draggedItem) return;
+
+    const rect = item.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    if (e.clientY < midY) {
+      stepsList.insertBefore(draggedItem, item);
+    } else {
+      stepsList.insertBefore(draggedItem, item.nextSibling);
+    }
+
+    renumberSteps(stepsList);
+  });
+
+  return item;
+}
+
+/**
+ * 渲染步骤内联编辑器
+ *
+ * 在步骤内容区展开一个编辑表单，支持修改操作类型、目标和参数。
+ *
+ * @param {Object} step - 步骤数据
+ * @param {number} index - 步骤索引
+ * @param {Function} onSave - 保存回调，接收更新后的步骤数据
+ * @returns {HTMLElement} 编辑器 DOM 元素
+ */
+function renderStepEditor(step, index, onSave) {
+  const editor = document.createElement('div');
+  editor.className = 'step-editor';
+
+  // 支持的操作类型列表
+  const actionTypes = [
+    'navigate', 'click', 'type', 'scroll', 'wait',
+    'select', 'check', 'uncheck', 'focus', 'blur',
+    'submit', 'keydown', 'keyup'
+  ];
+
+  // 操作类型选择器
+  const actionRow = document.createElement('div');
+  actionRow.className = 'step-editor-row';
+  const actionLabelEl = document.createElement('label');
+  actionLabelEl.textContent = '操作';
+  const actionSelect = document.createElement('select');
+  actionTypes.forEach(type => {
+    const opt = document.createElement('option');
+    opt.value = type;
+    opt.textContent = getActionLabel(type);
+    if (type === step.action) opt.selected = true;
+    actionSelect.appendChild(opt);
+  });
+  actionRow.appendChild(actionLabelEl);
+  actionRow.appendChild(actionSelect);
+  editor.appendChild(actionRow);
+
+  // 目标输入框
+  const targetRow = document.createElement('div');
+  targetRow.className = 'step-editor-row';
+  const targetLabelEl = document.createElement('label');
+  targetLabelEl.textContent = '目标';
+  const targetInput = document.createElement('input');
+  targetInput.type = 'text';
+  targetInput.className = 'step-target-input';
+  targetInput.value = step.target || '';
+  targetInput.placeholder = '元素选择器或描述';
+  targetRow.appendChild(targetLabelEl);
+  targetRow.appendChild(targetInput);
+  editor.appendChild(targetRow);
+
+  // 参数输入框（条件显示：type/select/keydown 时显示）
+  const needsParam = ['type', 'select', 'keydown'].includes(step.action);
+  let paramInput = null;
+  if (needsParam) {
+    const paramRow = document.createElement('div');
+    paramRow.className = 'step-editor-row';
+    const paramLabelEl = document.createElement('label');
+    paramLabelEl.textContent = '参数';
+    paramInput = document.createElement('input');
+    paramInput.type = 'text';
+    paramInput.className = 'step-param-input';
+    // 从 options 中提取参数值
+    if (step.options) {
+      if (typeof step.options === 'object') {
+        paramInput.value = step.options.value || step.options.text || JSON.stringify(step.options);
+      } else {
+        paramInput.value = String(step.options);
+      }
+    }
+    paramInput.placeholder = '参数值';
+    paramRow.appendChild(paramLabelEl);
+    paramRow.appendChild(paramInput);
+    editor.appendChild(paramRow);
+  }
+
+  // 操作类型变化时显示/隐藏参数行
+  actionSelect.addEventListener('change', () => {
+    const selectedAction = actionSelect.value;
+    const shouldShowParam = ['type', 'select', 'keydown'].includes(selectedAction);
+    const existingParamRow = editor.querySelector('.step-editor-row:last-child');
+    if (shouldShowParam && !editor.querySelector('.step-param-input')) {
+      const paramRow = document.createElement('div');
+      paramRow.className = 'step-editor-row';
+      const paramLabelEl = document.createElement('label');
+      paramLabelEl.textContent = '参数';
+      paramInput = document.createElement('input');
+      paramInput.type = 'text';
+      paramInput.className = 'step-param-input';
+      paramInput.placeholder = '参数值';
+      paramRow.appendChild(paramLabelEl);
+      paramRow.appendChild(paramInput);
+      // 插入到操作按钮之前
+      const actionsEl = editor.querySelector('.step-editor-actions');
+      if (actionsEl) {
+        editor.insertBefore(paramRow, actionsEl);
+      } else {
+        editor.appendChild(paramRow);
+      }
+    } else if (!shouldShowParam) {
+      const paramInputEl = editor.querySelector('.step-param-input');
+      if (paramInputEl) {
+        paramInputEl.closest('.step-editor-row').remove();
+        paramInput = null;
+      }
+    }
+  });
+
+  // 保存/取消按钮
+  const actionsRow = document.createElement('div');
+  actionsRow.className = 'step-editor-actions';
+
+  const saveBtnEl = document.createElement('button');
+  saveBtnEl.className = 'step-editor-save';
+  saveBtnEl.textContent = '保存';
+  saveBtnEl.addEventListener('click', () => {
+    const updatedStep = {
+      action: actionSelect.value,
+      target: targetInput.value
+    };
+    // 收集参数
+    const currentParamInput = editor.querySelector('.step-param-input');
+    if (currentParamInput && currentParamInput.value) {
+      updatedStep.options = { value: currentParamInput.value };
+    }
+    onSave(updatedStep);
+  });
+
+  const cancelBtnEl = document.createElement('button');
+  cancelBtnEl.className = 'step-editor-cancel';
+  cancelBtnEl.textContent = '取消';
+  cancelBtnEl.addEventListener('click', () => {
+    editor.remove();
+  });
+
+  actionsRow.appendChild(cancelBtnEl);
+  actionsRow.appendChild(saveBtnEl);
+  editor.appendChild(actionsRow);
+
+  return editor;
+}
+
+/**
+ * 从 DOM 中收集当前步骤数据
+ *
+ * 遍历步骤列表 DOM 元素，提取每个步骤的操作类型、目标和参数。
+ *
+ * @param {HTMLElement} stepsList - 步骤列表容器
+ * @returns {Array} 步骤数据数组
+ */
+function collectStepsFromDOM(stepsList) {
+  if (!stepsList) return [];
+  const items = stepsList.querySelectorAll('.script-step-item');
+  return Array.from(items).map(item => {
+    const actionLabel = item.querySelector('.step-action-label');
+    const targetEl = item.querySelector('.step-target');
+    const paramsEl = item.querySelector('.step-params');
+    // 从中文标签反查操作类型
+    const actionText = actionLabel ? actionLabel.textContent : '';
+    const actionMap = {
+      '导航': 'navigate', '点击': 'click', '输入': 'type', '滚动': 'scroll',
+      '等待': 'wait', '选择': 'select', '勾选': 'check', '取消勾选': 'uncheck',
+      '聚焦': 'focus', '失焦': 'blur', '提交': 'submit',
+      '按下按键': 'keydown', '松开按键': 'keyup'
+    };
+    const action = actionMap[actionText] || actionText;
+    const step = {
+      action: action,
+      target: targetEl ? targetEl.textContent : ''
+    };
+    if (paramsEl && paramsEl.textContent) {
+      try {
+        step.options = JSON.parse(paramsEl.textContent.replace(/\.\.\.$/, ''));
+      } catch (e) {
+        step.options = { value: paramsEl.textContent };
+      }
+    }
+    return step;
+  });
+}
+
+/**
+ * 步骤重新编号
+ *
+ * 步骤增删或拖拽排序后，更新所有 .step-number 的文本为当前索引+1。
+ *
+ * @param {HTMLElement} stepsList - 步骤列表容器
+ */
+function renumberSteps(stepsList) {
+  if (!stepsList) return;
+  const items = stepsList.querySelectorAll('.script-step-item');
+  items.forEach((item, index) => {
+    const numberEl = item.querySelector('.step-number');
+    if (numberEl) numberEl.textContent = String(index + 1);
+    item.dataset.index = index;
+  });
+}
+
 /**
  * 初始化操作确认 IPC 监听器
  * 在 init() 中调用，注册 action:request-confirmation 事件监听
