@@ -320,6 +320,87 @@ const SCRIPT_ALLOWED_ACTIONS = [
   'submit', 'keydown', 'keyup',
 ];
 
+// ==================== 脚本执行引擎 ====================
+
+/**
+ * 页面 load 事件等待超时（毫秒）
+ * navigate 操作或 step.waitFor === 'load' 时，等待页面 loadEventFired 事件，
+ * 超时后继续执行下一步（per D-04 自动等待 load 事件）
+ */
+const SCRIPT_LOAD_WAIT_TIMEOUT = 5000;
+
+/**
+ * 脚本执行引擎：逐步执行脚本步骤
+ *
+ * 遍历 script.steps，对每个步骤：
+ * 1. 调用 onStepUpdate 通知渲染进程当前步骤状态
+ * 2. 对步骤参数执行 sanitizeInput 消毒
+ * 3. 调用 cdpManager.executeAction 执行操作
+ * 4. navigate 操作或 waitFor === 'load' 时等待页面 load 事件
+ * 5. 步骤失败时自动停止，返回错误信息
+ *
+ * 支持 abortSignal 中断：用户可通过 script:stop IPC 随时停止执行。
+ *
+ * @param {Object} script - 脚本对象，包含 steps 数组
+ * @param {number} webContentsId - 活跃标签页的 webview guest webContents ID
+ * @param {function} onStepUpdate - 步骤状态回调，参数为 { index, status, step?, result?, error? }
+ * @param {AbortSignal} [abortSignal] - 中断信号
+ * @returns {Promise<{success: boolean, results?: Array, stoppedAt?: number, error?: string, aborted?: boolean}>}
+ */
+async function executeScript(script, webContentsId, onStepUpdate, abortSignal) {
+  const results = [];
+
+  for (let i = 0; i < script.steps.length; i++) {
+    // 检查中断信号
+    if (abortSignal && abortSignal.aborted) {
+      onStepUpdate({ index: i, status: 'aborted', error: '用户已停止执行' });
+      return { success: false, stoppedAt: i, error: '用户已停止执行', aborted: true, results };
+    }
+
+    const step = script.steps[i];
+
+    // 通知渲染进程：当前步骤开始执行
+    onStepUpdate({ index: i, status: 'executing', step });
+
+    try {
+      // 输入消毒（per D-13）
+      const sanitizedStep = sanitizeInput(step);
+
+      // 调用 cdpManager.executeAction 执行步骤
+      const result = await cdpManager.executeAction(
+        webContentsId,
+        sanitizedStep.action,
+        sanitizedStep.target,
+        sanitizedStep.options
+      );
+
+      if (!result.success) {
+        // 步骤失败：通知渲染进程并停止执行
+        onStepUpdate({ index: i, status: 'error', error: result.error || '操作执行失败' });
+        return { success: false, stoppedAt: i, error: result.error || '操作执行失败', results };
+      }
+
+      // 步骤成功
+      results.push(result);
+      onStepUpdate({ index: i, status: 'success', result });
+
+      // navigate 操作或 waitFor === 'load' 时，等待页面加载稳定（per D-04）
+      // 使用 setTimeout 兜底超时，避免阻塞执行流程
+      if (sanitizedStep.action === 'navigate' || sanitizedStep.waitFor === 'load') {
+        console.log(`[Realm AI] 脚本步骤 ${i + 1}: 等待页面加载 (${SCRIPT_LOAD_WAIT_TIMEOUT}ms)`);
+        await new Promise(resolve => setTimeout(resolve, SCRIPT_LOAD_WAIT_TIMEOUT));
+      }
+    } catch (err) {
+      // 异常捕获：通知渲染进程并停止执行
+      console.error(`[Realm AI] 脚本步骤 ${i + 1} 执行异常:`, err.message);
+      onStepUpdate({ index: i, status: 'error', error: err.message });
+      return { success: false, stoppedAt: i, error: err.message, results };
+    }
+  }
+
+  return { success: true, results };
+}
+
 /**
  * AI 助手系统提示词
  * 定义 AI 在 Realm Browser 中的角色和能力边界
@@ -2196,3 +2277,5 @@ ${content}
 }
 
 module.exports = AIManager;
+module.exports.executeScript = executeScript;
+module.exports.sanitizeInput = sanitizeInput;

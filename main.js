@@ -1722,6 +1722,73 @@ app.whenReady().then(async () => {
     return { success: true };
   });
 
+  // ==================== 脚本执行 IPC 处理器 ====================
+
+  /**
+   * 脚本执行中断控制器
+   * script:execute 开始时创建新实例，script:stop 调用 abort() 中断
+   * @type {AbortController|null}
+   */
+  let scriptAbortController = null;
+
+  /**
+   * 执行脚本：逐步调用 cdpManager.executeAction 执行每个步骤
+   * 渲染进程确认脚本后调用，每步结果通过 script:step-update 实时推送
+   * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+   * @param {Object} script - 脚本对象，包含 steps 数组
+   * @returns {Promise<{success: boolean, stoppedAt?: number, error?: string}>}
+   */
+  ipcMain.handle('script:execute', async (event, script) => {
+    // 校验脚本格式
+    if (!script || !Array.isArray(script.steps) || script.steps.length === 0) {
+      return { success: false, error: '脚本格式无效：缺少 steps 数组' };
+    }
+
+    // 获取当前活跃标签页的 webContentsId
+    const webContentsId = getActiveWebviewContentsId();
+    if (!webContentsId) {
+      return { success: false, error: '没有活跃的标签页' };
+    }
+
+    // 创建新的中断控制器（每次执行独立）
+    scriptAbortController = new AbortController();
+
+    const { executeScript } = require('./ai-manager');
+    console.log(`[Realm] 开始执行脚本: ${script.name || '未命名'}，共 ${script.steps.length} 步`);
+
+    const result = await executeScript(
+      script,
+      webContentsId,
+      // 每步状态回调 → 推送到渲染进程
+      (update) => {
+        event.sender.send('script:step-update', update);
+      },
+      scriptAbortController.signal
+    );
+
+    // 执行完成，清理中断控制器
+    scriptAbortController = null;
+
+    console.log(`[Realm] 脚本执行${result.success ? '成功' : '失败'}: ${script.name || '未命名'}`,
+      result.error ? `错误: ${result.error}` : '');
+
+    return result;
+  });
+
+  /**
+   * 停止脚本执行：中断当前正在执行的脚本
+   * @returns {Promise<{stopped: boolean}>}
+   */
+  ipcMain.handle('script:stop', () => {
+    if (scriptAbortController) {
+      scriptAbortController.abort();
+      scriptAbortController = null;
+      console.log('[Realm] 脚本执行已停止');
+      return { stopped: true };
+    }
+    return { stopped: false };
+  });
+
   // 初始化历史记录数据库
   historyManager.initDatabase();
 
