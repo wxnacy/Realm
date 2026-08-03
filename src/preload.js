@@ -941,6 +941,29 @@ contextBridge.exposeInMainWorld('realmAPI', {
     ipcRenderer.on('action:settle', handler);
     return () => ipcRenderer.removeListener('action:settle', handler);
   },
+
+  // ==================== 标签栏重排 ====================
+
+  /**
+   * 应用标签分组重排
+   * 渲染进程确认分组后调用，主进程计算新顺序后通过 onTabReordered 通知渲染进程
+   * @param {Object} tabOrder - 分组重排数据
+   * @param {Array<{name: string, tabIds: string[]}>} tabOrder.groups - 分组数组
+   * @returns {Promise<{success: boolean, groupCount?: number, tabCount?: number, message?: string}>}
+   */
+  tabReorder: (tabOrder) => ipcRenderer.invoke('tab:reorder', tabOrder),
+
+  /**
+   * 监听标签栏重排完成事件
+   * 主进程完成重排计算后推送新顺序，渲染进程据此重排标签栏 DOM
+   * @param {Function} callback - 回调函数，参数为 { groups, flatOrder }
+   * @returns {Function} 取消监听的清理函数
+   */
+  onTabReordered: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('tab:reordered', handler);
+    return () => ipcRenderer.removeListener('tab:reordered', handler);
+  },
 });
 
 console.log('[Realm] Preload 脚本已加载');

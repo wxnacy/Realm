@@ -1789,6 +1789,59 @@ app.whenReady().then(async () => {
     return { stopped: false };
   });
 
+  /**
+   * 标签栏重排：按分组顺序重排标签页
+   * 渲染进程确认分组后调用，主进程计算新顺序后通过 tab:reordered 通知渲染进程
+   *
+   * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+   * @param {Object} tabOrder - 分组重排数据
+   * @param {Array<{name: string, tabIds: string[]}>} tabOrder.groups - 分组数组
+   * @returns {Promise<{success: boolean, groupCount?: number, tabCount?: number, message?: string}>}
+   */
+  ipcMain.handle('tab:reorder', (event, tabOrder) => {
+    // 校验 tabOrder 格式
+    if (!tabOrder || !Array.isArray(tabOrder.groups) || tabOrder.groups.length === 0) {
+      return { success: false, message: '分组数据格式无效' };
+    }
+
+    // 获取所有标签页
+    const allTabs = tabManager.getTabs();
+    const allTabIds = new Set(allTabs.map(t => t.id));
+
+    // 验证所有 tabId 是否存在
+    const flatOrder = [];
+    for (const group of tabOrder.groups) {
+      if (!group.tabIds || !Array.isArray(group.tabIds)) {
+        return { success: false, message: `分组 "${group.name}" 格式无效` };
+      }
+      for (const tabId of group.tabIds) {
+        if (!allTabIds.has(tabId)) {
+          return { success: false, message: `标签页 ${tabId} 不存在` };
+        }
+        flatOrder.push(tabId);
+      }
+    }
+
+    // 构建完整顺序：分组内的标签页 + 未分组的标签页追加到末尾
+    const groupedTabIds = new Set(flatOrder);
+    const ungroupedTabs = allTabs.filter(t => !groupedTabIds.has(t.id));
+    const fullOrder = [...flatOrder, ...ungroupedTabs.map(t => t.id)];
+
+    // 通知渲染进程按新顺序重排标签栏 DOM
+    event.sender.send('tab:reordered', {
+      groups: tabOrder.groups,
+      flatOrder: fullOrder,
+    });
+
+    console.log(`[Realm] 标签栏重排: ${tabOrder.groups.length} 个分组, ${flatOrder.length} 个标签页`);
+
+    return {
+      success: true,
+      groupCount: tabOrder.groups.length,
+      tabCount: flatOrder.length,
+    };
+  });
+
   // 初始化历史记录数据库
   historyManager.initDatabase();
 

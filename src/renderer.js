@@ -3164,6 +3164,9 @@ function setupEventListeners() {
   // 初始化脚本执行步骤状态监听
   initScriptStepUpdate();
 
+  // 初始化标签栏重排监听
+  initTabReorderListener();
+
   // 初始化 AI 面板拖拽调整宽度
   initAIPanelResize();
 
@@ -5743,6 +5746,74 @@ function initScriptStepUpdate() {
     console.log('[Realm Renderer] 脚本步骤更新:', update);
     handleStepUpdate(update);
   });
+}
+
+/**
+ * 初始化标签栏重排监听器
+ * 在 init() 中调用，注册 tab:reordered 事件监听
+ *
+ * 主进程完成重排计算后推送新顺序，此监听器按新顺序重排标签栏 DOM，
+ * 并在分组之间插入视觉分隔线。
+ */
+function initTabReorderListener() {
+  if (!window.realmAPI || !window.realmAPI.onTabReordered) return;
+
+  window.realmAPI.onTabReordered((data) => {
+    console.log('[Realm Renderer] 标签栏重排:', data);
+    handleTabReordered(data);
+  });
+}
+
+/**
+ * 处理标签栏重排
+ *
+ * 按照主进程推送的新顺序重排标签栏 DOM 元素，
+ * 并在分组之间插入视觉分隔线。
+ *
+ * @param {Object} data - 重排数据
+ * @param {Array<{name: string, tabIds: string[]}>} data.groups - 分组数组
+ * @param {string[]} data.flatOrder - 标签页 ID 的完整顺序
+ */
+function handleTabReordered(data) {
+  const { groups, flatOrder } = data;
+  const tabBar = elements.tabBar;
+  if (!tabBar) return;
+
+  // 移除已有的分组分隔线
+  tabBar.querySelectorAll('.tab-group-divider-line').forEach(el => el.remove());
+
+  // 按新顺序重排标签页 DOM
+  const tabElements = new Map();
+  tabBar.querySelectorAll('.tab').forEach(el => {
+    tabElements.set(el.dataset.tabId, el);
+  });
+
+  // 按 flatOrder 顺序追加标签页元素
+  flatOrder.forEach(tabId => {
+    const el = tabElements.get(tabId);
+    if (el) {
+      tabBar.appendChild(el);
+    }
+  });
+
+  // 在分组之间插入分隔线
+  if (groups && groups.length > 1) {
+    let offset = 0;
+    for (let i = 0; i < groups.length - 1; i++) {
+      offset += groups[i].tabIds.length;
+      // 在第 offset 个标签页前插入分隔线
+      const dividerLine = document.createElement('div');
+      dividerLine.className = 'tab-group-divider-line';
+      const targetTab = tabElements.get(flatOrder[offset]);
+      if (targetTab) {
+        tabBar.insertBefore(dividerLine, targetTab);
+      } else {
+        tabBar.appendChild(dividerLine);
+      }
+    }
+  }
+
+  console.log(`[Realm Renderer] 标签栏已重排: ${flatOrder.length} 个标签, ${(groups || []).length} 个分组`);
 }
 
 /**
