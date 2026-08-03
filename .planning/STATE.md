@@ -5,10 +5,10 @@ milestone_name: AI CDP 增强 + Tabbrowser 功能集成
 current_phase: 25
 current_phase_name: 脚本生成 + 智能标签整理
 status: executing
-stopped_at: Phase 24 UI-SPEC approved
-last_updated: "2026-08-02T14:04:24.675Z"
-last_activity: 2026-08-02
-last_activity_desc: Phase 24 complete, transitioned to Phase 25
+stopped_at: Phase 25 context gathered
+last_updated: "2026-08-03T00:00:00.000Z"
+last_activity: 2026-08-03
+last_activity_desc: Phase 25 context gathered, ready for planning
 progress:
   total_phases: 4
   completed_phases: 3
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-02)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 24 — 任务自主执行
+**Current focus:** Phase 25 — 脚本生成 + 智能标签整理
 
 ## Current Position
 
 Phase: 25 — 脚本生成 + 智能标签整理
 Plan: Not started
-Status: Executing Phase 24
-Last activity: 2026-08-02 — Phase 24 complete, transitioned to Phase 25
+Status: Ready for planning
+Last activity: 2026-08-03 — Phase 25 context gathered
 
 Progress: [█████░░░░░] 50%
 
@@ -101,6 +101,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-02T13:12:29.757Z
-Stopped at: Phase 24 UI-SPEC approved
-Resume file: .planning/phases/24-task-autonomous/24-UI-SPEC.md
+Last session: 2026-08-03T00:00:00.000Z
+Stopped at: Phase 25 context gathered
+Resume file: .planning/phases/25-script-tab/25-CONTEXT.md
