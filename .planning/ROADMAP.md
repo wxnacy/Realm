@@ -11,7 +11,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 - ✅ **v1.2 Cookie 管理增强 + 设置页面重构 + 开发者模式** — Phases 10-12 (shipped 2026-07-27)
 - ✅ **v1.3 右键菜单增强** — Phase 13 (shipped 2026-07-27)
 - ✅ **v2.0 收藏夹文件夹支持 + AI Agent 集成** — Phases 14-21 (shipped 2026-08-01)
-- 🚧 **v2.1 AI CDP 增强 + Tabbrowser 功能集成** — Phases 22-25 (in progress)
+- ✅ **v2.1 AI CDP 增强 + Tabbrowser 功能集成** — Phases 22-25 (shipped 2026-08-03)
 
 ## Phases
 
@@ -73,7 +73,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 - [x] **Phase 22: CDP 管理器扩展 + 基础网页操控工具** - 独立 CDP 管理器 + read_page_content + extract_links + open_link (completed 2026-08-02)
 - [x] **Phase 23: 智能上下文引用 + 全文检索** - @ 引用标签页上下文 + FTS5 全文检索收藏 (completed 2026-08-02)
 - [x] **Phase 24: 任务自主执行** - 自动化填表 + 自动化操作 + 操作确认 + 安全防护 (completed 2026-08-02)
-- [ ] **Phase 25: 脚本生成 + 智能标签整理** - 一句话生成脚本 + AI 自动标签分组 (3/5 plans done)
+- [x] **Phase 25: 脚本生成 + 智能标签整理** - 一句话生成脚本 + AI 自动标签分组 (completed 2026-08-03)
 
 ## Phase Details
 
@@ -191,8 +191,8 @@ Plans:
 
 **Wave 3** (depends on Wave 1)
 
-- [ ] 25-04-PLAN.md — 标签分组 AI 工具：suggest_tab_groups 注册
-- [ ] 25-05-PLAN.md — 标签分组 UI：建议卡片 + 编辑 + 标签栏重排
+- [x] 25-04-PLAN.md — 标签分组 AI 工具：suggest_tab_groups 注册 (completed 2026-08-03)
+- [x] 25-05-PLAN.md — 标签分组 UI：建议卡片 + 编辑 + 标签栏重排 (completed 2026-08-03)
 
 **UI hint**: yes
 
@@ -227,4 +227,4 @@ Phases execute in numeric order: 22 → 23 → 24 → 25
 | 22. CDP 管理器扩展 + 基础网页操控工具 | v2.1 | 5/5 | Complete    | 2026-08-02 |
 | 23. 智能上下文引用 + 全文检索 | v2.1 | 2/2 | Complete    | 2026-08-02 |
 | 24. 任务自主执行 | v2.1 | 4/4 | Complete    | 2026-08-02 |
-| 25. 脚本生成 + 智能标签整理 | v2.1 | 0/5 | Not started | - |
+| 25. 脚本生成 + 智能标签整理 | v2.1 | 5/5 | Complete    | 2026-08-03 |
