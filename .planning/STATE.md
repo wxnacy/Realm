@@ -4,24 +4,24 @@ milestone: v2.1
 milestone_name: AI CDP 增强 + Tabbrowser 功能集成
 current_phase: 25
 current_phase_name: 脚本生成 + 智能标签整理
-status: executing
+status: planning
 stopped_at: Phase 25 context gathered
-last_updated: "2026-08-03T00:00:00.000Z"
+last_updated: "2026-08-03T10:19:43.828Z"
 last_activity: 2026-08-03
-last_activity_desc: Phase 25 context gathered, ready for planning
+last_activity_desc: Phase 24 complete, transitioned to Phase 25
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 11
+  total_plans: 16
   completed_plans: 11
-  percent: 75
+  percent: 69
 ---
 
 # Project State: Realm Browser
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-02)
+See: .planning/PROJECT.md (updated 2026-08-03)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
 **Current focus:** Phase 25 — 脚本生成 + 智能标签整理
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-08-02)
 
 Phase: 25 — 脚本生成 + 智能标签整理
 Plan: Not started
-Status: Ready for planning
-Last activity: 2026-08-03 — Phase 25 context gathered
+Status: Ready to plan
+Last activity: 2026-08-03 — Phase 24 complete, transitioned to Phase 25
 
-Progress: [█████░░░░░] 50%
+Progress: [██████████████░░░░░░] 11/16 plans (69%)
 
 ## Performance Metrics
 
@@ -68,6 +68,9 @@ Recent decisions affecting current work:
 - 截断阈值采用字符语义（102,400 字符），契约/标记/UAT 三处统一 — Phase 22
 - 容器校验数据源为 getContainersLazy() 内存权威数据，不再读 electron-store 磁盘 — Phase 22
 - AI 工具与 DevTools 共存不互斥（Electron 允许双 debugger）— Phase 22
+- 确认响应单一权威通道：ai-manager 委托 main.js pendingActions 注入，删除孤儿 IPC，未注入 fail-closed — Phase 24
+- 按钮类元素一律确认（元素类型判定，非文字语义）— Phase 24
+- Input.insertText 前合成点击落位输入管线焦点 + readback 裁决兜底（DOM focus ≠ 输入管线焦点，否则串字进 AI 聊天框）— Phase 24
 - Phase 24-25 安全防护：输入消毒、脚本静态分析、沙箱执行、高风险操作用户确认
 
 ### Pending Todos
@@ -101,6 +104,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-03T00:00:00.000Z
-Stopped at: Phase 25 context gathered
-Resume file: .planning/phases/25-script-tab/25-CONTEXT.md
+Last session: 2026-08-03T10:25:00.000Z
+Stopped at: Phase 24 complete, ready to plan Phase 25
+Resume file: None

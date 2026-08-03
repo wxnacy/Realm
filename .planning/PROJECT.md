@@ -264,6 +264,9 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | 职责重叠工具取删除而非复用实现（navigate 移除，open_link 唯一入口） | navigate 三重根因（幽灵 Tab + 死参数 + 选择歧义）均为独立缺陷，保留则歧义永存 | ✓ 已验证 — Phase 22（22-05）UAT 复测 |
 | 截断阈值采用字符语义（102,400 字符）而非字节 | Readability 提取率约 7%，按字节推断截断前提会选中阈值边缘页面；契约/标记/UAT 三处统一字符措辞 | ✓ 已验证 — Phase 22（22-05） |
 | AI 工具与 DevTools 共存（不互斥） | Electron 允许 AI debugger 与用户 DevTools 并存，冲突检测为过期预期，用户确认共存行为更好 | ✓ 已验证 — Phase 22 UAT Test 5 用户决策 |
+| 确认响应单一权威通道：ai-manager 委托 main.js pendingActions 注入 | 两套并行确认实现（ai-manager 孤儿 IPC vs main.js Map）未对接导致点确认必超时误判取消；删除孤儿实现，未注入 fail-closed | ✓ 已验证 — Phase 24 UAT（G-24-4） |
+| 按钮类元素一律确认（元素类型判定，非文字语义） | "Sign in" 文本匹配命中 passkey 按钮不可靠；button/input[submit]/[role=button] 一律升级高风险 | ✓ 已验证 — Phase 24 UAT（G-24-4） |
+| Input.insertText 前合成点击落位输入管线焦点 + readback 裁决兜底 | insertText 打进输入管线焦点元素而非 DOM activeElement —— 焦点在 embedder 时填表文本串进 AI 聊天框；wc.focus()/this.focus() 无效，只有合成 dispatchMouseEvent 落位 | ✓ 已验证 — Phase 24 UAT（G-24-2b） |
 
 ## Evolution
 
@@ -283,4 +286,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-02 after Phase 23*
+*Last updated: 2026-08-03 after Phase 24*

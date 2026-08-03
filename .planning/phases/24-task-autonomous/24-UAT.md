@@ -3,7 +3,7 @@ status: complete
 phase: 24-task-autonomous
 source: [24-01-SUMMARY.md, 24-02-SUMMARY.md, 24-03-SUMMARY.md, 24-04-SUMMARY.md]
 started: 2026-08-02T14:39:57Z
-updated: "2026-08-03T10:08:00Z"
+updated: "2026-08-03T10:19:14Z"
 ---
 
 ## Current Test
@@ -47,12 +47,6 @@ note: "action:settle 通道补齐完成通知后，用户确认流程走通（�
 expected: 再次触发一个高风险操作，这次在确认卡片上点击「取消」。卡片变为 cancelled 状态，页面中该操作未被执行（表单未提交），AI 收到取消结果并告知用户操作已取消。
 result: pass
 
-### 7. CAPTCHA 检测暂停与恢复
-
-expected: 在含验证码的页面上让 AI 填写/提交表单（如遇到 reCAPTCHA/hCaptcha/中文验证码的登录页）。AI 暂停任务并提示需要手动完成验证码，AI 面板出现 CAPTCHA 等待指示卡片（旋转动画）；用户手动完成验证码后，轮询检测到验证码消失，卡片变为完成状态并在约 2 秒后自动淡出移除，AI 继续任务。
-result: skipped
-reason: "暂时没有含验证码的页面可测（用户确认跳过，2026-08-03）"
-
 ### 8. fillForm CDP method with field lookup chain (label/placeholder/aria-label/name/id/selector)
 
 expected: fillForm CDP method with field lookup chain (label/placeholder/aria-label/name/id/selector)
@@ -69,11 +63,17 @@ coverage_id: D2
 
 ## Summary
 
-total: 9
+total: 8
 passed: 8
 issues: 0
 pending: 0
-skipped: 1
+skipped: 0
+
+## Deferred Follow-Ups
+
+- test: 7
+  idea: "CAPTCHA 检测暂停与恢复 — 暂时没有含验证码的页面可测；后续遇到 reCAPTCHA/hCaptcha/中文验证码登录页时补测：AI 暂停并提示手动完成、等待指示卡片旋转动画、验证码消失后卡片完成态约 2 秒自动淡出、AI 继续任务"
+  deferred_at: 2026-08-03
 
 ## Gaps
 
