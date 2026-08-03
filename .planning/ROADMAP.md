@@ -178,7 +178,7 @@ Plans:
   4. 用户在 AI 聊天中输入"整理标签页"，AI 按主题或域名智能分组当前所有标签页并展示分组建议
   5. 用户确认分组建议后，标签页按分组重新排列，视觉上清晰区分不同组
 
-**Plans**: 5 plans
+**Plans**: 6 plans
 
 **Wave 1** (no dependencies)
 
@@ -193,6 +193,10 @@ Plans:
 
 - [x] 25-04-PLAN.md — 标签分组 AI 工具：suggest_tab_groups 注册 (completed 2026-08-03)
 - [x] 25-05-PLAN.md — 标签分组 UI：建议卡片 + 编辑 + 标签栏重排 (completed 2026-08-03)
+
+**Wave 4** (gap closure, G-25-23)
+
+- [ ] 25-06-PLAN.md — Gap 修复：apply_tab_groups 工具回传 + 卡片渲染链路打通
 
 **UI hint**: yes
 
