@@ -3903,7 +3903,7 @@ function renderToolCard(toolExecution) {
  * 多工具调用纵向堆叠，间距 8px
  *
  * 特殊工具卡片处理：
- * - suggest_tab_groups: 渲染标签分组建议卡片（renderTabGroupCard）
+ * - suggest_tab_groups / apply_tab_groups: 渲染标签分组建议卡片（renderTabGroupCard）
  * - generate_script: 渲染脚本预览卡片（renderScriptPreviewCard）
  *
  * @param {string} messageId - 消息 ID
@@ -3926,8 +3926,8 @@ function renderToolCards(messageId) {
   // 清空并重新渲染
   container.innerHTML = '';
   msg.toolExecutions.forEach(toolExec => {
-    // 特殊工具卡片：suggest_tab_groups 完成后渲染分组建议卡片
-    if (toolExec.name === 'suggest_tab_groups' && toolExec.status === 'completed' && toolExec.result) {
+    // 特殊工具卡片：suggest_tab_groups / apply_tab_groups 完成后渲染分组建议卡片
+    if ((toolExec.name === 'suggest_tab_groups' || toolExec.name === 'apply_tab_groups') && toolExec.status === 'completed' && toolExec.result) {
       try {
         const resultData = typeof toolExec.result === 'string'
           ? JSON.parse(toolExec.result)
@@ -3940,7 +3940,7 @@ function renderToolCards(messageId) {
           }
         }
       } catch (err) {
-        console.error('[Realm Renderer] 解析 suggest_tab_groups 结果失败:', err.message);
+        console.error('[Realm Renderer] 解析分组工具结果失败:', err.message);
       }
     }
     // 默认工具卡片
