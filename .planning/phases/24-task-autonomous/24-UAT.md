@@ -3,13 +3,13 @@ status: partial
 phase: 24-task-autonomous
 source: [24-01-SUMMARY.md, 24-02-SUMMARY.md, 24-03-SUMMARY.md, 24-04-SUMMARY.md]
 started: 2026-08-02T14:39:57Z
-updated: 2026-08-03T09:10:00Z
+updated: 2026-08-03T10:05:00Z
 ---
 
 ## Current Test
 <!-- OVERWRITE each test - shows where we are -->
 
-[testing paused — 3 items outstanding: Test 2 (issue G-24-2b 焦点层未解决，移交修复), Test 6/7 未测]
+[testing paused — 2 items outstanding: Test 6/7 未测；G-24-2b 已 resolved（用户复测确认「可以了」）]
 
 ## Tests
 
@@ -19,10 +19,10 @@ result: pass
 
 ### 2. AI 表单填写（fill_form）
 expected: 在当前 Tab 打开一个含表单的页面（如任意登录/注册页），在 AI 面板中让 AI 帮忙填写（例如"帮我填写邮箱 test@example.com"）。AI 调用 fill_form 工具后，页面上的对应输入框被真实填入值；若字段找不到，AI 返回错误说明和可用字段列表。
-result: issue
+result: pass
 reported: "回归：输入「帮我填写邮箱 wxnacy@gmail.com 和 密码 123456」，填充表单成功了，但是输入框中也自动输入了 wxnacy@gmail.com123456。不应该这样"
 severity: major
-note: "前三轮修复见 gap G-24-2（已 resolved）。本轮为串字回归：insertText 打进上一个聚焦字段，见 gap G-24-2b"
+note: "前三轮修复见 gap G-24-2（已 resolved）。本轮为串字回归：insertText 打进上一个聚焦字段，见 gap G-24-2b（已 resolved：insertText 前合成点击落位输入管线焦点 + readback 裁决兜底，用户复测确认「可以了」）"
 
 ### 3. AI 页面操作（execute_action 低风险）
 expected: 让 AI 执行低风险页面操作（例如"点击页面上的登录按钮"或"滚动到页面底部"）。AI 调用 execute_action 后直接执行（无确认卡片），页面上能看到点击/滚动真实发生，AI 返回操作结果和页面变化信息。
@@ -61,8 +61,8 @@ coverage_id: D2
 ## Summary
 
 total: 9
-passed: 6
-issues: 1
+passed: 7
+issues: 0
 pending: 2
 skipped: 0
 
@@ -92,20 +92,22 @@ skipped: 0
 
 - gap_id: G-24-2b
   truth: "fill_form 多字段填写时每个值只落入自己的目标字段，不串扰其他输入框"
-  status: failed
+  status: resolved
+  resolved_by: "direct fix during UAT（cdp-manager.js，提交 f03f2a2 + c20cb6b），用户复测确认「可以了」"
+  resolved_at: 2026-08-03
   reason: "User reported: 输入「帮我填写邮箱 wxnacy@gmail.com 和 密码 123456」，填充表单成功了，但是输入框中也自动输入了 wxnacy@gmail.com123456。不应该这样"
   severity: major
   test: 2
-  root_cause: "第一层（串字，已修）：Input.insertText 打进当前键盘焦点元素，DOM.focus 不保证焦点落位且返回值不检查 → 密码打进邮箱框。第二层（未解决）：2026-08-03 16:46 轮证据显示 insertText 需要输入管线层焦点 —— activeElement 回验通过仍写入未生效；合成 dispatchMouseEvent 点击后填写必定成功（稳定 workaround）；macOS IMK mach port 错误提示 IME 路径异常。readback 全过后用户仍观察不到正确结果，具体形态待确认。"
+  root_cause: "第一层（串字，已修）：Input.insertText 打进当前键盘焦点元素，DOM.focus 不保证焦点落位且返回值不检查 → 密码打进邮箱框。第二层（已修）：截图决定性证据 —— insertText 打进的是 embedder（AI 面板聊天输入框）中持有真实键盘焦点的元素，而非 guest 内 DOM activeElement；wc.focus()/this.focus() 均不改变输入管线焦点，只有合成 dispatchMouseEvent（或真实用户手势）才把 guest frame 标记为 input-focused（合成点击后填写必定成功的原因）。修复：insertText 前 _syntheticClickElement 合成点击落位 + readback 裁决 + 原生 setter 回退双保险 + 500ms 延时复核。"
   artifacts:
     - path: "cdp-manager.js"
       issue: "fillForm 普通 input 分支 / contenteditable 分支 / executeAction type 操作：DOM.focus 后无焦点回验即 insertText（串字层，已修）"
     - path: "cdp-manager.js"
-      issue: "insertText 主路径依赖键盘焦点，首次填写必失败（未解决层）"
+      issue: "insertText 主路径依赖输入管线焦点，首次填写打进 embedder 聊天框（已修：合成点击落位 + readback 兜底）"
   missing:
     - "已修复（串字层）：三处 insertText 路径改为 this.focus() + document.activeElement 回验，验证不过绝不 insertText；普通 input 分支回退到原生 setter + beforeinput/input/change 事件序列，readback 兜底终判"
-    - "未解决（焦点层）：候选方向 D1 原生 setter 升主路径 / D2 dispatchKeyEvent 逐字符 / D3 Page.bringToFront / D4 合成点击正规化 —— 详见交接文档"
-    - "用户决定移交他人继续修复（2026-08-03）"
+    - "已修复（焦点层）：D4 合成点击正规化 —— _syntheticClickElement 接入三个 insertText 分支；D1 readback 裁决 + 原生 setter 回退；500ms 延时复核区分'未写入'与'被页面脚本回退'"
+    - "UAT 复验通过（2026-08-03，GitHub 登录页直接 fill 不经 click，聊天框无串字）"
   debug_session: "docs/debug/fill-form-focus-pipeline.md"
 
 - gap_id: G-24-4

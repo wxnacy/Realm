@@ -216,7 +216,7 @@ npm run dev
 ### 调试案例（docs/debug/）
 
 - [fill_form 假成功排查实录](docs/debug/fill-form-silent-success.md) — CDP 表单填写三层根因：`Input.enable` 已被 Chromium 128+ 移除（Input 命令无需 enable）；表单填写用 `Input.insertText` 真实输入管线而非 JS 赋值；工具结果必须回读校验杜绝 `filled` 虚报；AI 口语字段名需语义映射 + availableFields 重试
-- [fill_form 焦点输入管线排查实录（未完结）](docs/debug/fill-form-focus-pipeline.md) — insertText 需要输入管线层焦点（DOM focus/activeElement ≠ keyboard focus）；合成点击后填写必定成功的 workaround；macOS IMK 异常可能吞 insertText；含候选修复方向 D1-D4 与交接备注
+- [fill_form 焦点输入管线排查实录](docs/debug/fill-form-focus-pipeline.md) — insertText 打进的是输入管线焦点元素（DOM focus/activeElement ≠ keyboard focus，焦点在 embedder 时会把填表文本打进 AI 聊天框造成串字）；根治：insertText 前合成 dispatchMouseEvent 点击落位 + readback 裁决 + 原生 setter 回退双保险
 
 ### 查看容器数据
 ```javascript

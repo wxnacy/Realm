@@ -1,6 +1,6 @@
-# fill_form 焦点输入管线排查实录（已修复 · 待 UAT 复验）
+# fill_form 焦点输入管线排查实录（已完结）
 
-> 2026-08-03 · Phase 24 UAT · 状态：**已实施修复，待 UAT 复验 G-24-2b**
+> 2026-08-03 · Phase 24 UAT · 状态：**已解决，UAT 复验通过（G-24-2b resolved）**
 > 关联文档：[fill_form 假成功排查实录](./fill-form-silent-success.md)（前三层根因已解决）
 > 影响文件：`cdp-manager.js`（fillForm / executeAction type）
 
