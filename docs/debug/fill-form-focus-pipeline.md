@@ -107,9 +107,25 @@
 | 问题 2：readback 通过后值被页面 JS 回退 | fillForm 循环结束后 | 已填写字段延时 500ms 二次 readback，被回退时以独立错误"值被页面脚本回退"移入 failed，区分"未写入"与"被回退" |
 | execute_action type 同类隐患 | executeAction type 分支 | insertText 前记录前值，插入后 readback，文本非空且值未变时走原生 setter 回退（按 selectionStart/End 拼接插入） |
 
-未实施 D2/D3/D4：D1 的回退路径不依赖任何焦点状态，与 D4 合成点击 workaround 等效且无额外 CDP 往返；若 UAT 复验仍失败再评估 D2（dispatchKeyEvent 绕 IME）。
+## 修复记录（2026-08-03 第三轮 · 决定性证据）
 
-**验证**：`node --check` 通过；模块加载通过；27 个 functionDeclaration 注入函数体编译全过。UAT 复验（GitHub 登录页直接 fill，不经 click）待人工执行。
+**截图证据**：首次 fill 失败后，**AI 面板输入框出现 `wxnacy@gmail.com123456`** ——
+insertText 并未被"丢弃"，而是打进了 embedder（主窗口渲染进程）中持有真实键盘
+焦点的聊天输入框。这证实 H1/H3：**Input.insertText 打进的是输入管线焦点元素，
+与 guest 内的 DOM activeElement 无关**；`wc.focus()` / `this.focus()` 均不改变
+输入管线焦点，只有合成 `dispatchMouseEvent`（或真实用户手势）才会把 guest frame
+标记为 input-focused。
+
+D1 回退能保证字段值正确，但无法阻止 insertText 污染聊天框，因此实施 **D4**：
+
+| 修复 | 位置 | 说明 |
+|------|------|------|
+| insertText 前合成点击落位输入管线焦点（D4） | 新增 `_syntheticClickElement`；接入 fillForm 普通 input、contenteditable、executeAction type 三分支 | scrollIntoView + 元素中心 mousePressed/mouseReleased，复用 executeAction click 的成熟模式。点击后 insertText 与 DOM 焦点一致，串字污染消除 |
+
+未实施 D2/D3：D4 是跨多轮稳定复现的 workaround 正规化，成本一次额外 CDP 往返；
+若 UAT 复验仍失败再评估 D2（dispatchKeyEvent 绕 IME）。
+
+**验证**：`node --check` 通过；模块加载通过；28 个 functionDeclaration 注入函数体编译全过。UAT 复验（GitHub 登录页直接 fill，不经 click，且观察聊天框无串字）待人工执行。
 
 ## 交接备注
 

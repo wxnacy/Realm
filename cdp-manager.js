@@ -882,6 +882,44 @@ async function _getElementObjectId(webContentsId, script, timeout = 10000) {
   }, timeout);
 }
 
+/**
+ * 对元素做合成点击（mousePressed + mouseReleased），使输入管线焦点落位
+ *
+ * Input.insertText 打进的是"输入管线焦点元素"而非 DOM activeElement ——
+ * 焦点在 embedder（如 AI 面板输入框）时，insertText 会把文本打进聊天框
+ * 造成串字污染（docs/debug/fill-form-focus-pipeline.md）。DOM focus() 不
+ * 改变输入管线焦点，合成 dispatchMouseEvent 才会把 guest frame 标记为
+ * input-focused。insertText 前必须先合成点击目标元素。
+ *
+ * @param {number} webContentsId - webContents ID
+ * @param {string} objectId - 元素的 CDP RemoteObjectId
+ * @returns {Promise<boolean>} 点击是否完成（元素无可见区域时返回 false）
+ */
+async function _syntheticClickElement(webContentsId, objectId) {
+  const rectResult = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+    objectId,
+    functionDeclaration: `function() {
+      if (this.scrollIntoView) { this.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+      var rect = this.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, width: rect.width, height: rect.height };
+    }`,
+    returnByValue: true,
+  });
+  const rect = rectResult.result?.result?.value;
+  if (!rectResult.success || !rect || rect.width <= 0 || rect.height <= 0) {
+    return false;
+  }
+  const x = Math.round(rect.x);
+  const y = Math.round(rect.y);
+  await executeCommand(webContentsId, 'Input.dispatchMouseEvent', {
+    type: 'mousePressed', x, y, button: 'left', clickCount: 1,
+  });
+  await executeCommand(webContentsId, 'Input.dispatchMouseEvent', {
+    type: 'mouseReleased', x, y, button: 'left', clickCount: 1,
+  });
+  return true;
+}
+
 // ==================== 脚本安全检查 ====================
 
 /** execute_script 禁止的危险模式列表（D-16） */
@@ -1105,8 +1143,9 @@ async function fillForm(webContentsId, fields) {
             failed.push({ field, error: '无法获取文件输入元素节点' });
           }
         } else if (elInfo?.isContentEditable) {
-          // contenteditable 元素（D-03）：先 focus 回验再 Input.insertText
-          // （焦点未落位时 insertText 会打进上一个聚焦元素，与普通 input 同理）
+          // contenteditable 元素（D-03）：先合成点击落位输入管线焦点
+          // （同普通 input 的串字污染问题），再 focus 回验 + Input.insertText
+          await _syntheticClickElement(webContentsId, objectId);
           const ceFocusCheck = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
             objectId,
             functionDeclaration: `function() {
@@ -1180,11 +1219,13 @@ async function fillForm(webContentsId, fields) {
           filled.push(field);
         } else {
           // 普通 input/textarea（D-03）
-          // 证据（docs/debug/fill-form-focus-pipeline.md 证据 A）：DOM focus
-          // 回验通过 ≠ insertText 所需的输入管线焦点就绪 —— insertText 可能
-          // 返回成功但文本被静默丢弃。因此不再以 insertText 返回值判断成败，
-          // 统一 readback 裁决：值不符即走原生 setter 回退路径（不依赖任何
-          // 焦点状态），回退后再次 readback 定成败，杜绝 filled 虚报。
+          // 证据（docs/debug/fill-form-focus-pipeline.md）：insertText 打进的是
+          // 输入管线焦点元素而非 DOM activeElement —— 焦点在 embedder（AI 面板
+          // 输入框）时会把填表文本打进聊天框造成串字污染。因此 insertText 前
+          // 先合成点击目标元素（D4），让输入管线焦点落到 guest 内的目标字段；
+          // 之后统一 readback 裁决：值不符即走原生 setter 回退路径（不依赖
+          // 任何焦点状态），回退后再次 readback 定成败，杜绝 filled 虚报。
+          await _syntheticClickElement(webContentsId, objectId);
           const focusCheck = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
             objectId,
             functionDeclaration: `function() {
@@ -1430,7 +1471,9 @@ async function executeAction(webContentsId, action, target, options) {
         // Input.insertText 要求 webview 持有键盘焦点（同 fillForm 的 wc.focus 处理）
         const wcForType = webContents.fromId(webContentsId);
         if (wcForType && !wcForType.isDestroyed()) wcForType.focus();
-        // 焦点回验：未落位时 insertText 会打进上一个聚焦元素（串字）
+        // 合成点击落位输入管线焦点（同 fillForm，防止 insertText 打进
+        // embedder 的聚焦元素造成串字污染），再 focus 回验
+        await _syntheticClickElement(webContentsId, objectId);
         const typeFocusCheck = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
           objectId,
           functionDeclaration: `function() {
