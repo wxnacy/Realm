@@ -3904,6 +3904,7 @@ function renderToolCard(toolExecution) {
  *
  * 特殊工具卡片处理：
  * - suggest_tab_groups / apply_tab_groups: 渲染标签分组建议卡片（renderTabGroupCard）
+ *   工具结果为 content 信封结构，需解包 content[].text 中的 JSON
  * - generate_script: 渲染脚本预览卡片（renderScriptPreviewCard）
  *
  * @param {string} messageId - 消息 ID
@@ -3929,9 +3930,19 @@ function renderToolCards(messageId) {
     // 特殊工具卡片：suggest_tab_groups / apply_tab_groups 完成后渲染分组建议卡片
     if ((toolExec.name === 'suggest_tab_groups' || toolExec.name === 'apply_tab_groups') && toolExec.status === 'completed' && toolExec.result) {
       try {
-        const resultData = typeof toolExec.result === 'string'
+        let resultData = typeof toolExec.result === 'string'
           ? JSON.parse(toolExec.result)
           : toolExec.result;
+        // 工具结果信封解包：execute 返回 { content: [{ type: 'text', text: '<JSON>' }] }，
+        // 分组数据在 content 的 text 字段中，需二次解析才能拿到 groups
+        if (resultData && !resultData.groups && Array.isArray(resultData.content)) {
+          const textBlock = resultData.content.find(
+            block => block && block.type === 'text' && typeof block.text === 'string'
+          );
+          if (textBlock) {
+            resultData = JSON.parse(textBlock.text);
+          }
+        }
         if (resultData && resultData.groups && resultData.groups.length > 0) {
           const tabGroupCard = renderTabGroupCard(resultData);
           if (tabGroupCard) {
