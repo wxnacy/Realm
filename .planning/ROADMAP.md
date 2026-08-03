@@ -178,7 +178,22 @@ Plans:
   4. 用户在 AI 聊天中输入"整理标签页"，AI 按主题或域名智能分组当前所有标签页并展示分组建议
   5. 用户确认分组建议后，标签页按分组重新排列，视觉上清晰区分不同组
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+**Wave 1** (no dependencies)
+
+- [ ] 25-01-PLAN.md — 脚本生成后端：generate_script AI 工具 + 静态分析验证
+- [ ] 25-02-PLAN.md — 脚本预览卡片 UI：步骤列表、拖拽排序、内联编辑
+
+**Wave 2** (depends on Wave 1)
+
+- [ ] 25-03-PLAN.md — 脚本执行引擎：逐步执行 + 实时状态反馈 + IPC 通信
+
+**Wave 3** (depends on Wave 1)
+
+- [ ] 25-04-PLAN.md — 标签分组 AI 工具：suggest_tab_groups 注册
+- [ ] 25-05-PLAN.md — 标签分组 UI：建议卡片 + 编辑 + 标签栏重排
+
 **UI hint**: yes
 
 ## Progress
@@ -212,4 +227,4 @@ Phases execute in numeric order: 22 → 23 → 24 → 25
 | 22. CDP 管理器扩展 + 基础网页操控工具 | v2.1 | 5/5 | Complete    | 2026-08-02 |
 | 23. 智能上下文引用 + 全文检索 | v2.1 | 2/2 | Complete    | 2026-08-02 |
 | 24. 任务自主执行 | v2.1 | 4/4 | Complete    | 2026-08-02 |
-| 25. 脚本生成 + 智能标签整理 | v2.1 | 0/TBD | Not started | - |
+| 25. 脚本生成 + 智能标签整理 | v2.1 | 0/5 | Not started | - |
