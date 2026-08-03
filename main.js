@@ -104,6 +104,12 @@ function requestActionConfirmation(actionData) {
       if (pendingActions.has(actionId)) {
         pendingActions.delete(actionId);
         console.log(`[Realm] 操作确认超时，自动取消: ${actionId}`);
+        // 主动过期渲染端确认卡片，避免用户点击已无效应的 pending 卡片
+        mainWindow.webContents.send('action:settle', {
+          actionId,
+          state: 'cancelled',
+          message: '操作确认超时，已自动取消',
+        });
         resolve({ confirmed: false, reason: 'timeout' });
       }
     }, 30000);
@@ -1733,6 +1739,9 @@ app.whenReady().then(async () => {
 
   // 初始化 AI Manager（per Phase 19）
   aiManager = new AIManager();
+  // 注入操作确认通道（pendingActions 方案）：ai-manager 的高风险操作确认
+  // 统一走本模块的 requestActionConfirmation，与渲染端 action:confirm/cancel 对接
+  AIManager.setActionConfirmationHandler(requestActionConfirmation);
   aiManager.init(configStore).then(() => {
     // 初始化完成后注入 IPC 处理器，使 AI IPC 通道可正常工作
     setAIManager(aiManager);

@@ -807,14 +807,23 @@ function _buildFindElementScript(target) {
   var target = '${escaped}';
 
   // 1. 文本内容匹配（可点击元素优先）
+  // input 按钮的显示文本在 value 属性而非 textContent（如 <input type=submit value="Sign in">）
+  // 两遍匹配：先精确后包含，避免 "Sign in" 命中 "Sign in with a passkey" 这类包含误配
   var clickables = document.querySelectorAll('button, a, [role="button"], input[type="submit"], input[type="button"], [onclick], [tabindex]');
-  for (var i = 0; i < clickables.length; i++) {
-    var el = clickables[i];
-    if (el.textContent && el.textContent.trim().includes(target)) return el;
+  var i, el, text;
+  for (i = 0; i < clickables.length; i++) {
+    el = clickables[i];
+    text = (el.tagName === 'INPUT' ? (el.value || '') : (el.textContent || '')).trim();
+    if (text && text === target) return el;
+  }
+  for (i = 0; i < clickables.length; i++) {
+    el = clickables[i];
+    text = (el.tagName === 'INPUT' ? (el.value || '') : (el.textContent || '')).trim();
+    if (text && text.includes(target)) return el;
   }
 
-  // 2. aria-label / title / placeholder 匹配
-  var byAria = document.querySelector('[aria-label*="' + target + '"], [title*="' + target + '"], [placeholder*="' + target + '"]');
+  // 2. aria-label / title / placeholder / name 匹配
+  var byAria = document.querySelector('[aria-label*="' + target + '"], [title*="' + target + '"], [placeholder*="' + target + '"], [name="' + target + '"]');
   if (byAria) return byAria;
 
   // 3. label 文本匹配（复用表单字段查找链）
@@ -935,7 +944,9 @@ async function fillForm(webContentsId, fields) {
   let captchaDetected = false;
   let captchaType = null;
 
-  const attachResult = await attachForAI(webContentsId, ['Runtime', 'DOM', 'Input']);
+  // 注意：不要启用 Input 域 —— Input.enable 已在 Chromium 128+ 移除，
+  // 而 Input.insertText/dispatch* 等命令本就无需 enable 即可调用。
+  const attachResult = await attachForAI(webContentsId, ['Runtime', 'DOM']);
   if (!attachResult.success) {
     return {
       success: false,
@@ -943,6 +954,12 @@ async function fillForm(webContentsId, fields) {
       failed: fields.map(f => ({ field: f.field, error: attachResult.error })),
     };
   }
+
+  // Input.insertText 走真实输入管线，要求 webview 持有键盘焦点，
+  // 否则文本会被静默丢弃（用户在 AI 面板输入时 webview 无焦点）。
+  // wc.focus() 等价于用户点击 webview 区域。
+  const wc = webContents.fromId(webContentsId);
+  if (wc && !wc.isDestroyed()) wc.focus();
 
   try {
     for (const fieldDef of fields) {
@@ -1086,10 +1103,22 @@ async function fillForm(webContentsId, fields) {
             failed.push({ field, error: '无法获取文件输入元素节点' });
           }
         } else if (elInfo?.isContentEditable) {
-          // contenteditable 元素（D-03）：先 focus 再 Input.insertText
-          await executeCommand(webContentsId, 'DOM.focus', { objectId });
-          await executeCommand(webContentsId, 'Input.insertText', { text: value || '' });
-          filled.push(field);
+          // contenteditable 元素（D-03）：先 focus 回验再 Input.insertText
+          // （焦点未落位时 insertText 会打进上一个聚焦元素，与普通 input 同理）
+          const ceFocusCheck = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+            objectId,
+            functionDeclaration: `function() {
+              this.focus();
+              return document.activeElement === this;
+            }`,
+            returnByValue: true,
+          });
+          if (ceFocusCheck.success && ceFocusCheck.result?.result?.value === true) {
+            await executeCommand(webContentsId, 'Input.insertText', { text: value || '' });
+            filled.push(field);
+          } else {
+            failed.push({ field, error: '无法聚焦到目标元素' });
+          }
         } else if (elInfo?.isSelect) {
           // select 元素：设置 selectedIndex 或 value
           const selectResult = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
@@ -1148,20 +1177,70 @@ async function fillForm(webContentsId, fields) {
           });
           filled.push(field);
         } else {
-          // 普通 input/textarea（D-03）：设置 value + 触发事件
-          await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+          // 普通 input/textarea（D-03）
+          // Input.insertText 永远打进"当前键盘焦点元素"——DOM.focus 不保证焦点
+          // 真正落位（webview 刚被 wc.focus 抢焦、页面脚本抢焦等），失效时会把
+          // 文本打进上一个聚焦字段（串字，如邮箱框变成 email+password）。
+          // 因此：先 this.focus() 并回验 document.activeElement，验证不过绝不
+          // insertText，回退到原生 setter + 完整事件序列（不依赖焦点路由）。
+          const focusCheck = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
             objectId,
-            functionDeclaration: `function(val) {
+            functionDeclaration: `function() {
               this.focus();
-              this.value = val;
-              this.dispatchEvent(new Event('input', { bubbles: true }));
-              this.dispatchEvent(new Event('change', { bubbles: true }));
-              this.dispatchEvent(new Event('blur', { bubbles: true }));
+              return document.activeElement === this;
             }`,
-            arguments: [value || ''],
             returnByValue: true,
           });
-          filled.push(field);
+          const focusOk = focusCheck.success && focusCheck.result?.result?.value === true;
+
+          let wrote = false;
+          if (focusOk) {
+            // 全选已有内容，insertText 替换选区（真实输入管线，框架均识别）
+            await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+              objectId,
+              functionDeclaration: `function() { if (this.select) { this.select(); } }`,
+              returnByValue: true,
+            });
+            const insertResult = await executeCommand(webContentsId, 'Input.insertText', { text: value || '' });
+            wrote = insertResult.success === true;
+          }
+
+          if (!wrote) {
+            // 回退路径：原生 value setter + beforeinput/input/change 事件序列
+            // （不依赖键盘焦点；原生 setter 绕过 React 实例 tracker，事件让框架识别变更）
+            await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+              objectId,
+              functionDeclaration: `function(val) {
+                var proto = this.tagName === 'TEXTAREA'
+                  ? window.HTMLTextAreaElement.prototype
+                  : window.HTMLInputElement.prototype;
+                var desc = Object.getOwnPropertyDescriptor(proto, 'value');
+                if (desc && desc.set) {
+                  desc.set.call(this, val);
+                } else {
+                  this.value = val;
+                }
+                this.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, inputType: 'insertText', data: val }));
+                this.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: val }));
+                this.dispatchEvent(new Event('change', { bubbles: true }));
+              }`,
+              arguments: [value || ''],
+              returnByValue: true,
+            });
+          }
+
+          // 回读校验：确认值真实落入元素，杜绝 filled 虚报
+          const readback = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+            objectId,
+            functionDeclaration: `function() { return this.value; }`,
+            returnByValue: true,
+          });
+          const actual = readback.result?.result?.value;
+          if (readback.success && actual === (value || '')) {
+            filled.push(field);
+          } else {
+            failed.push({ field, error: `写入未生效（期望值 ${JSON.stringify(value || '')}，实际 ${JSON.stringify(actual)}）` });
+          }
         }
       } catch (fieldErr) {
         failed.push({ field, error: fieldErr.message || '填写失败' });
@@ -1204,13 +1283,15 @@ async function executeAction(webContentsId, action, target, options) {
     return { success: false, error: '操作类型不能为空' };
   }
 
-  // screenshot 和 wait_for_element 不需要 target
-  const noTargetActions = ['screenshot'];
+  // screenshot 和 execute_script 不需要 target
+  const noTargetActions = ['screenshot', 'execute_script'];
   if (!target && !noTargetActions.includes(action)) {
     return { success: false, error: '目标元素不能为空' };
   }
 
-  const attachResult = await attachForAI(webContentsId, ['Runtime', 'DOM', 'Input']);
+  // 注意：不要启用 Input 域 —— Input.enable 已在 Chromium 128+ 移除，
+  // 而 Input.insertText/dispatch* 等命令本就无需 enable 即可调用。
+  const attachResult = await attachForAI(webContentsId, ['Runtime', 'DOM']);
   if (!attachResult.success) {
     return { success: false, error: attachResult.error };
   }
@@ -1313,7 +1394,21 @@ async function executeAction(webContentsId, action, target, options) {
 
       case 'type': {
         const text = options?.text || '';
-        await executeCommand(webContentsId, 'DOM.focus', { objectId });
+        // Input.insertText 要求 webview 持有键盘焦点（同 fillForm 的 wc.focus 处理）
+        const wcForType = webContents.fromId(webContentsId);
+        if (wcForType && !wcForType.isDestroyed()) wcForType.focus();
+        // 焦点回验：未落位时 insertText 会打进上一个聚焦元素（串字）
+        const typeFocusCheck = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: `function() {
+            this.focus();
+            return document.activeElement === this;
+          }`,
+          returnByValue: true,
+        });
+        if (!typeFocusCheck.success || typeFocusCheck.result?.result?.value !== true) {
+          throw new Error('无法聚焦到目标元素');
+        }
         if (options?.clearFirst) {
           await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
             objectId,
@@ -1728,6 +1823,78 @@ async function detectCaptcha(webContentsId) {
   }
 }
 
+/**
+ * 检查 click 目标的元素类型（D-07 补漏，按用户决策改为类型判定）
+ *
+ * 语义/文字判定不可靠（"Sign in" 可能命中 passkey 按钮而非提交按钮），
+ * 改为纯元素类型判定：
+ * - isButton：按钮类元素（BUTTON / INPUT[submit|button|image|reset] / [role=button]）
+ *   —— 按钮点击可能触发任意不可逆行为，一律需确认
+ * - isSubmit：提交控件（input[submit|image]、form 内默认 type 的 button）且关联 form
+ *   —— 等价于表单提交
+ *
+ * 失败时 fail-open（均为 false）—— 与 CAPTCHA 预检"异常不阻塞"决策一致。
+ *
+ * @param {number} webContentsId - webContents ID
+ * @param {string} target - click 目标描述（文本或 CSS 选择器）
+ * @returns {Promise<{success: boolean, found?: boolean, isButton: boolean, isSubmit: boolean, description?: string, error?: string}>}
+ */
+async function inspectClickTarget(webContentsId, target) {
+  if (!target) return { success: false, isButton: false, isSubmit: false };
+
+  const attachResult = await attachForAI(webContentsId, ['Runtime']);
+  if (!attachResult.success) {
+    return { success: false, isButton: false, isSubmit: false, error: attachResult.error };
+  }
+
+  try {
+    const findScript = _buildFindElementScript(target);
+    const objResult = await _getElementObjectId(webContentsId, findScript);
+    if (!objResult.success || !objResult.result?.result?.objectId) {
+      return { success: true, found: false, isButton: false, isSubmit: false };
+    }
+
+    const inspectResult = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+      objectId: objResult.result.result.objectId,
+      functionDeclaration: `function() {
+        var tag = this.tagName || '';
+        var type = (this.getAttribute('type') || '').toLowerCase();
+        var role = (this.getAttribute('role') || '').toLowerCase();
+        var isButton =
+          tag === 'BUTTON' ||
+          (tag === 'INPUT' && ['submit', 'button', 'image', 'reset'].indexOf(type) !== -1) ||
+          role === 'button';
+        var isSubmitControl =
+          (tag === 'INPUT' && (type === 'submit' || type === 'image')) ||
+          (tag === 'BUTTON' && type !== 'button' && type !== 'reset');
+        var form = this.closest('form');
+        if (!form) {
+          var formId = this.getAttribute('form');
+          if (formId) form = document.getElementById(formId);
+        }
+        var text = tag === 'INPUT' ? (this.value || '') : (this.textContent || '');
+        return {
+          isButton: isButton,
+          isSubmit: isSubmitControl && !!form,
+          description: text.trim().slice(0, 50),
+        };
+      }`,
+      returnByValue: true,
+    });
+
+    const value = inspectResult.result?.result?.value || {};
+    return {
+      success: true,
+      found: true,
+      isButton: value.isButton === true,
+      isSubmit: value.isSubmit === true,
+      description: value.description || '',
+    };
+  } finally {
+    detachForAI(webContentsId);
+  }
+}
+
 // ==================== 模块导出 ====================
 
 module.exports = {
@@ -1752,4 +1919,5 @@ module.exports = {
   fillForm,
   executeAction,
   detectCaptcha,
+  inspectClickTarget,
 };

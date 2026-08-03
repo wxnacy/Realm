@@ -900,6 +900,19 @@ contextBridge.exposeInMainWorld('realmAPI', {
     ipcRenderer.on('action:request-confirmation', handler);
     return () => ipcRenderer.removeListener('action:request-confirmation', handler);
   },
+
+  /**
+   * 监听确认操作完结事件
+   * 主进程在操作执行完成（success/error）或超时取消（cancelled）时推送，
+   * 渲染进程据此将确认卡片从 executing/pending 推进到终态
+   * @param {Function} callback - 回调函数，参数为 { actionId, state, message }
+   * @returns {Function} 移除监听器的清理函数
+   */
+  onActionSettle: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('action:settle', handler);
+    return () => ipcRenderer.removeListener('action:settle', handler);
+  },
 });
 
 console.log('[Realm] Preload 脚本已加载');

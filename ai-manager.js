@@ -99,6 +99,9 @@ function sanitizeInput(params) {
 
   /**
    * 对单个字符串值执行消毒
+   * 注意：不做引号/反引号转义 —— 下游注入点（_buildFieldLookupScript 等）
+   * 各自负责 JS 字符串转义；execute_script 等内容作为 CDP 参数传递（非字符串
+   * 嵌入），转义只会破坏合法输入（如 CSS 选择器 input[type='submit']）。
    * @param {string} str - 原始字符串
    * @returns {string} 消毒后的字符串
    */
@@ -109,11 +112,6 @@ function sanitizeInput(params) {
     result = result.replace(/\x00/g, '');
     // 2. 移除 ${...} 模板字面量表达式
     result = result.replace(/\$\{[^}]*\}/g, '');
-    // 3. 转义反引号防止模板字符串注入
-    result = result.replace(/`/g, '\\`');
-    // 4. 转义单引号和双引号防止字符串逃逸
-    result = result.replace(/'/g, "\\'");
-    result = result.replace(/"/g, '\\"');
     return result;
   }
 
@@ -180,63 +178,47 @@ function validateScript(script) {
 /**
  * 请求高风险操作确认（per D-05/D-06/D-07）
  *
- * 通过 IPC 发送确认请求到渲染进程，在 AI 聊天面板内显示确认卡片。
- * 用户点击确认或取消后返回结果，30 秒超时自动取消。
+ * 委托给主进程注入的确认通道（main.js 的 pendingActions 方案，
+ * 与渲染端 actionConfirm/actionCancel → action:confirm/cancel IPC 对接）。
+ * 未注入时 fail-closed：确认通道未接线，拒绝执行高风险操作而非静默放行。
  *
  * @param {Object} data - 确认请求数据
  * @param {string} data.actionId - 操作唯一 ID
- * @param {string} data.type - 操作类型（submit/upload/execute_script/payment）
+ * @param {string} data.type - 操作类型（submit/upload/execute_script/payment/click）
  * @param {string} data.title - 确认卡片标题
  * @param {string} data.description - 确认卡片描述
  * @param {string} data.url - 目标页面 URL
  * @param {string} data.containerId - 容器 ID
- * @param {string} data.riskLevel - 风险等级（high/critical）
+ * @param {string} data.riskLevel - 风险等级（medium/high/critical）
  * @returns {Promise<{confirmed: boolean, reason?: string}>} 用户确认结果
  */
+/** @type {null | function(Object): Promise<{confirmed: boolean, reason?: string}>} */
+let _actionConfirmationHandler = null;
+
 function requestActionConfirmation(data) {
-  return new Promise((resolve) => {
-    const { ipcMain } = require('electron');
-    const actionId = data.actionId;
-    let resolved = false;
+  if (_actionConfirmationHandler) {
+    return _actionConfirmationHandler(data);
+  }
+  console.error('[Realm AI] 操作确认通道未注入，拒绝高风险操作');
+  return Promise.resolve({ confirmed: false, reason: 'no-handler' });
+}
 
-    // 30 秒超时自动取消
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        cleanup();
-        resolve({ confirmed: false, reason: 'timeout' });
-      }
-    }, 30000);
-
-    // 监听用户响应
-    const channel = `action:confirm-response:${actionId}`;
-    const handler = (event, response) => {
-      if (!resolved) {
-        resolved = true;
-        cleanup();
-        resolve({ confirmed: response.confirmed === true });
-      }
-    };
-
-    function cleanup() {
-      clearTimeout(timeout);
-      ipcMain.removeListener(channel, handler);
-    }
-
-    ipcMain.on(channel, handler);
-
-    // 发送确认请求到渲染进程
-    const mainWindow = windowManager.getMainWindow();
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('action:request-confirmation', data);
-    } else {
-      if (!resolved) {
-        resolved = true;
-        cleanup();
-        resolve({ confirmed: false, reason: 'no-window' });
-      }
-    }
-  });
+/**
+ * 通知渲染进程确认操作已完结（驱动确认卡片状态机到终态）
+ *
+ * 确认卡片在用户点击后停在 executing，需要执行侧在完成后推送终态
+ * （success/error）；超时取消由 main.js 推送 cancelled。
+ *
+ * @param {string|null} actionId - 操作唯一 ID（为空则跳过）
+ * @param {'success'|'error'|'cancelled'} state - 终态
+ * @param {string} [message] - 结果消息（error 时展示）
+ */
+function notifyActionSettled(actionId, state, message) {
+  if (!actionId) return;
+  const mainWindow = windowManager.getMainWindow();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('action:settle', { actionId, state, message });
+  }
 }
 
 // ==================== 常量 ====================
@@ -272,7 +254,9 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - 这些工具需要访问页面的调试器，如果提示"DevTools 已打开"，请让用户关闭开发者工具后重试
 - read_page_content 返回内容若包含截断标记，回复时明确告知用户内容已截断及原始长度
 - fill_form 的 field 参数支持 label 文本、placeholder、aria-label、name、id 或 CSS 选择器
-- execute_action 支持的操作类型：click、scroll、type、select、check、uncheck、focus、blur、submit、upload、drag、hover、keydown、keyup、execute_script、screenshot、wait_for_element
+- 用户常用口语化字段名（如"邮箱"、"用户名"、"密码"），而页面实际是英文 label（如 "Username or email address"）。调用 fill_form 前应先根据页面语境推断真实字段标识；若 fill_form 返回字段未找到，必须查看返回结果中的 availableFields 列表，挑出语义最接近的字段名立即重试（例如用户说"邮箱"，列表中有 "Username or email address"，就用它重试），不要直接报错放弃
+- 当 fill_form/execute_action 返回 cancelled（用户取消或确认超时）时，确认只能由用户在确认卡片上完成，不要口头二次询问"是否确认"。直接告知用户操作未执行的原因（已取消/确认超时），并按用户指示重新发起操作
+- execute_action 支持的操作类型：click、scroll、type、select、check、uncheck、focus、blur、submit、upload、drag、hover、keydown、keyup、execute_script、screenshot、wait_for_element（其中 screenshot、execute_script 无需 target）
 
 请用简洁、专业的语气回答用户问题。当需要执行操作时，使用提供的工具函数。`;
 
@@ -337,6 +321,14 @@ function resolveToolTargetTab(requestedTabId) {
  * 5. 创建 Agent 实例（绑定 systemPrompt、model、tools、streamFn）
  */
 class AIManager {
+  /**
+   * 注入主进程的操作确认处理函数（避免 ai-manager → main 循环依赖）
+   * @param {function(Object): Promise<{confirmed: boolean, reason?: string}>} fn - main.js 的 requestActionConfirmation
+   */
+  static setActionConfirmationHandler(fn) {
+    _actionConfirmationHandler = fn;
+  }
+
   constructor() {
     /** @type {Object|null} pi-ai Models 实例 */
     this.models = null;
@@ -1616,6 +1608,7 @@ ${content}
           }
 
           // 4. 风险评估（per D-07）：检查是否包含 file 类型字段
+          let uploadActionId = null;
           const hasFileField = fields.some(f => {
             const fieldLower = (f.field || '').toLowerCase();
             return fieldLower.includes('file') || fieldLower.includes('upload') ||
@@ -1649,10 +1642,17 @@ ${content}
                 details: { cancelled: true },
               };
             }
+            uploadActionId = actionId;
           }
 
           // 4. 调用 cdpManager.fillForm 执行填写
           const result = await cdpManager.fillForm(webContentsId, fields);
+
+          // 确认卡片终态推送（upload 场景）
+          if (uploadActionId) {
+            notifyActionSettled(uploadActionId, result.success ? 'success' : 'error',
+              result.success ? '表单填写完成' : (result.failed?.[0]?.error || '表单填写失败'));
+          }
 
           // 5. CAPTCHA 检测处理（per D-14/D-15）
           if (result.captchaDetected) {
@@ -1789,12 +1789,27 @@ ${content}
           const highRiskActions = ['submit', 'upload', 'execute_script'];
           let isHighRisk = highRiskActions.includes(action);
 
+          // click 语义升级（D-07 补漏，按用户决策改为元素类型判定）：
+          // click 目标是按钮类元素（button/input[submit|button|image|reset]/[role=button]）
+          // 一律需用户确认 —— 文字/语义判定不可靠，按钮可能触发任意不可逆行为
+          let clickIsSubmit = false;
+          let clickIsButton = false;
+          let clickButtonDesc = target || '';
+          if (!isHighRisk && action === 'click' && target) {
+            const inspection = await cdpManager.inspectClickTarget(webContentsId, target);
+            clickIsSubmit = inspection.isSubmit === true;
+            clickIsButton = inspection.isButton === true;
+            if (inspection.description) clickButtonDesc = inspection.description;
+            console.log(`[Realm AI] click 目标元素检查: "${target}" → isButton=${clickIsButton}, isSubmit=${clickIsSubmit} (found=${inspection.found ?? '?'}, desc="${clickButtonDesc}")`);
+            if (clickIsSubmit || clickIsButton) isHighRisk = true;
+          }
+
           // 支付检测逻辑：检查 target 或页面 URL 是否包含支付关键词
           const paymentKeywords = ['pay', 'payment', '付款', '支付', 'confirm order', 'place order', '下单', '结算'];
           let isPayment = false;
 
-          if (action === 'submit') {
-            const targetLower = (target || '').toLowerCase();
+          if (action === 'submit' || clickIsSubmit || clickIsButton) {
+            const targetLower = (clickButtonDesc || '').toLowerCase();
             const urlLower = (tab.url || '').toLowerCase();
             isPayment = paymentKeywords.some(kw =>
               targetLower.includes(kw) || urlLower.includes(kw)
@@ -1803,6 +1818,7 @@ ${content}
           }
 
           // 4. 高风险操作确认
+          let confirmedActionId = null;
           if (isHighRisk) {
             const actionId = `execute_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
             let confirmTitle, confirmDesc, riskLevel;
@@ -1811,10 +1827,16 @@ ${content}
               confirmTitle = '支付操作';
               confirmDesc = `确认在 ${tab.url} 执行支付？请仔细核对金额。`;
               riskLevel = 'critical';
-            } else if (action === 'submit') {
+            } else if (action === 'submit' || clickIsSubmit) {
               confirmTitle = '提交表单';
-              confirmDesc = `确认向 ${tab.url} 提交数据？此操作不可撤销。`;
+              confirmDesc = clickIsSubmit
+                ? `点击「${clickButtonDesc}」将向 ${tab.url} 提交数据，此操作不可撤销。`
+                : `确认向 ${tab.url} 提交数据？此操作不可撤销。`;
               riskLevel = 'high';
+            } else if (clickIsButton) {
+              confirmTitle = '点击按钮';
+              confirmDesc = `确认在 ${tab.url} 点击「${clickButtonDesc}」？按钮操作可能改变页面状态或触发不可逆行为。`;
+              riskLevel = 'medium';
             } else if (action === 'upload') {
               confirmTitle = '上传文件';
               confirmDesc = `确认向 ${tab.url} 上传文件？`;
@@ -1827,7 +1849,7 @@ ${content}
 
             const confirmation = await requestActionConfirmation({
               actionId,
-              type: isPayment ? 'payment' : action,
+              type: isPayment ? 'payment' : (clickIsSubmit ? 'submit' : (clickIsButton ? 'click' : action)),
               title: confirmTitle,
               description: confirmDesc,
               url: tab.url,
@@ -1848,6 +1870,7 @@ ${content}
                 details: { cancelled: true, action },
               };
             }
+            confirmedActionId = actionId;
           }
 
           // 5. execute_script 安全检查（per D-13/D-16）
@@ -1855,6 +1878,7 @@ ${content}
             const script = options?.script || options?.value || '';
             const validation = validateScript(script);
             if (!validation.safe) {
+              notifyActionSettled(confirmedActionId, 'error', `脚本安全检查未通过: ${validation.reason}`);
               return {
                 content: [{
                   type: 'text',
@@ -1872,6 +1896,10 @@ ${content}
 
           // 6. 调用 cdpManager.executeAction 执行操作
           const result = await cdpManager.executeAction(webContentsId, action, target, options);
+
+          // 确认卡片终态推送：用户点击后卡片停在 executing，需执行侧推送 success/error
+          notifyActionSettled(confirmedActionId, result.success ? 'success' : 'error',
+            result.success ? `${action} 操作执行成功` : (result.error || '操作执行失败'));
 
           // 7. 返回操作结果 + 页面变化信息（per D-12）
           return {

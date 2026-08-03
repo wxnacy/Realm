@@ -4356,11 +4356,15 @@ function getRiskLabel(level) {
  * @param {string} [actionData.containerName] - 容器名称
  * @param {string} [actionData.riskLevel] - 风险等级
  */
+/** 待决/进行中的确认卡片：actionId → card 元素（action:settle 推送终态时检索） */
+const actionCards = new Map();
+
 function renderConfirmationCard(actionData) {
   const card = document.createElement('div');
   card.className = 'action-confirm-card';
   card.dataset.actionId = actionData.actionId;
   card.dataset.state = 'pending';
+  actionCards.set(actionData.actionId, card);
 
   // 头部：图标 + 标题 + 风险标签
   const header = document.createElement('div');
@@ -4515,11 +4519,11 @@ function updateCardState(card, newState, result) {
     }
 
     case 'cancelled': {
-      // 隐藏按钮区域，显示取消状态
+      // 隐藏按钮区域，显示取消状态（含超时等原因说明）
       if (actions) actions.style.display = 'none';
       const status = document.createElement('div');
       status.className = 'action-confirm-status status-cancelled';
-      status.textContent = '已取消';
+      status.textContent = result || '已取消';
       card.appendChild(status);
       break;
     }
@@ -4622,6 +4626,16 @@ function initActionConfirmation() {
     console.log('[Realm Renderer] 收到操作确认请求:', data);
     renderConfirmationCard(data);
   });
+
+  // 操作完结推送：执行完成（success/error）或超时取消（cancelled）时推进卡片终态
+  if (window.realmAPI.onActionSettle) {
+    window.realmAPI.onActionSettle((data) => {
+      const card = actionCards.get(data.actionId);
+      if (!card) return;
+      updateCardState(card, data.state, data.message);
+      actionCards.delete(data.actionId);
+    });
+  }
 }
 
 /**
