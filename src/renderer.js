@@ -5769,8 +5769,10 @@ function initTabReorderListener() {
 /**
  * 处理标签栏重排
  *
- * 按照主进程推送的新顺序重排标签栏 DOM 元素，
+ * 按照主进程推送的新顺序，在 #tabList 内重排 .tab DOM 元素，
  * 并在分组之间插入视觉分隔线。
+ * 注意：必须在 #tabList 内操作，tab 的点击/右键事件委托绑定在 tabList 上，
+ * 若移到 #tabBar 下会脱离委托导致点击失效。
  *
  * @param {Object} data - 重排数据
  * @param {Array<{name: string, tabIds: string[]}>} data.groups - 分组数组
@@ -5778,15 +5780,15 @@ function initTabReorderListener() {
  */
 function handleTabReordered(data) {
   const { groups, flatOrder } = data;
-  const tabBar = elements.tabBar;
-  if (!tabBar) return;
+  const tabList = elements.tabList;
+  if (!tabList) return;
 
   // 移除已有的分组分隔线
-  tabBar.querySelectorAll('.tab-group-divider-line').forEach(el => el.remove());
+  tabList.querySelectorAll('.tab-group-divider-line').forEach(el => el.remove());
 
   // 按新顺序重排标签页 DOM
   const tabElements = new Map();
-  tabBar.querySelectorAll('.tab').forEach(el => {
+  tabList.querySelectorAll('.tab').forEach(el => {
     tabElements.set(el.dataset.tabId, el);
   });
 
@@ -5794,7 +5796,7 @@ function handleTabReordered(data) {
   flatOrder.forEach(tabId => {
     const el = tabElements.get(tabId);
     if (el) {
-      tabBar.appendChild(el);
+      tabList.appendChild(el);
     }
   });
 
@@ -5808,9 +5810,9 @@ function handleTabReordered(data) {
       dividerLine.className = 'tab-group-divider-line';
       const targetTab = tabElements.get(flatOrder[offset]);
       if (targetTab) {
-        tabBar.insertBefore(dividerLine, targetTab);
+        tabList.insertBefore(dividerLine, targetTab);
       } else {
-        tabBar.appendChild(dividerLine);
+        tabList.appendChild(dividerLine);
       }
     }
   }
