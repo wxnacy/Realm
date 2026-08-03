@@ -420,6 +420,7 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - execute_action: 在当前页面执行操作（点击、滚动、提交等）。参数格式为 action + target + options。低风险操作自动执行，表单提交、文件上传、脚本执行、支付操作需要用户确认。执行前会自动检测 CAPTCHA/2FA 验证码，检测到时暂停并提示用户手动完成验证。
 - generate_script: 根据自然语言描述生成可执行的自动化脚本。脚本由步骤序列组成，每个步骤复用 execute_action 的操作能力（click/type/scroll/wait 等）。生成的脚本会经过安全验证，包含危险操作的脚本会被拦截。
 - suggest_tab_groups: 分析当前标签页并生成智能分组建议。支持按域名、语义或混合策略分组。当用户说"整理标签页"、"帮我分组标签页"、"归类标签页"时使用此工具。
+- apply_tab_groups: 提交结构化的标签分组结果。完成语义分组后必须调用此工具提交分组，分组会以卡片形式展示给用户确认，用户点击「应用分组」后标签页才会实际重排。
 
 使用指南：
 - 当用户询问"当前页面是什么"、"读取页面内容"等，使用 read_page_content
@@ -440,7 +441,8 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - 当用户描述一个自动化任务（如"每天早上打开新闻网站"、"帮我自动填写这个表单"、"生成一个脚本做 XXX"）时，使用 generate_script
 - generate_script 的步骤格式为 {action, target, options, waitFor}，action 仅支持 navigate/click/type/scroll/wait/select/check/uncheck/focus/blur/submit/keydown/keyup
 - generate_script 返回的脚本会在聊天中渲染为预览卡片，用户可以编辑每个步骤后再执行
-- 当用户要求整理标签页、分组标签页时，使用 suggest_tab_groups。默认使用 semantic 策略；用户要求按域名分组时使用 domain 策略
+- 当用户要求整理标签页、分组标签页时，使用 suggest_tab_groups 分析标签页。默认使用 semantic 策略；用户要求按域名分组时使用 domain 策略。若返回的是待分组标签数据而非分组结果（semantic/mixed 策略），完成分组后必须调用 apply_tab_groups 提交结构化分组（groups 数组，每组 { name, tabs: [{ id }] }，id 取自返回的 tabs 数据），分组卡片会展示给用户确认
+- 你不需要也不能直接移动标签页——实际重排由用户在分组卡片上点击「应用分组」后执行，你的职责是完成分组并调用 apply_tab_groups 提交，不要认为或声称自己没有整理标签页的权限
 
 请用简洁、专业的语气回答用户问题。当需要执行操作时，使用提供的工具函数。`;
 
@@ -2310,7 +2312,7 @@ ${content}
                 type: 'text',
                 text: JSON.stringify({
                   tabs: tabData,
-                  message: '请根据以下标签页的标题和 URL 进行语义分组。按主题（如新闻、社交媒体、工作、开发工具、购物等）对标签页进行归类，每组给一个简短的中文组名。',
+                  message: '请根据以下标签页的标题和 URL 进行语义分组。按主题（如新闻、社交媒体、工作、开发工具、购物等）对标签页进行归类，每组给一个简短的中文组名。完成分组后必须调用 apply_tab_groups 工具提交结构化结果（groups 数组，每组 { name, tabs: [{ id }] }，id 取自上面的 tabs 数据），提交后会渲染卡片给用户确认，未经 apply_tab_groups 提交的分组不会生效。',
                 }, null, 2),
               }],
               details: { totalTabs: tabData.length, groupCount: 0, strategy },
@@ -2351,13 +2353,136 @@ ${content}
               text: JSON.stringify({
                 stableGroups,
                 refineableGroups,
-                message: '以下按域名分组的标签页中，stableGroups 已按域名归类无需调整；refineableGroups 中每个域名组包含 3 个以上标签页，请根据标题和 URL 语义进一步细分为更小的主题组。',
+                message: '以下按域名分组的标签页中，stableGroups 已按域名归类无需调整；refineableGroups 中每个域名组包含 3 个以上标签页，请根据标题和 URL 语义进一步细分为更小的主题组。细分完成后将 stableGroups 与细分结果合并为最终分组，并调用 apply_tab_groups 工具提交（groups 数组，每组 { name, tabs: [{ id }] }，id 取自上面的 tabs 数据），提交后会渲染卡片给用户确认，未经 apply_tab_groups 提交的分组不会生效。',
               }, null, 2),
             }],
             details: {
               totalTabs: tabData.length,
               groupCount: stableGroups.length + refineableGroups.length,
               strategy,
+            },
+          };
+        },
+      },
+
+      // ==================== apply_tab_groups 工具 ====================
+      /**
+       * 应用标签分组工具
+       *
+       * AI 完成语义分组（suggest_tab_groups 的 semantic/mixed 策略）后，
+       * 通过本工具提交结构化分组结果。分组将以卡片形式展示给用户确认，
+       * 用户点击「应用分组」后标签页才会实际重排（渲染端 tab:reorder IPC）。
+       *
+       * 防幻觉校验：AI 提交的 tab id 必须存在于 tabManager.getTabs() 权威列表，
+       * 不存在的 id 丢弃并记录 droppedTabIds；tab 元数据以主进程权威数据重建，
+       * 不信 AI 提交值（per T-25-12）。
+       */
+      {
+        name: 'apply_tab_groups',
+        label: '应用标签分组',
+        description: '提交语义分组后的结构化分组结果。分组将以卡片形式展示给用户确认，用户点击「应用分组」后标签页才会实际重排',
+        parameters: {
+          type: 'object',
+          properties: {
+            groups: {
+              type: 'array',
+              description: '分组数组，每项为 { name: 组名（必填）, tabs: 标签页对象数组（每项至少含 id: 标签页 id） }',
+              items: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string', description: '组名' },
+                  tabs: {
+                    type: 'array',
+                    description: '组内标签页，每项至少含 id 字段（取自 suggest_tab_groups 返回的 tabs 数据）',
+                    items: { type: 'object' },
+                  },
+                },
+                required: ['name', 'tabs'],
+              },
+            },
+          },
+          required: ['groups'],
+        },
+        execute: async (toolCallId, params) => {
+          const sanitized = sanitizeInput(params) || {};
+          const { groups } = sanitized;
+
+          // 基础校验：groups 必须是非空数组，每项必须有非空 name 和 tabs 数组
+          if (!Array.isArray(groups) || groups.length === 0
+            || groups.some(g => !g || typeof g.name !== 'string' || !g.name.trim() || !Array.isArray(g.tabs))) {
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  error: '参数不合法：groups 必须是非空数组，每项需包含非空 name 和 tabs 数组。请按 { groups: [{ name, tabs: [{ id }] }] } 格式重试。',
+                }, null, 2),
+              }],
+              details: { totalTabs: 0, groupCount: 0, droppedTabIds: [], droppedGroups: 0 },
+            };
+          }
+
+          // 权威标签列表：构建有效 tab id 集合和 id → tab 数据映射
+          const allTabs = tabManager.getTabs() || [];
+          const validTabIds = new Set(allTabs.map(tab => tab.id));
+          const tabById = new Map(allTabs.map(tab => [tab.id, tab]));
+
+          // 逐组清洗：丢弃幻觉 id，以权威数据重建 tab 条目
+          const droppedTabIds = [];
+          let droppedGroups = 0;
+          const normalizedGroups = [];
+          for (const group of groups) {
+            const validTabs = [];
+            for (const entry of group.tabs) {
+              const id = entry && typeof entry.id === 'string' ? entry.id : null;
+              if (!id || !validTabIds.has(id)) {
+                if (id) droppedTabIds.push(id);
+                continue;
+              }
+              const tab = tabById.get(id);
+              validTabs.push({
+                id: tab.id,
+                title: tab.title || '(无标题)',
+                url: tab.url || '',
+                containerId: tab.containerId,
+                faviconUrl: tab.faviconUrl || '',
+                pinned: Boolean(tab.pinned),
+              });
+            }
+            if (validTabs.length === 0) {
+              droppedGroups += 1;
+              continue;
+            }
+            normalizedGroups.push({ name: group.name.trim(), tabs: validTabs });
+          }
+
+          // 全部无效：返回错误说明，不抛出异常中断对话
+          if (normalizedGroups.length === 0) {
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  groups: [],
+                  message: '所有提交的 tab id 均无效，分组未提交。请先调用 get_tabs 核对当前标签页 id 后重试。',
+                }, null, 2),
+              }],
+              details: { totalTabs: 0, groupCount: 0, droppedTabIds, droppedGroups },
+            };
+          }
+
+          const totalTabs = normalizedGroups.reduce((sum, g) => sum + g.tabs.length, 0);
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                groups: normalizedGroups,
+                message: '分组已提交，将以卡片形式展示给用户确认，用户点击「应用分组」后标签页才会实际重排。请告知用户分组已就绪，等待用户确认。',
+              }, null, 2),
+            }],
+            details: {
+              totalTabs,
+              groupCount: normalizedGroups.length,
+              droppedTabIds,
+              droppedGroups,
             },
           };
         },
