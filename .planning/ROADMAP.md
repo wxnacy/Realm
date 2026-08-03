@@ -73,7 +73,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 - [x] **Phase 22: CDP 管理器扩展 + 基础网页操控工具** - 独立 CDP 管理器 + read_page_content + extract_links + open_link (completed 2026-08-02)
 - [x] **Phase 23: 智能上下文引用 + 全文检索** - @ 引用标签页上下文 + FTS5 全文检索收藏 (completed 2026-08-02)
 - [x] **Phase 24: 任务自主执行** - 自动化填表 + 自动化操作 + 操作确认 + 安全防护 (completed 2026-08-02)
-- [x] **Phase 25: 脚本生成 + 智能标签整理** - 一句话生成脚本 + AI 自动标签分组 (completed 2026-08-03)
+- [ ] **Phase 25: 脚本生成 + 智能标签整理** - 一句话生成脚本 + AI 自动标签分组 (gaps found 2026-08-03：脚本半边 SC#1/2/3 未达成——预览 UI 不可达 + script:execute 绕过白名单，详见 25-VERIFICATION.md；待 /gsd-plan-phase 25 --gaps)
 
 ## Phase Details
 

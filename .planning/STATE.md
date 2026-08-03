@@ -28,10 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-03)
 
 ## Current Position
 
-Phase: 25 (script-tab) — EXECUTING
-Plan: 2 of 6
-Status: Ready to execute
-Last activity: 2026-08-03 — Phase 25 execution started
+Phase: 25 (script-tab) — VERIFY: gaps_found
+Plan: 6 of 6 executed (25-06 gap closure 完成，G-25-23 关闭，UAT 双路径批准)
+Status: Pending — 脚本半边 SC#1/2/3 未达成（预览 UI 不可达、script:execute 绕过白名单），用户决定暂缓修复
+Next: /gsd-plan-phase 25 --gaps
+Last activity: 2026-08-03 — 25-06 完成 + 阶段复验 gaps_found（详见 25-VERIFICATION.md）
 
 Progress: [████████████████████] 16/16 plans ([██████████] 100%)
 
