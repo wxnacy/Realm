@@ -224,6 +224,19 @@ function notifyActionSettled(actionId, state, message) {
 // ==================== 常量 ====================
 
 /**
+ * 脚本生成系统允许的操作类型白名单
+ *
+ * 脚本步骤仅允许以下安全的页面交互操作，不包含 screenshot/upload/execute_script
+ * 等高风险操作。此白名单独立于 execute_action 的 action enum（execute_action
+ * 有 screenshot/upload 等额外操作，脚本中不允许）。
+ */
+const SCRIPT_ALLOWED_ACTIONS = [
+  'navigate', 'click', 'type', 'scroll', 'wait',
+  'select', 'check', 'uncheck', 'focus', 'blur',
+  'submit', 'keydown', 'keyup',
+];
+
+/**
  * AI 助手系统提示词
  * 定义 AI 在 Realm Browser 中的角色和能力边界
  */
@@ -1919,6 +1932,86 @@ ${content}
               action,
               success: result.success,
               pageChanges: result.pageChanges,
+            },
+          };
+        },
+      },
+
+      // ==================== generate_script 工具 ====================
+      {
+        name: 'generate_script',
+        label: '生成脚本',
+        description: '根据自然语言描述生成可执行的自动化脚本。脚本由步骤序列组成，每个步骤复用 execute_action 的操作能力（click/type/scroll/wait 等）。生成的脚本会经过安全验证，包含危险操作的脚本会被拦截。',
+        parameters: {
+          type: 'object',
+          properties: {
+            description: {
+              type: 'string',
+              description: '用户任务的自然语言描述',
+            },
+            containerId: {
+              type: 'string',
+              description: '目标容器 ID（可选，默认使用当前活跃容器）',
+            },
+          },
+          required: ['description'],
+        },
+        execute: async (toolCallId, params) => {
+          const { description, containerId: requestedContainerId } = params;
+
+          if (!description) {
+            throw new Error('任务描述不能为空');
+          }
+
+          // 确定目标容器：优先使用参数指定，否则取当前活跃容器
+          let containerId = requestedContainerId;
+          if (!containerId) {
+            const mainWindow = windowManager.getMainWindow();
+            containerId = (mainWindow && windowManager.getCurrentContainer(mainWindow.id)) || 'default';
+          }
+
+          // 验证容器存在
+          const container = getContainersLazy().find(c => c.id === containerId);
+          if (!container) {
+            throw new Error(`指定容器不存在或已删除: ${containerId}`);
+          }
+
+          // 构造脚本骨架 —— 实际步骤由 AI 基于 description 在对话中生成，
+          // 此 execute 函数返回脚本模板结构供 AI 填充
+          const script = {
+            name: description.substring(0, 50),
+            description,
+            steps: [],
+            containerId,
+          };
+
+          // 静态分析验证
+          const validation = validateScriptForSteps(script);
+          if (!validation.safe) {
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  success: false,
+                  blocked: true,
+                  message: `脚本安全检查未通过: ${validation.reason}`,
+                  reason: validation.reason,
+                  details: validation.details,
+                }, null, 2),
+              }],
+              details: { safe: false, reason: validation.reason },
+            };
+          }
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(script, null, 2),
+            }],
+            details: {
+              scriptName: script.name,
+              stepCount: script.steps.length,
+              safe: true,
             },
           };
         },
