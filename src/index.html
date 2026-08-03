@@ -485,6 +485,32 @@
     </div>
   </template>
 
+  <!-- 标签分组建议卡片模板（AI 聊天中渲染分组建议时克隆使用） -->
+  <template id="tab-group-template">
+    <div class="tab-group-card">
+      <div class="tab-group-header">
+        <div class="tab-group-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+            <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+            <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+            <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+          </svg>
+        </div>
+        <div class="tab-group-info">
+          <div class="tab-group-title">标签分组建议</div>
+          <div class="tab-group-desc"></div>
+        </div>
+        <div class="tab-group-actions">
+          <button class="action-confirm-btn action-confirm-btn-cancel tab-group-cancel-btn">取消</button>
+          <button class="action-confirm-btn action-confirm-btn-confirm tab-group-apply-btn">应用分组</button>
+        </div>
+      </div>
+      <div class="tab-groups-list"></div>
+      <button class="tab-group-add-btn">+ 添加分组</button>
+    </div>
+  </template>
+
   <!-- 脚本必须放在所有 DOM 之后：renderer.js 顶层 elements 对象在脚本解析时即执行 getElementById -->
   <script src="bookmarks-bar-menu.js"></script>
   <script src="bookmarks-bar.js"></script>

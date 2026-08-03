@@ -3898,6 +3898,11 @@ function renderToolCard(toolExecution) {
  * 渲染指定消息的所有工具卡片
  * 清空并重新渲染该消息中的所有工具执行卡片
  * 多工具调用纵向堆叠，间距 8px
+ *
+ * 特殊工具卡片处理：
+ * - suggest_tab_groups: 渲染标签分组建议卡片（renderTabGroupCard）
+ * - generate_script: 渲染脚本预览卡片（renderScriptPreviewCard）
+ *
  * @param {string} messageId - 消息 ID
  */
 function renderToolCards(messageId) {
@@ -3918,6 +3923,24 @@ function renderToolCards(messageId) {
   // 清空并重新渲染
   container.innerHTML = '';
   msg.toolExecutions.forEach(toolExec => {
+    // 特殊工具卡片：suggest_tab_groups 完成后渲染分组建议卡片
+    if (toolExec.name === 'suggest_tab_groups' && toolExec.status === 'completed' && toolExec.result) {
+      try {
+        const resultData = typeof toolExec.result === 'string'
+          ? JSON.parse(toolExec.result)
+          : toolExec.result;
+        if (resultData && resultData.groups && resultData.groups.length > 0) {
+          const tabGroupCard = renderTabGroupCard(resultData);
+          if (tabGroupCard) {
+            container.appendChild(tabGroupCard);
+            return;
+          }
+        }
+      } catch (err) {
+        console.error('[Realm Renderer] 解析 suggest_tab_groups 结果失败:', err.message);
+      }
+    }
+    // 默认工具卡片
     container.appendChild(renderToolCard(toolExec));
   });
 }
@@ -4763,6 +4786,398 @@ function renderScriptPreviewCard(script) {
   }
 
   return card;
+}
+
+// ==================== 标签分组建议卡片 ====================
+
+/**
+ * 渲染标签分组建议卡片
+ *
+ * 克隆 tab-group-template 模板，填充分组数据和标签页列表，
+ * 绑定应用分组、取消、添加分组按钮事件。
+ *
+ * @param {Object} groupsData - 分组数据
+ * @param {Array<{name: string, tabs: Array}>} groupsData.groups - 分组数组
+ * @returns {HTMLElement} 渲染好的卡片 DOM 元素
+ */
+function renderTabGroupCard(groupsData) {
+  const template = document.getElementById('tab-group-template');
+  if (!template) {
+    console.error('[Realm Renderer] tab-group-template 未找到');
+    return null;
+  }
+
+  const fragment = template.content.cloneNode(true);
+  const card = fragment.querySelector('.tab-group-card');
+
+  // 计算总标签页数
+  const totalTabs = (groupsData.groups || []).reduce(
+    (sum, g) => sum + (g.tabs ? g.tabs.length : 0), 0
+  );
+
+  // 设置描述文本
+  const descEl = card.querySelector('.tab-group-desc');
+  if (descEl) {
+    descEl.textContent = `按主题智能分组 ${totalTabs} 个标签页`;
+  }
+
+  // 渲染分组列表
+  const groupsList = card.querySelector('.tab-groups-list');
+  if (groupsList && groupsData.groups) {
+    groupsData.groups.forEach((group, index) => {
+      // 分隔线（非第一个分组前）
+      if (index > 0) {
+        const divider = document.createElement('div');
+        divider.className = 'tab-group-divider';
+        groupsList.appendChild(divider);
+      }
+      const section = renderTabGroupSection(group, index, groupsList, card);
+      groupsList.appendChild(section);
+    });
+  }
+
+  // 绑定"应用分组"按钮
+  const applyBtn = card.querySelector('.tab-group-apply-btn');
+  if (applyBtn) {
+    applyBtn.addEventListener('click', () => {
+      // 收集当前分组数据
+      const currentGroups = collectTabGroupsFromDOM(groupsList);
+      if (!currentGroups || currentGroups.length === 0) return;
+
+      // 构建重排数据
+      const tabOrder = {
+        groups: currentGroups.map(g => ({
+          name: g.name,
+          tabIds: g.tabIds,
+        })),
+      };
+
+      // 禁用按钮防止重复操作
+      applyBtn.disabled = true;
+      applyBtn.textContent = '应用中...';
+
+      // 通过 IPC 发送到主进程执行重排
+      if (window.realmAPI && window.realmAPI.tabReorder) {
+        window.realmAPI.tabReorder(tabOrder).then(result => {
+          if (result.success) {
+            // 显示成功提示
+            showToast(`已整理 ${result.tabCount} 个标签到 ${result.groupCount} 个分组`, 'success');
+            // 移除卡片
+            const wrapper = card.closest('.ai-message');
+            if (wrapper) {
+              wrapper.style.transition = 'opacity 0.3s';
+              wrapper.style.opacity = '0';
+              setTimeout(() => wrapper.remove(), 300);
+            } else {
+              card.remove();
+            }
+          } else {
+            showToast(result.message || '应用分组失败', 'error');
+            applyBtn.disabled = false;
+            applyBtn.textContent = '应用分组';
+          }
+        }).catch(err => {
+          console.error('[Realm Renderer] 应用分组异常:', err.message);
+          showToast('应用分组失败: ' + err.message, 'error');
+          applyBtn.disabled = false;
+          applyBtn.textContent = '应用分组';
+        });
+      }
+    });
+  }
+
+  // 绑定"取消"按钮
+  const cancelBtn = card.querySelector('.tab-group-cancel-btn');
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => {
+      const wrapper = card.closest('.ai-message');
+      if (wrapper) {
+        wrapper.style.transition = 'opacity 0.3s';
+        wrapper.style.opacity = '0';
+        setTimeout(() => wrapper.remove(), 300);
+      } else {
+        card.remove();
+      }
+    });
+  }
+
+  // 绑定"+ 添加分组"按钮
+  const addGroupBtn = card.querySelector('.tab-group-add-btn');
+  if (addGroupBtn) {
+    addGroupBtn.addEventListener('click', () => {
+      const newGroup = { name: '新分组', tabs: [] };
+      const newIndex = groupsList.querySelectorAll('.tab-group-section').length;
+      // 添加分隔线
+      const divider = document.createElement('div');
+      divider.className = 'tab-group-divider';
+      groupsList.appendChild(divider);
+      // 添加新分组
+      const section = renderTabGroupSection(newGroup, newIndex, groupsList, card);
+      groupsList.appendChild(section);
+      // 自动聚焦分组名编辑
+      const nameEl = section.querySelector('.tab-group-name');
+      if (nameEl) {
+        nameEl.focus();
+        // 选中默认文本
+        const range = document.createRange();
+        range.selectNodeContents(nameEl);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    });
+  }
+
+  return card;
+}
+
+/**
+ * 渲染单个分组区域
+ *
+ * 创建分组头部（名称、数量、删除按钮）和标签页列表，
+ * 支持双击编辑分组名、跨分组拖拽标签页。
+ *
+ * @param {Object} group - 分组数据
+ * @param {string} group.name - 分组名称
+ * @param {Array} group.tabs - 标签页数组
+ * @param {number} groupIndex - 分组索引
+ * @param {HTMLElement} groupsList - 分组列表容器
+ * @param {HTMLElement} card - 卡片根元素
+ * @returns {HTMLElement} 分组区域 DOM 元素
+ */
+function renderTabGroupSection(group, groupIndex, groupsList, card) {
+  const section = document.createElement('div');
+  section.className = 'tab-group-section';
+  section.dataset.groupIndex = groupIndex;
+
+  // 分组头部
+  const header = document.createElement('div');
+  header.className = 'tab-group-section-header';
+
+  // 分组名称（contenteditable 双击可编辑）
+  const nameEl = document.createElement('span');
+  nameEl.className = 'tab-group-name';
+  nameEl.textContent = group.name || '未命名分组';
+  nameEl.contentEditable = true;
+  nameEl.spellcheck = false;
+  // 防止编辑分组名时触发拖拽或回车换行
+  nameEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      nameEl.blur();
+    }
+    e.stopPropagation();
+  });
+
+  // 标签数量
+  const countEl = document.createElement('span');
+  countEl.className = 'tab-group-count';
+  countEl.textContent = `${(group.tabs || []).length} 个标签`;
+
+  // 操作按钮（删除分组）
+  const actionsEl = document.createElement('span');
+  actionsEl.className = 'tab-group-section-actions';
+  const deleteBtn = document.createElement('button');
+  deleteBtn.textContent = '删除';
+  deleteBtn.addEventListener('click', () => {
+    // 删除分组：将组内标签移至最后一个分组或直接移除
+    const sections = groupsList.querySelectorAll('.tab-group-section');
+    if (sections.length <= 1) {
+      // 只剩一个分组，清空标签页
+      const items = section.querySelector('.tab-group-items');
+      if (items) items.innerHTML = '';
+      countEl.textContent = '0 个标签';
+      return;
+    }
+    // 移动标签到最后一个分组
+    const lastSection = sections[sections.length - 1];
+    const isLastSection = lastSection === section;
+    const targetSection = isLastSection ? sections[sections.length - 2] : lastSection;
+    const targetItems = targetSection.querySelector('.tab-group-items');
+    const currentItems = section.querySelectorAll('.tab-group-item');
+    currentItems.forEach(item => targetItems.appendChild(item));
+    // 更新目标分组数量
+    const targetCount = targetSection.querySelector('.tab-group-count');
+    if (targetCount) {
+      targetCount.textContent = `${targetItems.children.length} 个标签`;
+    }
+    // 移除分组和分隔线
+    const prevDivider = section.previousElementSibling;
+    if (prevDivider && prevDivider.classList.contains('tab-group-divider')) {
+      prevDivider.remove();
+    }
+    section.remove();
+  });
+  actionsEl.appendChild(deleteBtn);
+
+  header.appendChild(nameEl);
+  header.appendChild(countEl);
+  header.appendChild(actionsEl);
+
+  // 标签页列表
+  const items = document.createElement('div');
+  items.className = 'tab-group-items';
+  // 拖拽放置目标
+  items.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    items.classList.add('drag-over');
+  });
+  items.addEventListener('dragleave', () => {
+    items.classList.remove('drag-over');
+  });
+  items.addEventListener('drop', (e) => {
+    e.preventDefault();
+    items.classList.remove('drag-over');
+    const tabId = e.dataTransfer.getData('text/tab-id');
+    const sourceGroupIndex = e.dataTransfer.getData('text/source-group-index');
+    if (!tabId) return;
+
+    // 查找被拖拽的标签元素
+    const draggedEl = card.querySelector(`[data-tab-id="${tabId}"]`);
+    if (!draggedEl) return;
+
+    // 移动到目标分组
+    items.appendChild(draggedEl);
+
+    // 更新源分组和目标分组的计数
+    updateGroupCounts(groupsList);
+  });
+
+  // 渲染标签页
+  if (group.tabs) {
+    group.tabs.forEach(tab => {
+      items.appendChild(renderTabGroupItem(tab, groupIndex));
+    });
+  }
+
+  section.appendChild(header);
+  section.appendChild(items);
+
+  return section;
+}
+
+/**
+ * 渲染单个标签页项
+ *
+ * 显示容器颜色圆点、favicon、标题和 URL，支持拖拽操作。
+ *
+ * @param {Object} tab - 标签页数据
+ * @param {string} tab.id - 标签页 ID
+ * @param {string} tab.title - 标签页标题
+ * @param {string} tab.url - 标签页 URL
+ * @param {string} tab.containerId - 容器 ID
+ * @param {string} [tab.faviconUrl] - Favicon URL
+ * @param {number} groupIndex - 所属分组索引
+ * @returns {HTMLElement} 标签页项 DOM 元素
+ */
+function renderTabGroupItem(tab, groupIndex) {
+  const item = document.createElement('div');
+  item.className = 'tab-group-item';
+  item.draggable = true;
+  item.dataset.tabId = tab.id;
+  item.dataset.groupIndex = groupIndex;
+
+  // 拖拽事件
+  item.addEventListener('dragstart', (e) => {
+    e.dataTransfer.setData('text/tab-id', tab.id);
+    e.dataTransfer.setData('text/source-group-index', String(groupIndex));
+    e.dataTransfer.effectAllowed = 'move';
+    item.classList.add('dragging');
+  });
+  item.addEventListener('dragend', () => {
+    item.classList.remove('dragging');
+  });
+
+  // 容器颜色圆点
+  const colorDot = document.createElement('span');
+  colorDot.className = 'tab-item-color-dot';
+  colorDot.style.backgroundColor = getContainerColor(tab.containerId);
+
+  // Favicon
+  const favicon = document.createElement('span');
+  favicon.className = 'tab-item-favicon';
+  if (tab.faviconUrl) {
+    const img = document.createElement('img');
+    img.src = tab.faviconUrl;
+    img.onerror = () => {
+      // 加载失败时显示默认图标
+      img.remove();
+      favicon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>';
+    };
+    favicon.appendChild(img);
+  } else {
+    favicon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>';
+  }
+
+  // 标题
+  const title = document.createElement('span');
+  title.className = 'tab-item-title';
+  title.textContent = tab.title || '(无标题)';
+  title.title = tab.title || '';
+
+  // URL
+  const url = document.createElement('span');
+  url.className = 'tab-item-url';
+  try {
+    url.textContent = new URL(tab.url).hostname;
+  } catch {
+    url.textContent = tab.url || '';
+  }
+  url.title = tab.url || '';
+
+  item.appendChild(colorDot);
+  item.appendChild(favicon);
+  item.appendChild(title);
+  item.appendChild(url);
+
+  return item;
+}
+
+/**
+ * 从 DOM 收集当前分组数据
+ *
+ * 遍历分组列表 DOM，收集每个分组的名称和标签页 ID 列表。
+ *
+ * @param {HTMLElement} groupsList - 分组列表容器
+ * @returns {Array<{name: string, tabIds: string[]}>} 分组数据数组
+ */
+function collectTabGroupsFromDOM(groupsList) {
+  if (!groupsList) return [];
+
+  const sections = groupsList.querySelectorAll('.tab-group-section');
+  const groups = [];
+
+  sections.forEach(section => {
+    const nameEl = section.querySelector('.tab-group-name');
+    const items = section.querySelectorAll('.tab-group-item');
+    const tabIds = Array.from(items).map(item => item.dataset.tabId).filter(Boolean);
+
+    groups.push({
+      name: nameEl ? nameEl.textContent.trim() : '未命名分组',
+      tabIds,
+    });
+  });
+
+  return groups;
+}
+
+/**
+ * 更新所有分组的标签数量显示
+ *
+ * @param {HTMLElement} groupsList - 分组列表容器
+ */
+function updateGroupCounts(groupsList) {
+  if (!groupsList) return;
+
+  const sections = groupsList.querySelectorAll('.tab-group-section');
+  sections.forEach(section => {
+    const countEl = section.querySelector('.tab-group-count');
+    const items = section.querySelectorAll('.tab-group-item');
+    if (countEl) {
+      countEl.textContent = `${items.length} 个标签`;
+    }
+  });
 }
 
 /**
