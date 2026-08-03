@@ -4876,15 +4876,10 @@ function renderTabGroupCard(groupsData) {
           if (result.success) {
             // 显示成功提示
             showToast(`已整理 ${result.tabCount} 个标签到 ${result.groupCount} 个分组`, 'success');
-            // 移除卡片
-            const wrapper = card.closest('.ai-message');
-            if (wrapper) {
-              wrapper.style.transition = 'opacity 0.3s';
-              wrapper.style.opacity = '0';
-              setTimeout(() => wrapper.remove(), 300);
-            } else {
-              card.remove();
-            }
+            // 只淡出移除卡片本身，不能 closest('.ai-message') 删整条 AI 消息
+            card.style.transition = 'opacity 0.3s';
+            card.style.opacity = '0';
+            setTimeout(() => card.remove(), 300);
           } else {
             showToast(result.message || '应用分组失败', 'error');
             applyBtn.disabled = false;
@@ -4904,14 +4899,10 @@ function renderTabGroupCard(groupsData) {
   const cancelBtn = card.querySelector('.tab-group-cancel-btn');
   if (cancelBtn) {
     cancelBtn.addEventListener('click', () => {
-      const wrapper = card.closest('.ai-message');
-      if (wrapper) {
-        wrapper.style.transition = 'opacity 0.3s';
-        wrapper.style.opacity = '0';
-        setTimeout(() => wrapper.remove(), 300);
-      } else {
-        card.remove();
-      }
+      // 只淡出移除卡片本身，不能 closest('.ai-message') 删整条 AI 消息
+      card.style.transition = 'opacity 0.3s';
+      card.style.opacity = '0';
+      setTimeout(() => card.remove(), 300);
     });
   }
 
