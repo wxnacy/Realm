@@ -58,6 +58,7 @@ const frequentSitesManager = require('./frequent-sites-manager');
 const cdpManager = require('./cdp-manager');
 const devRequestsWriter = require('./dev-requests-writer');
 const AIManager = require('./ai-manager');
+const { executeScript, validateScriptForSteps } = require('./ai-manager');
 
 // AI Manager 实例（在 app.whenReady 中初始化，供后续 Phase 通过 require('./main').aiManager 访问）
 let aiManager = null;
@@ -1744,6 +1745,13 @@ app.whenReady().then(async () => {
       return { success: false, error: '脚本格式无效：缺少 steps 数组' };
     }
 
+    // 白名单静态分析（SCRIPT-03）
+    const validation = validateScriptForSteps(script);
+    if (!validation.safe) {
+      console.warn(`[Realm] 脚本安全检查未通过: ${validation.reason}`);
+      return { success: false, error: `脚本安全检查未通过: ${validation.reason}`, blocked: true };
+    }
+
     // 获取当前活跃标签页的 webContentsId
     const webContentsId = getActiveWebviewContentsId();
     if (!webContentsId) {
@@ -1753,7 +1761,6 @@ app.whenReady().then(async () => {
     // 创建新的中断控制器（每次执行独立）
     scriptAbortController = new AbortController();
 
-    const { executeScript } = require('./ai-manager');
     console.log(`[Realm] 开始执行脚本: ${script.name || '未命名'}，共 ${script.steps.length} 步`);
 
     const result = await executeScript(
