@@ -419,6 +419,7 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - fill_form: 自动填写网页表单。参数格式为 fields 数组，每个元素包含 field（字段名称）和 value（填写值）。低风险操作自动执行，文件上传需要用户确认。执行前会自动检测 CAPTCHA/2FA 验证码，检测到时暂停并提示用户手动完成验证。
 - execute_action: 在当前页面执行操作（点击、滚动、提交等）。参数格式为 action + target + options。低风险操作自动执行，表单提交、文件上传、脚本执行、支付操作需要用户确认。执行前会自动检测 CAPTCHA/2FA 验证码，检测到时暂停并提示用户手动完成验证。
 - generate_script: 根据自然语言描述生成可执行的自动化脚本。脚本由步骤序列组成，每个步骤复用 execute_action 的操作能力（click/type/scroll/wait 等）。生成的脚本会经过安全验证，包含危险操作的脚本会被拦截。
+- suggest_tab_groups: 分析当前标签页并生成智能分组建议。支持按域名、语义或混合策略分组。当用户说"整理标签页"、"帮我分组标签页"、"归类标签页"时使用此工具。
 
 使用指南：
 - 当用户询问"当前页面是什么"、"读取页面内容"等，使用 read_page_content
@@ -439,6 +440,7 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - 当用户描述一个自动化任务（如"每天早上打开新闻网站"、"帮我自动填写这个表单"、"生成一个脚本做 XXX"）时，使用 generate_script
 - generate_script 的步骤格式为 {action, target, options, waitFor}，action 仅支持 navigate/click/type/scroll/wait/select/check/uncheck/focus/blur/submit/keydown/keyup
 - generate_script 返回的脚本会在聊天中渲染为预览卡片，用户可以编辑每个步骤后再执行
+- 当用户要求整理标签页、分组标签页时，使用 suggest_tab_groups。默认使用 semantic 策略；用户要求按域名分组时使用 domain 策略
 
 请用简洁、专业的语气回答用户问题。当需要执行操作时，使用提供的工具函数。`;
 
@@ -2181,6 +2183,181 @@ ${content}
               scriptName: script.name,
               stepCount: script.steps.length,
               safe: true,
+            },
+          };
+        },
+      },
+
+      // ==================== suggest_tab_groups 工具 ====================
+      /**
+       * 标签分组建议工具
+       *
+       * 分析当前所有标签页并生成智能分组建议。
+       * 支持三种分组策略：
+       * - domain: 按 URL 域名分组（execute 函数内部完成）
+       * - semantic: AI 根据页面标题和 URL 进行语义分组（execute 返回原始数据供 AI 判断）
+       * - mixed: 先按域名分组，AI 可在此基础上进一步语义细分
+       *
+       * 基于 D-13~D-16 标签分组决策实现。
+       */
+      {
+        name: 'suggest_tab_groups',
+        label: '标签分组建议',
+        description: '分析当前标签页并生成智能分组建议，按主题或域名对标签页进行分组',
+        parameters: {
+          type: 'object',
+          properties: {
+            strategy: {
+              type: 'string',
+              description: '分组策略：domain（按域名分组）、semantic（按语义主题分组）、mixed（先按域名再语义细分）',
+              enum: ['domain', 'semantic', 'mixed'],
+            },
+            containerId: {
+              type: 'string',
+              description: '仅分析指定容器的标签页（可选，默认分析所有容器）',
+            },
+          },
+        },
+        execute: async (toolCallId, params) => {
+          const { strategy = 'semantic', containerId } = params || {};
+
+          // 获取当前所有标签页
+          const allTabs = tabManager.getTabs();
+
+          // 空标签页处理
+          if (!allTabs || allTabs.length === 0) {
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  groups: [],
+                  ungrouped: [],
+                  message: '当前没有打开的标签页',
+                }, null, 2),
+              }],
+              details: { totalTabs: 0, groupCount: 0, strategy },
+            };
+          }
+
+          // 按容器过滤（如果指定）
+          const tabs = containerId
+            ? allTabs.filter(tab => tab.containerId === containerId)
+            : allTabs;
+
+          if (tabs.length === 0) {
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  groups: [],
+                  ungrouped: [],
+                  message: `容器 ${containerId} 中没有打开的标签页`,
+                }, null, 2),
+              }],
+              details: { totalTabs: 0, groupCount: 0, strategy },
+            };
+          }
+
+          // 标准化标签页数据（仅保留分组所需字段）
+          const tabData = tabs.map(tab => ({
+            id: tab.id,
+            title: tab.title || '(无标题)',
+            url: tab.url || '',
+            containerId: tab.containerId,
+            faviconUrl: tab.faviconUrl || '',
+            pinned: Boolean(tab.pinned),
+          }));
+
+          // ==================== domain 策略：按 URL 域名分组 ====================
+          if (strategy === 'domain') {
+            const domainMap = new Map();
+            for (const tab of tabData) {
+              let hostname = '';
+              try {
+                hostname = new URL(tab.url).hostname;
+              } catch {
+                hostname = '(无效 URL)';
+              }
+              if (!domainMap.has(hostname)) {
+                domainMap.set(hostname, []);
+              }
+              domainMap.get(hostname).push(tab);
+            }
+
+            const groups = [];
+            for (const [hostname, groupTabs] of domainMap) {
+              groups.push({ name: hostname, tabs: groupTabs });
+            }
+
+            // 按组内标签页数量降序排列
+            groups.sort((a, b) => b.tabs.length - a.tabs.length);
+
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({ groups, ungrouped: [] }, null, 2),
+              }],
+              details: { totalTabs: tabData.length, groupCount: groups.length, strategy },
+            };
+          }
+
+          // ==================== semantic 策略：返回数据供 AI 语义分组 ====================
+          // execute 函数将标签页数据格式化后返回给 AI，
+          // AI 根据页面标题和 URL 语义进行分组判断。
+          if (strategy === 'semantic') {
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  tabs: tabData,
+                  message: '请根据以下标签页的标题和 URL 进行语义分组。按主题（如新闻、社交媒体、工作、开发工具、购物等）对标签页进行归类，每组给一个简短的中文组名。',
+                }, null, 2),
+              }],
+              details: { totalTabs: tabData.length, groupCount: 0, strategy },
+            };
+          }
+
+          // ==================== mixed 策略：域名分组 + AI 语义细分 ====================
+          // 先按域名分组，再对域名数量 >= 3 的组提供给 AI 进行语义细分
+          const domainMap = new Map();
+          for (const tab of tabData) {
+            let hostname = '';
+            try {
+              hostname = new URL(tab.url).hostname;
+            } catch {
+              hostname = '(无效 URL)';
+            }
+            if (!domainMap.has(hostname)) {
+              domainMap.set(hostname, []);
+            }
+            domainMap.get(hostname).push(tab);
+          }
+
+          // 将域名组分为「可细分」和「保持不变」两类
+          const stableGroups = [];  // 标签页数 < 3 的组，无需细分
+          const refineableGroups = [];  // 标签页数 >= 3 的组，可供 AI 细分
+
+          for (const [hostname, groupTabs] of domainMap) {
+            if (groupTabs.length >= 3) {
+              refineableGroups.push({ name: hostname, tabs: groupTabs });
+            } else {
+              stableGroups.push({ name: hostname, tabs: groupTabs });
+            }
+          }
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                stableGroups,
+                refineableGroups,
+                message: '以下按域名分组的标签页中，stableGroups 已按域名归类无需调整；refineableGroups 中每个域名组包含 3 个以上标签页，请根据标题和 URL 语义进一步细分为更小的主题组。',
+              }, null, 2),
+            }],
+            details: {
+              totalTabs: tabData.length,
+              groupCount: stableGroups.length + refineableGroups.length,
+              strategy,
             },
           };
         },
