@@ -3954,6 +3954,32 @@ function renderToolCards(messageId) {
         console.error('[Realm Renderer] 解析分组工具结果失败:', err.message);
       }
     }
+    // 特殊工具卡片：generate_script 完成后渲染脚本预览卡片
+    if (toolExec.name === 'generate_script' && toolExec.status === 'completed' && toolExec.result) {
+      try {
+        let resultData = typeof toolExec.result === 'string'
+          ? JSON.parse(toolExec.result)
+          : toolExec.result;
+        // 工具结果信封解包
+        if (resultData && !resultData.steps && Array.isArray(resultData.content)) {
+          const textBlock = resultData.content.find(
+            block => block && block.type === 'text' && typeof block.text === 'string'
+          );
+          if (textBlock) {
+            resultData = JSON.parse(textBlock.text);
+          }
+        }
+        if (resultData && Array.isArray(resultData.steps) && resultData.steps.length > 0) {
+          const scriptCard = renderScriptPreviewCard(resultData);
+          if (scriptCard) {
+            container.appendChild(scriptCard);
+            return;
+          }
+        }
+      } catch (err) {
+        console.error('[Realm Renderer] 解析脚本工具结果失败:', err.message);
+      }
+    }
     // 默认工具卡片
     container.appendChild(renderToolCard(toolExec));
   });
@@ -5268,57 +5294,65 @@ function handleStepUpdate(update) {
         numberEl.style.color = '#ef4444';
       }
 
-      // 添加错误信息和操作按钮面板
+      // 创建错误面板（使用 textContent 防止 XSS — CR-01 修复）
+      const errorMessage = document.createElement('div');
+      errorMessage.className = 'step-error-message';
+      errorMessage.textContent = error || '操作执行失败';
+
+      const errorActions = document.createElement('div');
+      errorActions.className = 'step-error-actions';
+
+      const retryBtn = document.createElement('button');
+      retryBtn.className = 'step-retry-btn';
+      retryBtn.textContent = '重试';
+
+      const skipBtn = document.createElement('button');
+      skipBtn.className = 'step-skip-btn';
+      skipBtn.textContent = '跳过';
+
+      const abortBtn = document.createElement('button');
+      abortBtn.className = 'step-abort-btn';
+      abortBtn.textContent = '终止';
+
+      errorActions.appendChild(retryBtn);
+      errorActions.appendChild(skipBtn);
+      errorActions.appendChild(abortBtn);
+
       const errorPanel = document.createElement('div');
       errorPanel.className = 'step-error-panel';
-      errorPanel.innerHTML = `
-        <div class="step-error-message">${error || '操作执行失败'}</div>
-        <div class="step-error-actions">
-          <button class="step-retry-btn">重试</button>
-          <button class="step-skip-btn">跳过</button>
-          <button class="step-abort-btn">终止</button>
-        </div>
-      `;
+      errorPanel.appendChild(errorMessage);
+      errorPanel.appendChild(errorActions);
 
       // 重试按钮：重新执行当前步骤
-      const retryBtn = errorPanel.querySelector('.step-retry-btn');
-      if (retryBtn) {
-        retryBtn.addEventListener('click', () => {
-          errorPanel.remove();
-          // 收集当前脚本数据并从失败步骤重新执行
-          if (targetStepsList) {
-            const card = targetStepsList.closest('.script-preview-card');
-            const executeBtn = card ? card.querySelector('.script-execute-btn') : null;
-            if (executeBtn) executeBtn.click();
-          }
-        });
-      }
+      retryBtn.addEventListener('click', () => {
+        errorPanel.remove();
+        // 收集当前脚本数据并从失败步骤重新执行
+        if (targetStepsList) {
+          const card = targetStepsList.closest('.script-preview-card');
+          const executeBtn = card ? card.querySelector('.script-execute-btn') : null;
+          if (executeBtn) executeBtn.click();
+        }
+      });
 
       // 跳过按钮：标记为已跳过，继续执行下一步
-      const skipBtn = errorPanel.querySelector('.step-skip-btn');
-      if (skipBtn) {
-        skipBtn.addEventListener('click', () => {
-          errorPanel.remove();
-          targetItem.classList.remove('step-error');
-          targetItem.classList.add('step-skipped');
-          const numEl = targetItem.querySelector('.step-number');
-          if (numEl) {
-            numEl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 4 12 12 4 20"></polyline><line x1="12" y1="4" x2="20" y2="20"></line></svg>';
-            numEl.style.color = '#6b7280';
-          }
-        });
-      }
+      skipBtn.addEventListener('click', () => {
+        errorPanel.remove();
+        targetItem.classList.remove('step-error');
+        targetItem.classList.add('step-skipped');
+        const numEl = targetItem.querySelector('.step-number');
+        if (numEl) {
+          numEl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 4 12 12 4 20"></polyline><line x1="12" y1="4" x2="20" y2="20"></line></svg>';
+          numEl.style.color = '#6b7280';
+        }
+      });
 
       // 终止按钮：调用 scriptStop 停止执行
-      const abortBtn = errorPanel.querySelector('.step-abort-btn');
-      if (abortBtn) {
-        abortBtn.addEventListener('click', () => {
-          if (window.realmAPI && window.realmAPI.scriptStop) {
-            window.realmAPI.scriptStop();
-          }
-          errorPanel.remove();
-        });
-      }
+      abortBtn.addEventListener('click', () => {
+        if (window.realmAPI && window.realmAPI.scriptStop) {
+          window.realmAPI.scriptStop();
+        }
+        errorPanel.remove();
+      });
 
       targetItem.appendChild(errorPanel);
       break;
