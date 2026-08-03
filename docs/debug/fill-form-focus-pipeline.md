@@ -1,6 +1,6 @@
-# fill_form 焦点输入管线排查实录（未完结 · 交接文档）
+# fill_form 焦点输入管线排查实录（已修复 · 待 UAT 复验）
 
-> 2026-08-03 · Phase 24 UAT · 状态：**未解决，移交继续排查**
+> 2026-08-03 · Phase 24 UAT · 状态：**已实施修复，待 UAT 复验 G-24-2b**
 > 关联文档：[fill_form 假成功排查实录](./fill-form-silent-success.md)（前三层根因已解决）
 > 影响文件：`cdp-manager.js`（fillForm / executeAction type）
 
@@ -96,6 +96,20 @@
 3. fill 前后 `Page.captureScreenshot` 对比，区分"值未写入"与"值被回退"。
 4. 检查是否走了回退路径（焦点回验失败 → 原生 setter）：可在回退路径
    加日志区分，判断问题 2 是否与 insertText 无关。
+
+## 修复记录（2026-08-03 第二轮）
+
+按 D1 方向实施，核心改动：**不再以 insertText 返回值判断成败，统一 readback 裁决**。
+
+| 修复 | 位置 | 说明 |
+|------|------|------|
+| 问题 1：insertText 静默丢弃后回退路径不触发 | fillForm 普通 input 分支 | 原逻辑 `wrote = insertResult.success`，insertText 假成功时跳过回退。改为：focusOk 时尝试 insertText → readback 裁决 → 值不符走原生 setter + InputEvent 回退 → 再 readback 定成败 |
+| 问题 2：readback 通过后值被页面 JS 回退 | fillForm 循环结束后 | 已填写字段延时 500ms 二次 readback，被回退时以独立错误"值被页面脚本回退"移入 failed，区分"未写入"与"被回退" |
+| execute_action type 同类隐患 | executeAction type 分支 | insertText 前记录前值，插入后 readback，文本非空且值未变时走原生 setter 回退（按 selectionStart/End 拼接插入） |
+
+未实施 D2/D3/D4：D1 的回退路径不依赖任何焦点状态，与 D4 合成点击 workaround 等效且无额外 CDP 往返；若 UAT 复验仍失败再评估 D2（dispatchKeyEvent 绕 IME）。
+
+**验证**：`node --check` 通过；模块加载通过；27 个 functionDeclaration 注入函数体编译全过。UAT 复验（GitHub 登录页直接 fill，不经 click）待人工执行。
 
 ## 交接备注
 

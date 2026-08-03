@@ -943,6 +943,8 @@ async function fillForm(webContentsId, fields) {
   const failed = [];
   let captchaDetected = false;
   let captchaType = null;
+  // 已填写字段的延时复核清单（问题 2：readback 通过后值可能被页面 JS 回退）
+  const settledChecks = [];
 
   // 注意：不要启用 Input 域 —— Input.enable 已在 Chromium 128+ 移除，
   // 而 Input.insertText/dispatch* 等命令本就无需 enable 即可调用。
@@ -1178,11 +1180,11 @@ async function fillForm(webContentsId, fields) {
           filled.push(field);
         } else {
           // 普通 input/textarea（D-03）
-          // Input.insertText 永远打进"当前键盘焦点元素"——DOM.focus 不保证焦点
-          // 真正落位（webview 刚被 wc.focus 抢焦、页面脚本抢焦等），失效时会把
-          // 文本打进上一个聚焦字段（串字，如邮箱框变成 email+password）。
-          // 因此：先 this.focus() 并回验 document.activeElement，验证不过绝不
-          // insertText，回退到原生 setter + 完整事件序列（不依赖焦点路由）。
+          // 证据（docs/debug/fill-form-focus-pipeline.md 证据 A）：DOM focus
+          // 回验通过 ≠ insertText 所需的输入管线焦点就绪 —— insertText 可能
+          // 返回成功但文本被静默丢弃。因此不再以 insertText 返回值判断成败，
+          // 统一 readback 裁决：值不符即走原生 setter 回退路径（不依赖任何
+          // 焦点状态），回退后再次 readback 定成败，杜绝 filled 虚报。
           const focusCheck = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
             objectId,
             functionDeclaration: `function() {
@@ -1193,7 +1195,6 @@ async function fillForm(webContentsId, fields) {
           });
           const focusOk = focusCheck.success && focusCheck.result?.result?.value === true;
 
-          let wrote = false;
           if (focusOk) {
             // 全选已有内容，insertText 替换选区（真实输入管线，框架均识别）
             await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
@@ -1201,11 +1202,18 @@ async function fillForm(webContentsId, fields) {
               functionDeclaration: `function() { if (this.select) { this.select(); } }`,
               returnByValue: true,
             });
-            const insertResult = await executeCommand(webContentsId, 'Input.insertText', { text: value || '' });
-            wrote = insertResult.success === true;
+            await executeCommand(webContentsId, 'Input.insertText', { text: value || '' });
           }
 
-          if (!wrote) {
+          // readback 裁决 insertText 是否真实落位
+          let readback = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+            objectId,
+            functionDeclaration: `function() { return this.value; }`,
+            returnByValue: true,
+          });
+          let actual = readback.result?.result?.value;
+
+          if (!(readback.success && actual === (value || ''))) {
             // 回退路径：原生 value setter + beforeinput/input/change 事件序列
             // （不依赖键盘焦点；原生 setter 绕过 React 实例 tracker，事件让框架识别变更）
             await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
@@ -1227,23 +1235,48 @@ async function fillForm(webContentsId, fields) {
               arguments: [value || ''],
               returnByValue: true,
             });
+
+            // 回退后再次 readback 定成败
+            readback = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+              objectId,
+              functionDeclaration: `function() { return this.value; }`,
+              returnByValue: true,
+            });
+            actual = readback.result?.result?.value;
           }
 
-          // 回读校验：确认值真实落入元素，杜绝 filled 虚报
-          const readback = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
-            objectId,
-            functionDeclaration: `function() { return this.value; }`,
-            returnByValue: true,
-          });
-          const actual = readback.result?.result?.value;
           if (readback.success && actual === (value || '')) {
             filled.push(field);
+            settledChecks.push({ field, objectId, expected: value || '' });
           } else {
             failed.push({ field, error: `写入未生效（期望值 ${JSON.stringify(value || '')}，实际 ${JSON.stringify(actual)}）` });
           }
         }
       } catch (fieldErr) {
         failed.push({ field, error: fieldErr.message || '填写失败' });
+      }
+    }
+
+    // 延时复核（问题 2）：部分页面（如 GitHub 登录页自定义元素 JS）会在
+    // 填写后异步回退字段值，即时 readback 无法捕获。500ms 后二次回读，
+    // 值不符则以独立错误移入 failed，区分"写入未生效"与"值被回退"。
+    if (settledChecks.length > 0) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      for (const check of settledChecks) {
+        const recheck = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+          objectId: check.objectId,
+          functionDeclaration: `function() { return this.value; }`,
+          returnByValue: true,
+        });
+        const current = recheck.result?.result?.value;
+        if (recheck.success && current !== check.expected) {
+          const idx = filled.indexOf(check.field);
+          if (idx !== -1) filled.splice(idx, 1);
+          failed.push({
+            field: check.field,
+            error: `值被页面脚本回退（填写后期望 ${JSON.stringify(check.expected)}，500ms 复核实际 ${JSON.stringify(current)}）`,
+          });
+        }
       }
     }
 
@@ -1416,7 +1449,48 @@ async function executeAction(webContentsId, action, target, options) {
             returnByValue: true,
           });
         }
+        // insertText 可能返回成功但文本被静默丢弃（同 fillForm 问题 1），
+        // 插入前记录前值，插入后 readback 裁决，未落位则走原生 setter 回退。
+        const beforeTypeResult = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: `function() { return typeof this.value === 'string' ? this.value : null; }`,
+          returnByValue: true,
+        });
+        const prevValue = beforeTypeResult.result?.result?.value;
         await executeCommand(webContentsId, 'Input.insertText', { text });
+        if (text && prevValue !== null && prevValue !== undefined) {
+          const afterTypeResult = await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+            objectId,
+            functionDeclaration: `function() { return this.value; }`,
+            returnByValue: true,
+          });
+          if (afterTypeResult.success && afterTypeResult.result?.result?.value === prevValue) {
+            // 回退：原生 setter 在选区位置拼接插入 + 完整事件序列
+            await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
+              objectId,
+              functionDeclaration: `function(t) {
+                var start = typeof this.selectionStart === 'number' ? this.selectionStart : this.value.length;
+                var end = typeof this.selectionEnd === 'number' ? this.selectionEnd : this.value.length;
+                var newVal = this.value.slice(0, start) + t + this.value.slice(end);
+                var proto = this.tagName === 'TEXTAREA'
+                  ? window.HTMLTextAreaElement.prototype
+                  : window.HTMLInputElement.prototype;
+                var desc = Object.getOwnPropertyDescriptor(proto, 'value');
+                if (desc && desc.set) {
+                  desc.set.call(this, newVal);
+                } else {
+                  this.value = newVal;
+                }
+                this.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, inputType: 'insertText', data: t }));
+                this.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: t }));
+                this.dispatchEvent(new Event('change', { bubbles: true }));
+              }`,
+              arguments: [text],
+              returnByValue: true,
+            });
+            break;
+          }
+        }
         // 触发事件
         await executeCommand(webContentsId, 'Runtime.callFunctionOn', {
           objectId,
