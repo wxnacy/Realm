@@ -108,6 +108,8 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ AUTO-04: execute_action AI 工具（风险评估 + 脚本安全检查 + CAPTCHA 预检） — Phase 24
 - ✓ AUTO-05: 高风险操作确认 UI（IPC 处理器 + 确认卡片 + 状态机） — Phase 24
 - ✓ AUTO-06: Prompt Injection 防护（sanitizeInput + validateScript + CDP 双层防护） — Phase 24
+- ✓ SCRIPT-01: 一句话生成脚本（generate_script + 13 项白名单静态分析 + 预览卡片 + 逐步执行引擎） — Phase 25
+- ✓ TAG-01: AI 自动标签分组（suggest_tab_groups 三策略 + 建议卡片 + 标签栏重排） — Phase 25
 
 ### Active
 
@@ -121,9 +123,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 #### Phase 24: 任务自主执行 (✓ 2026-08-02 完成)
 
-#### Phase 25: 脚本生成 + 智能标签整理
-- SCRIPT-01: 一句话生成脚本
-- TAG-01: AI 自动标签分组
+#### Phase 25: 脚本生成 + 智能标签整理 (✓ 2026-08-03 完成)
 
 ### Out of Scope
 
@@ -267,6 +267,10 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | 确认响应单一权威通道：ai-manager 委托 main.js pendingActions 注入 | 两套并行确认实现（ai-manager 孤儿 IPC vs main.js Map）未对接导致点确认必超时误判取消；删除孤儿实现，未注入 fail-closed | ✓ 已验证 — Phase 24 UAT（G-24-4） |
 | 按钮类元素一律确认（元素类型判定，非文字语义） | "Sign in" 文本匹配命中 passkey 按钮不可靠；button/input[submit]/[role=button] 一律升级高风险 | ✓ 已验证 — Phase 24 UAT（G-24-4） |
 | Input.insertText 前合成点击落位输入管线焦点 + readback 裁决兜底 | insertText 打进输入管线焦点元素而非 DOM activeElement —— 焦点在 embedder 时填表文本串进 AI 聊天框；wc.focus()/this.focus() 无效，只有合成 dispatchMouseEvent 落位 | ✓ 已验证 — Phase 24 UAT（G-24-2b） |
+| 脚本操作白名单独立于 execute_action 的 action enum（13 种安全操作） | 脚本由步骤序列构成，排除 screenshot/upload/execute_script 等高风险操作，攻击面小于通用操作工具 | ✓ 已验证 — Phase 25 UAT |
+| validateScriptForSteps 在 validateScript 上扩展 5 个危险模式（fetch/XHR/路径遍历/window/document） | 脚本步骤经 CDP 执行而非页面内 JS，内嵌脚本模式在步骤级无意义且高危 | ✓ 已验证 — Phase 25 UAT |
+| 脚本步骤状态经 script:step-update IPC 逐步实时推送 | 逐步执行 + 每步回调，失败即停，用户可中断（script:stop），预览卡片状态实时切换 | ✓ 已验证 — Phase 25 UAT |
+| 标签分组策略参数化（domain/semantic/mixed） | 域名分组确定性高，语义分组贴合主题，mixed 先域名再细分；默认 semantic | ✓ 已验证 — Phase 25 UAT |
 
 ## Evolution
 
@@ -286,4 +290,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-03 after Phase 24*
+*Last updated: 2026-08-03 after Phase 25*

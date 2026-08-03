@@ -1,20 +1,20 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.1
-milestone_name: AI CDP 增强 + Tabbrowser 功能集成
+milestone_name: AI CDP 增强 + Tabbrowser 功能集成 (In Progress)
 current_phase: 25
-current_phase_name: 脚本生成 + 智能标签整理
-status: complete
-stopped_at: Phase 25 complete
-last_updated: "2026-08-03T18:34:00.000Z"
+status: completed
+stopped_at: Phase 25 complete - milestone v2.1 ready to close
+last_updated: "2026-08-03T11:09:22.188Z"
 last_activity: 2026-08-03
-last_activity_desc: Phase 25 complete - all 5 plans executed
+last_activity_desc: Phase 25 complete
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 16
-  completed_plans: 11
-  percent: 69
+  completed_plans: 16
+  percent: 100
+current_phase_name: 脚本生成 + 智能标签整理
 ---
 
 # Project State: Realm Browser
@@ -24,13 +24,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-03)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 25 — 脚本生成 + 智能标签整理
+**Current focus:** Milestone v2.1 收尾 — 全部 4 阶段完成
 
 ## Current Position
 
-Phase: 25 — 脚本生成 + 智能标签整理
-Plan: 5/5 complete
-Status: Phase complete
+Phase: 25
+Plan: Not started
+Status: All phases complete
 Last activity: 2026-08-03 — Phase 25 complete
 
 Progress: [████████████████████] 16/16 plans (100%)
@@ -39,7 +39,7 @@ Progress: [████████████████████] 16/16 p
 
 **Velocity:**
 
-- Total plans completed: 11
+- Total plans completed: 16
 - Average duration: —
 - Total execution time: —
 
@@ -54,6 +54,7 @@ Progress: [████████████████████] 16/16 p
 | 22 | 5 | - | - |
 | 23 | 2 | - | - |
 | 24 | 4 | - | - |
+| 25 | 5 | - | - |
 
 *Updated after each plan completion*
 
@@ -71,6 +72,9 @@ Recent decisions affecting current work:
 - 确认响应单一权威通道：ai-manager 委托 main.js pendingActions 注入，删除孤儿 IPC，未注入 fail-closed — Phase 24
 - 按钮类元素一律确认（元素类型判定，非文字语义）— Phase 24
 - Input.insertText 前合成点击落位输入管线焦点 + readback 裁决兜底（DOM focus ≠ 输入管线焦点，否则串字进 AI 聊天框）— Phase 24
+- 脚本操作白名单独立于 execute_action（13 种安全操作，排除高风险）+ validateScriptForSteps 步骤级静态分析 — Phase 25
+- 脚本步骤状态经 script:step-update IPC 逐步实时推送，失败即停可中断 — Phase 25
+- 标签分组策略参数化（domain/semantic/mixed，默认 semantic）— Phase 25
 - Phase 24-25 安全防护：输入消毒、脚本静态分析、沙箱执行、高风险操作用户确认
 
 ### Pending Todos
@@ -104,6 +108,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-03T10:25:00.000Z
-Stopped at: Phase 24 complete, ready to plan Phase 25
+Last session: 2026-08-03T11:15:00.000Z
+Stopped at: Phase 25 complete - milestone v2.1 ready to close
 Resume file: None
