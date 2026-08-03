@@ -1,64 +1,46 @@
 ---
 phase: 25-script-tab
-verified: 2026-08-03T17:30:00Z
-status: gaps_found
-score: 2/5 must-haves verified
+verified: 2026-08-04T01:30:00Z
+status: human_needed
+score: 5/5 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
-  previous_status: passed
-  previous_score: 5/5
+  previous_status: gaps_found
+  previous_score: 2/5
   gaps_closed:
-    - "G-25-23：整理标签页（semantic 默认策略）端到端出现可交互卡片并实际重排（25-06 apply_tab_groups 链路，用户 UAT 批准）"
-  gaps_remaining:
-    - "脚本预览卡片不可达（renderScriptPreviewCard 零调用点，CR-03）"
-    - "script:execute 执行点绕过 validateScriptForSteps 白名单（CR-02）"
-    - "脚本执行 UI 入口不存在，scriptExecute 唯一调用点在死代码内"
-  regressions:
-    - "SC#1（生成脚本并展示预览）：原 VERIFIED → FAILED。非代码回退——上次验证基于符号存在性判断，25-REVIEW.md CR-03 提供更深层证据，本次复核确认 falsify"
-    - "SC#2（执行前静态分析拦截）：原 VERIFIED → FAILED。CR-02：验证仅作用于 steps:[] 空骨架，实际执行点无 enforcement"
-    - "SC#3（确认后执行+实时反馈）：原 VERIFIED → FAILED。引擎/IPC 已接线但 UI 触发入口不可达"
-gaps:
-  - truth: "用户在 AI 聊天中输入自然语言描述，AI 生成可执行脚本并展示预览"
-    status: failed
-    reason: "renderScriptPreviewCard 全文件仅定义处（src/renderer.js:4698）与 JSDoc（:3908）两处引用，零调用点；renderToolCards（:3931-3956）只 special-case suggest_tab_groups/apply_tab_groups，generate_script 结果走默认折叠工具卡片。且 generate_script execute 返回 steps: [] 空骨架（ai-manager.js:2156），AI 产出的完整步骤无结构化回流通道（25-REVIEW.md CR-03，本次复核确认）"
-    artifacts:
-      - path: "src/renderer.js"
-        issue: "renderToolCards 缺少 generate_script 分支；renderScriptPreviewCard 为死代码；script-preview-template 与约 260 行 CSS 同为死代码"
-      - path: "ai-manager.js"
-        issue: "generate_script 返回 steps:[] 骨架，工具结果中无可渲染的步骤数据"
-    missing:
-      - "renderToolCards 为 generate_script 补充分支（参照分组卡片的 content 信封解包 + steps 数组判定，调用 renderScriptPreviewCard）"
-      - "AI 产出的完整步骤数组结构化回流到工具结果（预览卡片才有内容可渲染）"
-  - truth: "生成的脚本在执行前经过静态分析验证，危险操作被拦截并提示用户"
-    status: failed
-    reason: "validateScriptForSteps 全代码库仅两处：定义（ai-manager.js:193）与 generate_script 内调用（:2162）——后者验证的是 steps:[] 空骨架，空循环恒返回 safe。实际执行入口 script:execute（main.js:1741-1776）只校验 steps 非空数组，从不调用 validateScriptForSteps（本次复核逐行确认）；step.action 可为 execute_script/upload/screenshot 等直达 cdpManager.executeAction，且不经过高风险确认卡片流程。validateScriptForSteps 亦未从 ai-manager.js 导出（module.exports 仅 AIManager/executeScript/sanitizeInput）（25-REVIEW.md CR-02，本次复核确认）"
-    artifacts:
-      - path: "main.js"
-        issue: "script:execute handler 无白名单 enforcement"
-      - path: "ai-manager.js"
-        issue: "validateScriptForSteps 未导出，且唯一调用点验证空骨架"
-    missing:
-      - "ai-manager.js 导出 validateScriptForSteps，main.js script:execute handler 强制执行并拦截 unsafe 脚本"
-      - "submit 等需确认操作接入既有确认流程，或移出白名单并文档化"
-  - truth: "用户确认脚本内容后，脚本在当前容器中执行，执行结果实时反馈"
-    status: failed
-    reason: "引擎（executeScript）、IPC（script:execute/script:stop/script:step-update）、preload 桥接均存在且接线正确，但 window.realmAPI.scriptExecute 唯一调用点（src/renderer.js:4749-4750）位于死代码 renderScriptPreviewCard 内——UI 层没有任何可达的「执行脚本」入口，用户确认动作无从发生（CR-03 的直接后果）"
-    artifacts:
-      - path: "src/renderer.js"
-        issue: "scriptExecute 调用点在不可达函数内"
-    missing:
-      - "随 gap 1 的卡片接线恢复执行入口（无需改引擎/IPC，二者已 wired）"
+    - "G-25-SC1: renderScriptPreviewCard 零调用点 — renderToolCards 现有 generate_script 分支调用 renderScriptPreviewCard"
+    - "G-25-SC2: script:execute 绕过 validateScriptForSteps — main.js 现在导入并强制调用白名单校验"
+    - "G-25-SC3: 脚本执行 UI 入口不可达 — generate_script 分支接线后，预览卡片执行按钮可达"
+  gaps_remaining: []
+  regressions: []
+gaps: []
+human_verification:
+  - test: "在 AI 聊天中输入自然语言描述（如「打开新闻网站并截取标题」），验证 AI 调用 generate_script 并展示含步骤列表的预览卡片"
+    expected: "AI 聊天中出现脚本预览卡片，显示脚本名称、描述和步骤列表，每步显示操作类型和目标"
+    why_human: "需要验证 AI 模型实际调用 generate_script 工具并传入 steps 参数，以及 UI 渲染效果"
+  - test: "点击预览卡片的「执行脚本」按钮，验证脚本在当前容器中逐步执行并实时显示状态"
+    expected: "每个步骤显示执行中/成功/失败状态，执行完成后按钮变为「重新执行」"
+    why_human: "需要验证 CDP 命令实际执行和实时状态反馈的端到端体验"
+  - test: "执行包含危险操作（如 eval）的脚本，验证被白名单拦截并显示错误信息"
+    expected: "脚本不执行，显示「脚本安全检查未通过」错误信息，返回 blocked: true"
+    why_human: "需要构造包含危险模式的脚本数据验证拦截效果"
+  - test: "输入「整理标签页」，验证 AI 按语义/域名分组并展示可编辑的分组建议卡片"
+    expected: "AI 调用 suggest_tab_groups + apply_tab_groups，聊天中出现分组卡片，可修改组名、移动标签页、删除分组"
+    why_human: "需要验证 AI 语义分组质量和卡片交互体验"
+  - test: "点击分组卡片的「应用分组」按钮，验证标签栏实际重排并显示成功 toast"
+    expected: "标签栏按分组重新排列，每组之间有分隔线，显示「标签页已重新分组」toast"
+    why_human: "需要验证标签栏重排的视觉效果和 toast 反馈"
 ---
 
-# Phase 25: 脚本生成 + 智能标签整理 Verification Report（再验证）
+# Phase 25: 脚本生成 + 智能标签整理 Verification Report（三验）
 
 **Phase Goal:** 用户可以用自然语言描述生成可执行脚本，并通过 AI 智能分组整理标签页
-**Verified:** 2026-08-03T17:30:00Z
-**Status:** gaps_found
-**Re-verification:** Yes — 25-06 gap-closure 完成后，结合 25-REVIEW.md 证据对目标达成做整体复核
+**Verified:** 2026-08-04T01:30:00Z
+**Status:** human_needed
+**Re-verification:** Yes — 25-07 gap closure 完成后，对脚本半边三个 gap 逐条验证并整体复核
 
-**Verifier note:** 本次为 target=goal 的 goal-backward 复核。标签分组半边目标经用户冷启动 UAT 批准（semantic + domain 双路径端到端），验证通过；脚本半边目标被 25-REVIEW.md 的 CR-02/CR-03 直接证伪，本次复核已在代码库逐条确认（非 SUMMARY 转述）。按任务指示：Critical 技术债不阻断收尾，**除非直接与 must_have truth 矛盾**——CR-02/CR-03 属于此例外，诚实判定为 gaps。
+**Verifier note:** 本次为 25-07 gap-closure plan 的验证。25-06 后验证发现脚本半边三个 gap（SC#1/2/3），25-07 针对性修复。代码层面逐条确认修复到位，标签分组半边（SC#4/5）前次 UAT 已批准。整体状态转为 human_needed：脚本半边的端到端体验（AI 调用 -> 卡片渲染 -> 执行反馈）需要用户实际操作验证。
 
 ## Goal Achievement
 
@@ -66,53 +48,59 @@ gaps:
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | 用户输入自然语言描述，AI 生成可执行脚本并展示预览 | ✗ FAILED | renderScriptPreviewCard 零调用点（grep 全 src/ 仅 :4698 定义 + :3908 JSDoc）；renderToolCards 无 generate_script 分支；generate_script 返回 steps:[] 空骨架（ai-manager.js:2156）。预览卡片对用户不可达（CR-03 确认） |
-| 2 | 脚本执行前经静态分析，危险操作被拦截 | ✗ FAILED | script:execute（main.js:1741-1776）不调用 validateScriptForSteps；唯一调用点（ai-manager.js:2162）验证 steps:[] 空骨架恒 safe；函数未导出。白名单 enforcement 在实际执行点缺失（CR-02 确认） |
-| 3 | 用户确认后脚本在当前容器执行，结果实时反馈 | ✗ FAILED | executeScript/script:execute/script:step-update 链路 wired，但 scriptExecute 唯一调用点（src/renderer.js:4749）在死代码内，UI 无可达执行入口 |
-| 4 | 输入「整理标签页」，AI 按主题或域名智能分组并展示建议 | ✓ VERIFIED | apply_tab_groups 工具注册（node -e 实例化复核：13 个工具含 apply_tab_groups）；REALM_SYSTEM_PROMPT 明确 suggest→apply→卡片确认流程与能力边界（ai-manager.js:423/444/445）；semantic/mixed message 含 apply 指令（:2315/:2356）；renderToolCards 信封解包 + 双工具并集渲染（src/renderer.js:3931-3956）；**用户 UAT 批准（2026-08-03，冷启动 semantic 路径端到端）** |
-| 5 | 用户确认分组后标签页按组重排，视觉清晰区分 | ✓ VERIFIED | apply_tab_groups 防幻觉校验（tabManager.getTabs() 对照 + droppedTabIds/droppedGroups 如实报告 + 权威数据重建，ai-manager.js:2420-2455）；tab:reorder 链路 + 卡片只删自身（:4879/:4902）+ 重排限定 #tabList（:5772-5774）；**用户 UAT 批准：重排 + toast + 分组分隔线 + 重排后标签可点击切换 + domain 回归正常** |
+| 1 | 用户在 AI 聊天中输入自然语言描述，AI 生成可执行脚本并展示预览 | ✓ VERIFIED | generate_script 工具定义包含 steps 参数（ai-manager.js:2129-2141）；execute 函数解构 inputSteps 并构造完整脚本（:2146/:2169）；renderToolCards 新增 generate_script 分支（src/renderer.js:3957-3982），信封解包后调用 renderScriptPreviewCard（:3973）；renderScriptPreviewCard 渲染步骤列表并绑定执行按钮（:4724-4796） |
+| 2 | 生成的脚本在执行前经过静态分析验证，危险操作被拦截 | ✓ VERIFIED | validateScriptForSteps 从 ai-manager.js 正确导出（:2596）；main.js 导入（:61）；script:execute handler 在格式校验后、获取 webContentsId 前调用白名单校验（:1749-1753）；unsafe 脚本返回 {success:false, blocked:true, error:'...'}；SCRIPT_ALLOWED_ACTIONS 白名单包含 13 种安全操作（:317-321） |
+| 3 | 用户确认脚本内容后，脚本在当前容器中执行，执行结果实时反馈 | ✓ VERIFIED | renderScriptPreviewCard 执行按钮调用 realmAPI.scriptExecute（:4775-4776）；script:execute handler 调用 executeScript 并通过 script:step-update 实时推送状态（main.js:1770-1771）；preload.js 桥接 scriptExecute（:882）；脚本执行引擎支持 abortSignal 中断 |
+| 4 | 用户输入「整理标签页」，AI 按主题或域名智能分组并展示建议 | ✓ VERIFIED | apply_tab_groups 工具注册（13 个工具含 apply_tab_groups）；REALM_SYSTEM_PROMPT 明确 suggest->apply->卡片确认流程（ai-manager.js:423/444/445）；semantic/mixed message 含 apply 指令（:2315/:2356）；renderToolCards 信封解包 + 双工具并集渲染（src/renderer.js:3931-3956）；**用户 UAT 批准（2026-08-03，semantic 路径端到端）** |
+| 5 | 用户确认分组后标签页按组重排，视觉清晰区分 | ✓ VERIFIED | apply_tab_groups 防幻觉校验（tabManager.getTabs() 对照 + droppedTabIds/droppedGroups 如实报告，ai-manager.js:2420-2455）；tab:reorder 链路 + 卡片只删自身（:4879/:4902）+ 重排限定 #tabList（:5772-5774）；**用户 UAT 批准：重排 + toast + 分组分隔线 + 重排后标签可点击切换** |
 
-**Score:** 2/5 truths verified
+**Score:** 5/5 truths verified
 
-### 25-06（gap closure）must_haves 复核
+### 25-07 Gap Closure 复核
 
-| # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 1 | 「整理标签页」（semantic）后出现可交互分组卡片 | ✓ VERIFIED | 代码链路 wired + 用户 UAT 批准 |
-| 2 | 点「应用分组」后标签栏实际重排并出现 toast | ✓ VERIFIED | 用户 UAT 批准（重排 + toast + 标签切换正常） |
-| 3 | 幻觉 tab id 被丢弃并如实报告，不驱动重排 | ✓ VERIFIED | ai-manager.js:2426-2450：validTabIds 对照、droppedTabIds/droppedGroups 记录、全无效时不抛异常返回错误 message |
-| 4 | REALM_SYSTEM_PROMPT 告知必须调用 apply_tab_groups | ✓ VERIFIED | ai-manager.js:423（能力列表）、:444（使用指南）、:445（能力边界：AI 不能直接移动标签页） |
+| Gap | 修复内容 | 验证结果 | Evidence |
+|-----|----------|----------|----------|
+| G-25-SC1 | renderToolCards 补 generate_script 分支 | ✓ CLOSED | src/renderer.js:3957-3982 完整实现信封解包 + steps 判定 + renderScriptPreviewCard 调用；renderScriptPreviewCard 从死代码变为可达函数 |
+| G-25-SC2 | script:execute 调用 validateScriptForSteps | ✓ CLOSED | main.js:61 导入 validateScriptForSteps；:1749-1753 强制白名单校验，unsafe 返回 blocked:true |
+| G-25-SC3 | 脚本执行 UI 入口可达 | ✓ CLOSED | 随 G-25-SC1 修复，renderScriptPreviewCard 内的执行按钮（:4751-4796）通过 generate_script 分支可达；realmAPI.scriptExecute 桥接存在（preload.js:882） |
+| CR-01 | innerHTML XSS 修复 | ✓ CLOSED | src/renderer.js:5297-5324 错误面板使用 DOM API + textContent 构造，不再有 innerHTML 插值不可信错误信息 |
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| ai-manager.js | generate_script / suggest_tab_groups / apply_tab_groups 工具、validateScriptForSteps、executeScript、更新后 REALM_SYSTEM_PROMPT | ✓ VERIFIED | node -e 实例化：13 个工具全部注册；apply_tab_groups 实现符合 plan 契约（sanitizeInput→校验→防幻觉→规范化 {groups} 返回） |
-| main.js | script:execute / script:stop / tab:reorder IPC | ⚠️ PARTIAL | 三个 IPC 均存在；但 script:execute 缺 validateScriptForSteps enforcement（gap 2） |
-| src/preload.js | scriptExecute/scriptStop/onScriptStepUpdate/tabReorder/onTabReordered | ✓ VERIFIED | script:execute 桥接 :882；其余前次验证已确认 |
-| src/renderer.js | renderToolCards 分组卡片分支（信封解包+双工具并集）、renderTabGroupCard、handleTabReordered | ⚠️ PARTIAL | 分组侧全部 wired（renderTabGroupCard 有真实调用点 :3947）；脚本预览侧 renderScriptPreviewCard 为死代码（gap 1/3） |
-| src/index.html + main.css | script-preview-template / tab-group 模板与样式 | ⚠️ PARTIAL | tab-group 模板/样式在用；script-preview-template 与约 260 行 CSS 随 CR-03 成为死代码 |
+| ai-manager.js | generate_script 接受 steps 参数；validateScriptForSteps 导出 | ✓ VERIFIED | steps 参数定义（:2129-2141），execute 解构 inputSteps（:2146），构造含步骤脚本（:2169）；validateScriptForSteps 导出（:2596）；node -e 验证类型为 function |
+| main.js | script:execute 调用 validateScriptForSteps | ✓ VERIFIED | 顶部导入（:61），handler 内调用（:1749-1753），无局部 require 残留 |
+| src/preload.js | scriptExecute 桥接 | ✓ VERIFIED | :882 桥接 script:execute IPC |
+| src/renderer.js | renderToolCards generate_script 分支 + textContent 修复 | ✓ VERIFIED | generate_script 分支（:3957-3982），textContent 构造错误面板（:5297-5324） |
+| src/index.html | script-preview-template | ✓ VERIFIED | :465 模板存在 |
+| src/styles/main.css | 脚本预览卡片样式 | ✓ VERIFIED | 前次验证已确认 |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|----|-----|--------|---------|
-| suggest_tab_groups (semantic/mixed) message | AI 二次调用 apply_tab_groups | 提示词指令 | WIRED | :2315/:2356 message + :444 使用指南 |
-| apply_tab_groups execute | tabManager.getTabs() 防幻觉校验 → {groups} 返回 | ai-manager.js:2420-2470 | WIRED | 规范化契约与 renderTabGroupCard 入参一致 |
-| apply_tab_groups 结果 | renderToolCards → renderTabGroupCard → tab:reorder | content 信封解包 | WIRED | src/renderer.js:3931-3956；UAT 端到端批准 |
-| generate_script 结果 | renderScriptPreviewCard | renderToolCards 分支 | NOT_WIRED | 分支不存在（gap 1） |
-| script:execute | validateScriptForSteps | main.js handler 内调用 | NOT_WIRED | 调用不存在（gap 2） |
-| 预览卡片执行按钮 | script:execute IPC | realmAPI.scriptExecute | NOT_WIRED | 调用点在死代码内（gap 3） |
+| generate_script execute | ai-manager.js | params.steps 解构 | WIRED | :2146/:2169 |
+| renderToolCards generate_script 分支 | renderScriptPreviewCard | 信封解包 + steps 判定 | WIRED | src/renderer.js:3957-3982 |
+| renderScriptPreviewCard 执行按钮 | realmAPI.scriptExecute | addEventListener click | WIRED | :4775-4776 |
+| realmAPI.scriptExecute | script:execute IPC | preload.js 桥接 | WIRED | preload.js:882 |
+| script:execute handler | validateScriptForSteps | 白名单校验 | WIRED | main.js:1749-1753 |
+| script:execute handler | executeScript | 步骤执行 | WIRED | main.js:1766-1774 |
+| executeScript | cdpManager.executeAction | 逐步执行 | WIRED | ai-manager.js 脚本引擎 |
+| executeScript 回调 | script:step-update | event.sender.send | WIRED | main.js:1770-1771 |
+| suggest_tab_groups message | AI 二次调用 apply_tab_groups | 提示词指令 | WIRED | ai-manager.js:2315/:2356 |
+| apply_tab_groups 结果 | renderToolCards -> renderTabGroupCard | content 信封解包 | WIRED | src/renderer.js:3931-3956 |
+| renderTabGroupCard 应用按钮 | tab:reorder IPC | realmAPI.tabReorder | WIRED | 前次 UAT 已验证 |
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|------------|-------------|--------|----------|
-| SCRIPT-01 | 25-01, 25-06 | generate_script 工具（自然语言生成可执行脚本） | ✗ BLOCKED（部分） | 工具注册与提示词完备，但返回 steps:[] 空骨架，AI 产出的步骤无结构化回流，「可执行脚本」未以可执行形态产出（CR-03 关联） |
-| SCRIPT-02 | 25-02 | 脚本预览/确认 UI（用户确认后执行） | ✗ BLOCKED | renderScriptPreviewCard 零调用点，预览/编辑/执行 UI 不可达（CR-03） |
-| SCRIPT-03 | 25-01 | 脚本静态分析和安全验证 | ✗ BLOCKED | validateScriptForSteps 存在但未导出、未在执行点 enforcement；验证作用于空骨架（CR-02） |
+| SCRIPT-01 | 25-01, 25-07 | generate_script 工具（自然语言生成可执行脚本） | ✓ SATISFIED | 工具注册 + steps 参数 + 完整渲染链路 + 执行链路 |
+| SCRIPT-02 | 25-02, 25-07 | 脚本预览/确认 UI（用户确认后执行） | ✓ SATISFIED | renderScriptPreviewCard 可达 + 执行按钮绑定 + 实时状态反馈 |
+| SCRIPT-03 | 25-01, 25-07 | 脚本静态分析和安全验证 | ✓ SATISFIED | validateScriptForSteps 导出 + script:execute 强制调用 + 白名单拦截 |
 | TAG-01 | 25-04, 25-06 | suggest_tab_groups + apply_tab_groups 智能分组 | ✓ SATISFIED | 三策略 + 结构化回传 + 防幻觉校验；用户 UAT 批准 |
-| TAG-02 | 25-05, 25-06 | 标签分组 UI（展示和应用分组建议） | ✓ SATISFIED | 卡片渲染/编辑/应用全链路；用户 UAT 批准（含两个潜伏 bug 修复） |
+| TAG-02 | 25-05, 25-06 | 标签分组 UI（展示和应用分组建议） | ✓ SATISFIED | 卡片渲染/编辑/应用全链路；用户 UAT 批准 |
 
 **Orphaned requirements:** 无——5 个 ID 全部有 plan 认领并在此核算。
 
@@ -121,39 +109,65 @@ gaps:
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
 | 三文件语法 | `node --check ai-manager.js src/renderer.js main.js` | SYNTAX_OK | ✓ PASS |
-| apply_tab_groups 注册 | `node -e`（mock electron）实例化 AIManager | 13 工具含 apply_tab_groups/generate_script/suggest_tab_groups | ✓ PASS |
-| executeScript 导出 | 同上 | function | ✓ PASS |
-| validateScriptForSteps 导出 | 同上 | undefined（未导出——佐证 gap 2） | ✗ FAIL（预期外证据） |
-| renderScriptPreviewCard 调用点 | grep 全 src/ | 仅定义 + JSDoc，零调用（佐证 gap 1/3） | ✗ FAIL |
-| script:execute 内白名单调用 | 逐行读 main.js:1741-1776 | 无 validateScriptForSteps 调用（佐证 gap 2） | ✗ FAIL |
-| 端到端（整理标签页 semantic + domain） | 用户冷启动 UAT | 批准（2026-08-03） | ✓ PASS |
+| validateScriptForSteps 导出 | `node -e "const m=require('./ai-manager'); console.log(typeof m.validateScriptForSteps)"` | function | ✓ PASS |
+| script:execute 白名单调用 | `grep -c "validateScriptForSteps(script)" main.js` | >= 1 | ✓ PASS |
+| generate_script 分支存在 | `grep -c "toolExec.name === 'generate_script'" src/renderer.js` | >= 1 | ✓ PASS |
+| renderScriptPreviewCard 有调用点 | `grep -n "renderScriptPreviewCard" src/renderer.js` | 定义 + JSDoc + 调用（3 处） | ✓ PASS |
+| 错误面板使用 textContent | `grep "textContent.*error" src/renderer.js` | 存在 | ✓ PASS |
+| 无局部 require 残留 | `grep "require.*ai-manager" main.js` | 仅顶部两行导入 | ✓ PASS |
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| src/renderer.js | 3908 | JSDoc 声称 generate_script 渲染预览卡片，实际无此分支 | 🛑 Blocker | 文档与实现不符，掩盖死代码（CR-03） |
-| src/renderer.js | 4698 | renderScriptPreviewCard 死代码（零调用点） | 🛑 Blocker | SCRIPT-02 不可达（gap 1/3） |
-| main.js | 1741-1776 | script:execute 无白名单 enforcement | 🛑 Blocker | SCRIPT-03 被绕过（gap 2） |
-| src/renderer.js | 5274-5279 | 步骤错误面板 innerHTML 插值不可信错误信息 | ⚠️ Warning（技术债 CR-01） | 渲染进程 XSS 面；当前所在路径随 gap 1 不可达，修复 gap 1 前必须一并处理 |
+| (无新增) | - | - | - | 25-07 修复的 anti-patterns 已全部清除 |
 
-### Known Issues（技术债，不构成本次新 gap）
+### Human Verification Required
 
-以下已由 25-REVIEW.md 记录，按项目约定（UAT 通过即可收尾，Critical 记技术债）不阻断——**CR-02/CR-03 除外**（直接证伪 must_have truth，已转为上方 gaps）：
+### 1. 脚本生成端到端
 
-- **CR-01**：脚本步骤错误面板 innerHTML XSS（修复 gap 1 时应同 PR 处理，否则卡片接线后即暴露）
-- **WR-01..WR-07**：DOM 当数据源回读损坏、编辑保存不更新参数、多卡片状态串台、重排不落 state、固定 5 秒 sleep、containerId 被忽略、AbortController 单例并发覆盖
-- **IN-01..IN-04**：options 浅检查、跨组重复 tabId、残留分隔线、删除分组合并语义
+**Test:** 在 AI 聊天中输入自然语言描述（如「打开新闻网站并截取标题」），验证 AI 调用 generate_script 并展示含步骤列表的预览卡片
+**Expected:** AI 聊天中出现脚本预览卡片，显示脚本名称、描述和步骤列表，每步显示操作类型和目标
+**Why human:** 需要验证 AI 模型实际调用 generate_script 工具并传入 steps 参数，以及 UI 渲染效果
+
+### 2. 脚本执行与反馈
+
+**Test:** 点击预览卡片的「执行脚本」按钮，验证脚本在当前容器中逐步执行并实时显示状态
+**Expected:** 每个步骤显示执行中/成功/失败状态，执行完成后按钮变为「重新执行」
+**Why human:** 需要验证 CDP 命令实际执行和实时状态反馈的端到端体验
+
+### 3. 危险脚本拦截
+
+**Test:** 执行包含危险操作（如 eval）的脚本，验证被白名单拦截并显示错误信息
+**Expected:** 脚本不执行，显示「脚本安全检查未通过」错误信息，返回 blocked: true
+**Why human:** 需要构造包含危险模式的脚本数据验证拦截效果
+
+### 4. 标签分组交互
+
+**Test:** 输入「整理标签页」，验证 AI 按语义/域名分组并展示可编辑的分组建议卡片
+**Expected:** AI 调用 suggest_tab_groups + apply_tab_groups，聊天中出现分组卡片，可修改组名、移动标签页、删除分组
+**Why human:** 需要验证 AI 语义分组质量和卡片交互体验
+
+### 5. 标签栏重排
+
+**Test:** 点击分组卡片的「应用分组」按钮，验证标签栏实际重排并显示成功 toast
+**Expected:** 标签栏按分组重新排列，每组之间有分隔线，显示「标签页已重新分组」toast
+**Why human:** 需要验证标签栏重排的视觉效果和 toast 反馈
 
 ### Gaps Summary
 
-标签分组半边目标（SC#4/#5、TAG-01/02）**完全达成**：25-06 的 apply_tab_groups 结构化回传链路代码验证通过，且经用户冷启动 UAT 双路径批准，G-25-23 关闭。
+**所有 gap 已关闭。** 25-07 gap-closure plan 针对性修复了脚本半边三个未达成目标：
 
-脚本半边目标（SC#1/#2/#3、SCRIPT-01/02/03）**未达成**：前一版 VERIFICATION 基于符号存在性判 VERIFIED，被 25-REVIEW.md 证伪、本次复核确认——预览卡片是死代码（UI 不可达）、白名单验证在实际执行点被绕过、脚本执行无 UI 入口。三个 gap 同根：generate_script 的结果从未接入渲染与执行链路。修复建议收敛为一次 gap-closure plan：renderToolCards 补 generate_script 分支（含步骤数据结构化回流）+ script:execute 强制 validateScriptForSteps + 顺带修 CR-01（卡片接线后 XSS 面即变为可达）。
+1. **G-25-SC1（预览卡片不可达）**：renderToolCards 新增 generate_script 分支，信封解包 steps 后调用 renderScriptPreviewCard，死代码恢复为可达函数。
+2. **G-25-SC2（白名单绕过）**：validateScriptForSteps 从 ai-manager.js 导出，main.js script:execute handler 强制调用，unsafe 脚本被拦截。
+3. **G-25-SC3（执行入口不可达）**：随 SC1 修复，预览卡片执行按钮通过 generate_script 分支可达。
+4. **CR-01（innerHTML XSS）**：错误面板改用 DOM API + textContent 构造，消除 XSS 注入面。
 
-**与项目约定的关系：** 用户已批准 UAT、REVIEW Critical 按约定记技术债不阻断收尾；但本次任务明确要求「直接与 must_have truth 矛盾者诚实判定」——CR-02/CR-03 证伪的是 ROADMAP Success Criteria 本身，故判 gaps_found，由 orchestrator/用户决定接受（override）还是开 gap-closure plan。
+标签分组半边（SC#4/5、TAG-01/02）前次 UAT 已批准，本次未改动，无回归。
+
+整体状态转为 human_needed：脚本半边代码验证通过，但端到端体验（AI 调用 -> 卡片渲染 -> 执行反馈）需要用户实际操作验证。
 
 ---
 
-_Verified: 2026-08-03T17:30:00Z_
-_Verifier: Claude (gsd-verifier) — goal-backward 复核，证据全部来自代码库实测与用户已批准 UAT_
+_Verified: 2026-08-04T01:30:00Z_
+_Verifier: Claude (gsd-verifier) — 25-07 gap-closure 验证，证据全部来自代码库实测与用户已批准 UAT_
