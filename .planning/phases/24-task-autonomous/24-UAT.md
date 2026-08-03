@@ -1,23 +1,24 @@
 ---
-status: partial
+status: complete
 phase: 24-task-autonomous
 source: [24-01-SUMMARY.md, 24-02-SUMMARY.md, 24-03-SUMMARY.md, 24-04-SUMMARY.md]
 started: 2026-08-02T14:39:57Z
-updated: 2026-08-03T10:05:00Z
+updated: "2026-08-03T10:08:00Z"
 ---
 
 ## Current Test
-<!-- OVERWRITE each test - shows where we are -->
 
-[testing paused — 2 items outstanding: Test 6/7 未测；G-24-2b 已 resolved（用户复测确认「可以了」）]
+[testing complete]
 
 ## Tests
 
 ### 1. Cold Start Smoke Test
+
 expected: 完全退出 Realm（包括终端里的 dev 进程）。重新运行 npm run dev。应用无报错启动，主窗口正常加载（侧边栏容器列表、Tab 栏、默认页面均渲染），终端无主进程异常堆栈。
 result: pass
 
 ### 2. AI 表单填写（fill_form）
+
 expected: 在当前 Tab 打开一个含表单的页面（如任意登录/注册页），在 AI 面板中让 AI 帮忙填写（例如"帮我填写邮箱 test@example.com"）。AI 调用 fill_form 工具后，页面上的对应输入框被真实填入值；若字段找不到，AI 返回错误说明和可用字段列表。
 result: pass
 reported: "回归：输入「帮我填写邮箱 wxnacy@gmail.com 和 密码 123456」，填充表单成功了，但是输入框中也自动输入了 wxnacy@gmail.com123456。不应该这样"
@@ -25,34 +26,42 @@ severity: major
 note: "前三轮修复见 gap G-24-2（已 resolved）。本轮为串字回归：insertText 打进上一个聚焦字段，见 gap G-24-2b（已 resolved：insertText 前合成点击落位输入管线焦点 + readback 裁决兜底，用户复测确认「可以了」）"
 
 ### 3. AI 页面操作（execute_action 低风险）
+
 expected: 让 AI 执行低风险页面操作（例如"点击页面上的登录按钮"或"滚动到页面底部"）。AI 调用 execute_action 后直接执行（无确认卡片），页面上能看到点击/滚动真实发生，AI 返回操作结果和页面变化信息。
 result: pass
 
 ### 4. 高风险操作确认卡片
+
 expected: 让 AI 执行高风险操作（例如"提交这个表单"触发 submit）。AI 面板中出现确认卡片：包含操作类型图标、确认文案（如"提交表单：确认向 {url} 提交数据？此操作不可撤销。"）、风险等级徽标（high），以及「确认」「取消」两个按钮。在点击前操作不会被执行。
 result: pass
 note: "多轮修复（详见 gap G-24-4）：按钮类元素一律确认 + 两套确认机制对接 + 超时主动过期卡片后，用户确认「可以了」"
 
 ### 5. 确认执行流程（卡片状态机）
+
 expected: 在确认卡片上点击「确认」。卡片状态从 pending 变为 executing（加载指示），操作在页面中真实执行（表单提交/跳转），随后卡片变为 success 状态，AI 继续汇报操作结果。
 result: pass
 note: "action:settle 通道补齐完成通知后，用户确认流程走通（填表→确认→提交成功）"
 
 ### 6. 取消操作流程
+
 expected: 再次触发一个高风险操作，这次在确认卡片上点击「取消」。卡片变为 cancelled 状态，页面中该操作未被执行（表单未提交），AI 收到取消结果并告知用户操作已取消。
-result: [pending]
+result: pass
 
 ### 7. CAPTCHA 检测暂停与恢复
+
 expected: 在含验证码的页面上让 AI 填写/提交表单（如遇到 reCAPTCHA/hCaptcha/中文验证码的登录页）。AI 暂停任务并提示需要手动完成验证码，AI 面板出现 CAPTCHA 等待指示卡片（旋转动画）；用户手动完成验证码后，轮询检测到验证码消失，卡片变为完成状态并在约 2 秒后自动淡出移除，AI 继续任务。
-result: [pending]
+result: skipped
+reason: "暂时没有含验证码的页面可测（用户确认跳过，2026-08-03）"
 
 ### 8. fillForm CDP method with field lookup chain (label/placeholder/aria-label/name/id/selector)
+
 expected: fillForm CDP method with field lookup chain (label/placeholder/aria-label/name/id/selector)
 result: pass
 source: automated
 coverage_id: D1
 
 ### 9. executeAction CDP method supporting 15 action types
+
 expected: executeAction CDP method supporting 15 action types
 result: pass
 source: automated
@@ -61,10 +70,10 @@ coverage_id: D2
 ## Summary
 
 total: 9
-passed: 7
+passed: 8
 issues: 0
-pending: 2
-skipped: 0
+pending: 0
+skipped: 1
 
 ## Gaps
 
@@ -78,13 +87,17 @@ skipped: 0
   test: 2
   root_cause: "三层根因：(1) attachForAI 对 'Input' 域调用 Input.enable，该方法在 Chromium 128+（Electron 32.3.3）已从 CDP 移除，附加整体失败；(2) 普通 input 分支 JS 赋值（this.value= / 原型原生 setter）不被框架识别，React 受控组件 inputValueTracking 使 onChange 不触发、DOM 值被回退；(3) filled 无条件 push 从不校验 callFunctionOn 结果（CDP 页面侧异常走 exceptionDetails 不 reject），成功系虚报。"
   artifacts:
+
     - path: "cdp-manager.js"
       issue: "fillForm/executeAction 调用 attachForAI 时传入 'Input' 域（两处）"
+
     - path: "cdp-manager.js"
       issue: "普通 input/textarea 分支 JS 赋值 + 无回读校验"
+
     - path: "ai-manager.js"
       issue: "REALM_SYSTEM_PROMPT 缺少语义字段映射与 availableFields 重试指引"
   missing:
+
     - "已修复：两处 attachForAI 移除 'Input' 域"
     - "已修复：DOM.focus + 全选 + Input.insertText 真实输入管线 + 回读校验"
     - "已修复：系统提示词补语义映射与重试规则"
@@ -100,11 +113,14 @@ skipped: 0
   test: 2
   root_cause: "第一层（串字，已修）：Input.insertText 打进当前键盘焦点元素，DOM.focus 不保证焦点落位且返回值不检查 → 密码打进邮箱框。第二层（已修）：截图决定性证据 —— insertText 打进的是 embedder（AI 面板聊天输入框）中持有真实键盘焦点的元素，而非 guest 内 DOM activeElement；wc.focus()/this.focus() 均不改变输入管线焦点，只有合成 dispatchMouseEvent（或真实用户手势）才把 guest frame 标记为 input-focused（合成点击后填写必定成功的原因）。修复：insertText 前 _syntheticClickElement 合成点击落位 + readback 裁决 + 原生 setter 回退双保险 + 500ms 延时复核。"
   artifacts:
+
     - path: "cdp-manager.js"
       issue: "fillForm 普通 input 分支 / contenteditable 分支 / executeAction type 操作：DOM.focus 后无焦点回验即 insertText（串字层，已修）"
+
     - path: "cdp-manager.js"
       issue: "insertText 主路径依赖输入管线焦点，首次填写打进 embedder 聊天框（已修：合成点击落位 + readback 兜底）"
   missing:
+
     - "已修复（串字层）：三处 insertText 路径改为 this.focus() + document.activeElement 回验，验证不过绝不 insertText；普通 input 分支回退到原生 setter + beforeinput/input/change 事件序列，readback 兜底终判"
     - "已修复（焦点层）：D4 合成点击正规化 —— _syntheticClickElement 接入三个 insertText 分支；D1 readback 裁决 + 原生 setter 回退；500ms 延时复核区分'未写入'与'被页面脚本回退'"
     - "UAT 复验通过（2026-08-03，GitHub 登录页直接 fill 不经 click，聊天框无串字）"
@@ -120,11 +136,14 @@ skipped: 0
   test: 4
   root_cause: "逐轮剥出四层：(1) execute_action 风险评估仅按 action 类型判定，click 一律低风险 —— AI 用 click 点提交按钮绕过确认门；(2) 修语义判定后发现 'Sign in' 文本匹配不可靠（命中 passkey 按钮）—— 按用户决策改元素类型判定；(3) 确认卡片弹出但响应断链：24-02 的 ai-manager 内置 requestActionConfirmation 监听 action:confirm-response 空通道（无发送方），24-04 的 main.js pendingActions 走 action:confirm/cancel —— 两套并行实现未对接，用户点确认后 main.js Map 查无此项，ai-manager 侧 30s 超时误判「用户取消」；(4) sanitizeInput 的引号/反引号转义破坏合法 CSS 选择器（input[type='submit']）与 execute_script 内容。"
   artifacts:
+
     - path: "ai-manager.js"
       issue: "execute_action 风险评估缺少 click 目标的提交语义检查"
+
     - path: "cdp-manager.js"
       issue: "缺少页面侧 click 目标检查能力"
   missing:
+
     - "已修复：cdp-manager 新增并导出 inspectClickTarget（页面侧判定 submit 控件 + 关联 form，fail-open 与 CAPTCHA 预检一致）"
     - "已修复：ai-manager execute_action 对 click 目标调用检查，命中则升级高风险走确认卡片（文案含 target）；支付检测与确认类型同步覆盖 click-submit"
     - "复测二轮（诊断日志生效）：'Sign in' 实际命中 passkey 按钮（type=button，isSubmit=false 判定正确但绕过确认），且元素匹配为包含误配（应中提交按钮）。按用户决策改为元素类型判定：按钮类元素（button/input[submit|button|image|reset]/[role=button]）一律确认；_buildFindElementScript 改精确匹配优先 + input 用 value 作显示文本（'Sign in' 精确命中提交按钮）。桩测试 5 场景全对"
