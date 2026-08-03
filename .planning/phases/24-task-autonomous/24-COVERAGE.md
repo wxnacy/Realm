@@ -13,14 +13,14 @@ Phase 24 未集成任何外部第三方 API。所有检测到的 "API" 引用均
 
 ## Coverage Matrix
 
-| API Surface | Type | Status | Reason |
-|-------------|------|--------|--------|
-| Chrome DevTools Protocol (CDP) | Browser Internal | OPT-OUT | 本地浏览器调试协议，非外部服务。通过 `webContents.debugger` 直接调用，无网络请求 |
-| Electron IPC (`ipcMain`/`ipcRenderer`) | Framework Internal | OPT-OUT | Electron 进程间通信机制，应用架构基础，非外部 API |
-| `contextBridge.exposeInMainWorld` | Framework Internal | OPT-OUT | Electron 安全桥接，暴露本地 API 给渲染进程 |
-| `webContents.debugger` | Browser Internal | OPT-OUT | Electron 内置调试器接口，用于 CDP 通信 |
-| DOM API (`document.querySelector` 等) | Browser Internal | OPT-OUT | 标准浏览器 DOM API，渲染进程 UI 操作基础 |
-| `electron-store` | Local Storage | OPT-OUT | 本地文件存储，无网络请求，非外部服务 |
+| capability | decision | reason |
+|---|---|---|
+| Chrome DevTools Protocol (CDP) | OPT-OUT | Browser Internal — 本地浏览器调试协议，非外部服务；通过 webContents.debugger 直接调用，无网络请求 |
+| Electron IPC (ipcMain/ipcRenderer) | OPT-OUT | Framework Internal — Electron 进程间通信机制，应用架构基础，非外部 API |
+| contextBridge.exposeInMainWorld | OPT-OUT | Framework Internal — Electron 安全桥接，暴露本地 API 给渲染进程 |
+| webContents.debugger | OPT-OUT | Browser Internal — Electron 内置调试器接口，用于 CDP 通信 |
+| DOM API (document.querySelector 等) | OPT-OUT | Browser Internal — 标准浏览器 DOM API，渲染进程 UI 操作基础 |
+| electron-store | OPT-OUT | Local Storage — 本地文件存储，无网络请求，非外部服务 |
 
 ## Detected Integrations
 
