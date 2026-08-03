@@ -176,6 +176,90 @@ function validateScript(script) {
 }
 
 /**
+ * 脚本步骤级静态分析验证（per D-10 严格白名单静态分析）
+ *
+ * 对 generate_script 工具生成的脚本对象进行步骤级安全验证：
+ * 1. 校验 script.steps 存在且为数组
+ * 2. 遍历每个 step，验证 step.action 在 SCRIPT_ALLOWED_ACTIONS 白名单中
+ * 3. 对 step.target 和 step.options 中的所有字符串值执行危险模式检测
+ *
+ * 与 validateScript（字符串级检测）不同，此函数操作结构化步骤数组，
+ * 在 action 白名单之外还检测嵌入的 JS 危险模式（fetch/XMLHttpRequest/
+ * 路径遍历/window/document 访问等）。
+ *
+ * @param {Object} script - 脚本对象，包含 steps 数组
+ * @returns {{safe: boolean, reason?: string, details?: {stepIndex: number, pattern: string}}} 验证结果
+ */
+function validateScriptForSteps(script) {
+  if (!script || !Array.isArray(script.steps)) {
+    return { safe: false, reason: '脚本 steps 不存在或不是数组' };
+  }
+
+  /** 扩展危险模式列表（覆盖 fetch/XMLHttpRequest/路径遍历/window/document 访问） */
+  const dangerousPatterns = [
+    // 继承 validateScript 的基础模式
+    { pattern: /\beval\s*\(/, name: 'eval' },
+    { pattern: /\bnew\s+Function\s*\(/, name: 'new Function' },
+    { pattern: /\bimport\s*\(/, name: 'import()' },
+    { pattern: /\brequire\s*\(/, name: 'require()' },
+    { pattern: /\bfs\./, name: 'fs 模块' },
+    { pattern: /\bnet\./, name: 'net 模块' },
+    { pattern: /\bhttp\./, name: 'http 模块' },
+    { pattern: /\bhttps\./, name: 'https 模块' },
+    { pattern: /\bchild_process\b/, name: 'child_process' },
+    { pattern: /\bprocess\./, name: 'process 对象' },
+    { pattern: /\bexec\s*\(/, name: 'exec' },
+    { pattern: /\bspawn\s*\(/, name: 'spawn' },
+    // 脚本步骤专用扩展模式
+    { pattern: /\bfetch\s*\(/, name: 'fetch 网络请求' },
+    { pattern: /\bXMLHttpRequest\b/, name: 'XMLHttpRequest' },
+    { pattern: /\.\.\//, name: '路径遍历' },
+    { pattern: /\bwindow\.\b/, name: 'window 对象访问' },
+    { pattern: /\bdocument\.\b/, name: 'document 对象访问' },
+  ];
+
+  for (let i = 0; i < script.steps.length; i++) {
+    const step = script.steps[i];
+
+    // 1. 验证 action 在白名单中
+    if (!step.action || !SCRIPT_ALLOWED_ACTIONS.includes(step.action)) {
+      return {
+        safe: false,
+        reason: '不允许的操作: ' + (step.action || '(空)'),
+        details: { stepIndex: i, pattern: 'action-whitelist' },
+      };
+    }
+
+    // 2. 对 step.target 和 step.options 中的字符串执行危险模式检测
+    const stringsToCheck = [];
+    if (typeof step.target === 'string') {
+      stringsToCheck.push(step.target);
+    }
+    if (step.options && typeof step.options === 'object') {
+      for (const value of Object.values(step.options)) {
+        if (typeof value === 'string') {
+          stringsToCheck.push(value);
+        }
+      }
+    }
+
+    for (const str of stringsToCheck) {
+      for (const { pattern, name } of dangerousPatterns) {
+        if (pattern.test(str)) {
+          return {
+            safe: false,
+            reason: '步骤 ' + (i + 1) + ' 包含危险调用: ' + name,
+            details: { stepIndex: i, pattern: name },
+          };
+        }
+      }
+    }
+  }
+
+  return { safe: true };
+}
+
+/**
  * 请求高风险操作确认（per D-05/D-06/D-07）
  *
  * 委托给主进程注入的确认通道（main.js 的 pendingActions 方案，
