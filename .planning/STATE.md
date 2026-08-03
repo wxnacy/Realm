@@ -1,20 +1,20 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.1
-milestone_name: AI CDP 增强 + Tabbrowser 功能集成 (In Progress)
+milestone_name: AI CDP 增强 + Tabbrowser 功能集成
 current_phase: 25
 current_phase_name: script-tab
 status: executing
 stopped_at: Completed 25-06-PLAN.md
-last_updated: "2026-08-03T16:07:20.395Z"
+last_updated: "2026-08-03T17:15:22.931Z"
 last_activity: 2026-08-03
 last_activity_desc: Phase 25 execution started
 progress:
   total_phases: 4
-  completed_phases: 4
-  total_plans: 17
+  completed_phases: 3
+  total_plans: 18
   completed_plans: 17
-  percent: 100
+  percent: 75
 ---
 
 # Project State: Realm Browser
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-03)
 
 ## Current Position
 
-Phase: 25 (script-tab) — VERIFY: gaps_found
-Plan: 6 of 6 executed (25-06 gap closure 完成，G-25-23 关闭，UAT 双路径批准)
-Status: Pending — 脚本半边 SC#1/2/3 未达成（预览 UI 不可达、script:execute 绕过白名单），用户决定暂缓修复
+Phase: 25 (script-tab) — EXECUTING
+Plan: 1 of 7
+Status: Executing Phase 25
 Next: /gsd-plan-phase 25 --gaps
-Last activity: 2026-08-03 — 25-06 完成 + 阶段复验 gaps_found（详见 25-VERIFICATION.md）
+Last activity: 2026-08-03 — Phase 25 execution started
 
 Progress: [████████████████████] 16/16 plans ([██████████] 100%)
 

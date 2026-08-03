@@ -73,7 +73,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 - [x] **Phase 22: CDP 管理器扩展 + 基础网页操控工具** - 独立 CDP 管理器 + read_page_content + extract_links + open_link (completed 2026-08-02)
 - [x] **Phase 23: 智能上下文引用 + 全文检索** - @ 引用标签页上下文 + FTS5 全文检索收藏 (completed 2026-08-02)
 - [x] **Phase 24: 任务自主执行** - 自动化填表 + 自动化操作 + 操作确认 + 安全防护 (completed 2026-08-02)
-- [ ] **Phase 25: 脚本生成 + 智能标签整理** - 一句话生成脚本 + AI 自动标签分组 (gaps found 2026-08-03：脚本半边 SC#1/2/3 未达成——预览 UI 不可达 + script:execute 绕过白名单，详见 25-VERIFICATION.md；待 /gsd-plan-phase 25 --gaps)
+- [x] **Phase 25: 脚本生成 + 智能标签整理** - 一句话生成脚本 + AI 自动标签分组 (gaps found 2026-08-03：脚本半边 SC#1/2/3 未达成——预览 UI 不可达 + script:execute 绕过白名单，详见 25-VERIFICATION.md；待 /gsd-plan-phase 25 --gaps) (completed 2026-08-03)
 
 ## Phase Details
 
@@ -178,7 +178,9 @@ Plans:
   4. 用户在 AI 聊天中输入"整理标签页"，AI 按主题或域名智能分组当前所有标签页并展示分组建议
   5. 用户确认分组建议后，标签页按分组重新排列，视觉上清晰区分不同组
 
-**Plans**: 6/6 plans executed
+**Plans**: 7/7 plans complete
+
+- [x] 25-07-PLAN.md
 
 **Wave 1** (no dependencies)
 
@@ -231,4 +233,4 @@ Phases execute in numeric order: 22 → 23 → 24 → 25
 | 22. CDP 管理器扩展 + 基础网页操控工具 | v2.1 | 5/5 | Complete    | 2026-08-02 |
 | 23. 智能上下文引用 + 全文检索 | v2.1 | 2/2 | Complete    | 2026-08-02 |
 | 24. 任务自主执行 | v2.1 | 4/4 | Complete    | 2026-08-02 |
-| 25. 脚本生成 + 智能标签整理 | v2.1 | 6/6 | In Progress|  |
+| 25. 脚本生成 + 智能标签整理 | v2.1 | 7/7 | Complete   | 2026-08-03 |
