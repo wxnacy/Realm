@@ -4981,6 +4981,353 @@ textarea::placeholder {
   color: var(--success-color);
 }
 
+/* ==================== 脚本预览卡片 ==================== */
+
+/* 卡片容器 */
+.script-preview-card {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+/* 卡片头部：图标 + 信息 + 操作按钮 */
+.script-card-header {
+  padding: 12px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* 执行图标 */
+.script-card-icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-color);
+}
+
+.script-card-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* 信息区域：名称 + 描述 */
+.script-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* 脚本名称 */
+.script-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+/* 脚本描述 */
+.script-card-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 操作按钮区域 */
+.script-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 步骤列表容器 */
+.script-steps-list {
+  padding: 0 12px 12px;
+}
+
+/* 单个步骤项 */
+.script-step-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  position: relative;
+}
+
+.script-step-item:last-child {
+  border-bottom: none;
+}
+
+/* 拖拽状态 */
+.script-step-item.dragging {
+  opacity: 0.4;
+}
+
+.script-step-item.drag-over {
+  border-top: 2px solid var(--accent-color);
+}
+
+/* 拖拽手柄 */
+.step-drag-handle {
+  width: 16px;
+  height: 16px;
+  cursor: grab;
+  opacity: 0.4;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.step-drag-handle:hover {
+  opacity: 1;
+}
+
+.step-drag-handle svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* 步骤序号 */
+.step-number {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+/* 步骤内容区 */
+.step-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 步骤内容行（操作标签 + 目标 + 参数） */
+.step-content-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* 操作类型标签 */
+.step-action-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent-color);
+  padding: 2px 6px;
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+/* 目标描述 */
+.step-target {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+/* 参数值 */
+.step-params {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: 'SF Mono', Monaco, Menlo, Consolas, monospace;
+}
+
+/* 步骤操作按钮组（编辑/删除） */
+.step-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.script-step-item:hover .step-actions {
+  opacity: 1;
+}
+
+.step-action-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.step-action-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.step-action-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 添加步骤按钮 */
+.script-add-step-btn {
+  width: calc(100% - 24px);
+  padding: 8px;
+  text-align: center;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px dashed var(--border-color);
+  border-radius: 6px;
+  margin: 0 12px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s;
+}
+
+.script-add-step-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-color);
+  background: rgba(59, 130, 246, 0.05);
+}
+
+/* 步骤状态样式 */
+
+/* 执行中 */
+.script-step-item.step-executing {
+  border-left: 3px solid var(--accent-color);
+  background: rgba(59, 130, 246, 0.05);
+  padding-left: 8px;
+}
+
+/* 成功 */
+.script-step-item.step-success {
+  border-left: 3px solid var(--success-color);
+  background: rgba(16, 185, 129, 0.05);
+  padding-left: 8px;
+}
+
+/* 错误 */
+.script-step-item.step-error {
+  border-left: 3px solid var(--danger-color);
+  background: rgba(239, 68, 68, 0.05);
+  padding-left: 8px;
+}
+
+/* 跳过 */
+.script-step-item.step-skipped {
+  opacity: 0.5;
+}
+
+/* ==================== 步骤内联编辑器 ==================== */
+
+/* 编辑器容器 */
+.step-editor {
+  padding: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 编辑器行 */
+.step-editor-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.step-editor-row label {
+  width: 48px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.step-editor-row input,
+.step-editor-row select {
+  flex: 1;
+  height: 32px;
+  padding: 0 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.step-editor-row input:focus,
+.step-editor-row select:focus {
+  border-color: var(--accent-color);
+  outline: none;
+}
+
+.step-editor-row select {
+  cursor: pointer;
+}
+
+.step-editor-row select option {
+  background: var(--bg-secondary);
+}
+
+/* 编辑器操作按钮 */
+.step-editor-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.step-editor-actions button {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  border: none;
+}
+
+.step-editor-actions .step-editor-save {
+  background: var(--accent-color);
+  color: #ffffff;
+}
+
+.step-editor-actions .step-editor-save:hover {
+  background: var(--accent-hover);
+}
+
+.step-editor-actions .step-editor-cancel {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.step-editor-actions .step-editor-cancel:hover {
+  background: #505050;
+}
+
 /* ==================== 旋转动画 ==================== */
 
 @keyframes spin {

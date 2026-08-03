@@ -461,6 +461,30 @@
     <div class="ai-panel-resize-handle" id="aiPanelResizeHandle"></div>
   </div>
 
+  <!-- 脚本预览卡片模板（AI 聊天中渲染脚本步骤卡片时克隆使用） -->
+  <template id="script-preview-template">
+    <div class="script-preview-card">
+      <div class="script-card-header">
+        <div class="script-card-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="16 18 22 12 16 6"></polyline>
+            <polyline points="8 6 2 12 8 18"></polyline>
+          </svg>
+        </div>
+        <div class="script-card-info">
+          <div class="script-card-name"></div>
+          <div class="script-card-desc"></div>
+        </div>
+        <div class="script-card-actions">
+          <button class="action-confirm-btn action-confirm-btn-cancel script-cancel-btn">取消</button>
+          <button class="action-confirm-btn action-confirm-btn-confirm script-execute-btn">执行脚本</button>
+        </div>
+      </div>
+      <div class="script-steps-list"></div>
+      <button class="script-add-step-btn">+ 添加步骤</button>
+    </div>
+  </template>
+
   <!-- 脚本必须放在所有 DOM 之后：renderer.js 顶层 elements 对象在脚本解析时即执行 getElementById -->
   <script src="bookmarks-bar-menu.js"></script>
   <script src="bookmarks-bar.js"></script>
