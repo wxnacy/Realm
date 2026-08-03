@@ -2126,11 +2126,24 @@ ${content}
               type: 'string',
               description: '目标容器 ID（可选，默认使用当前活跃容器）',
             },
+            steps: {
+              type: 'array',
+              description: '脚本步骤数组，每步包含 action/target/options/waitFor',
+              items: {
+                type: 'object',
+                properties: {
+                  action: { type: 'string' },
+                  target: { type: 'string' },
+                  options: { type: 'object' },
+                  waitFor: { type: 'number' },
+                },
+              },
+            },
           },
           required: ['description'],
         },
         execute: async (toolCallId, params) => {
-          const { description, containerId: requestedContainerId } = params;
+          const { description, containerId: requestedContainerId, steps: inputSteps } = params;
 
           if (!description) {
             throw new Error('任务描述不能为空');
@@ -2149,12 +2162,11 @@ ${content}
             throw new Error(`指定容器不存在或已删除: ${containerId}`);
           }
 
-          // 构造脚本骨架 —— 实际步骤由 AI 基于 description 在对话中生成，
-          // 此 execute 函数返回脚本模板结构供 AI 填充
+          // 构造脚本骨架 —— 若 AI 传入 steps 则直接使用，否则返回空骨架供后续填充
           const script = {
             name: description.substring(0, 50),
             description,
-            steps: [],
+            steps: Array.isArray(inputSteps) ? inputSteps : [],
             containerId,
           };
 
@@ -2581,3 +2593,4 @@ ${content}
 module.exports = AIManager;
 module.exports.executeScript = executeScript;
 module.exports.sanitizeInput = sanitizeInput;
+module.exports.validateScriptForSteps = validateScriptForSteps;
