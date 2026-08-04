@@ -136,13 +136,10 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 ## Current State
 
-**Shipped:** v2.0 (2026-08-01)
-- 22 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0 + 1 v2.1)
+**Shipped:** v2.1 (2026-08-04)
+- 25 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0 + 4 v2.1)
 - 所有里程碑已完成归档
-- v2.0 Phase 21 complete — AI 聊天面板 UI 全部 13 个 UAT 验证通过
-- v2.1 Phase 22 complete — CDP 管理器 + 3 个网页操控工具，18/18 UAT 通过（含 2 轮 gap 修复复测）
-- v2.1 Phase 23 complete — @ 引用标签页上下文 + FTS5 收藏全文检索，7/7 UAT 通过（含 3 个 gap 修复复测）
-- v2.1 Phase 24 complete — 任务自主执行（fillForm/executeAction + AI 工具 + CAPTCHA 检测 + 确认 UI），6/6 需求验证通过
+- v2.1 Phase 22-25 complete — AI CDP 增强 + Tabbrowser 功能集成
 - 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core + nodejieba
 
 **Key features delivered:**
@@ -157,29 +154,23 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - 收藏夹文件夹系统（数据库层 + UI 交互 + 拖拽排序 + 多选批量操作）
 - Chrome 书签导入（JSON/HTML 解析 + 批量导入 + 进度预览）
 - 收藏栏功能（固定显示 + 交互 + 右键菜单 + 设置）
-- AI Agent 集成（pi-agent-core + AI Manager + 5 个 Realm 工具 + 聊天 UI）
+- AI Agent 集成（pi-agent-core + AI Manager + 12 个 Realm 工具 + 聊天 UI）
 - AI 智能上下文引用（@ 引用标签页正文注入）+ 收藏 FTS5 中文全文检索
+- AI 自动化填表/操作（fillForm/executeAction + CAPTCHA 检测 + 操作确认 UI）
+- AI 脚本生成（自然语言生成可执行脚本 + 逐步执行 + 安全验证）
+- AI 智能标签分组（suggest_tab_groups + 建议卡片 + 标签栏重排）
 
 **Known gaps:**
-- 13 个已诊断 debug session 未修复
+- 13 个已诊断 debug session 未修复（从 v2.0 延续）
 - 1 个 UAT 差距（Phase 18，0 个待处理场景）
 - Phase 23 代码审查遗留 19 项（6 Critical），详见 `.planning/phases/23-context-reference/23-REVIEW.md`
-
-## Current Milestone: v2.1 AI CDP 增强 + Tabbrowser 功能集成
-
-**Goal:** 为 AI Agent 增加深度浏览器控制能力，集成 Tabbrowser 核心功能
-
-**Target features:**
-- ✓ Phase 22: CDP 管理器 + read_page_content + extract_links + open_link（2026-08-02 完成）
-- ✓ Phase 23: 智能上下文引用（@ 引用标签页）+ 全文检索（2026-08-02 完成）
-- ✓ Phase 24: 任务自主执行（fillForm/executeAction + AI 工具 + CAPTCHA 检测 + 确认 UI）（2026-08-02 完成）
-- Phase 25: 脚本生成 + 智能标签整理
 
 ## Next Milestone Goals
 
 **v2.2 Bug Fixes + Polish** (planned)
 - 修复 13 个已诊断的 debug session
 - 解决 Phase 18 UAT 差距
+- Phase 23 代码审查遗留修复
 - 性能优化和 UI 打磨
 - 文档更新
 
@@ -290,4 +281,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-03 after Phase 25*
+*Last updated: 2026-08-04 after v2.1 milestone*

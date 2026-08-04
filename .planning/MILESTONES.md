@@ -142,3 +142,68 @@ Cookie 管理面板增强，设置页面重构，开发者模式实现：
 - Requirements: `.planning/milestones/v1.3-REQUIREMENTS.md`
 - Phases: `.planning/milestones/v1.3-phases/`
 - Tag: `v1.3`
+
+## v2.0 收藏夹文件夹支持 + AI Agent 集成
+
+**Shipped:** 2026-08-01
+**Phases:** 8 (16 plans)
+**Status:** ✅ Complete
+
+### Delivered
+
+收藏夹文件夹系统 + AI Agent 基础集成：
+- 收藏夹文件夹系统（数据库层 + UI 交互 + 拖拽排序 + 多选批量操作）
+- Chrome 书签导入（JSON/HTML 解析 + 批量导入 + 进度预览）
+- 收藏栏功能（固定显示 + 交互 + 右键菜单 + 设置）
+- AI Agent 集成（pi-agent-core + AI Manager + 5 个 Realm 工具 + 聊天 UI）
+
+### Key Accomplishments
+
+1. Phase 14-16: 收藏夹文件夹系统完整实现
+2. Phase 17: Chrome 书签导入（自动检测 + HTML 导入 + 进度预览）
+3. Phase 18: 收藏栏功能
+4. Phase 19-21: AI Agent 集成（AI Manager + 聊天 UI + 流式渲染）
+
+### Verification
+
+- Closeout type: verified_closeout
+- 25/25 v2.0 requirements complete
+
+### Archive
+
+- Roadmap: `.planning/milestones/v2.0-ROADMAP.md`
+- Requirements: `.planning/milestones/v2.0-REQUIREMENTS.md`
+- Tag: `v2.0`
+
+## v2.1 AI CDP 增强 + Tabbrowser 功能集成
+
+**Shipped:** 2026-08-04
+**Phases:** 4 (18 plans)
+**Status:** ✅ Complete
+
+### Delivered
+
+AI Agent 深度浏览器控制能力：
+- CDP 管理器扩展 + 基础网页操控工具（read_page_content/extract_links/open_link）
+- 智能上下文引用（@ 标签页引用）+ FTS5 收藏全文检索
+- 任务自主执行（fillForm/executeAction + AI 工具 + CAPTCHA 检测 + 确认 UI）
+- 脚本生成 + 智能标签整理
+
+### Key Accomplishments
+
+1. Phase 22: CDP 管理器扩展 + 3 个网页操控 AI 工具（含 2 轮 gap 修复）
+2. Phase 23: @ 引用标签页上下文 + FTS5 收藏全文检索（含 3 个 gap 修复复测）
+3. Phase 24: 任务自主执行（fillForm/executeAction + CAPTCHA 检测 + 确认 UI）
+4. Phase 25: 脚本生成 + 智能标签整理（含 apply_tab_groups 回传修复）
+
+### Verification
+
+- Closeout type: override_closeout (未运行里程碑审计)
+- 20/20 v2.1 requirements complete
+- 13 debug sessions deferred (from v2.0)
+- Phase 23 代码审查遗留 19 项（6 Critical）
+
+### Archive
+
+- Roadmap: `.planning/milestones/v2.1-ROADMAP.md`
+- Requirements: `.planning/milestones/v2.1-REQUIREMENTS.md`
