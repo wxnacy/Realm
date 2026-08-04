@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: complete
 phase: 25-script-tab
-source: [25-01-SUMMARY.md, 25-02-SUMMARY.md, 25-03-SUMMARY.md, 25-04-SUMMARY.md, 25-05-SUMMARY.md]
+source: [25-01-SUMMARY.md, 25-02-SUMMARY.md, 25-03-SUMMARY.md, 25-04-SUMMARY.md, 25-05-SUMMARY.md, 25-06-SUMMARY.md]
 started: 2026-08-03T10:45:45Z
-updated: 2026-08-03T10:50:00Z
+updated: 2026-08-04T02:05:00Z
 ---
 
 ## Current Test
@@ -146,17 +146,17 @@ result: pass
 source: automated
 coverage_id: 25-05-D2
 
-### 23. 端到端：AI 整理标签页并实际应用分组
-expected: 在 AI 面板输入「整理标签页」，出现可交互的分组建议卡片，点击「应用分组」后标签栏实际按组重排
-result: issue
-reported: "AI 只输出 markdown 表格回答，实际标签页没有整理，AI 自称没有移动标签页的权限"
-severity: major
+### 23. 端到端：AI 整理标签页并实际应用分组（重新验证）
+expected: |
+  在 AI 面板输入「整理标签页」，出现可交互的分组建议卡片，点击「应用分组」后标签栏实际按组重排
+  修复内容（25-06）：新增 apply_tab_groups 工具 + renderToolCards 信封解包 + 系统提示词同步
+result: pass
 
 ## Summary
 
 total: 23
-passed: 22
-issues: 1
+passed: 23
+issues: 0
 pending: 0
 skipped: 0
 

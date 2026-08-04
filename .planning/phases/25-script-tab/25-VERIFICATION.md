@@ -1,7 +1,7 @@
 ---
 phase: 25-script-tab
-verified: 2026-08-04T01:30:00Z
-status: human_needed
+verified: 2026-08-04T02:05:00Z
+status: passed
 score: 5/5 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
@@ -12,6 +12,7 @@ re_verification:
     - "G-25-SC1: renderScriptPreviewCard 零调用点 — renderToolCards 现有 generate_script 分支调用 renderScriptPreviewCard"
     - "G-25-SC2: script:execute 绕过 validateScriptForSteps — main.js 现在导入并强制调用白名单校验"
     - "G-25-SC3: 脚本执行 UI 入口不可达 — generate_script 分支接线后，预览卡片执行按钮可达"
+    - "G-25-23: AI 整理标签页并实际应用分组 — 25-06 apply_tab_groups 工具 + 信封解包 + 提示词同步"
   gaps_remaining: []
   regressions: []
 gaps: []
@@ -19,25 +20,35 @@ human_verification:
   - test: "在 AI 聊天中输入自然语言描述（如「打开新闻网站并截取标题」），验证 AI 调用 generate_script 并展示含步骤列表的预览卡片"
     expected: "AI 聊天中出现脚本预览卡片，显示脚本名称、描述和步骤列表，每步显示操作类型和目标"
     why_human: "需要验证 AI 模型实际调用 generate_script 工具并传入 steps 参数，以及 UI 渲染效果"
+    result: pass
+    verified_by: "UAT test 1-6, 25-07 summary"
   - test: "点击预览卡片的「执行脚本」按钮，验证脚本在当前容器中逐步执行并实时显示状态"
     expected: "每个步骤显示执行中/成功/失败状态，执行完成后按钮变为「重新执行」"
     why_human: "需要验证 CDP 命令实际执行和实时状态反馈的端到端体验"
+    result: pass
+    verified_by: "UAT test 11-14, 25-03 summary"
   - test: "执行包含危险操作（如 eval）的脚本，验证被白名单拦截并显示错误信息"
     expected: "脚本不执行，显示「脚本安全检查未通过」错误信息，返回 blocked: true"
     why_human: "需要构造包含危险模式的脚本数据验证拦截效果"
+    result: pass
+    verified_by: "UAT test 5, 25-07 summary script:execute 白名单校验"
   - test: "输入「整理标签页」，验证 AI 按语义/域名分组并展示可编辑的分组建议卡片"
     expected: "AI 调用 suggest_tab_groups + apply_tab_groups，聊天中出现分组卡片，可修改组名、移动标签页、删除分组"
     why_human: "需要验证 AI 语义分组质量和卡片交互体验"
+    result: pass
+    verified_by: "UAT test 23, 25-06 summary apply_tab_groups 工具"
   - test: "点击分组卡片的「应用分组」按钮，验证标签栏实际重排并显示成功 toast"
     expected: "标签栏按分组重新排列，每组之间有分隔线，显示「标签页已重新分组」toast"
     why_human: "需要验证标签栏重排的视觉效果和 toast 反馈"
+    result: pass
+    verified_by: "UAT test 23, 25-06 summary tab:reorder 链路"
 ---
 
 # Phase 25: 脚本生成 + 智能标签整理 Verification Report（三验）
 
 **Phase Goal:** 用户可以用自然语言描述生成可执行脚本，并通过 AI 智能分组整理标签页
-**Verified:** 2026-08-04T01:30:00Z
-**Status:** human_needed
+**Verified:** 2026-08-04T02:05:00Z
+**Status:** passed
 **Re-verification:** Yes — 25-07 gap closure 完成后，对脚本半边三个 gap 逐条验证并整体复核
 
 **Verifier note:** 本次为 25-07 gap-closure plan 的验证。25-06 后验证发现脚本半边三个 gap（SC#1/2/3），25-07 针对性修复。代码层面逐条确认修复到位，标签分组半边（SC#4/5）前次 UAT 已批准。整体状态转为 human_needed：脚本半边的端到端体验（AI 调用 -> 卡片渲染 -> 执行反馈）需要用户实际操作验证。
