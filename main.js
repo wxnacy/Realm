@@ -43,6 +43,7 @@ protocol.registerSchemesAsPrivileged([{
   }
 }]);
 
+
 // 配置存储（whenReady 启动清理与 before-quit 退出清理共用）
 const configStore = new Store({ name: 'realm-config' });
 const windowManager = require('./window-manager');
@@ -191,6 +192,25 @@ app.on('web-contents-created', (event, contents) => {
 
   console.log(`[Realm] webview webContents 创建, id: ${contents.id}`);
 
+  // 伪装为普通 Chrome，避免网站针对 Electron 的 User-Agent 字符串返回差异内容。
+  // 仅覆盖 UA 字符串即可：Electron 32 下 navigator.userAgentData.brands / Sec-CH-UA
+  // 请求头默认只有 "Not;A=Brand" 和 "Chromium"，本就不含 Electron 品牌（已实证，
+  // 见 docs/debug/github-login-404-two-factor-app.md 第 5 节）。
+  contents.setUserAgent(
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+  );
+
+  // 注意：不要在此处用 CDP 覆盖 User-Agent Client Hints 品牌列表。
+  // 历史原因：早期方案在 web-contents-created（webview 尚未首次导航）时
+  // 立即 attach debugger 并发 Network.setUserAgentOverride，实测该命令在
+  // 从未导航过的 target 上会永久挂起（不 resolve/catch）——
+  // 覆盖从不生效（对应 docs/debug 中"Round 4 console 无日志"现象），
+  // 且 debugger 一直处于 attached 状态，阻塞 DevTools 与 AI 工具（cdpManager），
+  // 还会发出不一致/半应用的 Sec-CH-UA 头干扰 GitHub 等对指纹敏感的登录流程
+  // （曾导致 GitHub 2FA 页 404，详见 docs/debug/github-login-404-two-factor-app.md）。
+  // 若某天确需覆盖 brands，应在首次导航完成后再发送，并保持 debugger 附着、
+  // 与 cdpManager/AI 工具协调生命周期，而非在此处一次性 attach/detach。
+
   // guest 销毁时清理容器映射，避免 Map 泄漏
   contents.on('destroyed', () => {
     unregisterGuestContainer(contents.id);
@@ -262,8 +282,8 @@ app.on('web-contents-created', (event, contents) => {
     const matchedContainer = assignmentRules.matchUrl(url);
     console.log(`[Realm] 匹配结果: ${matchedContainer || '无匹配'}`);
 
-    // 无论是否匹配，只要规则匹配就创建新 Tab
-    if (matchedContainer) {
+    // 分配规则命中其他容器时，才同步取消当前导航并新建 Tab
+    if (matchedContainer && matchedContainer !== currentContainer) {
       event.preventDefault();
       console.log(`[Realm] 规则匹配成功: ${url} -> ${matchedContainer}`);
       notifyOpenUrlInTab(contents, url, matchedContainer);

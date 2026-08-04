@@ -721,11 +721,12 @@ function createWebviewForTab(tabId, containerId, url) {
 
   const webview = document.createElement('webview');
 
+  // 设置 partition（容器隔离，D-01）
+  // 必须在 src 之前设置，否则 webview 可能使用默认 session 而非指定的持久化 partition
+  webview.partition = `persist:container-${containerId}`;
+
   // 设置 src
   webview.src = url || 'about:blank';
-
-  // 设置 partition（容器隔离，D-01）
-  webview.partition = `persist:container-${containerId}`;
 
   // 应用安全配置（D-03）：仅设置字符串型属性 webpreferences（CR-1）
   webview.setAttribute('webpreferences', WEBVIEW_WEBPREFERENCES);
