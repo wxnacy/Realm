@@ -8,7 +8,9 @@
     "dev": "NODE_ENV=development electron .",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",
-    "postinstall": "node scripts/postinstall.js"
+    "postinstall": "node scripts/postinstall.js",
+    "test:pre-release": "node scripts/test-pre-release.js",
+    "validate": "node scripts/test-save-domain-cookies.js && node scripts/test-ipc-favorites.js && node scripts/test-rules-import-roundtrip.js && node scripts/test-pre-release.js"
   },
   "keywords": [
     "browser",
@@ -22,7 +24,7 @@
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
     "@mozilla/readability": "^0.6.0",
-    "electron": "^32.0.0",
+    "electron": "^43.3.0",
     "electron-builder": "^24.13.0",
     "electron-reloader": "^1.2.3",
     "esbuild": "^0.28.1"
@@ -30,7 +32,7 @@
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.82.1",
     "@earendil-works/pi-ai": "^0.82.1",
-    "better-sqlite3": "^11.7.0",
+    "better-sqlite3": "^13.0.2",
     "cheerio": "^1.2.0",
     "dompurify": "^3.4.12",
     "electron-store": "^8.1.0",

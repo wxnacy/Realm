@@ -57,6 +57,7 @@ const favoritesManager = require('./favorites-manager');
 const faviconFetcher = require('./favicon-fetcher');
 const frequentSitesManager = require('./frequent-sites-manager');
 const cdpManager = require('./cdp-manager');
+const uaChManager = require('./ua-ch-manager');
 const devRequestsWriter = require('./dev-requests-writer');
 const AIManager = require('./ai-manager');
 const { executeScript, validateScriptForSteps } = require('./ai-manager');
@@ -193,11 +194,12 @@ app.on('web-contents-created', (event, contents) => {
   console.log(`[Realm] webview webContents 创建, id: ${contents.id}`);
 
   // 伪装为普通 Chrome，避免网站针对 Electron 的 User-Agent 字符串返回差异内容。
-  // 仅覆盖 UA 字符串即可：Electron 32 下 navigator.userAgentData.brands / Sec-CH-UA
-  // 请求头默认只有 "Not;A=Brand" 和 "Chromium"，本就不含 Electron 品牌（已实证，
+  // 仅覆盖 UA 字符串即可：navigator.userAgentData.brands / Sec-CH-UA 请求头
+  // 默认只有 GREASE 和 Chromium，本就不含 Electron 品牌（已实证，
   // 见 docs/debug/github-login-404-two-factor-app.md 第 5 节）。
+  // UA 版本号（Chrome/150）须与 ua-ch-manager / onBeforeSendHeaders 的品牌表同步。
   contents.setUserAgent(
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'
   );
 
   // 注意：不要在此处用 CDP 覆盖 User-Agent Client Hints 品牌列表。
@@ -217,7 +219,49 @@ app.on('web-contents-created', (event, contents) => {
     // D-03 用完即卸兜底：webview 销毁时清理 AI 工具附加的 CDP 调试器状态
     // （debuggerStates Map 条目；无 ai-tool 状态时 detachForAI 内部静默返回）
     cdpManager.detachForAI(contents.id);
+    // UA 覆盖管理器状态清理（debugger 由 Electron 自动断开）
+    uaChManager.release(contents.id);
     console.log(`[Realm] webview 销毁，已清理容器映射与 CDP 调试器状态: ${contents.id}`);
+  });
+
+  // 首次导航后附加 UA Client Hints 覆盖（同时改请求头 Sec-CH-UA 与页面
+  // navigator.userAgentData）。不能在 web-contents-created 未导航时 attach——
+  // CDP Network 命令在未导航 target 上永久挂起（github-login-404 实证）。
+  // 三事件注册 + attach 幂等（ua-ch-manager 内部 heldState 去重），先到先得：
+  // - did-navigate：导航提交后立即触发（页面 DOM 未解析，覆盖在页面 JS 读取
+  //   userAgentData 之前生效，彻底避免"首次导航读到默认值"的时序漏洞）
+  // - dom-ready：DOMContentLoaded 后触发（比 did-finish-load 可靠，Google accounts
+  //   页存在持续加载的 iframe，onload 可能长时间不完成）
+  // - did-finish-load：onload 后触发（兜底）
+  contents.on('did-navigate', (event, url) => {
+    console.log(`[Realm] webview 导航完成: ${url}`);
+    uaChManager.attach(contents);
+  });
+  contents.on('dom-ready', () => {
+    console.log(`[Realm UA-CH] dom-ready 触发, webContents: ${contents.id}, url: ${contents.getURL()}`);
+    uaChManager.attach(contents);
+    // 诊断：dump 页面侧实际指纹（Gaia 风控 JS 读到的值），用于验证 CDP 覆盖是否生效。
+    // 若 brands 缺 Google Chrome，说明 ua-ch-manager 未持有 debugger（看上方 attach 日志）。
+    if (contents.getURL().includes('accounts.google.com')) {
+      contents.executeJavaScript(`(async () => {
+        const out = {
+          brands: navigator.userAgentData ? navigator.userAgentData.brands : null,
+          platformVersion: null,
+          uaFullVersion: null,
+        };
+        if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+          const he = await navigator.userAgentData.getHighEntropyValues(['platformVersion', 'uaFullVersion']);
+          out.platformVersion = he.platformVersion;
+          out.uaFullVersion = he.uaFullVersion;
+        }
+        return JSON.stringify(out);
+      })()`)
+        .then(r => console.log(`[Realm 指纹] 页面侧 userAgentData: ${r}`))
+        .catch(err => console.warn(`[Realm 指纹] dump 失败: ${err.message}`));
+    }
+  });
+  contents.on('did-finish-load', () => {
+    uaChManager.attach(contents);
   });
   contents.setWindowOpenHandler(({ url, disposition, frameName, features }) => {
     console.log(`[Realm] 新窗口请求: ${url}, disposition: ${disposition}, frameName: ${frameName}`);
@@ -243,10 +287,6 @@ app.on('web-contents-created', (event, contents) => {
         cdpManager.handleNavigation(contents, url, containerId);
       }
     }
-  });
-
-  contents.on('did-navigate', (event, url) => {
-    console.log(`[Realm] webview 导航完成: ${url}`);
   });
 
   contents.on('did-navigate-in-page', (event, url, isMainFrame) => {
@@ -287,6 +327,89 @@ app.on('web-contents-created', (event, contents) => {
       event.preventDefault();
       console.log(`[Realm] 规则匹配成功: ${url} -> ${matchedContainer}`);
       notifyOpenUrlInTab(contents, url, matchedContainer);
+    }
+  });
+});
+
+// ==================== UA Client Hints 伪装（Google 等指纹敏感站点兼容） ====================
+
+/**
+ * Chrome 150 真实 Sec-CH-UA 品牌表——按 Chromium 源码逐字段计算
+ * （components/embedder_support/user_agent_utils.cc，tag 150.0.7871.212）：
+ *   "Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"
+ * - GREASE 字符串/版本随主版本确定性轮换（seed=150 → "Not;A=Brand" v"8"，
+ *   算法见 ua-ch-manager.js UA_METADATA 注释），抄旧版本（如 v128 的 v"24"）
+ *   一眼假；
+ * - 品牌顺序由 GetRandomOrder(seed=150, size=3) 确定性洗牌决定：
+ *   orders[150 % 6] = {0,1,2} 恒等 → GREASE → Chromium → Google Chrome；
+ * - 反爬系统按 Chrome 版本校验 GREASE 字符串/版本/顺序，错一个即判定伪造
+ *   （Chromium 构建默认 brands 只有 [GREASE, Chromium]，缺 Google Chrome）。
+ *
+ * 背景：contents.setUserAgent() 只改 UA 字符串，Sec-CH-UA 低熵头仍由内核按真实
+ * 品牌生成（无 Google Chrome）。UA 声称 Chrome/150 而 CH 说不是 Chrome → 身份
+ * 不一致。GitHub 校验宽松能过；Google 登录风控严格，直接拒绝并跳转
+ * /v3/signin/rejected（"此浏览器或应用可能不安全"）。
+ *
+ * 修复：在请求发出前注入与 UA 字符串一致的 Sec-CH-UA 头。
+ * 不用 CDP Network.setUserAgentOverride：该命令需保持 debugger 附着才不失效，
+ * 而 webContents.debugger 是单客户端，会与 AI 工具（cdpManager.attachForAI）
+ * 和 Network 抓包冲突。
+ */
+app.on('session-created', (ses) => {
+  ses.webRequest.onBeforeSendHeaders((details, callback) => {
+    // 仅 HTTPS 主文档与子资源（Client Hints 只在安全上下文有意义）
+    if (!details.url.startsWith('https://')) {
+      callback({ requestHeaders: details.requestHeaders });
+      return;
+    }
+    const headers = { ...details.requestHeaders };
+    // 清除已存在的任何大小写变体，避免残留旧值/重复头
+    for (const key of Object.keys(headers)) {
+      const lower = key.toLowerCase();
+      if (lower === 'sec-ch-ua' || lower === 'sec-ch-ua-mobile') {
+        delete headers[key];
+      }
+    }
+    // 注入与 UA 字符串（Chrome/150.0.0.0）一致的品牌表（顺序/GREASE 按源码计算，
+    // 见上方注释）；sec-ch-ua-platform 保持内核默认（"macOS"，与真实一致，无需覆盖）
+    headers['sec-ch-ua'] = '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"';
+    headers['sec-ch-ua-mobile'] = '?0';
+
+    // 高熵 Client Hints（内核仅在服务端通过 Accept-CH/Critical-CH 请求后才会发送，
+    // 这里只改写已存在的头，不主动注入——Chrome 不会发送未被请求的高熵头，主动
+    // 注入本身就是指纹异常）。Google 登录页会请求这些高熵头，而内核按真实品牌生成
+    // （只有 GREASE + Chromium，缺 Google Chrome），与上面伪装的低熵 sec-ch-ua
+    // 矛盾 → 跨通道身份不一致，是 signin/rejected 的强伪造信号。版本号取内核真实
+    // 值 150.0.7871.212，与 JS 侧 uaFullVersion（不受 CDP 覆盖控制、恒为内核值）
+    // 及 ua-ch-manager 的 fullVersionList 保持一致；品牌顺序与低熵头相同。
+    // arch/bitness/platform/platform-version/model 内核取值与同机真实 Chrome 相同，
+    // 无需改写。
+    for (const key of Object.keys(headers)) {
+      const lower = key.toLowerCase();
+      if (lower === 'sec-ch-ua-full-version-list') {
+        headers[key] =
+          '"Not;A=Brand";v="8.0.0.0", "Chromium";v="150.0.7871.212", "Google Chrome";v="150.0.7871.212"';
+      } else if (lower === 'sec-ch-ua-full-version') {
+        headers[key] = '"150.0.7871.212"';
+      }
+    }
+    callback({ requestHeaders: headers });
+  });
+
+  // 验证日志：打印实际发出的 CH 头（onSendHeaders 能看到 onBeforeSendHeaders 的修改结果）。
+  // 注意：不要截断 UA。此前 .slice(0,80) 恰好把 "Chrome/128.0.0.0 Safari/537.36" 尾缀切掉，
+  // 打印结果看起来像"默认 WebKit UA"，造成"UA 覆盖没生效"的严重误导（实际早已生效，
+  // 见 docs/debug/google-login-ua-cover-done.md）。
+  ses.webRequest.onSendHeaders((details) => {
+    if (details.url.includes('accounts.google.com')) {
+      const ua = details.requestHeaders['User-Agent'] || '(缺失)';
+      console.log(
+        `[Realm UA-CH] ${details.method} ${details.url}\n` +
+        `  sec-ch-ua: ${details.requestHeaders['sec-ch-ua'] || details.requestHeaders['Sec-CH-UA'] || '(缺失)'}\n` +
+        `  sec-ch-ua-full-version-list: ${details.requestHeaders['sec-ch-ua-full-version-list'] || '(未发送/未请求)'}\n` +
+        `  user-agent: ${ua}\n` +
+        `  ua-chrome: ${ua.includes('Chrome/') ? 'YES' : 'NO'}`
+      );
     }
   });
 });
