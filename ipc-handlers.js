@@ -106,6 +106,23 @@ function validateContainerConfig(config) {
   if (config.notes !== undefined && (typeof config.notes !== 'string' || config.notes.length > 500)) {
     return false;
   }
+  // 环境变量校验：允许 undefined 或数组，每项含 key/value 字符串
+  if (config.envVars !== undefined) {
+    if (!Array.isArray(config.envVars)) {
+      return false;
+    }
+    for (const item of config.envVars) {
+      if (!item || typeof item !== 'object') {
+        return false;
+      }
+      if (typeof item.key !== 'string' || item.key.length === 0 || item.key.length > 100) {
+        return false;
+      }
+      if (typeof item.value !== 'string' || item.value.length > 2000) {
+        return false;
+      }
+    }
+  }
   return true;
 }
 
@@ -137,6 +154,23 @@ function validateContainerUpdates(updates) {
   }
   if (updates.notes !== undefined && (typeof updates.notes !== 'string' || updates.notes.length > 500)) {
     return false;
+  }
+  // 环境变量校验：允许 undefined 或数组，每项含 key/value 字符串
+  if (updates.envVars !== undefined) {
+    if (!Array.isArray(updates.envVars)) {
+      return false;
+    }
+    for (const item of updates.envVars) {
+      if (!item || typeof item !== 'object') {
+        return false;
+      }
+      if (typeof item.key !== 'string' || item.key.length === 0 || item.key.length > 100) {
+        return false;
+      }
+      if (typeof item.value !== 'string' || item.value.length > 2000) {
+        return false;
+      }
+    }
   }
   return true;
 }

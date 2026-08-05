@@ -239,6 +239,29 @@
           <textarea id="containerNotesInput" placeholder="可选填写备注信息..." maxlength="500" rows="4"></textarea>
           <div class="error-message" id="notesError"></div>
         </div>
+        <div class="form-group env-vars-section">
+          <button type="button" class="env-vars-toggle" id="envVarsToggle">
+            <span>环境变量（高级）</span>
+            <svg class="toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+          <div class="env-vars-panel" id="envVarsPanel" style="display:none">
+            <div class="env-vars-list" id="envVarsList">
+              <!-- 动态渲染已有变量 -->
+            </div>
+            <div class="env-vars-add-area" id="envVarsAddArea" style="display:none">
+              <div class="env-var-key-wrap">
+                <input type="text" id="envVarKeyInput" placeholder="输入或选择变量名..." autocomplete="off" maxlength="100">
+                <div class="env-var-suggestions" id="envVarSuggestions" style="display:none"></div>
+              </div>
+              <input type="text" id="envVarValueInput" placeholder="变量值" maxlength="2000">
+              <button type="button" class="btn btn-sm btn-primary" id="envVarConfirmBtn">确认</button>
+              <button type="button" class="btn btn-sm btn-secondary" id="envVarCancelBtn">取消</button>
+            </div>
+            <button type="button" class="btn btn-sm btn-secondary" id="envVarAddBtn">+ 添加变量</button>
+          </div>
+        </div>
         <div class="form-actions">
           <button type="button" class="btn btn-secondary" id="cancelContainerBtn">取消</button>
           <button type="submit" class="btn btn-primary" id="saveContainerBtn">创建容器</button>
@@ -505,6 +528,7 @@
   <!-- 脚本必须放在所有 DOM 之后：renderer.js 顶层 elements 对象在脚本解析时即执行 getElementById -->
   <script src="bookmarks-bar-menu.js"></script>
   <script src="bookmarks-bar.js"></script>
+  <script src="container-env-presets.js"></script>
   <!-- marked UMD（全局 marked）+ highlight.js 浏览器构建（全局 hljs）+ DOMPurify（XSS 消毒），供 AI 消息 Markdown 渲染/代码高亮 -->
   <script src="../node_modules/marked/lib/marked.umd.js"></script>
   <script src="vendor/highlight.min.js"></script>

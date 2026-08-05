@@ -72,6 +72,18 @@ const elements = {
   phoneError: document.getElementById('phoneError'),
   notesError: document.getElementById('notesError'),
 
+  // 环境变量（高级）
+  envVarsToggle: document.getElementById('envVarsToggle'),
+  envVarsPanel: document.getElementById('envVarsPanel'),
+  envVarsList: document.getElementById('envVarsList'),
+  envVarsAddArea: document.getElementById('envVarsAddArea'),
+  envVarKeyInput: document.getElementById('envVarKeyInput'),
+  envVarValueInput: document.getElementById('envVarValueInput'),
+  envVarSuggestions: document.getElementById('envVarSuggestions'),
+  envVarConfirmBtn: document.getElementById('envVarConfirmBtn'),
+  envVarCancelBtn: document.getElementById('envVarCancelBtn'),
+  envVarAddBtn: document.getElementById('envVarAddBtn'),
+
   // 删除确认模态框
   deleteConfirmModal: document.getElementById('deleteConfirmModal'),
   deleteContainerPreview: document.getElementById('deleteContainerPreview'),
@@ -126,6 +138,9 @@ const state = {
   editingContainerId: null,
   deletingContainerId: null,
   sidebarVisible: true,
+
+  // 容器环境变量（编辑态草稿）
+  containerEnvVars: [],
 
   // Tab 管理
   tabs: new Map(),
@@ -2098,6 +2113,9 @@ function showCreateContainerModal() {
   elements.emailError.classList.remove('visible');
   elements.phoneError.classList.remove('visible');
   elements.notesError.classList.remove('visible');
+  // 重置环境变量
+  state.containerEnvVars = [];
+  resetEnvVarsUI();
   updateColorSelection();
   updateEmojiSelection();
   elements.containerModal.showModal();
@@ -2126,6 +2144,10 @@ function showEditContainerModal(containerId) {
   elements.emailError.classList.remove('visible');
   elements.phoneError.classList.remove('visible');
   elements.notesError.classList.remove('visible');
+  // 加载环境变量
+  state.containerEnvVars = (container.envVars || []).map(v => ({ ...v }));
+  resetEnvVarsUI();
+  renderEnvVars();
   updateColorSelection();
   updateEmojiSelection();
   elements.containerModal.showModal();
@@ -2155,6 +2177,210 @@ function updateEmojiSelection() {
       option.classList.add('selected');
     }
   });
+}
+
+// ==================== 容器环境变量 ====================
+
+/**
+ * 重置环境变量 UI 到初始状态
+ */
+function resetEnvVarsUI() {
+  elements.envVarsToggle.classList.remove('expanded');
+  elements.envVarsPanel.style.display = 'none';
+  elements.envVarsAddArea.style.display = 'none';
+  elements.envVarAddBtn.style.display = '';
+  elements.envVarKeyInput.value = '';
+  elements.envVarValueInput.value = '';
+  elements.envVarSuggestions.style.display = 'none';
+}
+
+/**
+ * 渲染环境变量列表
+ */
+function renderEnvVars() {
+  elements.envVarsList.innerHTML = '';
+
+  if (state.containerEnvVars.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'env-vars-empty';
+    empty.textContent = '暂无环境变量';
+    elements.envVarsList.appendChild(empty);
+    return;
+  }
+
+  state.containerEnvVars.forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'env-var-row';
+
+    const keyLabel = document.createElement('span');
+    keyLabel.className = 'env-var-key';
+    if (PRESET_ENV_KEYS.some(p => p.key === item.key)) {
+      keyLabel.classList.add('preset');
+    }
+    keyLabel.textContent = item.key;
+    keyLabel.title = item.key;
+
+    const valueInput = document.createElement('input');
+    valueInput.type = 'text';
+    valueInput.className = 'env-var-value';
+    valueInput.value = item.value;
+    valueInput.placeholder = '变量值';
+    valueInput.addEventListener('change', () => {
+      updateEnvVarValue(item.key, valueInput.value);
+    });
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'env-var-delete';
+    deleteBtn.title = '删除';
+    deleteBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>';
+    deleteBtn.addEventListener('click', () => {
+      deleteEnvVar(item.key);
+    });
+
+    row.appendChild(keyLabel);
+    row.appendChild(valueInput);
+    row.appendChild(deleteBtn);
+    elements.envVarsList.appendChild(row);
+  });
+}
+
+/**
+ * 显示添加环境变量区域
+ */
+function showEnvVarAddArea() {
+  elements.envVarsAddArea.style.display = 'flex';
+  elements.envVarAddBtn.style.display = 'none';
+  elements.envVarKeyInput.value = '';
+  elements.envVarValueInput.value = '';
+  elements.envVarSuggestions.style.display = 'none';
+  elements.envVarKeyInput.focus();
+}
+
+/**
+ * 隐藏添加环境变量区域
+ */
+function hideEnvVarAddArea() {
+  elements.envVarsAddArea.style.display = 'none';
+  elements.envVarAddBtn.style.display = '';
+  elements.envVarKeyInput.value = '';
+  elements.envVarValueInput.value = '';
+  elements.envVarSuggestions.style.display = 'none';
+}
+
+/**
+ * 处理 key 输入变化，渲染下拉建议
+ */
+function handleEnvVarKeyInput() {
+  const query = elements.envVarKeyInput.value.trim().toLowerCase();
+  elements.envVarSuggestions.innerHTML = '';
+
+  if (!query) {
+    elements.envVarSuggestions.style.display = 'none';
+    return;
+  }
+
+  // 模糊匹配预设 key（key 和 description）
+  const matches = PRESET_ENV_KEYS.filter(p => {
+    return p.key.toLowerCase().includes(query) || p.description.toLowerCase().includes(query);
+  }).slice(0, 10);
+
+  // 排除已添加的预设 key
+  const existingKeys = new Set(state.containerEnvVars.map(v => v.key));
+  const availableMatches = matches.filter(p => !existingKeys.has(p.key));
+
+  // 添加自定义输入项
+  const hasExactMatch = availableMatches.some(p => p.key.toLowerCase() === query);
+  if (!hasExactMatch) {
+    availableMatches.push({ key: elements.envVarKeyInput.value.trim(), description: '自定义变量', custom: true });
+  }
+
+  if (availableMatches.length === 0) {
+    elements.envVarSuggestions.style.display = 'none';
+    return;
+  }
+
+  availableMatches.forEach((item, index) => {
+    const div = document.createElement('div');
+    div.className = 'env-var-suggestion' + (item.custom ? ' custom' : '');
+    if (index === 0) div.classList.add('active');
+
+    const keySpan = document.createElement('span');
+    keySpan.className = 'suggestion-key';
+    keySpan.textContent = item.key;
+
+    const descSpan = document.createElement('span');
+    descSpan.className = 'suggestion-desc';
+    descSpan.textContent = item.description;
+
+    div.appendChild(keySpan);
+    div.appendChild(descSpan);
+    div.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      selectEnvVarKey(item.key);
+    });
+    div.addEventListener('mouseenter', () => {
+      elements.envVarSuggestions.querySelectorAll('.env-var-suggestion').forEach(el => el.classList.remove('active'));
+      div.classList.add('active');
+    });
+
+    elements.envVarSuggestions.appendChild(div);
+  });
+
+  elements.envVarSuggestions.style.display = 'block';
+}
+
+/**
+ * 选中 key，填充输入框并聚焦 value
+ * @param {string} key
+ */
+function selectEnvVarKey(key) {
+  elements.envVarKeyInput.value = key;
+  elements.envVarSuggestions.style.display = 'none';
+  elements.envVarValueInput.focus();
+}
+
+/**
+ * 确认添加环境变量
+ */
+function confirmAddEnvVar() {
+  const key = elements.envVarKeyInput.value.trim();
+  const value = elements.envVarValueInput.value;
+
+  if (!key) {
+    showToast('变量名不能为空', 'error');
+    return;
+  }
+
+  if (state.containerEnvVars.some(v => v.key === key)) {
+    showToast('变量名已存在', 'error');
+    return;
+  }
+
+  state.containerEnvVars.push({ key, value });
+  renderEnvVars();
+  hideEnvVarAddArea();
+}
+
+/**
+ * 删除环境变量
+ * @param {string} key
+ */
+function deleteEnvVar(key) {
+  state.containerEnvVars = state.containerEnvVars.filter(v => v.key !== key);
+  renderEnvVars();
+}
+
+/**
+ * 更新环境变量值
+ * @param {string} key
+ * @param {string} value
+ */
+function updateEnvVarValue(key, value) {
+  const item = state.containerEnvVars.find(v => v.key === key);
+  if (item) {
+    item.value = value;
+  }
 }
 
 /**
@@ -2865,6 +3091,7 @@ function setupEventListeners() {
           phone,
           email,
           notes,
+          envVars: state.containerEnvVars,
         });
       } else {
         // 新建模式
@@ -2875,6 +3102,7 @@ function setupEventListeners() {
           phone,
           email,
           notes,
+          envVars: state.containerEnvVars,
         });
       }
 
@@ -2904,6 +3132,72 @@ function setupEventListeners() {
 
     state.selectedIcon = button.dataset.icon;
     updateEmojiSelection();
+  });
+
+  // 环境变量折叠面板
+  elements.envVarsToggle.addEventListener('click', () => {
+    const isExpanded = elements.envVarsToggle.classList.toggle('expanded');
+    elements.envVarsPanel.style.display = isExpanded ? 'block' : 'none';
+  });
+
+  // 添加变量按钮
+  elements.envVarAddBtn.addEventListener('click', showEnvVarAddArea);
+
+  // 确认添加变量
+  elements.envVarConfirmBtn.addEventListener('click', confirmAddEnvVar);
+
+  // 取消添加变量
+  elements.envVarCancelBtn.addEventListener('click', hideEnvVarAddArea);
+
+  // key 输入实时筛选
+  elements.envVarKeyInput.addEventListener('input', handleEnvVarKeyInput);
+
+  // key 输入键盘导航
+  elements.envVarKeyInput.addEventListener('keydown', (e) => {
+    const suggestions = elements.envVarSuggestions.querySelectorAll('.env-var-suggestion');
+    const activeIndex = Array.from(suggestions).findIndex(s => s.classList.contains('active'));
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (suggestions.length > 0) {
+        suggestions.forEach(s => s.classList.remove('active'));
+        const nextIndex = activeIndex + 1 < suggestions.length ? activeIndex + 1 : 0;
+        suggestions[nextIndex].classList.add('active');
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (suggestions.length > 0) {
+        suggestions.forEach(s => s.classList.remove('active'));
+        const prevIndex = activeIndex - 1 >= 0 ? activeIndex - 1 : suggestions.length - 1;
+        suggestions[prevIndex].classList.add('active');
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const active = elements.envVarSuggestions.querySelector('.env-var-suggestion.active');
+      if (active) {
+        active.dispatchEvent(new Event('mousedown'));
+      } else if (elements.envVarKeyInput.value.trim()) {
+        selectEnvVarKey(elements.envVarKeyInput.value.trim());
+      }
+    } else if (e.key === 'Escape') {
+      elements.envVarSuggestions.style.display = 'none';
+    }
+  });
+
+  // key 输入失焦时隐藏下拉（延迟以允许点击下拉项）
+  elements.envVarKeyInput.addEventListener('blur', () => {
+    setTimeout(() => {
+      elements.envVarSuggestions.style.display = 'none';
+    }, 150);
+  });
+
+  // value 输入框按 Enter 直接确认
+  elements.envVarValueInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      confirmAddEnvVar();
+    } else if (e.key === 'Escape') {
+      hideEnvVarAddArea();
+    }
   });
 
   // 删除确认按钮

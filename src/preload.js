@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('realmAPI', {
    * @param {string} containerConfig.name - 容器名称
    * @param {string} [containerConfig.color] - 容器颜色
    * @param {string} [containerConfig.icon] - 容器图标
+   * @param {Array<{key: string, value: string}>} [containerConfig.envVars] - 环境变量
    * @returns {Promise<Object>} 创建的容器对象
    */
   createContainer: (containerConfig) => ipcRenderer.invoke('container:create', containerConfig),
@@ -48,6 +49,7 @@ contextBridge.exposeInMainWorld('realmAPI', {
    * @param {string} [updates.name] - 新名称
    * @param {string} [updates.color] - 新颜色
    * @param {string} [updates.icon] - 新图标
+   * @param {Array<{key: string, value: string}>} [updates.envVars] - 环境变量
    * @returns {Promise<Object>} 更新后的容器对象
    */
   updateContainer: (id, updates) => ipcRenderer.invoke('container:update', id, updates),

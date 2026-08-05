@@ -454,6 +454,11 @@ button {
   width: 750px;
 }
 
+/* 容器编辑模态框加宽，以容纳环境变量面板 */
+#containerModal .modal-content {
+  width: 520px;
+}
+
 .modal-content h2 {
   font-size: 18px;
   font-weight: 600;
@@ -641,6 +646,214 @@ textarea::placeholder {
 
 .btn-secondary:hover {
   background-color: var(--bg-hover);
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+/* 容器环境变量 */
+.env-vars-section {
+  margin-top: 8px;
+}
+
+.env-vars-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 13px;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.env-vars-toggle:hover {
+  background-color: var(--bg-hover);
+}
+
+.env-vars-toggle .toggle-icon {
+  transition: transform 0.2s;
+}
+
+.env-vars-toggle.expanded .toggle-icon {
+  transform: rotate(180deg);
+}
+
+.env-vars-panel {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+}
+
+.env-vars-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.env-var-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background-color: var(--bg-secondary);
+}
+
+.env-var-key {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.env-var-key.preset {
+  color: var(--accent-color);
+}
+
+.env-var-value {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  outline: none;
+  height: auto;
+}
+
+.env-var-value:hover {
+  border-color: var(--border-color);
+}
+
+.env-var-value:focus {
+  border-color: var(--accent-color);
+  color: var(--text-primary);
+}
+
+.env-var-delete {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.env-var-delete:hover {
+  background-color: var(--danger-color);
+  color: white;
+}
+
+.env-vars-add-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 6px;
+  background-color: var(--bg-secondary);
+  margin-bottom: 8px;
+  flex-wrap: nowrap;
+}
+
+.env-vars-add-area input {
+  width: auto;
+  height: 34px;
+  font-size: 13px;
+  padding: 0 10px;
+  border-radius: 6px;
+}
+
+.env-var-key-wrap {
+  position: relative;
+  flex: 3 1 180px;
+  min-width: 140px;
+}
+
+.env-var-key-wrap input {
+  width: 100%;
+}
+
+.env-vars-add-area > input[type="text"]:not(#envVarKeyInput) {
+  flex: 3 1 160px;
+  min-width: 120px;
+}
+
+.env-vars-add-area .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.env-var-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.env-var-suggestion {
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.env-var-suggestion:hover,
+.env-var-suggestion.active {
+  background-color: var(--bg-hover);
+}
+
+.env-var-suggestion .suggestion-key {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.env-var-suggestion .suggestion-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.env-var-suggestion.custom .suggestion-key {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.env-vars-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 8px;
+  text-align: center;
 }
 
 /* Cookie 管理增强 */
