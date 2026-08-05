@@ -19,6 +19,7 @@
  */
 
 const { ipcMain, webContents } = require('electron');
+const uaChManager = require('./ua-ch-manager');
 
 // ==================== 状态管理 ====================
 
@@ -234,6 +235,12 @@ function attachDebugger(webContents, containerId) {
   const state = debuggerStates.get(webContents.id);
   if (state && state.attached) return true;
 
+  // 若常驻 UA 覆盖管理器（ua-ch-manager）持有本 webContents 的 debugger，
+  // 先挂起让位给 Network 抓包，抓包结束（detachDebugger）后自动恢复
+  if (webContents.debugger.isAttached() && uaChManager.isHolding(webContents.id)) {
+    uaChManager.suspend(webContents.id);
+  }
+
   try {
     // 附加 CDP 调试器（协议版本 1.3）
     webContents.debugger.attach('1.3');
@@ -291,6 +298,11 @@ function detachDebugger(webContents) {
   }
 
   state.attached = false;
+
+  // Network 抓包释放后，若 UA 覆盖此前被挂起让位，恢复之
+  if (uaChManager.isSuspended(webContents.id)) {
+    uaChManager.resume(webContents.id);
+  }
 }
 
 // ==================== AI 工具调试器管理 ====================
@@ -313,7 +325,13 @@ async function attachForAI(webContentsId, domains = ['Runtime']) {
 
   // DevTools 冲突处理（D-04）：调试器已被占用时明确报错
   if (wc.debugger.isAttached()) {
-    return { success: false, error: 'DevTools 已打开，请关闭后重试' };
+    // 若是常驻 UA Client Hints 覆盖管理器（ua-ch-manager）持有的 debugger，
+    // 挂起让位给 AI 工具，完成后由 detachForAI 负责恢复（resume）
+    if (uaChManager.isHolding(wc.id)) {
+      uaChManager.suspend(wc.id);
+    } else {
+      return { success: false, error: 'DevTools 已打开，请关闭后重试' };
+    }
   }
 
   try {
@@ -365,6 +383,12 @@ function detachForAI(webContentsId) {
   }
 
   debuggerStates.delete(webContentsId);
+
+  // UA Client Hints 覆盖被挂起时恢复（重新 attach + 应用 UA 覆盖），
+  // 保持登录流程的浏览器身份伪装不因 AI 工具使用而中断
+  if (uaChManager.isSuspended(webContentsId)) {
+    uaChManager.resume(webContentsId);
+  }
 }
 
 /**

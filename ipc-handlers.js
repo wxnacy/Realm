@@ -528,6 +528,23 @@ function registerHandlers() {
     return cookieManager.saveDomainCookies(containerId, domain, includeSubdomains !== false);
   });
 
+  /**
+   * 检查指定域名的 session Cookie 与文件是否同步（含子域名语义）
+   * @param {string} containerId - 容器 ID
+   * @param {string} domain - 目标域名
+   * @returns {Promise<{inSync: boolean, sessionCount: number, fileCount: number}>}
+   */
+  ipcMain.handle('cookie:check-domain-sync', async (event, containerId, domain) => {
+    assertTrustedSender(event);
+    if (!containerId || typeof containerId !== 'string') {
+      throw new Error('无效的容器 ID');
+    }
+    if (!domain || typeof domain !== 'string') {
+      throw new Error('无效的域名');
+    }
+    return cookieManager.compareDomainCookies(containerId, domain);
+  });
+
   // ==================== 分配规则 ====================
 
   /**

@@ -247,6 +247,14 @@ contextBridge.exposeInMainWorld('realmAPI', {
    */
   saveDomainCookies: (containerId, domain, includeSubdomains) => ipcRenderer.invoke('cookie:save-domain', containerId, domain, includeSubdomains),
 
+  /**
+   * 检查指定域名的 session Cookie 与文件是否同步（含子域名语义）
+   * @param {string} containerId - 容器 ID
+   * @param {string} domain - 目标域名
+   * @returns {Promise<{inSync: boolean, sessionCount: number, fileCount: number}>}
+   */
+  checkDomainSync: (containerId, domain) => ipcRenderer.invoke('cookie:check-domain-sync', containerId, domain),
+
   // ==================== 分配规则 ====================
 
   /**

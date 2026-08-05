@@ -1035,33 +1035,22 @@ function detectChromeBookmarksPath() {
 }
 
 /**
- * 解析 Chrome JSON 书签文件（per D-05, D-06, D-09）
+ * 解析 Chrome JSON 书签文件
  *
- * 递归遍历 Chrome 书签 JSON 的 roots 下三个根节点（bookmark_bar, other, synced），
- * 收集所有书签和文件夹信息。
- *
- * 根文件夹映射（per D-05, D-06）：
- * - bookmark_bar → Chrome 书签栏
- * - other → Chrome 其他
- * - synced → Chrome 已同步
+ * 仅导入 bookmark_bar（书签栏）下的内容，忽略 other 和 synced。
+ * 根目录文件夹直接作为第一层，不再包裹"Chrome 书签栏"外壳。
  *
  * @param {Object} data - Chrome 书签 JSON 数据
  * @returns {{bookmarks: Array, folders: Array}} 解析结果
  */
 function parseChromeJson(data) {
-  const ROOT_FOLDER_MAP = {
-    bookmark_bar: 'Chrome 书签栏',
-    other: 'Chrome 其他',
-    synced: 'Chrome 已同步',
-  };
-
   const bookmarks = [];
   const folders = [];
 
   /**
    * 递归遍历节点
    * @param {Array} children - 子节点数组
-   * @param {string} parentPath - 父文件夹路径
+   * @param {string} parentPath - 父文件夹路径（空字符串表示根目录）
    */
   function traverse(children, parentPath) {
     if (!Array.isArray(children)) return;
@@ -1088,25 +1077,17 @@ function parseChromeJson(data) {
           });
         }
       } catch (e) {
-        // 节点格式异常时跳过并记录（Claude's Discretion）
+        // 节点格式异常时跳过并记录
         console.error('[Realm] Chrome 书签节点解析异常，已跳过:', e.message, node);
       }
     }
   }
 
-  // 遍历三个根节点
-  if (data && data.roots) {
-    for (const [rootKey, rootName] of Object.entries(ROOT_FOLDER_MAP)) {
-      const rootNode = data.roots[rootKey];
-      if (rootNode && rootNode.children) {
-        // 添加根文件夹
-        folders.push({
-          name: rootName,
-          parentPath: '',
-          dateAdded: rootNode.date_added || '',
-        });
-        traverse(rootNode.children, rootName);
-      }
+  // 仅导入 bookmark_bar（书签栏）下的内容，根目录文件夹直接作为第一层
+  if (data && data.roots && data.roots.bookmark_bar) {
+    const barNode = data.roots.bookmark_bar;
+    if (barNode.children) {
+      traverse(barNode.children, '');
     }
   }
 
@@ -1114,10 +1095,11 @@ function parseChromeJson(data) {
 }
 
 /**
- * 解析 Netscape HTML 书签文件（per IMPORT-02）
+ * 解析 Netscape HTML 书签文件
  *
  * 使用 cheerio 解析标准的 Netscape Bookmark File Format，
  * 递归处理 <DL> 下的 <DT> 节点。
+ * 跳过"书签栏"根文件夹外壳，直接导入其子内容作为第一层。
  *
  * @param {string} html - HTML 书签文件内容
  * @returns {{bookmarks: Array, folders: Array}} 解析结果
@@ -1168,10 +1150,22 @@ function parseNetscapeHtml(html) {
     });
   }
 
-  // 从根 <DL> 开始解析
+  // 从根 <DL> 开始解析，跳过"书签栏"根文件夹外壳
   const rootDl = $('dl').first();
   if (rootDl.length > 0) {
-    parseDl(rootDl, '');
+    // 查找名为"书签栏"的根级文件夹，跳过外壳直接导入其子内容
+    let targetDl = rootDl;
+    rootDl.children('dt').each((_, dt) => {
+      const $dt = $(dt);
+      const $h3 = $dt.find('> h3').first();
+      if ($h3.length > 0 && /书签栏|Bookmarks Bar|bookmark.?bar/i.test($h3.text().trim())) {
+        const $innerDl = $dt.find('> dl').first();
+        if ($innerDl.length > 0) {
+          targetDl = $innerDl;
+        }
+      }
+    });
+    parseDl(targetDl, '');
   }
 
   return { bookmarks, folders };

@@ -162,6 +162,40 @@ async function saveCookies(containerId) {
 }
 
 /**
+ * 按域名过滤 Cookie 并格式化为存储结构
+ * 与渲染层 applyDomainFilter 的过滤语义对齐（同一集合）
+ * @param {Array} cookies - 原始 Cookie 数组（session 或文件格式均可）
+ * @param {string} domain - 目标域名
+ * @param {boolean} includeSubdomains - true=当前域名及其父域（面板"含子域名"），false=仅精确匹配
+ * @returns {Array} 格式化后的 Cookie 数组
+ */
+function filterAndFormatDomainCookies(cookies, domain, includeSubdomains = true) {
+  return cookies
+    .filter(cookie => {
+      // 剥离前导点后再比较（.example.com 与 example.com 视为同一域）
+      const cookieDomain = cookie.domain.startsWith('.') ? cookie.domain.slice(1) : cookie.domain;
+      if (includeSubdomains) {
+        // Cookie 所属域是当前域名本身或其父域（即面板"含子域名"过滤显示的集合）
+        return cookieDomain === domain || domain.endsWith(`.${cookieDomain}`);
+      }
+      // 仅精确匹配
+      return cookieDomain === domain;
+    })
+    .map(cookie => ({
+      name: cookie.name,
+      value: cookie.value,
+      domain: cookie.domain,
+      path: cookie.path,
+      expirationDate: cookie.expirationDate,
+      secure: cookie.secure,
+      httpOnly: cookie.httpOnly,
+      sameSite: cookie.sameSite,
+      hostOnly: cookie.hostOnly,
+      url: cookie.url,
+    }));
+}
+
+/**
  * 保存指定域名的 Cookie 到文件
  * 保存当前页面可见的域名 Cookie（当前域名及其父域，与 Cookie 管理面板"含子域名"过滤集合一致）
  * @param {string} containerId - 容器 ID
@@ -179,32 +213,8 @@ async function saveDomainCookies(containerId, domain, includeSubdomains = true) 
     // 获取 session 中的所有 Cookie
     const sessionCookies = await ses.cookies.get({});
 
-    // 按域名过滤（与渲染层 applyDomainFilter 的 subdomain 过滤语义对齐，同一集合）
-    const filteredCookies = sessionCookies.filter(cookie => {
-      // 剥离前导点后再比较（.example.com 与 example.com 视为同一域）
-      const cookieDomain = cookie.domain.startsWith('.') ? cookie.domain.slice(1) : cookie.domain;
-      if (includeSubdomains) {
-        // Cookie 所属域是当前域名本身或其父域（即面板"含子域名"过滤显示的集合）
-        return cookieDomain === domain || domain.endsWith(`.${cookieDomain}`);
-      } else {
-        // 仅精确匹配
-        return cookieDomain === domain;
-      }
-    });
-
-    // 格式化过滤后的 Cookie
-    const formattedCookies = filteredCookies.map(cookie => ({
-      name: cookie.name,
-      value: cookie.value,
-      domain: cookie.domain,
-      path: cookie.path,
-      expirationDate: cookie.expirationDate,
-      secure: cookie.secure,
-      httpOnly: cookie.httpOnly,
-      sameSite: cookie.sameSite,
-      hostOnly: cookie.hostOnly,
-      url: cookie.url,
-    }));
+    // 按域名过滤并格式化（与渲染层 applyDomainFilter 的 subdomain 过滤语义对齐，同一集合）
+    const formattedCookies = filterAndFormatDomainCookies(sessionCookies, domain, includeSubdomains);
 
     // 读取已保存的 cookies.json
     const filePath = getCookieFilePath(containerId);
@@ -250,6 +260,70 @@ async function saveDomainCookies(containerId, domain, includeSubdomains = true) 
   } catch (error) {
     console.error(`[Realm] 保存域名 Cookie 失败: ${containerId} / ${domain}`, error);
     return { success: false, count: 0, error: error.message };
+  }
+}
+
+/**
+ * 比较指定域名的 session Cookie 与 cookies.json 文件是否完全同步
+ * 过滤集合与 saveDomainCookies 的 subdomain 语义一致（当前域名及其父域）
+ *
+ * 判定规则：
+ * - 遍历 session 的每个 cookie，检查 file 中是否存在同名同 path 且 value + expirationDate 相同的条目
+ * - file 可以比 session 多（累积存储），只要 session 中的都在 file 中且值一致即视为同步
+ * - file 侧排除已过期项（对齐保存时的合并逻辑）
+ *
+ * @param {string} containerId - 容器 ID
+ * @param {string} domain - 目标域名
+ * @returns {Promise<{inSync: boolean, sessionCount: number, fileCount: number}>}
+ */
+async function compareDomainCookies(containerId, domain) {
+  try {
+    const partition = `persist:container-${containerId}`;
+    const ses = session.fromPartition(partition);
+
+    const sessionCookies = await ses.cookies.get({});
+    const formattedSession = filterAndFormatDomainCookies(sessionCookies, domain, true);
+
+    // 读取 cookies.json 并过滤同一域名集合，排除已过期项
+    const filePath = getCookieFilePath(containerId);
+    let fileCookies = [];
+    if (fs.existsSync(filePath)) {
+      try {
+        const data = fs.readFileSync(filePath, 'utf8');
+        fileCookies = JSON.parse(data);
+      } catch (e) {
+        console.warn(`[Realm] 读取 cookies.json 失败，将使用空数组: ${containerId}`, e.message);
+      }
+    }
+    const now = Date.now() / 1000;
+    const formattedFile = filterAndFormatDomainCookies(fileCookies, domain, true)
+      .filter(c => !c.expirationDate || c.expirationDate >= now);
+
+    // 键 domain|name|path → 值 value|expirationDate
+    const toMap = (arr) => {
+      const map = new Map();
+      for (const c of arr) {
+        map.set(`${c.domain}|${c.name}|${c.path}`, `${c.value}|${c.expirationDate ?? ''}`);
+      }
+      return map;
+    };
+    const sessionMap = toMap(formattedSession);
+    const fileMap = toMap(formattedFile);
+
+    // 单向子集检查：session 中的每个 cookie 都必须在 file 中存在且值一致
+    // file 可以比 session 多（累积存储），不影响同步状态
+    let inSync = true;
+    for (const [key, val] of sessionMap) {
+      if (fileMap.get(key) !== val) {
+        inSync = false;
+        break;
+      }
+    }
+
+    return { inSync, sessionCount: formattedSession.length, fileCount: formattedFile.length };
+  } catch (error) {
+    console.error(`[Realm] 比较域名 Cookie 失败: ${containerId} / ${domain}`, error);
+    return { inSync: false, sessionCount: 0, fileCount: 0, error: error.message };
   }
 }
 
@@ -680,6 +754,7 @@ module.exports = {
   editCookie,
   deleteSingleCookie,
   saveDomainCookies,
+  compareDomainCookies,
   migrateLegacyCookies,
   getContainerDir,
   getCookieFilePath,
