@@ -42,6 +42,7 @@ const elements = {
   historyBtn: document.getElementById('historyBtn'),
   favoritesBtn: document.getElementById('favoritesBtn'),
   cookiesBtn: document.getElementById('cookiesBtn'),
+  quickSaveCookiesBtn: document.getElementById('quickSaveCookiesBtn'),
   settingsBtn: document.getElementById('settingsBtn'),
 
   // 收藏功能
@@ -561,6 +562,9 @@ async function switchTab(tabId) {
   // 切换 Tab 时检查收藏状态
   checkBookmarkStatus(tab.url);
 
+  // 切换 Tab 时刷新 Cookie 快速保存按钮状态
+  updateQuickSaveBtnState();
+
   // 切换 Tab 时关闭收藏编辑面板（防御性：showModal 通常阻塞背景使此场景不可达，
   // 但 ESC/程序化关闭边缘场景下仍可能残留 open 状态）
   hideBookmarkEditPanel();
@@ -806,6 +810,7 @@ function bindWebviewEvents(tabId, webview) {
       // 导航完成后检查收藏状态
       if (tabId === state.activeTabId) {
         checkBookmarkStatus(displayUrl);
+        updateQuickSaveBtnState();
       }
 
       // D-21/D-23：导航完成后自动写入历史记录（过滤内部页面）
@@ -830,12 +835,17 @@ function bindWebviewEvents(tabId, webview) {
   webview.addEventListener('did-navigate-in-page', (e) => {
     const tab = state.tabs.get(tabId);
     if (tab) {
+      const previousUrl = tab.url;
       const displayUrl = httpUrlToRealm(e.url);
       tab.url = displayUrl;
       // 回写主进程持久化（WR-3），与 did-navigate 同理
       window.realmAPI.updateTab(tabId, { url: displayUrl });
       if (tabId === state.activeTabId) {
         elements.urlInput.value = displayUrl;
+        // 仅域名变化时刷新快速保存按钮（同域 hash/参数变化无需重新比较）
+        if (getUrlHostname(previousUrl) !== getUrlHostname(displayUrl)) {
+          updateQuickSaveBtnState();
+        }
       }
     }
   });
@@ -1468,6 +1478,9 @@ async function init() {
   // 恢复保存的 Tab 列表
   await restoreTabs();
 
+  // 刷新 Cookie 快速保存按钮初始状态
+  updateQuickSaveBtnState();
+
   // 设置事件监听
   setupEventListeners();
 
@@ -1718,6 +1731,8 @@ function renderContainerList() {
   elements.containerList.innerHTML = '';
 
   state.containers.forEach(container => {
+    const isDefault = container.id === 'default';
+
     const item = document.createElement('div');
     item.className = 'container-item' + (container.id === state.currentContainer ? ' active' : '');
     item.dataset.containerId = container.id;
@@ -1739,12 +1754,29 @@ function renderContainerList() {
 
     info.appendChild(name);
     info.appendChild(status);
+
+    const actions = document.createElement('div');
+    actions.className = 'container-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'action-btn';
+    editBtn.dataset.action = 'edit';
+    editBtn.title = '编辑';
+    editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'action-btn';
+    deleteBtn.dataset.action = 'delete';
+    deleteBtn.disabled = isDefault;
+    deleteBtn.title = isDefault ? '默认容器不可删除' : '删除';
+    deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path></svg>';
+
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
+
     item.appendChild(dot);
     item.appendChild(info);
-
-    item.addEventListener('click', () => {
-      switchContainer(item.dataset.containerId);
-    });
+    item.appendChild(actions);
 
     elements.containerList.appendChild(item);
   });
@@ -1844,6 +1876,8 @@ async function switchContainer(containerId) {
     // 避免「本地创建 + 事件再创建」双路径导致每次切换产生两个重复 Tab。
 
     console.log(`[Realm] 切换到容器: ${containerId}`);
+    // 容器变化影响 Cookie 比较对象，刷新快速保存按钮状态
+    updateQuickSaveBtnState();
   }
 }
 
@@ -2451,6 +2485,7 @@ async function handleSaveCookieEdit() {
       document.getElementById('cookieEditModal').close();
       showToast('Cookie 已更新', 'success');
       await refreshCookiesList();
+      updateQuickSaveBtnState();
     } else {
       showToast(result.message || '更新失败', 'error');
     }
@@ -2476,12 +2511,96 @@ async function handleDeleteCookie(cookie) {
     if (result.success) {
       showToast('Cookie 已删除', 'success');
       await refreshCookiesList();
+      updateQuickSaveBtnState();
     } else {
       showToast(result.message || '删除失败', 'error');
     }
   } catch (error) {
     console.error('[Realm Renderer] 删除 Cookie 失败:', error);
     showToast('删除失败，请重试', 'error');
+  }
+}
+
+/**
+ * 解析 URL 的 hostname，失败返回空字符串
+ * @param {string} url - URL 字符串
+ * @returns {string} hostname 或 ''
+ */
+function getUrlHostname(url) {
+  if (!url) return '';
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
+}
+
+/** Cookie 快速保存按钮状态查询 inflight 标记（防并发 IPC） */
+let quickSaveStateInflight = false;
+
+/**
+ * 刷新 Cookie 快速保存按钮状态
+ * 无域名页面（realm:// 内部页、空 tab）置灰禁用；
+ * session 与文件同步时绿色（in-sync），有差异时橙色（out-of-sync）
+ */
+async function updateQuickSaveBtnState() {
+  const btn = elements.quickSaveCookiesBtn;
+  if (!btn) return;
+
+  const activeTab = state.tabs.get(state.activeTabId);
+  const domain = getUrlHostname(activeTab && activeTab.url);
+
+  if (!domain) {
+    btn.disabled = true;
+    btn.classList.remove('in-sync', 'out-of-sync');
+    btn.title = '当前页面无域名，无法快速保存 Cookie';
+    return;
+  }
+  btn.disabled = false;
+
+  if (quickSaveStateInflight) return;
+  quickSaveStateInflight = true;
+  try {
+    const result = await window.realmAPI.checkDomainSync(state.currentContainer, domain);
+    // 等待期间用户可能已切换 tab/容器，结果只对当前域名生效
+    const currentTab = state.tabs.get(state.activeTabId);
+    if (getUrlHostname(currentTab && currentTab.url) !== domain) return;
+
+    btn.classList.toggle('in-sync', result.inSync);
+    btn.classList.toggle('out-of-sync', !result.inSync);
+    btn.title = result.inSync
+      ? `${domain} 的 Cookie 已与文件同步（session ${result.sessionCount} / 文件 ${result.fileCount}）`
+      : `${domain} 的 Cookie 与文件存在差异（session ${result.sessionCount} / 文件 ${result.fileCount}），点击保存`;
+  } catch (err) {
+    console.error('[Realm Renderer] 检查 Cookie 同步状态失败:', err);
+  } finally {
+    quickSaveStateInflight = false;
+  }
+}
+
+/**
+ * 快速保存当前域名 Cookie 到文件（含子域名语义，与面板 subdomain 过滤集合一致）
+ */
+async function handleQuickSaveCookies() {
+  const btn = elements.quickSaveCookiesBtn;
+  const activeTab = state.tabs.get(state.activeTabId);
+  const domain = getUrlHostname(activeTab && activeTab.url);
+  if (!domain) return;
+
+  btn.classList.add('loading');
+  try {
+    const result = await window.realmAPI.saveDomainCookies(state.currentContainer, domain);
+    if (result.success) {
+      showToast(`已保存 ${result.count} 个 ${domain} 的 Cookie 到文件`, 'success');
+    } else {
+      showToast('保存失败', 'error');
+    }
+  } catch (error) {
+    console.error('[Realm Renderer] 快速保存 Cookie 失败:', error);
+    showToast('保存失败，请重试', 'error');
+  } finally {
+    btn.classList.remove('loading');
+    updateQuickSaveBtnState();
   }
 }
 
@@ -2524,6 +2643,9 @@ async function handleSaveToFile() {
   } catch (error) {
     console.error('[Realm Renderer] 保存 Cookie 失败:', error);
     showToast('保存失败，请重试', 'error');
+  } finally {
+    // 弹窗保存会影响文件侧内容，刷新快速保存按钮状态
+    updateQuickSaveBtnState();
   }
 }
 
@@ -2536,6 +2658,7 @@ async function clearContainerCookies() {
     await refreshCookiesList();
     showToast('Cookie 已清除', 'success');
     console.log(`[Realm] 已清除容器 ${state.currentContainer} 的所有 Cookie`);
+    updateQuickSaveBtnState();
   }
 }
 
@@ -2662,6 +2785,27 @@ function setupEventListeners() {
       // 点击容器行 - 切换容器
       switchContainer(containerId);
       hideContainerPanel();
+    }
+  });
+
+  // 侧边栏容器列表 - 事件委托
+  elements.containerList.addEventListener('click', (e) => {
+    const item = e.target.closest('[data-container-id]');
+    if (!item) return;
+
+    const containerId = item.dataset.containerId;
+    const action = e.target.closest('[data-action]')?.dataset.action;
+
+    if (action === 'edit') {
+      showEditContainerModal(containerId);
+    } else if (action === 'delete') {
+      // 检查按钮是否禁用（默认容器保护）
+      const deleteBtn = e.target.closest('[data-action="delete"]');
+      if (deleteBtn && deleteBtn.disabled) return;
+      showDeleteConfirmModal(containerId);
+    } else {
+      // 点击容器行 - 切换容器
+      switchContainer(containerId);
     }
   });
 
@@ -2961,6 +3105,11 @@ function setupEventListeners() {
   const saveCookiesBtn = document.getElementById('saveCookiesBtn');
   if (saveCookiesBtn) {
     saveCookiesBtn.addEventListener('click', handleSaveToFile);
+  }
+
+  // Cookie 快速保存按钮（地址栏）
+  if (elements.quickSaveCookiesBtn) {
+    elements.quickSaveCookiesBtn.addEventListener('click', handleQuickSaveCookies);
   }
 
   // Cookie 编辑模态框
