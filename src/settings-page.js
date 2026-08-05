@@ -686,6 +686,7 @@ const SHORTCUT_NAMES = {
   'forward': '前进',
   'bookmark': '收藏此页面',
   'openSettings': '打开设置页面',
+  'toggleSidebar': '切换容器侧边栏',
 };
 
 /**
@@ -695,7 +696,7 @@ const SHORTCUT_GROUPS = {
   '标签页操作': ['newTab', 'closeTab', 'nextTab', 'prevTab'],
   '导航操作': ['reload', 'back', 'forward'],
   '收藏': ['bookmark'],
-  '其他': ['openSettings'],
+  '其他': ['openSettings', 'toggleSidebar'],
 };
 
 /**

@@ -6,6 +6,7 @@
 
 // DOM 元素
 const elements = {
+  sidebar: document.getElementById('sidebar'),
   containerList: document.getElementById('containerList'),
   containerIndicator: document.getElementById('containerIndicator'),
   indicatorDot: document.querySelector('.indicator-dot'),
@@ -30,9 +31,6 @@ const elements = {
   loadingBar: document.getElementById('loadingBar'),
 
   // 容器面板
-  containerPanel: document.getElementById('containerPanel'),
-  panelContainerList: document.getElementById('panelContainerList'),
-  addContainerBtn: document.getElementById('addContainerBtn'),
   addContainerBtnSidebar: document.getElementById('addContainerBtnSidebar'),
 
   // 导航按钮
@@ -127,7 +125,7 @@ const state = {
   selectedIcon: '🌐',
   editingContainerId: null,
   deletingContainerId: null,
-  panelVisible: false,
+  sidebarVisible: true,
 
   // Tab 管理
   tabs: new Map(),
@@ -1097,6 +1095,9 @@ function initShortcuts() {
       case 'toggleAIPanel':
         toggleAIPanel();
         break;
+      case 'toggleSidebar':
+        toggleSidebar();
+        break;
     }
   });
 }
@@ -1463,6 +1464,25 @@ function renderTabs() {
 async function init() {
   console.log('[Realm Renderer] 初始化...');
 
+  // 恢复侧边栏显示状态（默认展开），尽早应用避免启动闪烁
+  // HTML 中 sidebar 默认带 hidden，只有明确需要展开时才移除
+  try {
+    const settings = await window.realmAPI.getSettings();
+    if (settings['sidebarVisible'] === false) {
+      state.sidebarVisible = false;
+      document.body.classList.add('sidebar-hidden');
+      // sidebar 保持 HTML 默认的 hidden，无需额外操作
+    } else {
+      state.sidebarVisible = true;
+      elements.sidebar.classList.remove('hidden');
+    }
+  } catch (err) {
+    console.error('[Realm Renderer] 恢复 Sidebar 状态失败:', err);
+    // 默认展开：移除 hidden
+    state.sidebarVisible = true;
+    elements.sidebar.classList.remove('hidden');
+  }
+
   // 获取内部页面服务器端口和 API token（用于加载 realm:// 页面）
   const realmInfo = await window.realmAPI.getRealmPort();
   state.realmPort = realmInfo.port;
@@ -1714,7 +1734,6 @@ async function loadContainers() {
   state.currentContainer = await window.realmAPI.getCurrentContainer();
 
   renderContainerList();
-  renderContainerPanelList();
   updateContainerIndicator();
   // WR-12：容器增删改后同步刷新新标签页的快速访问入口，避免 UI 停滞到下次启动
   renderContainerShortcuts();
@@ -1874,71 +1893,6 @@ function renderContainerList() {
 }
 
 /**
- * 渲染容器面板列表
- * 使用事件委托模式，为 panelContainerList 绑定一次 click 监听器
- * 默认容器（id=default）的删除按钮禁用并显示 tooltip
- */
-function renderContainerPanelList() {
-  // WR-13：DOM 构建 + textContent（动机见 renderContainerList 注释）。
-  // setupEventListeners 中的事件委托依赖 dataset.containerId、data-action
-  // 与 delete 按钮的 disabled 状态，此处保持结构一致
-  elements.panelContainerList.innerHTML = '';
-
-  state.containers.forEach(container => {
-    const isDefault = container.id === 'default';
-
-    const item = document.createElement('div');
-    item.className = 'panel-container-item' + (container.id === state.currentContainer ? ' active' : '');
-    item.dataset.containerId = container.id;
-
-    const dot = document.createElement('div');
-    dot.className = 'container-dot';
-    dot.style.backgroundColor = container.color;
-
-    const emoji = document.createElement('div');
-    emoji.className = 'container-emoji';
-    emoji.textContent = container.icon;
-
-    const name = document.createElement('div');
-    name.className = 'container-name';
-    name.textContent = container.name;
-
-    const actions = document.createElement('div');
-    actions.className = 'container-actions';
-
-    const editBtn = document.createElement('button');
-    editBtn.className = 'action-btn';
-    editBtn.dataset.action = 'edit';
-    editBtn.title = '编辑';
-    editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'action-btn';
-    deleteBtn.dataset.action = 'delete';
-    deleteBtn.disabled = isDefault;
-    deleteBtn.title = isDefault ? '默认容器不可删除' : '删除';
-    deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path></svg>';
-
-    actions.appendChild(editBtn);
-    actions.appendChild(deleteBtn);
-
-    item.appendChild(dot);
-    item.appendChild(emoji);
-    item.appendChild(name);
-    item.appendChild(actions);
-
-    if (container.id === state.currentContainer) {
-      const check = document.createElement('div');
-      check.className = 'check-mark';
-      check.textContent = '✓';
-      item.appendChild(check);
-    }
-
-    elements.panelContainerList.appendChild(item);
-  });
-}
-
-/**
  * 更新容器指示器
  */
 function updateContainerIndicator() {
@@ -1959,7 +1913,6 @@ async function switchContainer(containerId) {
   if (success) {
     state.currentContainer = containerId;
     renderContainerList();
-    renderContainerPanelList();
     updateContainerIndicator();
 
     // CR-6 修复：不在此处本地 createTab。
@@ -2033,7 +1986,6 @@ async function confirmDeleteContainer() {
       // 恢复当前容器 ID
       state.currentContainer = currentContainer;
       renderContainerList();
-      renderContainerPanelList();
       updateContainerIndicator();
       renderContainerShortcuts();
       elements.deleteConfirmModal.close();
@@ -2121,51 +2073,10 @@ function handleOpenUrlInTab(data) {
 function handleContainerSwitched(data) {
   state.currentContainer = data.containerId;
   renderContainerList();
-  renderContainerPanelList();
   updateContainerIndicator();
 
   // 创建新 Tab
   createTab(data.containerId);
-}
-
-/**
- * 显示容器面板
- */
-function showContainerPanel() {
-  const rect = elements.containerIndicator.getBoundingClientRect();
-  elements.containerPanel.style.top = rect.bottom + 4 + 'px';
-  elements.containerPanel.style.left = rect.left + 'px';
-  elements.containerPanel.classList.add('visible');
-  state.panelVisible = true;
-
-  // 注册外部点击监听
-  setTimeout(() => {
-    document.addEventListener('click', handleOutsideClick);
-  }, 0);
-}
-
-/**
- * 隐藏容器面板
- */
-function hideContainerPanel() {
-  elements.containerPanel.classList.remove('visible');
-  state.panelVisible = false;
-
-  // 移除外部点击监听
-  document.removeEventListener('click', handleOutsideClick);
-}
-
-/**
- * 处理面板外部点击
- */
-function handleOutsideClick(event) {
-  const panel = elements.containerPanel;
-  const indicator = elements.containerIndicator;
-
-  // 如果点击区域不在面板和指示器内，关闭面板
-  if (!panel.contains(event.target) && !indicator.contains(event.target)) {
-    hideContainerPanel();
-  }
 }
 
 /**
@@ -2853,36 +2764,10 @@ function setupEventListeners() {
     }
   });
 
-  // 容器指示器点击 - 切换面板显示/隐藏
+  // 容器指示器点击 - 切换侧边栏显示/隐藏
   elements.containerIndicator.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (state.panelVisible) {
-      hideContainerPanel();
-    } else {
-      showContainerPanel();
-    }
-  });
-
-  // 面板容器列表 - 事件委托
-  elements.panelContainerList.addEventListener('click', (e) => {
-    const item = e.target.closest('[data-container-id]');
-    if (!item) return;
-
-    const containerId = item.dataset.containerId;
-    const action = e.target.closest('[data-action]')?.dataset.action;
-
-    if (action === 'edit') {
-      showEditContainerModal(containerId);
-    } else if (action === 'delete') {
-      // 检查按钮是否禁用（默认容器保护）
-      const deleteBtn = e.target.closest('[data-action="delete"]');
-      if (deleteBtn && deleteBtn.disabled) return;
-      showDeleteConfirmModal(containerId);
-    } else {
-      // 点击容器行 - 切换容器
-      switchContainer(containerId);
-      hideContainerPanel();
-    }
+    toggleSidebar();
   });
 
   // 侧边栏容器列表 - 事件委托
@@ -2904,12 +2789,6 @@ function setupEventListeners() {
       // 点击容器行 - 切换容器
       switchContainer(containerId);
     }
-  });
-
-  // 新建容器按钮（面板头部）
-  elements.addContainerBtn.addEventListener('click', () => {
-    hideContainerPanel();
-    showCreateContainerModal();
   });
 
   // 新建容器按钮（侧边栏）
@@ -3305,16 +3184,12 @@ function setupEventListeners() {
       showCreateContainerModal();
     }
 
-    // Escape: 关闭模态框和面板
+    // Escape: 关闭模态框
     if (e.key === 'Escape') {
-      if (state.panelVisible) {
-        hideContainerPanel();
-      } else {
-        elements.deleteConfirmModal.close();
-        state.deletingContainerId = null;
-        elements.containerModal.close();
-        elements.cookiesModal.close();
-      }
+      elements.deleteConfirmModal.close();
+      state.deletingContainerId = null;
+      elements.containerModal.close();
+      elements.cookiesModal.close();
     }
   });
 
@@ -3422,6 +3297,23 @@ function setupEventListeners() {
 }
 
 // ==================== AI 助手 ====================
+
+/**
+ * 切换侧边栏的显示/隐藏状态
+ * 同时更新面板可见性，持久化状态到 electron-store
+ */
+function toggleSidebar() {
+  state.sidebarVisible = !state.sidebarVisible;
+  elements.sidebar.classList.toggle('hidden', !state.sidebarVisible);
+  document.body.classList.toggle('sidebar-hidden', !state.sidebarVisible);
+
+  // 持久化面板状态
+  try {
+    window.realmAPI.setSetting('sidebarVisible', state.sidebarVisible);
+  } catch (err) {
+    console.error('[Realm Renderer] 保存 Sidebar 状态失败:', err);
+  }
+}
 
 /**
  * 切换 AI 面板的显示/隐藏状态

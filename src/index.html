@@ -14,7 +14,7 @@
 </head>
 <body>
   <!-- 侧边栏 - 容器列表 -->
-  <aside class="sidebar" id="sidebar">
+  <aside class="sidebar hidden" id="sidebar">
     <div class="sidebar-header">
       <div class="logo">
         <img class="logo-icon" src="../icons/icon.png" alt="Realm">
@@ -174,22 +174,6 @@
       </div>
     </div>
   </main>
-
-  <!-- 容器下拉面板 -->
-  <div class="container-panel" id="containerPanel">
-    <div class="panel-header">
-      <span class="panel-title">容器列表</span>
-      <button class="btn-icon" id="addContainerBtn" title="新建容器">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="12" y1="5" x2="12" y2="19"></line>
-          <line x1="5" y1="12" x2="19" y2="12"></line>
-        </svg>
-      </button>
-    </div>
-    <div class="panel-list" id="panelContainerList">
-      <!-- 由 renderer.js 动态生成 -->
-    </div>
-  </div>
 
   <!-- 容器创建/编辑对话框 -->
   <dialog class="modal" id="containerModal">
