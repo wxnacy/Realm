@@ -282,8 +282,24 @@ function segmentForFts5(text) {
   if (!nodejieba) {
     try {
       nodejieba = require('nodejieba');
+      // 打包后词典必须显式指向 app.asar.unpacked：
+      // 默认路径在 app.asar 内，原生 fopen 无法读取，cppjieba 会直接 abort 闪退
+      if (app.isPackaged) {
+        const dictDir = path.join(
+          process.resourcesPath,
+          'app.asar.unpacked', 'node_modules', 'nodejieba', 'submodules', 'cppjieba', 'dict'
+        );
+        nodejieba.load({
+          dict: path.join(dictDir, 'jieba.dict.utf8'),
+          hmmDict: path.join(dictDir, 'hmm_model.utf8'),
+          userDict: path.join(dictDir, 'user.dict.utf8'),
+          idfDict: path.join(dictDir, 'idf.utf8'),
+          stopWordDict: path.join(dictDir, 'stop_words.utf8')
+        });
+      }
     } catch (e) {
       console.error('[Realm] nodejieba 加载失败，使用原文:', e.message);
+      nodejieba = null;
       return text;
     }
   }
