@@ -529,6 +529,12 @@ async function createTab(containerId, url = null) {
   // 切换到新 Tab
   await switchTab(tab.id);
 
+  // 新建空白标签页时聚焦地址栏并全选，方便直接输入
+  if (!url) {
+    elements.urlInput.focus();
+    elements.urlInput.select();
+  }
+
   console.log(`[Realm Renderer] Tab 创建: ${tab.id} (容器: ${containerId})`);
 
   return tab.id;
