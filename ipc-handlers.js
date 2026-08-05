@@ -201,7 +201,7 @@ function registerHandlers() {
    * @param {string} id - 容器 ID
    * @returns {Promise<{success: boolean, message?: string}>} 操作结果
    */
-  ipcMain.handle('container:delete', (event, id) => {
+  ipcMain.handle('container:delete', async (event, id) => {
     assertTrustedSender(event);
     if (!id || typeof id !== 'string') {
       throw new Error('无效的容器 ID');
@@ -350,6 +350,19 @@ function registerHandlers() {
       throw new Error('无效的容器 ID');
     }
     return containerManager.clearContainerCookies(containerId);
+  });
+
+  /**
+   * 重排容器顺序
+   * @param {string[]} orderedIds - 新的容器 ID 顺序
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('container:reorder', (event, orderedIds) => {
+    assertTrustedSender(event);
+    if (!Array.isArray(orderedIds)) {
+      throw new Error('orderedIds 必须是数组');
+    }
+    return containerManager.reorderContainers(orderedIds);
   });
 
   /**

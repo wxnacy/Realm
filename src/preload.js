@@ -74,6 +74,13 @@ contextBridge.exposeInMainWorld('realmAPI', {
   clearContainerCookies: (containerId) => ipcRenderer.invoke('container:clear-cookies', containerId),
 
   /**
+   * 重排容器顺序
+   * @param {string[]} orderedIds - 新的容器 ID 顺序数组
+   * @returns {Promise<{success: boolean}>}
+   */
+  reorderContainers: (orderedIds) => ipcRenderer.invoke('container:reorder', orderedIds),
+
+  /**
    * 监听容器切换事件
    * @param {Function} callback - 回调函数
    */

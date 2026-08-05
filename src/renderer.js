@@ -1737,6 +1737,14 @@ function renderContainerList() {
     item.className = 'container-item' + (container.id === state.currentContainer ? ' active' : '');
     item.dataset.containerId = container.id;
 
+    // 设置可拖拽（默认容器不可拖拽）
+    item.draggable = !isDefault;
+
+    // 创建拖拽手柄（默认容器不显示）
+    const dragHandle = document.createElement('div');
+    dragHandle.className = 'container-drag-handle' + (isDefault ? ' disabled' : '');
+    dragHandle.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><circle cx="5" cy="3" r="1.5"/><circle cx="11" cy="3" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="5" cy="13" r="1.5"/><circle cx="11" cy="13" r="1.5"/></svg>';
+
     const dot = document.createElement('div');
     dot.className = 'container-dot';
     dot.style.backgroundColor = container.color;
@@ -1774,9 +1782,92 @@ function renderContainerList() {
     actions.appendChild(editBtn);
     actions.appendChild(deleteBtn);
 
+    item.appendChild(dragHandle);
     item.appendChild(dot);
     item.appendChild(info);
     item.appendChild(actions);
+
+    // 拖拽事件
+    item.addEventListener('dragstart', (e) => {
+      item.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', container.id);
+    });
+
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+      elements.containerList.querySelectorAll('.container-item').forEach(el => {
+        el.classList.remove('drag-over');
+      });
+    });
+
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const draggingItem = elements.containerList.querySelector('.dragging');
+      if (draggingItem === item) return;
+
+      const rect = item.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      const isAbove = e.clientY < midY;
+
+      elements.containerList.querySelectorAll('.container-item').forEach(el => {
+        el.classList.remove('drag-over');
+      });
+      if (isAbove) {
+        item.classList.add('drag-over');
+      }
+    });
+
+    item.addEventListener('dragleave', () => {
+      item.classList.remove('drag-over');
+    });
+
+    item.addEventListener('drop', (e) => {
+      e.preventDefault();
+      item.classList.remove('drag-over');
+
+      const fromId = e.dataTransfer.getData('text/plain');
+      const toId = item.dataset.containerId;
+      if (fromId === toId) return;
+
+      const draggingItem = elements.containerList.querySelector(`[data-container-id="${fromId}"]`);
+      if (!draggingItem) return;
+
+      // 根据位置决定插入到目标前面还是后面
+      const rect = item.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      if (e.clientY < midY) {
+        item.parentNode.insertBefore(draggingItem, item);
+      } else {
+        item.parentNode.insertBefore(draggingItem, item.nextSibling);
+      }
+
+      // 检查默认容器是否在第一个位置，如果不是则撤销移动
+      const firstItem = elements.containerList.firstElementChild;
+      if (!firstItem || firstItem.dataset.containerId !== 'default') {
+        // 撤销移动，恢复原位
+        loadContainers();
+        return;
+      }
+
+      // 获取新顺序并持久化
+      const orderedIds = Array.from(elements.containerList.children)
+        .map(el => el.dataset.containerId);
+      window.realmAPI.reorderContainers(orderedIds).catch(err => {
+        console.error('[Realm Renderer] 保存容器顺序失败:', err);
+        loadContainers(); // 失败时重新加载
+      });
+
+      // 更新本地状态
+      state.containers.sort((a, b) => orderedIds.indexOf(a.id) - orderedIds.indexOf(b.id));
+
+      // 强制浏览器重绘以更新 hover 状态
+      elements.containerList.style.pointerEvents = 'none';
+      requestAnimationFrame(() => {
+        elements.containerList.style.pointerEvents = '';
+      });
+    });
 
     elements.containerList.appendChild(item);
   });
@@ -1921,6 +2012,7 @@ async function confirmDeleteContainer() {
 
   try {
     // 先关闭属于该容器的所有 Tab（closeTab 内含 destroyWebview）
+    // 关闭标签页后，会自动激活相邻的标签页，并更新 state.currentContainer
     const tabIdsToClose = [];
     state.tabs.forEach((tab, tabId) => {
       if (tab.containerId === containerId) {
@@ -1931,14 +2023,19 @@ async function confirmDeleteContainer() {
       await closeTab(tabId);
     }
 
+    // 保存当前容器 ID，因为 loadContainers 会从主进程获取并覆盖
+    const currentContainer = state.currentContainer;
+
     const result = await window.realmAPI.deleteContainer(containerId);
     if (result.success) {
-      // 如果删除的是当前活跃容器，自动切换到默认容器
-      if (containerId === state.currentContainer) {
-        await switchContainer('default');
-      }
-
-      await loadContainers();
+      // 重新加载容器列表
+      state.containers = await window.realmAPI.getContainers();
+      // 恢复当前容器 ID
+      state.currentContainer = currentContainer;
+      renderContainerList();
+      renderContainerPanelList();
+      updateContainerIndicator();
+      renderContainerShortcuts();
       elements.deleteConfirmModal.close();
       showToast('容器已删除', 'success');
     } else {

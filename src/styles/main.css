@@ -195,6 +195,39 @@ button {
   color: var(--text-primary);
 }
 
+/* 容器拖拽排序 */
+.container-drag-handle {
+  cursor: grab;
+  opacity: 0;
+  width: 8px;
+  margin: 0 -4px 0 -6px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  transition: opacity 0.2s;
+}
+
+.container-item:hover .container-drag-handle {
+  opacity: 0.5;
+}
+
+.container-drag-handle.disabled {
+  visibility: hidden;
+}
+
+.container-drag-handle:active {
+  cursor: grabbing;
+}
+
+.container-item.dragging {
+  opacity: var(--dragging-opacity);
+}
+
+.container-item.drag-over {
+  border-top: 2px solid var(--drag-insert-color);
+}
+
 .container-dot {
   width: 10px;
   height: 10px;

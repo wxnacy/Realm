@@ -289,6 +289,51 @@ async function clearContainerCookies(containerId) {
   }
 }
 
+/**
+ * 重排容器顺序
+ * @param {string[]} orderedIds - 新的容器 ID 顺序数组
+ * @returns {{success: boolean}} 操作结果
+ * @throws {Error} 容器 ID 不存在时抛出错误
+ */
+function reorderContainers(orderedIds) {
+  if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+    throw new Error('orderedIds 必须是非空数组');
+  }
+
+  // 验证所有 ID 都存在
+  for (const id of orderedIds) {
+    if (!containers.has(id)) {
+      throw new Error(`容器不存在: ${id}`);
+    }
+  }
+
+  // 按新顺序重建 Map
+  const newMap = new Map();
+  for (const id of orderedIds) {
+    newMap.set(id, containers.get(id));
+  }
+  containers.clear();
+  newMap.forEach((value, key) => containers.set(key, value));
+
+  // 持久化（剥离 session 字段）
+  const plainContainers = orderedIds.map(id => {
+    const c = containers.get(id);
+    return {
+      id: c.id,
+      name: c.name,
+      color: c.color,
+      icon: c.icon,
+      phone: c.phone,
+      email: c.email,
+      notes: c.notes,
+    };
+  });
+  configStore.set('containers', plainContainers);
+
+  console.log(`[Realm] 容器排序已更新: ${orderedIds.join(', ')}`);
+  return { success: true };
+}
+
 module.exports = {
   initContainers,
   getContainers,
@@ -298,4 +343,5 @@ module.exports = {
   deleteContainer,
   getContainerCookies,
   clearContainerCookies,
+  reorderContainers,
 };
