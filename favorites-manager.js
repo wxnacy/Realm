@@ -49,8 +49,23 @@ function initDatabase() {
   db.pragma('synchronous = NORMAL');
   // 启用外键约束（better-sqlite3 默认关闭，级联删除依赖此设置）
   db.pragma('foreign_keys = ON');
+  registerFts5Functions(db);
 
   console.log(`[Realm] 收藏夹数据库已初始化: ${DB_PATH}`);
+}
+
+/**
+ * 注册 FTS5 触发器依赖的 SQL 函数（segmentForFts5）
+ *
+ * FTS5 触发器体内引用 segmentForFts5(...)（SQL 侧），但它是 JS 函数，
+ * 必须注册为 SQLite UDF，否则任何 favorites 写入（INSERT/UPDATE/DELETE）
+ * 在 prepare 阶段编译触发器程序时即报 "no such function: segmentForFts5"。
+ * UDF 注册是 per-connection 且不持久化，initDatabase / setDatabase 都要调用。
+ *
+ * @param {Object} database - better-sqlite3 数据库实例
+ */
+function registerFts5Functions(database) {
+  database.function('segmentForFts5', { deterministic: true }, segmentForFts5);
 }
 
 /**
@@ -59,6 +74,7 @@ function initDatabase() {
  */
 function setDatabase(dbInstance) {
   db = dbInstance;
+  registerFts5Functions(db);
 }
 
 // ==================== 表管理 ====================
@@ -325,36 +341,34 @@ function ensureFts5Index() {
         insertMany(records);
         console.log(`[Realm] FTS5 索引已构建: ${records.length} 条记录`);
       }
-
-      // 创建触发器：自动维护 FTS5 索引
-      // INSERT 触发器
-      db.exec(`
-        CREATE TRIGGER IF NOT EXISTS favorites_ai AFTER INSERT ON favorites BEGIN
-          INSERT INTO favorites_fts (rowid, content)
-          VALUES (new.id, segmentForFts5(new.title || ' ' || new.url));
-        END;
-      `);
-
-      // DELETE 触发器
-      db.exec(`
-        CREATE TRIGGER IF NOT EXISTS favorites_ad AFTER DELETE ON favorites BEGIN
-          INSERT INTO favorites_fts (favorites_fts, rowid, content)
-          VALUES ('delete', old.id, segmentForFts5(old.title || ' ' || old.url));
-        END;
-      `);
-
-      // UPDATE 触发器
-      db.exec(`
-        CREATE TRIGGER IF NOT EXISTS favorites_au AFTER UPDATE ON favorites BEGIN
-          INSERT INTO favorites_fts (favorites_fts, rowid, content)
-          VALUES ('delete', old.id, segmentForFts5(old.title || ' ' || old.url));
-          INSERT INTO favorites_fts (rowid, content)
-          VALUES (new.id, segmentForFts5(new.title || ' ' || new.url));
-        END;
-      `);
-
-      console.log('[Realm] FTS5 触发器已创建');
     }
+
+    // 触发器每次启动都 DROP + 重建：触发器持久化在 DB 文件中，只改 JS 源码
+    // 不会更新存量库；且历史版本的触发器体内有 bug（FTS5 'delete' 命令对普通
+    // （非 external-content/contentless）FTS5 表在新版 SQLite 上执行报
+    // "SQL logic error"，须用普通 DELETE FROM；该路径此前因 UDF 未注册从未
+    // 真正执行过），必须无条件刷新为当前逻辑。
+    db.exec(`DROP TRIGGER IF EXISTS favorites_ai;`);
+    db.exec(`DROP TRIGGER IF EXISTS favorites_ad;`);
+    db.exec(`DROP TRIGGER IF EXISTS favorites_au;`);
+    db.exec(`
+      CREATE TRIGGER favorites_ai AFTER INSERT ON favorites BEGIN
+        INSERT INTO favorites_fts (rowid, content)
+        VALUES (new.id, segmentForFts5(new.title || ' ' || new.url));
+      END;
+    `);
+    db.exec(`
+      CREATE TRIGGER favorites_ad AFTER DELETE ON favorites BEGIN
+        DELETE FROM favorites_fts WHERE rowid = old.id;
+      END;
+    `);
+    db.exec(`
+      CREATE TRIGGER favorites_au AFTER UPDATE ON favorites BEGIN
+        DELETE FROM favorites_fts WHERE rowid = old.id;
+        INSERT INTO favorites_fts (rowid, content)
+        VALUES (new.id, segmentForFts5(new.title || ' ' || new.url));
+      END;
+    `);
   } catch (e) {
     console.error('[Realm] FTS5 索引初始化失败:', e.message);
   }
