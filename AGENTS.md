@@ -81,6 +81,9 @@ const windowContainerMap = new Map();
 | src/favorites-page.js | 收藏列表页（realm://favorites）逻辑 |
 | src/index.html | 主界面结构 |
 | src/styles/main.css | 样式文件 |
+| bin/realm-cli.js | CLI 入口文件（全局命令 `realm`） |
+| cli/commands/container.js | 容器管理命令（list, show） |
+| cli/utils.js | CLI 工具函数（配置文件读取） |
 
 ## 开发要点
 
@@ -181,6 +184,86 @@ AI Agent 集成模块（预留），包括：
 1. 在 `src/index.html` 中添加 HTML 结构
 2. 在 `src/styles/main.css` 中添加样式
 3. 在 `src/renderer.js` 中添加交互逻辑
+
+### 添加新的 CLI 命令
+
+CLI 工具结构：
+```
+bin/realm-cli.js          # 入口，参数解析和路由
+cli/commands/             # 命令模块目录
+  container.js            # 容器相关命令
+cli/utils.js              # 工具函数（配置读取等）
+```
+
+添加新命令步骤：
+1. 在 `cli/commands/` 下创建新命令模块（如 `cookie.js`）
+2. 导出 `run(subcommand, options, positionals)` 函数
+3. 在 `bin/realm-cli.js` 的 `main()` 中添加路由
+
+添加容器子命令：
+1. 在 `cli/commands/container.js` 的 `run()` 函数中添加 case
+2. 实现对应函数
+
+扩展字段读取：
+- `getFieldValue(container, field)` 函数支持从顶级属性或 `envVars` 按 key 查找
+- 添加新数据源只需修改此函数
+
+## CLI 工具使用
+
+全局命令行工具 `realm`，用于容器管理（无需启动 Electron 应用）。
+
+### 安装
+
+```bash
+npm link  # 创建全局符号链接
+```
+
+### 基本命令
+
+```bash
+realm help                          # 显示帮助
+realm version                       # 显示版本
+realm container list                # 列出所有容器
+realm container show <id>           # 显示容器详情
+```
+
+### 选项
+
+```bash
+--fields <field1,field2,...>        # 指定显示字段（逗号分隔）
+--env, -e <dev|prod>                # 指定环境（默认：正式环境）
+```
+
+### 使用示例
+
+```bash
+# 列出容器（默认显示 ID、名称）
+realm container list
+
+# 显示自定义字段（如 envVars 中的值）
+realm container list --fields phone,email,BILIBILI_NAME
+
+# 开发环境
+realm container list -e dev
+
+# 组合使用
+realm container list --env dev --fields phone,email,notes
+```
+
+### 字段查找逻辑
+
+`--fields` 支持从容器对象的任意字段读取值：
+1. 优先从顶级属性查找（如 `phone`, `email`, `notes`）
+2. 如果顶级属性不存在，从 `envVars` 数组中按 `key` 查找（如 `BILIBILI_NAME`）
+3. 对象/数组类型的值会显示为 JSON 字符串
+
+### 本地开发测试
+
+```bash
+# 直接运行（不安装到全局）
+node bin/realm-cli.js container list
+node bin/realm-cli.js container list -e dev --fields phone
+```
 
 ## 环境隔离
 
