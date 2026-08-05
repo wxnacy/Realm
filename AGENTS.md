@@ -235,3 +235,14 @@ npm run dev
 # macOS 生产构建
 npm run build:mac
 ```
+
+### 开发/正式环境差异 → 发布前必查
+
+引入两类环境可能存在差异的改动时，**提交前必须主动考虑打包发布问题**，不能只在 `npm run dev` 下验证：
+
+- **原生模块（nodejieba / better-sqlite3 等）**：JS 层 `fs` 能读 app.asar 内文件，但原生 `fopen`/`dlopen` 不行。词典、数据文件等被原生代码读取的资源必须：① `package.json` build 配置加 `asarUnpack`；② `app.isPackaged` 时显式把路径指到 `process.resourcesPath/app.asar.unpacked/...`（参考 `favorites-manager.js` 的 `nodejieba.load`）
+- **路径**：`__dirname` 拼出的路径在 asar 内外含义不同；打包后要落盘或被原生读取的资源一律走 `process.resourcesPath` / `app.getPath('userData')`
+- **新增依赖**：检查依赖包里是否带 `.node`、二进制、数据文件，有就要过一遍上面两条
+- **发布前验证**：`make install` 装出 .app 后**实际启动一次**（不是只跑 dev），确认无原生崩溃再发布。启动闪退看 `~/Library/Logs/DiagnosticReports/Realm-*.ips`
+
+事故参考：0.1.4 nodejieba 词典未解包，cppjieba 原生 fopen 读 asar 内路径失败直接 abort，启动必崩（修复见 9a1ae11）。
