@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 Milestone: v2.1 complete
 Status: Milestone archived
 Next: /gsd-new-milestone (start next milestone)
-Last activity: 2026-08-04 — v2.1 milestone complete
+Last activity: 2026-08-05 — Completed quick task 260805-icj: 浏览器左侧常住的容器列表也要跟地址栏左侧弹窗一样增加修改和删除按钮
 
 Progress: [████████████████████] 18/18 plans ([██████████] 100%)
 
@@ -81,6 +81,12 @@ None yet.
 ### Blockers/Concerns
 
 None yet.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260805-icj | 浏览器左侧常住的容器列表也要跟地址栏左侧弹窗一样增加修改和删除按钮 | 2026-08-05 | 1e13395 | [260805-icj-sidebar-container-edit-delete-btns](./quick/260805-icj-sidebar-container-edit-delete-btns/) |
 
 ## Deferred Items
 
