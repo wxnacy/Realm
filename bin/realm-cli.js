@@ -50,7 +50,7 @@ function parseArgs(args) {
   while (i < args.length) {
     const arg = args[i];
 
-    if (arg === '--fields' && i + 1 < args.length) {
+    if (arg === '--fields' || arg === '-f') {
       result.options.fields = args[++i].split(',');
     } else if (arg === '--env' || arg === '-e') {
       result.options.env = args[++i];
