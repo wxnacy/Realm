@@ -1966,19 +1966,19 @@ function showDeleteConfirmModal(containerId) {
 
   state.deletingContainerId = containerId;
 
-  // 动态填充容器预览（使用 textContent 防止 XSS）
-  const previewDot = document.createElement('div');
-  previewDot.className = 'preview-dot';
-  previewDot.style.backgroundColor = container.color;
-
+  // 动态填充容器预览
   const previewInfo = document.createElement('span');
   previewInfo.className = 'preview-info';
   previewInfo.textContent = '';
-  previewInfo.appendChild(renderContainerIcon(container, 16));
+  const icon = renderContainerIcon(container, 16);
+  // 符号图标使用容器颜色
+  if (isSymbolIcon(container) && icon instanceof SVGElement) {
+    icon.style.color = container.color;
+  }
+  previewInfo.appendChild(icon);
   previewInfo.appendChild(document.createTextNode(` ${container.name}`));
 
   elements.deleteContainerPreview.innerHTML = '';
-  elements.deleteContainerPreview.appendChild(previewDot);
   elements.deleteContainerPreview.appendChild(previewInfo);
 
   elements.deleteConfirmModal.showModal();
