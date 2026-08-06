@@ -58,6 +58,7 @@ const faviconFetcher = require('./favicon-fetcher');
 const frequentSitesManager = require('./frequent-sites-manager');
 const cdpManager = require('./cdp-manager');
 const uaChManager = require('./ua-ch-manager');
+const mediaSniffer = require('./media-sniffer');
 const devRequestsWriter = require('./dev-requests-writer');
 const AIManager = require('./ai-manager');
 const { executeScript, validateScriptForSteps } = require('./ai-manager');
@@ -412,6 +413,16 @@ app.on('session-created', (ses) => {
       );
     }
   });
+
+  // 媒体嗅探：拦截视频类型响应（per SNIFF-01）
+  // 使用 onResponseStarted（当前未被 onBeforeSendHeaders/onSendHeaders 占用）
+  // 只读事件，不干扰请求流程
+  ses.webRequest.onResponseStarted(
+    { urls: ['*://*/*'] },
+    (details) => {
+      mediaSniffer.handleNetworkResponse(details);
+    }
+  );
 });
 
 // ==================== 应用启动 ====================
