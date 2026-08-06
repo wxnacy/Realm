@@ -9,7 +9,7 @@ const elements = {
   sidebar: document.getElementById('sidebar'),
   containerList: document.getElementById('containerList'),
   containerIndicator: document.getElementById('containerIndicator'),
-  indicatorDot: document.querySelector('.indicator-dot'),
+  indicatorIcon: document.getElementById('indicatorIcon'),
   indicatorText: document.querySelector('.indicator-text'),
   urlInput: document.getElementById('urlInput'),
   welcomePage: document.getElementById('welcomePage'),
@@ -571,7 +571,7 @@ async function switchTab(tabId) {
   // 更新容器指示器
   const container = state.containers.find(c => c.id === tab.containerId);
   if (container) {
-    elements.indicatorDot.style.backgroundColor = container.color;
+    updateIndicatorIcon(container);
     elements.indicatorText.textContent = container.name;
     if (state.currentContainer !== tab.containerId) {
       state.currentContainer = tab.containerId;
@@ -1928,9 +1928,24 @@ function renderContainerList() {
 function updateContainerIndicator() {
   const current = state.containers.find(c => c.id === state.currentContainer);
   if (current) {
-    elements.indicatorDot.style.backgroundColor = current.color;
+    updateIndicatorIcon(current);
     elements.indicatorText.textContent = current.name;
   }
+}
+
+/**
+ * 更新指示器图标
+ * @param {Object} container - 容器对象
+ */
+function updateIndicatorIcon(container) {
+  const indicatorIcon = elements.indicatorIcon;
+  if (!indicatorIcon) return;
+  indicatorIcon.textContent = '';
+  const icon = renderContainerIcon(container, 16);
+  if (isSymbolIcon(container) && icon instanceof SVGElement) {
+    icon.style.color = container.color;
+  }
+  indicatorIcon.appendChild(icon);
 }
 
 /**
