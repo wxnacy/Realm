@@ -94,12 +94,12 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
   4. 媒体列表按容器隔离，相同 URL 自动去重；页面导航时自动清空当前容器列表
   5. 渲染进程可通过 mediaAPI.getMediaList() 获取媒体列表，通过 mediaAPI.onMediaListUpdate 监听变更
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 26-01-PLAN.md — MediaSniffer 核心引擎（三种视频检测方式 + 容器隔离存储 + 导航生命周期）
+- [x] 26-01-PLAN.md — MediaSniffer 核心引擎（三种视频检测方式 + 容器隔离存储 + 导航生命周期）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -166,6 +166,6 @@ Phases execute in numeric order: 26 → 27 → 28
 | 23. 智能上下文引用 + 全文检索 | v2.1 | 2/2 | Complete | 2026-08-02 |
 | 24. 任务自主执行 | v2.1 | 4/4 | Complete | 2026-08-02 |
 | 25. 脚本生成 + 智能标签整理 | v2.1 | 7/7 | Complete | 2026-08-04 |
-| 26. 视频源检测 + IPC 基础 | v2.2 | 0/2 | In progress | - |
+| 26. 视频源检测 + IPC 基础 | v2.2 | 1/2 | In Progress|  |
 | 27. 媒体面板 | v2.2 | 0/TBD | Not started | - |
 | 28. 播放器窗口 | v2.2 | 0/TBD | Not started | - |
