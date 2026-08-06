@@ -1,6 +1,6 @@
 {
   "name": "realm",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "多容器隔离浏览器，支持独立 Cookie 管理和 AI Agent 集成",
   "main": "main.js",
   "bin": {
