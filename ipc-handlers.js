@@ -93,7 +93,26 @@ function validateContainerConfig(config) {
   if (config.color && !/^#[0-9a-fA-F]{6}$/.test(config.color)) {
     return false;
   }
-  if (config.icon && (typeof config.icon !== 'string' || [...config.icon].length !== 1)) {
+  // 支持 emoji 和 SVG 符号两种图标类型
+  if (config.icon !== undefined) {
+    if (typeof config.icon !== 'string' || config.icon.length === 0) {
+      return false;
+    }
+    const iconType = config.iconType;
+    if (iconType === 'symbol') {
+      // SVG 符号 ID：仅允许小写字母和连字符，最大 30 字符
+      if (!/^[a-z][a-z0-9-]{0,29}$/.test(config.icon)) {
+        return false;
+      }
+    } else {
+      // emoji 模式（含 iconType === 'emoji' 或 iconType 缺失）
+      if ([...config.icon].length !== 1) {
+        return false;
+      }
+    }
+  }
+  // iconType 校验
+  if (config.iconType !== undefined && !['emoji', 'symbol'].includes(config.iconType)) {
     return false;
   }
   // 扩展属性校验（per D-04）：允许 undefined 或 string，非空时限制长度
@@ -142,7 +161,26 @@ function validateContainerUpdates(updates) {
   if (updates.color !== undefined && !/^#[0-9a-fA-F]{6}$/.test(updates.color)) {
     return false;
   }
-  if (updates.icon !== undefined && (typeof updates.icon !== 'string' || [...updates.icon].length !== 1)) {
+  // 支持 emoji 和 SVG 符号两种图标类型
+  if (updates.icon !== undefined) {
+    if (typeof updates.icon !== 'string' || updates.icon.length === 0) {
+      return false;
+    }
+    const iconType = updates.iconType;
+    if (iconType === 'symbol') {
+      // SVG 符号 ID：仅允许小写字母和连字符，最大 30 字符
+      if (!/^[a-z][a-z0-9-]{0,29}$/.test(updates.icon)) {
+        return false;
+      }
+    } else {
+      // emoji 模式（含 iconType === 'emoji' 或 iconType 缺失）
+      if ([...updates.icon].length !== 1) {
+        return false;
+      }
+    }
+  }
+  // iconType 校验
+  if (updates.iconType !== undefined && !['emoji', 'symbol'].includes(updates.iconType)) {
     return false;
   }
   // 扩展属性校验（per D-04）：允许 undefined 或 string，非空时限制长度

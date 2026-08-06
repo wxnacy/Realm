@@ -266,7 +266,9 @@ function renderContainerOptions(containers, selectedValue) {
   containers.forEach(container => {
     const option = document.createElement('option');
     option.value = container.id;
-    option.textContent = `${container.icon} ${container.name}`;
+    // 符号图标在 select 中降级显示名称
+    const iconPrefix = container.iconType === 'symbol' ? '' : container.icon + ' ';
+    option.textContent = iconPrefix + container.name;
     elements.defaultContainer.appendChild(option);
   });
 
@@ -368,7 +370,9 @@ function renderRulesList(rules) {
 
   rules.forEach(rule => {
     const container = state.containers.find(c => c.id === rule.containerId);
-    const containerName = container ? `${container.icon} ${container.name}` : rule.containerId;
+    // 符号图标在规则列表中降级显示名称
+    const iconPrefix = container && container.iconType !== 'symbol' ? container.icon + ' ' : '';
+    const containerName = container ? iconPrefix + container.name : rule.containerId;
 
     const item = document.createElement('div');
     item.className = 'rule-item';
@@ -1027,7 +1031,9 @@ function setupEventListeners() {
     state.containers.forEach(container => {
       const option = document.createElement('option');
       option.value = container.id;
-      option.textContent = container.icon + ' ' + container.name;
+      // 符号图标在 select 中降级显示名称
+      const iconPrefix = container.iconType === 'symbol' ? '' : container.icon + ' ';
+      option.textContent = iconPrefix + container.name;
       elements.ruleContainerSelect.appendChild(option);
     });
   });

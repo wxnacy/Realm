@@ -89,6 +89,7 @@ function getContainers() {
     name: c.name,
     color: c.color,
     icon: c.icon,
+    iconType: c.iconType,  // undefined 时前端按 emoji 处理
     phone: c.phone || '',
     email: c.email || '',
     notes: c.notes || '',
@@ -117,7 +118,7 @@ function getContainer(id) {
  * @returns {Object} 创建的容器配置
  * @throws {Error} 名称为空时抛出错误
  */
-function createContainer({ name, color = '#6B7280', icon = '📌', phone = '', email = '', notes = '', envVars = [] }) {
+function createContainer({ name, color = '#6B7280', icon = '📌', iconType, phone = '', email = '', notes = '', envVars = [] }) {
   // 验证名称非空
   if (!name || typeof name !== 'string' || name.trim() === '') {
     throw new Error('容器名称不能为空');
@@ -129,6 +130,7 @@ function createContainer({ name, color = '#6B7280', icon = '📌', phone = '', e
     name: name.trim(),
     color,
     icon,
+    iconType: iconType || undefined,  // 仅在有值时存储
     phone: phone || '',
     email: email || '',
     notes: notes || '',
@@ -166,7 +168,7 @@ function createContainer({ name, color = '#6B7280', icon = '📌', phone = '', e
  * @param {string} [updates.notes] - 新备注
  * @returns {Object|undefined} 更新后的容器配置或 undefined
  */
-function updateContainer(id, { name, color, icon, phone, email, notes, envVars }) {
+function updateContainer(id, { name, color, icon, iconType, phone, email, notes, envVars }) {
   const container = containers.get(id);
   if (!container) {
     console.error(`[Realm] 容器不存在: ${id}`);
@@ -177,6 +179,7 @@ function updateContainer(id, { name, color, icon, phone, email, notes, envVars }
   if (name !== undefined) container.name = name;
   if (color !== undefined) container.color = color;
   if (icon !== undefined) container.icon = icon;
+  if (iconType !== undefined) container.iconType = iconType;
   if (phone !== undefined) container.phone = phone;
   if (email !== undefined) container.email = email;
   if (notes !== undefined) container.notes = notes;
@@ -194,6 +197,7 @@ function updateContainer(id, { name, color, icon, phone, email, notes, envVars }
       name: container.name,
       color: container.color,
       icon: container.icon,
+      iconType: container.iconType,
       phone: container.phone,
       email: container.email,
       notes: container.notes,
@@ -208,6 +212,7 @@ function updateContainer(id, { name, color, icon, phone, email, notes, envVars }
     name: container.name,
     color: container.color,
     icon: container.icon,
+    iconType: container.iconType,
     phone: container.phone,
     email: container.email,
     notes: container.notes,
