@@ -115,15 +115,23 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 <!-- 当前需要构建的功能（下一里程碑定义） -->
 
-**v2.1 AI CDP 增强 + Tabbrowser 功能集成** (2026-08-02)
+**v2.2 多媒体功能集成** (2026-08-06)
 
-#### Phase 23: 智能上下文引用 + 全文检索
-- CTX-01: @ 引用标签页上下文
-- CTX-02: 全文检索收藏内容
+#### Phase 26: 视频源检测 + 媒体面板
+- MEDIA-01: media-sniffer 网络请求拦截（m3u8/mp4/flv/webm）
+- MEDIA-02: 页面脚本注入检测 `<video>` 和 `<source>` 元素
+- MEDIA-03: 媒体面板 UI（浮动层 + 媒体列表 + 播放/复制按钮）
+- MEDIA-04: IPC 通道注册 + Preload API 暴露
 
-#### Phase 24: 任务自主执行 (✓ 2026-08-02 完成)
+#### Phase 27: 播放器窗口
+- MEDIA-05: 独立播放器窗口（BrowserWindow + player.html）
+- MEDIA-06: hls.js 集成（m3u8 支持）
+- MEDIA-07: 播放控制 UI（播放/暂停/进度/音量/倍速/全屏）
 
-#### Phase 25: 脚本生成 + 智能标签整理 (✓ 2026-08-03 完成)
+#### Phase 28: 下载与边播边缓存（可选）
+- MEDIA-08: 下载管理器（任务队列 + 暂停/恢复/取消）
+- MEDIA-09: m3u8 分片下载 + 合并
+- MEDIA-10: 边播边缓存（stream protocol 拦截）
 
 ### Out of Scope
 
@@ -165,20 +173,23 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - 1 个 UAT 差距（Phase 18，0 个待处理场景）
 - Phase 23 代码审查遗留 19 项（6 Critical），详见 `.planning/phases/23-context-reference/23-REVIEW.md`
 
+**Current milestone:** v2.2 多媒体功能集成 — 视频源检测 + 媒体面板 + 播放器窗口
+
 ## Next Milestone Goals
 
-**v2.2 Bug Fixes + Polish** (planned)
-- 修复 13 个已诊断的 debug session
-- 解决 Phase 18 UAT 差距
-- Phase 23 代码审查遗留修复
-- 性能优化和 UI 打磨
-- 文档更新
+**v2.2 多媒体功能集成** (current)
+- 视频源检测模块 (media-sniffer)
+- 媒体面板 UI (media-panel)
+- 播放器窗口 (player-window) + hls.js
+- 播放控制 UI
+- 下载管理 + 边播边缓存（可选）
 
 **Future Features:**
 - 浏览器扩展支持
 - 书签/历史同步
 - 网络代理隔离
 - 移动端支持
+- Bug Fixes + Polish（13 个 debug session + Phase 23 代码审查遗留）
 
 ## Context
 

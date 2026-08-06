@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.1
-milestone_name: AI CDP 增强 + Tabbrowser 功能集成
-current_phase: 25
-status: complete
-stopped_at: Milestone complete
-last_updated: "2026-08-04T03:28:37.986Z"
-last_activity: 2026-08-04
-last_activity_desc: v2.1 milestone complete
+milestone: v2.2
+milestone_name: 多媒体功能集成
+status: planning
+last_updated: "2026-08-06T14:58:51.897Z"
+last_activity: 2026-08-06
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 18
-  completed_plans: 18
-  percent: 100
-current_phase_name: script-tab
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State: Realm Browser
@@ -28,12 +24,10 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Milestone: v2.1 complete
-Status: Milestone archived
-Next: /gsd-new-milestone (start next milestone)
-Last activity: 2026-08-05 — Completed quick task 260805-icj: 浏览器左侧常住的容器列表也要跟地址栏左侧弹窗一样增加修改和删除按钮
-
-Progress: [████████████████████] 18/18 plans ([██████████] 100%)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-08-06 — Milestone v2.2 started
 
 ## Performance Metrics
 
