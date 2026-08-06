@@ -82,7 +82,28 @@
 
 | Requirement | Phase | Plan |
 |-------------|-------|------|
-| SNIFF-01 ~ SNIFF-05 | TBD | — |
-| PANEL-01 ~ PANEL-05 | TBD | — |
-| PLAYER-01 ~ PLAYER-10 | TBD | — |
-| IPC-01 ~ IPC-05 | TBD | — |
+| SNIFF-01 | Phase 26 | — |
+| SNIFF-02 | Phase 26 | — |
+| SNIFF-03 | Phase 26 | — |
+| SNIFF-04 | Phase 26 | — |
+| SNIFF-05 | Phase 26 | — |
+| PANEL-01 | Phase 27 | — |
+| PANEL-02 | Phase 27 | — |
+| PANEL-03 | Phase 27 | — |
+| PANEL-04 | Phase 27 | — |
+| PANEL-05 | Phase 27 | — |
+| PLAYER-01 | Phase 28 | — |
+| PLAYER-02 | Phase 28 | — |
+| PLAYER-03 | Phase 28 | — |
+| PLAYER-04 | Phase 28 | — |
+| PLAYER-05 | Phase 28 | — |
+| PLAYER-06 | Phase 28 | — |
+| PLAYER-07 | Phase 28 | — |
+| PLAYER-08 | Phase 28 | — |
+| PLAYER-09 | Phase 28 | — |
+| PLAYER-10 | Phase 28 | — |
+| IPC-01 | Phase 26 | — |
+| IPC-02 | Phase 26 | — |
+| IPC-03 | Phase 26 | — |
+| IPC-04 | Phase 26 | — |
+| IPC-05 | Phase 26 | — |

@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: 多媒体功能集成
 status: planning
-last_updated: "2026-08-06T14:58:51.897Z"
+last_updated: "2026-08-06T15:00:00.000Z"
 last_activity: 2026-08-06
 progress:
-  total_phases: 0
-  completed_phases: 0
+  total_phases: 28
+  completed_phases: 25
   total_plans: 0
   completed_plans: 0
   percent: 0
@@ -17,23 +17,25 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-04)
+See: .planning/PROJECT.md (updated 2026-08-06)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Planning next milestone
+**Current focus:** Phase 26: 视频源检测 + IPC 基础
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 26 of 28 (视频源检测 + IPC 基础)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-08-06 — Milestone v2.2 started
+Status: Ready to plan
+Last activity: 2026-08-06 — v2.2 里程碑路线图创建
+
+Progress: [██████████████████████████░░] 89%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 18
+- Total plans completed: 57
 - Average duration: —
 - Total execution time: —
 
@@ -41,21 +43,12 @@ Last activity: 2026-08-06 — Milestone v2.2 started
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 22. CDP 管理器扩展 | TBD | — | — |
-| 23. 智能上下文引用 | TBD | — | — |
-| 24. 任务自主执行 | TBD | — | — |
-| 25. 脚本生成 + 标签整理 | TBD | — | — |
-| 22 | 5 | - | - |
-| 23 | 2 | - | - |
-| 24 | 4 | - | - |
-| 25 | 7 | - | - |
+| 22. CDP 管理器扩展 | 5 | - | - |
+| 23. 智能上下文引用 | 2 | - | - |
+| 24. 任务自主执行 | 4 | - | - |
+| 25. 脚本生成 + 标签整理 | 7 | - | - |
 
 *Updated after each plan completion*
-**Per-Plan Metrics:**
-
-| Plan | Duration | Tasks | Files |
-|------|----------|-------|-------|
-| Phase 25 P06 | 4h 19m | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -64,9 +57,8 @@ Last activity: 2026-08-06 — Milestone v2.2 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- v2.1 已完成归档，所有决策记录在 PROJECT.md Key Decisions 表中
-- 13 个已诊断 debug session 从 v2.0 延续，待 v2.2 修复
-- Phase 23 代码审查遗留 19 项（6 Critical）待修复
+- v2.2 路线图: 3 阶段结构（检测+IPC → 面板 → 播放器），granularity=coarse 匹配
+- v2.2 技术选型: hls.js ^1.6.17 + mpegts.js ^1.8.1，复用 Electron 原生 API
 
 ### Pending Todos
 
@@ -74,7 +66,9 @@ None yet.
 
 ### Blockers/Concerns
 
-None yet.
+- hls.js enableWorker 在 Electron 32.x CSP 下的行为需实际测试
+- session.webRequest 对 WebSocket 升级请求的拦截能力待验证
+- 播放器窗口的视频编解码器支持范围需在 Electron 32.x 中实测
 
 ### Quick Tasks Completed
 
@@ -88,23 +82,13 @@ Items acknowledged and carried forward from previous milestone close:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| debug | cold-start-url-input-no-response | diagnosed | v2.0 |
-| debug | container-delete-partitions | unknown | v2.0 |
-| debug | cookie-list-bg-too-dark | diagnosed | v2.0 |
-| debug | favorites-blank-area-context-menu | diagnosed | v2.0 |
-| debug | pinned-tab-favicon | diagnosed | v2.0 |
-| debug | progress-bar-wrong-position | diagnosed | v2.0 |
-| debug | realm-newtab-star-not-persistent | diagnosed | v2.0 |
-| debug | refresh-button-no-stop-icon | diagnosed | v2.0 |
-| debug | reopen-closed-tabs-batch | diagnosed | v2.0 |
-| debug | rules-import-no-op | diagnosed | v2.0 |
-| debug | save-cookie-wrong-domain-filter | diagnosed | v2.0 |
-| debug | url-input-enter-no-response | diagnosed | v2.0 |
-| debug | web-context-menu-wrong-items | diagnosed | v2.0 |
-| uat | Phase 18 UAT gap | 0 pending scenarios | v2.0 |
+| 下载与缓存 | DL-01~05 (下载管理器/分片合并/边播边缓存) | Deferred to v2.3 | v2.2 planning |
+| 增强功能 | ENH-01~06 (截图/画中画/播放列表/字幕/DASH/RTMP) | Future | v2.2 planning |
+| debug | 13 debug sessions from v2.0 | diagnosed | v2.0 |
+| review | Phase 23 代码审查遗留 19 项（6 Critical） | open | v2.1 |
 
 ## Session Continuity
 
-Last session: 2026-08-03T16:07:20.387Z
-Stopped at: Completed 25-06-PLAN.md
+Last session: 2026-08-06
+Stopped at: v2.2 ROADMAP.md created, ready for Phase 26 planning
 Resume file: None
