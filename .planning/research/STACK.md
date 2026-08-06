@@ -1,230 +1,213 @@
-# Stack Research: AI CDP 增强 + Tabbrowser 功能集成 (v2.1)
+# Stack Research: 多媒体功能集成 (v2.2)
 
-**Domain:** Electron 多容器浏览器 - AI Agent 深度控制
-**Researched:** 2026-08-02
+**Project:** Realm Browser
+**Researched:** 2026-08-06
+**Mode:** Ecosystem
 **Confidence:** HIGH
 
 ## Recommended Stack
 
-### 核心发现：无需新增依赖
+### 新增依赖（仅 2 个）
 
-v2.1 里程碑的所有功能都可以用现有技术栈实现。这是本次研究最重要的结论。
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| hls.js | ^1.6.17 | m3u8/HLS 流媒体播放 | 成熟稳定的 HLS 播放库，通过 MSE 在 Chromium 中工作；v1.6.x 是当前活跃维护的稳定线 |
+| mpegts.js | ^1.8.1 | FLV/MPEG-TS 直播流播放 | flv.js 的活跃继任者（同一社区），支持 FLV + MPEG-TS + 低延迟直播 |
 
-### 现有技术栈（已验证可用）
+### 不需要新增的依赖
 
-| Technology | Version | Purpose | 状态 |
-|------------|---------|---------|------|
-| Electron | 32.x | CDP (webContents.debugger) + 主进程/渲染进程架构 | 已集成 |
-| better-sqlite3 | 11.7.0 | FTS5 全文检索（SQLite 3.46.x 内置） | 已集成 |
-| cheerio | 1.2.0 | HTML 解析（CDP 取回 HTML 后的服务端解析备选） | 已集成 |
-| electron-store | 8.1.0 | 配置持久化（CDP 管理器配置、AI 配置） | 已集成 |
-| pi-agent-core | 0.82.1 | AI Agent 框架（工具注册、对话管理、流式输出） | 已集成 |
-| pi-ai | 0.82.1 | LLM 统一 API 层（38+ 提供商） | 已集成 |
+| Library | Why NOT |
+|---------|---------|
+| video.js | 重量级播放器框架，引入完整 UI 系统与自研媒体面板冲突；Realm 只需底层解码能力 |
+| flv.js (bilibili/flv.js) | 已停止维护（最后版本 v1.6.2，2020 年），被 mpegts.js 替代 |
+| dash.js | DASH 协议本期不支持；Electron 32.x Chromium 原生支持部分 DASH |
+| ffmpeg / fluent-ffmpeg | 服务端工具，Electron 32.x Chromium 原生解码足够；仅在 Phase 28 下载合并时考虑 |
+| plyr / clapr / mediaelement | 封装层无必要，自研 UI 更贴合 Realm 设计语言 |
+| puppeteer-core | 项目已有 Electron 原生 CDP (webContents.debugger)，无需额外浏览器进程 |
 
-### CDP 域需求分析
+### 利用现有 Electron/Node.js API（零额外依赖）
 
-当前 `cdp-manager.js` 仅使用 `Network` 域（请求抓取）。新功能需要扩展到以下 CDP 域：
+| API | Module | Purpose |
+|-----|--------|---------|
+| `session.webRequest.onBeforeRequest` | Electron (Main) | 网络请求拦截，嗅探 m3u8/mp4/flv/webm URL |
+| `webContents.executeJavaScript` | Electron (Main) | 注入脚本检测页面 `<video>`/`<source>` 元素 |
+| `BrowserWindow` | Electron (Main) | 创建独立播放器窗口 |
+| `ipcMain` / `ipcRenderer` | Electron | 主进程 <-> 渲染进程通信 |
+| `contextBridge` | Electron | 安全暴露 IPC 给播放器窗口 preload |
+| `net` | Node.js | 可选：验证媒体 URL 有效性（HEAD 请求） |
 
-| CDP Domain | Methods | 用途 | 复杂度 |
-|------------|---------|------|--------|
-| **Runtime** | `evaluate`, `callFunctionOn` | 在页面上下文执行 JS（最灵活的 DOM 交互方式） | 低 |
-| **DOM** | `getDocument`, `getOuterHTML`, `querySelectorAll` | 读取页面 DOM 结构 | 低 |
-| **Page** | `navigate`, `reload` | 页面导航控制 | 低 |
-| **Network** (已有) | 现有方法 | 继续用于请求抓取 | 已实现 |
+## Alternatives Considered
 
-**关键决策：优先使用 `Runtime.evaluate`**
-
-`Runtime.evaluate` 可以在页面上下文中执行任意 JavaScript，这意味着：
-- 读取页面内容：`document.title`, `document.body.innerText`, `document.querySelector('article')?.textContent`
-- 提取链接：`Array.from(document.querySelectorAll('a[href]')).map(a => ({text: a.textContent, href: a.href}))`
-- 点击链接：`document.querySelector('a[href="..."]').click()`
-- 填写表单：`document.querySelector('input[name="email"]').value = '...'`
-
-这比用 DOM 域逐节点操作更简单、更强大。cheerio 作为备选方案，用于需要服务端解析的场景（如页面尚未加载完成时解析缓存的 HTML）。
-
-### SQLite FTS5 全文检索
-
-better-sqlite3 11.7.0 内置 SQLite 3.46.x，FTS5 默认编译启用。
-
-```sql
--- FTS5 虚拟表示例（用于收藏全文检索）
-CREATE VIRTUAL TABLE favorites_fts USING fts5(
-  title,
-  url,
-  content='favorites',
-  content_rowid='id'
-);
-
--- 触发器保持同步
-CREATE TRIGGER favorites_ai AFTER INSERT ON favorites BEGIN
-  INSERT INTO favorites_fts(rowid, title, url)
-  VALUES (new.id, new.title, new.url);
-END;
-```
-
-**中文分词**：SQLite FTS5 内置 `unicode61` tokenizer 对 CJK 字符按单字分词，对中文搜索"足够好"。如需更精准的中文分词，可考虑 `icu` tokenizer（需要 SQLite ICU 编译支持），但 MVP 阶段不需要。
-
-### 支持库分析
-
-| Library | Version | Purpose | 需要？ |
-|---------|---------|---------|--------|
-| cheerio | 1.2.0 | HTML 解析（CDP 取回 HTML 后的服务端解析） | 已有，备选方案 |
-| highlight.js | 11.11.1 | 代码高亮（脚本生成展示） | 已有 |
-| marked | 18.0.7 | Markdown 渲染（AI 回复） | 已有 |
-| dompurify | 3.4.12 | XSS 防护（AI 输出消毒） | 已有 |
-| **puppeteer-core** | - | CDP 自动化 | **不需要**（Electron 内置 CDP） |
-| **playwright** | - | 浏览器自动化 | **不需要**（同上） |
-| **jieba** | - | 中文分词 | **不需要**（FTS5 unicode61 够用） |
-| **lunr.js** | - | 客户端全文检索 | **不需要**（SQLite FTS5 更强） |
+| Category | Recommended | Alternative | Why Not |
+|----------|-------------|-------------|---------|
+| HLS 播放 | hls.js ^1.6.17 | video.js + @videojs/http-streaming | video.js 太重，引入整个 UI 框架无必要 |
+| FLV/MPEG-TS | mpegts.js ^1.8.1 | flv.js ^1.6.2 | flv.js 已停止维护 5 年 |
+| 请求拦截 | session.webRequest | 代理服务器 (http-proxy) | webRequest 是 Electron 原生 API，零额外依赖 |
+| 播放器 UI | 自研 (HTML/CSS/JS) | plyr / mediaelement | 自研与 Realm 深色主题一致，无额外包体积 |
+| 视频检测 | executeJavaScript | CDP Runtime.evaluate | executeJavaScript 更简单直接；项目已有 CDP 基础设施可备选 |
 
 ## Installation
 
 ```bash
-# 无新增依赖
-# 所有功能基于现有技术栈实现
-
-# 如需 ICU tokenizer（中文分词增强，可选）：
-# better-sqlite3 需要从源码编译并启用 ICU
-# npm rebuild better-sqlite3 --build-from-source
-# 不推荐 MVP 阶段使用
+# 新增依赖（仅 2 个包）
+npm install hls.js@^1.6.17 mpegts.js@^1.8.1
 ```
 
-## Alternatives Considered
+## Integration Points
 
-| 推荐方案 | 替代方案 | 何时考虑替代 |
-|----------|----------|-------------|
-| Electron CDP (webContents.debugger) | Puppeteer / Playwright | 不需要 — Electron 原生 CDP 无需额外浏览器进程 |
-| Runtime.evaluate | DOM 域逐节点操作 | 当需要精确 DOM 节点引用时（如修改单个节点属性） |
-| SQLite FTS5 | lunr.js / flexsearch | 当需要纯客户端搜索且无法访问 SQLite 时 |
-| cheerio (HTML 解析) | DOMParser (页面内) | 当需要在主进程解析 HTML 而非页面上下文时 |
-| unicode61 tokenizer | ICU tokenizer | 当中文搜索召回率不足时（需编译 SQLite ICU 支持） |
+### 1. 媒体嗅探 (Phase 26: MEDIA-01)
 
-## What NOT to Use
-
-| 避免 | 原因 | 替代方案 |
-|------|------|----------|
-| Puppeteer | Electron 已内置 CDP 支持，Puppeteer 会启动额外的 Chromium 实例，与 Electron 的 webContents 冲突 | 直接使用 `webContents.debugger` API |
-| Playwright | 同 Puppeteer，且 Playwright 的 Electron 支持有限 | 同上 |
-| node-html-parser | cheerio 已集成且社区更成熟 | 继续使用 cheerio |
-| elasticlunr / mini-search | SQLite FTS5 是更好的选择：性能更好、支持前缀搜索、支持高亮 | 使用 better-sqlite3 FTS5 |
-| RobotJS / nut.js | 原生键鼠模拟库，但 CDP 可以直接操作 DOM，不需要模拟物理输入 | Runtime.evaluate + DOM 操作 |
-
-## CDP API 使用模式
-
-### 读取页面内容（read_page_content）
+**session.webRequest 拦截（主进程）：**
 
 ```javascript
-// cdp-manager.js 扩展
-async function readPageContent(webContents) {
-  if (!webContents || webContents.isDestroyed()) {
-    throw new Error('webContents 无效');
-  }
-
-  // 确保调试器已附加
-  if (!webContents.debugger.isPaused()) {
-    webContents.debugger.attach('1.3');
-  }
-
-  // 使用 Runtime.evaluate 在页面上下文执行
-  const result = await webContents.debugger.sendCommand('Runtime.evaluate', {
-    expression: `JSON.stringify({
-      title: document.title,
-      url: location.href,
-      text: document.body?.innerText?.substring(0, 50000) || '',
-      meta: {
-        description: document.querySelector('meta[name="description"]')?.content || '',
-        keywords: document.querySelector('meta[name="keywords"]')?.content || '',
-        author: document.querySelector('meta[name="author"]')?.content || '',
-      }
-    })`,
-    returnByValue: true,
-  });
-
-  return JSON.parse(result.result.value);
+// main.js — 在容器 session 上注册拦截器
+function setupMediaSniffer(containerSession, containerId) {
+  containerSession.webRequest.onBeforeRequest(
+    { urls: ['*://*/*.m3u8*', '*://*/*.mp4*', '*://*/*.flv*', '*://*/*.webm*'] },
+    (details, callback) => {
+      // 通过 IPC 发送到媒体列表
+      mainWindow.webContents.send('media:detected', {
+        url: details.url,
+        type: detectMediaType(details.url),
+        containerId,
+        timestamp: Date.now()
+      });
+      callback({}); // 不阻断请求
+    }
+  );
 }
 ```
 
-### 提取链接（extract_links）
+**关键：** `webRequest` 必须在容器对应的 `session` 对象上注册，而非 `session.defaultSession`。每个容器使用 `persist:container-{id}` partition，拦截器需逐一注册。
+
+### 2. 页面视频检测 (Phase 26: MEDIA-02)
+
+**executeJavaScript 注入（渲染进程 → webview）：**
 
 ```javascript
-async function extractLinks(webContents) {
-  const result = await webContents.debugger.sendCommand('Runtime.evaluate', {
-    expression: `JSON.stringify(
-      Array.from(document.querySelectorAll('a[href]')).map(a => ({
-        text: (a.textContent || '').trim().substring(0, 200),
-        href: a.href,
-        title: a.title || '',
-      })).filter(l => l.href && l.href.startsWith('http'))
-    )`,
-    returnByValue: true,
-  });
+// renderer.js — 在 webview dom-ready 后注入
+webview.addEventListener('dom-ready', async () => {
+  const videoSources = await webview.executeJavaScript(`
+    Array.from(document.querySelectorAll('video, video source, [src*=".m3u8"], [src*=".mp4"]'))
+      .map(el => ({
+        src: el.src || el.currentSrc || el.getAttribute('src'),
+        type: el.type || '',
+        tag: el.tagName.toLowerCase()
+      }))
+      .filter(v => v.src)
+  `);
+  if (videoSources.length > 0) {
+    window.realmAPI.reportVideoSources(videoSources);
+  }
+});
+```
 
-  return JSON.parse(result.result.value);
+### 3. 播放器窗口 (Phase 27: MEDIA-05/06)
+
+**独立 BrowserWindow（主进程）：**
+
+```javascript
+// main.js
+function createPlayerWindow(mediaUrl) {
+  const playerWin = new BrowserWindow({
+    width: 960, height: 540,
+    title: 'Realm Player',
+    webPreferences: {
+      preload: path.join(__dirname, 'src/player-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  playerWin.loadFile('src/player.html');
+  playerWin.webContents.on('did-finish-load', () => {
+    playerWin.webContents.send('player:set-source', mediaUrl);
+  });
 }
 ```
 
-### 打开链接（open_link）
+**hls.js 集成（播放器渲染进程）：**
 
 ```javascript
-async function openLink(webContents, url, newTab = false) {
-  if (newTab) {
-    // 通过主进程创建新 Tab
-    tabManager.createTab(containerId, url);
+// player-renderer.js
+const Hls = require('hls.js');
+
+function playStream(url, videoElement) {
+  if (url.includes('.m3u8')) {
+    if (Hls.isSupported()) {
+      const hls = new Hls({ enableWorker: true, lowLatencyMode: false });
+      hls.loadSource(url);
+      hls.attachMedia(videoElement);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => videoElement.play());
+    } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
+      videoElement.src = url;
+    }
   } else {
-    // 在当前页面导航
-    await webContents.debugger.sendCommand('Page.navigate', { url });
+    // mp4/webm 直接播放
+    videoElement.src = url;
   }
 }
 ```
 
-### 全文检索（FTS5）
+**mpegts.js 集成（FLV 直播流）：**
 
 ```javascript
-const Database = require('better-sqlite3');
-const db = new Database('favorites.db');
+// player-renderer.js
+const mpegts = require('mpegts.js');
 
-// 创建 FTS5 虚拟表
-db.exec(`
-  CREATE VIRTUAL TABLE IF NOT EXISTS favorites_fts USING fts5(
-    title,
-    url,
-    content='favorites',
-    content_rowid='id'
-  )
-`);
-
-// 搜索
-function searchFavorites(query) {
-  return db.prepare(`
-    SELECT f.* FROM favorites f
-    JOIN favorites_fts fts ON f.id = fts.rowid
-    WHERE favorites_fts MATCH ?
-    ORDER BY rank
-    LIMIT 50
-  `).all(query);
+function playFlvStream(url, videoElement) {
+  if (mpegts.isSupported()) {
+    const player = mpegts.createPlayer({ type: 'flv', url, isLive: true });
+    player.attachMediaElement(videoElement);
+    player.load();
+    player.play();
+  }
 }
 ```
 
-## 版本兼容性
+### 4. CSP 注意事项
 
-| Package | Compatible With | Notes |
-|---------|-----------------|-------|
-| better-sqlite3@11.7.0 | Electron 32.x (Node 20.18.x) | 需要 electron-rebuild 编译 |
-| cheerio@1.2.0 | Node.js 20+ | 纯 JS，无需编译 |
-| pi-agent-core@0.82.1 | Node.js 22.19.0+ (理想) | 当前 Node 20.18.x 可用，ESM 动态 import 兼容 |
-| electron-store@8.1.0 | Electron 32.x | 稳定 |
+播放器 HTML 页面的 CSP 需要允许：
+- `blob:` — hls.js/mpegts.js 使用 blob URL 创建 MediaSource
+- `media-src` — 允许媒体播放
 
-**注意**：better-sqlite3 是原生模块，必须为 Electron 的 Node.js 版本编译。`npm run dev` 和 `npm start` 使用相同的编译版本，无需额外配置。
+```html
+<meta http-equiv="Content-Security-Policy"
+  content="default-src 'self'; media-src blob: 'self'; script-src 'self'">
+```
+
+### 5. 与现有 CDP 基础设施的协作
+
+项目已有 `cdp-manager.js`（Phase 22），可复用其 `attachForAI/detachForAI` 模式：
+- **主检测路径：** `session.webRequest`（零成本，主进程直接拦截）
+- **备选路径：** CDP `Network.requestWillBeSent`（需 attach debugger，但能获取更详细的请求上下文）
+- **视频元素检测：** `executeJavaScript`（直接）或 CDP `Runtime.evaluate`（通过现有 cdp-manager）
+
+## Version Compatibility Matrix
+
+| Dependency | Electron 32.x Chromium ~130 | MSE Support | Notes |
+|------------|---------------------------|-------------|-------|
+| hls.js 1.6.x | Full | Full MSE | 稳定；`enableWorker` 需测试 CSP 兼容性 |
+| mpegts.js 1.8.x | Full | Full MSE | 支持低延迟直播（llhls/wss） |
+
+## What NOT to Add
+
+| 避免 | 原因 |
+|------|------|
+| video.js | 引入完整 UI 框架与自研面板冲突；只底层解码 |
+| flv.js | 2020 年停维护，mpegts.js 是活跃继任 |
+| ffmpeg (Electron 内) | 原生二进制，打包复杂度高；Chromium 原生解码够用 |
+| puppeteer-core | 项目已有 Electron 原生 CDP |
+| plyr / clappr | UI 封装层无必要 |
 
 ## Sources
 
-- Electron webContents.debugger API — 官方文档，CDP 会话管理
-- Chrome DevTools Protocol 规范 — Runtime, DOM, Page, Network 域
-- SQLite FTS5 文档 — 全文检索扩展
-- better-sqlite3 文档 — Node.js SQLite 绑定
-- pi-agent-core README — Agent 工具注册接口
+- [hls.js GitHub](https://github.com/video-dev/hls.js) — npm latest: 1.6.17
+- [mpegts.js GitHub](https://github.com/xqq/mpegts.js) — npm latest: 1.8.1
+- [Electron session.webRequest API](https://www.electronjs.org/docs/latest/api/web-request)
+- [Electron webContents.executeJavaScript](https://www.electronjs.org/docs/latest/api/web-contents#contentsexecutejavascriptusergesture)
+- [Electron BrowserWindow](https://www.electronjs.org/docs/latest/api/browser-window)
 
 ---
-*Stack research for: AI CDP 增强 + Tabbrowser 功能集成*
-*Researched: 2026-08-02*
-*Confidence: HIGH — 所有推荐基于已验证的现有技术栈*
+*Stack research for: 多媒体功能集成 (v2.2)*
+*Researched: 2026-08-06*
+*Confidence: HIGH — 仅 2 个新依赖，大量复用现有 Electron 原生 API*

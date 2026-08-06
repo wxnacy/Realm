@@ -1,270 +1,174 @@
-# Feature Landscape — v2.1 AI CDP 增强 + Tabbrowser 功能集成
+# Feature Landscape — v2.2 多媒体功能集成
 
-**Domain:** Electron 多容器隔离浏览器 — AI 能力深度增强 + 智能标签管理
-**Researched:** 2026-08-02
-**Overall confidence:** MEDIUM（基于 CDP 协议官方文档和 Electron API 一手知识，部分自动化场景未经端到端验证）
+**Domain:** Electron 多容器浏览器 - 多媒体播放
+**Researched:** 2026-08-06
+**Overall confidence:** HIGH
 
-## 研究范围
+## Executive Summary
 
-本次研究聚焦 v2.1 新增功能，不重复 v1.x 已验证的 Table Stakes。现有能力基线：
+v2.2 的核心目标是为 Realm Browser 添加视频源检测、媒体面板和独立播放器窗口功能。研究结论表明，视频源检测主要依赖两种互补技术路径：**网络层嗅探**（session.webRequest 拦截）和**页面层检测**（executeJavaScript 注入）。播放器层面，hls.js 和 mpegts.js 覆盖了主流流媒体格式，两者都通过 MSE API 在 Chromium 中工作。
 
-| 已有能力 | 说明 |
-|----------|------|
-| CDP 网络抓取 | `cdp-manager.js` — 域名匹配 + Network 域事件监听 + 请求/响应捕获 |
-| AI Manager | `ai-manager.js` — 5 个工具（get_tabs / navigate / search_history / manage_favorites / switch_container）|
-| AI Chat UI | 流式输出 + 工具卡片 + 消息操作 + 拖拽面板 |
-| 收藏全文搜索 | `favorites-manager.js` — SQLite FTS5 虚拟表 + porter unicode61 分词 |
-| 多 Tab 容器隔离 | tab-manager.js + window-manager.js + Session partition |
+**典型用户工作流：** 浏览网页 → 媒体嗅探自动检测 → 媒体面板显示列表 → 用户选择播放/复制链接 → 独立播放器窗口打开。
 
----
+## Table Stakes
 
-## Table Stakes（本里程碑必须有）
-
-这些功能是 v2.1 核心价值，缺失则里程碑目标不完整。
-
-### Phase 22: CDP 管理器 + 网页读取与链接操作
+功能用户期望的基础能力。缺失 = 产品不完整。
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| **独立 CDP 管理器** (`cdp-manager.js` 扩展) | 当前 CDP 仅用于网络抓取（Network 域），AI Agent 需要读取页面内容和操作 DOM | Medium | 复用 `cdp-manager.js` 的 attach/detach 生命周期，新增 `Page`/`DOM`/`Runtime` 域支持 |
-| **read_page_content 工具** | AI 需要理解当前页面内容才能回答问题或执行操作 | Medium | 通过 `Runtime.evaluate` 执行 `document.title` / `document.body.innerText` / `document.querySelector('meta[name="description"]')` 获取标题、正文、元信息 |
-| **extract_links 工具** | AI 需要提取页面链接供用户选择或批量操作 | Low | `Runtime.evaluate` 执行 `Array.from(document.querySelectorAll('a[href]')).map(a => ({text: a.textContent.trim(), href: a.href}))` |
-| **open_link 工具** | 用户或 AI 指定链接后需要在容器中打开 | Low | 复用 `tabManager.createTab(containerId, url)` 或在指定 webview 中 `loadURL(url)` |
+| 媒体 URL 检测（网络层） | 用户期望浏览器自动识别页面中的视频资源 | Low | session.webRequest 原生 API，拦截 m3u8/mp4/flv/webm |
+| 页面内视频元素检测 | 补充网络层嗅探，发现内嵌 video/source | Medium | executeJavaScript 注入 + MutationObserver 监听动态加载 |
+| 媒体列表面板 | 用户需要看到检测到的媒体资源并选择 | Medium | 浮动层 UI，显示 URL、格式、大小等信息 |
+| m3u8/HLS 播放 | 最常见的流媒体格式（国内外主流平台） | Medium | hls.js 集成，通过 MSE 在 Chromium 中工作 |
+| mp4/webm 直播放 | 最基本的视频格式 | Low | Chromium 原生支持，video.src 直接设置 |
+| 独立播放器窗口 | 不干扰浏览页面的播放体验 | Medium | BrowserWindow + 独立 HTML/JS |
+| 播放/暂停控制 | 基本播放交互 | Low | HTML5 video API |
+| 进度条拖拽 | 用户需要跳转到指定位置 | Low | video.currentTime + range input |
+| 音量控制 | 用户需要调节音量 | Low | video.volume + range input |
+| 一键复制媒体链接 | 快速分享或在外部播放器打开 | Low | clipboard.writeText API |
 
-**依赖链：**
-```
-独立 CDP 管理器
-  ├── read_page_content 工具（需要 Runtime.evaluate 能力）
-  ├── extract_links 工具（需要 Runtime.evaluate 能力）
-  └── open_link 工具（需要 tabManager / webview 导航）
-```
+## Differentiators
 
-**与现有 CDP 的关系：**
-现有 `cdp-manager.js` 负责网络请求抓取（Network 域），新功能需要 DOM/Runtime 域。两种方案：
-1. **扩展现有 cdp-manager.js**（推荐）：复用 attach/detach 和 debuggerStates，新增方法
-2. **独立模块**：新建 `cdp-page-reader.js`，共享 debugger 连接
-
-方案 1 更优，因为 debugger 同一 webContents 只能 attach 一次，共享连接避免冲突。
-
-### Phase 23: 智能上下文引用 + 全文检索
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| **@ 引用标签页上下文** | 用户在 AI 对话中需要引用特定标签页内容，而非手动描述 | Medium | 需要：(1) 渲染进程解析 `@tab-title` 语法 (2) 提取被引用标签页的 URL/标题/内容摘要 (3) 将上下文注入 AI 对话的 system prompt 或 user message |
-| **全文检索收藏内容** | 当前 `manage_favorites` 工具仅支持标题/URL 搜索，用户期望搜索页面正文内容 | Medium | 需要：(1) 收藏时抓取页面正文存入 FTS5 (2) 搜索时匹配正文内容 (3) 返回匹配片段高亮 |
-
-**@ 引用标签页交互流程：**
-```
-用户输入 "@GitHub - realm 项目 read_page_content 的实现"
-  → 渲染进程解析 @ 前缀
-  → 匹配当前标签页列表（模糊匹配标题）
-  → 选中 "GitHub - realm-browser" 标签页
-  → 自动调用 read_page_content 获取该标签页内容
-  → 将内容摘要注入 AI 对话上下文
-  → AI 基于注入的上下文回答问题
-```
-
-**全文检索收藏的技术路径：**
-现有 `favorites-manager.js` 已有 FTS5 虚拟表（`porter unicode61` 分词），当前仅索引 `title` 和 `url`。扩展方案：
-1. 收藏时通过 CDP 抓取页面 `document.body.innerText`
-2. 存入 `favorites_content` FTS5 表（关联 favorites.id）
-3. 搜索时 JOIN 查询返回匹配片段
-
-### Phase 24: 任务自主执行
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| **自动化填表** | 用户期望 AI 能自动填写网页表单（登录、注册、搜索等） | High | 需要：(1) CDP Runtime.evaluate 定位表单元素 (2) Input.dispatchKeyEvent 模拟输入 (3) 理解表单语义（email/password/submit） |
-| **自动化操作** | 用户期望 AI 能执行页面操作（点击按钮、选择选项、滚动等） | High | 需要：(1) CDP Input.dispatchMouseEvent 模拟点击 (2) Runtime.evaluate 执行 JS 操作 (3) 操作序列化和错误恢复 |
-
-**自动化填表技术路径：**
-```javascript
-// 步骤 1: 识别表单元素
-const formElements = await cdp.sendCommand('Runtime.evaluate', {
-  expression: `
-    Array.from(document.querySelectorAll('input, textarea, select')).map(el => ({
-      tag: el.tagName,
-      type: el.type,
-      name: el.name,
-      id: el.id,
-      placeholder: el.placeholder,
-      value: el.value,
-      label: el.labels?.[0]?.textContent?.trim()
-    }))
-  `
-});
-
-// 步骤 2: 聚焦并输入
-await cdp.sendCommand('Runtime.evaluate', {
-  expression: `document.querySelector('#email').focus()`
-});
-await cdp.sendCommand('Input.dispatchKeyEvent', {
-  type: 'keyDown', text: 'user@example.com'
-});
-
-// 步骤 3: 提交
-await cdp.sendCommand('Runtime.evaluate', {
-  expression: `document.querySelector('form').submit()`
-});
-```
-
-**关键风险：**
-- 网站反自动化检测（reCAPTCHA、Cloudflare）→ 需要人工确认机制
-- 动态渲染的 SPA 表单（React/Vue）→ 需要等待元素渲染完成
-- 跨 iframe 表单 → 需要 Frame 域支持
-
-### Phase 25: 脚本生成 + 智能标签整理
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| **一句话生成脚本** | 用户用自然语言描述操作，AI 生成可执行的自动化脚本 | High | 需要：(1) LLM 理解用户意图 (2) 生成 CDP 操作序列 (3) 脚本持久化和回放 |
-| **AI 自动标签分组** | 用户打开大量标签页后，AI 自动按主题/域名/用途分组 | Medium | 需要：(1) 分析标签页标题/URL/内容 (2) LLM 或聚类算法分组 (3) 应用 Tab Group API 或 UI 分组 |
-
-**脚本生成架构：**
-```
-用户: "帮我登录 GitHub 并查看 realm 仓库的 Issues"
-  → LLM 解析意图
-  → 生成脚本 AST:
-     1. navigate('https://github.com/login')
-     2. fill('#login_field', 'username')
-     3. fill('#password', '***')
-     4. click('input[type=submit]')
-     5. wait('.dashboard')
-     6. navigate('https://github.com/user/realm/issues')
-  → 序列化为可执行格式
-  → 用户确认后执行
-```
-
-**智能标签分组方案：**
-| 方案 | 优点 | 缺点 | 推荐场景 |
-|------|------|------|----------|
-| 域名聚合 | 简单、确定性高 | 无法识别跨域相关性 | 基础分组 |
-| LLM 分析标题 | 理解语义 | API 调用成本 | 中等规模标签 |
-| 嵌入向量聚类 | 精度高 | 实现复杂 | 大量标签页 |
-| 混合方案 | 平衡成本和精度 | 需要调优 | **推荐** |
-
----
-
-## Differentiators（竞争优势功能）
-
-这些功能让 Realm 在容器浏览器赛道中脱颖而出。
+差异化功能。不是预期中的，但有额外价值。
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| **容器感知的 AI 上下文** | AI 理解当前容器身份（工作/个人），自动调整回答风格 | Low | 在 system prompt 中注入容器名称、属性（手机号/邮箱/备注） |
-| **跨容器内容对比** | AI 对比不同容器中同一网站的内容差异 | Medium | 需要同时读取多个容器的页面内容 |
-| **自动化脚本市场** | 用户分享和导入自动化脚本 | Medium | 需要脚本格式标准化 + 导入导出 |
-| **操作录制回放** | 录制用户操作生成脚本，支持编辑和重放 | High | 类似 Playwright codegen，但集成在浏览器内 |
-| **智能表单记忆** | 记住用户在特定网站的填写内容，下次自动填充 | Medium | 按容器隔离存储表单数据 |
-| **AI 浏览摘要** | AI 自动生成当前页面的结构化摘要 | Low | 基于 read_page_content + LLM 摘要 |
-| **标签页智能休眠** | AI 判断不活跃标签页并自动休眠，释放内存 | Medium | 结合最后访问时间和内容分析 |
+| FLV/MPEG-TS 播放 | 支持国内直播平台常见格式（B站、斗鱼等） | Medium | mpegts.js 集成，flv.js 的活跃继任者 |
+| 播放倍速控制 | 学习/效率场景，用户可调节播放速度 | Low | video.playbackRate，支持 0.5x-3x |
+| 画中画模式 (PiP) | 悬浮小窗播放，不影响其他操作 | Low | Chromium 原生 PiP API，video.requestPictureInPicture() |
+| 全屏播放 | 沉浸式观看体验 | Low | video.requestFullscreen() |
+| 媒体嗅探通知 | 检测到新媒体时工具栏图标变化/徽标 | Low | 动态更新按钮状态，提示用户有新媒体 |
+| 媒体格式/质量标识 | 用户可快速识别媒体类型和质量 | Low | Badge 显示 HLS/MP4/FLV 等格式标签 |
+| URL 预览截断 | 长 URL 在面板中截断显示，hover 展开 | Low | CSS text-overflow + title 属性 |
+| 媒体嗅探历史 | 回顾之前检测到的媒体（跨页面） | Medium | SQLite 存储，按容器隔离 |
+| 快捷键播放/暂停 | 键盘控制播放（空格键等） | Low | keydown 事件监听 |
 
----
+## Anti-Features
 
-## Anti-Features（应该避免的功能）
+明确不构建的功能。
 
 | Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| **无确认的自动化操作** | 安全风险：AI 可能执行恶意操作（删除、转账等） | 所有写操作（填表、点击、提交）必须用户确认 |
-| **页面内容持久化存储** | 隐私风险：用户浏览的页面正文可能包含敏感信息 | 仅在内存中缓存，会话结束即清除 |
-| **外部脚本执行** | 安全风险：用户导入的脚本可能包含恶意代码 | 沙箱化执行 + 权限声明 + 用户确认 |
-| **跨容器数据泄露** | 违反容器隔离核心价值 | AI 上下文严格按容器隔离，不混合 |
-| **自动化绕过网站安全机制** | 法律风险 + 伦理问题 | 遇到 CAPTCHA/2FA 时提示用户手动操作 |
-| **LLM 调用阻塞 UI** | 用户体验差 | 所有 LLM 调用异步 + 加载状态 + 取消机制 |
-| **全局脚本共享** | 隐私风险：脚本可能包含用户凭证 | 脚本按容器隔离存储，凭证使用占位符 |
+| 内置下载管理器 | Phase 28 范围，Phase 26/27 不做 | 先做播放，下载功能推迟到 Phase 28 |
+| 视频转码 | 复杂度高，需要 ffmpeg 原生二进制，打包复杂 | 让 Chromium 原生解码处理 |
+| DRM 支持 | Electron 32.x 支持 Widevine，但配置复杂 | 超出本期范围，标记为已知限制 |
+| 视频编辑/剪辑 | 与浏览器核心功能无关，功能膨胀 | 不做 |
+| 弹幕系统 | 仅直播平台需求，不是通用浏览器功能 | 不做 |
+| 视频格式转换 | 需要 ffmpeg，打包复杂度高 | 不做 |
+| 视频截图功能 | 功能膨胀，用户可用系统截图替代 | 不做 |
+| 字幕支持 | 复杂度高（外挂字幕、字幕轨选择），非核心需求 | 不做 |
+| 播放列表支持 | 功能膨胀，单视频播放足够 | 不做 |
+| 视频投屏/Chromecast | 需要额外协议支持，复杂度高 | 不做 |
 
----
+## Video Detection Techniques (参考实现分析)
+
+### 浏览器扩展的典型嗅探技术
+
+浏览器扩展（如 Video DownloadHelper、StreamMedia）使用以下技术检测视频：
+
+| 技术 | 实现方式 | Realm 复用方案 |
+|------|----------|----------------|
+| **webRequest API 拦截** | 监控网络请求，筛选视频 MIME 类型 | session.webRequest.onBeforeRequest（原生 API） |
+| **DOM MutationObserver** | 监听 DOM 变化，检测动态插入的 video/source | executeJavaScript 注入 MutationObserver |
+| **HLS/DASH Manifest 解析** | 检测 .m3u8/.mpd 文件并解析分片 URL | session.webRequest 拦截 manifest URL |
+| **Content-Type 分析** | 检查响应头中的视频 MIME 类型 | session.webRequest.onHeadersReceived |
+| **URL 模式匹配** | 维护已知视频站点的 URL 模式库 | 可选：本地模式库 + 正则匹配 |
+| **XHR/Fetch Hook** | 注入脚本 hook XMLHttpRequest/fetch | executeJavaScript 注入 hook 代码 |
+
+### yt-dlp 的检测策略
+
+yt-dlp 使用**站点特定提取器**（1000+ 站点）+ **通用提取器**（fallback）：
+- 通用提取器：解析页面中的 JSON-LD、OpenGraph 标签、video 标签
+- 站点提取器：针对 YouTube、Bilibili 等平台的专用解析逻辑
+- m3u8 解析：自动解析 HLS manifest 获取所有分片
+
+**Realm 不需要实现站点提取器**，因为：
+1. session.webRequest 可以拦截所有网络请求，无需解析页面结构
+2. executeJavaScript 可以直接读取 DOM 中的 video 元素
+3. 用户手动选择播放，无需自动判断"最佳"质量
+
+### 视频格式支持范围
+
+| 格式 | MIME 类型 | 检测方式 | 播放方案 | 优先级 |
+|------|-----------|----------|----------|--------|
+| m3u8 (HLS) | application/vnd.apple.mpegurl | webRequest 拦截 .m3u8 URL | hls.js | P0 |
+| mp4 | video/mp4 | webRequest 拦截 .mp4 URL | 原生播放 | P0 |
+| webm | video/webm | webRequest 拦截 .webm URL | 原生播放 | P0 |
+| flv | video/x-flv | webRequest 拦截 .flv URL | mpegts.js | P1 |
+| mpeg-ts | video/mp2t | webRequest 拦截 .ts URL | mpegts.js | P1 |
+| mpd (DASH) | application/dash+xml | webRequest 拦截 .mpd URL | 本期不做 | P2 |
+
+## User Workflow
+
+典型用户使用视频检测功能的工作流：
+
+```
+1. 浏览网页（正常浏览行为）
+   ↓
+2. 页面加载视频资源（自动触发嗅探）
+   ↓
+3. 工具栏媒体图标显示检测状态（如：数字徽标 "3"）
+   ↓
+4. 用户点击媒体图标，打开媒体面板
+   ↓
+5. 面板显示检测到的媒体列表（URL、格式、时间戳）
+   ↓
+6. 用户选择：
+   ├── 点击"播放" → 打开独立播放器窗口
+   ├── 点击"复制链接" → 复制到剪贴板
+   └── 关闭面板 → 继续浏览
+   ↓
+7. 播放器窗口中：
+   ├── 播放/暂停/进度/音量控制
+   ├── 倍速调节（可选）
+   └── 全屏/画中画（可选）
+```
 
 ## Feature Dependencies
 
 ```
-Phase 22: CDP 管理器扩展
-  ├── read_page_content（需要 Runtime.evaluate）
-  ├── extract_links（需要 Runtime.evaluate）
-  └── open_link（需要 tabManager）
-
-Phase 23: 智能上下文 + 全文检索
-  ├── @ 引用标签页 → 依赖 read_page_content（Phase 22）
-  └── 全文检索收藏 → 依赖 read_page_content（Phase 22）+ FTS5 扩展
-
-Phase 24: 任务自主执行
-  ├── 自动化填表 → 依赖 Runtime.evaluate + Input 域（Phase 22 CDP 扩展）
-  └── 自动化操作 → 依赖 Runtime.evaluate + Input 域 + DOM 域
-
-Phase 25: 脚本生成 + 智能标签
-  ├── 脚本生成 → 依赖 Phase 24 的自动化能力
-  └── 智能标签分组 → 依赖 get_tabs + LLM 分析（Phase 20 AI Manager）
+MEDIA-01 (网络嗅探) ──→ MEDIA-03 (媒体面板) ──→ MEDIA-05 (播放器窗口)
+MEDIA-02 (DOM 检测) ──→ MEDIA-03 (媒体面板)       ↓
+                                              MEDIA-06 (hls.js)
+                                              MEDIA-07 (播放控制)
 ```
-
-### 关键路径
-
-```
-CDP 管理器扩展（Phase 22 基础）
-  ├── read_page_content（Phase 22 核心工具）
-  │   ├── @ 引用标签页（Phase 23）
-  │   ├── 全文检索收藏（Phase 23）
-  │   └── 自动化填表（Phase 24）
-  └── extract_links + open_link（Phase 22 工具）
-
-任务自主执行（Phase 24 基础）
-  └── 脚本生成（Phase 25 依赖 Phase 24）
-
-智能标签分组（独立，仅依赖 AI Manager）
-```
-
----
 
 ## MVP Recommendation
 
-### Phase 22 MVP（CDP + 网页读取）
+优先：
+1. MEDIA-01: session.webRequest 嗅探 m3u8/mp4（Phase 26 核心）
+2. MEDIA-02: executeJavaScript 视频检测（Phase 26 补充）
+3. MEDIA-03: 媒体面板 UI（Phase 26 交互）
+4. MEDIA-05: 独立播放器窗口（Phase 27 核心）
+5. MEDIA-06: hls.js 集成（Phase 27 HLS 支持）
+6. MEDIA-07: 基础播放控制（播放/暂停/进度/音量）
 
-优先构建：
-1. **CDP 管理器扩展** — 复用现有 attach/detach，新增 Runtime.evaluate 支持
-2. **read_page_content** — 最核心工具，后续所有功能的基础
-3. **extract_links** — 低成本高价值
-4. **open_link** — 复用现有 tabManager
+可推迟：
+- MEDIA-08/09/10: 下载功能（Phase 28 可选）
+- FLV/MPEG-TS 支持（v2.2 后期或 v2.3）
+- 画中画模式（v2.3 增强）
+- 媒体嗅探历史（v2.3 增强）
+- 倍速控制（v2.3 增强）
 
-### Phase 23 MVP（上下文 + 搜索）
+## Known Limitations
 
-优先构建：
-1. **@ 引用标签页** — 交互创新，差异化亮点
-2. **全文检索收藏** — 扩展 FTS5 索引字段
-
-### Phase 24 MVP（自动化）
-
-优先构建：
-1. **自动化填表** — 实用价值最高
-2. **自动化操作** — 需要设计确认机制
-
-### Phase 25 MVP（脚本 + 标签）
-
-优先构建：
-1. **AI 自动标签分组** — 实现相对简单，用户感知强
-2. **一句话生成脚本** — 依赖 Phase 24 稳定后实现
-
----
-
-## Confidence Assessment
-
-| Area | Confidence | Reason |
-|------|------------|--------|
-| CDP 页面读取 | HIGH | CDP 协议文档完善，Electron debugger API 成熟 |
-| 自动化填表 | MEDIUM | CDP Input 域可用，但网站反自动化检测是未知变量 |
-| 全文检索收藏 | HIGH | FTS5 已在项目中使用，扩展路径明确 |
-| @ 引用标签页 | MEDIUM | 交互设计需迭代，技术实现路径清晰 |
-| 脚本生成 | LOW | 高度依赖 LLM 能力和脚本格式设计，需要原型验证 |
-| 智能标签分组 | MEDIUM | 算法成熟，但分组质量需要实际数据验证 |
-
----
+| 限制 | 原因 | 影响 |
+|------|------|------|
+| DRM 保护视频不支持 | Electron Widevine 配置复杂 | Netflix、Disney+ 等受保护内容无法播放 |
+| 部分网站 CSP 阻止脚本注入 | Content Security Policy 限制 | 某些网站的 executeJavaScript 可能失败 |
+| WebSocket 直播流嗅探 | session.webRequest 不拦截 WS 升级 | 部分直播平台的 WSS 流可能漏检 |
+| 视频质量/分片信息缺失 | 仅嗅探 URL，不解析 manifest | 面板不显示分辨率/码率信息 |
 
 ## Sources
 
-- [Chrome DevTools Protocol Documentation](https://chromedevtools.github.io/devtools-protocol/) — CDP 域和方法参考
-- [Electron webContents.debugger API](https://www.electronjs.org/docs/latest/api/web-contents#class-debugger) — Electron 调试器 API
-- [SQLite FTS5 Extension](https://www.sqlite.org/fts5.html) — FTS5 全文搜索文档
-- [better-sqlite3 GitHub](https://github.com/WiseLibs/better-sqlite3) — Node.js SQLite 绑定
-- 项目现有代码：`cdp-manager.js`、`ai-manager.js`、`favorites-manager.js`
+- [hls.js GitHub](https://github.com/video-dev/hls.js) — HLS 播放库，v1.6.x 活跃维护
+- [mpegts.js GitHub](https://github.com/xqq/mpegts.js) — FLV/MPEG-TS 播放库，flv.js 继任者
+- [flv.js GitHub](https://github.com/bilibili/flv.js) — 已停止维护，被 mpegts.js 替代
+- [Electron webRequest API](https://www.electronjs.org/docs/latest/api/web-request) — 网络请求拦截
+- [Video DownloadHelper](https://www.downloadhelper.net/) — 浏览器扩展嗅探技术参考
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — 视频提取工具，站点提取器架构参考
 
 ---
-*Feature research for: Realm Browser v2.1 AI CDP Enhancement + Tabbrowser Integration*
-*Researched: 2026-08-02*
+*Feature research for: 多媒体功能集成 (v2.2)*
+*Researched: 2026-08-06*
+*Confidence: HIGH — 功能边界清晰，技术方案成熟，与现有架构无冲突*
