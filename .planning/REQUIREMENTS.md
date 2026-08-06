@@ -10,11 +10,11 @@
 
 ### 视频源检测 (SNIFF)
 
-- [ ] **SNIFF-01**: 媒体嗅探器通过 session.webRequest 拦截容器网络请求，自动检测 m3u8/mp4/flv/webm 格式的视频资源 URL
-- [ ] **SNIFF-02**: 媒体嗅探器通过 webContents.executeJavaScript 注入页面脚本，检测 `<video>` 和 `<source>` 元素的 src/currentSrc 属性
-- [ ] **SNIFF-03**: 媒体嗅探器使用 MutationObserver 监听 DOM 变化，检测动态加载的视频元素
-- [ ] **SNIFF-04**: 媒体嗅探器对检测到的 URL 进行去重和分类管理（按容器隔离，内存存储）
-- [ ] **SNIFF-05**: 页面导航时自动清空当前容器的媒体列表
+- [x] **SNIFF-01**: 媒体嗅探器通过 session.webRequest 拦截容器网络请求，自动检测 m3u8/mp4/flv/webm 格式的视频资源 URL
+- [x] **SNIFF-02**: 媒体嗅探器通过 webContents.executeJavaScript 注入页面脚本，检测 `<video>` 和 `<source>` 元素的 src/currentSrc 属性
+- [x] **SNIFF-03**: 媒体嗅探器使用 MutationObserver 监听 DOM 变化，检测动态加载的视频元素
+- [x] **SNIFF-04**: 媒体嗅探器对检测到的 URL 进行去重和分类管理（按容器隔离，内存存储）
+- [x] **SNIFF-05**: 页面导航时自动清空当前容器的媒体列表
 
 ### 媒体面板 (PANEL)
 
@@ -39,11 +39,11 @@
 
 ### IPC 通道 (IPC)
 
-- [ ] **IPC-01**: 注册 media:get-list IPC 通道，返回当前容器的媒体列表
-- [ ] **IPC-02**: 注册 media:play IPC 通道，创建播放器窗口播放指定 URL
-- [ ] **IPC-03**: 注册 media:copy-url IPC 通道，将 URL 写入系统剪贴板
-- [ ] **IPC-04**: 注册 media:clear-list IPC 通道，清空当前容器媒体列表
-- [ ] **IPC-05**: preload.js 暴露 mediaAPI 对象（getMediaList/play/copyUrl/clearList/onMediaListUpdate）
+- [x] **IPC-01**: 注册 media:get-list IPC 通道，返回当前容器的媒体列表
+- [x] **IPC-02**: 注册 media:play IPC 通道，创建播放器窗口播放指定 URL
+- [x] **IPC-03**: 注册 media:copy-url IPC 通道，将 URL 写入系统剪贴板
+- [x] **IPC-04**: 注册 media:clear-list IPC 通道，清空当前容器媒体列表
+- [x] **IPC-05**: preload.js 暴露 mediaAPI 对象（getMediaList/play/copyUrl/clearList/onMediaListUpdate）
 
 ---
 
