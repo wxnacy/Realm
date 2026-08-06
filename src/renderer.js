@@ -134,8 +134,8 @@ const state = {
   containers: [],
   currentContainer: 'default',
   selectedColor: '#3B82F6',
-  selectedIcon: '🌐',
-  selectedIconType: 'emoji',
+  selectedIcon: 'fingerprint',
+  selectedIconType: 'symbol',
   editingContainerId: null,
   deletingContainerId: null,
   sidebarVisible: true,
@@ -2114,8 +2114,8 @@ function showCreateContainerModal() {
   state.editingContainerId = null;
   elements.containerNameInput.value = '';
   state.selectedColor = '#3B82F6';
-  state.selectedIcon = '🌐';
-  state.selectedIconType = 'emoji';
+  state.selectedIcon = 'fingerprint';
+  state.selectedIconType = 'symbol';
   elements.containerModalTitle.textContent = '新建容器';
   elements.saveContainerBtn.textContent = '创建容器';
   elements.nameError.classList.remove('visible');
@@ -2134,9 +2134,9 @@ function showCreateContainerModal() {
   updateSymbolSelection();
   // 重置标签页状态
   document.querySelectorAll('.icon-tab').forEach(tab => tab.classList.remove('active'));
-  document.querySelector('.icon-tab[data-tab="emoji"]').classList.add('active');
-  document.getElementById('emojiPanel').style.display = '';
-  document.getElementById('symbolPanel').style.display = 'none';
+  document.querySelector('.icon-tab[data-tab="symbol"]').classList.add('active');
+  document.getElementById('symbolPanel').style.display = '';
+  document.getElementById('emojiPanel').style.display = 'none';
   elements.containerModal.showModal();
 }
 

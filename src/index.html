@@ -304,10 +304,74 @@
         <div class="form-group">
           <label>容器图标</label>
           <div class="icon-type-tabs">
-            <button type="button" class="icon-tab active" data-tab="emoji">Emoji</button>
-            <button type="button" class="icon-tab" data-tab="symbol">符号</button>
+            <button type="button" class="icon-tab active" data-tab="symbol">符号</button>
+            <button type="button" class="icon-tab" data-tab="emoji">Emoji</button>
           </div>
-          <div class="icon-panel" id="emojiPanel">
+          <div class="icon-panel" id="symbolPanel">
+            <div class="symbol-picker" id="symbolPicker">
+              <button type="button" class="symbol-option" data-icon="fingerprint" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-fingerprint"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="briefcase" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-briefcase"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="user" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-user"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="bank" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-bank"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="game" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-game"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="book" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-book"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="cart" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-cart"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="dollar" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-dollar"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="home" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-home"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="mail" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-mail"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="science" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-science"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="music" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-music"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="phone" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-phone"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="plane" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-plane"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="palette" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-palette"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="wrench" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-wrench"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="chart" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-chart"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="building" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-building"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="target" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-target"/></svg>
+              </button>
+              <button type="button" class="symbol-option" data-icon="shield" data-icon-type="symbol">
+                <svg width="24" height="24"><use href="#realm-icon-shield"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="icon-panel" id="emojiPanel" style="display:none">
             <div class="emoji-picker" id="emojiPicker">
               <button type="button" class="emoji-option" data-icon="🌐" data-icon-type="emoji">🌐</button>
               <button type="button" class="emoji-option" data-icon="💼" data-icon-type="emoji">💼</button>
@@ -331,7 +395,6 @@
               <button type="button" class="emoji-option" data-icon="🌍" data-icon-type="emoji">🌍</button>
             </div>
           </div>
-          <div class="icon-panel" id="symbolPanel" style="display:none">
             <div class="symbol-picker" id="symbolPicker">
               <button type="button" class="symbol-option" data-icon="fingerprint" data-icon-type="symbol">
                 <svg width="24" height="24"><use href="#realm-icon-fingerprint"/></svg>
