@@ -1029,7 +1029,12 @@ function renderContainerShortcuts() {
     const icon = document.createElement('div');
     icon.className = 'shortcut-icon';
     icon.textContent = '';
-    icon.appendChild(renderContainerIcon(container, 32));
+    const iconEl = renderContainerIcon(container, 32);
+    // 符号图标使用容器颜色
+    if (isSymbolIcon(container) && iconEl instanceof SVGElement) {
+      iconEl.style.color = container.color;
+    }
+    icon.appendChild(iconEl);
 
     const name = document.createElement('div');
     name.className = 'shortcut-name';
@@ -1787,17 +1792,18 @@ function renderContainerList() {
     dragHandle.className = 'container-drag-handle' + (isDefault ? ' disabled' : '');
     dragHandle.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><circle cx="5" cy="3" r="1.5"/><circle cx="11" cy="3" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="5" cy="13" r="1.5"/><circle cx="11" cy="13" r="1.5"/></svg>';
 
-    const dot = document.createElement('div');
-    dot.className = 'container-dot';
-    dot.style.backgroundColor = container.color;
-
     const info = document.createElement('div');
     info.className = 'container-info';
 
     const name = document.createElement('div');
     name.className = 'container-name';
     name.textContent = '';
-    name.appendChild(renderContainerIcon(container, 16));
+    const icon = renderContainerIcon(container, 16);
+    // 符号图标使用容器颜色
+    if (isSymbolIcon(container) && icon instanceof SVGElement) {
+      icon.style.color = container.color;
+    }
+    name.appendChild(icon);
     name.appendChild(document.createTextNode(` ${container.name}`));
 
     const status = document.createElement('div');
@@ -1827,7 +1833,6 @@ function renderContainerList() {
     actions.appendChild(deleteBtn);
 
     item.appendChild(dragHandle);
-    item.appendChild(dot);
     item.appendChild(info);
     item.appendChild(actions);
 
