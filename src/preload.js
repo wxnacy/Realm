@@ -997,18 +997,33 @@ contextBridge.exposeInMainWorld('mediaAPI', {
   getMediaList: () => ipcRenderer.invoke('media:get-list'),
 
   /**
-   * 向主进程上报脚本注入检测到的视频
-   * @param {string} containerId - 容器 ID
-   * @param {Array<Object>} videos - 检测到的视频数组
+   * 创建播放器窗口并播放指定视频
+   * @param {string} url - 视频 URL
    * @returns {Promise<{success: boolean}>}
    */
-  reportMediaDetected: (containerId, videos) => ipcRenderer.invoke('media:report-detected', containerId, videos),
+  playMedia: (url) => ipcRenderer.invoke('media:play', url),
+
+  /**
+   * 复制视频 URL 到系统剪贴板
+   * @param {string} url - 视频 URL
+   * @returns {Promise<{success: boolean}>}
+   */
+  copyMediaUrl: (url) => ipcRenderer.invoke('media:copy-url', url),
 
   /**
    * 清空当前容器的媒体列表
    * @returns {Promise<{success: boolean}>}
    */
   clearMediaList: () => ipcRenderer.invoke('media:clear-list'),
+
+  /**
+   * 向主进程上报脚本注入检测到的视频
+   * 脚本注入检测结果从渲染进程回传到主进程 MediaSniffer 的唯一桥梁
+   * @param {string} containerId - 容器 ID
+   * @param {Array<Object>} videos - 检测到的视频数组
+   * @returns {Promise<{success: boolean}>}
+   */
+  reportMediaDetected: (containerId, videos) => ipcRenderer.invoke('media:report-detected', containerId, videos),
 
   /**
    * 监听媒体列表更新事件
