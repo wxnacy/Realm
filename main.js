@@ -58,6 +58,7 @@ const faviconFetcher = require('./favicon-fetcher');
 const frequentSitesManager = require('./frequent-sites-manager');
 const cdpManager = require('./cdp-manager');
 const uaChManager = require('./ua-ch-manager');
+const mediaSniffer = require('./media-sniffer');
 const devRequestsWriter = require('./dev-requests-writer');
 const AIManager = require('./ai-manager');
 const { executeScript, validateScriptForSteps } = require('./ai-manager');
@@ -412,6 +413,16 @@ app.on('session-created', (ses) => {
       );
     }
   });
+
+  // 媒体嗅探：拦截视频类型响应（per SNIFF-01）
+  // 使用 onResponseStarted（当前未被 onBeforeSendHeaders/onSendHeaders 占用）
+  // 只读事件，不干扰请求流程
+  ses.webRequest.onResponseStarted(
+    { urls: ['*://*/*'] },
+    (details) => {
+      mediaSniffer.handleNetworkResponse(details);
+    }
+  );
 });
 
 // ==================== 应用启动 ====================
@@ -1491,6 +1502,42 @@ app.whenReady().then(async () => {
 
   // 注册 IPC 处理器
   registerHandlers();
+
+  // ==================== 媒体检测 IPC 通道 ====================
+
+  /**
+   * 获取当前容器的媒体列表
+   * @returns {Promise<Array>} 媒体列表
+   */
+  ipcMain.handle('media:get-list', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return [];
+    const containerId = windowManager.getCurrentContainer(win.id);
+    return mediaSniffer.getMediaList(containerId);
+  });
+
+  /**
+   * 渲染进程上报脚本注入检测到的视频
+   * @param {string} containerId - 容器 ID
+   * @param {Array<Object>} videos - 检测到的视频数组
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('media:report-detected', (event, containerId, videos) => {
+    mediaSniffer.handleScriptDetected(containerId, videos);
+    return { success: true };
+  });
+
+  /**
+   * 清空当前容器的媒体列表
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('media:clear-list', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { success: false };
+    const containerId = windowManager.getCurrentContainer(win.id);
+    mediaSniffer.clearMediaList(containerId);
+    return { success: true };
+  });
 
   // ==================== 右键菜单 IPC 监听器 ====================
 

@@ -648,6 +648,9 @@ async function closeTab(tabId) {
   // 销毁关联的 webview
   destroyWebview(tabId);
 
+  // 关闭 Tab 时清空当前容器的媒体列表（per D-16）
+  window.mediaAPI.clearMediaList();
+
   // 如果关闭的是活动 Tab，切换到新的活动 Tab
   if (tabId === state.activeTabId) {
     if (result.newActiveTabId) {
@@ -755,6 +758,9 @@ function createWebviewForTab(tabId, containerId, url) {
   // 应用安全配置（D-03）：仅设置字符串型属性 webpreferences（CR-1）
   webview.setAttribute('webpreferences', WEBVIEW_WEBPREFERENCES);
 
+  // 设置 webview guest preload 脚本（媒体检测桥接）
+  webview.setAttribute('preload', `file://${__dirname}/webview-preload.js`);
+
   // 允许 webview 打开新窗口（target="_blank" 链接）
   webview.setAttribute('allowpopups', '');
 
@@ -801,6 +807,112 @@ function bindWebviewEvents(tabId, webview) {
   };
   webview.addEventListener('did-attach', registerGuest);
   webview.addEventListener('dom-ready', registerGuest);
+
+  // ==================== 媒体嗅探：dom-ready 注入检测脚本 ====================
+  webview.addEventListener('dom-ready', () => {
+    // 注入视频检测脚本（per D-03/D-04/SNIFF-02/SNIFF-03）
+    const mediaSnifferScript = `
+(function() {
+  // 防止重复注入（per Pitfall 3：dom-ready 可能多次触发）
+  if (window.__realmMediaSniffer) return;
+  window.__realmMediaSniffer = true;
+
+  /**
+   * 从 URL 推断视频类型
+   * @param {string} url - 媒体 URL
+   * @returns {string} 视频类型
+   */
+  function classifyUrl(url) {
+    if (!url) return 'unknown';
+    var lower = url.toLowerCase().split('?')[0].split('#')[0];
+    if (lower.endsWith('.m3u8')) return 'm3u8';
+    if (lower.endsWith('.mp4')) return 'mp4';
+    if (lower.endsWith('.flv')) return 'flv';
+    if (lower.endsWith('.webm')) return 'webm';
+    return 'unknown';
+  }
+
+  /**
+   * 扫描现有视频元素（per SNIFF-02）
+   * @returns {Array<Object>} 检测到的视频数组
+   */
+  function scanExistingVideos() {
+    var results = [];
+    document.querySelectorAll('video, source').forEach(function(el) {
+      var url = el.src || el.currentSrc;
+      if (url && !url.startsWith('blob:') && !url.startsWith('data:')) {
+        results.push({ url: url, type: classifyUrl(url), source: 'script' });
+      }
+    });
+    return results;
+  }
+
+  // 初始扫描
+  var initialVideos = scanExistingVideos();
+  if (initialVideos.length > 0 && window.__realmBridge) {
+    window.__realmBridge.sendMediaDetected(initialVideos);
+  }
+
+  // MutationObserver 监听动态加载的视频元素（per D-04/SNIFF-03）
+  var observer = new MutationObserver(function(mutations) {
+    var newVideos = [];
+    mutations.forEach(function(mutation) {
+      // 新增节点
+      mutation.addedNodes.forEach(function(node) {
+        if (node.nodeType === 1) {
+          if (node.tagName === 'VIDEO' || node.tagName === 'SOURCE') {
+            var url = node.src || node.currentSrc;
+            if (url && !url.startsWith('blob:') && !url.startsWith('data:')) {
+              newVideos.push({ url: url, type: classifyUrl(url), source: 'dom' });
+            }
+          }
+          // 检查子元素中的视频
+          if (node.querySelectorAll) {
+            node.querySelectorAll('video, source').forEach(function(el) {
+              var url = el.src || el.currentSrc;
+              if (url && !url.startsWith('blob:') && !url.startsWith('data:')) {
+                newVideos.push({ url: url, type: classifyUrl(url), source: 'dom' });
+              }
+            });
+          }
+        }
+      });
+      // 属性变化（src/currentSrc 改变）
+      if (mutation.type === 'attributes' &&
+          (mutation.target.tagName === 'VIDEO' || mutation.target.tagName === 'SOURCE')) {
+        var url = mutation.target.src || mutation.target.currentSrc;
+        if (url && !url.startsWith('blob:') && !url.startsWith('data:')) {
+          newVideos.push({ url: url, type: classifyUrl(url), source: 'dom' });
+        }
+      }
+    });
+    if (newVideos.length > 0 && window.__realmBridge) {
+      window.__realmBridge.sendMediaDetected(newVideos);
+    }
+  });
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['src', 'currentSrc']
+  });
+})()`;
+    webview.executeJavaScript(mediaSnifferScript).catch(() => {});
+  });
+
+  // ==================== 媒体嗅探：ipc-message 监听 ====================
+  webview.addEventListener('ipc-message', (e) => {
+    if (e.channel === 'media:detected') {
+      // 从 webview partition 推导容器 ID
+      const partition = webview.partition || '';
+      const prefix = 'persist:container-';
+      const containerId = partition.startsWith(prefix)
+        ? partition.slice(prefix.length)
+        : state.currentContainer;
+      // 转发到主进程 MediaSniffer
+      window.mediaAPI.reportMediaDetected(containerId, e.args[0]);
+    }
+  });
 
   // 页面导航事件
   webview.addEventListener('did-navigate', (e) => {
@@ -849,6 +961,10 @@ function bindWebviewEvents(tabId, webview) {
           visitedAt: Date.now(),
         }).catch(err => console.error('[Realm] 历史记录写入失败:', err));
       }
+
+      // 导航时清空当前容器的媒体列表（per D-13/D-14：跨页面导航清空，锚点跳转不清空）
+      // did-navigate 仅在跨页面导航时触发，did-navigate-in-page 处理锚点跳转
+      window.mediaAPI.clearMediaList();
     }
   });
 
