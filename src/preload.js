@@ -983,4 +983,43 @@ contextBridge.exposeInMainWorld('realmAPI', {
   },
 });
 
+// ==================== 媒体检测 API ====================
+
+/**
+ * 媒体检测相关 API（独立命名空间，per IPC-05）
+ * 渲染进程通过 window.mediaAPI 访问
+ */
+contextBridge.exposeInMainWorld('mediaAPI', {
+  /**
+   * 获取当前容器的媒体列表
+   * @returns {Promise<Array<{url: string, type: string, source: string, timestamp: number}>>}
+   */
+  getMediaList: () => ipcRenderer.invoke('media:get-list'),
+
+  /**
+   * 向主进程上报脚本注入检测到的视频
+   * @param {string} containerId - 容器 ID
+   * @param {Array<Object>} videos - 检测到的视频数组
+   * @returns {Promise<{success: boolean}>}
+   */
+  reportMediaDetected: (containerId, videos) => ipcRenderer.invoke('media:report-detected', containerId, videos),
+
+  /**
+   * 清空当前容器的媒体列表
+   * @returns {Promise<{success: boolean}>}
+   */
+  clearMediaList: () => ipcRenderer.invoke('media:clear-list'),
+
+  /**
+   * 监听媒体列表更新事件
+   * @param {Function} callback - 回调函数，参数为 { containerId, items }
+   * @returns {Function} 取消监听的清理函数
+   */
+  onMediaListUpdate: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('media:list-updated', handler);
+    return () => ipcRenderer.removeListener('media:list-updated', handler);
+  },
+});
+
 console.log('[Realm] Preload 脚本已加载');
