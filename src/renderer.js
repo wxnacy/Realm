@@ -2788,9 +2788,11 @@ async function updateQuickSaveBtnState() {
   if (!btn) return;
 
   const activeTab = state.tabs.get(state.activeTabId);
-  const domain = getUrlHostname(activeTab && activeTab.url);
+  const url = activeTab && activeTab.url;
+  const domain = getUrlHostname(url);
 
-  if (!domain) {
+  // realm:// 内部页面、空 tab、无域名页面都禁用
+  if (!domain || (url && url.startsWith('realm://'))) {
     btn.disabled = true;
     btn.classList.remove('in-sync', 'out-of-sync');
     btn.title = '当前页面无域名，无法快速保存 Cookie';
@@ -2824,8 +2826,9 @@ async function updateQuickSaveBtnState() {
 async function handleQuickSaveCookies() {
   const btn = elements.quickSaveCookiesBtn;
   const activeTab = state.tabs.get(state.activeTabId);
-  const domain = getUrlHostname(activeTab && activeTab.url);
-  if (!domain) return;
+  const url = activeTab && activeTab.url;
+  const domain = getUrlHostname(url);
+  if (!domain || (url && url.startsWith('realm://'))) return;
 
   btn.classList.add('loading');
   try {
