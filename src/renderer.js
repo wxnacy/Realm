@@ -759,7 +759,9 @@ function createWebviewForTab(tabId, containerId, url) {
   webview.setAttribute('webpreferences', WEBVIEW_WEBPREFERENCES);
 
   // 设置 webview guest preload 脚本（媒体检测桥接）
-  webview.setAttribute('preload', `file://${__dirname}/webview-preload.js`);
+  // 渲染进程与 sandbox preload 均无 __dirname；index.html 与 webview-preload.js
+  // 同目录（src/），直接用 location 推导 file:// URL（asar 内外均适用）
+  webview.setAttribute('preload', new URL('webview-preload.js', window.location.href).href);
 
   // 允许 webview 打开新窗口（target="_blank" 链接）
   webview.setAttribute('allowpopups', '');
