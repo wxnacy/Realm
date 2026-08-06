@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; media-src * blob: data:; connect-src * blob: data:;">
+  <title>Realm Player</title>
+  <link rel="stylesheet" href="styles/main.css">
+  <style>
+    /**
+     * Realm Player 占位页面样式
+     * Phase 28 将替换为完整的播放器 UI
+     */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    #player-container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    #player {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
+
+    #loading-hint {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 14px;
+      color: #888;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+
+    #loading-hint.hidden {
+      opacity: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="player-container">
+    <video id="player" controls autoplay></video>
+    <div id="loading-hint">等待视频加载...</div>
+  </div>
+
+  <script>
+    /**
+     * Realm Player 占位页面脚本
+     * 监听主进程 media:play-url 事件，收到 URL 后设置 video.src 并播放
+     * Phase 28 将替换为完整的播放器功能（hls.js / mpegts.js 集成）
+     */
+    const video = document.getElementById('player');
+    const loadingHint = document.getElementById('loading-hint');
+
+    // 监听主进程传入的视频 URL
+    if (window.realmAPI && window.realmAPI.onIpcMessage) {
+      window.realmAPI.onIpcMessage('media:play-url', (url) => {
+        loadingHint.classList.add('hidden');
+        video.src = url;
+        video.play().catch((err) => {
+          console.error('[Realm Player] 播放失败:', err);
+        });
+      });
+    }
+
+    // 视频加载完成后隐藏提示
+    video.addEventListener('loadeddata', () => {
+      loadingHint.classList.add('hidden');
+    });
+
+    // 视频出错时显示错误提示
+    video.addEventListener('error', () => {
+      loadingHint.textContent = '视频加载失败';
+      loadingHint.classList.remove('hidden');
+    });
+  </script>
+</body>
+</html>

@@ -5,7 +5,8 @@
  * 每个处理器对入参做类型校验
  */
 
-const { ipcMain, dialog, BrowserWindow } = require('electron');
+const { ipcMain, dialog, BrowserWindow, clipboard } = require('electron');
+const path = require('path');
 const Store = require('electron-store');
 const containerManager = require('./container-manager');
 const windowManager = require('./window-manager');
@@ -16,6 +17,7 @@ const shortcutManager = require('./shortcut-manager');
 const historyManager = require('./history-manager');
 const favoritesManager = require('./favorites-manager');
 const faviconFetcher = require('./favicon-fetcher');
+const mediaSniffer = require('./media-sniffer');
 
 // AI Manager 实例（由 main.js 通过 setAIManager 注入）
 let aiManager = null;
@@ -1274,6 +1276,90 @@ function registerHandlers() {
       return { initialized: false, model: null, toolsCount: 0 };
     }
     return aiManager.getState();
+  });
+
+  // ==================== 媒体检测 ====================
+
+  /**
+   * 获取当前容器的媒体列表（per IPC-01）
+   * @returns {Promise<Array<{url: string, type: string, source: string, timestamp: number}>>}
+   */
+  ipcMain.handle('media:get-list', (event) => {
+    assertTrustedSender(event);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return [];
+    const containerId = windowManager.getCurrentContainer(win.id);
+    return mediaSniffer.getMediaList(containerId);
+  });
+
+  /**
+   * 创建播放器窗口并播放指定 URL（per IPC-02）
+   * @param {string} url - 视频 URL
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('media:play', async (event, url) => {
+    assertTrustedSender(event);
+    if (!url || typeof url !== 'string') {
+      throw new Error('无效的视频 URL');
+    }
+    const playerWin = new BrowserWindow({
+      width: 800,
+      height: 600,
+      title: 'Realm Player',
+      webPreferences: {
+        preload: path.join(__dirname, 'src/preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+    playerWin.loadFile(path.join(__dirname, 'src/player.html'));
+    playerWin.webContents.on('did-finish-load', () => {
+      playerWin.webContents.send('media:play-url', url);
+    });
+    return { success: true };
+  });
+
+  /**
+   * 复制视频 URL 到系统剪贴板（per IPC-03）
+   * @param {string} url - 视频 URL
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('media:copy-url', (event, url) => {
+    assertTrustedSender(event);
+    if (!url || typeof url !== 'string') {
+      throw new Error('无效的 URL');
+    }
+    clipboard.writeText(url);
+    return { success: true };
+  });
+
+  /**
+   * 清空当前容器的媒体列表（per IPC-04）
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('media:clear-list', (event) => {
+    assertTrustedSender(event);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { success: false };
+    const containerId = windowManager.getCurrentContainer(win.id);
+    mediaSniffer.clearMediaList(containerId);
+    return { success: true };
+  });
+
+  /**
+   * 渲染进程上报脚本注入检测到的视频数据（per IPC-05）
+   * 脚本注入检测结果从渲染进程回传到主进程 MediaSniffer 的唯一桥梁
+   * @param {string} containerId - 容器 ID
+   * @param {Array<Object>} videos - 检测到的视频数组
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('media:report-detected', (event, containerId, videos) => {
+    assertTrustedSender(event);
+    if (!containerId || typeof containerId !== 'string') {
+      throw new Error('无效的容器 ID');
+    }
+    mediaSniffer.handleScriptDetected(containerId, videos);
+    return { success: true };
   });
 
   // ==================== 应用设置 ====================
