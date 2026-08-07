@@ -127,6 +127,7 @@ Plans:
 **Wave 1**
 
 - [ ] 27-PLAN.md — 媒体面板（HTML结构 + CSS样式 + 开关逻辑 + 播放复制 + 实时更新）
+- [ ] 27-02-PLAN.md — Gap closure: G-27-1a 按钮 active 样式 / G-27-1b webview 点击关面板 / G-27-2 读推容器键对齐
 
 #### Phase 28: 播放器窗口
 
