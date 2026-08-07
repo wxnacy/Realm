@@ -5951,6 +5951,10 @@ textarea::placeholder {
   pointer-events: none;
 }
 
+.media-badge.hidden {
+  display: none;
+}
+
 /* 浮动面板容器 */
 .media-panel {
   position: fixed;
