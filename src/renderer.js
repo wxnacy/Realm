@@ -109,6 +109,14 @@ const elements = {
   bookmarksBarList: document.getElementById('bookmarksBarList'),
   bookmarksOverflowBtn: document.getElementById('bookmarksOverflowBtn'),
 
+  // 媒体面板
+  mediaPanelBtn: document.getElementById('mediaPanelBtn'),
+  mediaBadge: document.getElementById('mediaBadge'),
+  mediaPanel: document.getElementById('mediaPanel'),
+  mediaPanelCloseBtn: document.getElementById('mediaPanelCloseBtn'),
+  mediaList: document.getElementById('mediaList'),
+  mediaEmptyState: document.getElementById('mediaEmptyState'),
+
   // AI 助手面板
   aiPanel: document.getElementById('aiPanel'),
   aiPanelBtn: document.getElementById('aiPanelBtn'),
@@ -158,6 +166,10 @@ const state = {
   isCurrentPageBookmarked: false,
   currentBookmarkId: null,
   currentBookmarkTitle: null,
+
+  // 媒体面板状态
+  mediaPanelOpen: false,
+  mediaItems: [],
 
   // AI 助手状态
   aiPanelOpen: false,
@@ -1877,6 +1889,9 @@ async function init() {
 
   // 初始渲染空状态引导文案
   renderAIMessages();
+
+  // 初始化媒体面板（监听更新 + 初始加载）
+  initMediaPanel();
 }
 
 /**
@@ -2092,6 +2107,14 @@ async function switchContainer(containerId) {
     console.log(`[Realm] 切换到容器: ${containerId}`);
     // 容器变化影响 Cookie 比较对象，刷新快速保存按钮状态
     updateQuickSaveBtnState();
+
+    // 重置媒体面板状态并重新加载新容器的媒体列表
+    state.mediaPanelOpen = false;
+    state.mediaItems = [];
+    elements.mediaPanel.classList.add('hidden');
+    elements.mediaPanelBtn.classList.remove('active');
+    updateMediaBadge();
+    loadMediaList();
   }
 }
 
@@ -3746,6 +3769,41 @@ function setupEventListeners() {
     }
   });
 
+  // ==================== 媒体面板事件 ====================
+
+  // 媒体面板按钮点击：打开/关闭面板
+  if (elements.mediaPanelBtn) {
+    elements.mediaPanelBtn.addEventListener('click', toggleMediaPanel);
+  }
+
+  // 媒体面板关闭按钮
+  if (elements.mediaPanelCloseBtn) {
+    elements.mediaPanelCloseBtn.addEventListener('click', toggleMediaPanel);
+  }
+
+  // 点击面板外部关闭
+  document.addEventListener('click', (e) => {
+    if (state.mediaPanelOpen &&
+        !elements.mediaPanel.contains(e.target) &&
+        !elements.mediaPanelBtn.contains(e.target)) {
+      toggleMediaPanel();
+    }
+  });
+
+  // 媒体列表点击事件（事件委托：播放和复制按钮）
+  if (elements.mediaList) {
+    elements.mediaList.addEventListener('click', (e) => {
+      const playBtn = e.target.closest('.media-play-btn');
+      const copyBtn = e.target.closest('.media-copy-btn');
+
+      if (playBtn) {
+        playMedia(parseInt(playBtn.dataset.index));
+      } else if (copyBtn) {
+        copyMediaUrl(parseInt(copyBtn.dataset.index), copyBtn);
+      }
+    });
+  }
+
   // ==================== AI 助手面板事件 ====================
 
   // AI 面板按钮点击：打开/关闭面板
@@ -5045,6 +5103,204 @@ function renderContextPills() {
       }
     });
   });
+}
+
+// ==================== 媒体面板 ====================
+
+/**
+ * 切换媒体面板显示状态
+ * 打开时加载当前容器的媒体列表
+ */
+function toggleMediaPanel() {
+  console.log('[Realm Renderer] 切换媒体面板');
+
+  state.mediaPanelOpen = !state.mediaPanelOpen;
+  elements.mediaPanel.classList.toggle('hidden', !state.mediaPanelOpen);
+  elements.mediaPanelBtn.classList.toggle('active', state.mediaPanelOpen);
+
+  // 打开时刷新列表
+  if (state.mediaPanelOpen) {
+    loadMediaList();
+  }
+}
+
+/**
+ * 加载当前容器的媒体列表
+ * 通过 mediaAPI.getMediaList 获取数据，更新 state 并渲染
+ */
+async function loadMediaList() {
+  try {
+    const mediaList = await window.mediaAPI.getMediaList();
+    state.mediaItems = mediaList || [];
+    renderMediaList();
+    updateMediaBadge();
+  } catch (error) {
+    console.error('[Realm Renderer] 加载媒体列表失败:', error);
+  }
+}
+
+/**
+ * 渲染媒体列表
+ * 根据 state.mediaItems 生成列表项 DOM，空状态显示提示
+ */
+function renderMediaList() {
+  if (state.mediaItems.length === 0) {
+    elements.mediaList.innerHTML = '';
+    elements.mediaEmptyState.classList.remove('hidden');
+    return;
+  }
+
+  elements.mediaEmptyState.classList.add('hidden');
+
+  elements.mediaList.innerHTML = state.mediaItems.map((item, index) => {
+    const type = item.type || 'unknown';
+    const name = item.name || item.url.split('/').pop() || 'video';
+    const urlPreview = formatMediaUrl(item.url);
+
+    return `
+      <div class="media-item" data-url="${escapeHtml(item.url)}" data-index="${index}">
+        <span class="media-type-badge media-type-${type}">${type}</span>
+        <div class="media-item-info">
+          <div class="media-item-name" title="${escapeHtml(item.url)}">${escapeHtml(name)}</div>
+          <div class="media-item-url">${escapeHtml(urlPreview)}</div>
+        </div>
+        <div class="media-item-actions">
+          <button class="btn-icon media-play-btn" data-index="${index}" title="在新标签页播放">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+          </button>
+          <button class="btn-icon media-copy-btn" data-index="${index}" title="复制视频 URL">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+/**
+ * 格式化媒体 URL 为 "域名+文件名" 格式
+ * @param {string} url - 完整 URL
+ * @returns {string} 格式化后的 URL
+ */
+function formatMediaUrl(url) {
+  try {
+    const urlObj = new URL(url);
+    const pathParts = urlObj.pathname.split('/');
+    const fileName = pathParts[pathParts.length - 1] || 'video';
+    return `${urlObj.hostname}/${fileName}`;
+  } catch {
+    return url.substring(0, 50) + '...';
+  }
+}
+
+/**
+ * 转义 HTML 特殊字符，防止 XSS
+ * @param {string} text - 原始文本
+ * @returns {string} 转义后的文本
+ */
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+/**
+ * 播放媒体（新标签页打开）
+ * @param {number} index - 媒体项索引
+ */
+function playMedia(index) {
+  const item = state.mediaItems[index];
+  if (!item) return;
+
+  console.log('[Realm Renderer] 播放媒体:', item.url);
+  window.open(item.url, '_blank');
+}
+
+/**
+ * 复制媒体 URL 到剪贴板
+ * 复制成功后按钮图标短暂变为勾选图标，1.5 秒后恢复
+ * @param {number} index - 媒体项索引
+ * @param {HTMLElement} btn - 复制按钮元素
+ */
+async function copyMediaUrl(index, btn) {
+  const item = state.mediaItems[index];
+  if (!item) return;
+
+  try {
+    await navigator.clipboard.writeText(item.url);
+
+    // 视觉反馈：按钮变勾
+    btn.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+    `;
+    btn.classList.add('copied');
+
+    setTimeout(() => {
+      btn.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+        </svg>
+      `;
+      btn.classList.remove('copied');
+    }, 1500);
+
+    console.log('[Realm Renderer] 已复制 URL:', item.url);
+  } catch (error) {
+    console.error('[Realm Renderer] 复制失败:', error);
+  }
+}
+
+/**
+ * 更新媒体数量徽标
+ * 数量 > 0 时显示徽标，0 时隐藏，> 99 显示 "99+"
+ */
+function updateMediaBadge() {
+  const count = state.mediaItems.length;
+
+  if (count > 0) {
+    elements.mediaBadge.textContent = count > 99 ? '99+' : count;
+    elements.mediaBadge.classList.remove('hidden');
+  } else {
+    elements.mediaBadge.classList.add('hidden');
+  }
+}
+
+/**
+ * 初始化媒体面板
+ * 注册媒体列表更新监听器，初始加载媒体列表
+ */
+let cleanupMediaListener = null;
+
+function initMediaPanel() {
+  // 监听媒体列表更新（主进程推送）
+  cleanupMediaListener = window.mediaAPI.onMediaListUpdate((data) => {
+    console.log('[Realm Renderer] 媒体列表更新:', data.items ? data.items.length : 0);
+    state.mediaItems = data.items || [];
+    renderMediaList();
+    updateMediaBadge();
+  });
+
+  // 初始加载
+  loadMediaList();
+}
+
+/**
+ * 清理媒体面板监听器
+ * 在窗口关闭或容器切换时调用
+ */
+function cleanupMediaPanel() {
+  if (cleanupMediaListener) {
+    cleanupMediaListener();
+    cleanupMediaListener = null;
+  }
 }
 
 // ==================== 操作确认卡片 ====================
