@@ -467,21 +467,24 @@ document.addEventListener('keydown', (e) => {
 
 **如果此表为空：** 所有声明均已验证或引用，无需用户确认。
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **hls.js enableWorker 配置**
+1. **hls.js enableWorker 配置** [RESOLVED]
    - What we know: Electron 的 CSP 可能阻止 blob: Worker 创建
    - What's unclear: Electron 43.x 是否已放宽 CSP 对 blob: Worker 的限制
+   - Resolution: CSP 中配置 `worker-src 'self' blob:`，使用 `enableWorker: true`（per 28-02 Plan player.html CSP）
    - Recommendation: 先尝试 `enableWorker: true`，如果控制台报错则切换为 `false`。在 PLAN.md 中将此列为验证步骤
 
-2. **播放器窗口的 IPC 通道扩展**
+2. **播放器窗口的 IPC 通道扩展** [RESOLVED]
    - What we know: 现有 mediaAPI 已暴露 playMedia/getMediaList 等方法
    - What's unclear: 播放器窗口是否需要额外的 IPC 通道（如获取完整媒体列表用于播放列表功能）
+   - Resolution: 新增 `media:get-media-list` IPC handler 和 `playerAPI.getMediaListForContainer` 方法（per 28-01 Plan）
    - Recommendation: 播放器通过已有的 mediaAPI.getMediaList 获取列表，无需新增 IPC 通道
 
-3. **全屏 API 选择**
+3. **全屏 API 选择** [RESOLVED]
    - What we know: Electron 支持 BrowserWindow.setFullScreen() 和标准 Fullscreen API
    - What's unclear: frameless 窗口中哪种方式更可靠
+   - Resolution: 使用 BrowserWindow.setFullScreen()，通过 `player:toggle-fullscreen` IPC handler 实现（per 28-01 Plan）
    - Recommendation: 使用 BrowserWindow.setFullScreen()，通过 IPC 从播放器进程调用主进程
 
 ## Environment Availability
