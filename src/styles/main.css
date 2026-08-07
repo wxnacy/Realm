@@ -37,6 +37,12 @@
   --new-tab-search-max-width: 500px;
   --new-tab-search-height: 40px;
   --new-tab-icon-size: 40px;
+
+  /* 媒体面板 - 类型颜色编码 */
+  --media-type-m3u8: #3B82F6;
+  --media-type-mp4: #10B981;
+  --media-type-flv: #F59E0B;
+  --media-type-webm: #8B5CF6;
 }
 
 /* 基础重置 */
@@ -5918,6 +5924,184 @@ textarea::placeholder {
   background: var(--border-color);
   margin: 4px 8px;
   flex-shrink: 0;
+}
+
+/* ==================== 媒体面板 ==================== */
+
+/* 工具栏媒体按钮（需要相对定位以支持徽标） */
+.media-panel-btn {
+  position: relative;
+}
+
+/* 数量提示徽标（红底白字，按钮右上角） */
+.media-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--danger-color);
+  color: white;
+  font-size: 10px;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  pointer-events: none;
+}
+
+/* 浮动面板容器 */
+.media-panel {
+  position: fixed;
+  top: calc(var(--tab-bar-height) + var(--toolbar-height) + 4px);
+  right: 16px;
+  width: 360px;
+  max-height: 500px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 9998;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.media-panel.hidden {
+  display: none;
+}
+
+/* 面板头部 */
+.media-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.media-panel-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.media-panel-close-btn {
+  width: 24px;
+  height: 24px;
+}
+
+.media-panel-close-btn:hover {
+  color: var(--text-primary);
+}
+
+/* 媒体列表容器（滚动区域） */
+.media-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+/* 空状态 */
+.media-empty-state {
+  padding: 40px 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.media-empty-state.hidden {
+  display: none;
+}
+
+.media-empty-icon {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.media-empty-title {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.media-empty-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* 单条媒体项 */
+.media-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  gap: 10px;
+  transition: background 0.15s;
+}
+
+.media-item:hover {
+  background: var(--bg-hover);
+}
+
+/* 类型徽标 */
+.media-type-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  color: white;
+}
+
+.media-type-m3u8 { background: var(--media-type-m3u8); }
+.media-type-mp4 { background: var(--media-type-mp4); }
+.media-type-flv { background: var(--media-type-flv); }
+.media-type-webm { background: var(--media-type-webm); }
+
+/* 媒体项信息区域 */
+.media-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.media-item-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.media-item-url {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 操作按钮区域 */
+.media-item-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.media-play-btn,
+.media-copy-btn {
+  width: 28px;
+  height: 28px;
+}
+
+.media-play-btn:hover {
+  color: var(--accent-color);
+}
+
+.media-copy-btn.copied {
+  color: var(--success-color);
 }
 
 /* ==================== 旋转动画 ==================== */
