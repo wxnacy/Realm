@@ -118,7 +118,15 @@ Plans:
   4. 用户点击媒体项的复制按钮时，视频 URL 复制到系统剪贴板
   5. 新检测到媒体时，工具栏媒体按钮显示数量提示徽标
 
-**Plans**: TBD
+**Plans**: 1/1 plans complete
+
+Plans:
+
+- [ ] PLAN.md
+
+**Wave 1**
+
+- [ ] 27-PLAN.md — 媒体面板（HTML结构 + CSS样式 + 开关逻辑 + 播放复制 + 实时更新）
 
 #### Phase 28: 播放器窗口
 
@@ -167,5 +175,5 @@ Phases execute in numeric order: 26 → 27 → 28
 | 24. 任务自主执行 | v2.1 | 4/4 | Complete | 2026-08-02 |
 | 25. 脚本生成 + 智能标签整理 | v2.1 | 7/7 | Complete | 2026-08-04 |
 | 26. 视频源检测 + IPC 基础 | v2.2 | 2/2 | Complete    | 2026-08-06 |
-| 27. 媒体面板 | v2.2 | 0/TBD | Not started | - |
+| 27. 媒体面板 | v2.2 | 1/1 | Complete   | 2026-08-07 |
 | 28. 播放器窗口 | v2.2 | 0/TBD | Not started | - |
