@@ -1,9 +1,9 @@
 ---
-status: testing
+status: complete
 phase: 26-ipc
 source: [26-01-SUMMARY.md, 26-02-SUMMARY.md]
 started: 2026-08-07T00:00:00Z
-updated: 2026-08-07T07:26:22Z
+updated: 2026-08-07T08:25:00Z
 ---
 
 ## 续测须知（给接手的 agent）
@@ -11,16 +11,11 @@ updated: 2026-08-07T07:26:22Z
 - 主窗口 DevTools：`⌘⌥I`（已对齐 Chrome 习惯；`⌘⇧⌥I` 是网页 DevTools）；dev 启动自动打开
 - `getMediaList()` 无参时按窗口当前容器解析（多容器混开不可靠），**测试一律传显式容器 ID**：`await window.mediaAPI.getMediaList('xiao')`
 - 诊断接口：`await window.mediaAPI.debugState()`（各环节计数，无需翻终端）
-- 已完成 2/8：冷启动、视频嗅探；进行中：Test 3 URL 去重
+- 全部 8/8 通过（2026-08-07）
 
 ## Current Test
-<!-- OVERWRITE each test - shows where we are -->
 
-number: 3
-name: URL 去重
-expected: |
-  同一页面继续播放或刷新触发重复请求后，`getMediaList()` 中同一 URL 只出现一次，无重复条目。
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -36,34 +31,34 @@ note: "三轮修复（检测触发条件/容器归属/图片误收录）后通�
 
 ### 3. URL 去重
 expected: 同一页面继续播放或刷新触发重复请求后，`getMediaList('<容器ID>')` 中同一 URL 只出现一次，无重复条目。
-result: [pending]
+result: pass
 
 ### 4. 容器隔离
 expected: 容器 A 打开视频页嗅探后，切到容器 B 打开不同视频页。`getMediaList('A')` 只含 A 的 URL，`getMediaList('B')` 只含 B 的 URL，互不串数据。
-result: [pending]
+result: pass
 
 ### 5. 导航清空列表
 expected: 在已嗅探到视频的 tab 内导航到另一个页面后，`getMediaList('<该tab容器ID>')` 返回空数组（旧页面的媒体被清空）。
-result: [pending]
+result: pass
 
 ### 6. 关闭 tab 清空列表
 expected: 重新嗅探出视频后关闭该 tab，`getMediaList('<该tab容器ID>')` 返回空数组（注意：同容器还有其他 tab 的条目时共享列表，per D-05 容器粒度）。
-result: [pending]
+result: pass
 
 ### 7. 播放视频窗口
 expected: DevTools 执行 `await window.mediaAPI.playMedia('<嗅探到的直链 mp4 URL>')`，打开深色主题播放器窗口，video 元素加载该 URL 并能播放出画面/声音。
-result: [pending]
+result: pass
 
 ### 8. 复制视频 URL
 expected: DevTools 执行 `await window.mediaAPI.copyMediaUrl('<视频URL>')` 返回成功，在任意文本框粘贴（Cmd+V）得到该 URL。
-result: [pending]
+result: pass
 
 ## Summary
 
 total: 8
-passed: 2
+passed: 8
 issues: 0
-pending: 6
+pending: 0
 skipped: 0
 
 ## Gaps
