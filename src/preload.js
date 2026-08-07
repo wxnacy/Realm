@@ -991,10 +991,17 @@ contextBridge.exposeInMainWorld('realmAPI', {
  */
 contextBridge.exposeInMainWorld('mediaAPI', {
   /**
-   * 获取当前容器的媒体列表
+   * 获取指定容器的媒体列表
+   * @param {string} [containerId] - 容器 ID，缺省回退为窗口当前容器
    * @returns {Promise<Array<{url: string, type: string, source: string, timestamp: number}>>}
    */
-  getMediaList: () => ipcRenderer.invoke('media:get-list'),
+  getMediaList: (containerId) => ipcRenderer.invoke('media:get-list', containerId),
+
+  /**
+   * 诊断用：嗅探管线各环节计数状态
+   * @returns {Promise<Object>} 诊断状态
+   */
+  debugState: () => ipcRenderer.invoke('media:debug-state'),
 
   /**
    * 创建播放器窗口并播放指定视频
@@ -1011,10 +1018,11 @@ contextBridge.exposeInMainWorld('mediaAPI', {
   copyMediaUrl: (url) => ipcRenderer.invoke('media:copy-url', url),
 
   /**
-   * 清空当前容器的媒体列表
+   * 清空指定容器的媒体列表
+   * @param {string} [containerId] - 容器 ID，缺省回退为窗口当前容器
    * @returns {Promise<{success: boolean}>}
    */
-  clearMediaList: () => ipcRenderer.invoke('media:clear-list'),
+  clearMediaList: (containerId) => ipcRenderer.invoke('media:clear-list', containerId),
 
   /**
    * 向主进程上报脚本注入检测到的视频

@@ -26,6 +26,7 @@ const VIDEO_TYPE_MAP = {
  */
 const CONTENT_TYPE_MAP = {
   'application/vnd.apple.mpegurl': 'm3u8',
+  'application/x-mpegurl': 'm3u8',
   'video/mp4': 'mp4',
   'video/x-flv': 'flv',
   'video/webm': 'webm',
@@ -39,6 +40,13 @@ const FILTERED_CONTENT_TYPES = new Set([
   'video/mp2t',
   'video/MP2T',
 ]);
+
+/**
+ * 明确非媒体的静态资源扩展名（图片等）
+ * 部分站点封面/预览图加载会被内核标记为 resourceType 'media'，需显式排除
+ * @type {RegExp}
+ */
+const NON_MEDIA_URL_RE = /\.(jpe?g|png|gif|webp|svg|ico|bmp|avif)(\?|#|$)/i;
 
 // ==================== MediaSniffer 类 ====================
 
@@ -59,6 +67,13 @@ class MediaSniffer {
     this.mediaMap = new Map();
     /** @type {Map<string, Set<string>>} 容器 → URL 去重集合（per D-05） */
     this.dedupSets = new Map();
+    /**
+     * guest 注册前到达的网络嗅探暂存（webContentsId → 条目数组）
+     * 主进程无法从 guest session 反推 partition（Electron 32+ 无此 API），
+     * 容器映射只能靠渲染进程 did-attach 后上报，首批响应必然早于注册，先暂存待冲刷
+     * @type {Map<number, Array<{url: string, type: string, source: string}>>}
+     */
+    this.pendingByWcId = new Map();
   }
 
   /**
@@ -181,6 +196,10 @@ class MediaSniffer {
    */
   handleNetworkResponse(details) {
     if (!details || !details.url) return;
+    this.responsesSeen = (this.responsesSeen || 0) + 1;
+
+    // 图片等静态资源直接排除（封面/预览图可能被标记为 resourceType 'media'）
+    if (NON_MEDIA_URL_RE.test(details.url)) return;
 
     // 过滤非视频资源
     const isMediaType = details.resourceType === 'media';
@@ -192,22 +211,76 @@ class MediaSniffer {
     }
 
     const videoType = this.classifyContentType(contentType);
-    if (!isMediaType && !videoType) return;
+    const urlType = this.classifyUrl(details.url);
+    // 检测触发条件：媒体资源类型、content-type 白名单、URL 扩展名三者命中其一
+    // （MSE/直链场景常为 xhr + application/octet-stream，仅靠 content-type 会漏检）
+    if (!isMediaType && !videoType && urlType === 'unknown') return;
+    this.responsesMatched = (this.responsesMatched || 0) + 1;
 
     // 通过 webContentsId 获取容器 ID
     const containerId = this._getContainerIdForWebContents(details.webContentsId);
-    if (!containerId) return;
+    if (!containerId) {
+      // guest 尚未注册（did-attach 前首批响应）：暂存，注册时由 flushPending 补录
+      const pending = this.pendingByWcId.get(details.webContentsId) || [];
+      if (pending.length < 50) {
+        pending.push({ url: details.url, type: videoType || urlType, source: 'network' });
+        this.pendingByWcId.set(details.webContentsId, pending);
+      }
+      return;
+    }
 
-    const type = videoType || this.classifyUrl(details.url);
+    const type = videoType || urlType;
 
-    this.addMedia(containerId, {
+    const added = this.addMedia(containerId, {
       url: details.url,
       type,
       source: 'network',
     });
+    if (added) {
+      console.log(`[Realm MediaSniffer] 嗅探到 [${containerId}] ${type}: ${details.url.slice(0, 120)}`);
+    }
 
     // 通知渲染进程（per D-10 即时通知，不做防抖）
     this.notifyRenderer(containerId);
+  }
+
+  /**
+   * guest 注册（webview:register-container）时冲刷暂存的早期嗅探条目
+   * @param {number} webContentsId - webview guest 的 webContents ID
+   * @param {string} containerId - 容器 ID
+   */
+  flushPending(webContentsId, containerId) {
+    const pending = this.pendingByWcId.get(webContentsId);
+    if (!pending || pending.length === 0) return;
+    this.pendingByWcId.delete(webContentsId);
+
+    let hasNew = false;
+    for (const item of pending) {
+      if (this.addMedia(containerId, item)) hasNew = true;
+    }
+    if (hasNew) {
+      console.log(`[Realm MediaSniffer] 补录 ${pending.length} 条早期嗅探 [${containerId}]`);
+      this.notifyRenderer(containerId);
+    }
+  }
+
+  /**
+   * 诊断用：返回嗅探管线各环节的计数状态
+   * responsesSeen=0 → webRequest 未触发；matched=0 → 过滤全挡；
+   * pending>0 → guest 注册竞态；storeCounts 有值但 getMediaList 空 → 容器解析不一致
+   * @returns {Object} 诊断状态
+   */
+  debugState() {
+    const storeCounts = {};
+    for (const [cid, list] of this.mediaMap) storeCounts[cid] = list.length;
+    const pendingCounts = {};
+    for (const [wcId, list] of this.pendingByWcId) pendingCounts[wcId] = list.length;
+    return {
+      responsesSeen: this.responsesSeen || 0,
+      responsesMatched: this.responsesMatched || 0,
+      storeCounts,
+      pendingCounts,
+    };
   }
 
   /**
@@ -261,7 +334,9 @@ class MediaSniffer {
 
   /**
    * 通过 webContentsId 获取容器 ID
-   * 优先从 guestContainerMap（ipc-handlers）查找，回退到 BrowserWindow 映射
+   * 主进程无法从 guest session 反推 partition（Electron 32+ 无此 API），
+   * 只能靠渲染进程上报的 guestContainerMap（ipc-handlers），
+   * 未注册时返回 null，由调用方暂存待 flushPending 补录
    *
    * @param {number} webContentsId - webContents ID
    * @returns {string|null} 容器 ID 或 null

@@ -48,6 +48,8 @@ function getGuestContainer(contentsId) {
  */
 function unregisterGuestContainer(contentsId) {
   guestContainerMap.delete(contentsId);
+  // 同步丢弃该 guest 未冲刷的嗅探暂存，避免泄漏
+  mediaSniffer.pendingByWcId.delete(contentsId);
 }
 
 /**
@@ -1173,6 +1175,8 @@ function registerHandlers() {
       return;
     }
     guestContainerMap.set(contentsId, containerId);
+    // 补录 guest 注册前到达的嗅探条目（首批网络响应必然早于 did-attach 注册）
+    mediaSniffer.flushPending(contentsId, containerId);
   });
 
   // ==================== AI 相关 ====================
@@ -1284,12 +1288,30 @@ function registerHandlers() {
    * 获取当前容器的媒体列表（per IPC-01）
    * @returns {Promise<Array<{url: string, type: string, source: string, timestamp: number}>>}
    */
-  ipcMain.handle('media:get-list', (event) => {
+  ipcMain.handle('media:get-list', (event, containerId) => {
     assertTrustedSender(event);
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win) return [];
-    const containerId = windowManager.getCurrentContainer(win.id);
-    return mediaSniffer.getMediaList(containerId);
+    // 优先使用调用方显式指定的容器（多容器混开窗口时窗口级解析不可靠）；
+    // 缺省回退为窗口当前容器
+    const resolved = (typeof containerId === 'string' && containerId)
+      || (win ? windowManager.getCurrentContainer(win.id) : null);
+    if (!resolved) return [];
+    return mediaSniffer.getMediaList(resolved);
+  });
+
+  /**
+   * 诊断用：嗅探管线各环节计数 + 当前窗口解析到的容器 ID
+   * @returns {Promise<Object>} 诊断状态
+   */
+  ipcMain.handle('media:debug-state', (event) => {
+    assertTrustedSender(event);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const containerId = win ? windowManager.getCurrentContainer(win.id) : null;
+    return {
+      ...mediaSniffer.debugState(),
+      guestMapSize: guestContainerMap.size,
+      currentWindowContainer: containerId,
+    };
   });
 
   /**
@@ -1337,12 +1359,13 @@ function registerHandlers() {
    * 清空当前容器的媒体列表（per IPC-04）
    * @returns {Promise<{success: boolean}>}
    */
-  ipcMain.handle('media:clear-list', (event) => {
+  ipcMain.handle('media:clear-list', (event, containerId) => {
     assertTrustedSender(event);
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win) return { success: false };
-    const containerId = windowManager.getCurrentContainer(win.id);
-    mediaSniffer.clearMediaList(containerId);
+    const resolved = (typeof containerId === 'string' && containerId)
+      || (win ? windowManager.getCurrentContainer(win.id) : null);
+    if (!resolved) return { success: false };
+    mediaSniffer.clearMediaList(resolved);
     return { success: true };
   });
 

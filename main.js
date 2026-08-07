@@ -2060,6 +2060,11 @@ app.whenReady().then(async () => {
     shortcutManager.registerShortcuts(mainWindow);
   }
 
+  // 开发环境启动即打开主窗口 DevTools（停靠右侧，调试 realmAPI/mediaAPI）
+  if (mainWindow && process.env.NODE_ENV === 'development') {
+    mainWindow.webContents.openDevTools();
+  }
+
   // 应用菜单：覆盖 Electron 默认的 Cmd+Option+I 行为，
   // 将 DevTools 打开到当前聚焦的 webview guest 而非主窗口
   const appMenu = Menu.buildFromTemplate([
@@ -2099,8 +2104,23 @@ app.whenReady().then(async () => {
       label: '开发者',
       submenu: [
         {
-          label: '切换开发者工具',
+          // 主窗口 DevTools（realmAPI/mediaAPI 等渲染层调试入口）
+          // ⌘⌥I 与 Chrome 习惯一致：默认打开应用主窗口
+          label: '切换主窗口开发者工具',
           accelerator: 'CmdOrCtrl+Alt+I',
+          click: () => {
+            if (mainWindow.isDestroyed()) return;
+            if (mainWindow.webContents.isDevToolsOpened()) {
+              mainWindow.webContents.closeDevTools();
+            } else {
+              mainWindow.webContents.openDevTools();
+            }
+          },
+        },
+        {
+          // webview 网页内容的 DevTools（调试页面本身）
+          label: '切换网页开发者工具',
+          accelerator: 'CmdOrCtrl+Shift+Alt+I',
           click: () => {
             const contentsId = getActiveWebviewContentsId();
             if (!contentsId) return;
@@ -2111,20 +2131,6 @@ app.whenReady().then(async () => {
               contents.closeDevTools();
             } else {
               contents.openDevTools();
-            }
-          },
-        },
-        {
-          // 主窗口 DevTools（realmAPI/mediaAPI 等渲染层调试入口，
-          // 上面的快捷键被有意路由到 webview guest）
-          label: '切换主窗口开发者工具',
-          accelerator: 'CmdOrCtrl+Shift+Alt+I',
-          click: () => {
-            if (mainWindow.isDestroyed()) return;
-            if (mainWindow.webContents.isDevToolsOpened()) {
-              mainWindow.webContents.closeDevTools();
-            } else {
-              mainWindow.webContents.openDevTools();
             }
           },
         },

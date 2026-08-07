@@ -648,8 +648,8 @@ async function closeTab(tabId) {
   // 销毁关联的 webview
   destroyWebview(tabId);
 
-  // 关闭 Tab 时清空当前容器的媒体列表（per D-16）
-  window.mediaAPI.clearMediaList();
+  // 关闭 Tab 时清空被关 Tab 所属容器的媒体列表（per D-16）
+  window.mediaAPI.clearMediaList(tab.containerId);
 
   // 如果关闭的是活动 Tab，切换到新的活动 Tab
   if (tabId === state.activeTabId) {
@@ -800,7 +800,14 @@ function bindWebviewEvents(tabId, webview) {
   // did-attach 在首次导航前触发，保证主进程首次 did-start-navigation 即可反查；
   // dom-ready 作为兜底（重复注册幂等，Map.set 覆盖同值）
   const registerGuest = () => {
-    const guestId = webview.getWebContentsId();
+    // 恢复 tab 时 webview 可能处于过渡态，getWebContentsId 会抛
+    // "must be attached to the DOM" —— 忽略本次，dom-ready 会兜底重试
+    let guestId;
+    try {
+      guestId = webview.getWebContentsId();
+    } catch {
+      return;
+    }
     const partition = webview.partition || '';
     const prefix = 'persist:container-';
     if (guestId && partition.startsWith(prefix)) {
@@ -947,26 +954,26 @@ function bindWebviewEvents(tabId, webview) {
         updateQuickSaveBtnState();
       }
 
+      // 从 webview partition 推导该 tab 所属容器（历史记录与媒体清理共用）
+      const navPartition = webview.partition || '';
+      const navPrefix = 'persist:container-';
+      const navContainerId = navPartition.startsWith(navPrefix)
+        ? navPartition.slice(navPrefix.length)
+        : state.currentContainer;
+
       // D-21/D-23：导航完成后自动写入历史记录（过滤内部页面）
       if (e.url && e.url !== 'about:blank' && !displayUrl.startsWith('realm://')) {
-        // 从 webview partition 推导容器 ID
-        const partition = webview.partition || '';
-        const prefix = 'persist:container-';
-        const historyContainerId = partition.startsWith(prefix)
-          ? partition.slice(prefix.length)
-          : state.currentContainer;
-
         window.realmAPI.historyAdd({
-          containerId: historyContainerId,
+          containerId: navContainerId,
           url: e.url,
           title: webview.getTitle() || '',
           visitedAt: Date.now(),
         }).catch(err => console.error('[Realm] 历史记录写入失败:', err));
       }
 
-      // 导航时清空当前容器的媒体列表（per D-13/D-14：跨页面导航清空，锚点跳转不清空）
+      // 导航时清空该 tab 所属容器的媒体列表（per D-13/D-14：跨页面导航清空，锚点跳转不清空）
       // did-navigate 仅在跨页面导航时触发，did-navigate-in-page 处理锚点跳转
-      window.mediaAPI.clearMediaList();
+      window.mediaAPI.clearMediaList(navContainerId);
     }
   });
 
