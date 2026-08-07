@@ -2114,6 +2114,20 @@ app.whenReady().then(async () => {
             }
           },
         },
+        {
+          // 主窗口 DevTools（realmAPI/mediaAPI 等渲染层调试入口，
+          // 上面的快捷键被有意路由到 webview guest）
+          label: '切换主窗口开发者工具',
+          accelerator: 'CmdOrCtrl+Shift+Alt+I',
+          click: () => {
+            if (mainWindow.isDestroyed()) return;
+            if (mainWindow.webContents.isDevToolsOpened()) {
+              mainWindow.webContents.closeDevTools();
+            } else {
+              mainWindow.webContents.openDevTools();
+            }
+          },
+        },
       ],
     },
   ]);
