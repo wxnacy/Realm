@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: complete
 phase: 29-
 source: [29-01-SUMMARY.md, 29-02-SUMMARY.md]
 started: 2026-08-08T18:00:00+08:00
-updated: 2026-08-08T18:30:00+08:00
+updated: 2026-08-08T21:05:00+08:00
 ---
 
 ## Current Test
@@ -24,21 +24,17 @@ result: pass
 expected: 开关默认关闭，下方内容区半透明且不可交互；点击开关打开后内容区恢复可交互；完全重启应用后开关状态保持（electron-store 持久化）。
 result: pass
 
-### 4. 白名单添加域名
-expected: 输入域名（如 example.com）回车或点「添加」→ 出现蓝色 pill 标签；输入含非法字符（空格、斜杠等）被拒绝并提示；重复添加同一域名被拒绝。
-result: issue
-reported: "输入 test 也通过了，基本的域名格式应该校验下"
-severity: major
+### 4. 白名单添加域名（复验）
+expected: 输入合法域名（如 example.com）回车或点「添加」→ 出现蓝色 pill 标签；输入无点裸词（如 test）、含空格/斜杠等非法字符、..、-、a..b、.com 等结构垃圾均被拒绝并提示格式示例；重复添加同一域名被拒绝。
+result: pass
 
 ### 5. 白名单删除域名
 expected: 点击标签上的圆形 × 按钮移除域名；重开设置页后被删域名不恢复（持久化生效）。
 result: pass
 
-### 6. 开关关闭时隐藏媒体面板
-expected: 开关关闭时主界面媒体面板按钮隐藏（媒体面板不可见）；打开开关后按钮恢复显示；设置变更即时生效（visibilitychange 同步），无需重启。
-result: issue
-reported: "不行，地址栏后边的播放按钮必须重启才行，不能实时变更"
-severity: major
+### 6. 开关关闭时隐藏媒体面板（复验）
+expected: 开关关闭时主界面地址栏旁的媒体播放按钮立即隐藏（无需重启）；打开开关后按钮立即恢复显示；设置变更通过 settings:updated IPC 实时同步。
+result: pass
 
 ### 7. MediaSniffer.clearAll() clears mediaMap, dedupSets, pendingByWcId
 expected: MediaSniffer.clearAll() clears mediaMap, dedupSets, pendingByWcId
@@ -73,8 +69,8 @@ coverage_id: D5
 ## Summary
 
 total: 11
-passed: 9
-issues: 2
+passed: 11
+issues: 0
 pending: 0
 skipped: 0
 
@@ -82,7 +78,9 @@ skipped: 0
 
 - gap_id: G-29-4
   truth: "白名单只接受合法域名格式（如 example.com），无点的裸词（如 test）应被拒绝"
-  status: failed
+  status: resolved
+  resolved_by: 29-03-PLAN.md
+  resolved_at: 2026-08-08
   reason: "User reported: 输入 test 也通过了，基本的域名格式应该校验下"
   severity: major
   test: 4
@@ -98,7 +96,9 @@ skipped: 0
   debug_session: .planning/debug/whitelist-domain-validation.md
 - gap_id: G-29-6
   truth: "切换功能开关后，主界面地址栏旁的媒体播放按钮应立即显示/隐藏，无需重启"
-  status: failed
+  status: resolved
+  resolved_by: 29-04-PLAN.md
+  resolved_at: 2026-08-08
   reason: "User reported: 不行，地址栏后边的播放按钮必须重启才行，不能实时变更"
   severity: major
   test: 6
