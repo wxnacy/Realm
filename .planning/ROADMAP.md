@@ -12,7 +12,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 - ✅ **v1.3 右键菜单增强** — Phase 13 (shipped 2026-07-27)
 - ✅ **v2.0 收藏夹文件夹支持 + AI Agent 集成** — Phases 14-21 (shipped 2026-08-01)
 - ✅ **v2.1 AI CDP 增强 + Tabbrowser 功能集成** — Phases 22-25 (shipped 2026-08-04)
-- 🚧 **v2.2 多媒体功能集成** — Phases 26-28 (in progress)
+- 🚧 **v2.2 多媒体功能集成** — Phases 26-29 (in progress)
 
 ## Phases
 
@@ -153,10 +153,35 @@ Plans:
 
 - [x] 28-02-PLAN.md — 完整播放器 UI（格式检测 + 控制栏 + 键盘快捷键 + 画中画 + 播放列表 + 资源释放）
 
+#### Phase 29: 多媒体播放器设置控制
+
+**Goal**: 用户可以在设置页面控制多媒体播放器功能的启用/禁用，并配置域名白名单，当功能关闭时确保所有相关资源完全释放
+**Depends on**: Phase 28
+**Requirements**: SC-1, SC-2, SC-3, SC-4, SC-5
+**Success Criteria** (what must be TRUE):
+
+  1. 设置页面新增"多媒体"侧边栏选项，包含播放器功能开关和域名白名单配置
+  2. 播放器功能开关默认关闭，控制视频探测、m3u8 播放、播放按钮的显示
+  3. 域名白名单区域支持添加/删除域名，默认为"全部"（所有域名都进行探测）
+  4. 当播放器功能关闭时，MediaSniffer 完全停止、媒体列表清空、播放器按钮隐藏
+  5. 当播放器功能关闭时，页面恢复正常行为：视频文件正常下载、文本正常展示
+
+**Plans**: 2 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 29-01-PLAN.md — 设置页面 UI（sidebar-item + 功能开关 + 域名白名单标签式 UI + CSS 样式）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 29-02-PLAN.md — 后端集成（webRequest 开关检查 + 脚本注入检查 + 媒体列表清空 + 面板/按钮隐藏）
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 26 → 27 → 28
+Phases execute in numeric order: 26 → 27 → 28 → 29
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -188,3 +213,4 @@ Phases execute in numeric order: 26 → 27 → 28
 | 26. 视频源检测 + IPC 基础 | v2.2 | 2/2 | Complete    | 2026-08-06 |
 | 27. 媒体面板 | v2.2 | 2/2 | Complete   | 2026-08-07 |
 | 28. 播放器窗口 | v2.2 | 2/2 | Complete    | 2026-08-08 |
+| 29. 多媒体播放器设置控制 | v2.2 | 0/0 | Not started | - |
