@@ -146,6 +146,20 @@ None - no external service configuration required.
 - Main process webRequest callback respects the toggle and whitelist in real-time
 - Renderer hides media panel when feature is disabled
 
+## Self-Check: PASSED
+
+All files verified:
+- media-sniffer.js: FOUND
+- main.js: FOUND
+- src/renderer.js: FOUND
+- ipc-handlers.js: FOUND
+- .planning/phases/29-/29-02-SUMMARY.md: FOUND
+
+All commits verified:
+- 52bffea: FOUND
+- 7e12a60: FOUND
+- 589a4dc: FOUND
+
 ---
 *Phase: 29-多媒体播放器设置控制*
 *Completed: 2026-08-08*
