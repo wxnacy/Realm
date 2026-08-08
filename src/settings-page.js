@@ -1225,10 +1225,8 @@ async function saveDevModeEnabled(enabled) {
   } catch (error) {
     console.error('[Realm] 保存开发者模式开关失败:', error);
     showToast('保存失败，请重试');
-    // 恢复 toggle 状态
-    if (elements.devModeToggle) {
-      elements.devModeToggle.checked = !enabled;
-    }
+    // 恢复 toggle 状态（div-based toggle 使用 classList）
+    updateDevModeUI(!enabled);
   }
 }
 
