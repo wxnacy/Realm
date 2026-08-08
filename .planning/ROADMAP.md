@@ -166,7 +166,7 @@ Plans:
   4. 当播放器功能关闭时，MediaSniffer 完全停止、媒体列表清空、播放器按钮隐藏
   5. 当播放器功能关闭时，页面恢复正常行为：视频文件正常下载、文本正常展示
 
-**Plans**: 2/4 plans complete (gap closure: G-29-4, G-29-6)
+**Plans**: 4/5 plans complete (gap closure: G-29-4, G-29-6, G-29-12)
 
 Plans:
 
@@ -180,8 +180,12 @@ Plans:
 
 **Gap Closure Wave 1** *(UAT gaps，两计划无文件重叠可并行)*
 
-- [ ] 29-03-PLAN.md — 白名单域名结构校验（isValidDomain 共享函数 + addWhitelistDomain/addDomain 接入，closes G-29-4）
-- [ ] 29-04-PLAN.md — 设置变更实时广播（main.js settings:updated + preload onSettingsUpdated + renderer 订阅，closes G-29-6）
+- [x] 29-03-PLAN.md — 白名单域名结构校验（isValidDomain 共享函数 + addWhitelistDomain/addDomain 接入，closes G-29-4）
+- [x] 29-04-PLAN.md — 设置变更实时广播（main.js settings:updated + preload onSettingsUpdated + renderer 订阅，closes G-29-6）
+
+**Gap Closure Wave 2** *(UAT gap G-29-12，单计划)*
+
+- [ ] 29-05-PLAN.md — 白名单双路径生效（renderer 注入前检查 + report-detected 服务端校验 + 网络路径改按页面 URL 匹配，closes G-29-12）
 
 ## Progress
 
