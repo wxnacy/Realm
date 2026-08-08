@@ -1391,7 +1391,7 @@ async function updateQueueStatus() {
 
       // 颜色编码
       const pending = stats.pending || 0;
-      elements.queueCount.className = 'queue-count';
+      elements.queueCount.className = 'devmode-queue-count';
       if (pending > 500) {
         elements.queueCount.classList.add('queue-danger');
       } else if (pending > 100) {
