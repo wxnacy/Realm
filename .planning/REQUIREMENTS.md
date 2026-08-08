@@ -26,16 +26,16 @@
 
 ### 播放器窗口 (PLAYER)
 
-- [ ] **PLAYER-01**: 播放器使用独立 BrowserWindow 打开，支持窗口大小调整和全屏
-- [ ] **PLAYER-02**: 播放器支持 HLS 格式（m3u8）通过 hls.js 播放
-- [ ] **PLAYER-03**: 播放器支持 MP4/WebM 格式通过 Chromium 原生播放
-- [ ] **PLAYER-04**: 播放器支持 FLV/MPEG-TS 格式通过 mpegts.js 播放
-- [ ] **PLAYER-05**: 播放器提供播放/暂停控制
-- [ ] **PLAYER-06**: 播放器提供进度条拖拽和时间显示
-- [ ] **PLAYER-07**: 播放器提供音量控制
-- [ ] **PLAYER-08**: 播放器提供播放倍速选择（0.5x/1x/1.5x/2x）
-- [ ] **PLAYER-09**: 播放器支持全屏模式
-- [ ] **PLAYER-10**: 播放器窗口关闭时正确销毁 hls.js/mpegts.js 实例，释放内存
+- [x] **PLAYER-01**: 播放器使用独立 BrowserWindow 打开，支持窗口大小调整和全屏
+- [x] **PLAYER-02**: 播放器支持 HLS 格式（m3u8）通过 hls.js 播放
+- [x] **PLAYER-03**: 播放器支持 MP4/WebM 格式通过 Chromium 原生播放
+- [x] **PLAYER-04**: 播放器支持 FLV/MPEG-TS 格式通过 mpegts.js 播放
+- [x] **PLAYER-05**: 播放器提供播放/暂停控制
+- [x] **PLAYER-06**: 播放器提供进度条拖拽和时间显示
+- [x] **PLAYER-07**: 播放器提供音量控制
+- [x] **PLAYER-08**: 播放器提供播放倍速选择（0.5x/1x/1.5x/2x）
+- [x] **PLAYER-09**: 播放器支持全屏模式
+- [x] **PLAYER-10**: 播放器窗口关闭时正确销毁 hls.js/mpegts.js 实例，释放内存
 
 ### IPC 通道 (IPC)
 
@@ -60,10 +60,10 @@
 ### 增强功能（未来）
 
 - [ ] **ENH-01**: 视频截图功能
-- [ ] **ENH-02**: 画中画模式
-- [ ] **ENH-03**: 播放列表支持
+- [x] **ENH-02**: 画中画模式 — 已在 Phase 28 实现
+- [x] **ENH-03**: 播放列表支持 — 已在 Phase 28 实现
 - [ ] **ENH-04**: 字幕支持
-- [ ] **ENH-05**: DASH 格式支持
+- [x] **ENH-05**: DASH 格式支持 — 已在 Phase 28 实现
 - [ ] **ENH-06**: RTMP 流支持
 
 ---
