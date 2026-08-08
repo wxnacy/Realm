@@ -844,7 +844,16 @@ function bindWebviewEvents(tabId, webview) {
   webview.addEventListener('dom-ready', registerGuest);
 
   // ==================== 媒体嗅探：dom-ready 注入检测脚本 ====================
-  webview.addEventListener('dom-ready', () => {
+  webview.addEventListener('dom-ready', async () => {
+    // 功能开关检查（per D-10）：关闭时跳过注入
+    try {
+      const settings = await window.realmAPI.getSettings();
+      if (!settings.mediaPlayer || !settings.mediaPlayer.enabled) return;
+    } catch (err) {
+      console.warn('[Realm Renderer] 检查多媒体开关状态失败，跳过注入:', err.message);
+      return;
+    }
+
     // 注入视频检测脚本（per D-03/D-04/SNIFF-02/SNIFF-03）
     const mediaSnifferScript = `
 (function() {
@@ -1667,6 +1676,10 @@ async function init() {
       state.sidebarVisible = true;
       elements.sidebar.classList.remove('hidden');
     }
+
+    // 多媒体播放器开关初始化（per D-12）
+    const mediaPlayerEnabled = settings.mediaPlayer && settings.mediaPlayer.enabled;
+    updateMediaPlayerVisibility(mediaPlayerEnabled);
   } catch (err) {
     console.error('[Realm Renderer] 恢复 Sidebar 状态失败:', err);
     // 默认展开：移除 hidden
@@ -1918,6 +1931,18 @@ async function init() {
 
   // 初始化媒体面板（监听更新 + 初始加载）
   initMediaPanel();
+
+  // 监听窗口可见性变化，检查多媒体开关状态（确保设置页切换后即时生效）
+  document.addEventListener('visibilitychange', async () => {
+    if (document.hidden) return;
+    try {
+      const settings = await window.realmAPI.getSettings();
+      const mediaPlayerEnabled = settings.mediaPlayer && settings.mediaPlayer.enabled;
+      updateMediaPlayerVisibility(mediaPlayerEnabled);
+    } catch (err) {
+      console.warn('[Realm Renderer] 检查多媒体开关状态失败:', err.message);
+    }
+  });
 }
 
 /**
@@ -5132,6 +5157,36 @@ function renderContextPills() {
 }
 
 // ==================== 媒体面板 ====================
+
+/**
+ * 更新多媒体播放器功能的可见性（per D-12）
+ * - 关闭时：隐藏媒体面板按钮和面板，清空媒体列表，重置面板状态
+ * - 开启时：显示媒体面板按钮（不自动打开面板）
+ * - 已打开的播放器窗口不强制关闭（per D-11）
+ *
+ * @param {boolean} enabled - 功能开关状态
+ */
+function updateMediaPlayerVisibility(enabled) {
+  if (!enabled) {
+    // 隐藏媒体面板按钮和面板（per D-12）
+    if (elements.mediaPanelBtn) {
+      elements.mediaPanelBtn.style.display = 'none';
+    }
+    if (elements.mediaPanel) {
+      elements.mediaPanel.classList.add('hidden');
+    }
+    state.mediaPanelOpen = false;
+
+    // 清空所有容器的媒体列表（per D-12）
+    window.mediaAPI.clearMediaList();
+  } else {
+    // 显示媒体面板按钮
+    if (elements.mediaPanelBtn) {
+      elements.mediaPanelBtn.style.display = '';
+    }
+    // 不自动打开面板，保持用户控制
+  }
+}
 
 /**
  * 切换媒体面板显示状态

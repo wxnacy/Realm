@@ -196,6 +196,17 @@ class MediaSniffer {
   }
 
   /**
+   * 清空所有容器的媒体列表、去重集合和待处理条目
+   * 功能开关关闭时调用，释放所有嗅探数据（per D-12）
+   * 不重置 debugState 计数器（诊断用途保留）
+   */
+  clearAll() {
+    this.mediaMap.clear();
+    this.dedupSets.clear();
+    this.pendingByWcId.clear();
+  }
+
+  /**
    * 处理网络请求响应（webRequest.onResponseStarted 回调）
    * 检查 resourceType 和 content-type 检测视频资源
    *

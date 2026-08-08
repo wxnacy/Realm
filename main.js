@@ -332,6 +332,30 @@ app.on('web-contents-created', (event, contents) => {
   });
 });
 
+// ==================== 媒体嗅探白名单过滤 ====================
+
+/**
+ * 检查 URL 是否在域名白名单中（per D-06/D-07）
+ * - 白名单为空数组时返回 true（空白名单 = 全部允许）
+ * - 匹配条件：hostname === domain || hostname.endsWith('.' + domain)
+ * - 解析失败（无效 URL）时返回 false
+ *
+ * @param {string} url - 请求 URL
+ * @param {Array<string>} whitelist - 域名白名单数组
+ * @returns {boolean} 是否在白名单中
+ */
+function isDomainWhitelisted(url, whitelist) {
+  if (!Array.isArray(whitelist) || whitelist.length === 0) return true;
+  try {
+    const hostname = new URL(url).hostname;
+    return whitelist.some(
+      (domain) => hostname === domain || hostname.endsWith('.' + domain)
+    );
+  } catch {
+    return false;
+  }
+}
+
 // ==================== UA Client Hints 伪装（Google 等指纹敏感站点兼容） ====================
 
 /**
@@ -420,6 +444,14 @@ app.on('session-created', (ses) => {
   ses.webRequest.onResponseStarted(
     { urls: ['*://*/*'] },
     (details) => {
+      // 功能开关检查（per D-09）：关闭时直接 return，不处理任何嗅探
+      const enabled = configStore.get('settings.mediaPlayer.enabled', false);
+      if (!enabled) return;
+
+      // 白名单过滤（per D-06/D-07）：白名单为空则全部通过，非空则仅白名单域名通过
+      const whitelist = configStore.get('settings.mediaPlayer.whitelist', []);
+      if (!isDomainWhitelisted(details.url, whitelist)) return;
+
       mediaSniffer.handleNetworkResponse(details);
     }
   );
@@ -952,6 +984,10 @@ app.whenReady().then(async () => {
         settings.bookmarksBar = {
           visible: fromSettings !== undefined ? fromSettings : configStore.get('bookmarksBar.visible', true),
         };
+        // 多媒体播放器设置默认值（per D-03）
+        if (!settings.mediaPlayer) {
+          settings.mediaPlayer = { enabled: false, whitelist: [] };
+        }
         sendJson(res, 200, settings);
         return;
       }
