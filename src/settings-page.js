@@ -32,6 +32,11 @@ const state = {
     domains: [],
     retentionDays: 7,
   },
+  /** 多媒体播放器配置 */
+  mediaPlayer: {
+    enabled: false,
+    whitelist: [],
+  },
 };
 
 /** API token（来自 URL 查询参数） */
@@ -163,6 +168,14 @@ const elements = {
   aboutVersion: document.getElementById('aboutVersion'),
   aboutIcon: document.getElementById('aboutIcon'),
 
+  // 多媒体设置
+  mediaPlayerToggle: document.getElementById('mediaPlayerToggle'),
+  mediaPlayerSection: document.getElementById('mediaPlayerSection'),
+  whitelistDomainInput: document.getElementById('whitelistDomainInput'),
+  addWhitelistDomainBtn: document.getElementById('addWhitelistDomainBtn'),
+  whitelistTags: document.getElementById('whitelistTags'),
+  whitelistHint: document.getElementById('whitelistHint'),
+
   // 开发者模式
   devModeToggle: document.getElementById('devModeToggle'),
   devModeSection: document.getElementById('devModeSection'),
@@ -213,6 +226,8 @@ function switchSettingsPage(pageName) {
     startQueueStatusPolling();
   } else if (pageName === 'ai-assistant') {
     loadAISettings();
+  } else if (pageName === 'multimedia') {
+    loadMultimediaSettings();
   } else {
     // 离开开发者模式页面时停止轮询
     stopQueueStatusPolling();
@@ -303,6 +318,14 @@ async function loadSettings() {
     if (elements.showBookmarksBar) {
       const bookmarksBarVisible = state.settings.bookmarksBar?.visible !== false;
       elements.showBookmarksBar.checked = bookmarksBarVisible;
+    }
+
+    // 多媒体播放器设置
+    if (settings.mediaPlayer) {
+      state.mediaPlayer = {
+        enabled: settings.mediaPlayer.enabled || false,
+        whitelist: settings.mediaPlayer.whitelist || [],
+      };
     }
 
     // 更新版本号
@@ -1123,6 +1146,35 @@ function setupEventListeners() {
       }
     });
   }
+
+  // ==================== 多媒体设置事件 ====================
+
+  // 多媒体播放器开关（div-based toggle，使用 click 事件）
+  if (elements.mediaPlayerToggle) {
+    elements.mediaPlayerToggle.addEventListener('click', () => {
+      const newState = !state.mediaPlayer.enabled;
+      saveMediaPlayerEnabled(newState);
+    });
+  }
+
+  // 添加白名单域名按钮
+  if (elements.addWhitelistDomainBtn) {
+    elements.addWhitelistDomainBtn.addEventListener('click', () => {
+      if (elements.whitelistDomainInput) {
+        addWhitelistDomain(elements.whitelistDomainInput.value);
+      }
+    });
+  }
+
+  // 白名单域名输入框回车
+  if (elements.whitelistDomainInput) {
+    elements.whitelistDomainInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addWhitelistDomain(elements.whitelistDomainInput.value);
+      }
+    });
+  }
 }
 
 // ==================== 开发者模式 ====================
@@ -1382,6 +1434,181 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+// ==================== 多媒体设置 ====================
+
+/**
+ * 加载多媒体播放器设置
+ * 从 electron-store 读取 mediaPlayer.enabled 和 mediaPlayer.whitelist
+ */
+async function loadMultimediaSettings() {
+  try {
+    const settings = await settingsApi('get');
+    const mediaPlayer = settings.mediaPlayer || {};
+    state.mediaPlayer = {
+      enabled: mediaPlayer.enabled || false,
+      whitelist: mediaPlayer.whitelist || [],
+    };
+
+    updateMediaPlayerUI(state.mediaPlayer.enabled);
+    renderWhitelistTags();
+  } catch (error) {
+    console.error('[Realm] 加载多媒体设置失败:', error);
+    showToast('加载多媒体设置失败');
+  }
+}
+
+/**
+ * 保存多媒体播放器开关状态
+ * @param {boolean} enabled - 是否启用
+ */
+async function saveMediaPlayerEnabled(enabled) {
+  try {
+    await settingsApi('update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 'mediaPlayer.enabled': enabled }),
+    });
+    state.mediaPlayer.enabled = enabled;
+    updateMediaPlayerUI(enabled);
+    showToast(enabled ? '多媒体功能已启用' : '多媒体功能已禁用');
+  } catch (error) {
+    console.error('[Realm] 保存多媒体播放器开关失败:', error);
+    showToast('保存失败，请重试');
+  }
+}
+
+/**
+ * 更新多媒体播放器 UI 状态
+ * @param {boolean} enabled - 是否启用
+ */
+function updateMediaPlayerUI(enabled) {
+  // div-based toggle：通过 active class 控制视觉状态
+  if (elements.mediaPlayerToggle) {
+    if (enabled) {
+      elements.mediaPlayerToggle.classList.add('active');
+    } else {
+      elements.mediaPlayerToggle.classList.remove('active');
+    }
+  }
+
+  // 白名单配置区域禁用/启用（通过 CSS class 控制）
+  if (elements.mediaPlayerSection) {
+    if (enabled) {
+      elements.mediaPlayerSection.classList.remove('disabled');
+    } else {
+      elements.mediaPlayerSection.classList.add('disabled');
+    }
+  }
+}
+
+/**
+ * 添加白名单域名
+ * @param {string} domain - 域名
+ */
+async function addWhitelistDomain(domain) {
+  const trimmed = domain.trim().toLowerCase();
+
+  // 验证
+  if (!trimmed) {
+    showToast('请输入域名');
+    return;
+  }
+
+  if (/[^\w.\-]/.test(trimmed)) {
+    showToast('域名格式不合法');
+    highlightInputError(elements.whitelistDomainInput);
+    return;
+  }
+
+  if (state.mediaPlayer.whitelist.includes(trimmed)) {
+    showToast('域名已存在');
+    highlightInputError(elements.whitelistDomainInput);
+    return;
+  }
+
+  try {
+    const newList = [...state.mediaPlayer.whitelist, trimmed];
+    await settingsApi('update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 'mediaPlayer.whitelist': newList }),
+    });
+    state.mediaPlayer.whitelist = newList;
+    renderWhitelistTags();
+    if (elements.whitelistDomainInput) {
+      elements.whitelistDomainInput.value = '';
+    }
+    showToast(`已添加域名: ${trimmed}`);
+  } catch (error) {
+    console.error('[Realm] 添加白名单域名失败:', error);
+    showToast('添加失败，请重试');
+  }
+}
+
+/**
+ * 移除白名单域名
+ * @param {string} domain - 域名
+ */
+async function removeWhitelistDomain(domain) {
+  try {
+    const newList = state.mediaPlayer.whitelist.filter(d => d !== domain);
+    await settingsApi('update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 'mediaPlayer.whitelist': newList }),
+    });
+    state.mediaPlayer.whitelist = newList;
+    renderWhitelistTags();
+    showToast(`已移除域名: ${domain}`);
+  } catch (error) {
+    console.error('[Realm] 移除白名单域名失败:', error);
+    showToast('移除失败，请重试');
+  }
+}
+
+/**
+ * 渲染白名单标签
+ * 使用 DOM 构建 + textContent 防止 XSS（WR-13）
+ */
+function renderWhitelistTags() {
+  if (!elements.whitelistTags || !elements.whitelistHint) return;
+
+  // 清空现有标签
+  elements.whitelistTags.innerHTML = '';
+
+  if (state.mediaPlayer.whitelist.length === 0) {
+    // 白名单为空：显示提示，隐藏标签容器
+    elements.whitelistHint.style.display = 'block';
+    elements.whitelistTags.style.display = 'none';
+    return;
+  }
+
+  // 白名单非空：隐藏提示，显示标签
+  elements.whitelistHint.style.display = 'none';
+  elements.whitelistTags.style.display = 'flex';
+
+  state.mediaPlayer.whitelist.forEach(domain => {
+    const tag = document.createElement('span');
+    tag.className = 'whitelist-tag';
+
+    const textSpan = document.createElement('span');
+    textSpan.className = 'whitelist-tag-text';
+    textSpan.textContent = domain;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'whitelist-tag-remove';
+    removeBtn.dataset.domain = domain;
+    removeBtn.title = '移除';
+    removeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4L12 12M4 12L12 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+
+    removeBtn.addEventListener('click', () => removeWhitelistDomain(domain));
+
+    tag.appendChild(textSpan);
+    tag.appendChild(removeBtn);
+    elements.whitelistTags.appendChild(tag);
+  });
 }
 
 // ==================== AI 助手设置 ====================

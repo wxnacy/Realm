@@ -6116,6 +6116,93 @@ textarea::placeholder {
   color: var(--success-color);
 }
 
+/* ==================== 多媒体设置 ==================== */
+
+/* 白名单输入区域 */
+.whitelist-input-area {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.whitelist-input-area .text-input {
+  flex: 1;
+  height: 40px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.whitelist-input-area .text-input:focus {
+  border-color: var(--accent-color);
+  outline: none;
+}
+
+/* 标签容器 */
+.whitelist-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+/* 单个标签 */
+.whitelist-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px 0 10px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 14px;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: background 0.15s ease;
+}
+
+.whitelist-tag:hover {
+  background: rgba(59, 130, 246, 0.25);
+}
+
+/* 标签删除按钮 */
+.whitelist-tag-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.whitelist-tag-remove:hover {
+  color: var(--danger-color);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* 白名单空提示 */
+.whitelist-hint {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 12px;
+  font-size: 14px;
+}
+
+/* 多媒体内容区域禁用态（复用 devMode disabled 模式） */
+.multimedia-content.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 /* ==================== 旋转动画 ==================== */
 
 @keyframes spin {
