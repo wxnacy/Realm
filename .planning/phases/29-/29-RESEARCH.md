@@ -307,17 +307,17 @@ function isDomainWhitelisted(url, whitelist) {
 
 **If this table is empty:** All claims in this research were verified or cited -- no user confirmation needed.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **开关状态如何同步到渲染进程？**
+1. **开关状态如何同步到渲染进程？** [RESOLVED]
    - What we know: 渲染进程通过 IPC 或 HTTP API 获取设置
    - What's unclear: 是否需要新增 IPC 通道 `media:set-enabled` 推送状态变化
-   - Recommendation: 复用现有 `settings:get` IPC 通道，渲染进程在初始化时读取；开关变化时通过 `media:list-updated` 事件附带开关状态，或新增 `media:enabled-changed` 事件
+   - Resolution: 复用现有 `settings:get` IPC 通道（realmAPI.getSettings），渲染进程在初始化和 visibilitychange 时读取；开关变化时通过轮询机制检测（per Plan 02 Task 2）
 
-2. **白名单过滤在哪个层级实现？**
+2. **白名单过滤在哪个层级实现？** [RESOLVED]
    - What we know: webRequest 回调和脚本注入是两个独立的嗅探路径
    - What's unclear: 白名单过滤是在 MediaSniffer 内部还是回调入口
-   - Recommendation: 在 MediaSniffer.handleNetworkResponse() 入口处检查白名单，统一过滤逻辑
+   - Resolution: 在 main.js webRequest 回调入口处检查（per D-06/D-07），开关开启后读取白名单，调用 isDomainWhitelisted(url, whitelist) 过滤；白名单为空时全部通过，非空时仅白名单域名通过（含子域名后缀匹配）。详见 Plan 02 Task 1。
 
 ## Environment Availability
 
