@@ -5,7 +5,7 @@
  * 每个处理器对入参做类型校验
  */
 
-const { ipcMain, dialog, BrowserWindow, clipboard } = require('electron');
+const { ipcMain, dialog, BrowserWindow, clipboard, session } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
 const containerManager = require('./container-manager');
@@ -1176,7 +1176,7 @@ function registerHandlers() {
     }
     guestContainerMap.set(contentsId, containerId);
     // 补录 guest 注册前到达的嗅探条目（首批网络响应必然早于 did-attach 注册）
-    mediaSniffer.flushPending(contentsId, containerId);
+    mediaSniffer.flushPending(contentsId);
   });
 
   // ==================== AI 相关 ====================
@@ -1282,21 +1282,24 @@ function registerHandlers() {
     return aiManager.getState();
   });
 
+  // ==================== 播放器窗口状态 ====================
+
+  /** @type {BrowserWindow|null} 播放器窗口引用（D-20 窗口复用） */
+  let playerWindow = null;
+  /** @type {string|null} 播放器关联的容器 ID（D-22 Session 隔离） */
+  let playerContainerId = null;
+
   // ==================== 媒体检测 ====================
 
   /**
-   * 获取当前容器的媒体列表（per IPC-01）
+   * 获取指定 webview 的媒体列表（per IPC-01）
+   * @param {number} webContentsId - webview 的 webContents ID
    * @returns {Promise<Array<{url: string, type: string, source: string, timestamp: number}>>}
    */
-  ipcMain.handle('media:get-list', (event, containerId) => {
+  ipcMain.handle('media:get-list', (event, webContentsId) => {
     assertTrustedSender(event);
-    const win = BrowserWindow.fromWebContents(event.sender);
-    // 优先使用调用方显式指定的容器（多容器混开窗口时窗口级解析不可靠）；
-    // 缺省回退为窗口当前容器
-    const resolved = (typeof containerId === 'string' && containerId)
-      || (win ? windowManager.getCurrentContainer(win.id) : null);
-    if (!resolved) return [];
-    return mediaSniffer.getMediaList(resolved);
+    if (typeof webContentsId !== 'number') return [];
+    return mediaSniffer.getMediaList(webContentsId);
   });
 
   /**
@@ -1316,29 +1319,125 @@ function registerHandlers() {
 
   /**
    * 创建播放器窗口并播放指定 URL（per IPC-02）
+   * 支持 Session 隔离（D-22）、窗口复用（D-20）、资源释放（D-21）
    * @param {string} url - 视频 URL
-   * @returns {Promise<{success: boolean}>}
+   * @param {string} containerId - 来源容器 ID
+   * @returns {Promise<{success: boolean, reused: boolean}>}
    */
-  ipcMain.handle('media:play', async (event, url) => {
+  ipcMain.handle('media:play', async (event, url, containerId) => {
     assertTrustedSender(event);
     if (!url || typeof url !== 'string') {
       throw new Error('无效的视频 URL');
     }
-    const playerWin = new BrowserWindow({
-      width: 800,
-      height: 600,
+    if (!containerId || typeof containerId !== 'string') {
+      throw new Error('无效的容器 ID');
+    }
+
+    // D-20: 窗口复用 -- 已有播放器窗口时替换播放
+    if (playerWindow && !playerWindow.isDestroyed()) {
+      playerContainerId = containerId;
+      const mediaList = mediaSniffer.getMediaListByContainer(containerId);
+      playerWindow.webContents.send('media:play-url', { url, mediaList, containerId });
+      playerWindow.focus();
+      return { success: true, reused: true };
+    }
+
+    // D-22: 获取来源容器的 Session partition
+    const partition = `persist:container-${containerId}`;
+
+    // D-04: 无边框窗口, D-19: 960x540, D-22: Session 隔离
+    playerWindow = new BrowserWindow({
+      width: 960,
+      height: 540,
+      minWidth: 480,
+      minHeight: 270,
+      frame: false,
+      titleBarStyle: 'hidden',
+      backgroundColor: '#000000',
+      resizable: true,
       title: 'Realm Player',
       webPreferences: {
         preload: path.join(__dirname, 'src/preload.js'),
         contextIsolation: true,
         nodeIntegration: false,
+        session: session.fromPartition(partition),
       },
     });
-    playerWin.loadFile(path.join(__dirname, 'src/player.html'));
-    playerWin.webContents.on('did-finish-load', () => {
-      playerWin.webContents.send('media:play-url', url);
+
+    playerContainerId = containerId;
+
+    playerWindow.loadFile(path.join(__dirname, 'src/player.html'));
+
+    // 页面加载完成后发送媒体数据
+    playerWindow.webContents.on('did-finish-load', () => {
+      const mediaList = mediaSniffer.getMediaListByContainer(containerId);
+      playerWindow.webContents.send('media:play-url', { url, mediaList, containerId });
     });
-    return { success: true };
+
+    // D-21: 窗口关闭时清理资源
+    playerWindow.on('closed', () => {
+      playerWindow = null;
+      playerContainerId = null;
+    });
+
+    return { success: true, reused: false };
+  });
+
+  /**
+   * 获取指定容器的媒体列表（供播放器窗口调用）
+   * @param {string} containerId - 容器 ID
+   * @returns {Promise<Array>}
+   */
+  ipcMain.handle('media:get-media-list', (event, containerId) => {
+    assertTrustedSender(event);
+    if (!containerId || typeof containerId !== 'string') return [];
+    return mediaSniffer.getMediaListByContainer(containerId);
+  });
+
+  /**
+   * 切换播放器窗口全屏状态（per D-04）
+   * @returns {Promise<{fullscreen: boolean}>}
+   */
+  ipcMain.handle('player:toggle-fullscreen', (event) => {
+    assertTrustedSender(event);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { fullscreen: false };
+    win.setFullScreen(!win.isFullScreen());
+    return { fullscreen: win.isFullScreen() };
+  });
+
+  /**
+   * 最小化播放器窗口（per D-04）
+   */
+  ipcMain.handle('player:minimize', (event) => {
+    assertTrustedSender(event);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) win.minimize();
+  });
+
+  /**
+   * 最大化/还原播放器窗口（per D-04）
+   * @returns {Promise<{maximized: boolean}>}
+   */
+  ipcMain.handle('player:maximize', (event) => {
+    assertTrustedSender(event);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { maximized: false };
+    if (win.isMaximized()) {
+      win.unmaximize();
+    } else {
+      win.maximize();
+    }
+    return { maximized: win.isMaximized() };
+  });
+
+  /**
+   * 关闭播放器窗口（per D-04）
+   */
+  ipcMain.handle('player:close', (event) => {
+    assertTrustedSender(event);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) win.close();
   });
 
   /**
@@ -1356,32 +1455,30 @@ function registerHandlers() {
   });
 
   /**
-   * 清空当前容器的媒体列表（per IPC-04）
+   * 清空指定 webview 的媒体列表（per IPC-04）
+   * @param {number} webContentsId - webview 的 webContents ID
    * @returns {Promise<{success: boolean}>}
    */
-  ipcMain.handle('media:clear-list', (event, containerId) => {
+  ipcMain.handle('media:clear-list', (event, webContentsId) => {
     assertTrustedSender(event);
-    const win = BrowserWindow.fromWebContents(event.sender);
-    const resolved = (typeof containerId === 'string' && containerId)
-      || (win ? windowManager.getCurrentContainer(win.id) : null);
-    if (!resolved) return { success: false };
-    mediaSniffer.clearMediaList(resolved);
+    if (typeof webContentsId !== 'number') return { success: false };
+    mediaSniffer.clearMediaList(webContentsId);
     return { success: true };
   });
 
   /**
    * 渲染进程上报脚本注入检测到的视频数据（per IPC-05）
    * 脚本注入检测结果从渲染进程回传到主进程 MediaSniffer 的唯一桥梁
-   * @param {string} containerId - 容器 ID
+   * @param {number} webContentsId - webview 的 webContents ID
    * @param {Array<Object>} videos - 检测到的视频数组
    * @returns {Promise<{success: boolean}>}
    */
-  ipcMain.handle('media:report-detected', (event, containerId, videos) => {
+  ipcMain.handle('media:report-detected', (event, webContentsId, videos) => {
     assertTrustedSender(event);
-    if (!containerId || typeof containerId !== 'string') {
-      throw new Error('无效的容器 ID');
+    if (typeof webContentsId !== 'number') {
+      throw new Error('无效的 webContentsId');
     }
-    mediaSniffer.handleScriptDetected(containerId, videos);
+    mediaSniffer.handleScriptDetected(webContentsId, videos);
     return { success: true };
   });
 

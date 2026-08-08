@@ -991,11 +991,11 @@ contextBridge.exposeInMainWorld('realmAPI', {
  */
 contextBridge.exposeInMainWorld('mediaAPI', {
   /**
-   * 获取指定容器的媒体列表
-   * @param {string} [containerId] - 容器 ID，缺省回退为窗口当前容器
+   * 获取指定 webview 的媒体列表
+   * @param {number} webContentsId - webview 的 webContents ID
    * @returns {Promise<Array<{url: string, type: string, source: string, timestamp: number}>>}
    */
-  getMediaList: (containerId) => ipcRenderer.invoke('media:get-list', containerId),
+  getMediaList: (webContentsId) => ipcRenderer.invoke('media:get-list', webContentsId),
 
   /**
    * 诊断用：嗅探管线各环节计数状态
@@ -1006,9 +1006,17 @@ contextBridge.exposeInMainWorld('mediaAPI', {
   /**
    * 创建播放器窗口并播放指定视频
    * @param {string} url - 视频 URL
-   * @returns {Promise<{success: boolean}>}
+   * @param {string} containerId - 来源容器 ID
+   * @returns {Promise<{success: boolean, reused: boolean}>}
    */
-  playMedia: (url) => ipcRenderer.invoke('media:play', url),
+  playMedia: (url, containerId) => ipcRenderer.invoke('media:play', url, containerId),
+
+  /**
+   * 获取指定容器的媒体列表（供播放器窗口使用）
+   * @param {string} containerId - 容器 ID
+   * @returns {Promise<Array>}
+   */
+  getMediaListForContainer: (containerId) => ipcRenderer.invoke('media:get-media-list', containerId),
 
   /**
    * 复制视频 URL 到系统剪贴板
@@ -1018,24 +1026,24 @@ contextBridge.exposeInMainWorld('mediaAPI', {
   copyMediaUrl: (url) => ipcRenderer.invoke('media:copy-url', url),
 
   /**
-   * 清空指定容器的媒体列表
-   * @param {string} [containerId] - 容器 ID，缺省回退为窗口当前容器
+   * 清空指定 webview 的媒体列表
+   * @param {number} webContentsId - webview 的 webContents ID
    * @returns {Promise<{success: boolean}>}
    */
-  clearMediaList: (containerId) => ipcRenderer.invoke('media:clear-list', containerId),
+  clearMediaList: (webContentsId) => ipcRenderer.invoke('media:clear-list', webContentsId),
 
   /**
    * 向主进程上报脚本注入检测到的视频
    * 脚本注入检测结果从渲染进程回传到主进程 MediaSniffer 的唯一桥梁
-   * @param {string} containerId - 容器 ID
+   * @param {number} webContentsId - webview 的 webContents ID
    * @param {Array<Object>} videos - 检测到的视频数组
    * @returns {Promise<{success: boolean}>}
    */
-  reportMediaDetected: (containerId, videos) => ipcRenderer.invoke('media:report-detected', containerId, videos),
+  reportMediaDetected: (webContentsId, videos) => ipcRenderer.invoke('media:report-detected', webContentsId, videos),
 
   /**
    * 监听媒体列表更新事件
-   * @param {Function} callback - 回调函数，参数为 { containerId, items }
+   * @param {Function} callback - 回调函数，参数为 { webContentsId, items }
    * @returns {Function} 取消监听的清理函数
    */
   onMediaListUpdate: (callback) => {
@@ -1043,6 +1051,56 @@ contextBridge.exposeInMainWorld('mediaAPI', {
     ipcRenderer.on('media:list-updated', handler);
     return () => ipcRenderer.removeListener('media:list-updated', handler);
   },
+});
+
+// ==================== 播放器窗口 API ====================
+
+/**
+ * 播放器窗口专用 API（独立命名空间，per D-04）
+ * 播放器窗口通过 window.playerAPI 访问
+ */
+contextBridge.exposeInMainWorld('playerAPI', {
+  /**
+   * 监听主进程发送的媒体播放数据
+   * @param {Function} callback - 回调函数，参数为 { url, mediaList, containerId }
+   * @returns {Function} 取消监听的清理函数
+   */
+  onPlayUrl: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('media:play-url', handler);
+    return () => ipcRenderer.removeListener('media:play-url', handler);
+  },
+
+  /**
+   * 切换播放器窗口全屏状态
+   * @returns {Promise<{fullscreen: boolean}>}
+   */
+  toggleFullscreen: () => ipcRenderer.invoke('player:toggle-fullscreen'),
+
+  /**
+   * 获取指定容器的媒体列表
+   * @param {string} containerId - 容器 ID
+   * @returns {Promise<Array>}
+   */
+  getMediaListForContainer: (containerId) => ipcRenderer.invoke('media:get-media-list', containerId),
+
+  /**
+   * 最小化播放器窗口
+   * @returns {Promise<void>}
+   */
+  minimizeWindow: () => ipcRenderer.invoke('player:minimize'),
+
+  /**
+   * 最大化/还原播放器窗口
+   * @returns {Promise<{maximized: boolean}>}
+   */
+  maximizeWindow: () => ipcRenderer.invoke('player:maximize'),
+
+  /**
+   * 关闭播放器窗口
+   * @returns {Promise<void>}
+   */
+  closeWindow: () => ipcRenderer.invoke('player:close'),
 });
 
 console.log('[Realm] Preload 脚本已加载');

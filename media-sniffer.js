@@ -2,7 +2,7 @@
  * Realm Browser - 媒体嗅探器核心引擎
  *
  * 封装三种视频检测方式：网络请求拦截、脚本注入回传、DOM 监听。
- * 检测结果按容器隔离存储，仅保存在内存中（per D-08），应用关闭后清空。
+ * 检测结果按 webview (webContentsId) 隔离存储，仅保存在内存中（per D-08），应用关闭后清空。
  *
  * @module media-sniffer
  */
@@ -58,14 +58,14 @@ const NON_MEDIA_URL_RE = /\.(jpe?g|png|gif|webp|svg|ico|bmp|avif)(\?|#|$)/i;
  * 2. 脚本注入（executeJavaScript + MutationObserver）
  * 3. DOM 监听（通过 webview ipc-message 回传）
  *
- * 数据模型：Map<containerId, MediaItem[]>
- * 去重策略：每个容器维护独立的 URL 去重集合（per D-05）
+ * 数据模型：Map<webContentsId, MediaItem[]>
+ * 去重策略：每个 webview 维护独立的 URL 去重集合（per D-05）
  */
 class MediaSniffer {
   constructor() {
-    /** @type {Map<string, Array<MediaItem>>} 容器 → 媒体列表 */
+    /** @type {Map<number, Array<MediaItem>>} webview webContentsId → 媒体列表 */
     this.mediaMap = new Map();
-    /** @type {Map<string, Set<string>>} 容器 → URL 去重集合（per D-05） */
+    /** @type {Map<number, Set<string>>} webview webContentsId → URL 去重集合（per D-05） */
     this.dedupSets = new Map();
     /**
      * guest 注册前到达的网络嗅探暂存（webContentsId → 条目数组）
@@ -119,8 +119,8 @@ class MediaSniffer {
   }
 
   /**
-   * 添加媒体记录到指定容器（per D-05 URL 去重，per D-06 字段定义）
-   * @param {string} containerId - 容器 ID
+   * 添加媒体记录到指定 webview（per D-05 URL 去重，per D-06 字段定义）
+   * @param {number} webContentsId - webview 的 webContents ID
    * @param {Object} item - 媒体信息
    * @param {string} item.url - 媒体 URL
    * @param {string} [item.type] - 视频类型（m3u8/mp4/flv/webm/unknown）
@@ -130,18 +130,22 @@ class MediaSniffer {
    * @param {string} [item.thumbnail] - 缩略图 URL
    * @returns {boolean} 是否为新增记录（false 表示重复）
    */
-  addMedia(containerId, item) {
-    if (!containerId || !item || !item.url) return false;
+  addMedia(webContentsId, item) {
+    if (!webContentsId || !item || !item.url) return false;
 
-    if (!this.dedupSets.has(containerId)) {
-      this.dedupSets.set(containerId, new Set());
+    // 过滤 HLS 分片（.ts）和 DRM 密钥（.key），不列入媒体列表
+    const FILTERED_URL_RE = /\.(ts|key)(\?|#|$)/i;
+    if (FILTERED_URL_RE.test(item.url)) return false;
+
+    if (!this.dedupSets.has(webContentsId)) {
+      this.dedupSets.set(webContentsId, new Set());
     }
-    if (!this.mediaMap.has(containerId)) {
-      this.mediaMap.set(containerId, []);
+    if (!this.mediaMap.has(webContentsId)) {
+      this.mediaMap.set(webContentsId, []);
     }
 
-    const dedupSet = this.dedupSets.get(containerId);
-    const mediaList = this.mediaMap.get(containerId);
+    const dedupSet = this.dedupSets.get(webContentsId);
+    const mediaList = this.mediaMap.get(webContentsId);
 
     // URL 去重检查（per D-05）
     if (dedupSet.has(item.url)) {
@@ -166,22 +170,22 @@ class MediaSniffer {
   }
 
   /**
-   * 获取指定容器的媒体列表副本（per D-11 每次携带完整列表）
-   * @param {string} containerId - 容器 ID
+   * 获取指定 webview 的媒体列表副本（per D-11 每次携带完整列表）
+   * @param {number} webContentsId - webview 的 webContents ID
    * @returns {Array<MediaItem>} 媒体列表副本
    */
-  getMediaList(containerId) {
-    const list = this.mediaMap.get(containerId);
+  getMediaList(webContentsId) {
+    const list = this.mediaMap.get(webContentsId);
     return list ? [...list] : [];
   }
 
   /**
-   * 清空指定容器的媒体列表和去重集合（per D-13/D-16）
-   * @param {string} containerId - 容器 ID
+   * 清空指定 webview 的媒体列表和去重集合（per D-13/D-16）
+   * @param {number} webContentsId - webview 的 webContents ID
    */
-  clearMediaList(containerId) {
-    this.mediaMap.delete(containerId);
-    this.dedupSets.delete(containerId);
+  clearMediaList(webContentsId) {
+    this.mediaMap.delete(webContentsId);
+    this.dedupSets.delete(webContentsId);
   }
 
   /**
@@ -217,7 +221,7 @@ class MediaSniffer {
     if (!isMediaType && !videoType && urlType === 'unknown') return;
     this.responsesMatched = (this.responsesMatched || 0) + 1;
 
-    // 通过 webContentsId 获取容器 ID
+    // 通过 webContentsId 直接存储，无需再解析容器 ID
     const containerId = this._getContainerIdForWebContents(details.webContentsId);
     if (!containerId) {
       // guest 尚未注册（did-attach 前首批响应）：暂存，注册时由 flushPending 补录
@@ -231,48 +235,47 @@ class MediaSniffer {
 
     const type = videoType || urlType;
 
-    const added = this.addMedia(containerId, {
+    const added = this.addMedia(details.webContentsId, {
       url: details.url,
       type,
       source: 'network',
     });
     if (added) {
-      console.log(`[Realm MediaSniffer] 嗅探到 [${containerId}] ${type}: ${details.url.slice(0, 120)}`);
+      console.log(`[Realm MediaSniffer] 嗅探到 [wc:${details.webContentsId}] ${type}: ${details.url.slice(0, 120)}`);
     }
 
     // 通知渲染进程（per D-10 即时通知，不做防抖）
-    this.notifyRenderer(containerId);
+    this.notifyRenderer(details.webContentsId);
   }
 
   /**
    * guest 注册（webview:register-container）时冲刷暂存的早期嗅探条目
    * @param {number} webContentsId - webview guest 的 webContents ID
-   * @param {string} containerId - 容器 ID
    */
-  flushPending(webContentsId, containerId) {
+  flushPending(webContentsId) {
     const pending = this.pendingByWcId.get(webContentsId);
     if (!pending || pending.length === 0) return;
     this.pendingByWcId.delete(webContentsId);
 
     let hasNew = false;
     for (const item of pending) {
-      if (this.addMedia(containerId, item)) hasNew = true;
+      if (this.addMedia(webContentsId, item)) hasNew = true;
     }
     if (hasNew) {
-      console.log(`[Realm MediaSniffer] 补录 ${pending.length} 条早期嗅探 [${containerId}]`);
-      this.notifyRenderer(containerId);
+      console.log(`[Realm MediaSniffer] 补录 ${pending.length} 条早期嗅探 [wc:${webContentsId}]`);
+      this.notifyRenderer(webContentsId);
     }
   }
 
   /**
    * 诊断用：返回嗅探管线各环节的计数状态
    * responsesSeen=0 → webRequest 未触发；matched=0 → 过滤全挡；
-   * pending>0 → guest 注册竞态；storeCounts 有值但 getMediaList 空 → 容器解析不一致
+   * pending>0 → guest 注册竞态；storeCounts 有值但 getMediaList 空 → webContentsId 解析不一致
    * @returns {Object} 诊断状态
    */
   debugState() {
     const storeCounts = {};
-    for (const [cid, list] of this.mediaMap) storeCounts[cid] = list.length;
+    for (const [wcId, list] of this.mediaMap) storeCounts[wcId] = list.length;
     const pendingCounts = {};
     for (const [wcId, list] of this.pendingByWcId) pendingCounts[wcId] = list.length;
     return {
@@ -285,49 +288,45 @@ class MediaSniffer {
 
   /**
    * 处理脚本注入检测到的视频（per D-02）
-   * @param {string} containerId - 容器 ID
+   * @param {number} webContentsId - webview 的 webContents ID
    * @param {Array<Object>} videos - 检测到的视频数组
    */
-  handleScriptDetected(containerId, videos) {
-    if (!containerId || !Array.isArray(videos)) return;
+  handleScriptDetected(webContentsId, videos) {
+    if (!webContentsId || !Array.isArray(videos)) return;
 
     let hasNew = false;
     for (const video of videos) {
       if (video && video.url) {
-        const added = this.addMedia(containerId, video);
+        const added = this.addMedia(webContentsId, video);
         if (added) hasNew = true;
       }
     }
 
     if (hasNew) {
-      this.notifyRenderer(containerId);
+      this.notifyRenderer(webContentsId);
     }
   }
 
   /**
-   * 通知渲染进程媒体列表更新（per D-09/D-11/D-12）
-   * 向属于目标容器的所有窗口推送，每个 BrowserWindow 独立接收（per D-12）
+   * 通知渲染进程媒体列表更新
+   * 广播所有窗口，渲染端按当前 webview 过滤
    *
-   * @param {string} containerId - 容器 ID
+   * @param {number} webContentsId - webview 的 webContents ID
    * @private
    */
-  notifyRenderer(containerId) {
+  notifyRenderer(webContentsId) {
     const { BrowserWindow } = require('electron');
-    const windowManager = require('./window-manager');
 
-    const items = this.getMediaList(containerId);
-    const payload = { containerId, items };
+    const items = this.getMediaList(webContentsId);
+    const payload = { webContentsId, items };
 
     const windows = BrowserWindow.getAllWindows();
     for (const win of windows) {
       if (win.isDestroyed()) continue;
-      const winContainerId = windowManager.getCurrentContainer(win.id);
-      if (winContainerId === containerId) {
-        try {
-          win.webContents.send('media:list-updated', payload);
-        } catch (err) {
-          console.error(`[Realm MediaSniffer] 通知窗口 ${win.id} 失败:`, err.message);
-        }
+      try {
+        win.webContents.send('media:list-updated', payload);
+      } catch (err) {
+        console.error(`[Realm MediaSniffer] 通知窗口 ${win.id} 失败:`, err.message);
       }
     }
   }
@@ -367,6 +366,28 @@ class MediaSniffer {
     }
 
     return null;
+  }
+}
+
+  /**
+   * 获取指定容器的全部媒体列表（遍历所有属于该容器的 webview）
+   * 供播放器窗口获取播放列表（D-16）
+   * @param {string} containerId - 容器 ID
+   * @returns {Array<MediaItem>} 该容器下所有媒体的合并列表
+   */
+  getMediaListByContainer(containerId) {
+    if (!containerId) return [];
+
+    const result = [];
+    for (const [wcId, list] of this.mediaMap) {
+      const cid = this._getContainerIdForWebContents(wcId);
+      if (cid === containerId) {
+        result.push(...list);
+      }
+    }
+    // 按时间戳排序（最新在前）
+    result.sort((a, b) => b.timestamp - a.timestamp);
+    return result;
   }
 }
 
