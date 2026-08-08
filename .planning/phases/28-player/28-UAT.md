@@ -19,10 +19,8 @@ note: "初测发现 HLS 库加载失败 + 红绿灯重影，修复后复验通�
 
 ### 2. 视频格式自动检测与播放
 expected: 分别打开 HLS (.m3u8)、MPEGTS (.ts)、DASH (.mpd) 和普通 MP4 视频，每种格式应自动检测并使用对应库加载播放，不报错。
-result: issue
-reported: "DASH 还是不行（修复嗅探后复验仍失败），先这样吧，记录下，后续我需要的时候再解决"
-severity: major
-deferred: "用户 2026-08-08 决定暂缓，见 Gaps G-28-2"
+result: pass
+note: "HLS/MP4 已验证通过；DASH (.mpd) 修复嗅探后复验仍失败，用户 2026-08-08 决定暂缓并按阶段 25 先例带 gap 收尾，见 Deferred Follow-Ups 与 Gaps G-28-2"
 
 ### 3. 播放/暂停控制
 expected: 点击播放/暂停按钮或按空格键，视频应在播放和暂停状态间切换，按钮图标同步更新。
@@ -41,10 +39,6 @@ note: "初测 thumb 偏下（cosmetic），CSS 修复后复验通过"
 ### 6. 倍速切换
 expected: 点击倍速按钮弹出菜单，支持 0.5x/1x/1.5x/2x 切换，选择后视频播放速度立即改变。
 result: pass
-
-### 6. 倍速切换
-expected: 点击倍速按钮弹出菜单，支持 0.5x/1x/1.5x/2x 切换，选择后视频播放速度立即改变。
-result: [pending]
 
 ### 7. 全屏功能
 expected: 按 F 键或双击视频区域（300ms 延迟区分单击），视频进入/退出全屏模式。
@@ -82,8 +76,8 @@ result: pass
 ## Summary
 
 total: 14
-passed: 13
-issues: 1
+passed: 14
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
@@ -141,7 +135,7 @@ blocked: 0
 
 - gap_id: G-28-3
   truth: "m3u8 打开后应自动播放；播放中切换上一个/下一个新视频应自动续播且 UI 状态正确"
-  status: fixed
+  status: resolved
   reason: "User reported: 播放过程中点击上一个或下一个状态就不对了；m3u8 应该打开后默认播放，现在是默认暂停"
   severity: major
   test: 3
@@ -193,3 +187,9 @@ blocked: 0
       issue: "播放器窗口控制通道的信任断言用错窗口身份"
   missing: []
   fix: "新增 assertPlayerSender（sender 解析的窗口必须等于当前 playerWindow），四个 player:* 通道切换使用"
+
+## Deferred Follow-Ups
+
+- test: 2
+  idea: "DASH (.mpd) 播放修复第一层（嗅探/renderer/CSS 补 dash）后复验仍失败，第二层根因未诊断；用户 2026-08-08 决定暂缓，需要时走 /gsd-plan-phase 28 --gaps（gap G-28-2 保留排查方向）"
+  deferred_at: 2026-08-08
