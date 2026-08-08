@@ -3,97 +3,104 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; media-src * blob: data:; connect-src * blob: data:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval'; media-src * blob: data:; connect-src * blob: data:; worker-src 'self' blob:; img-src * blob: data:">
   <title>Realm Player</title>
-  <link rel="stylesheet" href="styles/main.css">
-  <style>
-    /**
-     * Realm Player 占位页面样式
-     * Phase 28 将替换为完整的播放器 UI
-     */
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    html, body {
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: #1a1a1a;
-      color: #e0e0e0;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    }
-
-    #player-container {
-      width: 100%;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-    }
-
-    #player {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      background: #000;
-    }
-
-    #loading-hint {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 14px;
-      color: #888;
-      pointer-events: none;
-      transition: opacity 0.3s ease;
-    }
-
-    #loading-hint.hidden {
-      opacity: 0;
-    }
-  </style>
+  <link rel="stylesheet" href="player.css">
 </head>
 <body>
+  <!-- 播放器最外层容器 -->
   <div id="player-container">
-    <video id="player" controls autoplay></video>
-    <div id="loading-hint">等待视频加载...</div>
+
+    <!-- 自定义标题栏（macOS 红绿灯） -->
+    <div id="title-bar">
+      <div class="title-bar-buttons">
+        <button class="title-btn title-btn-close" id="btn-close" title="关闭">
+          <svg class="title-btn-icon" viewBox="0 0 12 12"><path d="M3.5 3.5l5 5M8.5 3.5l-5 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        </button>
+        <button class="title-btn title-btn-minimize" id="btn-minimize" title="最小化">
+          <svg class="title-btn-icon" viewBox="0 0 12 12"><path d="M2.5 6h7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        </button>
+        <button class="title-btn title-btn-maximize" id="btn-maximize" title="最大化">
+          <svg class="title-btn-icon" viewBox="0 0 12 12"><path d="M3 3h6v6H3z" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+        </button>
+      </div>
+      <div class="title-bar-text" id="title-text"></div>
+    </div>
+
+    <!-- 视频元素 -->
+    <video id="player"></video>
+
+    <!-- 暂停时中央大播放按钮覆盖层 -->
+    <div id="play-overlay">
+      <svg class="play-overlay-icon" viewBox="0 0 48 48">
+        <circle cx="24" cy="24" r="22" fill="rgba(0,0,0,0.5)" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+        <path d="M19 14l14 10-14 10z" fill="#fff"/>
+      </svg>
+    </div>
+
+    <!-- 控制栏容器 -->
+    <div id="controls-container">
+      <!-- 进度条行（全宽） -->
+      <div id="progress-container">
+        <div class="progress-track" id="progress-track">
+          <div class="progress-buffered" id="progress-buffered"></div>
+          <div class="progress-played" id="progress-played"></div>
+          <div class="progress-handle" id="progress-handle"></div>
+        </div>
+        <div class="progress-preview" id="progress-preview">00:00</div>
+      </div>
+
+      <!-- 控制按钮行 -->
+      <div id="controls">
+        <!-- 左组：播放/暂停、上一个、下一个、时间显示 -->
+        <div class="controls-left">
+          <button class="control-btn" id="btn-play" title="播放">
+            <svg id="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
+            <svg id="icon-pause" viewBox="0 0 24 24" style="display:none"><path d="M6 4h4v16H6zm8 0h4v16h-4z" fill="currentColor"/></svg>
+          </button>
+          <button class="control-btn" id="btn-prev" title="上一个">
+            <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" fill="currentColor"/></svg>
+          </button>
+          <button class="control-btn" id="btn-next" title="下一个">
+            <svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zm-3.5 6L4 6v12z" fill="currentColor"/></svg>
+          </button>
+          <span class="time-display" id="time-display">00:00 / 00:00</span>
+        </div>
+
+        <!-- 右组：音量、倍速、画中画、全屏 -->
+        <div class="controls-right">
+          <button class="control-btn" id="btn-volume" title="静音">
+            <svg id="icon-volume-high" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" fill="currentColor"/></svg>
+            <svg id="icon-volume-low" viewBox="0 0 24 24" style="display:none"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z" fill="currentColor"/></svg>
+            <svg id="icon-volume-mute" viewBox="0 0 24 24" style="display:none"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z" fill="currentColor"/></svg>
+          </button>
+          <input type="range" class="volume-slider" id="volume-slider" min="0" max="1" step="0.01" value="1">
+          <button class="control-btn" id="btn-speed" title="倍速">1x</button>
+          <button class="control-btn" id="btn-pip" title="画中画">
+            <svg viewBox="0 0 24 24"><path d="M19 7h-8v6h8V7zm2-4H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14z" fill="currentColor"/></svg>
+          </button>
+          <button class="control-btn" id="btn-fullscreen" title="全屏">
+            <svg id="icon-fullscreen-enter" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" fill="currentColor"/></svg>
+            <svg id="icon-fullscreen-exit" viewBox="0 0 24 24" style="display:none"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" fill="currentColor"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 倍速选择菜单 -->
+    <div id="speed-menu">
+      <div class="speed-option" data-speed="0.5">0.5x</div>
+      <div class="speed-option active" data-speed="1">1x</div>
+      <div class="speed-option" data-speed="1.5">1.5x</div>
+      <div class="speed-option" data-speed="2">2x</div>
+    </div>
+
+    <!-- 错误提示 -->
+    <div id="error-hint" style="display:none">
+      <p id="error-text"></p>
+    </div>
   </div>
 
-  <script>
-    /**
-     * Realm Player 占位页面脚本
-     * 监听主进程 media:play-url 事件，收到 URL 后设置 video.src 并播放
-     * Phase 28 将替换为完整的播放器功能（hls.js / mpegts.js 集成）
-     */
-    const video = document.getElementById('player');
-    const loadingHint = document.getElementById('loading-hint');
-
-    // 监听主进程传入的视频 URL
-    if (window.realmAPI && window.realmAPI.onIpcMessage) {
-      window.realmAPI.onIpcMessage('media:play-url', (url) => {
-        loadingHint.classList.add('hidden');
-        video.src = url;
-        video.play().catch((err) => {
-          console.error('[Realm Player] 播放失败:', err);
-        });
-      });
-    }
-
-    // 视频加载完成后隐藏提示
-    video.addEventListener('loadeddata', () => {
-      loadingHint.classList.add('hidden');
-    });
-
-    // 视频出错时显示错误提示
-    video.addEventListener('error', () => {
-      loadingHint.textContent = '视频加载失败';
-      loadingHint.classList.remove('hidden');
-    });
-  </script>
+  <script src="player.js"></script>
 </body>
 </html>

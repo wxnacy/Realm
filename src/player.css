@@ -1,0 +1,418 @@
+/**
+ * Realm Player - 播放器独立样式
+ * 沉浸式暗色风格，不引用 main.css
+ */
+
+/* ==================== CSS 变量 ==================== */
+:root {
+  --player-bg: #000000;
+  --player-accent: #3B82F6;
+  --player-text: #ffffff;
+  --player-text-secondary: rgba(255, 255, 255, 0.7);
+  --player-progress-track: rgba(255, 255, 255, 0.2);
+  --player-progress-hover: rgba(255, 255, 255, 0.4);
+  --player-control-hover: rgba(255, 255, 255, 0.15);
+  --player-gradient: linear-gradient(to top, rgba(0, 0, 0, 0.7) 0%, transparent 100%);
+}
+
+/* ==================== 全局重置 ==================== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--player-bg);
+  color: var(--player-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* ==================== 播放器容器 ==================== */
+#player-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ==================== 视频元素 ==================== */
+#player {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--player-bg);
+}
+
+/* ==================== 自定义标题栏 ==================== */
+#title-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.6);
+  -webkit-app-region: drag;
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+#title-bar.visible {
+  opacity: 1;
+}
+
+.title-bar-buttons {
+  display: flex;
+  gap: 8px;
+  padding-left: 12px;
+  -webkit-app-region: no-drag;
+}
+
+.title-btn {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s ease;
+}
+
+.title-btn-icon {
+  width: 8px;
+  height: 8px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.title-bar-buttons:hover .title-btn-icon {
+  opacity: 1;
+}
+
+.title-btn-close {
+  background: #FF5F57;
+}
+
+.title-btn-minimize {
+  background: #FEBC2E;
+}
+
+.title-btn-maximize {
+  background: #28C840;
+}
+
+.title-btn:hover {
+  opacity: 0.8;
+}
+
+.title-bar-text {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+  color: var(--player-text-secondary);
+  padding-right: 72px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ==================== 暂停覆盖层 ==================== */
+#play-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  z-index: 50;
+}
+
+#play-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.play-overlay-icon {
+  width: 64px;
+  height: 64px;
+  cursor: pointer;
+}
+
+/* ==================== 控制栏容器 ==================== */
+#controls-container {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--player-gradient);
+  padding: 0 16px 8px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 90;
+}
+
+#controls-container.visible {
+  opacity: 1;
+}
+
+/* ==================== 进度条 ==================== */
+#progress-container {
+  position: relative;
+  width: 100%;
+  height: 20px;
+  display: flex;
+  align-items: flex-end;
+  cursor: pointer;
+  padding-bottom: 4px;
+}
+
+.progress-track {
+  position: relative;
+  width: 100%;
+  height: 3px;
+  background: var(--player-progress-track);
+  border-radius: 1.5px;
+  transition: height 0.15s ease;
+  overflow: visible;
+}
+
+#progress-container:hover .progress-track,
+#progress-container.dragging .progress-track {
+  height: 5px;
+}
+
+.progress-buffered {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 1.5px;
+  width: 0%;
+}
+
+.progress-played {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--player-accent);
+  border-radius: 1.5px;
+  width: 0%;
+}
+
+.progress-handle {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform 0.15s ease;
+  z-index: 10;
+}
+
+#progress-container:hover .progress-handle,
+#progress-container.dragging .progress-handle {
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.progress-preview {
+  position: absolute;
+  bottom: 24px;
+  left: 0;
+  background: rgba(0, 0, 0, 0.85);
+  color: var(--player-text);
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  white-space: nowrap;
+}
+
+#progress-container:hover .progress-preview {
+  opacity: 1;
+}
+
+/* ==================== 控制按钮行 ==================== */
+#controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  margin-top: 4px;
+}
+
+.controls-left,
+.controls-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ==================== 控制按钮 ==================== */
+.control-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--player-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.control-btn:hover {
+  background: var(--player-control-hover);
+}
+
+.control-btn svg {
+  width: 24px;
+  height: 24px;
+}
+
+.control-btn.disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* ==================== 时间显示 ==================== */
+.time-display {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--player-text);
+  font-variant-numeric: tabular-nums;
+  margin-left: 4px;
+}
+
+/* ==================== 音量滑块 ==================== */
+.volume-slider {
+  width: 80px;
+  height: 3px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--player-progress-track);
+  border-radius: 1.5px;
+  outline: none;
+  cursor: pointer;
+  transition: height 0.15s ease;
+}
+
+.volume-slider:hover {
+  height: 5px;
+}
+
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-radius: 50%;
+  cursor: pointer;
+  transform: scale(0);
+  transition: transform 0.15s ease;
+}
+
+.volume-slider:hover::-webkit-slider-thumb {
+  transform: scale(1);
+}
+
+.volume-slider::-webkit-slider-runnable-track {
+  height: 3px;
+  background: linear-gradient(to right, var(--player-accent) 0%, var(--player-accent) var(--volume-percent, 100%), var(--player-progress-track) var(--volume-percent, 100%));
+  border-radius: 1.5px;
+}
+
+/* ==================== 倍速按钮 ==================== */
+#btn-speed {
+  font-size: 13px;
+  font-weight: 600;
+  min-width: 36px;
+}
+
+/* ==================== 倍速菜单 ==================== */
+#speed-menu {
+  position: absolute;
+  bottom: 52px;
+  right: 16px;
+  background: rgba(0, 0, 0, 0.85);
+  border-radius: 4px;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 95;
+}
+
+#speed-menu.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.speed-option {
+  height: 32px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  color: var(--player-text);
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+.speed-option:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.speed-option.active {
+  color: var(--player-accent);
+  font-weight: 600;
+}
+
+/* ==================== 错误提示 ==================== */
+#error-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  z-index: 60;
+}
+
+#error-hint p {
+  font-size: 14px;
+  color: var(--player-text-secondary);
+}
+
+/* ==================== 全屏时标题栏隐藏 ==================== */
+body.fullscreen #title-bar {
+  display: none;
+}
