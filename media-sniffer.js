@@ -48,6 +48,12 @@ const FILTERED_CONTENT_TYPES = new Set([
  */
 const NON_MEDIA_URL_RE = /\.(jpe?g|png|gif|webp|svg|ico|bmp|avif)(\?|#|$)/i;
 
+/**
+ * 需要过滤的 HLS 分片和 DRM 密钥 URL 模式
+ * @type {RegExp}
+ */
+const FILTERED_URL_RE = /\.(ts|key)(\?|#|$)/i;
+
 // ==================== MediaSniffer 类 ====================
 
 /**
@@ -134,7 +140,6 @@ class MediaSniffer {
     if (!webContentsId || !item || !item.url) return false;
 
     // 过滤 HLS 分片（.ts）和 DRM 密钥（.key），不列入媒体列表
-    const FILTERED_URL_RE = /\.(ts|key)(\?|#|$)/i;
     if (FILTERED_URL_RE.test(item.url)) return false;
 
     if (!this.dedupSets.has(webContentsId)) {
@@ -296,10 +301,10 @@ class MediaSniffer {
 
     let hasNew = false;
     for (const video of videos) {
-      if (video && video.url) {
-        const added = this.addMedia(webContentsId, video);
-        if (added) hasNew = true;
-      }
+      if (!video || typeof video.url !== 'string' || !video.url.startsWith('http')) continue;
+      if (video.type && typeof video.type !== 'string') continue;
+      const added = this.addMedia(webContentsId, video);
+      if (added) hasNew = true;
     }
 
     if (hasNew) {
