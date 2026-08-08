@@ -1503,12 +1503,17 @@ function registerHandlers() {
    */
   ipcMain.handle('settings:get', (event) => {
     assertTrustedSender(event);
-    return configStore.get('settings', {
+    const settings = configStore.get('settings', {
       historyRetentionDays: 30,
       defaultContainer: 'last-used',
       isDefaultBrowser: false,
       restoreTabsOnLaunch: 'ask',
     });
+    // 多媒体播放器设置默认值（per D-03）
+    if (!settings.mediaPlayer) {
+      settings.mediaPlayer = { enabled: false, whitelist: [] };
+    }
+    return settings;
   });
 
   /**
