@@ -5933,6 +5933,12 @@ textarea::placeholder {
   position: relative;
 }
 
+/* 工具栏媒体按钮激活态 */
+#mediaPanelBtn.active {
+  color: var(--accent-color);
+  background-color: var(--bg-hover);
+}
+
 /* 数量提示徽标（红底白字，按钮右上角） */
 .media-badge {
   position: absolute;

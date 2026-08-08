@@ -147,10 +147,72 @@ async function saveCookies(containerId) {
     });
 
     // 合并：session cookie + 保留的旧 cookie
-    const mergedCookies = [...formattedSessionCookies, ...preservedCookies];
+    let mergedCookies = [...formattedSessionCookies, ...preservedCookies];
+
+    // 去重：当同一 name|path 同时存在于 www.xxx.cn 和 .www.xxx.cn 时，
+    // 只保留无前导点的 host-only 版本
+    const deduped = [];
+    const seen = new Map();
+    let removedCount = 0;
+
+    for (const cookie of mergedCookies) {
+      const bareDomain = cookie.domain.startsWith('.') ? cookie.domain.slice(1) : cookie.domain;
+      const key = `${cookie.name}|${cookie.path}|${bareDomain}`;
+
+      if (seen.has(key)) {
+        const existingIdx = seen.get(key);
+        const existing = deduped[existingIdx];
+        if (cookie.domain.startsWith('.') && !existing.domain.startsWith('.')) {
+          removedCount++;
+          continue;
+        }
+        if (!cookie.domain.startsWith('.') && existing.domain.startsWith('.')) {
+          deduped[existingIdx] = cookie;
+          removedCount++;
+          continue;
+        }
+      }
+
+      seen.set(key, deduped.length);
+      deduped.push(cookie);
+    }
+
+    if (removedCount > 0) {
+      mergedCookies = deduped;
+    }
 
     // 保存合并后的结果
     fs.writeFileSync(filePath, JSON.stringify(mergedCookies, null, 2));
+
+    // 清理 session 中的 .www 重复项（运行时服务端可能重新设 .www cookie）
+    try {
+      const currentSession = await ses.cookies.get({});
+      const sessionSet = new Set(
+        currentSession
+          .filter(c => !c.domain.startsWith('.'))
+          .map(c => `${c.name}|${c.path}|${c.domain}`)
+      );
+      let cleaned = 0;
+      for (const sc of currentSession) {
+        if (!sc.domain.startsWith('.')) continue;
+        const bareDomain = sc.domain.slice(1);
+        const dedupKey = `${sc.name}|${sc.path}|${bareDomain}`;
+        if (sessionSet.has(dedupKey)) {
+          const protocol = sc.secure ? 'https' : 'http';
+          const url = `${protocol}://${bareDomain}${sc.path || '/'}`;
+          try {
+            await ses.cookies.remove(url, sc.name);
+            cleaned++;
+            console.log(`[Realm] Session 去重: 移除 ${sc.domain}|${sc.name}`);
+          } catch (e) {
+            console.warn(`[Realm] Session 去重失败: ${sc.domain}|${sc.name}: ${e.message}`);
+          }
+        }
+      }
+      if (cleaned > 0) console.log(`[Realm] Session 去重完成: 移除 ${cleaned} 个 .www cookie`);
+    } catch (e) {
+      console.warn(`[Realm] Session Cookie 去重失败: ${containerId}`, e.message);
+    }
 
     console.log(`[Realm] 保存容器 Cookie: ${containerId} (${formattedSessionCookies.length} session + ${preservedCookies.length} 保留 = ${mergedCookies.length} 总计)`);
 
@@ -249,10 +311,72 @@ async function saveDomainCookies(containerId, domain, includeSubdomains = true) 
     });
 
     // 合并：过滤后的 session cookie + 保留的旧 cookie
-    const mergedCookies = [...formattedCookies, ...preservedCookies];
+    let mergedCookies = [...formattedCookies, ...preservedCookies];
+
+    // 去重：当同一 name|path 同时存在于 www.xxx.cn 和 .www.xxx.cn 时，
+    // 只保留无前导点的 host-only 版本
+    const deduped = [];
+    const seen = new Map();
+    let removedCount = 0;
+
+    for (const cookie of mergedCookies) {
+      const bareDomain = cookie.domain.startsWith('.') ? cookie.domain.slice(1) : cookie.domain;
+      const key = `${cookie.name}|${cookie.path}|${bareDomain}`;
+
+      if (seen.has(key)) {
+        const existingIdx = seen.get(key);
+        const existing = deduped[existingIdx];
+        if (cookie.domain.startsWith('.') && !existing.domain.startsWith('.')) {
+          removedCount++;
+          continue;
+        }
+        if (!cookie.domain.startsWith('.') && existing.domain.startsWith('.')) {
+          deduped[existingIdx] = cookie;
+          removedCount++;
+          continue;
+        }
+      }
+
+      seen.set(key, deduped.length);
+      deduped.push(cookie);
+    }
+
+    if (removedCount > 0) {
+      mergedCookies = deduped;
+    }
 
     // 保存合并后的结果
     fs.writeFileSync(filePath, JSON.stringify(mergedCookies, null, 2));
+
+    // 清理 session 中的 .www 重复项（运行时服务端可能重新设 .www cookie）
+    try {
+      const currentSession = await ses.cookies.get({});
+      const sessionSet = new Set(
+        currentSession
+          .filter(c => !c.domain.startsWith('.'))
+          .map(c => `${c.name}|${c.path}|${c.domain}`)
+      );
+      let cleaned = 0;
+      for (const sc of currentSession) {
+        if (!sc.domain.startsWith('.')) continue;
+        const bareDomain = sc.domain.slice(1);
+        const dedupKey = `${sc.name}|${sc.path}|${bareDomain}`;
+        if (sessionSet.has(dedupKey)) {
+          const protocol = sc.secure ? 'https' : 'http';
+          const url = `${protocol}://${bareDomain}${sc.path || '/'}`;
+          try {
+            await ses.cookies.remove(url, sc.name);
+            cleaned++;
+            console.log(`[Realm] Session 去重: 移除 ${sc.domain}|${sc.name}`);
+          } catch (e) {
+            console.warn(`[Realm] Session 去重失败: ${sc.domain}|${sc.name}: ${e.message}`);
+          }
+        }
+      }
+      if (cleaned > 0) console.log(`[Realm] Session 去重完成: 移除 ${cleaned} 个 .www cookie`);
+    } catch (e) {
+      console.warn(`[Realm] Session Cookie 去重失败: ${containerId}`, e.message);
+    }
 
     console.log(`[Realm] 保存域名 Cookie: ${containerId} / ${domain} (${formattedCookies.length} 匹配 + ${preservedCookies.length} 保留 = ${mergedCookies.length} 总计)`);
 
@@ -282,7 +406,7 @@ async function compareDomainCookies(containerId, domain) {
     const ses = session.fromPartition(partition);
 
     const sessionCookies = await ses.cookies.get({});
-    const formattedSession = filterAndFormatDomainCookies(sessionCookies, domain, true);
+    let formattedSession = filterAndFormatDomainCookies(sessionCookies, domain, true);
 
     // 读取 cookies.json 并过滤同一域名集合，排除已过期项
     const filePath = getCookieFilePath(containerId);
@@ -296,14 +420,34 @@ async function compareDomainCookies(containerId, domain) {
       }
     }
     const now = Date.now() / 1000;
-    const formattedFile = filterAndFormatDomainCookies(fileCookies, domain, true)
+    let formattedFile = filterAndFormatDomainCookies(fileCookies, domain, true)
       .filter(c => !c.expirationDate || c.expirationDate >= now);
 
-    // 键 domain|name|path → 值 value|expirationDate
+    // 键 bareDomain|name|path → 值 value|expirationDate
+    // 使用裸域名（去掉前导点），使得 .www.codebuddy.cn 和 www.codebuddy.cn 视为同一域名
     const toMap = (arr) => {
       const map = new Map();
+      const seen = new Map();
+      const result = [];
       for (const c of arr) {
-        map.set(`${c.domain}|${c.name}|${c.path}`, `${c.value}|${c.expirationDate ?? ''}`);
+        const bareDomain = c.domain.startsWith('.') ? c.domain.slice(1) : c.domain;
+        const key = `${c.name}|${c.path}|${bareDomain}`;
+        // 同一裸域名下去重：优先保留无前导点的 host-only 版本
+        if (seen.has(key)) {
+          const existingIdx = seen.get(key);
+          const existing = result[existingIdx];
+          if (c.domain.startsWith('.') && !existing.domain.startsWith('.')) continue;
+          if (!c.domain.startsWith('.') && existing.domain.startsWith('.')) {
+            result[existingIdx] = c;
+            continue;
+          }
+        }
+        seen.set(key, result.length);
+        result.push(c);
+      }
+      for (const c of result) {
+        const bareDomain = c.domain.startsWith('.') ? c.domain.slice(1) : c.domain;
+        map.set(`${bareDomain}|${c.name}|${c.path}`, `${c.value}|${c.expirationDate ?? ''}`);
       }
       return map;
     };
@@ -314,8 +458,15 @@ async function compareDomainCookies(containerId, domain) {
     // file 可以比 session 多（累积存储），不影响同步状态
     let inSync = true;
     for (const [key, val] of sessionMap) {
-      if (fileMap.get(key) !== val) {
+      const fileVal = fileMap.get(key);
+      if (fileVal !== val) {
         inSync = false;
+        console.log(`[Realm] Cookie 同步检查失败: ${domain}`);
+        console.log(`  不同步项: ${key}`);
+        console.log(`  session: ${val}`);
+        console.log(`  file:    ${fileVal}`);
+        console.log(`  session keys: ${[...sessionMap.keys()].join(', ')}`);
+        console.log(`  file keys: ${[...fileMap.keys()].join(', ')}`);
         break;
       }
     }
@@ -368,7 +519,44 @@ async function loadCookies(containerId) {
 
     // 读取文件
     const data = fs.readFileSync(filePath, 'utf8');
-    const cookies = JSON.parse(data);
+    let cookies = JSON.parse(data);
+
+    // 去重：当同一 name|path 同时存在于 www.xxx.cn 和 .www.xxx.cn 时，
+    // 只保留无前导点的 host-only 版本，丢弃 .www.xxx.cn 的 domain 版本
+    // 原因：服务端（Keycloak）可能同时往两个域设 cookie，导致请求头翻倍超限
+    const deduped = [];
+    const seen = new Map(); // key: name|path|bareDomain → index in deduped
+    let removedCount = 0;
+
+    for (const cookie of cookies) {
+      const bareDomain = cookie.domain.startsWith('.') ? cookie.domain.slice(1) : cookie.domain;
+      const key = `${cookie.name}|${cookie.path}|${bareDomain}`;
+
+      if (seen.has(key)) {
+        const existingIdx = seen.get(key);
+        const existing = deduped[existingIdx];
+        // 当前 cookie 是 .www 版本，已有的是 www 版本 → 丢弃当前
+        if (cookie.domain.startsWith('.') && !existing.domain.startsWith('.')) {
+          removedCount++;
+          continue;
+        }
+        // 当前 cookie 是 www 版本，已有的是 .www 版本 → 替换
+        if (!cookie.domain.startsWith('.') && existing.domain.startsWith('.')) {
+          deduped[existingIdx] = cookie;
+          removedCount++;
+          continue;
+        }
+      }
+
+      seen.set(key, deduped.length);
+      deduped.push(cookie);
+    }
+
+    if (removedCount > 0) {
+      cookies = deduped;
+      fs.writeFileSync(filePath, JSON.stringify(cookies, null, 2));
+      console.log(`[Realm] Cookie 去重: ${containerId} (移除 ${removedCount} 个 .www 重复项)`);
+    }
 
     // 获取容器的 session
     const partition = `persist:container-${containerId}`;
@@ -400,6 +588,33 @@ async function loadCookies(containerId) {
       } catch (err) {
         console.error(`[Realm] 设置 Cookie 失败: ${cookie.name}`, err.message);
       }
+    }
+
+    // 清理 session 中已有的 .www 重复项（partition 数据库可能残留旧数据）
+    try {
+      const sessionCookies = await ses.cookies.get({});
+      const sessionSet = new Set(
+        sessionCookies
+          .filter(c => !c.domain.startsWith('.'))
+          .map(c => `${c.name}|${c.path}|${c.domain}`)
+      );
+
+      for (const sc of sessionCookies) {
+        if (!sc.domain.startsWith('.')) continue;
+        const bareDomain = sc.domain.slice(1);
+        const dedupKey = `${sc.name}|${sc.path}|${bareDomain}`;
+        if (sessionSet.has(dedupKey)) {
+          const protocol = sc.secure ? 'https' : 'http';
+          const url = `${protocol}://${bareDomain}${sc.path || '/'}`;
+          try {
+            await ses.cookies.remove(url, sc.name);
+          } catch (e) {
+            // 忽略删除失败（可能已被其他流程清理）
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`[Realm] Session Cookie 去重失败: ${containerId}`, e.message);
     }
 
     console.log(`[Realm] 加载容器 Cookie: ${containerId} (${loaded}/${cookies.length} 个)`);

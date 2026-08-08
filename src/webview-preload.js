@@ -30,3 +30,11 @@ contextBridge.exposeInMainWorld('__realmBridge', {
     ipcRenderer.sendToHost('media:detected', videos);
   },
 });
+
+/**
+ * 捕获 guest 页面 mousedown 事件并转发到 renderer 进程
+ * 用于关闭浮动媒体面板（点网页区域关面板，点面板自身不触发）
+ */
+window.addEventListener('mousedown', () => {
+  ipcRenderer.sendToHost('media:outside-click');
+}, true);

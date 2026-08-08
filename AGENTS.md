@@ -136,6 +136,23 @@ window.open(url, '_blank');
 - 保存按钮永远是 `session → file` 单向：无论停在哪个 tab，IPC 都只从 session 读。File tab 下保存按钮 `disabled`（`updateSourceTabUI` 联动）
 - Cookie 行的 domain 列：无前导点 = host-only，有 `.` 前缀 = domain cookie（含子域）。UI 用 `cookie-badge-hostonly` 徽标区分，避免看起来像重复行
 
+### Cookie `.www` 域名去重机制
+
+**背景**：Keycloak 登录时会同时往 `www.codebuddy.cn` 和 `.www.codebuddy.cn` 两个域设 cookie，导致请求头翻倍，触发 nginx 400 Bad Request（Request Header Or Cookie Too Large）。
+
+**去重规则**：同一 `name|path|裸域名` 下，优先保留无前导点的 host-only 版本（`www.codebuddy.cn`），丢弃 `.www` domain 版本（`.www.codebuddy.cn`）。
+
+**改动时必须同步修改的三处**（都含 `.www` 去重逻辑）：
+
+| 位置 | 函数 | 作用 |
+|------|------|------|
+| `cookie-manager.js` | `loadCookies` | 启动时：文件去重 + session 去重 |
+| `cookie-manager.js` | `saveCookies` | 退出/手动保存时：合并去重 + session 去重 |
+| `cookie-manager.js` | `saveDomainCookies` | 快速保存时：合并去重 + session 去重 |
+| `cookie-manager.js` | `compareDomainCookies` | 同步检查时：`toMap` 内用裸域名做 key + 去重 |
+
+**核心原理**：session 去重只在保存时运行。服务端可能在浏览过程中重新设 `.www` cookie 到 session，所以每次保存后都要清理 session。比较时 `toMap` 统一用裸域名做 key，使得 `.www.codebuddy.cn|name` 和 `www.codebuddy.cn|name` 视为同一 cookie。
+
 ### `state.currentContainer` 同步约定
 
 修改 `state.currentContainer` 后必须重渲染侧边栏，否则「当前」徽标和 active 高亮会滞后：
