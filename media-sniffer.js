@@ -367,7 +367,6 @@ class MediaSniffer {
 
     return null;
   }
-}
 
   /**
    * 获取指定容器的全部媒体列表（遍历所有属于该容器的 webview）
