@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 29-
 source: [29-01-SUMMARY.md, 29-02-SUMMARY.md]
 started: 2026-08-08T18:00:00+08:00
@@ -86,13 +86,31 @@ skipped: 0
   reason: "User reported: 输入 test 也通过了，基本的域名格式应该校验下"
   severity: major
   test: 4
-  artifacts: []
-  missing: []
+  root_cause: "addWhitelistDomain（src/settings-page.js:1518）只有字符黑名单校验 /[^\\w.\\-]/，无域名结构校验——test 全由 \\w 组成直接通过；同正则还放行 ..、-、a..b、.com、com 等结构垃圾。消费端 isDomainWhitelisted（main.js:347）不过滤脏条目：com 会匹配所有 .com 站点（白名单形同虚设），test 永不匹配（静默失效）"
+  artifacts:
+    - path: "src/settings-page.js:1518"
+      issue: "addWhitelistDomain 缺域名结构校验（主要修复点）"
+    - path: "src/settings-page.js:1247"
+      issue: "addDomain（开发者模式抓取域名）同构弱校验 /\\s/ + /[^\\w.-]/，可顺带共用修复"
+  missing:
+    - "抽 isValidDomain 共享校验函数（至少含一个点、每段非空、不以连字符开头/结尾）"
+    - "addWhitelistDomain 拒绝时复用现有 toast + highlightInputError，提示格式示例"
+  debug_session: .planning/debug/whitelist-domain-validation.md
 - gap_id: G-29-6
   truth: "切换功能开关后，主界面地址栏旁的媒体播放按钮应立即显示/隐藏，无需重启"
   status: failed
   reason: "User reported: 不行，地址栏后边的播放按钮必须重启才行，不能实时变更"
   severity: major
   test: 6
-  artifacts: []
-  missing: []
+  root_cause: "运行时同步通道是死代码：updateMediaPlayerVisibility 唯一运行期触发点是主文档 visibilitychange 监听（src/renderer.js:1936），但 realm://settings 是同一 renderer 文档内的 webview tab，切 tab 只改 webview CSS 可见性，document.hidden 永不变，监听只在窗口最小化/恢复时触发；且设置写入走 POST /api/settings/update → configStore.set（main.js:995），主进程无 settings-updated IPC 广播（全仓零匹配）。按钮显隐只有重启走 init() 才刷新"
+  artifacts:
+    - path: "src/renderer.js:1936-1945"
+      issue: "visibilitychange 监听挂在永不触发的主文档上（死代码）"
+    - path: "main.js:995-1002"
+      issue: "settings update 端点写 electron-store 后未广播变更事件"
+    - path: "src/renderer.js:5169-5189"
+      issue: "updateMediaPlayerVisibility 本身无 bug，只是运行期无人调用"
+  missing:
+    - "主进程 /api/settings/update 写入成功后 mainWindow.webContents.send('settings:updated', changedKeys)"
+    - "preload 暴露 onSettingsUpdated；renderer 订阅后重读 settings 并调 updateMediaPlayerVisibility"
+  debug_session: .planning/debug/media-button-realtime-visibility.md
