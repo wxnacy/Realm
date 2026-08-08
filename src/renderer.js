@@ -5190,8 +5190,10 @@ function renderMediaList() {
 
   elements.mediaEmptyState.classList.add('hidden');
 
+  const ALLOWED_MEDIA_TYPES = new Set(['m3u8', 'mp4', 'flv', 'webm', 'unknown']);
+
   elements.mediaList.innerHTML = state.mediaItems.map((item, index) => {
-    const type = item.type || 'unknown';
+    const type = ALLOWED_MEDIA_TYPES.has(item.type) ? item.type : 'unknown';
     const name = item.name || item.url.split('/').pop() || 'video';
     const urlPreview = formatMediaUrl(item.url);
 
