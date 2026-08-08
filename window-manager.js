@@ -14,6 +14,9 @@ const path = require('path');
 // BrowserWindow.fromWebContents() 解析出窗口再取 win.id，禁止混用。
 const windowContainerMap = new Map();
 
+/** 主窗口引用（模块级单例，createMainWindow 时登记，closed 时清除） */
+let mainWindowRef = null;
+
 /**
  * 创建主窗口
  * @param {string} containerId - 初始容器 ID
@@ -46,6 +49,7 @@ function createMainWindow(containerId, container) {
 
   // 记录窗口与容器的映射
   windowContainerMap.set(mainWindow.id, containerId);
+  mainWindowRef = mainWindow;
 
   // 加载 UI（WR-11：使用绝对路径——打包后进程 CWD 不保证为应用目录，相对路径会白屏）
   mainWindow.loadFile(path.join(__dirname, 'src/index.html'));
@@ -53,6 +57,7 @@ function createMainWindow(containerId, container) {
   // 窗口关闭时清理映射
   mainWindow.on('closed', () => {
     windowContainerMap.delete(mainWindow.id);
+    if (mainWindowRef === mainWindow) mainWindowRef = null;
   });
 
   return mainWindow;
@@ -102,11 +107,14 @@ function switchContainer(windowId, containerId, container) {
 
 /**
  * 获取主窗口
- * @returns {BrowserWindow|undefined} 主窗口实例
+ * 使用 createMainWindow 登记的显式引用，而非 getAllWindows()[0]——
+ * 后者顺序随焦点/创建变化，播放器等辅助窗口存在时会把辅助窗口误判为主窗口，
+ * 导致 assertTrustedSender 拒绝主窗口的合法 IPC（CR-4 校验失效抖动）
+ * @returns {BrowserWindow|null} 主窗口实例
  */
 function getMainWindow() {
-  const windows = BrowserWindow.getAllWindows();
-  return windows.length > 0 ? windows[0] : undefined;
+  if (mainWindowRef && !mainWindowRef.isDestroyed()) return mainWindowRef;
+  return null;
 }
 
 module.exports = {

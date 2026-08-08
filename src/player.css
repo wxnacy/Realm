@@ -334,6 +334,9 @@ html, body {
   background: #fff;
   border-radius: 50%;
   cursor: pointer;
+  /* thumb(12px) 相对 track(3px) 垂直居中：(3-12)/2 = -4.5px，
+     缺省时 WebKit 将 thumb 顶对齐轨道，视觉上偏下 */
+  margin-top: -4.5px;
   transform: scale(0);
   transition: transform 0.15s ease;
 }

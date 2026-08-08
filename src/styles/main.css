@@ -43,6 +43,7 @@
   --media-type-mp4: #10B981;
   --media-type-flv: #F59E0B;
   --media-type-webm: #8B5CF6;
+  --media-type-dash: #EC4899;
 }
 
 /* 基础重置 */
@@ -6070,6 +6071,7 @@ textarea::placeholder {
 .media-type-mp4 { background: var(--media-type-mp4); }
 .media-type-flv { background: var(--media-type-flv); }
 .media-type-webm { background: var(--media-type-webm); }
+.media-type-dash { background: var(--media-type-dash); }
 
 /* 媒体项信息区域 */
 .media-item-info {

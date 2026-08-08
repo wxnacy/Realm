@@ -1289,6 +1289,22 @@ function registerHandlers() {
   /** @type {string|null} 播放器关联的容器 ID（D-22 Session 隔离） */
   let playerContainerId = null;
 
+  /**
+   * 校验播放器窗口 IPC 来源：仅接受来自当前播放器窗口的调用。
+   * assertTrustedSender 只认主窗口，播放器窗口的窗口控制通道（全屏/最小化/
+   * 最大化/关闭）必须用它自己的窗口身份做校验，否则会被误判为不受信来源。
+   * @param {Electron.IpcMainInvokeEvent} event - IPC 事件对象
+   * @returns {BrowserWindow} 播放器窗口实例
+   * @throws {Error} 来源不受信任时抛出
+   */
+  function assertPlayerSender(event) {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || !playerWindow || playerWindow.isDestroyed() || win.id !== playerWindow.id) {
+      throw new Error('不受信任的 IPC 来源');
+    }
+    return win;
+  }
+
   // ==================== 媒体检测 ====================
 
   /**
@@ -1333,11 +1349,14 @@ function registerHandlers() {
       throw new Error('无效的容器 ID');
     }
 
+    // 容器名用于播放器标题显示（{容器名} - {文件名}），便于肉眼验证 D-22 容器隔离
+    const containerName = (containerManager.getContainer(containerId) || {}).name || containerId;
+
     // D-20: 窗口复用 -- 已有播放器窗口时替换播放
     if (playerWindow && !playerWindow.isDestroyed()) {
       playerContainerId = containerId;
       const mediaList = mediaSniffer.getMediaListByContainer(containerId);
-      playerWindow.webContents.send('media:play-url', { url, mediaList, containerId });
+      playerWindow.webContents.send('media:play-url', { url, mediaList, containerId, containerName });
       playerWindow.focus();
       return { success: true, reused: true };
     }
@@ -1352,7 +1371,6 @@ function registerHandlers() {
       minWidth: 480,
       minHeight: 270,
       frame: false,
-      titleBarStyle: 'hidden',
       backgroundColor: '#000000',
       resizable: true,
       title: 'Realm Player',
@@ -1371,7 +1389,7 @@ function registerHandlers() {
     // 页面加载完成后发送媒体数据
     playerWindow.webContents.on('did-finish-load', () => {
       const mediaList = mediaSniffer.getMediaListByContainer(containerId);
-      playerWindow.webContents.send('media:play-url', { url, mediaList, containerId });
+      playerWindow.webContents.send('media:play-url', { url, mediaList, containerId, containerName });
     });
 
     // D-21: 窗口关闭时清理资源
@@ -1399,9 +1417,7 @@ function registerHandlers() {
    * @returns {Promise<{fullscreen: boolean}>}
    */
   ipcMain.handle('player:toggle-fullscreen', (event) => {
-    assertTrustedSender(event);
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win) return { fullscreen: false };
+    const win = assertPlayerSender(event);
     win.setFullScreen(!win.isFullScreen());
     return { fullscreen: win.isFullScreen() };
   });
@@ -1410,9 +1426,8 @@ function registerHandlers() {
    * 最小化播放器窗口（per D-04）
    */
   ipcMain.handle('player:minimize', (event) => {
-    assertTrustedSender(event);
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (win) win.minimize();
+    const win = assertPlayerSender(event);
+    win.minimize();
   });
 
   /**
@@ -1420,9 +1435,7 @@ function registerHandlers() {
    * @returns {Promise<{maximized: boolean}>}
    */
   ipcMain.handle('player:maximize', (event) => {
-    assertTrustedSender(event);
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win) return { maximized: false };
+    const win = assertPlayerSender(event);
     if (win.isMaximized()) {
       win.unmaximize();
     } else {
@@ -1435,9 +1448,8 @@ function registerHandlers() {
    * 关闭播放器窗口（per D-04）
    */
   ipcMain.handle('player:close', (event) => {
-    assertTrustedSender(event);
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (win) win.close();
+    const win = assertPlayerSender(event);
+    win.close();
   });
 
   /**

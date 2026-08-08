@@ -13,7 +13,7 @@
  * - 快捷键配置变更后无需重新注册，匹配时实时读取最新配置
  */
 
-const { app } = require('electron');
+const { app, BrowserWindow } = require('electron');
 const Store = require('electron-store');
 
 // ==================== 存储 ====================
@@ -223,6 +223,19 @@ function attachInputListener(contents) {
   contents.on('before-input-event', (event, input) => {
     const action = findMatchingAction(input);
     if (!action) return; // 未命中：完全不拦截
+
+    // 事件来自非主窗口（如播放器窗口）时，快捷键不应派发到主窗口：
+    // closeTab（Cmd+W）语义转为关闭来源窗口自身；其余快捷键放行不拦截。
+    // webview guest 的 fromWebContents 会解析到其宿主主窗口，不受影响。
+    const ownerWindow = BrowserWindow.fromWebContents(contents);
+    if (ownerWindow && currentWindow && !currentWindow.isDestroyed()
+        && ownerWindow.id !== currentWindow.id) {
+      if (action === 'closeTab') {
+        event.preventDefault();
+        ownerWindow.close();
+      }
+      return;
+    }
 
     event.preventDefault();
 

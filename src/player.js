@@ -18,6 +18,8 @@ const state = {
   mediaList: [],
   /** @type {string} 来源容器 ID */
   containerId: '',
+  /** @type {string} 来源容器名称（标题显示用） */
+  containerName: '',
   /** @type {number} 当前在播放列表中的索引 */
   currentIndex: -1,
   /** @type {boolean} 是否正在拖拽进度条 */
@@ -127,10 +129,11 @@ async function initPlayer(url) {
   const format = detectFormat(url);
   state.currentUrl = url;
 
-  // 更新窗口标题为文件名
-  const fileName = url.split('/').pop().split('?')[0];
-  titleText.textContent = decodeURIComponent(fileName);
-  document.title = `Realm Player - ${decodeURIComponent(fileName)}`;
+  // 更新窗口标题为 {容器名} - {文件名}（肉眼可验证 D-22 容器隔离）
+  const fileName = decodeURIComponent(url.split('/').pop().split('?')[0]);
+  const displayTitle = state.containerName ? `${state.containerName} - ${fileName}` : fileName;
+  titleText.textContent = displayTitle;
+  document.title = `Realm Player - ${displayTitle}`;
 
   console.log('[Realm Player] 初始化播放, 格式:', format, 'URL:', url);
 
@@ -142,6 +145,11 @@ async function initPlayer(url) {
           const hls = new Hls({ enableWorker: true });
           hls.loadSource(url);
           hls.attachMedia(video);
+          // 清单解析完成后自动播放（D-14 打开即播；切换上一个/下一个时也靠它续播，
+          // 否则新视频停在暂停态，播放按钮图标/覆盖层与实际状态不一致）
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            video.play().catch((e) => console.error('[Realm Player] HLS 自动播放失败:', e));
+          });
           hls.on(Hls.Events.ERROR, (event, data) => {
             if (data.fatal) {
               console.error('[Realm Player] hls.js 致命错误:', data);
@@ -241,6 +249,7 @@ if (window.playerAPI && window.playerAPI.onPlayUrl) {
 
     state.mediaList = data.mediaList || [];
     state.containerId = data.containerId;
+    state.containerName = data.containerName || '';
 
     // 计算当前在播放列表中的索引
     state.currentIndex = state.mediaList.findIndex((item) => item.url === data.url);

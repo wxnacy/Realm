@@ -101,6 +101,10 @@
     </div>
   </div>
 
+  <!-- 播放库 UMD 构建（渲染进程无打包器，裸 import 无法解析，故用 script 标签挂 window 全局） -->
+  <script src="../node_modules/hls.js/dist/hls.min.js"></script>
+  <script src="../node_modules/mpegts.js/dist/mpegts.js"></script>
+  <script src="../node_modules/dashjs/dist/modern/umd/dash.all.min.js"></script>
   <script src="player.js"></script>
 </body>
 </html>

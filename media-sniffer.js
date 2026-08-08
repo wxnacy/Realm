@@ -18,6 +18,7 @@ const VIDEO_TYPE_MAP = {
   '.mp4': 'mp4',
   '.flv': 'flv',
   '.webm': 'webm',
+  '.mpd': 'dash',
 };
 
 /**
@@ -30,6 +31,7 @@ const CONTENT_TYPE_MAP = {
   'video/mp4': 'mp4',
   'video/x-flv': 'flv',
   'video/webm': 'webm',
+  'application/dash+xml': 'dash',
 };
 
 /**
