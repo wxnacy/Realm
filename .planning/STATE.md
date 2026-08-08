@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: 多媒体功能集成
-current_phase: 28
-status: completed
-stopped_at: Phase 28 UI-SPEC approved
-last_updated: "2026-08-08T05:25:14.265Z"
+current_phase: 29
+status: active
+stopped_at: Phase 29 context gathered
+last_updated: "2026-08-08T09:11:46.307Z"
 last_activity: 2026-08-08
-last_activity_desc: Phase 28 complete
+last_activity_desc: Phase 29 added
 progress:
-  total_phases: 3
+  total_phases: 4
   completed_phases: 3
   total_plans: 6
   completed_plans: 6
-  percent: 100
-current_phase_name: player
+  percent: 75
+current_phase_name: 多媒体播放器设置控制
 ---
 
 # Project State: Realm Browser
@@ -24,16 +24,16 @@ current_phase_name: player
 See: .planning/PROJECT.md (updated 2026-08-08)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** v2.2 里程碑收尾（3/3 阶段完成，待归档）
+**Current focus:** Phase 29 多媒体播放器设置控制 — 设置页面增加播放器功能开关和域名白名单
 
 ## Current Position
 
-Phase: 28
+Phase: 29
 Plan: Not started
-Status: All phases complete
-Last activity: 2026-08-08 — Phase 28 complete
+Status: Active
+Last activity: 2026-08-08 — Phase 29 added
 
-Progress: [████████████████████] 6/6 plans (100%)
+Progress: [███████████████░░░░░] 6/6 plans (75%)
 
 ## Performance Metrics
 
@@ -53,10 +53,15 @@ Progress: [████████████████████] 6/6 pla
 | 25. 脚本生成 + 标签整理 | 7 | - | - |
 | 26 | 2 | - | - |
 | 28 | 2 | - | - |
+| 29 | 0 | - | - |
 
 *Updated after each plan completion*
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 29 added: 多媒体播放器设置控制
 
 ### Decisions
 
@@ -97,6 +102,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-08T05:45:00Z
-Stopped at: Phase 28 complete, v2.2 milestone ready to close
-Resume file: None
+Last session: 2026-08-08T09:11:46.303Z
+Stopped at: Phase 29 context gathered
+Resume file: .planning/phases/29-/29-CONTEXT.md
