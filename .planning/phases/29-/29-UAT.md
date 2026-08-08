@@ -1,14 +1,19 @@
 ---
-status: complete
+status: diagnosed
 phase: 29-
 source: [29-01-SUMMARY.md, 29-02-SUMMARY.md]
 started: 2026-08-08T18:00:00+08:00
-updated: 2026-08-08T21:05:00+08:00
+updated: 2026-08-08T21:15:00+08:00
 ---
 
 ## Current Test
+<!-- OVERWRITE each test - shows where we are -->
 
-[testing complete]
+number: 12
+name: 白名单过滤生效（端到端）
+expected: |
+  白名单加入 bilibili.com 后，非白名单站点（如 nnyy.in）不应再嗅探到视频，媒体面板不出现该站视频列表；白名单站点视频正常嗅探。
+awaiting: user response
 
 ## Tests
 
@@ -66,11 +71,17 @@ result: pass
 source: automated
 coverage_id: D5
 
+### 12. 白名单过滤生效（端到端）
+expected: 白名单加入 bilibili.com 后，非白名单站点（如 nnyy.in）不应再嗅探到视频，媒体面板不出现该站视频列表；白名单站点视频正常嗅探。
+result: issue
+reported: "白名单过滤有问题。我写入了 bilibili.com 但是 https://nnyy.in/dianying/20263902.html 还是可以获取到视频列表"
+severity: major
+
 ## Summary
 
-total: 11
+total: 12
 passed: 11
-issues: 0
+issues: 1
 pending: 0
 skipped: 0
 
@@ -114,3 +125,22 @@ skipped: 0
     - "主进程 /api/settings/update 写入成功后 mainWindow.webContents.send('settings:updated', changedKeys)"
     - "preload 暴露 onSettingsUpdated；renderer 订阅后重读 settings 并调 updateMediaPlayerVisibility"
   debug_session: .planning/debug/media-button-realtime-visibility.md
+- gap_id: G-29-12
+  truth: "白名单非空时，仅白名单域名（含子域）的站点会被嗅探；非白名单站点不产出视频列表"
+  status: failed
+  reason: "User reported: 白名单过滤有问题。我写入了 bilibili.com 但是 https://nnyy.in/dianying/20263902.html 还是可以获取到视频列表"
+  severity: major
+  test: 12
+  root_cause: "白名单只挂在网络路径（main.js:453 onResponseStarted 按 details.url 匹配）。脚本注入路径完全绕过：renderer.js:851 dom-ready 注入前只查 enabled 不查 whitelist；ipc-handlers.js:1488 media:report-detected 收到上报直接入库无校验。另：网络路径按媒体 URL（CDN 域名）匹配与用户按站点域名过滤的心智不符，bilibili.com 白名单会误挡 bilivideo.com CDN 资源"
+  artifacts:
+    - path: "src/renderer.js:847-855"
+      issue: "dom-ready 注入前未做白名单检查（主要修复点）"
+    - path: "ipc-handlers.js:1488-1495"
+      issue: "media:report-detected 无白名单服务端校验（防御纵深修复点）"
+    - path: "main.js:453"
+      issue: "网络路径按媒体 URL 而非页面 URL 匹配白名单（语义修正）"
+  missing:
+    - "renderer dom-ready 注入前读 whitelist 并对 webview 页面 URL 做域名匹配，非白名单跳过注入"
+    - "media:report-detected 用 webContents.fromId(webContentsId).getURL() 取页面 URL 校验白名单，非白名单丢弃"
+    - "网络路径白名单匹配改为页面 URL（取不到回退 details.url）"
+  debug_session: .planning/debug/whitelist-bypass-script-injection.md
