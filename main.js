@@ -429,7 +429,9 @@ app.on('session-created', (ses) => {
       // 按 details.url 匹配会误挡白名单站点自身内容
       const whitelist = configStore.get('settings.mediaPlayer.whitelist', []);
       const { webContents } = require('electron');
-      const pageUrl = webContents.fromId(details.webContentsId)?.getURL();
+      const pageUrl = details.webContentsId
+        ? webContents.fromId(details.webContentsId)?.getURL()
+        : null;
       if (!mediaSniffer.isDomainWhitelisted(pageUrl || details.url, whitelist)) return;
 
       mediaSniffer.handleNetworkResponse(details);
