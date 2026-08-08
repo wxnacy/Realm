@@ -1245,7 +1245,13 @@ async function addDomain(domain) {
   }
 
   if (/\s/.test(trimmed) || /[^\w.-]/.test(trimmed)) {
-    showToast('域名格式不合法');
+    showToast('域名包含非法字符');
+    highlightInputError(elements.domainInput);
+    return;
+  }
+
+  if (!isValidDomain(trimmed)) {
+    showToast('域名格式不合法，示例: example.com');
     highlightInputError(elements.domainInput);
     return;
   }
@@ -1503,6 +1509,22 @@ function updateMediaPlayerUI(enabled) {
 }
 
 /**
+ * 校验域名结构合法性
+ * @param {string} domain - 域名
+ * @returns {boolean} 是否合法
+ */
+function isValidDomain(domain) {
+  // 至少含一个点（拒绝裸词如 test、com）
+  if (!domain.includes('.')) return false;
+  // 以点分割后每段非空（拒绝 a..b、.com、example.com.）
+  const parts = domain.split('.');
+  if (parts.some((part) => !part)) return false;
+  // 每段不以连字符开头或结尾（拒绝 -a.com、a-.com）
+  if (parts.some((part) => part.startsWith('-') || part.endsWith('-'))) return false;
+  return true;
+}
+
+/**
  * 添加白名单域名
  * @param {string} domain - 域名
  */
@@ -1516,7 +1538,13 @@ async function addWhitelistDomain(domain) {
   }
 
   if (/[^\w.\-]/.test(trimmed)) {
-    showToast('域名格式不合法');
+    showToast('域名包含非法字符');
+    highlightInputError(elements.whitelistDomainInput);
+    return;
+  }
+
+  if (!isValidDomain(trimmed)) {
+    showToast('域名格式不合法，示例: example.com');
     highlightInputError(elements.whitelistDomainInput);
     return;
   }

@@ -997,6 +997,12 @@ app.whenReady().then(async () => {
         for (const [key, value] of Object.entries(updates)) {
           configStore.set(`settings.${key}`, value);
         }
+        // 设置页在 webview 内通过 HTTP 写入，主进程需主动通知宿主 renderer 刷新（closing UAT gap G-29-6）
+        const changedKeys = Object.keys(updates);
+        const mainWindow = windowManager.getMainWindow();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('settings:updated', changedKeys);
+        }
         sendJson(res, 200, { success: true });
         return;
       }

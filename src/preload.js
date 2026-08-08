@@ -769,6 +769,15 @@ contextBridge.exposeInMainWorld('realmAPI', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
 
   /**
+   * 监听设置变更事件（closing UAT gap G-29-6）
+   * 主进程在 HTTP /api/settings/update 写入后主动广播
+   * @param {Function} callback - 回调函数，参数为 changedKeys 数组
+   */
+  onSettingsUpdated: (callback) => {
+    ipcRenderer.on('settings:updated', (event, changedKeys) => callback(changedKeys));
+  },
+
+  /**
    * 写入单个设置项
    * @param {string} key - 设置键
    * @param {*} value - 设置值

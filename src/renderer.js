@@ -1932,15 +1932,15 @@ async function init() {
   // 初始化媒体面板（监听更新 + 初始加载）
   initMediaPanel();
 
-  // 监听窗口可见性变化，检查多媒体开关状态（确保设置页切换后即时生效）
-  document.addEventListener('visibilitychange', async () => {
-    if (document.hidden) return;
+  // 监听设置变更事件，实时刷新多媒体开关状态（closing UAT gap G-29-6）
+  window.realmAPI.onSettingsUpdated(async (changedKeys) => {
+    if (!changedKeys.some((key) => key.startsWith('mediaPlayer'))) return;
     try {
       const settings = await window.realmAPI.getSettings();
       const mediaPlayerEnabled = settings.mediaPlayer && settings.mediaPlayer.enabled;
       updateMediaPlayerVisibility(mediaPlayerEnabled);
     } catch (err) {
-      console.warn('[Realm Renderer] 检查多媒体开关状态失败:', err.message);
+      console.warn('[Realm Renderer] 应用多媒体设置变更失败:', err.message);
     }
   });
 }
