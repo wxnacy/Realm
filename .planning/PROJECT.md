@@ -110,28 +110,16 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ AUTO-06: Prompt Injection 防护（sanitizeInput + validateScript + CDP 双层防护） — Phase 24
 - ✓ SCRIPT-01: 一句话生成脚本（generate_script + 13 项白名单静态分析 + 预览卡片 + 逐步执行引擎） — Phase 25
 - ✓ TAG-01: AI 自动标签分组（suggest_tab_groups 三策略 + 建议卡片 + 标签栏重排） — Phase 25
+- ✓ SNIFF-01~05: 媒体嗅探引擎（网络拦截 + 脚本注入 + MutationObserver + 容器隔离去重 + 导航清空） — Phase 26
+- ✓ IPC-01~05: 媒体 IPC 通道（get-list/play/copy-url/clear-list/script-detected + mediaAPI preload） — Phase 26
+- ✓ PANEL-01~05: 媒体面板（浮动层 + 类型徽标列表 + 播放/复制 + 数量徽标 + 实时更新） — Phase 27
+- ✓ PLAYER-01~10: 独立播放器窗口（无边框 + HLS/MP4/MPEGTS 播放 + 完整控制 + 画中画 + 播放列表 + Session 隔离 + 资源释放） — Phase 28
 
 ### Active
 
 <!-- 当前需要构建的功能（下一里程碑定义） -->
 
-**v2.2 多媒体功能集成** (2026-08-06)
-
-#### Phase 26: 视频源检测 + 媒体面板
-- MEDIA-01: media-sniffer 网络请求拦截（m3u8/mp4/flv/webm）
-- MEDIA-02: 页面脚本注入检测 `<video>` 和 `<source>` 元素
-- MEDIA-03: 媒体面板 UI（浮动层 + 媒体列表 + 播放/复制按钮）
-- MEDIA-04: IPC 通道注册 + Preload API 暴露
-
-#### Phase 27: 播放器窗口
-- MEDIA-05: 独立播放器窗口（BrowserWindow + player.html）
-- MEDIA-06: hls.js 集成（m3u8 支持）
-- MEDIA-07: 播放控制 UI（播放/暂停/进度/音量/倍速/全屏）
-
-#### Phase 28: 下载与边播边缓存（可选）
-- MEDIA-08: 下载管理器（任务队列 + 暂停/恢复/取消）
-- MEDIA-09: m3u8 分片下载 + 合并
-- MEDIA-10: 边播边缓存（stream protocol 拦截）
+（v2.2 已收尾；下载与边播边缓存 DL-01~05 按规划 Deferred to v2.3，见 STATE.md Deferred Items）
 
 ### Out of Scope
 
@@ -141,6 +129,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - **移动端支持** — 仅支持桌面端（macOS）
 - **Chrome 多 Profile 合并导入** — 检测覆盖 Default/Profile N（含 AccountBookmarks），但仅导入检测到的第一个 Profile，不做多 Profile 合并
 - **收藏栏多行显示** — 仅支持单行显示
+- **DASH (.mpd) 播放** — v2.2 暂缓：嗅探/renderer/CSS 已补 dash 支持但复验仍失败，二层根因未诊断（UAT G-28-2，2026-08-08 用户决定，走 /gsd-plan-phase 28 --gaps 续查）
 
 ## Current State
 
@@ -167,13 +156,14 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - AI 自动化填表/操作（fillForm/executeAction + CAPTCHA 检测 + 操作确认 UI）
 - AI 脚本生成（自然语言生成可执行脚本 + 逐步执行 + 安全验证）
 - AI 智能标签分组（suggest_tab_groups + 建议卡片 + 标签栏重排）
+- 多媒体：视频源嗅探（网络+注入+DOM 三通道）+ 媒体面板 + 独立播放器窗口（HLS/MP4/MPEGTS + 画中画 + 播放列表）
 
 **Known gaps:**
 - 13 个已诊断 debug session 未修复（从 v2.0 延续）
 - 1 个 UAT 差距（Phase 18，0 个待处理场景）
 - Phase 23 代码审查遗留 19 项（6 Critical），详见 `.planning/phases/23-context-reference/23-REVIEW.md`
 
-**Current milestone:** v2.2 多媒体功能集成 — 视频源检测 + 媒体面板 + 播放器窗口
+**Current milestone:** v2.2 多媒体功能集成 — 3 阶段全部完成（2026-08-08），待 complete-milestone 归档
 
 ## Next Milestone Goals
 
@@ -273,6 +263,11 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | validateScriptForSteps 在 validateScript 上扩展 5 个危险模式（fetch/XHR/路径遍历/window/document） | 脚本步骤经 CDP 执行而非页面内 JS，内嵌脚本模式在步骤级无意义且高危 | ✓ 已验证 — Phase 25 UAT |
 | 脚本步骤状态经 script:step-update IPC 逐步实时推送 | 逐步执行 + 每步回调，失败即停，用户可中断（script:stop），预览卡片状态实时切换 | ✓ 已验证 — Phase 25 UAT |
 | 标签分组策略参数化（domain/semantic/mixed） | 域名分组确定性高，语义分组贴合主题，mixed 先域名再细分；默认 semantic | ✓ 已验证 — Phase 25 UAT |
+| 播放库经 UMD script 标签引入（window.Hls/mpegts/dashjs），不用裸 import | file:// 渲染进程无打包器，裸模块说明符不可解析；player.js 的 window 全局检查命中后不走 import 分支 | ✓ 已验证 — Phase 28 UAT（G-28-1a） |
+| getMainWindow 用显式 mainWindowRef 登记，不用 getAllWindows()[0] | 窗口数组顺序随焦点/创建变化，辅助窗口存在时误判主窗口，assertTrustedSender 误拒主窗口合法 IPC | ✓ 已验证 — Phase 28 UAT（G-28-4） |
+| 窗口控制 IPC 信任断言按窗口身份分离（assertTrustedSender / assertPlayerSender） | 主窗口断言拒绝播放器窗口的合法调用；播放器通道校验来源==当前 playerWindow 更准确 | ✓ 已验证 — Phase 28 UAT（G-28-6） |
+| 非主窗口快捷键不派发主窗口；closeTab(Cmd+W) 转为关闭来源窗口自身 | before-input-event 全局监听会截获播放器窗口按键误派主窗口；webview guest 经 fromWebContents 解析回宿主不受影响 | ✓ 已验证 — Phase 28 UAT（Test 13/14） |
+| HLS 自动播放挂 MANIFEST_PARSED 回调 | HLS 分支漏调 video.play() 导致打开默认暂停 + 切换不续播；play 事件联动刷新图标/覆盖层/隐藏定时器 | ✓ 已验证 — Phase 28 UAT（G-28-3） |
 
 ## Evolution
 
@@ -292,4 +287,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-04 after v2.1 milestone*
+*Last updated: 2026-08-08 after Phase 28*

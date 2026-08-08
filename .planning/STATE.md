@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: 多媒体功能集成
 current_phase: 28
-status: executing
+status: completed
 stopped_at: Phase 28 UI-SPEC approved
-last_updated: "2026-08-08T02:16:53.973Z"
+last_updated: "2026-08-08T05:25:14.265Z"
 last_activity: 2026-08-08
 last_activity_desc: Phase 28 complete
 progress:
@@ -21,19 +21,19 @@ current_phase_name: player
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-06)
+See: .planning/PROJECT.md (updated 2026-08-08)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 28 — player
+**Current focus:** v2.2 里程碑收尾（3/3 阶段完成，待归档）
 
 ## Current Position
 
 Phase: 28
 Plan: Not started
-Status: Executing Phase 28
+Status: All phases complete
 Last activity: 2026-08-08 — Phase 28 complete
 
-Progress: [██████████████████████████░░] 89%
+Progress: [████████████████████] 6/6 plans (100%)
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Recent decisions affecting current work:
 
 - v2.2 路线图: 3 阶段结构（检测+IPC → 面板 → 播放器），granularity=coarse 匹配
 - v2.2 技术选型: hls.js ^1.6.17 + mpegts.js ^1.8.1，复用 Electron 原生 API
+- Phase 28 UAT: 播放库 UMD script 引入；getMainWindow 显式引用；assertPlayerSender 窗口身份断言；非主窗口 Cmd+W 关自身
 
 ### Pending Todos
 
@@ -72,9 +73,10 @@ None yet.
 
 ### Blockers/Concerns
 
-- hls.js enableWorker 在 Electron 32.x CSP 下的行为需实际测试
+- ~~hls.js enableWorker 在 Electron 32.x CSP 下的行为需实际测试~~ — Phase 28 UAT 实测通过（blob worker + CSP worker-src 放行）
+- ~~播放器窗口的视频编解码器支持范围需在 Electron 32.x 中实测~~ — Phase 28 UAT HLS/MP4 实测通过
 - session.webRequest 对 WebSocket 升级请求的拦截能力待验证
-- 播放器窗口的视频编解码器支持范围需在 Electron 32.x 中实测
+- [Phase 28] DASH (.mpd) 播放暂缓（UAT G-28-2，二层根因未诊断，用户 2026-08-08 决定）
 
 ### Quick Tasks Completed
 
@@ -95,6 +97,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-07T14:16:14.395Z
-Stopped at: Phase 28 UI-SPEC approved
-Resume file: .planning/phases/28-player/28-UI-SPEC.md
+Last session: 2026-08-08T05:45:00Z
+Stopped at: Phase 28 complete, v2.2 milestone ready to close
+Resume file: None
