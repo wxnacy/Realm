@@ -691,7 +691,8 @@ async function exportRules() {
     a.download = 'realm-rules.json';
     a.click();
     URL.revokeObjectURL(url);
-    showToast(`已导出 ${data.length} 条规则`);
+    const exportedRules = Array.isArray(data) ? data : (data.rules || []);
+    showToast(`已导出 ${exportedRules.length} 条规则`);
   } catch (error) {
     console.error('[Realm] 导出规则失败:', error);
     showToast('导出失败');
