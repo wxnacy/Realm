@@ -5,7 +5,7 @@
  * 每个处理器对入参做类型校验
  */
 
-const { ipcMain, dialog, BrowserWindow, clipboard, session } = require('electron');
+const { ipcMain, dialog, BrowserWindow, clipboard, session, webContents } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
 const containerManager = require('./container-manager');
@@ -1489,6 +1489,17 @@ function registerHandlers() {
     assertTrustedSender(event);
     if (typeof webContentsId !== 'number') {
       throw new Error('无效的 webContentsId');
+    }
+    // 白名单校验（防御纵深，per G-29-12）：已注入的旧脚本（SPA 站内导航、
+    // 开关变更前注入）上报时主进程兜底丢弃非白名单站点
+    const whitelist = configStore.get('settings.mediaPlayer.whitelist', []);
+    const wc = webContents.fromId(webContentsId);
+    if (!wc || wc.isDestroyed()) {
+      return { success: false };
+    }
+    if (!mediaSniffer.isDomainWhitelisted(wc.getURL(), whitelist)) {
+      console.warn(`[Realm IPC] media:report-detected 非白名单站点上报已丢弃: ${new URL(wc.getURL()).hostname}`);
+      return { success: false };
     }
     mediaSniffer.handleScriptDetected(webContentsId, videos);
     return { success: true };

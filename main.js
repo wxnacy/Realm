@@ -332,30 +332,6 @@ app.on('web-contents-created', (event, contents) => {
   });
 });
 
-// ==================== 媒体嗅探白名单过滤 ====================
-
-/**
- * 检查 URL 是否在域名白名单中（per D-06/D-07）
- * - 白名单为空数组时返回 true（空白名单 = 全部允许）
- * - 匹配条件：hostname === domain || hostname.endsWith('.' + domain)
- * - 解析失败（无效 URL）时返回 false
- *
- * @param {string} url - 请求 URL
- * @param {Array<string>} whitelist - 域名白名单数组
- * @returns {boolean} 是否在白名单中
- */
-function isDomainWhitelisted(url, whitelist) {
-  if (!Array.isArray(whitelist) || whitelist.length === 0) return true;
-  try {
-    const hostname = new URL(url).hostname;
-    return whitelist.some(
-      (domain) => hostname === domain || hostname.endsWith('.' + domain)
-    );
-  } catch {
-    return false;
-  }
-}
-
 // ==================== UA Client Hints 伪装（Google 等指纹敏感站点兼容） ====================
 
 /**
@@ -449,8 +425,12 @@ app.on('session-created', (ses) => {
       if (!enabled) return;
 
       // 白名单过滤（per D-06/D-07）：白名单为空则全部通过，非空则仅白名单域名通过
+      // 白名单按站点页面域名过滤（per G-29-12），媒体资源常在 CDN 域（如 bilivideo.com），
+      // 按 details.url 匹配会误挡白名单站点自身内容
       const whitelist = configStore.get('settings.mediaPlayer.whitelist', []);
-      if (!isDomainWhitelisted(details.url, whitelist)) return;
+      const { webContents } = require('electron');
+      const pageUrl = webContents.fromId(details.webContentsId)?.getURL();
+      if (!mediaSniffer.isDomainWhitelisted(pageUrl || details.url, whitelist)) return;
 
       mediaSniffer.handleNetworkResponse(details);
     }

@@ -56,6 +56,30 @@ const NON_MEDIA_URL_RE = /\.(jpe?g|png|gif|webp|svg|ico|bmp|avif)(\?|#|$)/i;
  */
 const FILTERED_URL_RE = /\.(ts|key)(\?|#|$)/i;
 
+// ==================== 白名单域名匹配 ====================
+
+/**
+ * 检查 URL 是否在域名白名单中（per D-06/D-07）
+ * - 白名单为空数组时返回 true（空白名单 = 全部允许）
+ * - 匹配条件：hostname === domain || hostname.endsWith('.' + domain)
+ * - 解析失败（无效 URL）时返回 false
+ *
+ * @param {string} url - 请求 URL
+ * @param {Array<string>} whitelist - 域名白名单数组
+ * @returns {boolean} 是否在白名单中
+ */
+function isDomainWhitelisted(url, whitelist) {
+  if (!Array.isArray(whitelist) || whitelist.length === 0) return true;
+  try {
+    const hostname = new URL(url).hostname;
+    return whitelist.some(
+      (domain) => hostname === domain || hostname.endsWith('.' + domain)
+    );
+  } catch {
+    return false;
+  }
+}
+
 // ==================== MediaSniffer 类 ====================
 
 /**
@@ -409,3 +433,4 @@ class MediaSniffer {
 }
 
 module.exports = new MediaSniffer();
+module.exports.isDomainWhitelisted = isDomainWhitelisted;

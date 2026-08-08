@@ -849,6 +849,10 @@ function bindWebviewEvents(tabId, webview) {
     try {
       const settings = await window.realmAPI.getSettings();
       if (!settings.mediaPlayer || !settings.mediaPlayer.enabled) return;
+      // 白名单检查（per G-29-12）：非白名单站点跳过注入
+      const whitelist = settings.mediaPlayer.whitelist || [];
+      const pageUrl = webview.getURL() || webview.src || '';
+      if (!isPageWhitelisted(pageUrl, whitelist)) return;
     } catch (err) {
       console.warn('[Realm Renderer] 检查多媒体开关状态失败，跳过注入:', err.message);
       return;
@@ -5157,6 +5161,29 @@ function renderContextPills() {
 }
 
 // ==================== 媒体面板 ====================
+
+/**
+ * 检查页面 URL 是否在域名白名单中（per D-06/D-07）
+ * 与 media-sniffer.js isDomainWhitelisted 语义保持一致，改动需同步
+ * - 白名单为空数组时返回 true（空白名单 = 全部允许）
+ * - 匹配条件：hostname === domain || hostname.endsWith('.' + domain)
+ * - 解析失败（无效 URL）时返回 false
+ *
+ * @param {string} url - 页面 URL
+ * @param {Array<string>} whitelist - 域名白名单数组
+ * @returns {boolean} 是否在白名单中
+ */
+function isPageWhitelisted(url, whitelist) {
+  if (!Array.isArray(whitelist) || whitelist.length === 0) return true;
+  try {
+    const hostname = new URL(url).hostname;
+    return whitelist.some(
+      (domain) => hostname === domain || hostname.endsWith('.' + domain)
+    );
+  } catch {
+    return false;
+  }
+}
 
 /**
  * 更新多媒体播放器功能的可见性（per D-12）
