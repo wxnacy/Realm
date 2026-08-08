@@ -141,7 +141,7 @@ Plans:
   3. 播放器提供播放/暂停、进度条拖拽、时间显示、音量控制、倍速选择（0.5x/1x/1.5x/2x）等完整控制
   4. 播放器窗口关闭时正确销毁 hls.js/mpegts.js 实例，释放内存
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans complete
 
 Plans:
 
@@ -151,7 +151,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 28-02-PLAN.md — 完整播放器 UI（格式检测 + 控制栏 + 键盘快捷键 + 画中画 + 播放列表 + 资源释放）
+- [x] 28-02-PLAN.md — 完整播放器 UI（格式检测 + 控制栏 + 键盘快捷键 + 画中画 + 播放列表 + 资源释放）
 
 ## Progress
 
@@ -187,4 +187,4 @@ Phases execute in numeric order: 26 → 27 → 28
 | 25. 脚本生成 + 智能标签整理 | v2.1 | 7/7 | Complete | 2026-08-04 |
 | 26. 视频源检测 + IPC 基础 | v2.2 | 2/2 | Complete    | 2026-08-06 |
 | 27. 媒体面板 | v2.2 | 2/2 | Complete   | 2026-08-07 |
-| 28. 播放器窗口 | v2.2 | 1/2 | In Progress|  |
+| 28. 播放器窗口 | v2.2 | 2/2 | Complete   | 2026-08-08 |
