@@ -4,15 +4,15 @@ reviewed: 2026-08-08T12:00:00Z
 depth: standard
 files_reviewed: 4
 files_reviewed_list:
-  - src/settings-page.js
   - src/settings.html
+  - src/settings-page.js
   - src/styles/main.css
   - src/renderer.js
 findings:
   critical: 1
   warning: 3
-  info: 1
-  total: 5
+  info: 3
+  total: 7
 status: issues_found
 ---
 
@@ -25,112 +25,96 @@ status: issues_found
 
 ## Summary
 
-Phase 29 adds a multimedia settings page (Plan 01: HTML/JS/CSS) and backend integration for feature toggle and whitelist filtering (Plan 02: main.js, media-sniffer.js, renderer.js). The settings page implementation follows existing devMode patterns correctly -- XSS prevention via textContent, domain validation, settingsApi persistence. However, a critical bug exists in the renderer's media list clearing logic: it calls `clearMediaList()` without a webContentsId argument, which is a no-op because the underlying IPC handler requires a specific ID. The media list is never actually cleared when the toggle is turned off, violating the D-12 requirement.
+Review covers the settings page implementation (`settings.html`, `settings-page.js`), related styles in `main.css`, and the renderer's settings integration. The code is generally well-structured with good XSS prevention (DOM construction + `textContent`, `escapeHtml` for domain values). However, one bug was found in the dev mode toggle error recovery path where a div element's `.checked` property is set (a no-op), and there are several code quality issues around inconsistent toggle patterns and missing cleanup.
 
 ## Critical Issues
 
-### CR-01: toggle 关闭时媒体列表未被清空（clearMediaList 无参调用是空操作）
+### CR-01: Dev mode toggle error recovery sets `.checked` on a div element (no-op)
 
-**File:** `src/renderer.js:5181`
-**Issue:** `updateMediaPlayerVisibility(false)` 调用 `window.mediaAPI.clearMediaList()` 时未传入 webContentsId 参数。`media:clear-list` IPC 处理器接收 `undefined` 后调用 `mediaSniffer.clearMediaList(undefined)`，而 `clearMediaList(webContentsId)` 内部执行 `this.mediaMap.delete(undefined)`——这是一个无操作（Map 中不存在 key 为 `undefined` 的条目）。结果：用户关闭多媒体开关后，媒体面板仍显示之前嗅探到的媒体列表。
-
-Plan 02 在 media-sniffer.js 中新增了 `clearAll()` 方法用于清空所有容器的媒体数据，但该方法未通过 IPC 暴露给渲染进程。`media:clear-all` IPC 通道在 preload.js 和 ipc-handlers.js 中均不存在。
-
+**File:** `src/settings-page.js:1229-1231`
+**Issue:** `saveDevModeEnabled` catches errors and attempts to revert the toggle state by setting `elements.devModeToggle.checked = !enabled`. However, `devModeToggle` is a `<div>` element (not an `<input type="checkbox">`), so `.checked` is not a meaningful property -- the assignment silently does nothing. The toggle remains visually in the new (incorrect) state while the actual config was not saved, causing the UI to show an incorrect state until the user manually toggles again. Compare with `updateDevModeUI()` (lines 1345-1363) which correctly uses `classList.add('active')`/`classList.remove('active')` for the div-based toggle.
 **Fix:**
+```js
+// src/settings-page.js:1228-1231
+// Before:
+if (elements.devModeToggle) {
+  elements.devModeToggle.checked = !enabled;
+}
 
-方案 A（推荐）：新增 `media:clear-all` IPC 通道：
-
-在 `ipc-handlers.js` 中添加：
-```javascript
-ipcMain.handle('media:clear-all', () => {
-  mediaSniffer.clearAll();
-});
-```
-
-在 `preload.js` 中添加：
-```javascript
-clearAllMedia: () => ipcRenderer.invoke('media:clear-all'),
-```
-
-在 `src/renderer.js:5181` 中将：
-```javascript
-window.mediaAPI.clearMediaList();
-```
-改为：
-```javascript
-window.mediaAPI.clearAllMedia();
-```
-
-方案 B（最小改动）：修改 `ipc-handlers.js` 的 `media:clear-list` 处理器，当 webContentsId 为 undefined 时调用 `clearAll()`：
-```javascript
-ipcMain.handle('media:clear-list', (event, webContentsId) => {
-  if (webContentsId === undefined) {
-    mediaSniffer.clearAll();
-  } else {
-    mediaSniffer.clearMediaList(webContentsId);
-  }
-});
+// After:
+updateDevModeUI(!enabled);
 ```
 
 ## Warnings
 
-### WR-01: switchSettingsPage 从 devmode 切换到 multimedia/ai-assistant 时队列轮询未停止
+### WR-01: Queue count base CSS class lost after first status update
 
-**File:** `src/settings-page.js:219-234`
-**Issue:** `switchSettingsPage` 的 `else if` 链中，`stopQueueStatusPolling()` 仅在 `else` 分支（即页面名不匹配任何已知分支时）被调用。当用户从 devmode 页面直接切换到 multimedia 或 ai-assistant 时，命中的是对应页面的 `else if` 分支而非 `else` 分支，导致队列状态轮询定时器持续运行（每 2 秒请求一次 `devqueue-stats`）。这是一个 pre-existing 问题，但 Phase 29 新增的 `multimedia` 分支扩大了触发面。
+**File:** `src/settings-page.js:1396`
+**Issue:** `updateQueueStatus` sets `elements.queueCount.className = 'queue-count'`, but the HTML element has class `devmode-queue-count` (line 224 of `settings.html`). After the first poll, the base class is replaced with `queue-count`, which has no matching CSS rule. The element loses its base styling (font-size, margin-left defined in `.devmode-queue-count` at `main.css:3118`) and only retains the color from `.queue-normal`/`.queue-warning`/`.queue-danger`.
+**Fix:**
+```js
+// src/settings-page.js:1396
+// Before:
+elements.queueCount.className = 'queue-count';
 
-**Fix:** 在 switchSettingsPage 开头无条件停止轮询：
-```javascript
-function switchSettingsPage(pageName) {
-  stopQueueStatusPolling(); // 无条件停止，devmode 分支会重新启动
-
-  document.querySelectorAll('.settings-section').forEach(section => {
-    section.style.display = 'none';
-  });
-  // ... 其余逻辑不变
+// After:
+elements.queueCount.className = 'devmode-queue-count';
 ```
 
-### WR-02: saveMediaPlayerEnabled 失败时 UI 与后端状态不一致
+### WR-02: `switchSettingsPage` uses unsanitized URL parameter in CSS selector
 
-**File:** `src/settings-page.js:1466-1480`
-**Issue:** `saveMediaPlayerEnabled` 在 API 调用失败时不恢复 toggle 的视觉状态。`updateMediaPlayerUI(enabled)` 在 try 块中被调用（第 1474 行），而 catch 块仅显示 toast 但不回退 UI。对比 `saveDevModeEnabled`（第 1229-1231 行），后者在 catch 中恢复了 toggle 状态。结果：API 失败时 toggle 显示新状态，但 electron-store 中仍是旧状态。
+**File:** `src/settings-page.js:214`
+**Issue:** `pageName` comes from `pageParams.get('tab')` (URL query parameter at line 1860) and is interpolated directly into a `document.querySelector` call: `` `.sidebar-item[data-page="${pageName}"]` ``. While the renderer process constructs these URLs, a malformed `tab` parameter (e.g., containing `"]`) could break the selector or cause unexpected behavior. Use `CSS.escape` for safety, consistent with the `getElementById` approach already used at line 205.
+**Fix:**
+```js
+// src/settings-page.js:214
+// Before:
+const activeItem = document.querySelector(`.sidebar-item[data-page="${pageName}"]`);
 
-**Fix:** 在 catch 块中添加 UI 回退：
-```javascript
-} catch (error) {
-  console.error('[Realm] 保存多媒体播放器开关失败:', error);
-  showToast('保存失败，请重试');
-  // 恢复 toggle 状态
-  updateMediaPlayerUI(!enabled);
-}
+// After: use CSS.escape for selector safety
+const activeItem = document.querySelector(`.sidebar-item[data-page="${CSS.escape(pageName)}"]`);
 ```
 
-### WR-03: updateMediaPlayerVisibility 中 clearMediaList 调用无错误处理
+### WR-03: `exportRules` calls `.length` on API response without type check
 
-**File:** `src/renderer.js:5181`
-**Issue:** `window.mediaAPI.clearMediaList()` 是一个返回 Promise 的异步 IPC 调用，但此处未使用 await，也未附加 .catch() 处理。如果 IPC 调用失败（例如主进程尚未初始化 mediaSniffer），会产生未处理的 Promise rejection。虽然此问题与 CR-01 重叠（修复 CR-01 后此处代码会被替换），但如果选择方案 B 修复 CR-01，此处仍需添加错误处理。
+**File:** `src/settings-page.js:694`
+**Issue:** `data.length` is called on the `rulesApi('export')` response, but the API could return an object with a `rules` property (like the import format `{ rules: [...], exportedAt }` at line 651) instead of a bare array. If `data` is an object, `data.length` would be `undefined`, showing "已导出 undefined 条规则".
+**Fix:**
+```js
+// src/settings-page.js:694
+// Before:
+showToast(`已导出 ${data.length} 条规则`);
 
-**Fix:** 修复 CR-01 后此问题自然消除。若保留当前调用方式：
-```javascript
-window.mediaAPI.clearMediaList().catch(err => {
-  console.warn('[Realm Renderer] 清空媒体列表失败:', err.message);
-});
+// After: handle both formats
+const exportedRules = Array.isArray(data) ? data : (data.rules || []);
+showToast(`已导出 ${exportedRules.length} 条规则`);
 ```
 
 ## Info
 
-### IN-01: switchSettingsPage JSDoc 注释未更新
+### IN-01: `executeJavaScript` with string interpolation in `openSettingsTab`
 
-**File:** `src/settings-page.js:197`
-**Issue:** `switchSettingsPage` 的 JSDoc `@param` 描述仍为旧值 `'general、rules、shortcuts、about'`，未包含 `'devmode'`、``'ai-assistant'`、`'multimedia'`。
-
+**File:** `src/renderer.js:1353`
+**Issue:** `` webview.executeJavaScript(`switchSettingsPage && switchSettingsPage('${tabName}')`) `` interpolates `tabName` into a JS string literal. Currently all callers pass hardcoded values (`'ai-assistant'`), so there is no real injection risk. However, if future callers pass user-controlled values, a single quote in `tabName` would break the string and allow code execution. Consider using `JSON.stringify` for safe escaping.
 **Fix:**
-```javascript
-/**
- * 切换设置页面
- * @param {string} pageName - 页面名称（general、rules、shortcuts、devmode、ai-assistant、multimedia、about）
- */
+```js
+// src/renderer.js:1353
+// Before:
+webview.executeJavaScript(`switchSettingsPage && switchSettingsPage('${tabName}')`);
+
+// After:
+webview.executeJavaScript(`switchSettingsPage && switchSettingsPage(${JSON.stringify(tabName)})`);
 ```
+
+### IN-02: Two different toggle component patterns used in settings page
+
+**File:** `src/settings.html:145-149` vs `src/settings.html:192-195`
+**Issue:** The settings page uses two distinct toggle implementations: `<label class="toggle-switch"><input type="checkbox">...` (bookmarks bar, line 145) and `<div class="toggle-track"><div class="toggle-thumb">...` (dev mode/media player, line 192). The div-based pattern lacks keyboard accessibility (no focus, no `aria-checked`, no space-bar toggle) and requires custom click handlers. The input-based pattern is more accessible and uses native `change` events. This inconsistency makes maintenance harder and creates accessibility gaps.
+
+### IN-03: Settings page bookmarks bar polling never stopped on page unload
+
+**File:** `src/settings-page.js:1877-1889`
+**Issue:** The bookmarks bar sync polling (`setInterval(..., 2000)` at line 1877) runs indefinitely and is never cleared. While the settings page is typically long-lived inside a webview, navigating away or closing the tab would leave orphaned timers. The `queueStatusTimer` is properly managed with `startQueueStatusPolling`/`stopQueueStatusPolling`, but this bookmarks polling has no cleanup path.
 
 ---
 
