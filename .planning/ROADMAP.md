@@ -166,13 +166,13 @@ Plans:
   4. 当播放器功能关闭时，MediaSniffer 完全停止、媒体列表清空、播放器按钮隐藏
   5. 当播放器功能关闭时，页面恢复正常行为：视频文件正常下载、文本正常展示
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 
 Plans:
 
 **Wave 1**
 
-- [ ] 29-01-PLAN.md — 设置页面 UI（sidebar-item + 功能开关 + 域名白名单标签式 UI + CSS 样式）
+- [x] 29-01-PLAN.md — 设置页面 UI（sidebar-item + 功能开关 + 域名白名单标签式 UI + CSS 样式）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -213,4 +213,4 @@ Phases execute in numeric order: 26 → 27 → 28 → 29
 | 26. 视频源检测 + IPC 基础 | v2.2 | 2/2 | Complete    | 2026-08-06 |
 | 27. 媒体面板 | v2.2 | 2/2 | Complete   | 2026-08-07 |
 | 28. 播放器窗口 | v2.2 | 2/2 | Complete    | 2026-08-08 |
-| 29. 多媒体播放器设置控制 | v2.2 | 0/0 | Not started | - |
+| 29. 多媒体播放器设置控制 | v2.2 | 1/2 | In Progress|  |
