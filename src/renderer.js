@@ -617,6 +617,9 @@ async function switchTab(tabId) {
   if (tab.element) {
     tab.element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
   }
+
+  // 切换 Tab 时刷新媒体列表（按 webview 级别隔离）
+  loadMediaList();
 }
 
 /**
@@ -657,11 +660,22 @@ async function closeTab(tabId) {
   // 从 state 删除
   state.tabs.delete(tabId);
 
+  // 关闭 Tab 时清空该 tab 对应 webview 的媒体列表（per D-16）
+  const tabWebview = state.webviews.get(tabId);
+  if (tabWebview) {
+    let closedWebContentsId;
+    try {
+      closedWebContentsId = tabWebview.getWebContentsId();
+    } catch (err) {
+      console.warn('[Realm Renderer] 关闭 Tab 时无法获取 webview webContentsId:', err.message);
+    }
+    if (closedWebContentsId) {
+      window.mediaAPI.clearMediaList(closedWebContentsId);
+    }
+  }
+
   // 销毁关联的 webview
   destroyWebview(tabId);
-
-  // 关闭 Tab 时清空被关 Tab 所属容器的媒体列表（per D-16）
-  window.mediaAPI.clearMediaList(tab.containerId);
 
   // 如果关闭的是活动 Tab，切换到新的活动 Tab
   if (tabId === state.activeTabId) {
@@ -924,14 +938,18 @@ function bindWebviewEvents(tabId, webview) {
   // ==================== 媒体嗅探：ipc-message 监听 ====================
   webview.addEventListener('ipc-message', (e) => {
     if (e.channel === 'media:detected') {
-      // 从 webview partition 推导容器 ID
-      const partition = webview.partition || '';
-      const prefix = 'persist:container-';
-      const containerId = partition.startsWith(prefix)
-        ? partition.slice(prefix.length)
-        : state.currentContainer;
+      // 从 webview 获取 webContentsId 用于按标签页隔离存储
+      let webContentsId;
+      try {
+        webContentsId = webview.getWebContentsId();
+      } catch (err) {
+        console.warn('[Realm Renderer] 无法获取 webview webContentsId:', err.message);
+        return;
+      }
       // 转发到主进程 MediaSniffer
-      window.mediaAPI.reportMediaDetected(containerId, e.args[0]);
+      window.mediaAPI.reportMediaDetected(webContentsId, e.args[0]);
+    } else if (e.channel === 'media:outside-click') {
+      if (state.mediaPanelOpen) toggleMediaPanel();
     }
   });
 
@@ -983,9 +1001,17 @@ function bindWebviewEvents(tabId, webview) {
         }).catch(err => console.error('[Realm] 历史记录写入失败:', err));
       }
 
-      // 导航时清空该 tab 所属容器的媒体列表（per D-13/D-14：跨页面导航清空，锚点跳转不清空）
+      // 导航时清空该 tab 对应 webview 的媒体列表（per D-13/D-14：跨页面导航清空，锚点跳转不清空）
       // did-navigate 仅在跨页面导航时触发，did-navigate-in-page 处理锚点跳转
-      window.mediaAPI.clearMediaList(navContainerId);
+      let navWebContentsId;
+      try {
+        navWebContentsId = webview.getWebContentsId();
+      } catch (err) {
+        console.warn('[Realm Renderer] 导航时无法获取 webview webContentsId:', err.message);
+      }
+      if (navWebContentsId) {
+        window.mediaAPI.clearMediaList(navWebContentsId);
+      }
     }
   });
 
@@ -5125,12 +5151,24 @@ function toggleMediaPanel() {
 }
 
 /**
- * 加载当前容器的媒体列表
+ * 加载当前活动 webview 的媒体列表
  * 通过 mediaAPI.getMediaList 获取数据，更新 state 并渲染
+ * 按 webview (webContentsId) 级别隔离，标签页切换互不干扰
  */
 async function loadMediaList() {
   try {
-    const mediaList = await window.mediaAPI.getMediaList();
+    const activeWebview = state.webviews.get(state.activeTabId);
+    let webContentsId;
+    if (activeWebview) {
+      try {
+        webContentsId = activeWebview.getWebContentsId();
+      } catch (err) {
+        console.warn('[Realm Renderer] 无法获取活动 webview webContentsId:', err.message);
+      }
+    }
+    const mediaList = webContentsId
+      ? await window.mediaAPI.getMediaList(webContentsId)
+      : [];
     state.mediaItems = mediaList || [];
     renderMediaList();
     updateMediaBadge();
@@ -5210,15 +5248,19 @@ function escapeHtml(text) {
 }
 
 /**
- * 播放媒体（新标签页打开）
+ * 播放媒体（通过 IPC 创建/复用播放器窗口，D-16）
  * @param {number} index - 媒体项索引
  */
-function playMedia(index) {
+async function playMedia(index) {
   const item = state.mediaItems[index];
   if (!item) return;
 
   console.log('[Realm Renderer] 播放媒体:', item.url);
-  window.open(item.url, '_blank');
+  try {
+    await window.mediaAPI.playMedia(item.url, state.currentContainer);
+  } catch (err) {
+    console.error('[Realm Renderer] 播放失败:', err);
+  }
 }
 
 /**
@@ -5282,6 +5324,19 @@ let cleanupMediaListener = null;
 function initMediaPanel() {
   // 监听媒体列表更新（主进程推送）
   cleanupMediaListener = window.mediaAPI.onMediaListUpdate((data) => {
+    const activeWebview = state.webviews.get(state.activeTabId);
+    let activeWebContentsId;
+    if (activeWebview) {
+      try {
+        activeWebContentsId = activeWebview.getWebContentsId();
+      } catch (err) {
+        console.warn('[Realm Renderer] 无法获取活动 webview webContentsId:', err.message);
+      }
+    }
+    if (data.webContentsId && data.webContentsId !== activeWebContentsId) {
+      console.log('[Realm Renderer] 忽略其他 webview 的媒体更新:', data.webContentsId);
+      return;
+    }
     console.log('[Realm Renderer] 媒体列表更新:', data.items ? data.items.length : 0);
     state.mediaItems = data.items || [];
     renderMediaList();
