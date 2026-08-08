@@ -73,15 +73,14 @@ coverage_id: D5
 
 ### 12. 白名单过滤生效（端到端）
 expected: 白名单加入 bilibili.com 后，非白名单站点（如 nnyy.in）不应再嗅探到视频，媒体面板不出现该站视频列表；白名单站点视频正常嗅探。
-result: issue
-reported: "白名单过滤有问题。我写入了 bilibili.com 但是 https://nnyy.in/dianying/20263902.html 还是可以获取到视频列表"
-severity: major
+result: pass
+resolved_by: 29-05-PLAN.md
 
 ## Summary
 
 total: 12
-passed: 11
-issues: 1
+passed: 12
+issues: 0
 pending: 0
 skipped: 0
 
@@ -127,7 +126,9 @@ skipped: 0
   debug_session: .planning/debug/media-button-realtime-visibility.md
 - gap_id: G-29-12
   truth: "白名单非空时，仅白名单域名（含子域）的站点会被嗅探；非白名单站点不产出视频列表"
-  status: failed
+  status: resolved
+  resolved_by: 29-05-PLAN.md
+  resolved_at: 2026-08-08
   reason: "User reported: 白名单过滤有问题。我写入了 bilibili.com 但是 https://nnyy.in/dianying/20263902.html 还是可以获取到视频列表"
   severity: major
   test: 12
