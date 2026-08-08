@@ -211,7 +211,7 @@ function switchSettingsPage(pageName) {
   document.querySelectorAll('.sidebar-item').forEach(item => {
     item.classList.remove('active');
   });
-  const activeItem = document.querySelector(`.sidebar-item[data-page="${pageName}"]`);
+  const activeItem = document.querySelector(`.sidebar-item[data-page="${CSS.escape(pageName)}"]`);
   if (activeItem) {
     activeItem.classList.add('active');
   }
