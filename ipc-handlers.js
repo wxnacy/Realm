@@ -1498,7 +1498,12 @@ function registerHandlers() {
       return { success: false };
     }
     if (!mediaSniffer.isDomainWhitelisted(wc.getURL(), whitelist)) {
-      console.warn(`[Realm IPC] media:report-detected 非白名单站点上报已丢弃: ${new URL(wc.getURL()).hostname}`);
+      try {
+        const hostname = new URL(wc.getURL()).hostname;
+        console.warn(`[Realm IPC] media:report-detected 非白名单站点上报已丢弃: ${hostname}`);
+      } catch {
+        console.warn('[Realm IPC] media:report-detected 非白名单站点上报已丢弃（URL 无效）');
+      }
       return { success: false };
     }
     mediaSniffer.handleScriptDetected(webContentsId, videos);
