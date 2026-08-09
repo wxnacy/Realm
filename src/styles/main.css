@@ -1320,10 +1320,18 @@ textarea::placeholder {
 .tab-list {
   display: flex;
   gap: 2px;
-  flex: 1;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
+}
+
+/* 窗口拖拽保留区：占据 tab-list 之外的剩余空间，最小 48px */
+.tab-drag-spacer {
+  flex: 1 0 48px;
+  height: 100%;
+  -webkit-app-region: drag;
 }
 
 .tab-list::-webkit-scrollbar {

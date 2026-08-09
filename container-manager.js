@@ -58,6 +58,26 @@ function generateContainerId(name) {
 }
 
 /**
+ * 序列化容器为持久化格式（剥离 session/partition 等运行时字段）
+ * 所有写盘路径统一走此函数，新增容器字段时只需改这里
+ * @param {Object} c - 内存中的容器对象
+ * @returns {Object} 可持久化的纯数据对象
+ */
+function toPlainContainer(c) {
+  return {
+    id: c.id,
+    name: c.name,
+    color: c.color,
+    icon: c.icon,
+    iconType: c.iconType,  // undefined 时前端按 emoji 处理
+    phone: c.phone,
+    email: c.email,
+    notes: c.notes,
+    envVars: c.envVars,
+  };
+}
+
+/**
  * 初始化容器
  * 从 electron-store 加载容器配置并创建 Session partition
  */
@@ -139,7 +159,7 @@ function createContainer({ name, color = '#6B7280', icon = '📌', iconType, pho
 
   // 保存到配置
   const savedContainers = configStore.get('containers', DEFAULT_CONTAINERS);
-  savedContainers.push(container);
+  savedContainers.push(toPlainContainer(container));
   configStore.set('containers', savedContainers);
 
   // 初始化容器 session
@@ -192,32 +212,12 @@ function updateContainer(id, { name, color, icon, iconType, phone, email, notes,
   const savedContainers = configStore.get('containers', DEFAULT_CONTAINERS);
   const index = savedContainers.findIndex(c => c.id === id);
   if (index !== -1) {
-    savedContainers[index] = {
-      id: container.id,
-      name: container.name,
-      color: container.color,
-      icon: container.icon,
-      iconType: container.iconType,
-      phone: container.phone,
-      email: container.email,
-      notes: container.notes,
-      envVars: container.envVars,
-    };
+    savedContainers[index] = toPlainContainer(container);
   }
   configStore.set('containers', savedContainers);
 
   console.log(`[Realm] 更新容器: ${id}`);
-  return {
-    id: container.id,
-    name: container.name,
-    color: container.color,
-    icon: container.icon,
-    iconType: container.iconType,
-    phone: container.phone,
-    email: container.email,
-    notes: container.notes,
-    envVars: container.envVars,
-  };
+  return toPlainContainer(container);
 }
 
 /**
@@ -326,19 +326,7 @@ function reorderContainers(orderedIds) {
   newMap.forEach((value, key) => containers.set(key, value));
 
   // 持久化（剥离 session 字段）
-  const plainContainers = orderedIds.map(id => {
-    const c = containers.get(id);
-    return {
-      id: c.id,
-      name: c.name,
-      color: c.color,
-      icon: c.icon,
-      phone: c.phone,
-      email: c.email,
-      notes: c.notes,
-      envVars: c.envVars,
-    };
-  });
+  const plainContainers = orderedIds.map(id => toPlainContainer(containers.get(id)));
   configStore.set('containers', plainContainers);
 
   console.log(`[Realm] 容器排序已更新: ${orderedIds.join(', ')}`);
