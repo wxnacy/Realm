@@ -76,6 +76,63 @@ function migrateLegacyCookies() {
 }
 
 /**
+ * 清理 session 中 .www 重复 cookie
+ *
+ * 当同一 name|path 的裸域 cookie 和 .www domain cookie 同时存在时，
+ * 删除 .www 版本，只保留裸域版本。
+ *
+ * 使用 set-expired 方式删除（设置过期时间为过去），
+ * 因为 cookies.remove(url, name) 对 .www domain cookie 匹配不可靠。
+ *
+ * @param {Electron.Session} ses - 目标 session
+ * @param {string} containerId - 容器 ID（仅用于日志）
+ * @returns {Promise<number>} 清理数量
+ */
+async function cleanWWWDuplicates(ses, containerId) {
+  try {
+    const sessionCookies = await ses.cookies.get({});
+    const sessionSet = new Set(
+      sessionCookies
+        .filter(c => !c.domain.startsWith('.'))
+        .map(c => `${c.name}|${c.path}|${c.domain}`)
+    );
+
+    let cleaned = 0;
+    for (const sc of sessionCookies) {
+      if (!sc.domain.startsWith('.')) continue;
+      const bareDomain = sc.domain.slice(1);
+      const dedupKey = `${sc.name}|${sc.path}|${bareDomain}`;
+      if (sessionSet.has(dedupKey)) {
+        const protocol = sc.secure ? 'https' : 'http';
+        const url = `${protocol}://${sc.domain.slice(1)}${sc.path || '/'}`;
+        try {
+          // 设置过期时间为过去，强制删除（比 cookies.remove 更可靠）
+          await ses.cookies.set({
+            url,
+            name: sc.name,
+            value: '',
+            domain: sc.domain,
+            path: sc.path || '/',
+            expirationDate: 0,
+            secure: sc.secure,
+            httpOnly: sc.httpOnly,
+          });
+          cleaned++;
+          console.log(`[Realm] Session 去重: 移除 ${sc.domain}|${sc.name}`);
+        } catch (e) {
+          console.warn(`[Realm] Session 去重失败: ${sc.domain}|${sc.name}: ${e.message}`);
+        }
+      }
+    }
+    if (cleaned > 0) console.log(`[Realm] Session 去重完成: ${containerId} 移除 ${cleaned} 个 .www cookie`);
+    return cleaned;
+  } catch (e) {
+    console.warn(`[Realm] Session Cookie 去重失败: ${containerId}`, e.message);
+    return 0;
+  }
+}
+
+/**
  * 保存容器 Cookie 到 JSON 文件（合并模式）
  *
  * 合并逻辑：
@@ -185,34 +242,7 @@ async function saveCookies(containerId) {
     fs.writeFileSync(filePath, JSON.stringify(mergedCookies, null, 2));
 
     // 清理 session 中的 .www 重复项（运行时服务端可能重新设 .www cookie）
-    try {
-      const currentSession = await ses.cookies.get({});
-      const sessionSet = new Set(
-        currentSession
-          .filter(c => !c.domain.startsWith('.'))
-          .map(c => `${c.name}|${c.path}|${c.domain}`)
-      );
-      let cleaned = 0;
-      for (const sc of currentSession) {
-        if (!sc.domain.startsWith('.')) continue;
-        const bareDomain = sc.domain.slice(1);
-        const dedupKey = `${sc.name}|${sc.path}|${bareDomain}`;
-        if (sessionSet.has(dedupKey)) {
-          const protocol = sc.secure ? 'https' : 'http';
-          const url = `${protocol}://${bareDomain}${sc.path || '/'}`;
-          try {
-            await ses.cookies.remove(url, sc.name);
-            cleaned++;
-            console.log(`[Realm] Session 去重: 移除 ${sc.domain}|${sc.name}`);
-          } catch (e) {
-            console.warn(`[Realm] Session 去重失败: ${sc.domain}|${sc.name}: ${e.message}`);
-          }
-        }
-      }
-      if (cleaned > 0) console.log(`[Realm] Session 去重完成: 移除 ${cleaned} 个 .www cookie`);
-    } catch (e) {
-      console.warn(`[Realm] Session Cookie 去重失败: ${containerId}`, e.message);
-    }
+    await cleanWWWDuplicates(ses, containerId);
 
     console.log(`[Realm] 保存容器 Cookie: ${containerId} (${formattedSessionCookies.length} session + ${preservedCookies.length} 保留 = ${mergedCookies.length} 总计)`);
 
@@ -349,34 +379,7 @@ async function saveDomainCookies(containerId, domain, includeSubdomains = true) 
     fs.writeFileSync(filePath, JSON.stringify(mergedCookies, null, 2));
 
     // 清理 session 中的 .www 重复项（运行时服务端可能重新设 .www cookie）
-    try {
-      const currentSession = await ses.cookies.get({});
-      const sessionSet = new Set(
-        currentSession
-          .filter(c => !c.domain.startsWith('.'))
-          .map(c => `${c.name}|${c.path}|${c.domain}`)
-      );
-      let cleaned = 0;
-      for (const sc of currentSession) {
-        if (!sc.domain.startsWith('.')) continue;
-        const bareDomain = sc.domain.slice(1);
-        const dedupKey = `${sc.name}|${sc.path}|${bareDomain}`;
-        if (sessionSet.has(dedupKey)) {
-          const protocol = sc.secure ? 'https' : 'http';
-          const url = `${protocol}://${bareDomain}${sc.path || '/'}`;
-          try {
-            await ses.cookies.remove(url, sc.name);
-            cleaned++;
-            console.log(`[Realm] Session 去重: 移除 ${sc.domain}|${sc.name}`);
-          } catch (e) {
-            console.warn(`[Realm] Session 去重失败: ${sc.domain}|${sc.name}: ${e.message}`);
-          }
-        }
-      }
-      if (cleaned > 0) console.log(`[Realm] Session 去重完成: 移除 ${cleaned} 个 .www cookie`);
-    } catch (e) {
-      console.warn(`[Realm] Session Cookie 去重失败: ${containerId}`, e.message);
-    }
+    await cleanWWWDuplicates(ses, containerId);
 
     console.log(`[Realm] 保存域名 Cookie: ${containerId} / ${domain} (${formattedCookies.length} 匹配 + ${preservedCookies.length} 保留 = ${mergedCookies.length} 总计)`);
 
@@ -591,31 +594,7 @@ async function loadCookies(containerId) {
     }
 
     // 清理 session 中已有的 .www 重复项（partition 数据库可能残留旧数据）
-    try {
-      const sessionCookies = await ses.cookies.get({});
-      const sessionSet = new Set(
-        sessionCookies
-          .filter(c => !c.domain.startsWith('.'))
-          .map(c => `${c.name}|${c.path}|${c.domain}`)
-      );
-
-      for (const sc of sessionCookies) {
-        if (!sc.domain.startsWith('.')) continue;
-        const bareDomain = sc.domain.slice(1);
-        const dedupKey = `${sc.name}|${sc.path}|${bareDomain}`;
-        if (sessionSet.has(dedupKey)) {
-          const protocol = sc.secure ? 'https' : 'http';
-          const url = `${protocol}://${bareDomain}${sc.path || '/'}`;
-          try {
-            await ses.cookies.remove(url, sc.name);
-          } catch (e) {
-            // 忽略删除失败（可能已被其他流程清理）
-          }
-        }
-      }
-    } catch (e) {
-      console.warn(`[Realm] Session Cookie 去重失败: ${containerId}`, e.message);
-    }
+    await cleanWWWDuplicates(ses, containerId);
 
     console.log(`[Realm] 加载容器 Cookie: ${containerId} (${loaded}/${cookies.length} 个)`);
 
