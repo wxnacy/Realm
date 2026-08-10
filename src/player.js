@@ -78,6 +78,7 @@ const btnPip = document.getElementById('btn-pip');
 const btnFullscreen = document.getElementById('btn-fullscreen');
 const iconFullscreenEnter = document.getElementById('icon-fullscreen-enter');
 const iconFullscreenExit = document.getElementById('icon-fullscreen-exit');
+const btnCopyUrl = document.getElementById('btn-copy-url');
 const errorHint = document.getElementById('error-hint');
 const errorText = document.getElementById('error-text');
 const btnClose = document.getElementById('btn-close');
@@ -532,6 +533,29 @@ video.addEventListener('enterpictureinpicture', () => {
 video.addEventListener('leavepictureinpicture', () => {
   btnPip.title = '画中画';
   btnPip.querySelector('svg').style.opacity = '1';
+});
+
+// ==================== 复制 URL ====================
+
+/**
+ * 复制当前播放的视频 URL 到剪贴板
+ * 复制成功后按钮短暂变色反馈
+ */
+btnCopyUrl.addEventListener('click', async () => {
+  if (!state.currentUrl) return;
+
+  try {
+    await navigator.clipboard.writeText(state.currentUrl);
+    // 复制成功反馈：短暂变绿
+    btnCopyUrl.classList.add('copy-success');
+    btnCopyUrl.title = '已复制';
+    setTimeout(() => {
+      btnCopyUrl.classList.remove('copy-success');
+      btnCopyUrl.title = '复制链接';
+    }, 1500);
+  } catch (e) {
+    console.error('[Realm Player] 复制 URL 失败:', e);
+  }
 });
 
 // ==================== 双击全屏（D-13） ====================
