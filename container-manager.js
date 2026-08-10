@@ -88,6 +88,29 @@ function initContainers() {
     const partition = `persist:container-${container.id}`;
     const ses = session.fromPartition(partition);
 
+    // 实时监听 cookie 变更，阻止 .www cookie 在 session 中累积
+    // 服务端（Keycloak）会在浏览过程中往 .www 域设 cookie，
+    // 导致请求头翻倍触发 nginx 400 Bad Request
+    ses.cookies.on('changed', (event, cookie, cause, removed) => {
+      if (removed || !cookie.domain.startsWith('.www.')) return;
+      // 异步删除，避免阻塞 cookie 变更回调
+      const bareDomain = cookie.domain.slice(1);
+      const protocol = cookie.secure ? 'https' : 'http';
+      const url = `${protocol}://${bareDomain}${cookie.path || '/'}`;
+      ses.cookies.set({
+        url,
+        name: cookie.name,
+        value: '',
+        domain: cookie.domain,
+        path: cookie.path || '/',
+        expirationDate: 0,
+        secure: cookie.secure,
+        httpOnly: cookie.httpOnly,
+      }).then(() => {
+        console.log(`[Realm] 实时去重: 移除 ${cookie.domain}|${cookie.name}`);
+      }).catch(() => {});
+    });
+
     containers.set(container.id, {
       ...container,
       session: ses,
