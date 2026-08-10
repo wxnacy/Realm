@@ -35,6 +35,9 @@ const FRECENCY_WEIGHTS = {
   RECENT_90_DAYS: 1,
 };
 
+// 90 天的毫秒数，用于限制查询范围
+const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+
 // ==================== 数据库初始化 ====================
 
 /**
@@ -149,12 +152,36 @@ function getFrequentSites(limit = 12) {
       FROM ${table.name}
     `).join(' UNION ALL ');
 
-    // 域名聚合查询
+    // 计算 90 天前的时间戳（毫秒）
+    const cutoffTime = Date.now() - NINETY_DAYS_MS;
+
+    // 域名聚合查询（只查最近 90 天）
     const query = `
       WITH all_history AS (
         ${unionQueries}
       ),
-      domain_stats AS (
+      -- 第一步：按域名聚合总访问次数和最后访问时间（不分组 URL）
+      domain_aggregated AS (
+        SELECT
+          CASE
+            WHEN INSTR(SUBSTR(url, INSTR(url, '://') + 3), '/') > 0
+            THEN SUBSTR(
+              SUBSTR(url, INSTR(url, '://') + 3),
+              1,
+              INSTR(SUBSTR(url, INSTR(url, '://') + 3), '/') - 1
+            )
+            ELSE SUBSTR(url, INSTR(url, '://') + 3)
+          END as domain,
+          COUNT(*) as total_visit_count,
+          MAX(visited_at) as last_visited_at
+        FROM all_history
+        WHERE url NOT LIKE 'realm://%'
+          AND url NOT LIKE 'about:%'
+          AND visited_at >= ?
+        GROUP BY domain
+      ),
+      -- 第二步：获取每个域名最后访问的那条记录的详细信息
+      domain_latest AS (
         SELECT
           CASE
             WHEN INSTR(SUBSTR(url, INSTR(url, '://') + 3), '/') > 0
@@ -169,50 +196,39 @@ function getFrequentSites(limit = 12) {
           title,
           favicon_url,
           visited_at,
-          COUNT(*) as visit_count
+          ROW_NUMBER() OVER (
+            PARTITION BY
+              CASE
+                WHEN INSTR(SUBSTR(url, INSTR(url, '://') + 3), '/') > 0
+                THEN SUBSTR(
+                  SUBSTR(url, INSTR(url, '://') + 3),
+                  1,
+                  INSTR(SUBSTR(url, INSTR(url, '://') + 3), '/') - 1
+                )
+                ELSE SUBSTR(url, INSTR(url, '://') + 3)
+              END
+            ORDER BY visited_at DESC
+          ) as rn
         FROM all_history
         WHERE url NOT LIKE 'realm://%'
           AND url NOT LIKE 'about:%'
-        GROUP BY
-          CASE
-            WHEN INSTR(SUBSTR(url, INSTR(url, '://') + 3), '/') > 0
-            THEN SUBSTR(
-              SUBSTR(url, INSTR(url, '://') + 3),
-              1,
-              INSTR(SUBSTR(url, INSTR(url, '://') + 3), '/') - 1
-            )
-            ELSE SUBSTR(url, INSTR(url, '://') + 3)
-          END,
-          url
-      ),
-      ranked_domains AS (
-        SELECT
-          domain,
-          url,
-          title,
-          favicon_url,
-          visit_count,
-          visited_at,
-          ROW_NUMBER() OVER (
-            PARTITION BY domain
-            ORDER BY visited_at DESC
-          ) as rn
-        FROM domain_stats
+          AND visited_at >= ?
       )
+      -- 第三步：合并聚合数据和代表 URL
       SELECT
-        domain,
-        url,
-        title,
-        favicon_url as faviconUrl,
-        visit_count as visitCount,
-        visited_at as visitedAt
-      FROM ranked_domains
-      WHERE rn = 1
-      ORDER BY visited_at DESC
+        da.domain,
+        dl.url,
+        dl.title,
+        dl.favicon_url as faviconUrl,
+        da.total_visit_count as visitCount,
+        da.last_visited_at as visitedAt
+      FROM domain_aggregated da
+      JOIN domain_latest dl ON da.domain = dl.domain AND dl.rn = 1
+      ORDER BY da.last_visited_at DESC
       LIMIT ?
     `;
 
-    const results = db.prepare(query).all(limit);
+    const results = db.prepare(query).all(cutoffTime, cutoffTime, limit);
 
     // 计算 frecency 分数
     const frequentSites = results.map(site => ({
