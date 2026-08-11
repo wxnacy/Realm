@@ -1,5 +1,19 @@
 # Milestones
 
+## v2.2 多媒体功能集成 (Shipped: 2026-08-11)
+
+**Phases completed:** 4 phases, 11 plans, 24 tasks
+
+**Key accomplishments:**
+
+- 1. 添加 mediaAPI IPC 通道和 preload 暴露
+- e4bc525
+- 浮动媒体面板 UI：工具栏按钮 + 媒体列表 + 类型徽标颜色编码 + 播放/复制操作 + 实时更新
+- MediaSniffer clearAll + webRequest switch/whitelist filtering + renderer UI hide with feature toggle
+- 白名单过滤被脚本注入路径绕过。媒体嗅探有两条路径，白名单只挂在网络路径（main.js onResponseStarted）上；脚本注入路径完全失守。
+
+---
+
 ## v1.0 MVP
 
 **Shipped:** 2026-07-25
@@ -9,6 +23,7 @@
 ### Delivered
 
 完整的多容器隔离浏览器，支持：
+
 - 容器 CRUD（创建/编辑/删除）和自定义（名称、颜色、图标）
 - 多 Tab 浏览，每个 Tab 属于不同容器
 - URL 导航（协议补全/搜索回退/前进后退/刷新停止）
@@ -46,6 +61,7 @@
 ### Delivered
 
 在 MVP 基础上增强了容器属性管理、浏览历史记录、收藏夹、常用网站推荐和应用设置：
+
 - 容器扩展属性（手机号/邮箱/备注）+ 旧数据惰性填充兼容
 - 基于 SQLite 的浏览历史记录系统（每容器隔离 + realm:// 协议 + FIFO 淘汰）
 - 收藏夹管理（全局共享数据库 + 星标按钮 + CRUD + 搜索）
@@ -84,6 +100,7 @@
 ### Delivered
 
 Cookie 管理面板增强，设置页面重构，开发者模式实现：
+
 - Cookie 管理面板多来源查看（Session/File）+ 域名过滤 + 手动保存 + 单条编辑删除
 - 设置页面左侧边栏导航（通用/分配规则/快捷键设置）+ 规则/快捷键页面化
 - 开发者模式：CDP 抓取 API 请求 + SQLite 持久化 + realm://devrequests 查看页
@@ -117,6 +134,7 @@ Cookie 管理面板增强，设置页面重构，开发者模式实现：
 ### Delivered
 
 标签页和网页右键菜单完整实现：
+
 - 标签页右键菜单（关闭/关闭其他/左右侧/重新打开已关闭/固定）
 - 网页通用右键菜单（导航/另存为/打印/查看源代码/检查元素/文本编辑）
 - 图片右键菜单（新标签页打开/另存为/复制图片/复制图片地址）
@@ -152,6 +170,7 @@ Cookie 管理面板增强，设置页面重构，开发者模式实现：
 ### Delivered
 
 收藏夹文件夹系统 + AI Agent 基础集成：
+
 - 收藏夹文件夹系统（数据库层 + UI 交互 + 拖拽排序 + 多选批量操作）
 - Chrome 书签导入（JSON/HTML 解析 + 批量导入 + 进度预览）
 - 收藏栏功能（固定显示 + 交互 + 右键菜单 + 设置）
@@ -184,6 +203,7 @@ Cookie 管理面板增强，设置页面重构，开发者模式实现：
 ### Delivered
 
 AI Agent 深度浏览器控制能力：
+
 - CDP 管理器扩展 + 基础网页操控工具（read_page_content/extract_links/open_link）
 - 智能上下文引用（@ 标签页引用）+ FTS5 收藏全文检索
 - 任务自主执行（fillForm/executeAction + AI 工具 + CAPTCHA 检测 + 确认 UI）

@@ -114,6 +114,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ IPC-01~05: 媒体 IPC 通道（get-list/play/copy-url/clear-list/script-detected + mediaAPI preload） — Phase 26
 - ✓ PANEL-01~05: 媒体面板（浮动层 + 类型徽标列表 + 播放/复制 + 数量徽标 + 实时更新） — Phase 27
 - ✓ PLAYER-01~10: 独立播放器窗口（无边框 + HLS/MP4/MPEGTS 播放 + 完整控制 + 画中画 + 播放列表 + Session 隔离 + 资源释放） — Phase 28
+- ✓ SC-01~05: 多媒体播放器设置控制（功能开关 + 域名白名单 + webRequest/注入双路径过滤 + 实时广播） — Phase 29
 
 ### Active
 
@@ -133,8 +134,8 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 ## Current State
 
-**Shipped:** v2.1 (2026-08-04)
-- 25 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0 + 4 v2.1)
+**Shipped:** v2.2 (2026-08-11)
+- 29 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0 + 4 v2.1 + 4 v2.2)
 - 所有里程碑已完成归档
 - v2.1 Phase 22-25 complete — AI CDP 增强 + Tabbrowser 功能集成
 - 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core + nodejieba
@@ -159,27 +160,23 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - 多媒体：视频源嗅探（网络+注入+DOM 三通道）+ 媒体面板 + 独立播放器窗口（HLS/MP4/MPEGTS + 画中画 + 播放列表）
 
 **Known gaps:**
-- 13 个已诊断 debug session 未修复（从 v2.0 延续）
-- 1 个 UAT 差距（Phase 18，0 个待处理场景）
+- 20 个已诊断 debug session 未修复（从 v2.0-v2.2 延续）
+- 2 个 UAT 状态标记（Phase 27 completed, Phase 29 diagnosed，0 个待处理场景）
 - Phase 23 代码审查遗留 19 项（6 Critical），详见 `.planning/phases/23-context-reference/23-REVIEW.md`
 
-**Current milestone:** v2.2 多媒体功能集成 — 3 阶段全部完成（2026-08-08），待 complete-milestone 归档
+**Current milestone:** v2.2 多媒体功能集成 — 已 shipped（2026-08-11）
 
 ## Next Milestone Goals
 
-**v2.2 多媒体功能集成** (current)
-- 视频源检测模块 (media-sniffer)
-- 媒体面板 UI (media-panel)
-- 播放器窗口 (player-window) + hls.js
-- 播放控制 UI
-- 下载管理 + 边播边缓存（可选）
+**v2.3** (planned)
+- 下载管理器 + 边播边缓存 (DL-01~05)
+- Bug Fixes + Polish（20 个 debug session + Phase 23 代码审查遗留）
 
 **Future Features:**
 - 浏览器扩展支持
 - 书签/历史同步
 - 网络代理隔离
 - 移动端支持
-- Bug Fixes + Polish（13 个 debug session + Phase 23 代码审查遗留）
 
 ## Context
 
@@ -194,9 +191,9 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - AutoBrowser 项目的 Cookie 持久化方案（JSON 文件格式，支持 domain 前缀点号保留）
 
 **代码库状态：**
-- v2.0 已 shipped，包含完整的多容器浏览器功能 + 历史记录 + 收藏夹 + 常用网站 + 设置 + 开发者模式 + 右键菜单 + 收藏夹文件夹 + Chrome 导入 + 收藏栏 + AI Agent
-- 21 个阶段完成，所有计划完成，所有需求全部实现
-- 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core
+- v2.2 已 shipped，包含完整的多容器浏览器功能 + 历史记录 + 收藏夹 + 常用网站 + 设置 + 开发者模式 + 右键菜单 + 收藏夹文件夹 + Chrome 导入 + 收藏栏 + AI Agent + 多媒体播放器
+- 29 个阶段完成，所有计划完成
+- 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core + hls.js + mpegts.js + dashjs
 
 ## Constraints
 
@@ -287,4 +284,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-08 after Phase 28*
+*Last updated: 2026-08-11 after v2.2 milestone*

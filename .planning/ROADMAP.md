@@ -12,7 +12,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 - ✅ **v1.3 右键菜单增强** — Phase 13 (shipped 2026-07-27)
 - ✅ **v2.0 收藏夹文件夹支持 + AI Agent 集成** — Phases 14-21 (shipped 2026-08-01)
 - ✅ **v2.1 AI CDP 增强 + Tabbrowser 功能集成** — Phases 22-25 (shipped 2026-08-04)
-- 🚧 **v2.2 多媒体功能集成** — Phases 26-29 (in progress)
+- ✅ **v2.2 多媒体功能集成** — Phases 26-29 (shipped 2026-08-11)
 
 ## Phases
 
@@ -77,115 +77,15 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 
 </details>
 
-### 🚧 v2.2 多媒体功能集成 (In Progress)
+<details>
+<summary>✅ v2.2 多媒体功能集成 (Phases 26-29) — SHIPPED 2026-08-11</summary>
 
-**Milestone Goal:** 为 Realm Browser 添加视频源检测、媒体面板和独立播放器功能
+- [x] Phase 26: 视频源检测 + IPC 基础 (2/2 plans) — completed 2026-08-06
+- [x] Phase 27: 媒体面板 (2/2 plans) — completed 2026-08-07
+- [x] Phase 28: 播放器窗口 (2/2 plans) — completed 2026-08-08
+- [x] Phase 29: 多媒体播放器设置控制 (5/5 plans) — completed 2026-08-08
 
-#### Phase 26: 视频源检测 + IPC 基础
-
-**Goal**: 用户在任意容器中浏览网页时，系统自动检测页面中的视频资源 URL，并通过 IPC 通道将检测结果暴露给渲染进程
-**Depends on**: Phase 25
-**Requirements**: SNIFF-01, SNIFF-02, SNIFF-03, SNIFF-04, SNIFF-05, IPC-01, IPC-02, IPC-03, IPC-04, IPC-05
-**Success Criteria** (what must be TRUE):
-
-  1. 用户访问包含 m3u8/mp4/flv/webm 视频的网页时，系统自动检测到视频 URL 并记录到当前容器的媒体列表
-  2. 用户访问包含 `<video>` 或 `<source>` 元素的网页时，系统通过注入脚本检测到视频 src/currentSrc
-  3. 页面动态加载视频元素时（MutationObserver），系统实时检测到新增的视频资源
-  4. 媒体列表按容器隔离，相同 URL 自动去重；页面导航时自动清空当前容器列表
-  5. 渲染进程可通过 mediaAPI.getMediaList() 获取媒体列表，通过 mediaAPI.onMediaListUpdate 监听变更
-
-**Plans**: 2/2 plans complete
-
-Plans:
-**Wave 1**
-
-- [x] 26-01-PLAN.md — MediaSniffer 核心引擎（三种视频检测方式 + 容器隔离存储 + 导航生命周期）
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 26-02-PLAN.md — IPC 通道 + mediaAPI preload 暴露（media:get-list/play/copy-url/clear-list + player.html 占位）
-
-#### Phase 27: 媒体面板
-
-**Goal**: 用户可以通过工具栏按钮打开媒体面板，查看当前容器检测到的所有媒体资源，并执行播放和复制操作
-**Depends on**: Phase 26
-**Requirements**: PANEL-01, PANEL-02, PANEL-03, PANEL-04, PANEL-05
-**Success Criteria** (what must be TRUE):
-
-  1. 用户点击工具栏媒体按钮时，浮动媒体面板打开/关闭，面板覆盖在页面上方（z-index 层叠）
-  2. 媒体面板显示当前容器所有检测到的媒体资源列表，包含名称、类型徽标和 URL 预览
-  3. 用户点击媒体项的播放按钮时，打开独立播放器窗口播放该视频
-  4. 用户点击媒体项的复制按钮时，视频 URL 复制到系统剪贴板
-  5. 新检测到媒体时，工具栏媒体按钮显示数量提示徽标
-
-**Plans**: 1/1 plans complete
-
-Plans:
-
-- [ ] PLAN.md
-
-**Wave 1**
-
-- [ ] 27-PLAN.md — 媒体面板（HTML结构 + CSS样式 + 开关逻辑 + 播放复制 + 实时更新）
-- [ ] 27-02-PLAN.md — Gap closure: G-27-1a 按钮 active 样式 / G-27-1b webview 点击关面板 / G-27-2 读推容器键对齐
-
-#### Phase 28: 播放器窗口
-
-**Goal**: 用户可以从媒体面板打开独立播放器窗口，支持多种视频格式的播放和完整的播放控制
-**Depends on**: Phase 27
-**Requirements**: PLAYER-01, PLAYER-02, PLAYER-03, PLAYER-04, PLAYER-05, PLAYER-06, PLAYER-07, PLAYER-08, PLAYER-09, PLAYER-10
-**Success Criteria** (what must be TRUE):
-
-  1. 播放器使用独立 BrowserWindow 打开，支持窗口大小调整和全屏模式
-  2. 播放器支持 HLS (m3u8) 格式通过 hls.js 播放，MP4/WebM 格式通过 Chromium 原生播放，FLV/MPEG-TS 格式通过 mpegts.js 播放
-  3. 播放器提供播放/暂停、进度条拖拽、时间显示、音量控制、倍速选择（0.5x/1x/1.5x/2x）等完整控制
-  4. 播放器窗口关闭时正确销毁 hls.js/mpegts.js 实例，释放内存
-
-**Plans**: 2/2 plans complete
-
-Plans:
-
-**Wave 1**
-
-- [x] 28-01-PLAN.md — npm 依赖安装 + media:play IPC 重写（Session 隔离 + 窗口复用 + renderer.js 改造）
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 28-02-PLAN.md — 完整播放器 UI（格式检测 + 控制栏 + 键盘快捷键 + 画中画 + 播放列表 + 资源释放）
-
-#### Phase 29: 多媒体播放器设置控制
-
-**Goal**: 用户可以在设置页面控制多媒体播放器功能的启用/禁用，并配置域名白名单，当功能关闭时确保所有相关资源完全释放
-**Depends on**: Phase 28
-**Requirements**: SC-1, SC-2, SC-3, SC-4, SC-5
-**Success Criteria** (what must be TRUE):
-
-  1. 设置页面新增"多媒体"侧边栏选项，包含播放器功能开关和域名白名单配置
-  2. 播放器功能开关默认关闭，控制视频探测、m3u8 播放、播放按钮的显示
-  3. 域名白名单区域支持添加/删除域名，默认为"全部"（所有域名都进行探测）
-  4. 当播放器功能关闭时，MediaSniffer 完全停止、媒体列表清空、播放器按钮隐藏
-  5. 当播放器功能关闭时，页面恢复正常行为：视频文件正常下载、文本正常展示
-
-**Plans**: 4/5 plans complete (gap closure: G-29-4, G-29-6, G-29-12)
-
-Plans:
-
-**Wave 1**
-
-- [x] 29-01-PLAN.md — 设置页面 UI（sidebar-item + 功能开关 + 域名白名单标签式 UI + CSS 样式）
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 29-02-PLAN.md — 后端集成（webRequest 开关检查 + 脚本注入检查 + 媒体列表清空 + 面板/按钮隐藏）
-
-**Gap Closure Wave 1** *(UAT gaps，两计划无文件重叠可并行)*
-
-- [x] 29-03-PLAN.md — 白名单域名结构校验（isValidDomain 共享函数 + addWhitelistDomain/addDomain 接入，closes G-29-4）
-- [x] 29-04-PLAN.md — 设置变更实时广播（main.js settings:updated + preload onSettingsUpdated + renderer 订阅，closes G-29-6）
-
-**Gap Closure Wave 2** *(UAT gap G-29-12，单计划)*
-
-- [ ] 29-05-PLAN.md — 白名单双路径生效（renderer 注入前检查 + report-detected 服务端校验 + 网络路径改按页面 URL 匹配，closes G-29-12）
+</details>
 
 ## Progress
 
@@ -219,7 +119,7 @@ Phases execute in numeric order: 26 → 27 → 28 → 29
 | 23. 智能上下文引用 + 全文检索 | v2.1 | 2/2 | Complete | 2026-08-02 |
 | 24. 任务自主执行 | v2.1 | 4/4 | Complete | 2026-08-02 |
 | 25. 脚本生成 + 智能标签整理 | v2.1 | 7/7 | Complete | 2026-08-04 |
-| 26. 视频源检测 + IPC 基础 | v2.2 | 2/2 | Complete    | 2026-08-06 |
-| 27. 媒体面板 | v2.2 | 2/2 | Complete   | 2026-08-07 |
-| 28. 播放器窗口 | v2.2 | 2/2 | Complete    | 2026-08-08 |
-| 29. 多媒体播放器设置控制 | v2.2 | 2/2 | Complete    | 2026-08-08 |
+| 26. 视频源检测 + IPC 基础 | v2.2 | 2/2 | Complete | 2026-08-06 |
+| 27. 媒体面板 | v2.2 | 2/2 | Complete | 2026-08-07 |
+| 28. 播放器窗口 | v2.2 | 2/2 | Complete | 2026-08-08 |
+| 29. 多媒体播放器设置控制 | v2.2 | 5/5 | Complete | 2026-08-08 |
