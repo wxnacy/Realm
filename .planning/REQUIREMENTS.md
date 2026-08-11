@@ -63,25 +63,25 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DL-01 | — | Pending |
-| DL-02 | — | Pending |
-| DL-03 | — | Pending |
-| DL-04 | — | Pending |
-| DL-05 | — | Pending |
-| DL-06 | — | Pending |
-| DL-07 | — | Pending |
-| DL-08 | — | Pending |
-| DL-09 | — | Pending |
-| DL-10 | — | Pending |
-| DL-11 | — | Pending |
-| AF-01 | — | Pending |
-| AF-02 | — | Pending |
-| AF-03 | — | Pending |
-| AF-04 | — | Pending |
-| AF-05 | — | Pending |
-| AF-06 | — | Pending |
-| AF-07 | — | Pending |
-| AF-08 | — | Pending |
-| AF-09 | — | Pending |
-| FIX-01 | — | Pending |
-| FIX-02 | — | Pending |
+| DL-01 | Phase 30 | Pending |
+| DL-02 | Phase 31 | Pending |
+| DL-03 | Phase 31 | Pending |
+| DL-04 | Phase 31 | Pending |
+| DL-05 | Phase 30 | Pending |
+| DL-06 | Phase 31 | Pending |
+| DL-07 | Phase 31 | Pending |
+| DL-08 | Phase 31 | Pending |
+| DL-09 | Phase 30 | Pending |
+| DL-10 | Phase 30 | Pending |
+| DL-11 | Phase 30 | Pending |
+| AF-01 | Phase 32 | Pending |
+| AF-02 | Phase 32 | Pending |
+| AF-03 | Phase 32 | Pending |
+| AF-04 | Phase 33 | Pending |
+| AF-05 | Phase 32 | Pending |
+| AF-06 | Phase 33 | Pending |
+| AF-07 | Phase 33 | Pending |
+| AF-08 | Phase 32 | Pending |
+| AF-09 | Phase 32 | Pending |
+| FIX-01 | Phase 33 | Pending |
+| FIX-02 | Phase 33 | Pending |

@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: 浏览器基础功能补全
 status: planning
-last_updated: "2026-08-11T08:32:31.484Z"
+last_updated: "2026-08-11T12:00:00.000Z"
 last_activity: 2026-08-11
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-08)
+See: .planning/PROJECT.md (updated 2026-08-11)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 29 — 多媒体播放器设置控制
+**Current focus:** Phase 30 — 下载管理器核心引擎
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 30 (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-08-11 — Milestone v2.3 started
+Status: Roadmap created, ready for phase planning
+Last activity: 2026-08-11 — v2.3 roadmap created
 
 ## Performance Metrics
 
@@ -55,16 +55,22 @@ Last activity: 2026-08-11 — Milestone v2.3 started
 
 ### Roadmap Evolution
 
-- Phase 29 added: 多媒体播放器设置控制
+- v2.3 roadmap created: 4 phases (30-33)
+  - Phase 30: 下载管理器 — 核心引擎 (DL-01, DL-05, DL-09, DL-10, DL-11)
+  - Phase 31: 下载管理器 — 用户交互 (DL-02, DL-03, DL-04, DL-06, DL-07, DL-08)
+  - Phase 32: 自动填充 — 凭据引擎 (AF-01, AF-02, AF-03, AF-05, AF-08, AF-09)
+  - Phase 33: 自动填充 — 增强 + Bug 修复 (AF-04, AF-06, AF-07, FIX-01, FIX-02)
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- v2.2 路线图: 3 阶段结构（检测+IPC → 面板 → 播放器），granularity=coarse 匹配
-- v2.2 技术选型: hls.js ^1.6.17 + mpegts.js ^1.8.1，复用 Electron 原生 API
-- Phase 28 UAT: 播放库 UMD script 引入；getMainWindow 显式引用；assertPlayerSender 窗口身份断言；非主窗口 Cmd+W 关自身
+- v2.3 路线图: 4 阶段结构（下载核心 → 下载交互 → 自动填充引擎 → 自动填充增强+修复），granularity=coarse 匹配
+- v2.3 技术选型: 零新依赖，全部基于 Electron 原生 API（DownloadItem、safeStorage）+ 已有基础设施
+- 下载历史表单表设计（container_id 列区分容器），非分表——简化查询
+- 凭据加密使用 safeStorage 异步 API（encryptStringAsync/decryptStringAsync），避免阻塞主线程
+- 表单检测在 webview-preload.js 中完成（需要 DOM 上下文），凭据读写走主进程 IPC
 
 ### Pending Todos
 
@@ -72,10 +78,10 @@ None yet.
 
 ### Blockers/Concerns
 
-- ~~hls.js enableWorker 在 Electron 32.x CSP 下的行为需实际测试~~ — Phase 28 UAT 实测通过（blob worker + CSP worker-src 放行）
-- ~~播放器窗口的视频编解码器支持范围需在 Electron 32.x 中实测~~ — Phase 28 UAT HLS/MP4 实测通过
-- session.webRequest 对 WebSocket 升级请求的拦截能力待验证
-- [Phase 28] DASH (.mpd) 播放暂缓（UAT G-28-2，二层根因未诊断，用户 2026-08-08 决定）
+- safeStorage 在 Linux 无密钥管理器时降级为明文加密，必须检测并拒绝存储凭据
+- will-download 路径设置时序：setSavePath() 只能在回调内同步调用
+- 断点续传依赖服务端 Range + ETag 支持，不支持时 resume() 会从头重下
+- autofill 与 CDP fillForm 互斥机制需在 Phase 32 中实现
 
 ### Quick Tasks Completed
 
@@ -96,10 +102,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-08T09:19:07.635Z
-Stopped at: Phase 29 UI-SPEC approved
-Resume file: .planning/phases/29-/29-UI-SPEC.md
+Last session: 2026-08-11
+Stopped at: v2.3 roadmap created
+Resume file: .planning/ROADMAP.md
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan Phase 30 with `/gsd-plan-phase 30`

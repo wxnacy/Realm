@@ -13,6 +13,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 - ✅ **v2.0 收藏夹文件夹支持 + AI Agent 集成** — Phases 14-21 (shipped 2026-08-01)
 - ✅ **v2.1 AI CDP 增强 + Tabbrowser 功能集成** — Phases 22-25 (shipped 2026-08-04)
 - ✅ **v2.2 多媒体功能集成** — Phases 26-29 (shipped 2026-08-11)
+- 🔧 **v2.3 浏览器基础功能补全** — Phases 30-33 (in progress)
 
 ## Phases
 
@@ -87,10 +88,72 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 
 </details>
 
+<details open>
+<summary>🔧 v2.3 浏览器基础功能补全 (Phases 30-33) — IN PROGRESS</summary>
+
+- [ ] **Phase 30: 下载管理器 — 核心引擎** — 文件下载拦截、保存对话框、进度追踪、工具栏集成、SQLite 持久化
+- [ ] **Phase 31: 下载管理器 — 用户交互** — 下载历史面板、暂停/恢复、文件操作、批量管理
+- [ ] **Phase 32: 自动填充 — 凭据引擎** — 登录凭据加密存储、表单检测、自动填充、容器隔离
+- [ ] **Phase 33: 自动填充 — 增强 + Bug 修复** — 凭据管理 UI、地址表单、autofill/fillForm 互斥、Bug 修复与代码清理
+
+</details>
+
+## Phase Details
+
+### Phase 30: 下载管理器 — 核心引擎
+**Goal**: 用户在浏览器中下载文件时，能看到保存对话框、实时进度，并且下载记录持久化
+**Depends on**: Nothing (first v2.3 phase)
+**Requirements**: DL-01, DL-05, DL-09, DL-10, DL-11
+**Success Criteria** (what must be TRUE):
+  1. 用户点击下载链接时弹出系统保存对话框，可选择保存位置
+  2. 下载进行时显示实时进度条（文件名、大小、速度、剩余时间）
+  3. 下载完成后记录持久化到 SQLite，重启后仍可查看
+  4. 工具栏下载按钮在有活跃下载时显示数量徽标
+  5. 下载数据按容器隔离存储，不同容器的下载记录互不干扰
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 31: 下载管理器 — 用户交互
+**Goal**: 用户可以通过下载面板管理所有下载任务——查看历史、暂停恢复、操作文件
+**Depends on**: Phase 30
+**Requirements**: DL-02, DL-03, DL-04, DL-06, DL-07, DL-08
+**Success Criteria** (what must be TRUE):
+  1. 用户可以打开下载面板查看所有下载历史列表
+  2. 用户可以暂停正在进行的下载，稍后恢复
+  3. 用户可以打开已下载的文件（使用系统默认应用）
+  4. 用户可以在 Finder 中显示已下载的文件
+  5. 用户可以删除单条下载记录（可选是否删除本地文件）或清空所有历史
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 32: 自动填充 — 凭据引擎
+**Goal**: 用户登录网站时可保存凭据，再次访问时自动填充，并且凭据按容器隔离存储
+**Depends on**: Nothing (与 Phase 30/31 无技术依赖，可并行规划)
+**Requirements**: AF-01, AF-02, AF-03, AF-05, AF-08, AF-09
+**Success Criteria** (what must be TRUE):
+  1. 用户提交登录表单时弹出保存凭据提示
+  2. 保存的凭据使用 safeStorage 加密存储（macOS Keychain）
+  3. 用户再次访问已保存凭据的网站时自动填充用户名和密码
+  4. 凭据按容器隔离存储，容器 A 的凭据不会在容器 B 中被填充
+  5. AI 填表（CDP fillForm）激活时，浏览器 autofill 自动禁用，避免冲突
+**Plans**: TBD
+
+### Phase 33: 自动填充 — 增强 + Bug 修复
+**Goal**: 用户可以管理已保存的凭据和地址信息，同时清理技术债务确保代码质量
+**Depends on**: Phase 32
+**Requirements**: AF-04, AF-06, AF-07, FIX-01, FIX-02
+**Success Criteria** (what must be TRUE):
+  1. 用户可以在设置页查看和删除已保存的凭据
+  2. 用户可以保存地址表单信息（姓名、电话、地址），并在地址表单中自动填充
+  3. 20 个已诊断 debug sessions 全部修复
+  4. Phase 23 代码审查遗留 19 项（6 Critical）全部清理
+**Plans**: TBD
+**UI hint**: yes
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 26 → 27 → 28 → 29
+Phases execute in numeric order: 30 → 31 → 32 → 33
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -123,3 +186,7 @@ Phases execute in numeric order: 26 → 27 → 28 → 29
 | 27. 媒体面板 | v2.2 | 2/2 | Complete | 2026-08-07 |
 | 28. 播放器窗口 | v2.2 | 2/2 | Complete | 2026-08-08 |
 | 29. 多媒体播放器设置控制 | v2.2 | 5/5 | Complete | 2026-08-08 |
+| 30. 下载管理器 — 核心引擎 | v2.3 | 0/0 | Not started | - |
+| 31. 下载管理器 — 用户交互 | v2.3 | 0/0 | Not started | - |
+| 32. 自动填充 — 凭据引擎 | v2.3 | 0/0 | Not started | - |
+| 33. 自动填充 — 增强 + Bug 修复 | v2.3 | 0/0 | Not started | - |
