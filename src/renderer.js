@@ -2198,6 +2198,9 @@ async function init() {
   // 初始化媒体面板（监听更新 + 初始加载）
   initMediaPanel();
 
+  // 初始化下载管理 UI
+  initDownloads();
+
   // 监听设置变更事件，实时刷新多媒体开关状态（closing UAT gap G-29-6）
   window.realmAPI.onSettingsUpdated(async (changedKeys) => {
     if (!changedKeys.some((key) => key.startsWith('mediaPlayer'))) return;
@@ -5423,6 +5426,326 @@ function renderContextPills() {
       }
     });
   });
+}
+
+// ==================== 下载管理 ====================
+
+/** @type {Map<string, Object>} 活跃下载状态：downloadId -> {filename, received, total, speed, percent, state, eta} */
+const activeDownloadsMap = new Map();
+
+/** @type {number|null} 完成状态自动恢复定时器 */
+let downloadDoneTimer = null;
+
+/** @type {number|null} tooltip hover 延迟定时器 */
+let downloadTooltipHoverTimer = null;
+
+/** @type {number|null} tooltip 离开延迟定时器 */
+let downloadTooltipLeaveTimer = null;
+
+/**
+ * 初始化下载管理 UI
+ * 注册下载事件监听器和按钮交互
+ */
+function initDownloads() {
+  // 注册下载事件监听
+  window.downloadAPI.onDownloadStarted(handleDownloadStarted);
+  window.downloadAPI.onDownloadProgress(handleDownloadProgress);
+  window.downloadAPI.onDownloadCompleted(handleDownloadCompleted);
+
+  // 下载按钮点击（Phase 31 实现面板，当前为 no-op）
+  const downloadBtn = document.getElementById('downloadBtn');
+  if (downloadBtn) {
+    downloadBtn.addEventListener('click', () => {
+      // Phase 31: 打开下载面板
+      console.log('[Realm Renderer] 下载按钮点击（面板待实现）');
+    });
+
+    // hover 显示 tooltip
+    downloadBtn.addEventListener('mouseenter', () => {
+      downloadTooltipHoverTimer = setTimeout(() => {
+        showDownloadTooltip();
+      }, 200);
+    });
+
+    downloadBtn.addEventListener('mouseleave', () => {
+      clearTimeout(downloadTooltipHoverTimer);
+      downloadTooltipLeaveTimer = setTimeout(() => {
+        hideDownloadTooltip();
+      }, 100);
+    });
+  }
+
+  // tooltip 自身的 hover 保持显示
+  const tooltip = document.getElementById('downloadTooltip');
+  if (tooltip) {
+    tooltip.addEventListener('mouseenter', () => {
+      clearTimeout(downloadTooltipLeaveTimer);
+    });
+    tooltip.addEventListener('mouseleave', () => {
+      downloadTooltipLeaveTimer = setTimeout(() => {
+        hideDownloadTooltip();
+      }, 100);
+    });
+  }
+
+  // 查询初始活跃下载数量
+  updateDownloadBadge();
+}
+
+/**
+ * 处理下载开始事件
+ * @param {Object} data - {downloadId, filename, totalBytes, containerId}
+ */
+function handleDownloadStarted(data) {
+  activeDownloadsMap.set(data.downloadId, {
+    filename: data.filename,
+    received: 0,
+    total: data.totalBytes,
+    speed: 0,
+    percent: 0,
+    state: 'progressing',
+    eta: '计算中...',
+  });
+
+  // 切换到进度环状态
+  setDownloadButtonState('active');
+  updateDownloadBadge();
+}
+
+/**
+ * 处理下载进度事件
+ * @param {Object} data - {downloadId, received, total, speed, percent, state}
+ */
+function handleDownloadProgress(data) {
+  const download = activeDownloadsMap.get(data.downloadId);
+  if (!download) return;
+
+  Object.assign(download, {
+    received: data.received,
+    total: data.total,
+    speed: data.speed,
+    percent: data.percent,
+    state: data.state,
+    eta: data.total > 0 && data.speed > 0
+      ? formatETA(data.total - data.received, data.speed)
+      : '计算中...',
+  });
+
+  // 更新进度环
+  updateDownloadProgressRing();
+
+  // 如果 tooltip 可见，更新内容
+  const tooltip = document.getElementById('downloadTooltip');
+  if (tooltip && !tooltip.classList.contains('hidden')) {
+    renderDownloadTooltipContent();
+  }
+}
+
+/**
+ * 处理下载完成事件
+ * @param {Object} data - {downloadId, state, savePath}
+ */
+function handleDownloadCompleted(data) {
+  activeDownloadsMap.delete(data.downloadId);
+
+  if (activeDownloadsMap.size === 0) {
+    // 所有下载完成，显示绿色对勾 3 秒后恢复
+    setDownloadButtonState('done');
+    downloadDoneTimer = setTimeout(() => {
+      setDownloadButtonState('idle');
+    }, 3000);
+  }
+
+  updateDownloadBadge();
+  hideDownloadTooltip();
+}
+
+/**
+ * 设置下载按钮状态
+ * @param {'idle'|'active'|'done'} state
+ */
+function setDownloadButtonState(state) {
+  const btn = document.getElementById('downloadBtn');
+  if (!btn) return;
+
+  const defaultIcon = btn.querySelector('.download-icon-default');
+  const progressRing = btn.querySelector('.download-progress-ring');
+  const doneIcon = btn.querySelector('.download-icon-done');
+
+  // 清除完成定时器
+  if (downloadDoneTimer) {
+    clearTimeout(downloadDoneTimer);
+    downloadDoneTimer = null;
+  }
+
+  // 隐藏所有
+  defaultIcon.style.display = 'none';
+  progressRing.style.display = 'none';
+  doneIcon.style.display = 'none';
+
+  switch (state) {
+    case 'idle':
+      defaultIcon.style.display = '';
+      btn.title = '下载管理';
+      btn.setAttribute('aria-label', '下载管理');
+      break;
+    case 'active':
+      progressRing.style.display = '';
+      const count = activeDownloadsMap.size;
+      btn.title = `下载管理 - ${count} 个下载中`;
+      btn.setAttribute('aria-label', `下载管理 - ${count} 个下载中`);
+      break;
+    case 'done':
+      doneIcon.style.display = '';
+      btn.title = '下载管理';
+      btn.setAttribute('aria-label', '下载管理');
+      break;
+  }
+}
+
+/**
+ * 更新下载进度环
+ * 多个下载时显示加权聚合进度
+ */
+function updateDownloadProgressRing() {
+  const fillCircle = document.querySelector('.download-progress-fill');
+  if (!fillCircle) return;
+
+  let totalReceived = 0;
+  let totalBytes = 0;
+
+  for (const download of activeDownloadsMap.values()) {
+    totalReceived += download.received;
+    totalBytes += download.total;
+  }
+
+  const percent = totalBytes > 0 ? totalReceived / totalBytes : 0;
+  const circumference = 75.4; // 2 * PI * 12
+  const offset = circumference * (1 - percent);
+  fillCircle.style.strokeDashoffset = offset;
+}
+
+/**
+ * 更新下载徽标数字
+ */
+function updateDownloadBadge() {
+  const badge = document.getElementById('downloadBadge');
+  if (!badge) return;
+
+  const count = activeDownloadsMap.size;
+  if (count > 0) {
+    badge.textContent = count > 9 ? '9+' : count;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
+/**
+ * 显示下载 tooltip
+ */
+function showDownloadTooltip() {
+  if (activeDownloadsMap.size === 0) return;
+
+  const tooltip = document.getElementById('downloadTooltip');
+  const btn = document.getElementById('downloadBtn');
+  if (!tooltip || !btn) return;
+
+  renderDownloadTooltipContent();
+
+  // 定位：按钮下方居中
+  const rect = btn.getBoundingClientRect();
+  tooltip.style.left = `${rect.left + rect.width / 2}px`;
+  tooltip.style.top = `${rect.bottom + 4}px`;
+  tooltip.style.transform = 'translateX(-50%)';
+
+  // 边界检测
+  const tooltipRect = tooltip.getBoundingClientRect();
+  if (tooltipRect.left < 8) {
+    tooltip.style.left = '8px';
+    tooltip.style.transform = 'none';
+  }
+  if (tooltipRect.right > window.innerWidth - 8) {
+    tooltip.style.left = `${window.innerWidth - 8}px`;
+    tooltip.style.transform = 'translateX(-100%)';
+  }
+
+  tooltip.classList.remove('hidden');
+}
+
+/**
+ * 隐藏下载 tooltip
+ */
+function hideDownloadTooltip() {
+  const tooltip = document.getElementById('downloadTooltip');
+  if (tooltip) {
+    tooltip.classList.add('hidden');
+  }
+}
+
+/**
+ * 渲染 tooltip 内容
+ */
+function renderDownloadTooltipContent() {
+  const list = document.getElementById('downloadTooltipList');
+  if (!list) return;
+
+  const downloads = Array.from(activeDownloadsMap.values());
+  const maxVisible = 3;
+
+  list.innerHTML = '';
+
+  downloads.slice(0, maxVisible).forEach(download => {
+    const item = document.createElement('div');
+    item.className = 'download-tooltip-item';
+    item.innerHTML = `
+      <div class="download-tooltip-name">${escapeHtml(download.filename)}</div>
+      <div class="download-tooltip-detail">
+        <span class="download-tooltip-size">${formatFileSize(download.received)} / ${formatFileSize(download.total)}</span>
+        <span class="download-tooltip-separator">·</span>
+        <span class="download-tooltip-speed">${formatFileSize(download.speed)}/s</span>
+        <span class="download-tooltip-separator">·</span>
+        <span class="download-tooltip-eta">${download.eta}</span>
+      </div>
+      <div class="download-tooltip-progress">
+        <div class="download-tooltip-progress-bar" style="width: ${download.percent}%"></div>
+      </div>
+    `;
+    list.appendChild(item);
+  });
+
+  if (downloads.length > maxVisible) {
+    const overflow = document.createElement('div');
+    overflow.className = 'download-tooltip-overflow';
+    overflow.textContent = `+${downloads.length - maxVisible} 更多`;
+    list.appendChild(overflow);
+  }
+}
+
+/**
+ * 格式化文件大小
+ * @param {number} bytes
+ * @returns {string}
+ */
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+}
+
+/**
+ * 格式化剩余时间
+ * @param {number} bytesRemaining
+ * @param {number} speed - bytes/s
+ * @returns {string}
+ */
+function formatETA(bytesRemaining, speed) {
+  if (speed <= 0) return '计算中...';
+  const seconds = Math.ceil(bytesRemaining / speed);
+  if (seconds < 60) return `剩余 ${seconds}s`;
+  if (seconds < 3600) return `剩余 ${Math.ceil(seconds / 60)}min`;
+  return `剩余 ${Math.ceil(seconds / 3600)}h`;
 }
 
 // ==================== 媒体面板 ====================

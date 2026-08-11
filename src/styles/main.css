@@ -44,6 +44,14 @@
   --media-type-flv: #F59E0B;
   --media-type-webm: #8B5CF6;
   --media-type-dash: #EC4899;
+
+  /* 下载管理器 */
+  --download-btn-size: 32px;
+  --download-ring-size: 28px;
+  --download-ring-stroke: 2.5px;
+  --download-ring-circumference: 75.4px;
+  --download-tooltip-min-width: 260px;
+  --download-tooltip-max-width: 340px;
 }
 
 /* 基础重置 */
@@ -6334,4 +6342,118 @@ textarea::placeholder {
 .find-close-btn:hover {
   background-color: rgba(239, 68, 68, 0.2);
   color: #EF4444;
+}
+
+/* ==================== 下载管理器 ==================== */
+
+/* 下载按钮 */
+.download-btn {
+  position: relative;
+}
+
+/* 默认图标、进度环、完成图标的切换 */
+.download-btn .download-icon-default,
+.download-btn .download-progress-ring,
+.download-btn .download-icon-done {
+  transition: opacity 0.2s ease;
+}
+
+/* 进度环填充动画 */
+.download-progress-fill {
+  transition: stroke-dashoffset 0.3s ease;
+}
+
+/* 下载徽标（复用 media-badge 模式） */
+.download-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  background-color: var(--danger-color);
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  padding: 0 4px;
+  pointer-events: none;
+  animation: download-badge-in 0.15s ease-out;
+}
+
+@keyframes download-badge-in {
+  from { transform: scale(0); }
+  to { transform: scale(1); }
+}
+
+/* 下载提示框 */
+.download-tooltip {
+  position: fixed;
+  z-index: 1000;
+  min-width: var(--download-tooltip-min-width);
+  max-width: var(--download-tooltip-max-width);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+.download-tooltip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 单个下载项 */
+.download-tooltip-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.download-tooltip-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.download-tooltip-detail {
+  font-size: 13px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.download-tooltip-separator {
+  color: var(--text-muted);
+}
+
+/* tooltip 内进度条 */
+.download-tooltip-progress {
+  height: 3px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.download-tooltip-progress-bar {
+  height: 100%;
+  background: var(--accent-color);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* 溢出提示 */
+.download-tooltip-overflow {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  padding-top: 4px;
 }

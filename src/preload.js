@@ -1112,4 +1112,57 @@ contextBridge.exposeInMainWorld('playerAPI', {
   closeWindow: () => ipcRenderer.invoke('player:close'),
 });
 
+// ==================== 下载管理 API ====================
+
+/**
+ * 下载管理相关 API（独立命名空间）
+ * 渲染进程通过 window.downloadAPI 访问
+ */
+contextBridge.exposeInMainWorld('downloadAPI', {
+  /** 获取容器的下载列表 */
+  getDownloads: (containerId) => ipcRenderer.invoke('download:list', containerId),
+
+  /** 获取当前活跃下载数量 */
+  getActiveCount: () => ipcRenderer.invoke('download:get-active-count'),
+
+  /** 获取活跃下载列表（含进度信息） */
+  getActiveDownloads: () => ipcRenderer.invoke('download:get-active'),
+
+  /** 取消下载 */
+  cancelDownload: (downloadId) => ipcRenderer.invoke('download:cancel', downloadId),
+
+  /** 暂停下载 */
+  pauseDownload: (downloadId) => ipcRenderer.invoke('download:pause', downloadId),
+
+  /** 恢复下载 */
+  resumeDownload: (downloadId) => ipcRenderer.invoke('download:resume', downloadId),
+
+  /** 打开已下载文件 */
+  openFile: (filePath) => ipcRenderer.invoke('download:open-file', filePath),
+
+  /** 在 Finder 中显示文件 */
+  showInFolder: (filePath) => ipcRenderer.invoke('download:show-in-folder', filePath),
+
+  /** 监听下载开始事件 */
+  onDownloadStarted: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('download:started', handler);
+    return () => ipcRenderer.removeListener('download:started', handler);
+  },
+
+  /** 监听下载进度事件 */
+  onDownloadProgress: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('download:progress', handler);
+    return () => ipcRenderer.removeListener('download:progress', handler);
+  },
+
+  /** 监听下载完成事件 */
+  onDownloadCompleted: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('download:completed', handler);
+    return () => ipcRenderer.removeListener('download:completed', handler);
+  },
+});
+
 console.log('[Realm] Preload 脚本已加载');
