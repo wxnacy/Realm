@@ -241,6 +241,34 @@
           </svg>
           <span class="media-badge hidden" id="mediaBadge">0</span>
         </button>
+        <!-- 下载管理按钮 -->
+        <button class="btn-icon download-btn" id="downloadBtn" title="下载管理">
+          <!-- 默认状态：下载箭头图标 -->
+          <svg class="download-icon-default" width="18" height="18" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <!-- 活跃状态：圆圈进度环（默认隐藏） -->
+          <svg class="download-progress-ring" width="28" height="28" viewBox="0 0 28 28"
+               style="display:none">
+            <circle cx="14" cy="14" r="12" fill="none" stroke="var(--bg-tertiary)"
+                    stroke-width="2.5"/>
+            <circle cx="14" cy="14" r="12" fill="none" stroke="var(--accent-color)"
+                    stroke-width="2.5" stroke-dasharray="75.4" stroke-dashoffset="75.4"
+                    stroke-linecap="round" transform="rotate(-90 14 14)"
+                    class="download-progress-fill"/>
+          </svg>
+          <!-- 完成状态：绿色对勾（默认隐藏） -->
+          <svg class="download-icon-done" width="18" height="18" viewBox="0 0 24 24"
+               fill="none" stroke="var(--success-color)" stroke-width="2.5"
+               stroke-linecap="round" stroke-linejoin="round" style="display:none">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          <!-- 徽标：活跃下载数量（默认隐藏） -->
+          <span class="download-badge hidden" id="downloadBadge">0</span>
+        </button>
         <button class="btn-icon" id="aiPanelBtn" title="AI 助手">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 2a4 4 0 0 1 4 4v1a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"></path>
@@ -282,6 +310,13 @@
       </div>
     </div>
   </main>
+
+  <!-- 下载进度提示框 -->
+  <div class="download-tooltip hidden" id="downloadTooltip">
+    <div class="download-tooltip-list" id="downloadTooltipList">
+      <!-- 动态生成 -->
+    </div>
+  </div>
 
   <!-- 容器创建/编辑对话框 -->
   <dialog class="modal" id="containerModal">
