@@ -48,6 +48,7 @@ const DEFAULT_SHORTCUTS = {
   'openSettings': 'CmdOrCtrl+,',
   'toggleAIPanel': 'CmdOrCtrl+]',
   'toggleSidebar': 'CmdOrCtrl+[',
+  'findInPage': 'CmdOrCtrl+F',
 };
 
 // ==================== 读写函数 ====================

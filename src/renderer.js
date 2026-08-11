@@ -135,6 +135,15 @@ const elements = {
   contextPickerList: document.getElementById('contextPickerList'),
   contextPickerEmpty: document.getElementById('contextPickerEmpty'),
 
+  // 页面内搜索
+  findInPage: document.getElementById('findInPage'),
+  findInput: document.getElementById('findInput'),
+  findResultCount: document.getElementById('findResultCount'),
+  findPrevBtn: document.getElementById('findPrevBtn'),
+  findNextBtn: document.getElementById('findNextBtn'),
+  findCaseBtn: document.getElementById('findCaseBtn'),
+  findCloseBtn: document.getElementById('findCloseBtn'),
+
 };
 
 // 应用状态
@@ -182,6 +191,13 @@ const state = {
   contextPickerOpen: false,
   contextPickerSearch: '',
   referencedTabs: [],
+
+  // 页面内搜索状态
+  findInPageOpen: false,
+  findInPageText: '',
+  findInPageMatchCase: false,
+  findInPageResults: { activeMatchOrdinal: 0, matches: 0 },
+  findInPageDebounceTimer: null,
 };
 
 // 已关闭标签栈（LIFO，最多 10 条），用于"重新打开已关闭标签页"功能
@@ -563,6 +579,9 @@ async function switchTab(tabId) {
   const tab = state.tabs.get(tabId);
   if (!tab) return;
 
+  // 切换 Tab 时关闭页面内搜索框
+  closeFindInPage();
+
   // 调用主进程切换 Tab
   await window.realmAPI.switchTab(tabId);
 
@@ -679,6 +698,9 @@ async function closeTab(tabId) {
 
   // 如果关闭的是活动 Tab，切换到新的活动 Tab
   if (tabId === state.activeTabId) {
+    // 关闭页面内搜索框
+    closeFindInPage();
+
     if (result.newActiveTabId) {
       await switchTab(result.newActiveTabId);
     } else {
@@ -1145,6 +1167,9 @@ function bindWebviewEvents(tabId, webview) {
   webview.addEventListener('did-fail-load', (e) => {
     console.error(`[Realm] 页面加载失败: ${e.errorCode} - ${e.errorDescription}`);
   });
+
+  // 绑定页面内搜索结果监听
+  bindFindInPageEvents(webview);
 }
 
 /**
@@ -1236,6 +1261,240 @@ function updateNavigationButtons() {
   }
 }
 
+// ==================== 页面内搜索功能 ====================
+
+/**
+ * 打开页面内搜索框
+ * 聚焦输入框并选中文本
+ */
+function openFindInPage() {
+  if (state.findInPageOpen) {
+    // 已打开，聚焦输入框
+    elements.findInput.focus();
+    elements.findInput.select();
+    return;
+  }
+
+  state.findInPageOpen = true;
+  elements.findInPage.classList.remove('hidden');
+
+  // 获取当前活动 webview 的选中文本作为初始搜索词
+  const webview = state.webviews.get(state.activeTabId);
+  if (webview) {
+    // 注入选中文本检测脚本
+    webview.executeJavaScript('window.getSelection().toString()')
+      .then(selectedText => {
+        // 如果有选中文本，使用选中文本；否则保留上次的搜索词（Chrome 行为）
+        if (selectedText && selectedText.trim()) {
+          elements.findInput.value = selectedText.trim();
+        }
+        // 聚焦并全选文本，方便用户直接键入替换或回车继续搜索
+        elements.findInput.focus();
+        elements.findInput.select();
+        // 如果有文本（选中的或上次保留的），立即搜索
+        if (elements.findInput.value) {
+          performFindInPage();
+        }
+      })
+      .catch(() => {
+        // 获取选中文本失败时，保留上次的搜索词并聚焦
+        elements.findInput.focus();
+        elements.findInput.select();
+        // 如果有上次的搜索词，立即搜索
+        if (elements.findInput.value) {
+          performFindInPage();
+        }
+      });
+  }
+}
+
+/**
+ * 关闭页面内搜索框
+ * 清除高亮并重置状态
+ */
+function closeFindInPage() {
+  if (!state.findInPageOpen) return;
+
+  state.findInPageOpen = false;
+  elements.findInPage.classList.add('hidden');
+  // 保留搜索词，下次打开时记住（Chrome 行为）
+  elements.findResultCount.textContent = '';
+  elements.findResultCount.classList.remove('no-match');
+
+  // 停止搜索并清除高亮
+  const webview = state.webviews.get(state.activeTabId);
+  if (webview) {
+    webview.stopFindInPage('clearSelection');
+  }
+
+  // 清除防抖定时器
+  if (state.findInPageDebounceTimer) {
+    clearTimeout(state.findInPageDebounceTimer);
+    state.findInPageDebounceTimer = null;
+  }
+}
+
+/**
+ * 执行页面内搜索
+ * 调用 webview.findInPage API
+ * @param {boolean} findNext - 是否查找下一个
+ * @param {boolean} forward - 搜索方向（true=向下）
+ */
+function performFindInPage(findNext = false, forward = true) {
+  const webview = state.webviews.get(state.activeTabId);
+  if (!webview) return;
+
+  const searchText = elements.findInput.value;
+
+  // 空搜索：清除高亮
+  if (!searchText) {
+    elements.findResultCount.textContent = '';
+    elements.findResultCount.classList.remove('no-match');
+    webview.stopFindInPage('clearSelection');
+    return;
+  }
+
+  // 执行搜索
+  webview.findInPage(searchText, {
+    forward: forward,
+    findNext: findNext,
+    matchCase: state.findInPageMatchCase
+  });
+}
+
+/**
+ * 处理搜索输入（带防抖）
+ * 延迟 150ms 执行搜索，避免频繁调用
+ */
+function handleFindInPageInput() {
+  // 清除之前的防抖定时器
+  if (state.findInPageDebounceTimer) {
+    clearTimeout(state.findInPageDebounceTimer);
+  }
+
+  // 设置新的防抖定时器
+  state.findInPageDebounceTimer = setTimeout(() => {
+    performFindInPage(false);
+  }, 150);
+}
+
+/**
+ * 切换大小写敏感
+ */
+function toggleFindInPageCaseSensitive(e) {
+  // 阻止默认行为和事件冒泡，避免焦点丢失
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  state.findInPageMatchCase = !state.findInPageMatchCase;
+  elements.findCaseBtn.classList.toggle('active', state.findInPageMatchCase);
+  elements.findCaseBtn.title = state.findInPageMatchCase ? '区分大小写 (已开启)' : '区分大小写';
+
+  // 重新搜索 - 使用 findNext: true 强制重新搜索
+  const webview = state.webviews.get(state.activeTabId);
+  if (webview) {
+    const searchText = elements.findInput.value;
+    if (searchText) {
+      // 使用 findNext: true 强制 Electron 重新执行搜索，应用新的 matchCase 参数
+      webview.findInPage(searchText, {
+        forward: true,
+        findNext: true,
+        matchCase: state.findInPageMatchCase
+      });
+    }
+  }
+
+  // 确保焦点回到搜索输入框
+  elements.findInput.focus();
+}
+
+/**
+ * 初始化页面内搜索事件监听
+ */
+function initFindInPage() {
+  // 输入事件（带防抖）
+  elements.findInput.addEventListener('input', handleFindInPageInput);
+
+  // 键盘事件
+  elements.findInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      performFindInPage(true, !e.shiftKey); // Shift+Enter 反向
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closeFindInPage();
+    }
+  });
+
+  // 按钮点击事件
+  elements.findNextBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    performFindInPage(true, true);
+    elements.findInput.focus();
+  });
+  elements.findPrevBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    performFindInPage(true, false);
+    elements.findInput.focus();
+  });
+  elements.findCaseBtn.addEventListener('click', toggleFindInPageCaseSensitive);
+  elements.findCloseBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    closeFindInPage();
+  });
+
+  // 监听 webview 的搜索结果事件
+  // 注意：需要在 bindWebviewEvents 中为每个 webview 绑定
+}
+
+/**
+ * 为 webview 绑定搜索结果监听
+ * 在 bindWebviewEvents 中调用
+ * @param {HTMLWebViewElement} webview - webview 元素
+ */
+function bindFindInPageEvents(webview) {
+  // 跟踪上一次的匹配位置，用于检测循环
+  let lastActiveMatchOrdinal = 0;
+  let lastMatches = 0;
+
+  webview.addEventListener('found-in-page', (event) => {
+    const { activeMatchOrdinal, matches } = event.result;
+
+    // 更新结果计数
+    if (matches > 0) {
+      elements.findResultCount.textContent = `${activeMatchOrdinal}/${matches}`;
+      elements.findResultCount.classList.remove('no-match');
+
+      // 检测循环：从最后一个匹配项循环回到第一个
+      // 当从最后一个变为第一个时，需要触发一次额外的搜索来确保页面滚动
+      if (lastMatches > 0 && lastActiveMatchOrdinal === lastMatches && activeMatchOrdinal === 1) {
+        // 检测到循环，延迟执行一次搜索以确保页面滚动到第一个匹配项
+        setTimeout(() => {
+          const searchText = elements.findInput.value;
+          if (searchText) {
+            webview.findInPage(searchText, {
+              forward: true,
+              findNext: true,
+              matchCase: state.findInPageMatchCase
+            });
+          }
+        }, 50);
+      }
+
+      // 更新上一次的匹配位置
+      lastActiveMatchOrdinal = activeMatchOrdinal;
+      lastMatches = matches;
+    } else {
+      elements.findResultCount.textContent = '无匹配';
+      elements.findResultCount.classList.add('no-match');
+      lastActiveMatchOrdinal = 0;
+      lastMatches = 0;
+    }
+  });
+}
+
 // ==================== 快捷键处理 ====================
 
 /**
@@ -1301,6 +1560,9 @@ function initShortcuts() {
         break;
       case 'toggleSidebar':
         toggleSidebar();
+        break;
+      case 'findInPage':
+        openFindInPage();
         break;
     }
   });
@@ -3951,6 +4213,9 @@ function setupEventListeners() {
 
   // 初始化快捷键监听
   initShortcuts();
+
+  // 初始化页面内搜索
+  initFindInPage();
 }
 
 // ==================== AI 助手 ====================

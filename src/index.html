@@ -740,6 +740,42 @@
   <script src="../node_modules/marked/lib/marked.umd.js"></script>
   <script src="vendor/highlight.min.js"></script>
   <script src="../node_modules/dompurify/dist/purify.min.js"></script>
+
+  <!-- 页面内搜索框 -->
+  <div class="find-in-page hidden" id="findInPage">
+    <div class="find-in-page-inner">
+      <div class="find-input-wrapper">
+        <input type="text"
+               class="find-input"
+               id="findInput"
+               placeholder="搜索页面内容..."
+               autocomplete="off"
+               spellcheck="false">
+        <span class="find-result-count" id="findResultCount"></span>
+      </div>
+      <div class="find-buttons">
+        <button class="find-btn" id="findPrevBtn" title="上一个 (Shift+Enter)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 15l-6-6-6 6"></path>
+          </svg>
+        </button>
+        <button class="find-btn" id="findNextBtn" title="下一个 (Enter)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 9l6 6 6-6"></path>
+          </svg>
+        </button>
+        <button class="find-btn find-case-btn" id="findCaseBtn" title="区分大小写">
+          <span>Aa</span>
+        </button>
+        <button class="find-btn find-close-btn" id="findCloseBtn" title="关闭 (Esc)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <script src="renderer.js"></script>
 </body>
 </html>

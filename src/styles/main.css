@@ -6217,3 +6217,121 @@ textarea::placeholder {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* ==================== 页面内搜索框 ==================== */
+.find-in-page {
+  position: fixed;
+  top: calc(var(--toolbar-height) + var(--tab-bar-height) + 8px);
+  right: 16px;
+  z-index: 1000;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  padding: 8px;
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.find-in-page.hidden {
+  display: none;
+}
+
+.find-in-page-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.find-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.find-input {
+  width: 280px;
+  height: 32px;
+  padding: 0 80px 0 12px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.find-input:focus {
+  border-color: var(--accent-color);
+}
+
+.find-input::placeholder {
+  color: var(--text-secondary);
+}
+
+.find-result-count {
+  position: absolute;
+  right: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.find-result-count.no-match {
+  color: #EF4444;
+}
+
+.find-buttons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.find-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.find-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.find-btn:active {
+  background-color: var(--bg-active);
+}
+
+.find-case-btn {
+  font-size: 12px;
+  font-weight: 600;
+  width: 36px;
+}
+
+.find-case-btn.active {
+  background-color: var(--accent-color);
+  color: white;
+}
+
+.find-close-btn {
+  margin-left: 4px;
+}
+
+.find-close-btn:hover {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #EF4444;
+}
