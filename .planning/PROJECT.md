@@ -118,9 +118,19 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 ### Active
 
-<!-- 当前需要构建的功能（下一里程碑定义） -->
+<!-- 当前需要构建的功能（v2.3 里程碑） -->
 
-（v2.2 已收尾；下载与边播边缓存 DL-01~05 按规划 Deferred to v2.3，见 STATE.md Deferred Items）
+- DL-01: 用户可以在浏览器中下载文件，显示下载进度 — v2.3
+- DL-02: 用户可以查看下载历史列表 — v2.3
+- DL-03: 用户可以暂停和恢复下载 — v2.3
+- DL-04: 用户可以管理下载文件（打开/在 Finder 中显示/删除） — v2.3
+- DL-05: 点击下载链接时弹出保存对话框，支持选择保存位置 — v2.3
+- AF-01: 用户可以保存表单登录凭据（用户名/密码） — v2.3
+- AF-02: 用户可以在再次访问时自动填充登录凭据 — v2.3
+- AF-03: 用户可以管理已保存的凭据（查看/删除） — v2.3
+- AF-04: 用户可以保存和填充地址表单信息 — v2.3
+- FIX-01: 修复 20 个已诊断 debug sessions — v2.3
+- FIX-02: 清理 Phase 23 代码审查遗留 19 项（6 Critical） — v2.3
 
 ### Out of Scope
 
@@ -131,6 +141,15 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - **Chrome 多 Profile 合并导入** — 检测覆盖 Default/Profile N（含 AccountBookmarks），但仅导入检测到的第一个 Profile，不做多 Profile 合并
 - **收藏栏多行显示** — 仅支持单行显示
 - **DASH (.mpd) 播放** — v2.2 暂缓：嗅探/renderer/CSS 已补 dash 支持但复验仍失败，二层根因未诊断（UAT G-28-2，2026-08-08 用户决定，走 /gsd-plan-phase 28 --gaps 续查）
+
+## Current Milestone: v2.3 浏览器基础功能补全
+
+**Goal:** 补全浏览器核心基础功能，提升日常使用体验
+
+**Target features:**
+- 下载管理器（下载进度/历史/暂停续传/文件管理 + 下载提示/保存对话框）
+- 自动填充（表单密码/地址自动填充）
+- Bug Fixes + Polish（20 debug sessions + Phase 23 代码审查遗留 19 项）
 
 ## Current State
 
@@ -164,19 +183,25 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - 2 个 UAT 状态标记（Phase 27 completed, Phase 29 diagnosed，0 个待处理场景）
 - Phase 23 代码审查遗留 19 项（6 Critical），详见 `.planning/phases/23-context-reference/23-REVIEW.md`
 
-**Current milestone:** v2.2 多媒体功能集成 — 已 shipped（2026-08-11）
+**Current milestone:** v2.3 浏览器基础功能补全 — 进行中
 
 ## Next Milestone Goals
 
-**v2.3** (planned)
-- 下载管理器 + 边播边缓存 (DL-01~05)
-- Bug Fixes + Polish（20 个 debug session + Phase 23 代码审查遗留）
+**v2.4** (planned)
+- 边播边缓存 (Deferred from v2.3)
+- 增强功能 (ENH-01~06: 截图/画中画/播放列表/字幕/DASH/RTMP)
+- 书签导出
+- 全屏模式
+- 无痕/隐私浏览
 
 **Future Features:**
 - 浏览器扩展支持
 - 书签/历史同步
 - 网络代理隔离
 - 移动端支持
+- 页面缩放 (Zoom)
+- 阅读模式
+- 分屏浏览
 
 ## Context
 
@@ -284,4 +309,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-11 after v2.2 milestone*
+*Last updated: 2026-08-11 after v2.3 milestone start*
