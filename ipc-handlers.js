@@ -15,6 +15,7 @@ const cookieManager = require('./cookie-manager');
 const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
 const historyManager = require('./history-manager');
+const downloadManager = require('./download-manager');
 const favoritesManager = require('./favorites-manager');
 const faviconFetcher = require('./favicon-fetcher');
 const mediaSniffer = require('./media-sniffer');
@@ -841,6 +842,104 @@ function registerHandlers() {
       shortcutManager.rebuildShortcuts(win);
     }
     return result;
+  });
+
+  // ==================== 下载管理 ====================
+
+  /**
+   * 获取容器的下载列表
+   * @param {string} containerId - 容器 ID
+   * @returns {Promise<Array>} 下载记录数组
+   */
+  ipcMain.handle('download:list', async (event, containerId) => {
+    assertTrustedSender(event);
+    if (!containerId || typeof containerId !== 'string') {
+      throw new Error('无效的容器 ID');
+    }
+    return downloadManager.getDownloads(containerId);
+  });
+
+  /**
+   * 获取当前活跃下载数量
+   * @returns {Promise<number>}
+   */
+  ipcMain.handle('download:get-active-count', async (event) => {
+    assertTrustedSender(event);
+    return downloadManager.getActiveCount();
+  });
+
+  /**
+   * 获取活跃下载列表（含进度信息）
+   * @returns {Promise<Array>}
+   */
+  ipcMain.handle('download:get-active', async (event) => {
+    assertTrustedSender(event);
+    return downloadManager.getActiveDownloads();
+  });
+
+  /**
+   * 取消下载
+   * @param {string} downloadId - 下载 ID
+   * @returns {Promise<boolean>}
+   */
+  ipcMain.handle('download:cancel', async (event, downloadId) => {
+    assertTrustedSender(event);
+    if (!downloadId || typeof downloadId !== 'string') {
+      throw new Error('无效的下载 ID');
+    }
+    return downloadManager.cancelDownload(downloadId);
+  });
+
+  /**
+   * 暂停下载
+   * @param {string} downloadId - 下载 ID
+   * @returns {Promise<boolean>}
+   */
+  ipcMain.handle('download:pause', async (event, downloadId) => {
+    assertTrustedSender(event);
+    if (!downloadId || typeof downloadId !== 'string') {
+      throw new Error('无效的下载 ID');
+    }
+    return downloadManager.pauseDownload(downloadId);
+  });
+
+  /**
+   * 恢复下载
+   * @param {string} downloadId - 下载 ID
+   * @returns {Promise<boolean>}
+   */
+  ipcMain.handle('download:resume', async (event, downloadId) => {
+    assertTrustedSender(event);
+    if (!downloadId || typeof downloadId !== 'string') {
+      throw new Error('无效的下载 ID');
+    }
+    return downloadManager.resumeDownload(downloadId);
+  });
+
+  /**
+   * 打开已下载的文件
+   * @param {string} filePath - 文件路径
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  ipcMain.handle('download:open-file', async (event, filePath) => {
+    assertTrustedSender(event);
+    if (!filePath || typeof filePath !== 'string') {
+      throw new Error('无效的文件路径');
+    }
+    return downloadManager.openFile(filePath);
+  });
+
+  /**
+   * 在 Finder 中显示文件
+   * @param {string} filePath - 文件路径
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('download:show-in-folder', async (event, filePath) => {
+    assertTrustedSender(event);
+    if (!filePath || typeof filePath !== 'string') {
+      throw new Error('无效的文件路径');
+    }
+    return downloadManager.showInFolder(filePath);
   });
 
   // ==================== 浏览历史 ====================

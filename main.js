@@ -53,6 +53,7 @@ const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
 const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager } = require('./ipc-handlers');
 const historyManager = require('./history-manager');
+const downloadManager = require('./download-manager');
 const favoritesManager = require('./favorites-manager');
 const faviconFetcher = require('./favicon-fetcher');
 const frequentSitesManager = require('./frequent-sites-manager');
@@ -2030,6 +2031,9 @@ app.whenReady().then(async () => {
   // 初始化历史记录数据库
   historyManager.initDatabase();
 
+  // 初始化下载管理器数据库
+  downloadManager.initDatabase();
+
   // 初始化收藏夹数据库
   favoritesManager.initDatabase();
   favoritesManager.migrateToGlobal();
@@ -2062,6 +2066,14 @@ app.whenReady().then(async () => {
 
   // 初始化容器
   containerManager.initContainers();
+
+  // 为每个容器注册下载事件处理器（will-download）
+  const { session } = require('electron');
+  const containersForDownload = containerManager.getContainers();
+  for (const container of containersForDownload) {
+    const ses = session.fromPartition(`persist:container-${container.id}`);
+    downloadManager.registerSessionDownloadHandler(ses, container.id);
+  }
 
   // 迁移旧版 Cookie 文件到新版容器目录
   cookieManager.migrateLegacyCookies();
@@ -2284,4 +2296,4 @@ console.log('[Realm] 主进程已加载');
  * aiManager: AI Manager 实例，在 app.whenReady 中初始化
  * requestActionConfirmation: 发起高风险操作确认请求（供 AI Manager 调用）
  */
-module.exports = { aiManager, requestActionConfirmation };
+module.exports = { aiManager, requestActionConfirmation, downloadManager };
