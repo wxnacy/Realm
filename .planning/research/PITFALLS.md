@@ -1,28 +1,628 @@
-# 领域陷阱研究 — v2.2 多媒体功能集成
+# 领域陷阱研究
 
-**领域：** 多容器隔离浏览器 (Electron) — 视频源检测 + 媒体面板 + 播放器窗口
-**研究日期：** 2026-08-06
-**置信度：** HIGH（基于 Chromium/Electron 官方文档 + hls.js 文档 + 现有代码库分析）
+**领域：** 多容器隔离浏览器 (Electron)
+**研究日期：** 2026-08-06（v2.2 多媒体）/ 2026-08-11（v2.3 下载管理器 + 自动填充）
+**置信度：** HIGH（基于 Chromium/Electron 官方文档 + 现有代码库分析）
 
 ---
 
-## 本文档说明
+## v2.3 陷阱：下载管理器 + 自动填充
 
-本文档聚焦 v2.2 里程碑新增功能的陷阱，即：向已有 Electron 多容器浏览器**添加**视频源检测（media-sniffer）、媒体面板 UI、播放器窗口（hls.js 集成）时的常见错误。基础架构陷阱请参见之前版本的 PITFALLS.md。
+本节聚焦 v2.3 里程碑新增功能的陷阱：向已有 Electron 多容器浏览器**添加**下载管理器和表单自动填充时的常见错误。
 
 **核心风险领域：**
-1. **CSP 阻断脚本注入** — 严格 CSP 网站无法通过 executeJavaScript 检测视频
-2. **session.webRequest 性能** — 拦截所有请求的开销可能拖慢页面加载
-3. **hls.js 兼容性** — 与 Electron Chromium 版本的配合问题
-4. **内存泄漏** — HLS 实例和播放器窗口未正确销毁
-5. **DRM 内容** — Widevine 保护的视频无法播放且无明确提示
-6. **跨域视频检测** — CORS 限制导致 m3u8 分片请求失败
-7. **SPA 动态视频** — MutationObserver 的性能和覆盖范围权衡
-8. **播放器窗口生命周期** — 多实例管理、关闭清理、GPU 进程冲突
+1. **`will-download` 路径设置时序** — 只能在回调内部同步调用
+2. **断点续传依赖服务端** — 无 Range/ETag 支持时 resume() 静默重头下载
+3. **`interrupted` 状态歧义** — updated 和 done 事件中含义不同
+4. **safeStorage 平台差异** — Linux 可能降级为明文、Windows DPAPI 同用户暴露
+5. **容器间凭据泄漏** — autofill 未按容器隔离导致跨容器密码泄露
+6. **webview 下载事件路由** — 每个容器 Session 需单独注册处理器
+7. **autofill 与 CDP fillForm 冲突** — 双重填充同一字段
 
 ---
 
-## 关键陷阱
+## 关键陷阱 — 下载管理器
+
+### 陷阱 DL-1：`will-download` 路径设置时序窗口（CRITICAL）
+
+**问题描述：**
+`item.setSavePath()` 和 `item.setSaveDialogOptions()` **只能在 `will-download` 事件回调内部同步调用**。如果开发者尝试异步设置路径（例如等待用户选择目录后再调用），下载会静默失败或弹出意外的系统对话框。
+
+**根本原因：**
+Electron 的 DownloadItem 生命周期极短，`will-download` 返回后 DownloadItem 进入 progressing 状态，路径已锁定。官方文档明确要求"only works inside will-download callback"。
+
+**后果：**
+- 下载到错误位置（默认 Downloads 目录）
+- 用户看到意外的系统保存对话框
+- 下载完全静默失败（无错误提示）
+
+**如何避免：**
+```javascript
+// 错误：异步设置路径
+ses.on('will-download', (event, item) => {
+  dialog.showSaveDialog({ defaultPath: item.getFilename() }).then(({ filePath }) => {
+    item.setSavePath(filePath); // 静默失败！回调已返回
+  });
+});
+
+// 正确：使用 setSaveDialogOptions 让 Electron 处理对话框
+ses.on('will-download', (event, item) => {
+  item.setSaveDialogOptions({
+    defaultPath: path.join(app.getPath('downloads'), item.getFilename()),
+    buttonLabel: '保存'
+  });
+  // Electron 会在 will-download 上下文中弹出对话框
+});
+
+// 正确：如果已知保存路径，直接设置
+ses.on('will-download', (event, item) => {
+  const savePath = path.join(downloadDir, item.getFilename());
+  item.setSavePath(savePath);
+});
+```
+
+**预警信号：**
+- 下载无进度、文件出现在意外位置
+- 用户报告"下载了但找不到文件"
+
+**应解决的阶段：** Download Manager 核心实现阶段
+
+---
+
+### 陷阱 DL-2：`resume()` 依赖服务端支持 — 静默重头下载（CRITICAL）
+
+**问题描述：**
+调用 `item.resume()` 恢复中断的下载时，如果目标服务器**不支持 Range 请求或未返回 `Last-Modified` 和 `ETag` 头**，Electron 会**丢弃已接收的全部字节并从头重新下载**。
+
+**根本原因：**
+Electron 官方文档明确说明："To enable resumable downloads the server you are downloading from must support range requests and provide both `Last-Modified` and `ETag` header values." 缺少任一条件，`resume()` 等同于重新发起新请求。
+
+**后果：**
+- 用户以为在续传，实际重新下载了整个文件
+- 大文件场景浪费大量带宽
+- 用户看到进度从 0% 重新开始，困惑不已
+
+**如何避免：**
+```javascript
+// 下载开始时检查服务器是否支持续传
+ses.on('will-download', (event, item) => {
+  item.once('updated', (event, state) => {
+    if (state === 'progressing') {
+      const lastModified = item.getLastModifiedTime();
+      const etag = item.getETag();
+      const supportsResume = lastModified && etag;
+
+      // 存储续传能力信息
+      downloadRecords.set(item.getURL(), {
+        supportsResume,
+        lastModified,
+        etag
+      });
+
+      if (!supportsResume) {
+        // 通知 UI：此下载不支持续传，"继续"将重新下载
+        notifyRenderer('download:no-resume-support', { url: item.getURL() });
+      }
+    }
+  });
+});
+```
+
+**预警信号：**
+- 用户报告"暂停继续后进度回到 0"
+- 带宽异常消耗
+
+**应解决的阶段：** Download Manager 暂停/恢复功能实现阶段
+
+---
+
+### 陷阱 DL-3：`interrupted` 状态歧义 — 两个事件含义不同（HIGH）
+
+**问题描述：**
+`updated` 事件中的 `interrupted` 表示**可恢复**的中断（如网络波动），而 `done` 事件中的 `interrupted` 表示**不可恢复**的中断。Electron 官方文档对两者的描述使用相同的字符串值，但语义完全不同。
+
+**后果：**
+- 可恢复中断被标记为最终失败，用户无法继续下载
+- 不可恢复中断被当作临时问题反复重试，永远无法成功
+
+**如何避免：**
+```javascript
+item.on('updated', (event, state) => {
+  if (state === 'interrupted') {
+    // 可恢复的中断 — 显示"等待恢复"UI
+    updateUI({ status: 'paused-auto', canResume: item.canResume() });
+  } else if (state === 'progressing') {
+    // 正常下载中
+    updateUI({ status: 'downloading', progress: item.getPercentComplete() });
+  }
+});
+
+item.once('done', (event, state) => {
+  if (state === 'interrupted') {
+    // 不可恢复的中断 — 显示"下载失败"UI
+    updateUI({ status: 'failed', canRetry: true });
+  } else if (state === 'completed') {
+    updateUI({ status: 'completed' });
+  } else if (state === 'cancelled') {
+    updateUI({ status: 'cancelled' });
+  }
+});
+```
+
+**应解决的阶段：** Download Manager 状态机设计阶段
+
+---
+
+### 陷阱 DL-4：`getTotalBytes()` 返回 0 导致除零崩溃（MEDIUM）
+
+**问题描述：**
+当服务器未设置 `Content-Length` 头时，`item.getTotalBytes()` 返回 0。计算下载百分比时 `getReceivedBytes() / getTotalBytes()` 会产生除零错误（NaN 或 Infinity）。
+
+**如何避免：**
+```javascript
+function getDownloadProgress(item) {
+  const total = item.getTotalBytes();
+  if (total <= 0) {
+    return { percent: -1, label: `${formatBytes(item.getReceivedBytes())} / 未知大小` };
+  }
+  const received = item.getReceivedBytes();
+  return {
+    percent: Math.round((received / total) * 100),
+    label: `${formatBytes(received)} / ${formatBytes(total)}`
+  };
+}
+```
+
+**应解决的阶段：** Download Manager UI 实现阶段
+
+---
+
+### 陷阱 DL-5：webview 中下载事件路由遗漏（HIGH）
+
+**问题描述：**
+Realm Browser 使用 webview 标签加载页面，每个 webview 使用独立的 Session（`persist:container-{id}`）。**每个 Session 的下载事件需要单独注册处理器**。如果只在 `defaultSession` 上注册了 `will-download` 处理器，容器内触发的下载会静默失败。
+
+**根本原因：**
+webview 的 partition session 与 defaultSession 是不同的 Session 实例。下载事件绑定在 Session 级别，不会跨 Session 传播。
+
+**如何避免：**
+```javascript
+// 在创建容器 Session 时统一注册下载处理器
+function setupContainerSession(containerId) {
+  const partition = `persist:container-${containerId}`;
+  const ses = session.fromPartition(partition);
+
+  // 注册下载处理器
+  ses.on('will-download', handleDownload);
+
+  return ses;
+}
+
+// 在 initContainers 中确保所有容器都有处理器
+function initContainers() {
+  for (const container of containers) {
+    setupContainerSession(container.id);
+  }
+}
+```
+
+**应解决的阶段：** Download Manager 与容器集成阶段
+
+---
+
+### 陷阱 DL-6：同时下载过多文件导致资源耗尽（MEDIUM）
+
+**问题描述：**
+没有并发下载限制时，用户可以同时发起数十个下载，每个下载消耗文件句柄和内存缓冲区。
+
+**如何避免：**
+- 设置最大并发下载数（建议 3-5 个）
+- 超出限制的下载进入等待队列
+- 监控活跃下载数和系统资源
+
+**应解决的阶段：** Download Manager 队列管理实现阶段
+
+---
+
+### 陷阱 DL-7：大文件下载中断后临时文件泄漏（MEDIUM）
+
+**问题描述：**
+下载中断或应用崩溃时，已部分下载的临时文件残留在磁盘上。多次中断累积后占用大量空间。
+
+**如何避免：**
+- 下载中断时清理或标记临时文件
+- 应用启动时检查并清理孤立的临时文件
+- 使用 `.crdownload` 后缀标识未完成的下载文件
+
+**应解决的阶段：** Download Manager 文件管理阶段
+
+---
+
+### 陷阱 DL-8：`getFilename()` 不等于实际保存的文件名（LOW）
+
+**问题描述：**
+如果用户在保存对话框中修改了文件名，`item.getFilename()` 返回的仍是原始文件名。用它来追踪下载会导致数据不一致。
+
+**如何避免：** 使用 `item.getSavePath()` 获取实际保存路径和文件名。
+
+---
+
+### 陷阱 DL-9：DownloadItem 不可导出 — 无法在模块间传递（LOW）
+
+**问题描述：**
+`DownloadItem` 类不从 `electron` 模块导出，只能通过 `will-download` 事件获取实例。开发者无法创建 DownloadItem 实例或在模块间传递类型。
+
+**如何避免：** 设计下载管理器时，用自定义数据结构（download record）在模块间传递下载信息，只在主进程内部持有 DownloadItem 引用。
+
+---
+
+### 陷阱 DL-10：应用退出时未完成的下载处理（MEDIUM）
+
+**问题描述：**
+应用关闭时，活跃的下载会被中断。如果没有持久化下载状态，用户重启后无法恢复下载。
+
+**如何避免：**
+- 在应用退出前保存所有活跃下载的 URL、已接收字节数、Last-Modified、ETag
+- 重启后提供"恢复下载"功能
+- 使用 `getLastModifiedTime()` 和 `getETag()` 实现断点续传
+
+---
+
+## 关键陷阱 — 自动填充
+
+### 陷阱 AF-1：Linux 上 `safeStorage` 静态降级为明文存储（CRITICAL）
+
+**问题描述：**
+在 Linux 上，如果系统没有可用的密钥存储服务（GNOME Keyring、KWallet 等），`safeStorage` 会使用**硬编码的明文密码**加密数据。Electron 官方文档明确说明："If no secret store is available, items stored in using the safeStorage API will be unprotected as they are encrypted via hardcoded plaintext password"。
+
+**检测方法：**
+```javascript
+const { safeStorage } = require('electron');
+
+async function checkEncryptionSafety() {
+  const available = await safeStorage.isAsyncEncryptionAvailable();
+  if (!available) {
+    console.error('[Realm] safeStorage 不可用，拒绝存储凭据');
+    return false;
+  }
+
+  // Linux 特有检查
+  if (process.platform === 'linux') {
+    const backend = safeStorage.getSelectedStorageBackend();
+    if (backend === 'basic_text') {
+      console.error('[Realm] Linux 密钥存储降级为明文，拒绝存储凭据');
+      return false;
+    }
+  }
+
+  return true;
+}
+```
+
+**如何避免：**
+- 调用 `getSelectedStorageBackend()` 检查后端类型
+- 如果返回 `'basic_text'`，**拒绝存储凭据**或向用户显示警告
+- 使用异步 API（`encryptStringAsync`/`decryptStringAsync`）
+- macOS/Windows 无此问题，但也要检查 `isEncryptionAvailable()`
+
+**应解决的阶段：** Autofill 凭据存储实现的第一步
+
+---
+
+### 陷阱 AF-2：Windows DPAPI 同用户空间暴露（HIGH）
+
+**问题描述：**
+在 Windows 上，`safeStorage` 使用 DPAPI 加密。Electron 官方文档说明："only a user with the same logon credential as the user who encrypted the data can typically decrypt it"。这意味着**任何以同一用户身份运行的进程都能解密数据**，包括恶意软件。
+
+**如何避免：**
+- 在 Windows 上额外添加应用层加密（应用密钥 + DPAPI 双层）
+- 或接受 Windows 上的安全局限性，在文档中明确说明
+- macOS Keychain 提供进程级隔离，是最安全的平台
+
+**应解决的阶段：** Autofill 安全模型设计阶段
+
+---
+
+### 陷阱 AF-3：容器间凭据数据泄漏（CRITICAL）
+
+**问题描述：**
+在多容器架构中，如果凭据存储没有按容器隔离，容器 A 保存的密码可能在容器 B 的页面中被自动填充。
+
+**根本原因：**
+简单的 autofill 实现通常使用全局凭据数据库（类似 Chrome 的统一密码库），对 Realm Browser 的容器隔离模型构成冲突。
+
+**后果：**
+- 用户在"工作"容器登录的账号密码被"个人"容器的页面获取
+- 违反容器隔离这一核心价值
+
+**如何避免：**
+```javascript
+// 凭据数据库必须按容器 ID 分区
+class CredentialStore {
+  constructor() {
+    // 每个容器独立的凭据表
+    this.db = new Database('credentials.db');
+  }
+
+  // 保存凭据时记录来源容器
+  save(containerId, origin, username, encryptedPassword) {
+    this.db.prepare(`
+      INSERT INTO credentials (container_id, origin, username, password)
+      VALUES (?, ?, ?, ?)
+    `).run(containerId, origin, username, encryptedPassword);
+  }
+
+  // 查询时只返回当前容器的凭据
+  getForOrigin(containerId, origin) {
+    return this.db.prepare(`
+      SELECT * FROM credentials
+      WHERE container_id = ? AND origin = ?
+    `).all(containerId, origin);
+  }
+}
+
+// 填充前验证容器 ID + origin 双重匹配
+function autofillCredentials(containerId, pageOrigin) {
+  const credentials = credentialStore.getForOrigin(containerId, pageOrigin);
+  if (credentials.length === 0) return;
+
+  // 填充到表单
+  for (const cred of credentials) {
+    injectCredential(cred);
+  }
+}
+```
+
+**应解决的阶段：** Autofill 数据模型设计阶段
+
+---
+
+### 陷阱 AF-4：`safeStorage` 同步 API 阻塞主进程（HIGH）
+
+**问题描述：**
+macOS Keychain 和 Linux 密码管理器的同步 API 会阻塞当前线程等待用户交互（如输入 Keychain 密码）。Electron 官方文档建议使用异步 API："We recommend using the asynchronous API...The synchronous API may be deprecated in a future version of Electron"。
+
+**后果：**
+- 在 Electron 主进程中调用同步 API 会冻结整个应用 UI
+- 同步 API 有未来被废弃的风险
+
+**如何避免：**
+- 始终使用异步 API（`encryptStringAsync`/`decryptStringAsync`）
+- 在应用启动时预热异步加密可用性检查
+
+**应解决的阶段：** Autofill 凭据存储实现阶段
+
+---
+
+### 陷阱 AF-5：加密数据不可跨机器/用户迁移（MEDIUM）
+
+**问题描述：**
+`safeStorage` 使用 OS 级密钥加密，加密后的 Buffer 在不同机器、不同用户、甚至（Linux 上）不同密钥存储后端之间不可解密。
+
+**后果：**
+- 用户更换电脑后无法恢复已保存的密码
+- 应用数据迁移工具无法处理加密凭据
+
+**如何避免：**
+- 在用户尝试迁移数据时明确告知凭据不随数据迁移
+- 不要假设加密 Buffer 可以跨机器使用
+- 如果需要跨机器同步，需要额外的加密方案（用户主密码派生密钥）
+
+---
+
+### 陷阱 AF-6：autofill 与 CDP fillForm 的冲突（HIGH）
+
+**问题描述：**
+Realm Browser 已有基于 CDP 的 `fillForm` 自动化功能（Phase 24）。新增的用户级 autofill 与 AI 级 fillForm 可能产生冲突：两者都尝试操作同一输入字段。
+
+**根本原因：**
+CDP 的 `Input.insertText` 和 DOM 的 autofill 事件可能互相干扰。浏览器的原生 autofill 在 CDP 操作时可能意外触发。
+
+**如何避免：**
+```javascript
+// 共享操作锁
+let fillOperationLock = null;
+
+async function userAutofill(credentials) {
+  if (fillOperationLock) {
+    console.warn('[Realm Autofill] 另一个填充操作正在进行，跳过');
+    return;
+  }
+
+  fillOperationLock = 'user-autofill';
+  try {
+    // 使用 DOM 事件填充
+    for (const cred of credentials) {
+      await fillFieldViaDOM(cred);
+    }
+  } finally {
+    fillOperationLock = null;
+  }
+}
+
+async function aiFillForm(fields) {
+  if (fillOperationLock) {
+    console.warn('[Realm Autofill] 另一个填充操作正在进行，跳过');
+    return;
+  }
+
+  fillOperationLock = 'ai-fillform';
+  try {
+    // 使用 CDP 填充
+    await fillFormViaCDP(fields);
+  } finally {
+    fillOperationLock = null;
+  }
+}
+```
+
+**应解决的阶段：** Autofill 与现有 AI 自动化集成阶段
+
+---
+
+### 陷阱 AF-7：跨域 iframe 中的凭据注入风险（HIGH）
+
+**问题描述：**
+如果 autofill 逻辑不够严格，恶意页面可以通过隐藏的跨域 iframe 获取已保存的凭据。攻击者创建一个与目标站点外观相同的表单，浏览器自动填充时将凭据注入到攻击者的 iframe 中。
+
+**如何避免：**
+```javascript
+function shouldAutofill(frame, pageOrigin) {
+  // 只在顶层页面触发 autofill
+  if (frame !== top) {
+    // 验证 iframe 的 origin 与顶层页面一致
+    try {
+      const frameOrigin = new URL(frame.location.href).origin;
+      if (frameOrigin !== pageOrigin) {
+        console.warn('[Realm Autofill] 跨域 iframe，拒绝填充');
+        return false;
+      }
+    } catch (e) {
+      // 无法访问 frame.location（跨域限制），拒绝填充
+      return false;
+    }
+  }
+  return true;
+}
+```
+
+**应解决的阶段：** Autofill 安全模型设计阶段
+
+---
+
+### 陷阱 AF-8：autofill 表单字段匹配的 DOM 异构问题（MEDIUM）
+
+**问题描述：**
+不同网站的表单字段命名千差万别（`username`、`email`、`user_login`、`loginId`、`account` 等）。简单的字符串匹配会导致填充到错误字段或完全无法匹配。
+
+**如何避免：**
+- 参考 Chrome 的字段匹配策略：`autocomplete` 属性优先，然后 name/id/type 语义匹配
+- 维护一个字段名到语义类型的映射表
+- 支持用户手动关联字段
+
+```javascript
+// 字段语义映射表
+const FIELD_PATTERNS = {
+  username: [
+    /^user(name)?$/i, /^email$/i, /^login[_-]?id$/i,
+    /^account$/i, /^phone$/i, /autocomplete.*username/i
+  ],
+  password: [
+    /^pass(word)?$/i, /^pwd$/i, /autocomplete.*current-password/i
+  ]
+};
+
+function identifyFieldType(inputElement) {
+  // 优先检查 autocomplete 属性
+  const autocomplete = inputElement.autocomplete;
+  if (autocomplete === 'username' || autocomplete === 'email') return 'username';
+  if (autocomplete === 'current-password') return 'password';
+
+  // 然后检查 name/id
+  const name = inputElement.name || '';
+  const id = inputElement.id || '';
+
+  for (const [type, patterns] of Object.entries(FIELD_PATTERNS)) {
+    for (const pattern of patterns) {
+      if (pattern.test(name) || pattern.test(id)) return type;
+    }
+  }
+
+  return null;
+}
+```
+
+**应解决的阶段：** Autofill 表单检测实现阶段
+
+---
+
+### 陷阱 AF-9：`shouldReEncrypt` 标志被忽略（MEDIUM）
+
+**问题描述：**
+`decryptStringAsync` 返回的 `shouldReEncrypt` 标志表示密钥已轮换，应重新加密数据。忽略此标志会导致下次解密时使用旧密钥数据。
+
+**如何避免：**
+```javascript
+async function decryptCredential(encryptedBuffer) {
+  const { shouldReEncrypt, result } = await safeStorage.decryptStringAsync(encryptedBuffer);
+
+  if (shouldReEncrypt) {
+    // 密钥已轮换，重新加密
+    const newEncrypted = await safeStorage.encryptStringAsync(result);
+    // 更新数据库中的加密数据
+    await updateStoredCredential(newEncrypted);
+  }
+
+  return result;
+}
+```
+
+---
+
+## 阶段到陷阱映射
+
+| 阶段主题 | 陷阱编号 | 严重程度 | 预防措施 |
+|---------|---------|---------|---------|
+| Download Manager 核心 | DL-1 | CRITICAL | 同步调用 setSavePath，使用 setSaveDialogOptions |
+| 下载暂停/恢复 | DL-2 | CRITICAL | 检查 Range 请求支持和 ETag/Last-Modified 头 |
+| 下载状态机 | DL-3 | HIGH | 按事件名称区分可恢复/不可恢复中断 |
+| 下载 UI 进度条 | DL-4 | MEDIUM | 检查 getTotalBytes() > 0 |
+| 下载队列管理 | DL-6 | MEDIUM | 限制最大并发下载数 |
+| 下载文件管理 | DL-7 | MEDIUM | 中断/退出时清理，启动时扫描孤立文件 |
+| webview 集成 | DL-5 | HIGH | 每个容器 Session 注册处理器 |
+| 应用退出处理 | DL-10 | MEDIUM | 持久化下载状态 |
+| Autofill 凭据存储 | AF-1 | CRITICAL | 检查 getSelectedStorageBackend()，拒绝 basic_text |
+| Autofill 凭据存储 | AF-4 | HIGH | 使用异步 API |
+| Autofill 数据隔离 | AF-3 | CRITICAL | 凭据按容器 ID 分区存储 |
+| Autofill 安全模型 | AF-2 | HIGH | Windows 额外应用层加密 |
+| Autofill 安全模型 | AF-7 | HIGH | 只在顶层页面触发，验证 origin |
+| Autofill + AI fillForm | AF-6 | HIGH | 互斥锁 + 优先级规则 |
+| Autofill 表单检测 | AF-8 | MEDIUM | autocomplete 属性优先 + 语义映射表 |
+| 跨机器迁移 | AF-5 | MEDIUM | 明确告知用户，不假设可移植性 |
+
+---
+
+## 技术债务模式
+
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|----------|-------------------|----------------|-----------------|
+| 不检查 Range/ETag 直接 resume() | 代码简单 | 大文件带宽浪费 | **NEVER** |
+| 全局凭据数据库不按容器分区 | 实现简单 | 容器隔离失效 | **NEVER** |
+| 使用 safeStorage 同步 API | 代码简短 | UI 冻结 + 未来废弃 | **NEVER** |
+| Linux 不检查 basic_text 后端 | 无需平台判断 | 密码明文存储 | **NEVER** |
+| 不处理 getTotalBytes()=0 | 代码少一行 | UI 崩溃 | **NEVER** |
+| 不注册容器 Session 下载处理器 | 代码少 | 容器内下载失败 | **NEVER** |
+
+## "Looks Done But Isn't" 检查清单
+
+- [ ] **DL 路径设置:** 验证所有 `setSavePath` 调用都在 `will-download` 同步上下文中
+- [ ] **DL 断点续传:** 测试不支持 Range 的服务器，确认 resume() 行为符合预期
+- [ ] **DL 状态机:** 验证 `updated.interrupted` 和 `done.interrupted` 的不同处理
+- [ ] **DL 进度条:** 测试 Content-Length 为 0 的下载，确认 UI 不崩溃
+- [ ] **DL 容器隔离:** 在每个容器中测试下载功能
+- [ ] **AF Linux 加密:** 在无密钥存储的 Linux 环境测试，确认拒绝存储凭据
+- [ ] **AF 容器隔离:** 验证容器 A 的密码不会在容器 B 中被填充
+- [ ] **AF 跨域 iframe:** 测试恶意 iframe 是否能获取已保存凭据
+- [ ] **AF 互斥:** 同时触发 autofill 和 AI fillForm，确认无冲突
+- [ ] **AF 异步 API:** 验证 Keychain 密码弹窗不冻结主窗口
+
+---
+
+## 来源
+
+- [Electron DownloadItem API 文档](https://www.electronjs.org/docs/latest/api/download-item) — 官方文档，直接抓取（HIGH）
+- [Electron safeStorage API 文档](https://www.electronjs.org/docs/latest/api/safe-storage) — 官方文档，直接抓取（HIGH）
+- [Electron Session will-download 文档](https://www.electronjs.org/docs/latest/api/session#event-will-download) — 官方文档（HIGH）
+- Realm Browser PROJECT.md — 项目约束和现有架构（HIGH）
+- Realm Browser CLAUDE.md — 现有实现细节：CDP fillForm、容器 Session、webview（HIGH）
+
+---
+
+## v2.2 陷阱：多媒体功能集成
+
+以下为 v2.2 里程碑的陷阱研究（保留供参考）。
+
+---
 
 ### 陷阱 1：CSP 阻断 executeJavaScript 脚本注入 — 视频检测的根本性障碍
 
@@ -1127,5 +1727,5 @@ Phase 27（播放器窗口）— 作为 MEDIA-07（播放控制 UI）的增强�
 
 ---
 
-*陷阱研究：多容器隔离浏览器 v2.2 多媒体功能集成*
-*研究日期：2026-08-06*
+*陷阱研究：多容器隔离浏览器 v2.3 下载管理器 + 自动填充*
+*研究日期：2026-08-11*

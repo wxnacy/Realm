@@ -172,3 +172,204 @@ MEDIA-02 (DOM 检测) ──→ MEDIA-03 (媒体面板)       ↓
 *Feature research for: 多媒体功能集成 (v2.2)*
 *Researched: 2026-08-06*
 *Confidence: HIGH — 功能边界清晰，技术方案成熟，与现有架构无冲突*
+
+---
+
+# Feature Landscape — v2.3 下载管理器 + 自动填充
+
+**Domain:** Electron 多容器浏览器 — 浏览器基础功能补全
+**Researched:** 2026-08-11
+**Overall confidence:** HIGH
+
+## Executive Summary
+
+v2.3 的核心目标是补全浏览器基础功能：下载管理器和表单自动填充。这两个功能都是现代浏览器的标配，缺失会导致用户体验不完整。
+
+**下载管理器**需要处理：文件下载拦截、保存对话框、进度显示、历史记录、暂停/恢复、文件管理。Electron 原生的 `session.on('will-download')` 事件提供了完整的下载生命周期管理，且天然与容器 Session partition 集成——每个容器的下载在独立 session 中处理。
+
+**自动填充**需要处理：登录凭据保存、表单自动填充、凭据管理、地址表单支持。安全存储是核心挑战，使用 Electron 的 `safeStorage` API（macOS Keychain 后端）加密敏感数据。凭据按容器隔离存储，与现有 Cookie/Session 隔离策略一致。
+
+## Table Stakes — 下载管理器
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| 文件下载拦截（DL-01） | 浏览器最基本功能 | Low | session.on('will-download') 原生 API |
+| 保存对话框（DL-05） | 用户期望选择保存位置 | Low | DownloadItem.setSaveDialogOptions() |
+| 下载进度显示 | 用户需要知道下载状态 | Med | DownloadItem.updated 事件 + IPC 推送 |
+| 下载历史列表（DL-02） | 用户需要查看/管理历史下载 | Med | SQLite 持久化，realm://downloads 内部页面 |
+| 暂停/恢复（DL-03） | 大文件下载必备 | Low | DownloadItem.pause()/resume()，需服务器支持 Range |
+| 文件操作（DL-04） | 打开文件/在 Finder 中显示/删除 | Low | shell.openPath()/showItemInFolder() |
+
+## Table Stakes — 自动填充
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| 密码保存提示（AF-01） | 用户期望记住密码 | Med | content script 检测登录表单提交 |
+| 密码自动填充（AF-02） | 再次访问时自动填入 | High | content script 域名匹配 + 表单注入 |
+| 凭据管理（AF-03） | 用户需要查看/删除已保存凭据 | Low | realm://settings 页面 |
+| 地址表单支持（AF-04） | 填充地址信息 | Med | 扩展数据模型 + 地址字段检测 |
+
+## Differentiators
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| 下载速度实时显示 | 用户可评估网络状态 | Low | getCurrentBytesPerSecond() 原生 API |
+| 剩余时间估算 | 用户可规划等待 | Low | 剩余字节 / 当前速度 |
+| 来源容器标识 | 下载项显示所属容器颜色/名称 | Low | 通过 webContentsId 反查容器 |
+| 搜索下载历史 | 快速找到历史文件 | Med | SQLite LIKE 查询 |
+| 右键菜单（下载） | 复制链接/重新下载/删除 | Low | 复用 context-menu-manager |
+| 工具栏下载图标 | 活跃下载数量徽标 | Med | 类似 Chrome 下载栏 |
+| 凭据按容器隔离 | 不同容器的账号不混用 | Low | container_id 字段 |
+| 密码强度指示 | 保存密码时显示强度 | Low | 正则规则评估 |
+
+## Anti-Features
+
+| Anti-Feature | Why Avoid | What to Do Instead |
+|--------------|-----------|-------------------|
+| 多线程分片下载 | Electron 不原生支持，现代 CDN 不鼓励 | 依赖 Chromium 内置下载引擎 |
+| 下载队列/限速 | 复杂度高，非核心需求 | 让系统自行处理并发 |
+| BT/磁力链接支持 | 超出浏览器核心范围 | 可作为未来扩展 |
+| 断点续传（跨会话） | createInterruptedDownload 有局限 | 仅支持当前会话内 pause/resume |
+| 云端同步密码 | 安全风险高，需后端服务 | 依赖用户自有密码管理器 |
+| 2FA/Passkey 管理 | 浏览器原生支持有限 | 依赖系统 Authenticator |
+| 信用卡信息保存 | 安全风险高，合规复杂 | 本期仅支持用户名/密码和地址 |
+| 密码生成器 | 功能膨胀 | 用户可使用第三方工具 |
+| 跨设备同步 | 需要后端服务 | 超出本期范围 |
+
+## Feature Dependencies
+
+```
+DL-01 (基础下载) ──→ DL-02 (下载历史)
+      │                    │
+      ├──→ DL-05 (保存对话框)
+      │
+      └──→ DL-03 (暂停/恢复) ──→ DL-04 (文件管理)
+
+AF-01 (保存凭据) ──→ AF-02 (自动填充)
+      │                    │
+      └──→ AF-03 (凭据管理)
+      │
+      └──→ AF-04 (地址表单)
+```
+
+## MVP Recommendation
+
+**Phase A — 下载管理器核心：**
+1. DL-01: 基础下载功能（session.on('will-download') 拦截）
+2. DL-05: 保存对话框（setSaveDialogOptions）
+3. 下载进度显示（updated 事件 + IPC）
+
+**Phase B — 下载管理器增强：**
+4. DL-02: 下载历史（SQLite 持久化 + realm://downloads 页面）
+5. DL-03: 暂停/恢复
+6. DL-04: 文件管理（打开/Finder 显示/删除）
+
+**Phase C — 自动填充核心：**
+7. AF-01: 保存登录凭据（safeStorage 加密）
+8. AF-02: 自动填充（content script 表单检测）
+
+**Phase D — 自动填充增强：**
+9. AF-03: 凭据管理（realm://settings 页面）
+10. AF-04: 地址表单（autocomplete 属性检测）
+
+---
+
+## 技术实现细节
+
+### Electron DownloadItem API 关键方法
+
+| 方法/属性 | 说明 |
+|-----------|------|
+| `getURL()` | 下载源 URL |
+| `getFilename()` | 文件名（可能被用户重命名） |
+| `getMimeType()` | MIME 类型 |
+| `getTotalBytes()` | 总字节数（未知时返回 0） |
+| `getReceivedBytes()` | 已下载字节数 |
+| `getCurrentBytesPerSecond()` | 当前速度（字节/秒） |
+| `getPercentComplete()` | 完成百分比（0-100） |
+| `getState()` | 状态：progressing / completed / cancelled / interrupted |
+| `pause()` / `resume()` | 暂停/恢复（需服务器支持 Range + ETag） |
+| `canResume()` | 是否可恢复 |
+| `cancel()` | 取消下载 |
+| `setSavePath(path)` | 设置保存路径 |
+| `setSaveDialogOptions(options)` | 配置原生保存对话框 |
+| `getETag()` | ETag 头（断点续传判断） |
+| `getLastModifiedTime()` | Last-Modified 头 |
+
+### 会话内断点续传
+
+```javascript
+// 主进程：创建可恢复的中断下载
+ses.createInterruptedDownload({
+  path: '/path/to/partial-file',
+  urlChain: ['https://example.com/file.zip'],
+  offset: 1024 * 1024, // 已下载字节数
+  length: 10 * 1024 * 1024, // 总字节数
+  lastModified: 'Wed, 21 Oct 2015 07:28:00 GMT',
+  eTag: '"abc123"',
+});
+// 之后调用 item.resume() 开始恢复
+```
+
+### 自动填充表单检测策略（六级定位链）
+
+1. `autocomplete` 属性（最可靠）
+2. `name` / `id` 属性语义匹配
+3. `placeholder` 文本匹配
+4. `label` 关联匹配
+5. 字段类型推断（`type="password"` 等）
+6. 位置上下文推断（相邻字段关系）
+
+### HTML autocomplete 属性参考
+
+**凭据：** `username` / `current-password` / `new-password` / `one-time-code`
+
+**地址：** `name` / `given-name` / `family-name` / `email` / `tel` / `street-address` / `address-line1` / `address-line2` / `address-level2`（城市）/ `address-level1`（省）/ `country` / `postal-code` / `organization`
+
+### 容器隔离数据流
+
+```
+用户点击下载链接 → webview guest 触发下载
+    ↓
+主进程 session.on('will-download')（在容器 session 上注册）
+    ↓
+从 webContentsId 反查 containerId（复用 resolveGuestContainer）
+    ↓
+创建 DownloadItem 记录 → 设置保存路径 + 弹出对话框
+    ↓
+监听进度 → IPC 推送到渲染进程
+    ↓
+完成 → 更新状态 + 通知 UI → 持久化到 SQLite（按容器分表）
+```
+
+### 与现有架构集成点
+
+| 现有模块 | 集成方式 | 复杂度 |
+|----------|----------|--------|
+| `container-manager.js` | 复用 `resolveGuestContainer()` 解析来源容器 | Low |
+| `media-sniffer.js` | 参考其 session 事件拦截模式 | Low |
+| `ipc-handlers.js` | 新增 download:* 和 autofill:* 通道 | Low |
+| `src/preload.js` | 新增 downloadAPI 和 autofillAPI | Low |
+| `context-menu-manager.js` | 添加下载/填充相关菜单项 | Low |
+| `main.js` | 注册 will-download 监听器 | Med |
+| `src/renderer.js` | 新增下载面板 UI + autofill 注入逻辑 | High |
+| SQLite 存储 | 新建 downloads 和 credentials 表 | Med |
+
+---
+
+## Sources
+
+- [Electron DownloadItem API](https://www.electronjs.org/docs/latest/api/download-item)
+- [Electron Session will-download](https://www.electronjs.org/docs/latest/api/session#event-will-download)
+- [Electron safeStorage API](https://www.electronjs.org/docs/latest/api/safe-storage)
+- [Electron Dialog API](https://www.electronjs.org/docs/latest/api/dialog)
+- [MDN HTML autocomplete 属性](https://developer.mozilla.org/en-US/docs/Web/HTML/Attributes/autocomplete)
+- [Web.dev 表单最佳实践](https://web.dev/articles/payment-and-address-form-best-practices)
+- [Web.dev 登录表单最佳实践](https://web.dev/articles/sign-in-form-best-practices)
+- Firefox Multi-Account Containers（凭据隔离参考）
+- Chrome 内置密码管理器（自动填充参考）
+
+---
+*Feature research for: 下载管理器 + 自动填充 (v2.3)*
+*Researched: 2026-08-11*
+*Confidence: HIGH — 功能边界清晰，Electron 原生 API 支持完善，与现有容器隔离架构天然集成*
