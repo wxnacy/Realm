@@ -110,7 +110,10 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
   3. 下载完成后记录持久化到 SQLite，重启后仍可查看
   4. 工具栏下载按钮在有活跃下载时显示数量徽标
   5. 下载数据按容器隔离存储，不同容器的下载记录互不干扰
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 30-01-PLAN.md — 下载管理器后端核心：download-manager.js 模块 + SQLite 持久化 + IPC 通道
+- [ ] 30-02-PLAN.md — 下载管理器前端 UI：preload API + 下载按钮 + 进度环 + 徽标 + tooltip
 **UI hint**: yes
 
 ### Phase 31: 下载管理器 — 用户交互
@@ -186,7 +189,7 @@ Phases execute in numeric order: 30 → 31 → 32 → 33
 | 27. 媒体面板 | v2.2 | 2/2 | Complete | 2026-08-07 |
 | 28. 播放器窗口 | v2.2 | 2/2 | Complete | 2026-08-08 |
 | 29. 多媒体播放器设置控制 | v2.2 | 5/5 | Complete | 2026-08-08 |
-| 30. 下载管理器 — 核心引擎 | v2.3 | 0/0 | Not started | - |
+| 30. 下载管理器 — 核心引擎 | v2.3 | 0/2 | Planning | - |
 | 31. 下载管理器 — 用户交互 | v2.3 | 0/0 | Not started | - |
 | 32. 自动填充 — 凭据引擎 | v2.3 | 0/0 | Not started | - |
 | 33. 自动填充 — 增强 + Bug 修复 | v2.3 | 0/0 | Not started | - |
