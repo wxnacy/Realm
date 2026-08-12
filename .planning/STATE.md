@@ -5,8 +5,8 @@ milestone_name: 浏览器基础功能补全
 current_phase: 30
 current_phase_name: download-manager-core
 status: executing
-stopped_at: Phase 31 context gathered
-last_updated: "2026-08-12T13:55:14.918Z"
+stopped_at: Phase 31 UI-SPEC approved
+last_updated: "2026-08-12T14:03:00.994Z"
 last_activity: 2026-08-11
 last_activity_desc: Phase 30 execution started
 progress:
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-11)
 
 Phase: 30 (download-manager-core) — EXECUTING
 Plan: 1 of 2
-Status: Executing Phase 30
+Status: Ready to execute
 Last activity: 2026-08-11 — Phase 30 execution started
 
 ## Performance Metrics
@@ -106,9 +106,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-12T13:55:14.913Z
-Stopped at: Phase 31 context gathered
-Resume file: .planning/phases/31-download-manager-ui/31-CONTEXT.md
+Last session: 2026-08-12T13:59:03.024Z
+Stopped at: Phase 31 UI-SPEC approved
+Resume file: .planning/phases/31-download-manager-ui/31-UI-SPEC.md
 
 ## Operator Next Steps
 

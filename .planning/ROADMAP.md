@@ -136,7 +136,12 @@ Plans:
 
 **Plans**: 2 plans
 Plans:
+**Wave 1**
+
 - [ ] 31-01-PLAN.md — 下载管理器后端扩展：全局查询 + 删除 + 清空 + realm HTTP API
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 31-02-PLAN.md — 下载管理器前端 UI：下拉面板 + 列表项 + 操作交互 + realm://downloads 页面
 
 **UI hint**: yes
