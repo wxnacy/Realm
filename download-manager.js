@@ -169,6 +169,7 @@ function formatFileSize(bytes) {
  * @returns {string} 格式化后的剩余时间
  */
 function formatETA(bytesRemaining, speed) {
+  if (bytesRemaining <= 0) return '完成';
   if (speed <= 0) return '计算中...';
   const seconds = Math.ceil(bytesRemaining / speed);
   if (seconds < 60) return `剩余 ${seconds}s`;
@@ -391,7 +392,7 @@ function setupDownloadItemEvents(item, downloadId, containerId) {
  * @param {string} containerId - 容器 ID
  */
 function registerSessionDownloadHandler(ses, containerId) {
-  ses.on('will-download', async (event, item, webContents) => {
+  ses.on('will-download', (event, item, webContents) => {
     // 读取配置获取默认保存路径（D-02）
     let defaultDir;
     try {
@@ -406,12 +407,13 @@ function registerSessionDownloadHandler(ses, containerId) {
     const defaultFilePath = path.join(defaultDir, item.getFilename());
 
     // 显示系统原生保存对话框（D-01, D-09: NSSavePanel）
+    // 使用同步版本，确保在 will-download 回调内完成路径选择
     const mainWindow = getMainWindow();
     const parentWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
 
     let result;
     try {
-      result = await dialog.showSaveDialog(parentWindow, {
+      result = dialog.showSaveDialogSync(parentWindow, {
         defaultPath: defaultFilePath,
         filters: [
           { name: 'All Files', extensions: ['*'] }
@@ -423,14 +425,14 @@ function registerSessionDownloadHandler(ses, containerId) {
       return;
     }
 
-    // 用户取消时阻止下载
-    if (result.canceled || !result.filePath) {
+    // 用户取消时阻止下载（同步版本返回 undefined 表示取消）
+    if (!result) {
       event.preventDefault();
       return;
     }
 
     // 处理文件名冲突：自动添加 (1), (2) 后缀（D-04）
-    const savePath = getUniqueFilePath(result.filePath);
+    const savePath = getUniqueFilePath(result);
 
     // 必须在 will-download 回调内同步调用 setSavePath（RESEARCH Pitfall 3）
     item.setSavePath(savePath);
@@ -553,6 +555,100 @@ function getActiveDownloads() {
   return result;
 }
 
+// ==================== 全局查询与管理函数 ====================
+
+/**
+ * 全局查询所有容器的下载记录（分页）
+ * 用于下载面板显示所有容器的下载历史（D-05 决策）
+ * @param {number} [limit=50] - 每页记录数
+ * @param {number} [offset=0] - 偏移量
+ * @returns {Array} 下载记录数组
+ */
+function getAllDownloads(limit = 50, offset = 0) {
+  if (!db) return [];
+
+  try {
+    return db.prepare(`
+      SELECT * FROM downloads
+      ORDER BY start_time DESC
+      LIMIT ? OFFSET ?
+    `).all(limit, offset);
+  } catch (err) {
+    console.error('[Realm] 查询全局下载记录失败:', err.message);
+    return [];
+  }
+}
+
+/**
+ * 删除单条下载记录（可选删除本地文件）
+ * - 如果下载仍在进行中，先取消下载
+ * - deleteFile 为 true 时尝试删除本地文件
+ * - 文件删除失败不阻止记录删除
+ * @param {string} downloadId - 下载 ID
+ * @param {boolean} [deleteFile=false] - 是否同时删除本地文件
+ * @returns {{success: boolean, error?: string}}
+ */
+function deleteDownload(downloadId, deleteFile = false) {
+  if (!db) return { success: false, error: '数据库未初始化' };
+
+  try {
+    // 先查询记录获取 save_path
+    const record = db.prepare('SELECT save_path FROM downloads WHERE id = ?').get(downloadId);
+    if (!record) {
+      return { success: false, error: '下载记录不存在' };
+    }
+
+    // 如果下载仍在进行中，先取消（D-17）
+    if (activeDownloads.has(downloadId)) {
+      cancelDownload(downloadId);
+    }
+
+    // 可选删除本地文件
+    if (deleteFile && record.save_path) {
+      // 安全验证：确认路径在用户下载目录内（防路径遍历，T-31-01）
+      const downloadsDir = app.getPath('downloads');
+      const resolvedPath = path.resolve(record.save_path);
+      if (!resolvedPath.startsWith(downloadsDir)) {
+        console.warn(`[Realm] 拒绝删除下载目录外的文件: ${resolvedPath}`);
+      } else {
+        try {
+          if (fs.existsSync(resolvedPath)) {
+            fs.unlinkSync(resolvedPath);
+            console.log(`[Realm] 已删除下载文件: ${resolvedPath}`);
+          }
+        } catch (fileErr) {
+          // 文件删除失败不阻止记录删除
+          console.error('[Realm] 删除下载文件失败（继续删除记录）:', fileErr.message);
+        }
+      }
+    }
+
+    // 删除 SQLite 记录
+    db.prepare('DELETE FROM downloads WHERE id = ?').run(downloadId);
+    return { success: true };
+  } catch (err) {
+    console.error('[Realm] 删除下载记录失败:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * 清空所有下载历史（只删除记录，不删除本地文件，D-16 决策）
+ * @returns {{success: boolean, deletedCount: number}}
+ */
+function clearAllDownloads() {
+  if (!db) return { success: false, deletedCount: 0 };
+
+  try {
+    const result = db.prepare('DELETE FROM downloads').run();
+    console.log(`[Realm] 已清空下载历史: ${result.changes} 条记录`);
+    return { success: true, deletedCount: result.changes };
+  } catch (err) {
+    console.error('[Realm] 清空下载历史失败:', err.message);
+    return { success: false, deletedCount: 0 };
+  }
+}
+
 // ==================== 控制函数 ====================
 
 /**
@@ -668,6 +764,9 @@ module.exports = {
   initDatabase,
   registerSessionDownloadHandler,
   getDownloads,
+  getAllDownloads,
+  deleteDownload,
+  clearAllDownloads,
   getActiveCount,
   getActiveDownloads,
   cancelDownload,
