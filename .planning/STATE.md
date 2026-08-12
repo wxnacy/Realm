@@ -4,17 +4,17 @@ milestone: v2.3
 milestone_name: 浏览器基础功能补全
 current_phase: 31
 current_phase_name: download-manager-ui
-status: executing
-stopped_at: Phase 31 Plan 01 completed
-last_updated: "2026-08-12T14:15:08Z"
+status: complete
+stopped_at: Phase 31 Plan 02 completed
+last_updated: "2026-08-12T15:30:00Z"
 last_activity: 2026-08-12
-last_activity_desc: Phase 31 Plan 01 completed — download manager backend API
+last_activity_desc: Phase 31 Plan 02 completed — download manager UI (panel + page)
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
-  percent: 75
+  completed_plans: 4
+  percent: 100
 ---
 
 # Project State: Realm Browser
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-08-11)
 
 ## Current Position
 
-Phase: 31 (download-manager-ui) — EXECUTING
+Phase: 31 (download-manager-ui) — COMPLETE
 Plan: 2 of 2
-Status: Plan 01 complete, ready for Plan 02
-Last activity: 2026-08-12 — Phase 31 Plan 01 completed
+Status: All plans complete
+Last activity: 2026-08-12 — Phase 31 Plan 02 completed (download panel UI + realm://downloads page)
 
 ## Performance Metrics
 
@@ -109,10 +109,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-12T14:15:08Z
-Stopped at: Phase 31 Plan 01 completed
-Resume file: .planning/phases/31-download-manager-ui/31-01-SUMMARY.md
+Last session: 2026-08-12T15:30:00Z
+Stopped at: Phase 31 Plan 02 completed (all plans done)
+Resume file: .planning/phases/31-download-manager-ui/31-02-SUMMARY.md
 
 ## Operator Next Steps
 
-- Execute Phase 31 Plan 02 with `/gsd-execute-phase 31`
+- Phase 31 complete — execute Phase 32 (自动填充 — 凭据引擎) with `/gsd-execute-phase 32`

@@ -92,7 +92,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 <summary>🔧 v2.3 浏览器基础功能补全 (Phases 30-33) — IN PROGRESS</summary>
 
 - [ ] **Phase 30: 下载管理器 — 核心引擎** — 文件下载拦截、保存对话框、进度追踪、工具栏集成、SQLite 持久化
-- [ ] **Phase 31: 下载管理器 — 用户交互** — 下载历史面板、暂停/恢复、文件操作、批量管理
+- [x] **Phase 31: 下载管理器 — 用户交互** — 下载历史面板、暂停/恢复、文件操作、批量管理
 - [ ] **Phase 32: 自动填充 — 凭据引擎** — 登录凭据加密存储、表单检测、自动填充、容器隔离
 - [ ] **Phase 33: 自动填充 — 增强 + Bug 修复** — 凭据管理 UI、地址表单、autofill/fillForm 互斥、Bug 修复与代码清理
 
@@ -134,7 +134,7 @@ Plans:
   4. 用户可以在 Finder 中显示已下载的文件
   5. 用户可以删除单条下载记录（可选是否删除本地文件）或清空所有历史
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans complete
 Plans:
 **Wave 1**
 
@@ -142,7 +142,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 31-02-PLAN.md — 下载管理器前端 UI：下拉面板 + 列表项 + 操作交互 + realm://downloads 页面
+- [x] 31-02-PLAN.md — 下载管理器前端 UI：下拉面板 + 列表项 + 操作交互 + realm://downloads 页面
 
 **UI hint**: yes
 
