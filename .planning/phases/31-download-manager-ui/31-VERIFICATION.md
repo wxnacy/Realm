@@ -1,7 +1,7 @@
 ---
 phase: 31-download-manager-ui
 verified: 2026-08-12T22:30:00Z
-status: pass
+status: passed
 score: 6/6 requirements satisfied
 behavior_unverified: 0
 overrides_applied: 0
