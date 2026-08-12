@@ -942,6 +942,40 @@ function registerHandlers() {
     return downloadManager.showInFolder(filePath);
   });
 
+  /**
+   * 获取全局下载列表（所有容器）
+   * @param {number} [limit=50] - 每页记录数
+   * @param {number} [offset=0] - 偏移量
+   * @returns {Promise<Array>} 下载记录数组
+   */
+  ipcMain.handle('download:list-all', async (event, limit, offset) => {
+    assertTrustedSender(event);
+    return downloadManager.getAllDownloads(limit || 50, offset || 0);
+  });
+
+  /**
+   * 删除单条下载记录（可选删除本地文件）
+   * @param {string} downloadId - 下载 ID
+   * @param {boolean} [deleteFile=false] - 是否同时删除本地文件
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  ipcMain.handle('download:delete-record', async (event, downloadId, deleteFile) => {
+    assertTrustedSender(event);
+    if (!downloadId || typeof downloadId !== 'string') {
+      throw new Error('无效的下载 ID');
+    }
+    return downloadManager.deleteDownload(downloadId, !!deleteFile);
+  });
+
+  /**
+   * 清空所有下载历史
+   * @returns {Promise<{success: boolean, deletedCount: number}>}
+   */
+  ipcMain.handle('download:clear-all', async (event) => {
+    assertTrustedSender(event);
+    return downloadManager.clearAllDownloads();
+  });
+
   // ==================== 浏览历史 ====================
 
   /**

@@ -1237,6 +1237,50 @@ app.whenReady().then(async () => {
   }
 
   /**
+   * 处理 /api/downloads/* 下载管理 API 请求
+   * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} res - 响应对象
+   * @param {URL} reqUrl - 解析后的请求 URL
+   */
+  async function handleDownloadsApi(req, res, reqUrl) {
+    // token 鉴权：防 CSRF 与 localhost 端口扫描读取/篡改下载数据
+    if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+      sendJson(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    try {
+      const route = reqUrl.pathname.replace('/api/downloads/', '');
+
+      // GET /api/downloads/list — 全局查询所有容器的下载记录
+      if (route === 'list' && req.method === 'GET') {
+        const offset = parseInt(reqUrl.searchParams.get('offset'), 10) || 0;
+        const limit = parseInt(reqUrl.searchParams.get('limit'), 10) || 50;
+        sendJson(res, 200, downloadManager.getAllDownloads(limit, offset));
+        return;
+      }
+
+      // POST /api/downloads/delete — 删除单条下载记录
+      if (route === 'delete' && req.method === 'POST') {
+        const { downloadId, deleteFile } = await readJsonBody(req);
+        sendJson(res, 200, downloadManager.deleteDownload(downloadId, !!deleteFile));
+        return;
+      }
+
+      // POST /api/downloads/clear — 清空所有下载历史
+      if (route === 'clear' && req.method === 'POST') {
+        sendJson(res, 200, downloadManager.clearAllDownloads());
+        return;
+      }
+
+      sendJson(res, 404, { error: 'Not Found' });
+    } catch (err) {
+      console.error('[Realm] 下载 API 处理失败:', err.message);
+      sendJson(res, 400, { error: err.message });
+    }
+  }
+
+  /**
    * 处理 /api/containers/* 容器 API 请求
    * @param {http.IncomingMessage} req - 请求对象
    * @param {http.ServerResponse} res - 响应对象
@@ -1435,6 +1479,12 @@ app.whenReady().then(async () => {
       return;
     }
 
+    // 下载管理 JSON API（下载面板数据层）
+    if (reqPath.startsWith('/api/downloads/')) {
+      handleDownloadsApi(req, res, reqUrl);
+      return;
+    }
+
     // 收藏栏 API（设置页面收藏栏开关）
     if (reqPath === '/api/bookmarks-bar/toggle' && req.method === 'POST') {
       // token 鉴权
@@ -1480,6 +1530,11 @@ app.whenReady().then(async () => {
       filePath = path.join(__dirname, 'src', 'settings.html');
     } else if (reqPath.startsWith('/settings/')) {
       const subPath = reqPath.replace('/settings/', '');
+      filePath = path.join(__dirname, 'src', subPath);
+    } else if (reqPath === '/downloads' || reqPath === '/downloads/') {
+      filePath = path.join(__dirname, 'src', 'downloads.html');
+    } else if (reqPath.startsWith('/downloads/')) {
+      const subPath = reqPath.replace('/downloads/', '');
       filePath = path.join(__dirname, 'src', subPath);
     } else if (reqPath === '/devrequests' || reqPath === '/devrequests/') {
       filePath = path.join(__dirname, 'src', 'devrequests.html');
