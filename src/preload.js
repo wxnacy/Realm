@@ -1163,6 +1163,15 @@ contextBridge.exposeInMainWorld('downloadAPI', {
     ipcRenderer.on('download:completed', handler);
     return () => ipcRenderer.removeListener('download:completed', handler);
   },
+
+  /** 获取全局下载列表（支持分页） */
+  listAllDownloads: (limit, offset) => ipcRenderer.invoke('download:list-all', limit, offset),
+
+  /** 删除下载记录（可选同时删除本地文件） */
+  deleteDownloadRecord: (downloadId, deleteFile) => ipcRenderer.invoke('download:delete-record', downloadId, deleteFile),
+
+  /** 清空所有下载历史 */
+  clearAllDownloads: () => ipcRenderer.invoke('download:clear-all'),
 });
 
 console.log('[Realm] Preload 脚本已加载');

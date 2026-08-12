@@ -180,6 +180,9 @@ const state = {
   mediaPanelOpen: false,
   mediaItems: [],
 
+  // 下载面板状态
+  downloadPanelOpen: false,
+
   // AI 助手状态
   aiPanelOpen: false,
   aiMessages: [],
@@ -5442,6 +5445,18 @@ let downloadTooltipHoverTimer = null;
 /** @type {number|null} tooltip 离开延迟定时器 */
 let downloadTooltipLeaveTimer = null;
 
+/** @type {boolean} 用户通过点击隐藏了 tooltip，抑制 hover 重新显示 */
+let tooltipClickDismissed = false;
+
+/** @type {Set<string>} 下载面板多选模式中选中的 downloadId 集合 */
+const downloadSelectedIds = new Set();
+
+/** @type {Object|null} 待删除的下载信息 {downloadId, filename, isInProgress} */
+let pendingDeleteDownload = null;
+
+/** @type {boolean} 下载面板数据脏标记（面板关闭时收到更新，下次打开需刷新） */
+let downloadPanelDirty = false;
+
 /**
  * 初始化下载管理 UI
  * 注册下载事件监听器和按钮交互
@@ -5452,26 +5467,140 @@ function initDownloads() {
   window.downloadAPI.onDownloadProgress(handleDownloadProgress);
   window.downloadAPI.onDownloadCompleted(handleDownloadCompleted);
 
-  // 下载按钮点击（Phase 31 实现面板，当前为 no-op）
+  // 下载按钮点击切换面板显示/隐藏
   const downloadBtn = document.getElementById('downloadBtn');
   if (downloadBtn) {
-    downloadBtn.addEventListener('click', () => {
-      // Phase 31: 打开下载面板
-      console.log('[Realm Renderer] 下载按钮点击（面板待实现）');
+    downloadBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearTimeout(downloadTooltipHoverTimer);
+      toggleDownloadPanel();
     });
 
-    // hover 显示 tooltip
+    // hover 显示 tooltip（面板打开时不显示）
     downloadBtn.addEventListener('mouseenter', () => {
-      downloadTooltipHoverTimer = setTimeout(() => {
-        showDownloadTooltip();
-      }, 200);
+      clearTimeout(downloadTooltipLeaveTimer);
+      if (!state.downloadPanelOpen) {
+        downloadTooltipHoverTimer = setTimeout(() => {
+          showDownloadTooltip();
+        }, 200);
+      }
     });
 
     downloadBtn.addEventListener('mouseleave', () => {
       clearTimeout(downloadTooltipHoverTimer);
       downloadTooltipLeaveTimer = setTimeout(() => {
         hideDownloadTooltip();
-      }, 100);
+      }, 300);
+    });
+  }
+
+  // 点击页面其他地方隐藏 tooltip 和下载面板
+  document.addEventListener('click', (e) => {
+    const tooltip = document.getElementById('downloadTooltip');
+    const downloadBtnEl = document.getElementById('downloadBtn');
+    const panel = document.getElementById('downloadPanel');
+    if (tooltip && !tooltip.contains(e.target) && (!downloadBtnEl || !downloadBtnEl.contains(e.target))) {
+      hideDownloadTooltip();
+    }
+    // 点击面板外部关闭面板
+    if (panel && !panel.contains(e.target) && (!downloadBtnEl || !downloadBtnEl.contains(e.target))) {
+      if (state.downloadPanelOpen) {
+        closeDownloadPanel();
+      }
+    }
+  });
+
+  // ESC 键关闭下载面板
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && state.downloadPanelOpen) {
+      closeDownloadPanel();
+    }
+  });
+
+  // 下载面板关闭按钮
+  const panelCloseBtn = document.getElementById('downloadPanelCloseBtn');
+  if (panelCloseBtn) {
+    panelCloseBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeDownloadPanel();
+    });
+  }
+
+  // 清空所有记录按钮
+  const clearBtn = document.getElementById('downloadClearBtn');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleClearAllDownloads();
+    });
+  }
+
+  // 查看全部按钮
+  const viewAllBtn = document.getElementById('downloadViewAllBtn');
+  if (viewAllBtn) {
+    viewAllBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeDownloadPanel();
+      // 在当前 tab 打开 realm://downloads
+      const activeWebview = state.webviews.get(state.activeTabId);
+      if (activeWebview) {
+        activeWebview.loadURL('realm://downloads');
+      }
+    });
+  }
+
+  // 全部暂停按钮
+  const pauseAllBtn = document.getElementById('downloadPauseAllBtn');
+  if (pauseAllBtn) {
+    pauseAllBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handlePauseAll();
+    });
+  }
+
+  // 清空确认弹窗按钮绑定
+  const clearCancelBtn = document.getElementById('downloadClearCancelBtn');
+  const clearConfirmBtn = document.getElementById('downloadClearConfirmBtn');
+  if (clearCancelBtn) {
+    clearCancelBtn.addEventListener('click', () => {
+      document.getElementById('downloadClearModal')?.close();
+    });
+  }
+  if (clearConfirmBtn) {
+    clearConfirmBtn.addEventListener('click', () => {
+      document.getElementById('downloadClearModal')?.close();
+      executeClearAllDownloads();
+    });
+  }
+
+  // 删除确认弹窗按钮绑定
+  const deleteCancelBtn = document.getElementById('downloadDeleteCancelBtn');
+  const deleteConfirmBtn = document.getElementById('downloadDeleteConfirmBtn');
+  if (deleteCancelBtn) {
+    deleteCancelBtn.addEventListener('click', () => {
+      document.getElementById('downloadDeleteModal')?.close();
+    });
+  }
+  if (deleteConfirmBtn) {
+    deleteConfirmBtn.addEventListener('click', () => {
+      document.getElementById('downloadDeleteModal')?.close();
+      executeDeleteDownload();
+    });
+  }
+
+  // 批量操作按钮
+  const batchDeleteBtn = document.getElementById('downloadBatchDeleteBtn');
+  const batchDeselectBtn = document.getElementById('downloadBatchDeselectBtn');
+  if (batchDeleteBtn) {
+    batchDeleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleBatchDelete();
+    });
+  }
+  if (batchDeselectBtn) {
+    batchDeselectBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearDownloadSelection();
     });
   }
 
@@ -5510,6 +5639,13 @@ function handleDownloadStarted(data) {
   // 切换到进度环状态
   setDownloadButtonState('active');
   updateDownloadBadge();
+
+  // 面板打开时刷新列表，关闭时标记 dirty
+  if (state.downloadPanelOpen) {
+    loadDownloadPanelList();
+  } else {
+    downloadPanelDirty = true;
+  }
 }
 
 /**
@@ -5534,10 +5670,21 @@ function handleDownloadProgress(data) {
   // 更新进度环
   updateDownloadProgressRing();
 
-  // 如果 tooltip 可见，更新内容
+  // 更新 tooltip 内容（使用 setTimeout 而非 requestAnimationFrame，避免 Chromium 节流）
   const tooltip = document.getElementById('downloadTooltip');
   if (tooltip && !tooltip.classList.contains('hidden')) {
-    renderDownloadTooltipContent();
+    if (!tooltip._updateScheduled) {
+      tooltip._updateScheduled = true;
+      tooltip._updateTimer = setTimeout(() => {
+        renderDownloadTooltipContent();
+        tooltip._updateScheduled = false;
+      }, 200);
+    }
+  }
+
+  // 面板打开时实时更新进度条
+  if (state.downloadPanelOpen) {
+    updateDownloadPanelProgress(data);
   }
 }
 
@@ -5558,6 +5705,13 @@ function handleDownloadCompleted(data) {
 
   updateDownloadBadge();
   hideDownloadTooltip();
+
+  // 面板打开时刷新列表，关闭时标记 dirty
+  if (state.downloadPanelOpen) {
+    loadDownloadPanelList();
+  } else {
+    downloadPanelDirty = true;
+  }
 }
 
 /**
@@ -5653,6 +5807,9 @@ function showDownloadTooltip() {
 
   renderDownloadTooltipContent();
 
+  // 先显示 tooltip（否则 getBoundingClientRect 返回 0）
+  tooltip.classList.remove('hidden');
+
   // 定位：按钮下方居中
   const rect = btn.getBoundingClientRect();
   tooltip.style.left = `${rect.left + rect.width / 2}px`;
@@ -5669,8 +5826,6 @@ function showDownloadTooltip() {
     tooltip.style.left = `${window.innerWidth - 8}px`;
     tooltip.style.transform = 'translateX(-100%)';
   }
-
-  tooltip.classList.remove('hidden');
 }
 
 /**
@@ -5741,6 +5896,7 @@ function formatFileSize(bytes) {
  * @returns {string}
  */
 function formatETA(bytesRemaining, speed) {
+  if (bytesRemaining <= 0) return '完成';
   if (speed <= 0) return '计算中...';
   const seconds = Math.ceil(bytesRemaining / speed);
   if (seconds < 60) return `剩余 ${seconds}s`;
@@ -7587,5 +7743,596 @@ function initAIPanelResize() {
   handle.addEventListener('mousedown', onMouseDown);
 }
 
-// 初始化应用
+// ==================== 下载管理面板 ====================
+
+/**
+ * 切换下载面板显示/隐藏
+ * 打开时加载最近 10 条下载记录
+ */
+function toggleDownloadPanel() {
+  if (state.downloadPanelOpen) {
+    closeDownloadPanel();
+  } else {
+    openDownloadPanel();
+  }
+}
+
+/**
+ * 打开下载面板
+ * 隐藏 tooltip，加载面板数据，切换样式
+ */
+function openDownloadPanel() {
+  state.downloadPanelOpen = true;
+  const panel = document.getElementById('downloadPanel');
+  const btn = document.getElementById('downloadBtn');
+  if (panel) panel.classList.remove('hidden');
+  if (btn) btn.classList.add('active');
+  hideDownloadTooltip();
+  // 始终在打开时刷新列表（dirty 标记或首次打开）
+  loadDownloadPanelList();
+}
+
+/**
+ * 关闭下载面板
+ */
+function closeDownloadPanel() {
+  state.downloadPanelOpen = false;
+  const panel = document.getElementById('downloadPanel');
+  const btn = document.getElementById('downloadBtn');
+  if (panel) panel.classList.add('hidden');
+  if (btn) btn.classList.remove('active');
+  clearDownloadSelection();
+}
+
+/**
+ * 加载面板下载列表（最近 10 条）
+ * 通过 downloadAPI.listAllDownloads 获取数据
+ */
+async function loadDownloadPanelList() {
+  try {
+    const downloads = await window.downloadAPI.listAllDownloads(10, 0);
+    renderDownloadPanelList(downloads || []);
+    downloadPanelDirty = false;
+  } catch (error) {
+    console.error('[Realm Renderer] 加载下载面板列表失败:', error);
+    renderDownloadPanelList([]);
+  }
+}
+
+/**
+ * 渲染下载面板列表
+ * @param {Array} downloads - 下载记录数组
+ */
+function renderDownloadPanelList(downloads) {
+  const listEl = document.getElementById('downloadPanelList');
+  const emptyEl = document.getElementById('downloadEmptyState');
+  if (!listEl || !emptyEl) return;
+
+  if (downloads.length === 0) {
+    listEl.innerHTML = '';
+    emptyEl.classList.remove('hidden');
+    return;
+  }
+
+  emptyEl.classList.add('hidden');
+
+  // 更新全部暂停按钮状态
+  updatePauseAllButton(downloads);
+
+  listEl.innerHTML = downloads.map(item => {
+    const stateClass = item.state || 'completed';
+    const isActive = stateClass === 'progressing';
+    const isPaused = stateClass === 'paused';
+    const isInterrupted = stateClass === 'interrupted';
+    const isCompleted = stateClass === 'completed';
+
+    // 进度条样式
+    let progressClass = 'hidden';
+    let barClass = 'accent';
+    if (isActive) {
+      progressClass = '';
+      barClass = 'accent';
+    } else if (isPaused) {
+      progressClass = '';
+      barClass = 'muted';
+    } else if (isInterrupted) {
+      progressClass = '';
+      barClass = 'danger';
+    }
+
+    // 状态文本
+    let statusText = '';
+    if (isActive) {
+      const speed = item.speed ? formatFileSize(item.speed) + '/s' : '计算中...';
+      statusText = `下载中 · ${speed}`;
+    } else if (isPaused) {
+      statusText = '已暂停';
+    } else if (isInterrupted) {
+      statusText = '下载失败';
+    }
+
+    // 时间
+    const timeStr = item.startTime ? formatRelativeTime(item.startTime) : '';
+
+    // 操作按钮
+    let actionsHtml = '';
+    if (isActive) {
+      actionsHtml = `
+        <button class="btn-icon download-item-pause-btn" data-id="${escapeHtml(item.id)}" title="暂停">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+        </button>
+        <button class="btn-icon download-item-delete-btn" data-id="${escapeHtml(item.id)}" data-filename="${escapeHtml(item.filename)}" data-state="${stateClass}" title="删除">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        </button>`;
+    } else if (isPaused || isInterrupted) {
+      actionsHtml = `
+        <button class="btn-icon download-item-resume-btn" data-id="${escapeHtml(item.id)}" title="恢复">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+        </button>
+        <button class="btn-icon download-item-delete-btn" data-id="${escapeHtml(item.id)}" data-filename="${escapeHtml(item.filename)}" data-state="${stateClass}" title="删除">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        </button>`;
+    } else {
+      actionsHtml = `
+        <button class="btn-icon download-item-open-btn" data-path="${escapeHtml(item.savePath || '')}" title="打开文件">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+        </button>
+        <button class="btn-icon download-item-folder-btn" data-path="${escapeHtml(item.savePath || '')}" title="在 Finder 中显示">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+        </button>
+        <button class="btn-icon download-item-delete-btn" data-id="${escapeHtml(item.id)}" data-filename="${escapeHtml(item.filename)}" data-state="${stateClass}" title="删除">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        </button>`;
+    }
+
+    const selectedClass = downloadSelectedIds.has(item.id) ? ' selected' : '';
+
+    return `
+      <div class="download-item${selectedClass}" data-id="${escapeHtml(item.id)}" data-state="${stateClass}">
+        <div class="download-item-icon">
+          ${getFileTypeIcon(item.mimeType)}
+        </div>
+        <div class="download-item-info">
+          <div class="download-item-name" title="${escapeHtml(item.filename)}">${escapeHtml(item.filename)}</div>
+          <div class="download-item-meta">
+            <span class="download-item-size">${item.totalBytes ? formatFileSize(item.totalBytes) : ''}</span>
+            ${item.totalBytes && timeStr ? '<span class="download-item-separator">·</span>' : ''}
+            <span class="download-item-time">${timeStr}</span>
+            ${statusText ? `<span class="download-item-status">${statusText}</span>` : ''}
+          </div>
+          <div class="download-item-progress ${progressClass}">
+            <div class="download-item-progress-bar ${barClass}" style="width: ${item.progress || 0}%"></div>
+          </div>
+        </div>
+        <div class="download-item-actions">
+          ${actionsHtml}
+        </div>
+      </div>`;
+  }).join('');
+
+  // 绑定操作按钮事件
+  bindDownloadItemActions(listEl);
+}
+
+/**
+ * 绑定下载列表项操作按钮事件
+ * @param {HTMLElement} listEl - 列表容器
+ */
+function bindDownloadItemActions(listEl) {
+  // 暂停按钮
+  listEl.querySelectorAll('.download-item-pause-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handlePauseDownload(btn.dataset.id);
+    });
+  });
+
+  // 恢复按钮
+  listEl.querySelectorAll('.download-item-resume-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleResumeDownload(btn.dataset.id);
+    });
+  });
+
+  // 打开文件按钮
+  listEl.querySelectorAll('.download-item-open-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleOpenFile(btn.dataset.path);
+    });
+  });
+
+  // Finder 按钮
+  listEl.querySelectorAll('.download-item-folder-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleShowInFolder(btn.dataset.path);
+    });
+  });
+
+  // 删除按钮
+  listEl.querySelectorAll('.download-item-delete-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleDeleteDownload(btn.dataset.id, btn.dataset.filename, btn.dataset.state === 'progressing');
+    });
+  });
+
+  // Cmd+Click 多选
+  listEl.querySelectorAll('.download-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      if (e.metaKey || e.ctrlKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleDownloadSelection(item.dataset.id);
+      }
+    });
+  });
+}
+
+/**
+ * 根据 MIME 类型返回 Lucide SVG 图标
+ * @param {string} mimeType - MIME 类型
+ * @returns {string} SVG 图标 HTML
+ */
+function getFileTypeIcon(mimeType) {
+  if (!mimeType) {
+    return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>';
+  }
+
+  if (mimeType === 'application/pdf') {
+    return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>';
+  }
+
+  if (mimeType.startsWith('image/')) {
+    return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
+  }
+
+  if (mimeType.startsWith('video/')) {
+    return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>';
+  }
+
+  if (mimeType.startsWith('audio/')) {
+    return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>';
+  }
+
+  if (mimeType === 'application/zip' || mimeType.includes('compress')) {
+    return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6366F1" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>';
+  }
+
+  if (mimeType.startsWith('text/')) {
+    return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>';
+  }
+
+  // 默认文件图标
+  return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>';
+}
+
+/**
+ * 格式化相对时间
+ * @param {number} timestamp - Unix 时间戳（秒）
+ * @returns {string} 相对时间文本
+ */
+function formatRelativeTime(timestamp) {
+  const now = Date.now() / 1000;
+  const diff = now - timestamp;
+
+  if (diff < 60) return '刚刚';
+  if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前';
+  if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前';
+  if (diff < 604800) return Math.floor(diff / 86400) + ' 天前';
+
+  const date = new Date(timestamp * 1000);
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+/**
+ * 暂停下载
+ * @param {string} downloadId - 下载 ID
+ */
+async function handlePauseDownload(downloadId) {
+  try {
+    await window.downloadAPI.pauseDownload(downloadId);
+    // 面板打开时立即刷新
+    if (state.downloadPanelOpen) {
+      loadDownloadPanelList();
+    }
+  } catch (error) {
+    console.error('[Realm Renderer] 暂停下载失败:', error);
+  }
+}
+
+/**
+ * 恢复下载
+ * @param {string} downloadId - 下载 ID
+ */
+async function handleResumeDownload(downloadId) {
+  try {
+    await window.downloadAPI.resumeDownload(downloadId);
+    if (state.downloadPanelOpen) {
+      loadDownloadPanelList();
+    }
+  } catch (error) {
+    console.error('[Realm Renderer] 恢复下载失败:', error);
+  }
+}
+
+/**
+ * 打开已下载文件
+ * @param {string} filePath - 文件路径
+ */
+async function handleOpenFile(filePath) {
+  if (!filePath) return;
+  try {
+    await window.downloadAPI.openFile(filePath);
+  } catch (error) {
+    console.error('[Realm Renderer] 打开文件失败:', error);
+  }
+}
+
+/**
+ * 在 Finder 中显示文件
+ * @param {string} filePath - 文件路径
+ */
+async function handleShowInFolder(filePath) {
+  if (!filePath) return;
+  try {
+    await window.downloadAPI.showInFolder(filePath);
+  } catch (error) {
+    console.error('[Realm Renderer] 显示文件失败:', error);
+  }
+}
+
+/**
+ * 处理删除下载（显示确认弹窗）
+ * @param {string} downloadId - 下载 ID
+ * @param {string} filename - 文件名
+ * @param {boolean} isInProgress - 是否进行中
+ */
+async function handleDeleteDownload(downloadId, filename, isInProgress) {
+  // 如果下载正在进行，先取消
+  if (isInProgress) {
+    try {
+      await window.downloadAPI.cancelDownload(downloadId);
+    } catch (error) {
+      console.warn('[Realm Renderer] 取消下载失败:', error);
+    }
+  }
+
+  pendingDeleteDownload = { downloadId, filename, isInProgress };
+
+  // 更新弹窗描述
+  const desc = document.getElementById('downloadDeleteDesc');
+  if (desc) {
+    desc.textContent = `确定要删除「${filename}」的下载记录吗？`;
+  }
+
+  // 重置复选框
+  const checkbox = document.getElementById('downloadDeleteFileCheckbox');
+  if (checkbox) {
+    checkbox.checked = false;
+  }
+
+  // 显示弹窗
+  const modal = document.getElementById('downloadDeleteModal');
+  if (modal) {
+    modal.showModal();
+  }
+}
+
+/**
+ * 执行删除下载（弹窗确认后调用）
+ */
+async function executeDeleteDownload() {
+  if (!pendingDeleteDownload) return;
+
+  const checkbox = document.getElementById('downloadDeleteFileCheckbox');
+  const deleteFile = checkbox ? checkbox.checked : false;
+
+  try {
+    if (pendingDeleteDownload.batchMode) {
+      // 批量删除模式
+      for (const id of downloadSelectedIds) {
+        await window.downloadAPI.deleteDownloadRecord(id, deleteFile);
+      }
+      clearDownloadSelection();
+    } else {
+      // 单条删除模式
+      await window.downloadAPI.deleteDownloadRecord(pendingDeleteDownload.downloadId, deleteFile);
+    }
+    // 刷新面板列表
+    if (state.downloadPanelOpen) {
+      loadDownloadPanelList();
+    }
+  } catch (error) {
+    console.error('[Realm Renderer] 删除下载记录失败:', error);
+  }
+
+  pendingDeleteDownload = null;
+}
+
+/**
+ * 处理清空所有下载（显示确认弹窗）
+ */
+function handleClearAllDownloads() {
+  const modal = document.getElementById('downloadClearModal');
+  if (modal) {
+    modal.showModal();
+  }
+}
+
+/**
+ * 执行清空所有下载（弹窗确认后调用）
+ */
+async function executeClearAllDownloads() {
+  try {
+    await window.downloadAPI.clearAllDownloads();
+    // 刷新面板列表
+    if (state.downloadPanelOpen) {
+      loadDownloadPanelList();
+    }
+  } catch (error) {
+    console.error('[Realm Renderer] 清空下载历史失败:', error);
+  }
+}
+
+/**
+ * 全部暂停（遍历所有进行中的下载）
+ */
+async function handlePauseAll() {
+  try {
+    const downloads = await window.downloadAPI.listAllDownloads(10, 0);
+    const activeItems = (downloads || []).filter(d => d.state === 'progressing');
+    for (const item of activeItems) {
+      await window.downloadAPI.pauseDownload(item.id);
+    }
+    if (state.downloadPanelOpen) {
+      loadDownloadPanelList();
+    }
+  } catch (error) {
+    console.error('[Realm Renderer] 全部暂停失败:', error);
+  }
+}
+
+/**
+ * 全部恢复（遍历所有暂停的下载）
+ */
+async function handleResumeAll() {
+  try {
+    const downloads = await window.downloadAPI.listAllDownloads(10, 0);
+    const pausedItems = (downloads || []).filter(d => d.state === 'paused');
+    for (const item of pausedItems) {
+      await window.downloadAPI.resumeDownload(item.id);
+    }
+    if (state.downloadPanelOpen) {
+      loadDownloadPanelList();
+    }
+  } catch (error) {
+    console.error('[Realm Renderer] 全部恢复失败:', error);
+  }
+}
+
+/**
+ * 更新全部暂停/恢复按钮状态
+ * @param {Array} downloads - 当前下载列表
+ */
+function updatePauseAllButton(downloads) {
+  const btn = document.getElementById('downloadPauseAllBtn');
+  if (!btn) return;
+
+  const activeCount = downloads.filter(d => d.state === 'progressing').length;
+  const pausedCount = downloads.filter(d => d.state === 'paused').length;
+
+  if (activeCount > 0) {
+    btn.title = '全部暂停';
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>';
+    btn.onclick = (e) => { e.stopPropagation(); handlePauseAll(); };
+    btn.style.display = '';
+  } else if (pausedCount > 0) {
+    btn.title = '全部恢复';
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
+    btn.onclick = (e) => { e.stopPropagation(); handleResumeAll(); };
+    btn.style.display = '';
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+/**
+ * 切换下载项选中状态（Cmd+Click 多选）
+ * @param {string} downloadId - 下载 ID
+ */
+function toggleDownloadSelection(downloadId) {
+  if (downloadSelectedIds.has(downloadId)) {
+    downloadSelectedIds.delete(downloadId);
+  } else {
+    downloadSelectedIds.add(downloadId);
+  }
+
+  // 更新选中样式
+  const item = document.querySelector(`.download-item[data-id="${downloadId}"]`);
+  if (item) {
+    item.classList.toggle('selected', downloadSelectedIds.has(downloadId));
+  }
+
+  // 更新批量操作栏
+  updateBatchBar();
+}
+
+/**
+ * 清除所有选中状态
+ */
+function clearDownloadSelection() {
+  downloadSelectedIds.clear();
+  document.querySelectorAll('.download-item.selected').forEach(el => {
+    el.classList.remove('selected');
+  });
+  updateBatchBar();
+}
+
+/**
+ * 更新批量操作栏显示状态
+ */
+function updateBatchBar() {
+  const bar = document.getElementById('downloadBatchBar');
+  const count = document.getElementById('downloadBatchCount');
+  if (!bar || !count) return;
+
+  if (downloadSelectedIds.size >= 2) {
+    bar.classList.remove('hidden');
+    count.textContent = `已选择 ${downloadSelectedIds.size} 项`;
+  } else {
+    bar.classList.add('hidden');
+  }
+}
+
+/**
+ * 批量删除选中的下载
+ */
+async function handleBatchDelete() {
+  if (downloadSelectedIds.size === 0) return;
+
+  const desc = document.getElementById('downloadDeleteDesc');
+  if (desc) {
+    desc.textContent = `确定要删除选中的 ${downloadSelectedIds.size} 条记录吗？`;
+  }
+
+  const checkbox = document.getElementById('downloadDeleteFileCheckbox');
+  if (checkbox) {
+    checkbox.checked = false;
+  }
+
+  // 标记为批量删除模式
+  pendingDeleteDownload = { batchMode: true };
+
+  const modal = document.getElementById('downloadDeleteModal');
+  if (modal) {
+    modal.showModal();
+  }
+}
+
+/**
+ * 面板打开时实时更新进度条（由 handleDownloadProgress 调用）
+ * @param {Object} data - 进度数据
+ */
+function updateDownloadPanelProgress(data) {
+  if (!state.downloadPanelOpen) return;
+
+  const item = document.querySelector(`.download-item[data-id="${data.downloadId}"]`);
+  if (!item) return;
+
+  const progressBar = item.querySelector('.download-item-progress-bar');
+  if (progressBar) {
+    progressBar.style.width = `${data.percent || 0}%`;
+  }
+
+  const statusEl = item.querySelector('.download-item-status');
+  if (statusEl) {
+    const speed = data.speed ? formatFileSize(data.speed) + '/s' : '计算中...';
+    statusEl.textContent = `下载中 · ${speed}`;
+  }
+}
+
+// ==================== 初始化应用 ====================
 init();
