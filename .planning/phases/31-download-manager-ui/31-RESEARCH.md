@@ -416,17 +416,17 @@ function deleteDownload(downloadId, deleteFile = false) {
 | A2 | realm://downloads 页面走 HTTP API 而非 IPC | Architecture | 中，需确认 webview preload 配置 |
 | A3 | 下载记录量级在千级以内，SQLite LIKE 搜索足够 | Don't Hand-Roll | 低，浏览器下载场景 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **realm://downloads 页面的 webview preload**
+1. **realm://downloads 页面的 webview preload** — RESOLVED
    - What we know: realm:// 页面在 webview 中加载，通过 HTTP API 获取数据
    - What's unclear: downloads 页面是否需要特殊的 preload 脚本来调用下载操作（暂停/恢复/删除）
-   - Recommendation: 复用现有 realmAPI preload，或在 webview 内通过 HTTP POST 调用 /api/downloads/* 操作端点
+   - Resolution: Plan 02 确认 downloads 页面通过 HTTP POST 到 /api/downloads/* 端点操作，不需要特殊 preload 脚本（参考 Plan 02 action 中 downloads-page.js 的 HTTP API 调用模式）
 
-2. **批量删除的性能**
+2. **批量删除的性能** — RESOLVED
    - What we know: D-18 支持多选批量删除
    - What's unclear: 批量删除时是否需要逐个弹确认框
-   - Recommendation: 选中多条后统一弹一个确认框，显示"确定要删除选中的 N 条记录吗？"
+   - Resolution: Plan 02 确认选中多条后统一弹一个确认框（"确定要删除选中的 N 条记录吗？"），不需要逐个弹框（参考 Plan 02 action 第 205 行）
 
 ## Environment Availability
 
