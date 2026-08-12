@@ -34,6 +34,9 @@ let searchDebounceTimer = null;
 /** @type {Object|null} 待删除的下载信息 */
 let pendingDeleteDownload = null;
 
+/** @type {boolean} 列表事件是否已绑定 */
+let itemActionsBound = false;
+
 // ==================== 初始化 ====================
 
 /**
@@ -291,10 +294,13 @@ function renderDownloadItem(item) {
 }
 
 /**
- * 绑定列表项操作事件
+ * 绑定列表项操作事件（仅绑定一次，使用事件委托）
  * @param {HTMLElement} listEl - 列表容器
  */
 function bindItemActions(listEl) {
+  if (itemActionsBound) return;
+  itemActionsBound = true;
+
   // 使用事件委托
   listEl.addEventListener('click', async (e) => {
     const target = e.target.closest('[data-id], [data-path]');
@@ -333,11 +339,6 @@ function bindItemActions(listEl) {
         filename: target.dataset.filename,
         isInProgress: target.dataset.state === 'progressing',
       };
-
-      // 如果进行中，先取消
-      if (pendingDeleteDownload.isInProgress) {
-        await apiAction(`/api/downloads/cancel`, { downloadId: target.dataset.id });
-      }
 
       const desc = document.getElementById('downloadsDeleteDesc');
       if (desc) {
@@ -384,6 +385,11 @@ async function apiAction(path, body = {}) {
  */
 async function executeDeleteDownload() {
   if (!pendingDeleteDownload) return;
+
+  // 如果下载进行中，先取消
+  if (pendingDeleteDownload.isInProgress) {
+    await apiAction(`/api/downloads/cancel`, { downloadId: pendingDeleteDownload.downloadId });
+  }
 
   const checkbox = document.getElementById('downloadsDeleteFileCheckbox');
   const deleteFile = checkbox ? checkbox.checked : false;
