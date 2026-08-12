@@ -558,16 +558,25 @@ function getActiveDownloads() {
 // ==================== 全局查询与管理函数 ====================
 
 /**
- * 全局查询所有容器的下载记录（分页）
+ * 全局查询所有容器的下载记录（分页，支持按文件名搜索）
  * 用于下载面板显示所有容器的下载历史（D-05 决策）
  * @param {number} [limit=50] - 每页记录数
  * @param {number} [offset=0] - 偏移量
+ * @param {string} [keyword=''] - 搜索关键字（匹配文件名）
  * @returns {Array} 下载记录数组
  */
-function getAllDownloads(limit = 50, offset = 0) {
+function getAllDownloads(limit = 50, offset = 0, keyword = '') {
   if (!db) return [];
 
   try {
+    if (keyword) {
+      return db.prepare(`
+        SELECT * FROM downloads
+        WHERE filename LIKE ?
+        ORDER BY start_time DESC
+        LIMIT ? OFFSET ?
+      `).all(`%${keyword}%`, limit, offset);
+    }
     return db.prepare(`
       SELECT * FROM downloads
       ORDER BY start_time DESC
