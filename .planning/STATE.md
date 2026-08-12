@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: 浏览器基础功能补全
-current_phase: 30
-current_phase_name: download-manager-core
+current_phase: 31
+current_phase_name: download-manager-ui
 status: executing
-stopped_at: Phase 31 UI-SPEC approved
-last_updated: "2026-08-12T14:03:00.994Z"
-last_activity: 2026-08-11
-last_activity_desc: Phase 30 execution started
+stopped_at: Phase 31 Plan 01 completed
+last_updated: "2026-08-12T14:15:08Z"
+last_activity: 2026-08-12
+last_activity_desc: Phase 31 Plan 01 completed — download manager backend API
 progress:
   total_phases: 2
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 50
+  total_plans: 4
+  completed_plans: 3
+  percent: 75
 ---
 
 # Project State: Realm Browser
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-11)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 30 — download-manager-core
+**Current focus:** Phase 31 — download-manager-ui
 
 ## Current Position
 
-Phase: 30 (download-manager-core) — EXECUTING
-Plan: 1 of 2
-Status: Ready to execute
-Last activity: 2026-08-11 — Phase 30 execution started
+Phase: 31 (download-manager-ui) — EXECUTING
+Plan: 2 of 2
+Status: Plan 01 complete, ready for Plan 02
+Last activity: 2026-08-12 — Phase 31 Plan 01 completed
 
 ## Performance Metrics
 
@@ -75,6 +75,9 @@ Recent decisions affecting current work:
 - 下载历史表单表设计（container_id 列区分容器），非分表——简化查询
 - 凭据加密使用 safeStorage 异步 API（encryptStringAsync/decryptStringAsync），避免阻塞主线程
 - 表单检测在 webview-preload.js 中完成（需要 DOM 上下文），凭据读写走主进程 IPC
+- getAllDownloads 不按 container_id 过滤（D-05: 面板显示所有容器记录）
+- clearAllDownloads 只删记录不删文件（D-16: 用户可能想保留文件只清记录）
+- deleteDownload 需验证 save_path 在用户下载目录内（T-31-01: 防路径遍历删除任意文件）
 
 ### Pending Todos
 
@@ -106,10 +109,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-12T13:59:03.024Z
-Stopped at: Phase 31 UI-SPEC approved
-Resume file: .planning/phases/31-download-manager-ui/31-UI-SPEC.md
+Last session: 2026-08-12T14:15:08Z
+Stopped at: Phase 31 Plan 01 completed
+Resume file: .planning/phases/31-download-manager-ui/31-01-SUMMARY.md
 
 ## Operator Next Steps
 
-- Execute Phase 30 with `/gsd-execute-phase 30`
+- Execute Phase 31 Plan 02 with `/gsd-execute-phase 31`

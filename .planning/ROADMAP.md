@@ -138,7 +138,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 31-01-PLAN.md — 下载管理器后端扩展：全局查询 + 删除 + 清空 + realm HTTP API
+- [x] 31-01-PLAN.md — 下载管理器后端扩展：全局查询 + 删除 + 清空 + realm HTTP API
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
