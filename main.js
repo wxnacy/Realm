@@ -1256,7 +1256,8 @@ app.whenReady().then(async () => {
       if (route === 'list' && req.method === 'GET') {
         const offset = parseInt(reqUrl.searchParams.get('offset'), 10) || 0;
         const limit = parseInt(reqUrl.searchParams.get('limit'), 10) || 50;
-        sendJson(res, 200, downloadManager.getAllDownloads(limit, offset));
+        const downloads = downloadManager.getAllDownloads(limit, offset);
+        sendJson(res, 200, { success: true, downloads });
         return;
       }
 
@@ -1270,6 +1271,43 @@ app.whenReady().then(async () => {
       // POST /api/downloads/clear — 清空所有下载历史
       if (route === 'clear' && req.method === 'POST') {
         sendJson(res, 200, downloadManager.clearAllDownloads());
+        return;
+      }
+
+      // POST /api/downloads/pause — 暂停下载
+      if (route === 'pause' && req.method === 'POST') {
+        const { downloadId } = await readJsonBody(req);
+        sendJson(res, 200, { success: downloadManager.pauseDownload(downloadId) });
+        return;
+      }
+
+      // POST /api/downloads/resume — 恢复下载
+      if (route === 'resume' && req.method === 'POST') {
+        const { downloadId } = await readJsonBody(req);
+        sendJson(res, 200, { success: downloadManager.resumeDownload(downloadId) });
+        return;
+      }
+
+      // POST /api/downloads/cancel — 取消下载
+      if (route === 'cancel' && req.method === 'POST') {
+        const { downloadId } = await readJsonBody(req);
+        sendJson(res, 200, { success: downloadManager.cancelDownload(downloadId) });
+        return;
+      }
+
+      // POST /api/downloads/open — 打开文件
+      if (route === 'open' && req.method === 'POST') {
+        const { filePath } = await readJsonBody(req);
+        await downloadManager.openFile(filePath);
+        sendJson(res, 200, { success: true });
+        return;
+      }
+
+      // POST /api/downloads/show-in-folder — Finder 显示
+      if (route === 'show-in-folder' && req.method === 'POST') {
+        const { filePath } = await readJsonBody(req);
+        downloadManager.showInFolder(filePath);
+        sendJson(res, 200, { success: true });
         return;
       }
 
