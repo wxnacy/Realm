@@ -4,17 +4,17 @@ milestone: v2.3
 milestone_name: 浏览器基础功能补全
 current_phase: 31
 current_phase_name: download-manager-ui
-status: complete
+status: executing
 stopped_at: Phase 31 Plan 02 completed
-last_updated: "2026-08-12T15:30:00Z"
+last_updated: "2026-08-12T15:57:48.647Z"
 last_activity: 2026-08-12
-last_activity_desc: Phase 31 Plan 02 completed — download manager UI (panel + page)
+last_activity_desc: Phase 31 execution started
 progress:
   total_phases: 2
-  completed_phases: 2
-  total_plans: 4
+  completed_phases: 1
+  total_plans: 5
   completed_plans: 4
-  percent: 100
+  percent: 50
 ---
 
 # Project State: Realm Browser
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-08-11)
 
 ## Current Position
 
-Phase: 31 (download-manager-ui) — COMPLETE
-Plan: 2 of 2
-Status: All plans complete
-Last activity: 2026-08-12 — Phase 31 Plan 02 completed (download panel UI + realm://downloads page)
+Phase: 31 (download-manager-ui) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 31
+Last activity: 2026-08-12 — Phase 31 execution started
 
 ## Performance Metrics
 
