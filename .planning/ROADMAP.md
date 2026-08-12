@@ -134,7 +134,7 @@ Plans:
   4. 用户可以在 Finder 中显示已下载的文件
   5. 用户可以删除单条下载记录（可选是否删除本地文件）或清空所有历史
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 Plans:
 **Wave 1**
 
@@ -213,6 +213,6 @@ Phases execute in numeric order: 30 → 31 → 32 → 33
 | 28. 播放器窗口 | v2.2 | 2/2 | Complete | 2026-08-08 |
 | 29. 多媒体播放器设置控制 | v2.2 | 5/5 | Complete | 2026-08-08 |
 | 30. 下载管理器 — 核心引擎 | v2.3 | 2/2 | Complete   | 2026-08-11 |
-| 31. 下载管理器 — 用户交互 | v2.3 | 0/2 | Planning complete | - |
+| 31. 下载管理器 — 用户交互 | v2.3 | 1/2 | In Progress|  |
 | 32. 自动填充 — 凭据引擎 | v2.3 | 0/0 | Not started | - |
 | 33. 自动填充 — 增强 + Bug 修复 | v2.3 | 0/0 | Not started | - |
