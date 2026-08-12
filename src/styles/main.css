@@ -52,6 +52,20 @@
   --download-ring-circumference: 75.4px;
   --download-tooltip-min-width: 260px;
   --download-tooltip-max-width: 340px;
+
+  /* 下载面板 */
+  --download-panel-width: 380px;
+  --download-panel-max-height: 480px;
+  --download-panel-header-height: 48px;
+  --download-panel-footer-height: 48px;
+
+  /* 下载列表项 */
+  --download-item-height: 64px;
+  --download-item-icon-size: 36px;
+  --download-item-progress-height: 3px;
+
+  /* 下载页面 */
+  --downloads-page-max-width: 800px;
 }
 
 /* 基础重置 */
@@ -6400,6 +6414,10 @@ textarea::placeholder {
   pointer-events: none;
 }
 
+.download-tooltip.hidden {
+  display: none;
+}
+
 .download-tooltip-list {
   display: flex;
   flex-direction: column;
@@ -6456,4 +6474,477 @@ textarea::placeholder {
   color: var(--text-muted);
   text-align: center;
   padding-top: 4px;
+}
+
+/* ==================== 下载管理面板 ==================== */
+
+/* 面板容器：锚定在下载按钮下方 */
+.download-panel {
+  position: fixed;
+  top: calc(var(--tab-bar-height) + var(--toolbar-height) + 4px);
+  right: 16px;
+  width: var(--download-panel-width);
+  max-height: var(--download-panel-max-height);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 9998;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.download-panel.hidden {
+  display: none;
+}
+
+/* 面板头部 */
+.download-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--download-panel-header-height);
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.download-panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.download-panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.download-panel-pause-all,
+.download-panel-close-btn {
+  width: 24px;
+  height: 24px;
+  color: var(--text-muted);
+  transition: color 0.15s;
+}
+
+.download-panel-pause-all:hover,
+.download-panel-close-btn:hover {
+  color: var(--text-primary);
+}
+
+/* 下载列表滚动区域 */
+.download-panel-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+  min-height: 0;
+}
+
+/* 空状态 */
+.download-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 16px;
+  gap: 12px;
+}
+
+.download-empty-state.hidden {
+  display: none;
+}
+
+.download-empty-icon {
+  color: var(--text-muted);
+  opacity: 0.4;
+}
+
+.download-empty-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.download-empty-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* 面板底部 */
+.download-panel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--download-panel-footer-height);
+  padding: 0 16px;
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.download-panel-clear-btn {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.download-panel-clear-btn:hover {
+  color: var(--danger-color);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.download-panel-view-all {
+  font-size: 12px;
+  color: var(--accent-color);
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.download-panel-view-all:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+/* ==================== 下载列表项 ==================== */
+
+.download-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  gap: 12px;
+  min-height: var(--download-item-height);
+  transition: background 0.15s;
+  cursor: default;
+}
+
+.download-item:hover {
+  background: var(--bg-hover);
+}
+
+.download-item.selected {
+  background: var(--bg-hover);
+}
+
+/* 文件类型图标 */
+.download-item-icon {
+  flex-shrink: 0;
+  width: var(--download-item-icon-size);
+  height: var(--download-item-icon-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+}
+
+/* 文件信息区域 */
+.download-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.download-item-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+.download-item-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.3;
+}
+
+.download-item-separator {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.download-item-status {
+  color: var(--text-muted);
+}
+
+/* 进度条 */
+.download-item-progress {
+  height: var(--download-item-progress-height);
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.download-item-progress.hidden {
+  display: none;
+}
+
+.download-item-progress-bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.download-item-progress-bar.accent {
+  background: var(--accent-color);
+}
+
+.download-item-progress-bar.muted {
+  background: var(--text-muted);
+  opacity: 0.5;
+}
+
+.download-item-progress-bar.danger {
+  background: var(--danger-color);
+  opacity: 0.5;
+}
+
+/* 操作按钮组 */
+.download-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.download-item:hover .download-item-actions {
+  opacity: 1;
+}
+
+.download-item-actions .btn-icon {
+  width: 24px;
+  height: 24px;
+  color: var(--text-muted);
+  transition: color 0.15s;
+}
+
+.download-item-actions .btn-icon:hover {
+  color: var(--text-primary);
+}
+
+.download-item-actions .download-item-delete-btn:hover {
+  color: var(--danger-color);
+}
+
+/* ==================== 批量操作栏 ==================== */
+
+.download-batch-bar {
+  position: fixed;
+  top: calc(var(--tab-bar-height) + var(--toolbar-height) + 4px);
+  right: 16px;
+  width: var(--download-panel-width);
+  height: 40px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px 8px 0 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+  transform: translateY(-100%);
+}
+
+.download-batch-bar.hidden {
+  display: none;
+}
+
+.download-batch-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.download-batch-bar .btn-icon {
+  width: 24px;
+  height: 24px;
+  color: var(--text-muted);
+  transition: color 0.15s;
+}
+
+.download-batch-bar .download-batch-delete:hover {
+  color: var(--danger-color);
+}
+
+.download-batch-bar .download-batch-deselect:hover {
+  color: var(--text-primary);
+}
+
+/* ==================== 下载删除确认弹窗 ==================== */
+
+.download-delete-modal {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 0;
+  max-width: 360px;
+  width: 90vw;
+}
+
+.download-delete-modal::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.download-delete-modal-content {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.download-delete-modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.download-delete-modal-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.download-delete-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.download-delete-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-color);
+}
+
+.download-delete-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* ==================== 下载清空确认弹窗 ==================== */
+
+.download-clear-modal {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 0;
+  max-width: 360px;
+  width: 90vw;
+}
+
+.download-clear-modal::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.download-clear-modal-content {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.download-clear-modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.download-clear-modal-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.download-clear-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* ==================== 下载页面（realm://downloads） ==================== */
+
+.downloads-page {
+  max-width: var(--downloads-page-max-width);
+  margin: 0 auto;
+  padding: 24px;
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+.downloads-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.downloads-page-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.downloads-page-toolbar {
+  margin-bottom: 16px;
+}
+
+.downloads-search-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.downloads-search-input:focus {
+  border-color: var(--accent-color);
+}
+
+.downloads-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.downloads-page-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.downloads-empty-state {
+  padding: 48px 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.downloads-empty-state.hidden {
+  display: none;
 }
