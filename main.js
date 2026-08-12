@@ -1237,6 +1237,22 @@ app.whenReady().then(async () => {
   }
 
   /**
+   * 验证文件路径是否在用户下载目录内（防路径遍历）
+   * @param {string} filePath - 待验证的文件路径
+   * @returns {boolean} 路径在下载目录内返回 true
+   */
+  function isPathInDownloadsDir(filePath) {
+    if (!filePath || typeof filePath !== 'string') return false;
+    try {
+      const downloadsDir = app.getPath('downloads');
+      const resolvedPath = path.resolve(filePath);
+      return resolvedPath.startsWith(downloadsDir + path.sep) || resolvedPath === downloadsDir;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * 处理 /api/downloads/* 下载管理 API 请求
    * @param {http.IncomingMessage} req - 请求对象
    * @param {http.ServerResponse} res - 响应对象
@@ -1256,7 +1272,8 @@ app.whenReady().then(async () => {
       if (route === 'list' && req.method === 'GET') {
         const offset = parseInt(reqUrl.searchParams.get('offset'), 10) || 0;
         const limit = parseInt(reqUrl.searchParams.get('limit'), 10) || 50;
-        const downloads = downloadManager.getAllDownloads(limit, offset);
+        const keyword = reqUrl.searchParams.get('search') || '';
+        const downloads = downloadManager.getAllDownloads(limit, offset, keyword);
         sendJson(res, 200, { success: true, downloads });
         return;
       }
@@ -1298,6 +1315,11 @@ app.whenReady().then(async () => {
       // POST /api/downloads/open — 打开文件
       if (route === 'open' && req.method === 'POST') {
         const { filePath } = await readJsonBody(req);
+        // 路径安全验证：限制在用户下载目录内（防路径遍历）
+        if (!isPathInDownloadsDir(filePath)) {
+          sendJson(res, 403, { success: false, error: '路径不在允许范围内' });
+          return;
+        }
         await downloadManager.openFile(filePath);
         sendJson(res, 200, { success: true });
         return;
@@ -1306,6 +1328,11 @@ app.whenReady().then(async () => {
       // POST /api/downloads/show-in-folder — Finder 显示
       if (route === 'show-in-folder' && req.method === 'POST') {
         const { filePath } = await readJsonBody(req);
+        // 路径安全验证：限制在用户下载目录内（防路径遍历）
+        if (!isPathInDownloadsDir(filePath)) {
+          sendJson(res, 403, { success: false, error: '路径不在允许范围内' });
+          return;
+        }
         downloadManager.showInFolder(filePath);
         sendJson(res, 200, { success: true });
         return;
