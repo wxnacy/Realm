@@ -162,7 +162,17 @@ Plans:
   4. 凭据按容器隔离存储，容器 A 的凭据不会在容器 B 中被填充
   5. AI 填表（CDP fillForm）激活时，浏览器 autofill 自动禁用，避免冲突
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+**Wave 1**
+
+- [ ] 32-01-PLAN.md — 凭据管理器后端：credential-manager.js 模块 + safeStorage 加密 + SQLite 持久化 + IPC 通道
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 32-02-PLAN.md — 表单检测 + 自动填充注入 + credentialAPI + 保存凭据横幅 UI
+
+**UI hint**: yes
 
 ### Phase 33: 自动填充 — 增强 + Bug 修复
 
