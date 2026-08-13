@@ -144,6 +144,13 @@ const elements = {
   findCaseBtn: document.getElementById('findCaseBtn'),
   findCloseBtn: document.getElementById('findCloseBtn'),
 
+  // 凭据保存横幅
+  credentialSaveBanner: document.getElementById('credentialSaveBanner'),
+  credentialSaveDomain: document.getElementById('credentialSaveDomain'),
+  credentialSaveBtn: document.getElementById('credentialSaveBtn'),
+  credentialNeverBtn: document.getElementById('credentialNeverBtn'),
+  credentialLaterBtn: document.getElementById('credentialLaterBtn'),
+
 };
 
 // 应用状态
@@ -201,6 +208,10 @@ const state = {
   findInPageMatchCase: false,
   findInPageResults: { activeMatchOrdinal: 0, matches: 0 },
   findInPageDebounceTimer: null,
+
+  // 凭据保存横幅状态
+  credentialBannerTimer: null,
+  pendingCredentialData: null,
 };
 
 // 已关闭标签栈（LIFO，最多 10 条），用于"重新打开已关闭标签页"功能
@@ -973,7 +984,7 @@ function bindWebviewEvents(tabId, webview) {
     webview.executeJavaScript(mediaSnifferScript).catch(() => {});
   });
 
-  // ==================== 媒体嗅探：ipc-message 监听 ====================
+  // ==================== 媒体嗅探 + 凭据检测：ipc-message 监听 ====================
   webview.addEventListener('ipc-message', (e) => {
     if (e.channel === 'media:detected') {
       // 从 webview 获取 webContentsId 用于按标签页隔离存储
@@ -988,6 +999,12 @@ function bindWebviewEvents(tabId, webview) {
       window.mediaAPI.reportMediaDetected(webContentsId, e.args[0]);
     } else if (e.channel === 'media:outside-click') {
       if (state.mediaPanelOpen) toggleMediaPanel();
+    } else if (e.channel === 'credential:form-submitted') {
+      // 表单提交：检查是否需要显示保存凭据横幅
+      handleCredentialFormSubmitted(e.args[0]);
+    } else if (e.channel === 'credential:autofill-request') {
+      // 自动填充请求：查询凭据并发送到 webview
+      handleAutofillRequest(webview);
     }
   });
 
@@ -8332,6 +8349,208 @@ function updateDownloadPanelProgress(data) {
     const speed = data.speed ? formatFileSize(data.speed) + '/s' : '计算中...';
     statusEl.textContent = `下载中 · ${speed}`;
   }
+}
+
+// ==================== 凭据管理：保存横幅 + 自动填充协调 ====================
+
+/**
+ * 处理表单提交的凭据数据
+ * 检查永不保存记录和重复凭据后显示保存横幅
+ *
+ * @param {Object} data - 凭据数据 { url, origin, username, password, formType }
+ */
+async function handleCredentialFormSubmitted(data) {
+  if (!data || !data.username || !data.password) return;
+
+  const containerId = state.currentContainer;
+  const origin = data.origin;
+
+  try {
+    // 检查是否标记为永不保存
+    const neverSave = await window.realmAPI.credentialAPI.isNeverSave(containerId, origin);
+    if (neverSave) return;
+
+    // 检查是否已有相同凭据（避免重复提示）
+    const existing = await window.realmAPI.credentialAPI.getCredential(containerId, origin);
+    if (existing && existing.username === data.username) return;
+
+    // 显示保存横幅
+    showSaveCredentialBanner(data);
+  } catch (err) {
+    console.error('[Realm Renderer] 处理凭据提交失败:', err);
+  }
+}
+
+/**
+ * 处理自动填充请求
+ * 查询当前容器和 origin 的凭据，找到后发送到 webview 进行填充
+ *
+ * @param {HTMLElement} webview - 发起请求的 webview 元素
+ */
+async function handleAutofillRequest(webview) {
+  const containerId = state.currentContainer;
+
+  // 从 webview 获取当前 URL 的 origin
+  let url;
+  try {
+    url = webview.getURL();
+  } catch (err) {
+    return;
+  }
+  if (!url || url === 'about:blank') return;
+
+  let origin;
+  try {
+    origin = new URL(url).origin;
+  } catch (err) {
+    return;
+  }
+
+  try {
+    // 检查是否标记为永不保存
+    const neverSave = await window.realmAPI.credentialAPI.isNeverSave(containerId, origin);
+    if (neverSave) return;
+
+    // 查询凭据
+    const credential = await window.realmAPI.credentialAPI.getCredential(containerId, origin);
+    if (credential && credential.username && credential.password) {
+      // 发送填充指令到 webview
+      webview.send('credential:do-autofill', {
+        username: credential.username,
+        password: credential.password,
+      });
+    }
+  } catch (err) {
+    console.error('[Realm Renderer] 自动填充查询失败:', err);
+  }
+}
+
+/**
+ * 显示保存凭据提示横幅（Chrome 风格）
+ * 从 origin 提取 hostname，去除 www. 前缀（per D-06）
+ * 10 秒后自动消失（per D-08）
+ *
+ * @param {Object} data - 凭据数据 { url, origin, username, password, formType }
+ */
+function showSaveCredentialBanner(data) {
+  const banner = elements.credentialSaveBanner;
+  if (!banner) return;
+
+  // 清除之前的定时器
+  if (state.credentialBannerTimer) {
+    clearTimeout(state.credentialBannerTimer);
+    state.credentialBannerTimer = null;
+  }
+
+  // 暂存凭据数据（保存按钮需要）
+  state.pendingCredentialData = data;
+
+  // 设置域名文本（去除 www. 前缀）
+  let hostname = '';
+  try {
+    hostname = new URL(data.origin).hostname;
+    hostname = hostname.replace(/^www\./, '');
+  } catch (err) {
+    hostname = data.origin;
+  }
+  if (elements.credentialSaveDomain) {
+    elements.credentialSaveDomain.textContent = hostname;
+  }
+
+  // 显示横幅
+  banner.classList.remove('hidden');
+  // 强制重排以触发动画
+  banner.offsetHeight;
+  banner.classList.add('visible');
+
+  // 10 秒自动消失（D-08）
+  state.credentialBannerTimer = setTimeout(() => {
+    hideCredentialBanner();
+  }, 10000);
+
+  // 绑定按钮事件（每次显示时重新绑定，避免闭包捕获旧数据）
+  const saveBtn = elements.credentialSaveBtn;
+  const neverBtn = elements.credentialNeverBtn;
+  const laterBtn = elements.credentialLaterBtn;
+
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      if (state.credentialBannerTimer) {
+        clearTimeout(state.credentialBannerTimer);
+        state.credentialBannerTimer = null;
+      }
+      const credData = state.pendingCredentialData;
+      if (credData) {
+        try {
+          await window.realmAPI.credentialAPI.saveCredential({
+            containerId: state.currentContainer,
+            url: credData.url,
+            origin: credData.origin,
+            username: credData.username,
+            password: credData.password,
+          });
+        } catch (err) {
+          console.error('[Realm Renderer] 保存凭据失败:', err);
+        }
+      }
+      state.pendingCredentialData = null;
+      hideCredentialBanner();
+    };
+  }
+
+  if (neverBtn) {
+    neverBtn.onclick = async () => {
+      if (state.credentialBannerTimer) {
+        clearTimeout(state.credentialBannerTimer);
+        state.credentialBannerTimer = null;
+      }
+      const credData = state.pendingCredentialData;
+      if (credData) {
+        try {
+          await window.realmAPI.credentialAPI.markNeverSave(state.currentContainer, credData.origin);
+        } catch (err) {
+          console.error('[Realm Renderer] 标记永不保存失败:', err);
+        }
+      }
+      state.pendingCredentialData = null;
+      hideCredentialBanner();
+    };
+  }
+
+  if (laterBtn) {
+    laterBtn.onclick = () => {
+      if (state.credentialBannerTimer) {
+        clearTimeout(state.credentialBannerTimer);
+        state.credentialBannerTimer = null;
+      }
+      state.pendingCredentialData = null;
+      hideCredentialBanner();
+    };
+  }
+
+  // ESC 键隐藏（等同于暂不）
+  const escHandler = (e) => {
+    if (e.key === 'Escape') {
+      hideCredentialBanner();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
+}
+
+/**
+ * 隐藏凭据保存横幅
+ * 移除 visible class 触发退出动画，动画结束后添加 hidden class
+ */
+function hideCredentialBanner() {
+  const banner = elements.credentialSaveBanner;
+  if (!banner) return;
+
+  banner.classList.remove('visible');
+  // 等待动画结束后隐藏
+  setTimeout(() => {
+    banner.classList.add('hidden');
+  }, 300);
 }
 
 // ==================== 初始化应用 ====================

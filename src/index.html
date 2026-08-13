@@ -281,6 +281,23 @@
       <div class="loading-bar" id="loadingBar"></div>
     </div>
 
+    <!-- 保存凭据提示横幅（Chrome 风格，工具栏下方） -->
+    <div class="credential-save-banner hidden" id="credentialSaveBanner">
+      <div class="credential-save-info">
+        <svg class="credential-save-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+        </svg>
+        <span class="credential-save-text">
+          是否为 <strong class="credential-save-domain" id="credentialSaveDomain"></strong> 保存密码？
+        </span>
+      </div>
+      <div class="credential-save-actions">
+        <button class="credential-save-btn credential-save-btn-save" id="credentialSaveBtn">保存</button>
+        <button class="credential-save-btn credential-save-btn-never" id="credentialNeverBtn">永不</button>
+        <button class="credential-save-btn credential-save-btn-later" id="credentialLaterBtn">暂不</button>
+      </div>
+    </div>
+
     <!-- 收藏栏 -->
     <div class="bookmarks-bar" id="bookmarksBar">
       <div class="bookmarks-bar-list" id="bookmarksBarList">

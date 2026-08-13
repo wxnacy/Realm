@@ -66,6 +66,10 @@
 
   /* 下载页面 */
   --downloads-page-max-width: 800px;
+
+  /* 凭据保存横幅 */
+  --credential-banner-height: 44px;
+  --credential-banner-z: 9997;
 }
 
 /* 基础重置 */
@@ -6947,4 +6951,94 @@ textarea::placeholder {
 
 .downloads-empty-state.hidden {
   display: none;
+}
+
+/* ==================== 凭据保存横幅 ==================== */
+
+.credential-save-banner {
+  position: fixed;
+  top: calc(var(--tab-bar-height) + var(--toolbar-height));
+  left: var(--sidebar-width);
+  right: 0;
+  height: var(--credential-banner-height);
+  z-index: var(--credential-banner-z);
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  transform: translateY(-100%);
+  opacity: 0;
+  transition: transform 300ms ease-out, opacity 300ms ease-out;
+}
+
+.credential-save-banner.hidden {
+  display: none;
+}
+
+.credential-save-banner.visible {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.credential-save-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.credential-save-icon {
+  color: var(--accent-color);
+  flex-shrink: 0;
+}
+
+.credential-save-text {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.credential-save-domain {
+  font-weight: 600;
+}
+
+.credential-save-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.credential-save-btn {
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  border: none;
+  transition: background-color 0.15s;
+}
+
+.credential-save-btn-save {
+  background: var(--accent-color);
+  color: white;
+}
+
+.credential-save-btn-save:hover {
+  background: var(--accent-hover);
+}
+
+.credential-save-btn-never {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.credential-save-btn-never:hover {
+  background: var(--bg-hover);
+}
+
+.credential-save-btn-later {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.credential-save-btn-later:hover {
+  background: var(--bg-hover);
 }

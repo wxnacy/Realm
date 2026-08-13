@@ -990,6 +990,58 @@ contextBridge.exposeInMainWorld('realmAPI', {
     ipcRenderer.on('tab:reordered', handler);
     return () => ipcRenderer.removeListener('tab:reordered', handler);
   },
+
+  // ==================== 凭据管理 ====================
+
+  /**
+   * 凭据管理 API
+   * 提供凭据保存、查询、删除和永不保存标记功能
+   */
+  credentialAPI: {
+    /**
+     * 保存凭据（加密存储到主进程）
+     * @param {Object} data - 凭据数据
+     * @param {string} data.containerId - 容器 ID
+     * @param {string} data.url - 页面 URL
+     * @param {string} data.origin - 页面 origin
+     * @param {string} data.username - 用户名
+     * @param {string} data.password - 密码
+     * @returns {Promise<{success: boolean}|{error: string}>}
+     */
+    saveCredential: (data) => ipcRenderer.invoke('credential:save', data),
+
+    /**
+     * 获取指定容器和 origin 的凭据
+     * @param {string} containerId - 容器 ID
+     * @param {string} origin - 页面 origin
+     * @returns {Promise<Object|null>} 凭据对象或 null
+     */
+    getCredential: (containerId, origin) => ipcRenderer.invoke('credential:get', { containerId, origin }),
+
+    /**
+     * 删除凭据
+     * @param {string} containerId - 容器 ID
+     * @param {string} origin - 页面 origin
+     * @returns {Promise<{success: boolean}>}
+     */
+    deleteCredential: (containerId, origin) => ipcRenderer.invoke('credential:delete', { containerId, origin }),
+
+    /**
+     * 标记永不保存（按容器隔离）
+     * @param {string} containerId - 容器 ID
+     * @param {string} origin - 页面 origin
+     * @returns {Promise<{success: boolean}>}
+     */
+    markNeverSave: (containerId, origin) => ipcRenderer.invoke('credential:never-save', { containerId, origin }),
+
+    /**
+     * 检查是否已标记永不保存
+     * @param {string} containerId - 容器 ID
+     * @param {string} origin - 页面 origin
+     * @returns {Promise<boolean>}
+     */
+    isNeverSave: (containerId, origin) => ipcRenderer.invoke('credential:is-never-save', { containerId, origin }),
+  },
 });
 
 // ==================== 媒体检测 API ====================
