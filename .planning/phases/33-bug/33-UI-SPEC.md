@@ -1,7 +1,7 @@
 ---
 phase: 33
 slug: autofill-enhancement-bugfix
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-08-13
@@ -76,6 +76,14 @@ Exceptions: 凭据表格行高度 40px（介于 xl 和 2xl 之间，与 Chrome �
 **Accent reserved for:** 搜索框聚焦边框 + 编辑按钮图标 + "保存"按钮背景 + 地址卡片编辑模式输入框聚焦边框。删除按钮使用 `--danger-color`，非 accent。
 
 **Source:** Phase 32 UI-SPEC color contract, reused without modification. All values from existing `src/styles/main.css` `:root` variables.
+
+---
+
+## Visual Hierarchy
+
+**Primary focal point:** `#settings-autofill` 页面的"已保存的凭据"区域标题 + 搜索框。用户进入自动填充页面时，视线首先落在凭据搜索框（页面最上方的交互元素），凭据管理是此页面的主要功能。地址管理卡片作为次要内容区域位于下方。
+
+**层级：** 凭据管理（主要）> 地址管理（次要）
 
 ---
 
@@ -200,7 +208,7 @@ Exceptions: 凭据表格行高度 40px（介于 xl 和 2xl 之间，与 Chrome �
     </div>
     <div class="form-actions">
       <button type="button" class="btn btn-secondary" id="credentialDeleteCancelBtn">取消</button>
-      <button type="button" class="btn btn-danger" id="credentialDeleteConfirmBtn">删除</button>
+      <button type="button" class="btn btn-danger" id="credentialDeleteConfirmBtn">删除凭据</button>
     </div>
   </div>
 </dialog>
@@ -241,8 +249,8 @@ Exceptions: 凭据表格行高度 40px（介于 xl 和 2xl 之间，与 Chrome �
         <span class="address-field-value" id="addressFull">未填写</span>
       </div>
       <div class="address-actions">
-        <button class="btn btn-secondary btn-sm" id="addressEditBtn">编辑</button>
-        <button class="btn btn-danger btn-sm" id="addressDeleteBtn">删除</button>
+        <button class="btn btn-secondary btn-sm" id="addressEditBtn">编辑地址</button>
+        <button class="btn btn-danger btn-sm" id="addressDeleteBtn">删除地址</button>
       </div>
     </div>
 
@@ -262,7 +270,7 @@ Exceptions: 凭据表格行高度 40px（介于 xl 和 2xl 之间，与 Chrome �
       </div>
       <div class="address-edit-actions">
         <button class="btn btn-secondary btn-sm" id="addressCancelBtn">取消</button>
-        <button class="btn btn-primary btn-sm" id="addressSaveBtn">保存</button>
+        <button class="btn btn-primary btn-sm" id="addressSaveBtn">保存地址</button>
       </div>
     </div>
   </div>
@@ -319,7 +327,7 @@ Exceptions: 凭据表格行高度 40px（介于 xl 和 2xl 之间，与 Chrome �
     </span>
   </div>
   <div class="address-save-actions">
-    <button class="address-save-btn address-save-btn-save" id="addressSaveConfirmBtn">保存</button>
+    <button class="address-save-btn address-save-btn-save" id="addressSaveConfirmBtn">保存地址</button>
     <button class="address-save-btn address-save-btn-never" id="addressNeverBtn">永不</button>
     <button class="address-save-btn address-save-btn-later" id="addressLaterBtn">暂不</button>
   </div>
@@ -395,7 +403,7 @@ Added to `:root` in `main.css`:
 | 地址删除确认 | `确定要删除当前容器的收货地址吗？` |
 | 地址删除成功 | `地址已删除` |
 | 地址保存横幅文案 | `检测到地址表单，是否保存收货地址？` |
-| 地址保存横幅按钮 | `保存` / `永不` / `暂不` |
+| 地址保存横幅按钮 | `保存地址` / `永不` / `暂不` |
 | 批量操作已选 | `已选择 {n} 项` |
 | 批量删除成功 | `已删除 {n} 条凭据` |
 
@@ -585,11 +593,11 @@ No third-party registries. All components built from scratch following existing 
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS (FLAG resolved — CTAs updated to verb+noun)
+- [x] Dimension 2 Visuals: PASS (FLAG resolved — focal point declared)
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved 2026-08-13
