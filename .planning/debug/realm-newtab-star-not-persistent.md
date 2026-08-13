@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: fixed
 trigger: "正常地址收藏显示正常，realm://newtab 这类内置的可以收藏，列表也可以看到，但是页面刷新星标不是实心的"
 created: 2025-12-06T00:00:00.000Z
 updated: 2025-12-06T00:01:00.000Z

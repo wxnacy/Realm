@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: fixed
 trigger: "G-27-1a: 按钮在面板打开时没有 active 样式；G-27-1b: 面板打开后，点击网页其他地方没有关闭，只有点击按钮或者关闭才可以关闭"
 created: 2026-08-06T00:00:00Z
 updated: 2026-08-06T00:00:00Z

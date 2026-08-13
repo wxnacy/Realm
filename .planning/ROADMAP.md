@@ -174,17 +174,15 @@ Plans:
 
 **UI hint**: yes
 
-### Phase 33: 自动填充 — 增强 + Bug 修复
+### Phase 33: 自动填充 — 增强
 
-**Goal**: 用户可以管理已保存的凭据和地址信息，同时清理技术债务确保代码质量
+**Goal**: 用户可以管理已保存的凭据和地址信息
 **Depends on**: Phase 32
-**Requirements**: AF-04, AF-06, AF-07, FIX-01, FIX-02
+**Requirements**: AF-04, AF-06, AF-07
 **Success Criteria** (what must be TRUE):
 
   1. 用户可以在设置页查看和删除已保存的凭据
   2. 用户可以保存地址表单信息（姓名、电话、地址），并在地址表单中自动填充
-  3. 20 个已诊断 debug sessions 全部修复
-  4. Phase 23 代码审查遗留 19 项（6 Critical）全部清理
 
 **Plans**: TBD
 **UI hint**: yes

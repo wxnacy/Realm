@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: fixed
 trigger: "固定标签页后样式不正确：标题消失，只显示底部一个小点，应显示网站图标（favicon）"
 created: 2026-07-29T00:00:00Z
 updated: 2026-07-29T00:10:00Z

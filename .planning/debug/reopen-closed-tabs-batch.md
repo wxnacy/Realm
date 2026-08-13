@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: fixed
 trigger: "Investigate issue: reopen-closed-tabs-batch — \"关闭右侧标签页\"批量关闭多个 Tab 后，\"重新打开已关闭标签页\"只恢复了最右侧一个，未一次性恢复多个"
 created: 2026-07-29T00:00:00Z
 updated: 2026-07-29T00:05:00Z

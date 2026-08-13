@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: fixed
 trigger: "url-input-enter-no-response: URL 输入框回车后 webview 无任何反应（UAT Phase 02 Test 5 & 6）"
 created: 2026-05-20T00:00:00Z
 updated: 2026-05-20T00:00:00Z

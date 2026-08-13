@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: fixed
 trigger: "设置页面「分配规则」的导入功能失效——用户选择文件后没有任何反应，规则未导入。"
 created: 2026-02-01T00:00:00Z
 updated: 2026-02-01T00:00:00Z

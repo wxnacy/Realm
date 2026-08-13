@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: fixed
 trigger: "Gap G-27-2: await window.mediaAPI.getMediaList('xiao') 返回数据，但媒体面板显示 当前页面未检测到媒体资源"
 goal: find_root_cause_only
 bug_class: Bohrbug (deterministic)

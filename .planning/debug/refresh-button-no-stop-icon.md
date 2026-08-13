@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: fixed
 trigger: "刷新按钮没有变成 x 图标，其他正常 (UAT Phase 02 Test 8)"
 created: 2026-07-24T00:00:00Z
 updated: 2026-07-24T00:00:00Z

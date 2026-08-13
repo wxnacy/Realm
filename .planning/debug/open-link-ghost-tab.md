@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: fixed
 trigger: "AI 当前标签页打开链接有成功回复但网页实际未加载（幽灵 Tab）"
 created: 2026-08-02T08:11:00.000Z
 updated: 2026-08-02T08:11:00.000Z

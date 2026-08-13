@@ -1,4 +1,4 @@
-# Phase 33: 自动填充 — 增强 + Bug 修复 - Context
+# Phase 33: 自动填充 — 增强 - Context
 
 **Gathered:** 2026-08-13
 **Status:** Ready for planning
@@ -6,20 +6,16 @@
 <domain>
 ## Phase Boundary
 
-用户可以管理已保存的凭据和地址信息，同时清理技术债务确保代码质量。
+用户可以管理已保存的凭据和地址信息。
 
 **核心交付：**
 - AF-04: 用户可以在设置页查看和删除已保存的凭据
 - AF-06: 用户可以保存地址表单信息（姓名、电话、地址）
 - AF-07: 用户可以在地址表单中自动填充已保存的地址信息
-- FIX-01: 修复 20 个已诊断 debug sessions
-- FIX-02: 清理 Phase 23 代码审查遗留 19 项（6 Critical）
 
 **成功标准：**
 1. 用户可以在设置页查看和删除已保存的凭据
 2. 用户可以保存地址表单信息（姓名、电话、地址），并在地址表单中自动填充
-3. 20 个已诊断 debug sessions 全部修复
-4. Phase 23 代码审查遗留 19 项（6 Critical）全部清理
 
 </domain>
 
@@ -44,12 +40,6 @@
 - **D-11:** 检测关系：统一检测逻辑（与登录表单共用检测框架）
 - **D-12:** 检测时机：单次检测（页面加载完成后检测一次）
 
-### Bug 修复策略
-- **D-13:** 修复顺序：Critical 优先（先修复 6 个 Critical 项，再按模块分组修复）
-- **D-14:** 提交策略：逐个提交（每个修复单独提交，便于追溯和回滚）
-- **D-15:** 验证策略：修复后测试（每个修复后运行相关测试，确保不引入新问题）
-- **D-16:** 执行顺序：穿插进行（功能开发与 Bug 修复穿插，而非批量处理）
-
 ### Claude's Discretion
 无 — 用户对所有问题都做出了明确选择。
 
@@ -68,12 +58,8 @@
 - `.planning/phases/30-download-manager-core/30-CONTEXT.md` — Phase 30 决策：SQLite 表结构、IPC 通道设计模式
 - `.planning/phases/31-download-manager-ui/31-CONTEXT.md` — Phase 31 决策：UI 组件模式、realm:// 页面模式
 
-### Bug 追踪
-- `.planning/phases/23-context-reference/23-REVIEW.md` — Phase 23 代码审查遗留 19 项（6 Critical）
-- `docs/debug/` — 20 个已诊断 debug sessions 文档
-
 ### 需求文档
-- `.planning/REQUIREMENTS.md` — AF-04, AF-06, AF-07, FIX-01, FIX-02 需求定义
+- `.planning/REQUIREMENTS.md` — AF-04, AF-06, AF-07 需求定义
 - `.planning/ROADMAP.md` — Phase 33 目标和成功标准
 
 ### 技术约束

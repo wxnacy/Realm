@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: fixed
 trigger: "收藏夹页面（realm://favorites）中，右键点击收藏列表/文件夹面板的空白区域时，显示的是网页默认右键菜单，而非应用自定义的上下文菜单（新建文件夹/粘贴/按名称排序），导致无法在空白区域粘贴已剪切的收藏项。"
 created: 2026-07-29T00:00:00Z
 updated: 2026-07-29T00:30:00Z
@@ -42,7 +42,7 @@ started: Discovered during UAT of Phase 15 (ui) — 2026-07-28
 
 - timestamp: 2026-07-29T00:05:00Z
   checked: 相关知识库 + 活跃 debug 会话 web-context-menu-wrong-items.md
-  found: 无 knowledge-base.md；web-context-menu-wrong-items（status: diagnosed）记录了 Electron 语义：guest 页面 contextmenu 事件 preventDefault 后 webview context-menu 事件不再透传主进程 —— 这解释了为何收藏项/文件夹节点右键正常（两处处理器都调用了 preventDefault + stopPropagation）
+  found: 无 knowledge-base.md；web-context-menu-wrong-items（status: fixed）记录了 Electron 语义：guest 页面 contextmenu 事件 preventDefault 后 webview context-menu 事件不再透传主进程 —— 这解释了为何收藏项/文件夹节点右键正常（两处处理器都调用了 preventDefault + stopPropagation）
   implication: 空白区域显示网页菜单 ⇔ guest 页面没有处理器调用 preventDefault ⇔ 空白区域 contextmenu 处理器未触发
 
 - timestamp: 2026-07-29T00:10:00Z

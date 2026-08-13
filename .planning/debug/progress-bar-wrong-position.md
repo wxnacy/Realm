@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: fixed
 trigger: "UAT Phase 02 Test 8: 蓝色进度条没有显示在URL输入框下边，而是出现在左边侧边栏的下边"
 created: 2026-07-24T00:00:00Z
 updated: 2026-07-24T00:00:00Z

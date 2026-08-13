@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: fixed
 trigger: "大页面 read_page_content 5 秒内返回但用户未感知 100KB 截断中文标记"
 created: 2026-08-02T00:00:00Z
 updated: 2026-08-02T00:00:00Z

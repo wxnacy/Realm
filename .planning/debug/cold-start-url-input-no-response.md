@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: fixed
 trigger: "应用刚启动时地址栏输入地址回车还是没有反应；这种情况应该使用默认容器，创建一个默认tab 才对"
 created: 2026-07-24T15:00:00Z
 updated: 2026-07-24T15:30:00Z

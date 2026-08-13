@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: fixed
 trigger: "在 https://www.baidu.com/ 页面打开 Cookie 管理面板（容器名为 xiao），点击\"保存到文件\"按钮保存了 65 个 Cookie，但该域名实际只有 6 个 Cookie。预期只保存当前域名及其子域名的 Cookie。"
 created: 2026-07-27T00:00:00Z
 updated: 2026-07-27T00:00:00Z
