@@ -591,22 +591,16 @@ function showSaveAddressBanner(data) {
 - A2: grep 'credential-save-banner' src/styles/main.css 中 z-index 值
 - A3: SQLite UNIQUE 约束 + INSERT OR REPLACE 是标准做法，Phase 32 credentials 表已验证
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **凭据搜索是否需要支持模糊匹配？**
-   - What we know: D-03 说「按网站域名或用户名过滤」，settings-page.js 中其他搜索（如 downloads）使用 keyword 参数
-   - What's unclear: 是否需要 SQL LIKE 模糊匹配还是精确匹配
-   - Recommendation: 使用 SQL LIKE '%keyword%' 模糊匹配，与 downloads 搜索一致
+1. **(RESOLVED)** 凭据搜索是否需要支持模糊匹配？
+   - Resolution: Plan 33-01 Task 1 — `searchCredentials` 使用 `LIKE '%keyword%'` 模糊匹配，与 downloads 搜索一致
 
-2. **地址保存横幅是否需要「永不保存」功能？**
-   - What we know: UI-SPEC C-05 定义了「永不」按钮
-   - What's unclear: 永不保存的记录存储在哪里（独立表还是复用 credentials 表的 never_save 机制）
-   - Recommendation: 新建 address_never_save 表或在 addresses 表增加 never_save 列，与凭据的 never_save 机制一致
+2. **(RESOLVED)** 地址保存横幅是否需要「永不保存」功能？
+   - Resolution: Plan 33-02 Task 2 — 实现 `address_never_save` 机制，与凭据的 never_save 一致
 
-3. **设置页切换容器时如何刷新凭据/地址数据？**
-   - What we know: 设置页通过 URL 参数获取容器 ID
-   - What's unclear: 容器切换是在设置页内完成还是通过 URL 参数变化
-   - Recommendation: 设置页内维护当前容器 ID，切换时重新调用 API 加载数据
+3. **(RESOLVED)** 设置页切换容器时如何刷新凭据/地址数据？
+   - Resolution: Plan 33-01/33-02 — `loadCredentials()` / `loadAddress()` 在容器切换时重新调用 API 加载数据
 
 ## Environment Availability
 
