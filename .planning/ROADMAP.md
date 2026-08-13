@@ -93,7 +93,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 
 - [ ] **Phase 30: 下载管理器 — 核心引擎** — 文件下载拦截、保存对话框、进度追踪、工具栏集成、SQLite 持久化
 - [x] **Phase 31: 下载管理器 — 用户交互** — 下载历史面板、暂停/恢复、文件操作、批量管理
-- [ ] **Phase 32: 自动填充 — 凭据引擎** — 登录凭据加密存储、表单检测、自动填充、容器隔离
+- [x] **Phase 32: 自动填充 — 凭据引擎** — 登录凭据加密存储、表单检测、自动填充、容器隔离 (completed 2026-08-13)
 - [ ] **Phase 33: 自动填充 — 增强 + Bug 修复** — 凭据管理 UI、地址表单、autofill/fillForm 互斥、Bug 修复与代码清理
 
 </details>
@@ -162,15 +162,15 @@ Plans:
   4. 凭据按容器隔离存储，容器 A 的凭据不会在容器 B 中被填充
   5. AI 填表（CDP fillForm）激活时，浏览器 autofill 自动禁用，避免冲突
 
-**Plans**: 2 plans
+**Plans**: 2/2 plans complete
 
 **Wave 1**
 
-- [ ] 32-01-PLAN.md — 凭据管理器后端：credential-manager.js 模块 + safeStorage 加密 + SQLite 持久化 + IPC 通道
+- [x] 32-01-PLAN.md — 凭据管理器后端：credential-manager.js 模块 + safeStorage 加密 + SQLite 持久化 + IPC 通道
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 32-02-PLAN.md — 表单检测 + 自动填充注入 + credentialAPI + 保存凭据横幅 UI
+- [x] 32-02-PLAN.md — 表单检测 + 自动填充注入 + credentialAPI + 保存凭据横幅 UI
 
 **UI hint**: yes
 
@@ -227,5 +227,5 @@ Phases execute in numeric order: 30 → 31 → 32 → 33
 | 29. 多媒体播放器设置控制 | v2.2 | 5/5 | Complete | 2026-08-08 |
 | 30. 下载管理器 — 核心引擎 | v2.3 | 2/2 | Complete   | 2026-08-11 |
 | 31. 下载管理器 — 用户交互 | v2.3 | 3/3 | Complete    | 2026-08-12 |
-| 32. 自动填充 — 凭据引擎 | v2.3 | 0/0 | Not started | - |
+| 32. 自动填充 — 凭据引擎 | v2.3 | 2/2 | Complete    | 2026-08-13 |
 | 33. 自动填充 — 增强 + Bug 修复 | v2.3 | 0/0 | Not started | - |
