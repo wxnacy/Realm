@@ -742,22 +742,25 @@ function showSaveCredentialBanner(data) {
 | A3 | webview-preload.js 可以直接访问 DOM | Architecture | 低，现有 media 检测已验证 |
 | A4 | ipcRenderer.sendToHost 可以发送任意 JSON 数据 | IPC | 低，现有 media:detected 已验证 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **凭据表是否与 history.db 共享**
+1. **凭据表是否与 history.db 共享** — RESOLVED
    - What we know: Phase 30 使用 history.db 存储 downloads 表
    - What's unclear: 凭据表是否也放在 history.db 中
    - Recommendation: 共享 history.db，减少文件数量，与 Phase 30 保持一致
+   - Resolution: Plan 01 采用共享 history.db 方案
 
-2. **safeStorage 密钥轮转时的批量重新加密**
+2. **safeStorage 密钥轮转时的批量重新加密** — RESOLVED
    - What we know: decryptStringAsync 返回 shouldReEncrypt 标志
    - What's unclear: 是否需要启动时批量检查并重新加密所有凭据
    - Recommendation: 懒更新 -- 解密时检查 shouldReEncrypt，按需重新加密
+   - Resolution: Plan 01 getCredential 采用懒更新策略
 
-3. **凭据管理 UI（Phase 33 范围）**
+3. **凭据管理 UI（Phase 33 范围）** — RESOLVED
    - What we know: AF-04（查看和删除凭据）在 Phase 33 实现
    - What's unclear: Phase 32 是否需要预留 API
    - Recommendation: Phase 32 实现基础 CRUD API，Phase 33 实现 UI
+   - Resolution: Plan 01 包含完整 CRUD API（save/get/delete/markNeverSave/isNeverSave）
 
 ## Environment Availability
 
