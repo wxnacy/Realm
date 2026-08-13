@@ -16,6 +16,7 @@ const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
 const historyManager = require('./history-manager');
 const downloadManager = require('./download-manager');
+const credentialManager = require('./credential-manager');
 const favoritesManager = require('./favorites-manager');
 const faviconFetcher = require('./favicon-fetcher');
 const mediaSniffer = require('./media-sniffer');
@@ -974,6 +975,90 @@ function registerHandlers() {
   ipcMain.handle('download:clear-all', async (event) => {
     assertTrustedSender(event);
     return downloadManager.clearAllDownloads();
+  });
+
+  // ==================== 凭据管理 ====================
+
+  /**
+   * 保存凭据（per D-04, AF-02）
+   * 使用 safeStorage 加密密码，加密不可用时拒绝存储
+   * @param {Object} data - 凭据数据
+   * @param {string} data.containerId - 容器 ID
+   * @param {string} data.url - 页面完整 URL
+   * @param {string} data.origin - 页面 origin
+   * @param {string} data.username - 用户名
+   * @param {string} data.password - 明文密码
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  ipcMain.handle('credential:save', async (event, data) => {
+    assertTrustedSender(event);
+    if (!data || typeof data !== 'object' || !data.containerId || !data.origin) {
+      throw new Error('无效的凭据数据');
+    }
+    return await credentialManager.saveCredential(
+      data.containerId, data.url, data.origin, data.username, data.password
+    );
+  });
+
+  /**
+   * 查询凭据（per AF-03）
+   * 返回解密后的用户名和密码
+   * @param {Object} params - 参数
+   * @param {string} params.containerId - 容器 ID
+   * @param {string} params.origin - 页面 origin
+   * @returns {Promise<{username: string, password: string}|null>}
+   */
+  ipcMain.handle('credential:get', async (event, { containerId, origin }) => {
+    assertTrustedSender(event);
+    if (!containerId || !origin) {
+      throw new Error('缺少必要参数');
+    }
+    return await credentialManager.getCredential(containerId, origin);
+  });
+
+  /**
+   * 标记永不保存（per D-07）
+   * @param {Object} params - 参数
+   * @param {string} params.containerId - 容器 ID
+   * @param {string} params.origin - 页面 origin
+   * @returns {{success: boolean}}
+   */
+  ipcMain.handle('credential:never-save', (event, { containerId, origin }) => {
+    assertTrustedSender(event);
+    if (!containerId || !origin) {
+      throw new Error('缺少必要参数');
+    }
+    return credentialManager.markNeverSave(containerId, origin);
+  });
+
+  /**
+   * 检查是否永不保存
+   * @param {Object} params - 参数
+   * @param {string} params.containerId - 容器 ID
+   * @param {string} params.origin - 页面 origin
+   * @returns {boolean}
+   */
+  ipcMain.handle('credential:is-never-save', (event, { containerId, origin }) => {
+    assertTrustedSender(event);
+    if (!containerId || !origin) {
+      throw new Error('缺少必要参数');
+    }
+    return credentialManager.isNeverSave(containerId, origin);
+  });
+
+  /**
+   * 删除凭据记录
+   * @param {Object} params - 参数
+   * @param {string} params.containerId - 容器 ID
+   * @param {string} params.origin - 页面 origin
+   * @returns {{success: boolean}}
+   */
+  ipcMain.handle('credential:delete', (event, { containerId, origin }) => {
+    assertTrustedSender(event);
+    if (!containerId || !origin) {
+      throw new Error('缺少必要参数');
+    }
+    return credentialManager.deleteCredential(containerId, origin);
   });
 
   // ==================== 浏览历史 ====================

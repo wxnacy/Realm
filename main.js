@@ -54,6 +54,7 @@ const shortcutManager = require('./shortcut-manager');
 const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager } = require('./ipc-handlers');
 const historyManager = require('./history-manager');
 const downloadManager = require('./download-manager');
+const credentialManager = require('./credential-manager');
 const favoritesManager = require('./favorites-manager');
 const faviconFetcher = require('./favicon-fetcher');
 const frequentSitesManager = require('./frequent-sites-manager');
@@ -2153,6 +2154,9 @@ app.whenReady().then(async () => {
 
   // 初始化下载管理器数据库
   downloadManager.initDatabase();
+
+  // 初始化凭据管理器数据库
+  credentialManager.initDatabase();
 
   // 初始化收藏夹数据库
   favoritesManager.initDatabase();
