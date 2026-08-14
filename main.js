@@ -97,8 +97,9 @@ const pendingActions = new Map();
  * @returns {Promise<{confirmed: boolean, reason?: string}>} 用户确认结果
  */
 function requestActionConfirmation(actionData) {
-  const mainWindow = windowManager.getMainWindow();
-  if (!mainWindow || mainWindow.isDestroyed()) {
+  // 检查是否有任何窗口存在
+  const anyWindow = windowManager.getMainWindow();
+  if (!anyWindow) {
     return Promise.resolve({ confirmed: false, reason: 'no-window' });
   }
 
@@ -112,7 +113,7 @@ function requestActionConfirmation(actionData) {
         pendingActions.delete(actionId);
         console.log(`[Realm] 操作确认超时，自动取消: ${actionId}`);
         // 主动过期渲染端确认卡片，避免用户点击已无效应的 pending 卡片
-        mainWindow.webContents.send('action:settle', {
+        windowManager.broadcast('action:settle', {
           actionId,
           state: 'cancelled',
           message: '操作确认超时，已自动取消',
@@ -123,9 +124,9 @@ function requestActionConfirmation(actionData) {
 
     pendingActions.set(actionId, { resolve, timer });
 
-    // 发送确认请求到渲染进程
-    mainWindow.webContents.send('action:request-confirmation', data);
-    console.log(`[Realm] 操作确认请求已发送: ${actionId}, 类型: ${data.type}, 风险: ${data.riskLevel}`);
+    // 广播确认请求到所有渲染进程
+    windowManager.broadcast('action:request-confirmation', data);
+    console.log(`[Realm] 操作确认请求已广播: ${actionId}, 类型: ${data.type}, 风险: ${data.riskLevel}`);
   });
 }
 
@@ -580,10 +581,7 @@ app.whenReady().then(async () => {
    */
   /** 收藏栏数据变更后，向所有渲染进程广播刷新事件 */
   function _notifyBookmarksBarRefresh() {
-    const mainWindow = windowManager.getMainWindow();
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('bookmarks-bar:refresh');
-    }
+    windowManager.broadcast('bookmarks-bar:refresh');
   }
 
   async function handleFavoritesApi(req, res, reqUrl) {
@@ -982,12 +980,9 @@ app.whenReady().then(async () => {
         for (const [key, value] of Object.entries(updates)) {
           configStore.set(`settings.${key}`, value);
         }
-        // 设置页在 webview 内通过 HTTP 写入，主进程需主动通知宿主 renderer 刷新（closing UAT gap G-29-6）
+        // 设置页在 webview 内通过 HTTP 写入，主进程需主动通知所有窗口 renderer 刷新（closing UAT gap G-29-6）
         const changedKeys = Object.keys(updates);
-        const mainWindow = windowManager.getMainWindow();
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('settings:updated', changedKeys);
-        }
+        windowManager.broadcast('settings:updated', changedKeys);
         sendJson(res, 200, { success: true });
         return;
       }
@@ -1724,11 +1719,8 @@ app.whenReady().then(async () => {
         const { visible } = await readJsonBody(req);
         configStore.set('bookmarksBar.visible', !!visible);
         configStore.set('settings.bookmarksBar.visible', !!visible);
-        // 通知主窗口渲染进程
-        const mainWindow = windowManager.getMainWindow();
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('bookmarks-bar:visibility-changed', { visible: !!visible });
-        }
+        // 通知所有窗口渲染进程
+        windowManager.broadcast('bookmarks-bar:visibility-changed', { visible: !!visible });
         sendJson(res, 200, { success: true });
       } catch (err) {
         sendJson(res, 500, { error: err.message });
@@ -1805,11 +1797,29 @@ app.whenReady().then(async () => {
     console.log(`[Realm] 内部页面服务器已启动: http://localhost:${realmPort}`);
 
     // 暴露端口和 API token 给渲染进程（token 用于内部页面调用 /api/history/*）
-    ipcMain.handle('get-realm-port', () => ({ port: realmPort, token: REALM_TOKEN }));
+    ipcMain.handle('get-realm-port', (event) => {
+      assertTrustedSender(event);
+      return { port: realmPort, token: REALM_TOKEN };
+    });
   });
 
   // 注册 IPC 处理器
   registerHandlers();
+
+  /**
+   * 验证 IPC 发送方是否为受信任的窗口
+   * 与 ipc-handlers.js 中的 assertTrustedSender 保持一致的信任边界
+   * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+   * @returns {BrowserWindow} 受信的窗口实例
+   * @throws {Error} 来源不受信任时抛出
+   */
+  function assertTrustedSender(event) {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed() || !windowManager.isManagedWindow(win.id)) {
+      throw new Error('不受信任的 IPC 来源');
+    }
+    return win;
+  }
 
   // ==================== 右键菜单 IPC 监听器 ====================
 
@@ -1994,51 +2004,61 @@ app.whenReady().then(async () => {
 
   // 创建文件夹
   ipcMain.handle('favorites:create-folder', async (event, { name, parentId }) => {
+    assertTrustedSender(event);
     return favoritesManager.createFolder({ name, parentId });
   });
 
   // 重命名文件夹
   ipcMain.handle('favorites:rename-folder', async (event, { id, name }) => {
+    assertTrustedSender(event);
     return favoritesManager.renameFolder(id, { name });
   });
 
   // 删除文件夹
   ipcMain.handle('favorites:delete-folder', async (event, { id }) => {
+    assertTrustedSender(event);
     return favoritesManager.deleteFolder(id);
   });
 
   // 列出子文件夹
   ipcMain.handle('favorites:list-folders', async (event, { parentId }) => {
+    assertTrustedSender(event);
     return favoritesManager.listFolders(parentId);
   });
 
   // 获取文件夹树
-  ipcMain.handle('favorites:get-folder-tree', async () => {
+  ipcMain.handle('favorites:get-folder-tree', async (event) => {
+    assertTrustedSender(event);
     return favoritesManager.getFolderTree();
   });
 
   // 移动文件夹
   ipcMain.handle('favorites:move-folder', async (event, { id, parentId }) => {
+    assertTrustedSender(event);
     return favoritesManager.moveFolder(id, { parentId });
   });
 
   // 移动收藏项到文件夹
   ipcMain.handle('favorites:move-favorite', async (event, { id, folderId }) => {
+    assertTrustedSender(event);
     return favoritesManager.moveFavorite(id, { folderId });
   });
 
   // 批量移动收藏项
   ipcMain.handle('favorites:move-favorites', async (event, { ids, folderId }) => {
+    assertTrustedSender(event);
     return favoritesManager.moveFavorites(ids, { folderId });
   });
 
   // 更新文件夹排序
   ipcMain.handle('favorites:update-folder-sort', async (event, { id, sortOrder }) => {
+    assertTrustedSender(event);
     return favoritesManager.updateFolderSort(id, { sortOrder });
   });
 
   // 更新收藏项排序
   ipcMain.handle('favorites:update-favorite-sort', async (event, { id, sortOrder }) => {
+    assertTrustedSender(event);
     return favoritesManager.updateFavoriteSort(id, { sortOrder });
   });
 
@@ -2048,6 +2068,7 @@ app.whenReady().then(async () => {
 
   // Chrome JSON 书签导入（per D-03, D-04, D-05, D-10, D-13）
   ipcMain.handle('favorites:import-chrome', async (event, { filePath }) => {
+    assertTrustedSender(event);
     const mainWindow = windowManager.getMainWindow();
     if (!mainWindow) return { success: false, error: '主窗口不存在' };
 
@@ -2076,6 +2097,7 @@ app.whenReady().then(async () => {
 
   // HTML 书签导入（per D-11, D-12, D-13）
   ipcMain.handle('favorites:import-html', async (event, { filePath }) => {
+    assertTrustedSender(event);
     const mainWindow = windowManager.getMainWindow();
     if (!mainWindow) return { success: false, error: '主窗口不存在' };
 
@@ -2102,7 +2124,8 @@ app.whenReady().then(async () => {
   });
 
   // 取消导入操作（per IMPORT-03）
-  ipcMain.handle('favorites:import-abort', async () => {
+  ipcMain.handle('favorites:import-abort', async (event) => {
+    assertTrustedSender(event);
     if (currentImportAbortController) {
       currentImportAbortController.abort();
       return { success: true };
@@ -2111,13 +2134,15 @@ app.whenReady().then(async () => {
   });
 
   // 检测 Chrome 书签路径（per D-03）
-  ipcMain.handle('favorites:detect-chrome-path', async () => {
+  ipcMain.handle('favorites:detect-chrome-path', async (event) => {
+    assertTrustedSender(event);
     const chromePath = favoritesManager.detectChromeBookmarksPath();
     return { path: chromePath };
   });
 
   // 打开文件选择对话框（per D-04）
   ipcMain.handle('dialog:open', async (event, options) => {
+    assertTrustedSender(event);
     const mainWindow = windowManager.getMainWindow();
     if (!mainWindow) return { canceled: true, filePaths: [] };
     return dialog.showOpenDialog(mainWindow, options);
@@ -2130,6 +2155,7 @@ app.whenReady().then(async () => {
    * 持久化到 electron-store，重启后保持用户偏好
    */
   ipcMain.handle('bookmarks-bar:toggle', async (event, { visible }) => {
+    assertTrustedSender(event);
     configStore.set('bookmarksBar.visible', visible);
     configStore.set('settings.bookmarksBar.visible', visible);
     return { success: true };
@@ -2139,7 +2165,8 @@ app.whenReady().then(async () => {
    * 获取收藏栏显示状态
    * 默认显示（true）
    */
-  ipcMain.handle('bookmarks-bar:get-visibility', async () => {
+  ipcMain.handle('bookmarks-bar:get-visibility', async (event) => {
+    assertTrustedSender(event);
     return { visible: configStore.get('bookmarksBar.visible', true) };
   });
 
@@ -2153,6 +2180,7 @@ app.whenReady().then(async () => {
    * @returns {Promise<{success: boolean}>}
    */
   ipcMain.handle('action:confirm', (event, actionId) => {
+    assertTrustedSender(event);
     const pending = pendingActions.get(actionId);
     if (!pending) {
       console.warn(`[Realm] action:confirm 未找到待确认操作: ${actionId}`);
@@ -2173,6 +2201,7 @@ app.whenReady().then(async () => {
    * @returns {Promise<{success: boolean}>}
    */
   ipcMain.handle('action:cancel', (event, actionId) => {
+    assertTrustedSender(event);
     const pending = pendingActions.get(actionId);
     if (!pending) {
       console.warn(`[Realm] action:cancel 未找到待确认操作: ${actionId}`);
@@ -2202,6 +2231,7 @@ app.whenReady().then(async () => {
    * @returns {Promise<{success: boolean, stoppedAt?: number, error?: string}>}
    */
   ipcMain.handle('script:execute', async (event, script) => {
+    assertTrustedSender(event);
     // 校验脚本格式
     if (!script || !Array.isArray(script.steps) || script.steps.length === 0) {
       return { success: false, error: '脚本格式无效：缺少 steps 数组' };
@@ -2248,7 +2278,8 @@ app.whenReady().then(async () => {
    * 停止脚本执行：中断当前正在执行的脚本
    * @returns {Promise<{stopped: boolean}>}
    */
-  ipcMain.handle('script:stop', () => {
+  ipcMain.handle('script:stop', (event) => {
+    assertTrustedSender(event);
     if (scriptAbortController) {
       scriptAbortController.abort();
       scriptAbortController = null;
@@ -2268,6 +2299,7 @@ app.whenReady().then(async () => {
    * @returns {Promise<{success: boolean, groupCount?: number, tabCount?: number, message?: string}>}
    */
   ipcMain.handle('tab:reorder', (event, tabOrder) => {
+    assertTrustedSender(event);
     // 校验 tabOrder 格式
     if (!tabOrder || !Array.isArray(tabOrder.groups) || tabOrder.groups.length === 0) {
       return { success: false, message: '分组数据格式无效' };
