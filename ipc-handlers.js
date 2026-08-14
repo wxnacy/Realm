@@ -65,18 +65,20 @@ function getActiveWebviewContentsId() {
 }
 
 /**
- * 校验 IPC 调用方身份（CR-4 修复）
- * 仅接受来自应用主窗口 webContents 的调用；
- * webview guest、DevTools 或其他非窗口上下文一律拒绝，
+ * 校验 IPC 调用方身份（CR-4 修复，D-11 泛化）
+ * 接受所有 managedWindowIds 中的窗口（不再硬编码主窗口）；
+ * webview guest、DevTools 或其他非管理窗口一律拒绝，
  * 防止被浏览网页/注入上下文直接 invoke 特权通道。
  * @param {Electron.IpcMainInvokeEvent} event - IPC 事件对象
- * @returns {BrowserWindow} 受信的主窗口实例
+ * @returns {BrowserWindow} 受信的窗口实例
  * @throws {Error} 来源不受信任时抛出
  */
 function assertTrustedSender(event) {
   const win = BrowserWindow.fromWebContents(event.sender);
-  const mainWindow = windowManager.getMainWindow();
-  if (!win || !mainWindow || win.id !== mainWindow.id) {
+  if (!win || win.isDestroyed()) {
+    throw new Error('不受信任的 IPC 来源');
+  }
+  if (!windowManager.isManagedWindow(win.id)) {
     throw new Error('不受信任的 IPC 来源');
   }
   return win;
@@ -220,10 +222,17 @@ function validateContainerUpdates(updates) {
   return true;
 }
 
+/** 防重复注册守卫（Pitfall MW-5）：多窗口场景下 registerHandlers 只能调用一次 */
+let handlersRegistered = false;
+
 /**
  * 注册所有 IPC 处理器
  */
 function registerHandlers() {
+  if (handlersRegistered) {
+    console.warn('[Realm] registerHandlers 已调用，跳过重复注册');
+    return;
+  }
   // WR-4：Tab 回收策略单点实现于主进程（tab-manager），
   // 回收发生时推送 tab:recycled 事件，渲染进程据此移除对应 DOM/webview 并提示
   tabManager.setRecycleListener(({ recycledTabId, message }) => {
@@ -821,8 +830,7 @@ function registerHandlers() {
     const result = shortcutManager.setShortcut(action, accelerator);
     // 设置成功后重建菜单，使新快捷键立即生效（无需重启应用）
     if (result) {
-      const win = windowManager.getMainWindow();
-      shortcutManager.rebuildShortcuts(win);
+      shortcutManager.rebuildShortcuts();
     }
     return result;
   });
@@ -840,8 +848,7 @@ function registerHandlers() {
     }
     const result = shortcutManager.resetShortcut(action);
     if (result) {
-      const win = windowManager.getMainWindow();
-      shortcutManager.rebuildShortcuts(win);
+      shortcutManager.rebuildShortcuts();
     }
     return result;
   });
@@ -1817,6 +1824,7 @@ function registerHandlers() {
     return { success: true };
   });
 
+  handlersRegistered = true;
   console.log('[Realm] IPC 处理器已注册');
 }
 
