@@ -304,6 +304,141 @@ function deleteCredential(containerId, origin) {
   }
 }
 
+// ==================== 凭据管理 UI 扩展（Phase 33） ====================
+
+/**
+ * 获取指定容器的凭据列表（不含密码，安全考虑）
+ * per AF-04：设置页展示已保存凭据
+ *
+ * @param {string} containerId - 容器 ID
+ * @returns {Array<Object>} 凭据列表（id, container_id, url, origin, username, created_at, updated_at）
+ */
+function listCredentials(containerId) {
+  if (!db) return [];
+
+  if (!containerId) return [];
+
+  try {
+    return db.prepare(`
+      SELECT id, container_id, url, origin, username, created_at, updated_at
+      FROM credentials
+      WHERE container_id = ? AND never_save = 0
+      ORDER BY updated_at DESC
+    `).all(containerId);
+  } catch (err) {
+    console.error('[Realm] 查询凭据列表失败:', err.message);
+    return [];
+  }
+}
+
+/**
+ * 按关键词搜索凭据（模糊匹配 origin 和 username）
+ * per D-03：搜索框实时过滤
+ *
+ * @param {string} containerId - 容器 ID
+ * @param {string} keyword - 搜索关键词
+ * @returns {Array<Object>} 匹配的凭据列表
+ */
+function searchCredentials(containerId, keyword) {
+  if (!db) return [];
+
+  if (!containerId || !keyword) return [];
+
+  try {
+    const pattern = `%${keyword}%`;
+    return db.prepare(`
+      SELECT id, container_id, url, origin, username, created_at, updated_at
+      FROM credentials
+      WHERE container_id = ? AND never_save = 0
+        AND (origin LIKE ? OR username LIKE ?)
+      ORDER BY updated_at DESC
+    `).all(containerId, pattern, pattern);
+  } catch (err) {
+    console.error('[Realm] 搜索凭据失败:', err.message);
+    return [];
+  }
+}
+
+/**
+ * 批量删除凭据
+ * per D-04：选中多条凭据后批量删除
+ *
+ * @param {string} containerId - 容器 ID
+ * @param {Array<string>} origins - 要删除的 origin 数组
+ * @returns {{success: boolean, deleted: number}} 操作结果
+ */
+function batchDelete(containerId, origins) {
+  if (!db) return { success: false, deleted: 0 };
+
+  if (!containerId || !Array.isArray(origins) || origins.length === 0) {
+    return { success: false, deleted: 0 };
+  }
+
+  try {
+    const placeholders = origins.map(() => '?').join(',');
+    const result = db.prepare(`
+      DELETE FROM credentials
+      WHERE container_id = ? AND origin IN (${placeholders})
+    `).run(containerId, ...origins);
+
+    console.log(`[Realm] 批量删除凭据: container=${containerId}, deleted=${result.changes}`);
+    return { success: true, deleted: result.changes };
+  } catch (err) {
+    console.error('[Realm] 批量删除凭据失败:', err.message);
+    return { success: false, deleted: 0 };
+  }
+}
+
+/**
+ * 根据 ID 获取解密后的凭据详情
+ * per D-02：展开详情时显示密码（默认遮罩）
+ * 支持密钥轮转懒更新（参考 getCredential 的 shouldReEncrypt 逻辑）
+ *
+ * @param {number} credentialId - 凭据 ID
+ * @returns {Promise<{username: string, password: string}|null>} 解密后的凭据或 null
+ */
+async function getCredentialById(credentialId) {
+  if (!db) return null;
+
+  if (!credentialId) return null;
+
+  try {
+    const row = db.prepare(`
+      SELECT id, username, encrypted_password
+      FROM credentials
+      WHERE id = ?
+    `).get(credentialId);
+
+    if (!row) return null;
+
+    const decrypted = await decryptPassword(row.encrypted_password);
+    if (!decrypted) {
+      console.error('[Realm] 凭据解密失败（getCredentialById），返回 null');
+      return null;
+    }
+
+    // 密钥轮转懒更新
+    if (decrypted.shouldReEncrypt) {
+      console.log('[Realm] 密钥已轮转，重新加密凭据');
+      const reEncrypted = await encryptPassword(decrypted.password);
+      if (reEncrypted) {
+        try {
+          db.prepare(`
+            UPDATE credentials SET encrypted_password = ?, updated_at = ? WHERE id = ?
+          `).run(reEncrypted, Date.now(), row.id);
+        } catch (updateErr) {
+          console.error('[Realm] 重新加密凭据失败:', updateErr.message);
+        }
+      }
+    }
+
+    return { username: row.username, password: decrypted.password };
+  } catch (err) {
+    console.error('[Realm] 查询凭据详情失败:', err.message);
+    return null;
+  }
+}
+
 // ==================== 导出 ====================
 
 module.exports = {
@@ -313,4 +448,8 @@ module.exports = {
   markNeverSave,
   isNeverSave,
   deleteCredential,
+  listCredentials,
+  searchCredentials,
+  batchDelete,
+  getCredentialById,
 };

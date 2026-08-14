@@ -1347,6 +1347,97 @@ app.whenReady().then(async () => {
   }
 
   /**
+   * 处理 /api/credentials/* 凭据管理 API 请求
+   * per AF-04：设置页凭据管理（列表、搜索、删除、批量删除、查看详情）
+   * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} res - 响应对象
+   * @param {URL} reqUrl - 解析后的请求 URL
+   */
+  async function handleCredentialsApi(req, res, reqUrl) {
+    // token 鉴权：防 CSRF 与 localhost 端口扫描读取/篡改凭据数据
+    if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+      sendJson(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    try {
+      const route = reqUrl.pathname.replace('/api/credentials/', '');
+
+      // GET /api/credentials/list — 获取容器的凭据列表（不含密码）
+      if (route === 'list' && req.method === 'GET') {
+        const containerId = reqUrl.searchParams.get('containerId');
+        if (!containerId) {
+          sendJson(res, 400, { error: '缺少 containerId 参数' });
+          return;
+        }
+        const credentials = credentialManager.listCredentials(containerId);
+        sendJson(res, 200, { success: true, credentials });
+        return;
+      }
+
+      // GET /api/credentials/search — 搜索凭据（模糊匹配 origin 和 username）
+      if (route === 'search' && req.method === 'GET') {
+        const containerId = reqUrl.searchParams.get('containerId');
+        const keyword = reqUrl.searchParams.get('keyword') || '';
+        if (!containerId) {
+          sendJson(res, 400, { error: '缺少 containerId 参数' });
+          return;
+        }
+        const credentials = keyword
+          ? credentialManager.searchCredentials(containerId, keyword)
+          : credentialManager.listCredentials(containerId);
+        sendJson(res, 200, { success: true, credentials });
+        return;
+      }
+
+      // POST /api/credentials/delete — 删除单条凭据
+      if (route === 'delete' && req.method === 'POST') {
+        const { containerId, origin } = await readJsonBody(req);
+        if (!containerId || !origin) {
+          sendJson(res, 400, { error: '缺少必要参数' });
+          return;
+        }
+        const result = credentialManager.deleteCredential(containerId, origin);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      // POST /api/credentials/batch-delete — 批量删除凭据
+      if (route === 'batch-delete' && req.method === 'POST') {
+        const { containerId, origins } = await readJsonBody(req);
+        if (!containerId || !Array.isArray(origins)) {
+          sendJson(res, 400, { error: '缺少必要参数' });
+          return;
+        }
+        const result = credentialManager.batchDelete(containerId, origins);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      // POST /api/credentials/get-by-id — 获取解密后的凭据详情（展开详情用）
+      if (route === 'get-by-id' && req.method === 'POST') {
+        const { credentialId } = await readJsonBody(req);
+        if (!credentialId) {
+          sendJson(res, 400, { error: '缺少 credentialId 参数' });
+          return;
+        }
+        const credential = await credentialManager.getCredentialById(credentialId);
+        if (!credential) {
+          sendJson(res, 404, { success: false, error: '凭据不存在或解密失败' });
+          return;
+        }
+        sendJson(res, 200, { success: true, ...credential });
+        return;
+      }
+
+      sendJson(res, 404, { error: 'Not Found' });
+    } catch (err) {
+      console.error('[Realm] 凭据 API 处理失败:', err.message);
+      sendJson(res, 400, { error: err.message });
+    }
+  }
+
+  /**
    * 处理 /api/containers/* 容器 API 请求
    * @param {http.IncomingMessage} req - 请求对象
    * @param {http.ServerResponse} res - 响应对象
@@ -1548,6 +1639,12 @@ app.whenReady().then(async () => {
     // 下载管理 JSON API（下载面板数据层）
     if (reqPath.startsWith('/api/downloads/')) {
       handleDownloadsApi(req, res, reqUrl);
+      return;
+    }
+
+    // 凭据管理 JSON API（设置页凭据管理数据层）
+    if (reqPath.startsWith('/api/credentials/')) {
+      handleCredentialsApi(req, res, reqUrl);
       return;
     }
 
