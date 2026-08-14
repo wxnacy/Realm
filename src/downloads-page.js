@@ -7,9 +7,6 @@
 
 // ==================== 状态 ====================
 
-/** @type {number} 内部 HTTP 服务端口 */
-let realmPort = null;
-
 /** @type {string} API 鉴权 token */
 let realmToken = null;
 
@@ -34,6 +31,9 @@ let searchDebounceTimer = null;
 /** @type {Object|null} 待删除的下载信息 */
 let pendingDeleteDownload = null;
 
+/** @type {Set<string>} 勾选选中的下载 ID 集合 */
+const selectedIds = new Set();
+
 /** @type {boolean} 列表事件是否已绑定 */
 let itemActionsBound = false;
 
@@ -41,16 +41,15 @@ let itemActionsBound = false;
 
 /**
  * 页面初始化入口
- * 从 URL 参数中获取 port 和 token，然后加载数据
+ * 从 URL 参数获取 token（createTab 经 realmUrlToHttp 注入），然后加载数据。
+ * 数据请求用同源相对路径（页面本身就由内部 HTTP 服务托管），无需 port 参数。
  */
 async function init() {
-  // 从 URL 参数获取 port 和 token
   const params = new URLSearchParams(window.location.search);
-  realmPort = params.get('port');
   realmToken = params.get('token');
 
-  if (!realmPort || !realmToken) {
-    console.error('[Downloads Page] 缺少 port 或 token 参数');
+  if (!realmToken) {
+    console.error('[Downloads Page] 缺少 token 参数');
     return;
   }
 
@@ -125,6 +124,35 @@ function bindEvents() {
       loadDownloads(false);
     }
   });
+
+  // 批量删除选中项
+  const deleteSelectedBtn = document.getElementById('downloadsDeleteSelectedBtn');
+  if (deleteSelectedBtn) {
+    deleteSelectedBtn.addEventListener('click', () => {
+      if (selectedIds.size === 0) return;
+
+      const desc = document.getElementById('downloadsDeleteDesc');
+      if (desc) {
+        desc.textContent = `确定要删除选中的 ${selectedIds.size} 条记录吗？`;
+      }
+
+      const checkbox = document.getElementById('downloadsDeleteFileCheckbox');
+      if (checkbox) checkbox.checked = false;
+
+      pendingDeleteDownload = { batchMode: true };
+
+      const modal = document.getElementById('downloadsDeleteModal');
+      if (modal) modal.showModal();
+    });
+  }
+
+  // 取消选择
+  const deselectBtn = document.getElementById('downloadsDeselectBtn');
+  if (deselectBtn) {
+    deselectBtn.addEventListener('click', () => {
+      clearSelection();
+    });
+  }
 }
 
 // ==================== 数据加载 ====================
@@ -146,7 +174,7 @@ async function loadDownloads(reset = false) {
   if (loadingEl) loadingEl.classList.remove('hidden');
 
   try {
-    let url = `http://localhost:${realmPort}/api/downloads/list?token=${realmToken}&limit=${PAGE_SIZE}&offset=${currentOffset}`;
+    let url = `/api/downloads/list?token=${realmToken}&limit=${PAGE_SIZE}&offset=${currentOffset}`;
     if (currentSearch) {
       url += `&search=${encodeURIComponent(currentSearch)}`;
     }
@@ -271,7 +299,8 @@ function renderDownloadItem(item) {
   }
 
   return `
-    <div class="download-item" data-id="${escapeHtml(item.id)}" data-state="${stateClass}">
+    <div class="download-item${selectedIds.has(item.id) ? ' selected' : ''}" data-id="${escapeHtml(item.id)}" data-state="${stateClass}">
+      <input type="checkbox" class="download-item-checkbox" data-id="${escapeHtml(item.id)}" ${selectedIds.has(item.id) ? 'checked' : ''}>
       <div class="download-item-icon">
         ${getFileTypeIcon(item.mimeType)}
       </div>
@@ -307,6 +336,19 @@ function bindItemActions(listEl) {
     if (!target) return;
 
     e.stopPropagation();
+
+    // 勾选框：切换选中状态
+    if (target.classList.contains('download-item-checkbox')) {
+      const id = target.dataset.id;
+      if (target.checked) {
+        selectedIds.add(id);
+      } else {
+        selectedIds.delete(id);
+      }
+      target.closest('.download-item')?.classList.toggle('selected', target.checked);
+      updateActionsBar();
+      return;
+    }
 
     // 暂停
     if (target.classList.contains('download-item-pause-btn')) {
@@ -354,16 +396,50 @@ function bindItemActions(listEl) {
   });
 }
 
+// ==================== 批量选择 ====================
+
+/**
+ * 更新批量操作栏显示状态
+ */
+function updateActionsBar() {
+  const bar = document.getElementById('downloadsActionsBar');
+  const count = document.getElementById('downloadsSelectedCount');
+  if (!bar || !count) return;
+
+  if (selectedIds.size >= 1) {
+    bar.classList.remove('hidden');
+    count.textContent = `已选择 ${selectedIds.size} 项`;
+  } else {
+    bar.classList.add('hidden');
+    count.textContent = '已选择 0 项';
+  }
+}
+
+/**
+ * 清除所有选中状态
+ */
+function clearSelection() {
+  selectedIds.clear();
+  document.querySelectorAll('.download-item-checkbox:checked').forEach(cb => {
+    cb.checked = false;
+  });
+  document.querySelectorAll('.download-item.selected').forEach(el => {
+    el.classList.remove('selected');
+  });
+  updateActionsBar();
+}
+
 // ==================== API 操作 ====================
 
 /**
  * 执行 API 操作
  * @param {string} path - API 路径
  * @param {Object} body - 请求体
+ * @param {boolean} [refresh] - 成功后是否刷新列表（批量操作时传 false，统一最后刷新）
  */
-async function apiAction(path, body = {}) {
+async function apiAction(path, body = {}, refresh = true) {
   try {
-    const response = await fetch(`http://localhost:${realmPort}${path}?token=${realmToken}`, {
+    const response = await fetch(`${path}?token=${realmToken}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -371,12 +447,15 @@ async function apiAction(path, body = {}) {
     const data = await response.json();
     if (data.success) {
       // 操作成功后刷新列表
-      loadDownloads(true);
+      if (refresh) loadDownloads(true);
+      return true;
     } else {
       console.error(`[Downloads Page] API 操作失败: ${path}`, data.error);
+      return false;
     }
   } catch (error) {
     console.error(`[Downloads Page] API 请求失败: ${path}`, error);
+    return false;
   }
 }
 
@@ -386,18 +465,30 @@ async function apiAction(path, body = {}) {
 async function executeDeleteDownload() {
   if (!pendingDeleteDownload) return;
 
-  // 如果下载进行中，先取消
-  if (pendingDeleteDownload.isInProgress) {
-    await apiAction(`/api/downloads/cancel`, { downloadId: pendingDeleteDownload.downloadId });
-  }
-
   const checkbox = document.getElementById('downloadsDeleteFileCheckbox');
   const deleteFile = checkbox ? checkbox.checked : false;
 
-  await apiAction(`/api/downloads/delete`, {
-    downloadId: pendingDeleteDownload.downloadId,
-    deleteFile,
-  });
+  if (pendingDeleteDownload.batchMode) {
+    // 批量删除模式：逐条删除（不逐条刷新），最后统一刷新
+    for (const id of selectedIds) {
+      await apiAction(`/api/downloads/delete`, { downloadId: id, deleteFile }, false);
+    }
+    clearSelection();
+    loadDownloads(true);
+  } else {
+    // 单条删除：如果下载进行中，先取消
+    if (pendingDeleteDownload.isInProgress) {
+      await apiAction(`/api/downloads/cancel`, { downloadId: pendingDeleteDownload.downloadId }, false);
+    }
+    await apiAction(`/api/downloads/delete`, {
+      downloadId: pendingDeleteDownload.downloadId,
+      deleteFile,
+    });
+    // 单条删除后同步移除选中态，避免批量栏计数残留
+    if (selectedIds.delete(pendingDeleteDownload.downloadId)) {
+      updateActionsBar();
+    }
+  }
 
   pendingDeleteDownload = null;
 }

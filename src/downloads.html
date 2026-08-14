@@ -23,6 +23,13 @@
       <input type="text" class="downloads-search-input" placeholder="搜索下载记录..." id="downloadsSearchInput">
     </div>
 
+    <!-- 批量操作栏（勾选时显示） -->
+    <div class="downloads-actions-bar hidden" id="downloadsActionsBar">
+      <span id="downloadsSelectedCount">已选择 0 项</span>
+      <button id="downloadsDeleteSelectedBtn" class="btn btn-danger btn-sm">删除选中项</button>
+      <button id="downloadsDeselectBtn" class="btn btn-secondary btn-sm">取消选择</button>
+    </div>
+
     <!-- 下载列表 -->
     <div class="downloads-page-list" id="downloadsPageList">
       <!-- JS 动态渲染 -->

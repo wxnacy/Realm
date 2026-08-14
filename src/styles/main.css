@@ -6629,8 +6629,13 @@ textarea::placeholder {
   background: var(--bg-hover);
 }
 
+/* 选中态必须与 hover 态视觉可区分（此前同为 --bg-hover，用户以为多选没生效） */
 .download-item.selected {
-  background: var(--bg-hover);
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.download-item.selected:hover {
+  background: rgba(59, 130, 246, 0.22);
 }
 
 /* 文件类型图标 */
@@ -6773,24 +6778,11 @@ textarea::placeholder {
   flex: 1;
 }
 
-.download-batch-bar .btn-icon {
-  width: 24px;
-  height: 24px;
-  color: var(--text-muted);
-  transition: color 0.15s;
-}
-
-.download-batch-bar .download-batch-delete:hover {
-  color: var(--danger-color);
-}
-
-.download-batch-bar .download-batch-deselect:hover {
-  color: var(--text-primary);
-}
-
 /* ==================== 下载删除确认弹窗 ==================== */
 
 .download-delete-modal {
+  /* 全局 *{margin:0} 重置了 dialog 的 UA 默认 margin:auto，需显式补回以居中 */
+  margin: auto;
   border: 1px solid var(--border-color);
   border-radius: 12px;
   background: var(--bg-primary);
@@ -6848,6 +6840,8 @@ textarea::placeholder {
 /* ==================== 下载清空确认弹窗 ==================== */
 
 .download-clear-modal {
+  /* 全局 *{margin:0} 重置了 dialog 的 UA 默认 margin:auto，需显式补回以居中 */
+  margin: auto;
   border: 1px solid var(--border-color);
   border-radius: 12px;
   background: var(--bg-primary);
@@ -6890,9 +6884,13 @@ textarea::placeholder {
 /* ==================== 下载页面（realm://downloads） ==================== */
 
 .downloads-page {
-  max-width: var(--downloads-page-max-width);
-  margin: 0 auto;
-  padding: 24px;
+  /* body 是 flex 容器（主应用布局），max-width+margin auto 在 flex item 上
+     会退化为内容收缩宽度；必须与 .history-page 一样 flex:1 撑满后再用
+     padding-inline 居中内容，否则页面会被挤成内容固有宽度 */
+  flex: 1;
+  overflow-y: auto;
+  padding-block: 24px;
+  padding-inline: max(24px, calc((100% - var(--downloads-page-max-width)) / 2));
   min-height: 100vh;
   background: var(--bg-primary);
 }
@@ -6940,6 +6938,36 @@ textarea::placeholder {
   flex-direction: column;
 }
 
+/* 批量操作栏（对齐历史页交互模式） */
+.downloads-actions-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.downloads-actions-bar.hidden {
+  display: none;
+}
+
+.downloads-actions-bar span {
+  flex: 1;
+}
+
+/* 下载项勾选框 */
+.download-item-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-color);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
 .downloads-empty-state {
   padding: 48px 16px;
   text-align: center;
@@ -6950,6 +6978,18 @@ textarea::placeholder {
 }
 
 .downloads-empty-state.hidden {
+  display: none;
+}
+
+/* 加载更多指示器（main.css 无全局 .hidden 工具类，每个组件需自带 .hidden 规则） */
+.downloads-loading-more {
+  padding: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.downloads-loading-more.hidden {
   display: none;
 }
 

@@ -1009,6 +1009,7 @@ function bindWebviewEvents(tabId, webview) {
       window.mediaAPI.reportMediaDetected(webContentsId, e.args[0]);
     } else if (e.channel === 'media:outside-click') {
       if (state.mediaPanelOpen) toggleMediaPanel();
+      if (state.downloadPanelOpen) handleDownloadOutsideClick();
     } else if (e.channel === 'credential:form-submitted') {
       // 表单提交：检查是否需要显示保存凭据横幅
       handleCredentialFormSubmitted(e.args[0]);
@@ -5527,6 +5528,14 @@ function initDownloads() {
     });
   }
 
+  // 记录 embedder 内 mousedown 落点（capture 阶段），供 media:outside-click 裁决穿透事件
+  document.addEventListener('mousedown', (e) => {
+    const panel = document.getElementById('downloadPanel');
+    const inPanel = !!(panel && panel.contains(e.target));
+    const inModal = typeof e.target.closest === 'function' && !!e.target.closest('dialog');
+    lastEmbedderMousedown = { time: Date.now(), inPanel: inPanel || inModal };
+  }, true);
+
   // 点击页面其他地方隐藏 tooltip 和下载面板
   document.addEventListener('click', (e) => {
     const tooltip = document.getElementById('downloadTooltip');
@@ -5535,18 +5544,25 @@ function initDownloads() {
     if (tooltip && !tooltip.contains(e.target) && (!downloadBtnEl || !downloadBtnEl.contains(e.target))) {
       hideDownloadTooltip();
     }
-    // 点击面板外部关闭面板
-    if (panel && !panel.contains(e.target) && (!downloadBtnEl || !downloadBtnEl.contains(e.target))) {
+    // 点击面板外部关闭面板（排除确认弹窗内的点击：弹窗是面板的兄弟节点，
+    // 且确认/取消按钮的处理器会先 modal.close() 再冒泡到 document，
+    // 此时 [open] 已移除，故用 closest('dialog') 而非 dialog[open]）
+    const inModal = typeof e.target.closest === 'function' && e.target.closest('dialog');
+    if (panel && !panel.contains(e.target) && !inModal && (!downloadBtnEl || !downloadBtnEl.contains(e.target))) {
       if (state.downloadPanelOpen) {
         closeDownloadPanel();
       }
     }
   });
 
-  // ESC 键关闭下载面板
+  // ESC 键关闭下载面板（确认弹窗打开时 ESC 只关闭弹窗，由浏览器原生处理）
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && state.downloadPanelOpen) {
-      closeDownloadPanel();
+      const modalOpen = document.getElementById('downloadDeleteModal')?.open ||
+        document.getElementById('downloadClearModal')?.open;
+      if (!modalOpen) {
+        closeDownloadPanel();
+      }
     }
   });
 
@@ -5568,16 +5584,29 @@ function initDownloads() {
     });
   }
 
-  // 查看全部按钮
+  // 查看全部按钮：打开 realm://downloads 下载页（全局共享，不区分容器）
   const viewAllBtn = document.getElementById('downloadViewAllBtn');
   if (viewAllBtn) {
     viewAllBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       closeDownloadPanel();
-      // 在当前 tab 打开 realm://downloads
-      const activeWebview = state.webviews.get(state.activeTabId);
-      if (activeWebview) {
-        activeWebview.loadURL('realm://downloads');
+      // webview 无法直接加载 realm:// 自定义协议，必须走 createTab
+      // （内部经 realmUrlToHttp 转换为 http://localhost:PORT/ 并注入 token）
+      let existingTabId = null;
+      state.tabs.forEach((tab, tabId) => {
+        if (tab.url === 'realm://downloads') {
+          existingTabId = tabId;
+        }
+      });
+      if (existingTabId) {
+        // 已有则切换到该 Tab 并刷新，确保显示最新数据
+        switchTab(existingTabId);
+        const webview = state.webviews.get(existingTabId);
+        if (webview) {
+          webview.reload();
+        }
+      } else {
+        createTab(state.currentContainer, 'realm://downloads');
       }
     });
   }
@@ -7779,6 +7808,27 @@ function initAIPanelResize() {
 // ==================== 下载管理面板 ====================
 
 /**
+ * 最近一次 embedder 内 mousedown 的记录 { time, inPanel }
+ * 用于裁决 webview 穿透事件：点面板按钮时 webview 也会收到 mousedown 并发
+ * media:outside-click（跨进程 IPC，异步晚到），无法直接与 click 比时序。
+ * 但真正点网页时 embedder 收不到 mousedown，点面板时 embedder 的 mousedown
+ * 一定先落在面板/弹窗内，IPC 到达时回看这条记录即可区分
+ * @type {{ time: number, inPanel: boolean }}
+ */
+let lastEmbedderMousedown = { time: 0, inPanel: false };
+
+/**
+ * 处理 webview 内 mousedown 触发的面板外点击（media:outside-click）
+ * 若最近一次 embedder mousedown 落在面板/弹窗内且时间接近（穿透事件），忽略；
+ * 否则判定为真正点击网页，关闭面板
+ */
+function handleDownloadOutsideClick() {
+  const recent = Date.now() - lastEmbedderMousedown.time < 300;
+  if (recent && lastEmbedderMousedown.inPanel) return;
+  closeDownloadPanel();
+}
+
+/**
  * 切换下载面板显示/隐藏
  * 打开时加载最近 10 条下载记录
  */
@@ -8312,7 +8362,8 @@ function updateBatchBar() {
   const count = document.getElementById('downloadBatchCount');
   if (!bar || !count) return;
 
-  if (downloadSelectedIds.size >= 2) {
+  // 选中 1 项即显示批量操作栏：给首次 Cmd+Click 明确的界面反馈
+  if (downloadSelectedIds.size >= 1) {
     bar.classList.remove('hidden');
     count.textContent = `已选择 ${downloadSelectedIds.size} 项`;
   } else {
