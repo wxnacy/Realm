@@ -246,6 +246,7 @@ function switchSettingsPage(pageName) {
     loadMultimediaSettings();
   } else if (pageName === 'autofill') {
     loadCredentials();
+    loadAddress();
   } else {
     // 离开开发者模式页面时停止轮询
     stopQueueStatusPolling();
@@ -2118,6 +2119,217 @@ function setupCredentialListeners() {
   }
 }
 
+// ==================== 地址管理（Phase 33） ====================
+
+/**
+ * 调用地址管理 HTTP API
+ * @param {string} route - API 路由（如 'get'、'save'、'delete'）
+ * @param {Object} [options] - fetch 选项
+ * @param {Object} [query] - 额外查询参数
+ * @returns {Promise<*>} 解析后的 JSON 响应
+ */
+async function addressApi(route, options = {}, query = {}) {
+  const params = new URLSearchParams({ token: apiToken, ...query });
+  const res = await fetch(`/api/address/${route}?${params.toString()}`, options);
+  if (!res.ok) {
+    throw new Error(`地址 API 请求失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+/**
+ * 加载当前容器的地址数据
+ * per AF-06：设置页查看和编辑地址
+ */
+async function loadAddress() {
+  const containerId = pageParams.get('container') || 'default';
+  const addressView = document.getElementById('addressView');
+  const addressEdit = document.getElementById('addressEdit');
+  const addressEmptyState = document.getElementById('addressEmptyState');
+  const addressCard = document.getElementById('addressCard');
+
+  if (!addressView || !addressEdit || !addressEmptyState || !addressCard) return;
+
+  try {
+    const result = await addressApi('get', {}, { containerId });
+    const address = result.address;
+
+    if (address && address.name) {
+      // 有地址数据：显示查看模式
+      renderAddressView(address);
+      addressCard.style.display = '';
+      addressView.classList.remove('hidden');
+      addressEdit.classList.add('hidden');
+      addressEmptyState.classList.add('hidden');
+    } else {
+      // 无地址数据：显示空状态
+      addressCard.style.display = 'none';
+      addressEmptyState.classList.remove('hidden');
+    }
+  } catch (error) {
+    console.error('[Realm] 加载地址失败:', error);
+    addressCard.style.display = 'none';
+    addressEmptyState.classList.remove('hidden');
+  }
+}
+
+/**
+ * 渲染地址查看模式
+ * WR-13：使用 textContent 防 XSS
+ * @param {Object} address - { name, phone, address }
+ */
+function renderAddressView(address) {
+  const nameEl = document.getElementById('addressName');
+  const phoneEl = document.getElementById('addressPhone');
+  const fullEl = document.getElementById('addressFull');
+
+  if (nameEl) nameEl.textContent = address.name || '未填写';
+  if (phoneEl) phoneEl.textContent = address.phone || '未填写';
+  if (fullEl) fullEl.textContent = address.address || '未填写';
+}
+
+/**
+ * 切换地址编辑模式
+ */
+function toggleAddressEdit() {
+  const addressView = document.getElementById('addressView');
+  const addressEdit = document.getElementById('addressEdit');
+
+  if (!addressView || !addressEdit) return;
+
+  const isEditing = !addressEdit.classList.contains('hidden');
+
+  if (isEditing) {
+    // 切换回查看模式
+    addressEdit.classList.add('hidden');
+    addressView.classList.remove('hidden');
+  } else {
+    // 切换到编辑模式，填充现有数据
+    const nameEl = document.getElementById('addressName');
+    const phoneEl = document.getElementById('addressPhone');
+    const fullEl = document.getElementById('addressFull');
+
+    const nameInput = document.getElementById('addressNameInput');
+    const phoneInput = document.getElementById('addressPhoneInput');
+    const fullInput = document.getElementById('addressFullInput');
+
+    if (nameInput && nameEl) nameInput.value = nameEl.textContent === '未填写' ? '' : nameEl.textContent;
+    if (phoneInput && phoneEl) phoneInput.value = phoneEl.textContent === '未填写' ? '' : phoneEl.textContent;
+    if (fullInput && fullEl) fullInput.value = fullEl.textContent === '未填写' ? '' : fullEl.textContent;
+
+    addressView.classList.add('hidden');
+    addressEdit.classList.remove('hidden');
+  }
+}
+
+/**
+ * 保存地址
+ * 验证姓名和手机号非空，手机号 11 位数字
+ */
+async function saveAddress() {
+  const nameInput = document.getElementById('addressNameInput');
+  const phoneInput = document.getElementById('addressPhoneInput');
+  const fullInput = document.getElementById('addressFullInput');
+
+  if (!nameInput || !phoneInput || !fullInput) return;
+
+  const name = nameInput.value.trim();
+  const phone = phoneInput.value.trim();
+  const address = fullInput.value.trim();
+
+  // 验证
+  if (!name) {
+    showToast('请输入姓名');
+    highlightInputError(nameInput);
+    return;
+  }
+
+  if (!phone) {
+    showToast('请输入手机号');
+    highlightInputError(phoneInput);
+    return;
+  }
+
+  if (!/^1\d{10}$/.test(phone)) {
+    showToast('手机号格式不正确，应为 11 位数字');
+    highlightInputError(phoneInput);
+    return;
+  }
+
+  if (!address) {
+    showToast('请输入详细地址');
+    highlightInputError(fullInput);
+    return;
+  }
+
+  const containerId = pageParams.get('container') || 'default';
+
+  try {
+    await addressApi('save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ containerId, name, phone, address }),
+    });
+
+    showToast('地址已保存');
+    await loadAddress();
+  } catch (error) {
+    console.error('[Realm] 保存地址失败:', error);
+    showToast('保存失败，请重试');
+  }
+}
+
+/**
+ * 删除地址
+ */
+async function deleteAddress() {
+  const containerId = pageParams.get('container') || 'default';
+
+  if (!confirm('确定要删除当前容器的收货地址吗？')) {
+    return;
+  }
+
+  try {
+    await addressApi('delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ containerId }),
+    });
+
+    showToast('地址已删除');
+    await loadAddress();
+  } catch (error) {
+    console.error('[Realm] 删除地址失败:', error);
+    showToast('删除失败，请重试');
+  }
+}
+
+/**
+ * 初始化地址管理事件监听器
+ */
+function setupAddressListeners() {
+  const editBtn = document.getElementById('addressEditBtn');
+  const deleteBtn = document.getElementById('addressDeleteBtn');
+  const cancelBtn = document.getElementById('addressCancelBtn');
+  const saveBtn = document.getElementById('addressSaveBtn');
+
+  if (editBtn) {
+    editBtn.addEventListener('click', toggleAddressEdit);
+  }
+
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', deleteAddress);
+  }
+
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', toggleAddressEdit);
+  }
+
+  if (saveBtn) {
+    saveBtn.addEventListener('click', saveAddress);
+  }
+}
+
 // ==================== AI 助手设置 ====================
 
 /** AI 提供商目录缓存（含模型列表和配置状态） */
@@ -2361,6 +2573,9 @@ async function init() {
 
   // 初始化凭据管理事件监听
   setupCredentialListeners();
+
+  // 初始化地址管理事件监听
+  setupAddressListeners();
 
   // 初始化 AI 助手设置事件监听
   setupAISettingsListeners();

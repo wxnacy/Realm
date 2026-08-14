@@ -298,6 +298,25 @@
       </div>
     </div>
 
+    <!-- 地址保存提示横幅（per C-05, D-07） -->
+    <div class="address-save-banner hidden" id="addressSaveBanner">
+      <div class="address-save-info">
+        <svg class="address-save-icon" width="18" height="18" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+          <circle cx="12" cy="10" r="3"></circle>
+        </svg>
+        <span class="address-save-text">
+          检测到地址表单，是否保存收货地址？
+        </span>
+      </div>
+      <div class="address-save-actions">
+        <button class="address-save-btn address-save-btn-save" id="addressSaveConfirmBtn">保存地址</button>
+        <button class="address-save-btn address-save-btn-never" id="addressNeverBtn">永不</button>
+        <button class="address-save-btn address-save-btn-later" id="addressLaterBtn">暂不</button>
+      </div>
+    </div>
+
     <!-- 收藏栏 -->
     <div class="bookmarks-bar" id="bookmarksBar">
       <div class="bookmarks-bar-list" id="bookmarksBarList">

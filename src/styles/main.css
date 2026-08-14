@@ -7043,7 +7043,93 @@ textarea::placeholder {
   background: var(--bg-hover);
 }
 
-/* ==================== 凭据管理表格样式（Phase 33） ==================== */
+/* ==================== 地址保存横幅 ==================== */
+
+.address-save-banner {
+  position: fixed;
+  top: calc(var(--tab-bar-height) + var(--toolbar-height));
+  left: var(--sidebar-width);
+  right: 0;
+  height: 44px;
+  z-index: 9997;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  transform: translateY(-100%);
+  opacity: 0;
+  transition: transform 300ms ease-out, opacity 300ms ease-out;
+}
+
+.address-save-banner.hidden {
+  display: none;
+}
+
+.address-save-banner.visible {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.address-save-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.address-save-icon {
+  color: var(--accent-color);
+  flex-shrink: 0;
+}
+
+.address-save-text {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.address-save-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.address-save-btn {
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  border: none;
+  transition: background-color 0.15s;
+}
+
+.address-save-btn-save {
+  background: var(--accent-color);
+  color: white;
+}
+
+.address-save-btn-save:hover {
+  background: var(--accent-hover);
+}
+
+.address-save-btn-never {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.address-save-btn-never:hover {
+  background: var(--bg-hover);
+}
+
+.address-save-btn-later {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.address-save-btn-later:hover {
+  background: var(--bg-hover);
+}
+
+/* ==================== 凭据管理表格 ==================== */
 
 .credential-search {
   margin-bottom: 12px;
@@ -7052,14 +7138,13 @@ textarea::placeholder {
 .credential-search-input {
   width: 100%;
   padding: 8px 12px;
-  background: var(--bg-input);
+  background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 6px;
   color: var(--text-primary);
   font-size: 13px;
   outline: none;
-  transition: border-color 0.2s;
-  box-sizing: border-box;
+  transition: border-color 0.15s;
 }
 
 .credential-search-input:focus {
@@ -7073,12 +7158,13 @@ textarea::placeholder {
 .credential-batch-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   padding: 8px 12px;
-  background: var(--bg-elevated);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   margin-bottom: 12px;
-  animation: slideDown 0.2s ease-out;
+  animation: slideDown 200ms ease-out;
 }
 
 .credential-batch-bar.hidden {
@@ -7086,38 +7172,43 @@ textarea::placeholder {
 }
 
 @keyframes slideDown {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .credential-batch-count {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-secondary);
   flex: 1;
 }
 
 .credential-table {
   width: 100%;
-  border-collapse: collapse;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
 }
 
 .credential-table-header {
   display: flex;
   align-items: center;
-  background: #252525;
   height: 40px;
+  background: #252525;
   padding: 0 12px;
-  border-radius: 6px 6px 0 0;
   font-size: 12px;
-  color: var(--text-muted);
-  font-weight: 500;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .credential-table-body {
-  border: 1px solid var(--border-color);
-  border-top: none;
-  border-radius: 0 0 6px 6px;
-  overflow: hidden;
+  /* JS 动态渲染 */
 }
 
 .credential-row {
@@ -7127,7 +7218,7 @@ textarea::placeholder {
   padding: 0 12px;
   border-bottom: 1px solid var(--border-color);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background-color 0.15s;
 }
 
 .credential-row:last-child {
@@ -7139,23 +7230,17 @@ textarea::placeholder {
 }
 
 .credential-row.expanded {
-  background: var(--bg-hover);
-  border-bottom-color: transparent;
+  background: var(--bg-secondary);
 }
 
 .credential-skeleton {
   cursor: default;
 }
 
-.credential-skeleton:hover {
-  background: transparent;
-}
-
 .skeleton-bar {
   height: 12px;
-  background: var(--bg-elevated);
+  background: var(--border-color);
   border-radius: 4px;
-  width: 80%;
   animation: skeletonPulse 1.5s ease-in-out infinite;
 }
 
@@ -7188,10 +7273,8 @@ textarea::placeholder {
 }
 
 .credential-favicon {
-  width: 16px;
-  height: 16px;
-  border-radius: 2px;
   flex-shrink: 0;
+  border-radius: 2px;
 }
 
 .credential-domain {
@@ -7231,23 +7314,27 @@ textarea::placeholder {
   border-radius: 4px;
   color: var(--text-muted);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: color 0.15s, background-color 0.15s;
 }
 
 .credential-expand-btn:hover,
 .credential-delete-btn:hover {
-  background: var(--bg-elevated);
+  background: var(--bg-secondary);
   color: var(--text-primary);
 }
 
 .credential-delete-btn:hover {
-  color: var(--color-danger, #ff4444);
+  color: var(--danger-color);
 }
 
+/* 凭据详情行 */
+
 .credential-detail {
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
   overflow: hidden;
   max-height: 0;
-  transition: max-height 0.2s ease;
+  transition: max-height 200ms ease;
 }
 
 .credential-detail:not(.hidden) {
@@ -7255,24 +7342,20 @@ textarea::placeholder {
 }
 
 .credential-detail.hidden {
-  max-height: 0;
+  display: none;
 }
 
 .credential-detail-content {
-  padding: 12px 16px 12px 56px;
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border-color);
+  padding: 12px 16px 12px 52px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .credential-detail-field {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 8px;
-}
-
-.credential-detail-field:last-of-type {
-  margin-bottom: 0;
 }
 
 .credential-detail-label {
@@ -7297,14 +7380,14 @@ textarea::placeholder {
 
 .credential-detail-time {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .credential-detail-actions {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-color);
+  margin-top: 4px;
 }
+
+/* 凭据空状态 */
 
 .credential-empty-state {
   display: flex;
@@ -7312,7 +7395,7 @@ textarea::placeholder {
   align-items: center;
   justify-content: center;
   padding: 40px 20px;
-  text-align: center;
+  gap: 12px;
 }
 
 .credential-empty-state.hidden {
@@ -7321,11 +7404,88 @@ textarea::placeholder {
 
 .credential-empty-title {
   font-size: 14px;
+  font-weight: 600;
   color: var(--text-secondary);
-  margin: 12px 0 4px;
+  margin: 0;
 }
 
 .credential-empty-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ==================== 地址管理卡片（Phase 33 Wave 2） ==================== */
+
+.address-card {
+  background: #252525;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.address-view,
+.address-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.address-view.hidden,
+.address-edit.hidden {
+  display: none;
+}
+
+.address-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.address-field-label {
   font-size: 12px;
   color: var(--text-muted);
+  width: 60px;
+  flex-shrink: 0;
+}
+
+.address-field-value {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.address-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.address-edit-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.address-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px;
+  gap: 8px;
+}
+
+.address-empty-state.hidden {
+  display: none;
+}
+
+.address-empty-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.address-empty-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
 }

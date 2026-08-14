@@ -276,6 +276,101 @@ const AutofillEngine = {
   },
 };
 
+// ==================== 地址表单检测（Phase 33） ====================
+
+/**
+ * 地址表单检测器
+ * 扫描页面中的地址表单（姓名、手机号、地址字段）
+ * per D-09：多字段特征匹配
+ * per D-10：2/3 匹配阈值
+ * per D-11：与登录表单共用检测框架
+ * per D-12：单次检测（页面加载完成后执行一次）
+ *
+ * @module AddressDetector
+ */
+const AddressDetector = {
+  /** 已检测到的地址表单集合（避免重复触发） */
+  detectedForms: new WeakSet(),
+
+  /**
+   * 扫描页面中的地址表单
+   * 匹配姓名、手机号、地址三个字段，2/3 匹配即触发
+   * 排除包含 password 字段的表单（避免与登录表单冲突）
+   *
+   * @returns {Object|null} 检测结果 { nameField, phoneField, addressField } 或 null
+   */
+  scanForAddressForms() {
+    const inputs = document.querySelectorAll(
+      'input[type="text"], input[type="tel"], textarea, input:not([type])'
+    );
+
+    let nameField = null;
+    let phoneField = null;
+    let addressField = null;
+
+    for (const input of inputs) {
+      // 跳过隐藏字段
+      if (input.offsetParent === null && input.style.display === 'none') continue;
+
+      // 跳过包含 password 字段的表单（避免与登录表单冲突）
+      const form = input.closest('form');
+      if (form && form.querySelector('input[type="password"]')) continue;
+
+      const attrs = (
+        (input.name || '') +
+        (input.id || '') +
+        (input.placeholder || '') +
+        (input.autocomplete || '')
+      ).toLowerCase();
+
+      // 姓名字段特征
+      if (!nameField && /name|realname|username|姓名|收件人|联系人|收货人/i.test(attrs)) {
+        nameField = input;
+        continue;
+      }
+
+      // 手机号字段特征
+      if (!phoneField && (input.type === 'tel' || /phone|mobile|tel|手机|电话|联系方式/i.test(attrs))) {
+        phoneField = input;
+        continue;
+      }
+
+      // 地址字段特征
+      if (!addressField && /address|addr|地址|详细地址|收货地址|街道|门牌/i.test(attrs)) {
+        addressField = input;
+        continue;
+      }
+    }
+
+    // 2/3 匹配阈值（D-10）
+    const matchCount = [nameField, phoneField, addressField].filter(Boolean).length;
+    if (matchCount >= 2) {
+      return { nameField, phoneField, addressField };
+    }
+
+    return null;
+  },
+
+  /**
+   * 填充地址字段
+   * 使用 AutofillEngine 的 native setter 方法
+   *
+   * @param {Object} fields - { nameField, phoneField, addressField }
+   * @param {Object} data - { name, phone, address }
+   */
+  fillAddressFields(fields, data) {
+    if (fields.nameField && data.name) {
+      AutofillEngine.setInputValue(fields.nameField, data.name);
+    }
+    if (fields.phoneField && data.phone) {
+      AutofillEngine.setInputValue(fields.phoneField, data.phone);
+    }
+    if (fields.addressField && data.address) {
+      AutofillEngine.setInputValue(fields.addressField, data.address);
+    }
+  },
+};
+
 // ==================== autofill/fillForm 互斥监听 ====================
 
 /**
@@ -301,6 +396,17 @@ ipcRenderer.on('credential:do-autofill', (event, credentials) => {
   }
 });
 
+/**
+ * 监听地址自动填充指令（来自 renderer，由主进程中转）
+ * 收到地址数据后扫描地址表单并填充
+ */
+ipcRenderer.on('address:do-autofill', (event, addressData) => {
+  const addressFields = AddressDetector.scanForAddressForms();
+  if (addressFields && addressData) {
+    AddressDetector.fillAddressFields(addressFields, addressData);
+  }
+});
+
 // ==================== 页面加载和 DOM 变更监听 ====================
 
 /**
@@ -313,6 +419,21 @@ window.addEventListener('DOMContentLoaded', () => {
   forms.forEach(formInfo => FormDetector.attachSubmitListener(formInfo));
   if (forms.length > 0) {
     ipcRenderer.sendToHost('credential:autofill-request');
+  }
+
+  // 地址表单检测（per D-12：页面加载完成后检测一次）
+  const addressFields = AddressDetector.scanForAddressForms();
+  if (addressFields) {
+    // 通知主窗口检测到地址表单，提取当前字段值
+    const detectedData = {
+      name: addressFields.nameField ? addressFields.nameField.value : '',
+      phone: addressFields.phoneField ? addressFields.phoneField.value : '',
+      address: addressFields.addressField ? addressFields.addressField.value : '',
+    };
+    ipcRenderer.sendToHost('address:form-detected', detectedData);
+
+    // 请求自动填充地址
+    ipcRenderer.sendToHost('address:autofill-request');
   }
 });
 
