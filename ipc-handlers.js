@@ -233,6 +233,7 @@ function registerHandlers() {
     console.warn('[Realm] registerHandlers 已调用，跳过重复注册');
     return;
   }
+  handlersRegistered = true;
   // WR-4：Tab 回收策略单点实现于主进程（tab-manager），
   // 回收发生时推送 tab:recycled 事件，渲染进程据此移除对应 DOM/webview 并提示
   tabManager.setRecycleListener(({ recycledTabId, message }) => {
@@ -1820,7 +1821,6 @@ function registerHandlers() {
     return { success: true };
   });
 
-  handlersRegistered = true;
   console.log('[Realm] IPC 处理器已注册');
 }
 
