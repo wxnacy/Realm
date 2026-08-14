@@ -8495,10 +8495,14 @@ function showSaveCredentialBanner(data) {
   const banner = elements.credentialSaveBanner;
   if (!banner) return;
 
-  // 清除之前的定时器
+  // 清除之前的定时器和 ESC handler
   if (state.credentialBannerTimer) {
     clearTimeout(state.credentialBannerTimer);
     state.credentialBannerTimer = null;
+  }
+  if (state.credentialEscHandler) {
+    document.removeEventListener('keydown', state.credentialEscHandler);
+    state.credentialEscHandler = null;
   }
 
   // 暂存凭据数据（保存按钮需要）
@@ -8592,8 +8596,10 @@ function showSaveCredentialBanner(data) {
     if (e.key === 'Escape') {
       hideCredentialBanner();
       document.removeEventListener('keydown', escHandler);
+      state.credentialEscHandler = null;
     }
   };
+  state.credentialEscHandler = escHandler;
   document.addEventListener('keydown', escHandler);
 }
 
@@ -8607,10 +8613,14 @@ function showSaveAddressBanner(data) {
   const banner = elements.addressSaveBanner;
   if (!banner) return;
 
-  // 清除之前的定时器
+  // 清除之前的定时器和 ESC handler
   if (state.addressBannerTimer) {
     clearTimeout(state.addressBannerTimer);
     state.addressBannerTimer = null;
+  }
+  if (state.addressEscHandler) {
+    document.removeEventListener('keydown', state.addressEscHandler);
+    state.addressEscHandler = null;
   }
 
   // 暂存地址数据（保存按钮需要）
@@ -8634,8 +8644,10 @@ function showSaveAddressBanner(data) {
     if (e.key === 'Escape') {
       hideAddressBanner();
       document.removeEventListener('keydown', escHandler);
+      state.addressEscHandler = null;
     }
   };
+  state.addressEscHandler = escHandler;
   document.addEventListener('keydown', escHandler);
 }
 
@@ -8702,6 +8714,18 @@ function hideCredentialBanner() {
   const banner = elements.credentialSaveBanner;
   if (!banner) return;
 
+  // 清除 ESC handler
+  if (state.credentialEscHandler) {
+    document.removeEventListener('keydown', state.credentialEscHandler);
+    state.credentialEscHandler = null;
+  }
+
+  // 显式清除敏感数据（密码先置空再清引用）
+  if (state.pendingCredentialData) {
+    state.pendingCredentialData.password = '';
+    state.pendingCredentialData = null;
+  }
+
   banner.classList.remove('visible');
   // 等待动画结束后隐藏
   setTimeout(() => {
@@ -8716,6 +8740,17 @@ function hideCredentialBanner() {
 function hideAddressBanner() {
   const banner = elements.addressSaveBanner;
   if (!banner) return;
+
+  // 清除 ESC handler
+  if (state.addressEscHandler) {
+    document.removeEventListener('keydown', state.addressEscHandler);
+    state.addressEscHandler = null;
+  }
+
+  // 清除暂存的地址数据
+  if (state.pendingAddressData) {
+    state.pendingAddressData = null;
+  }
 
   banner.classList.remove('visible');
   setTimeout(() => {
