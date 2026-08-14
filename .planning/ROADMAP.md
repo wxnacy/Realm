@@ -184,15 +184,15 @@ Plans:
   1. 用户可以在设置页查看和删除已保存的凭据
   2. 用户可以保存地址表单信息（姓名、电话、地址），并在地址表单中自动填充
 
-**Plans**: 2 plans
+**Plans**: 2/2 plans complete
 
 **Wave 1**
 
-- [ ] 33-01-PLAN.md — 凭据管理 — 后端扩展 + 设置页 UI（credential-manager 扩展 + /api/credentials/* HTTP 路由 + 凭据表格 UI）
+- [x] 33-01-PLAN.md — 凭据管理 — 后端扩展 + 设置页 UI（credential-manager 扩展 + /api/credentials/* HTTP 路由 + 凭据表格 UI）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 33-02-PLAN.md — 地址功能 — 全栈实现（address-manager.js + 地址表单检测 + 自动填充 + 保存横幅 + 设置页卡片）
+- [x] 33-02-PLAN.md — 地址功能 — 全栈实现（address-manager.js + 地址表单检测 + 自动填充 + 保存横幅 + 设置页卡片）
 
 **UI hint**: yes
 
@@ -235,4 +235,4 @@ Phases execute in numeric order: 30 → 31 → 32 → 33
 | 30. 下载管理器 — 核心引擎 | v2.3 | 2/2 | Complete   | 2026-08-11 |
 | 31. 下载管理器 — 用户交互 | v2.3 | 3/3 | Complete    | 2026-08-12 |
 | 32. 自动填充 — 凭据引擎 | v2.3 | 2/2 | Complete    | 2026-08-13 |
-| 33. 自动填充 — 增强 + Bug 修复 | v2.3 | 0/0 | Not started | - |
+| 33. 自动填充 — 增强 + Bug 修复 | v2.3 | 2/2 | Complete   | 2026-08-14 |
