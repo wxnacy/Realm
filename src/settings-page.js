@@ -125,6 +125,22 @@ async function devModeApi(route, options = {}) {
   return res.json();
 }
 
+/**
+ * 调用凭据管理 HTTP API
+ * @param {string} route - API 路由（如 'list'、'search'、'delete'）
+ * @param {Object} [options] - fetch 选项
+ * @param {Object} [query] - 额外查询参数
+ * @returns {Promise<*>} 解析后的 JSON 响应
+ */
+async function credentialsApi(route, options = {}, query = {}) {
+  const params = new URLSearchParams({ token: apiToken, ...query });
+  const res = await fetch(`/api/credentials/${route}?${params.toString()}`, options);
+  if (!res.ok) {
+    throw new Error(`凭据 API 请求失败: ${res.status}`);
+  }
+  return res.json();
+}
+
 // ==================== DOM 元素 ====================
 
 /** DOM 元素引用 */
@@ -228,6 +244,8 @@ function switchSettingsPage(pageName) {
     loadAISettings();
   } else if (pageName === 'multimedia') {
     loadMultimediaSettings();
+  } else if (pageName === 'autofill') {
+    loadCredentials();
   } else {
     // 离开开发者模式页面时停止轮询
     stopQueueStatusPolling();
@@ -1638,6 +1656,468 @@ function renderWhitelistTags() {
   });
 }
 
+// ==================== 凭据管理（Phase 33） ====================
+
+/** 凭据删除回调（单条删除或批量删除确认后调用） */
+let credentialDeleteCallback = null;
+
+/** 搜索防抖定时器 */
+let credentialSearchTimer = null;
+
+/**
+ * 加载凭据列表并渲染表格
+ * per AF-04：设置页展示已保存凭据
+ */
+async function loadCredentials() {
+  const containerId = pageParams.get('container') || 'default';
+  const tableBody = document.getElementById('credentialTableBody');
+  const emptyState = document.getElementById('credentialEmptyState');
+  const table = document.getElementById('credentialTable');
+
+  if (!tableBody || !emptyState || !table) return;
+
+  try {
+    // 显示骨架行
+    tableBody.innerHTML = '';
+    for (let i = 0; i < 3; i++) {
+      const skeleton = document.createElement('div');
+      skeleton.className = 'credential-row credential-skeleton';
+      skeleton.innerHTML = '<span class="credential-col-checkbox"></span><span class="credential-col-website"><div class="skeleton-bar"></div></span><span class="credential-col-username"><div class="skeleton-bar"></div></span><span class="credential-col-actions"></span>';
+      tableBody.appendChild(skeleton);
+    }
+    table.style.display = '';
+    emptyState.classList.add('hidden');
+
+    const result = await credentialsApi('list', {}, { containerId });
+    renderCredentialTable(result.credentials || []);
+  } catch (error) {
+    console.error('[Realm] 加载凭据列表失败:', error);
+    showToast('加载凭据列表失败');
+    tableBody.innerHTML = '';
+    table.style.display = 'none';
+    emptyState.classList.remove('hidden');
+  }
+}
+
+/**
+ * 渲染凭据表格
+ * WR-13：DOM 构建 + textContent 防 XSS
+ * @param {Array<Object>} credentials - 凭据列表
+ */
+function renderCredentialTable(credentials) {
+  const tableBody = document.getElementById('credentialTableBody');
+  const emptyState = document.getElementById('credentialEmptyState');
+  const table = document.getElementById('credentialTable');
+
+  if (!tableBody || !emptyState || !table) return;
+
+  tableBody.innerHTML = '';
+
+  if (credentials.length === 0) {
+    table.style.display = 'none';
+    emptyState.classList.remove('hidden');
+    return;
+  }
+
+  table.style.display = '';
+  emptyState.classList.add('hidden');
+
+  credentials.forEach(cred => {
+    // 行容器
+    const row = document.createElement('div');
+    row.className = 'credential-row';
+    row.dataset.id = cred.id;
+    row.dataset.origin = cred.origin;
+
+    // 复选框
+    const checkboxCell = document.createElement('span');
+    checkboxCell.className = 'credential-col-checkbox';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'credential-checkbox';
+    checkbox.dataset.id = cred.id;
+    checkbox.setAttribute('aria-label', `选择 ${cred.origin} 的凭据`);
+    checkbox.addEventListener('change', updateCredentialBatchBar);
+    checkboxCell.appendChild(checkbox);
+
+    // 网站域名（带 favicon）
+    const websiteCell = document.createElement('span');
+    websiteCell.className = 'credential-col-website';
+    const favicon = document.createElement('img');
+    favicon.className = 'credential-favicon';
+    try {
+      const urlObj = new URL(cred.origin);
+      favicon.src = `https://www.google.com/s2/favicons?domain=${urlObj.hostname}&sz=16`;
+    } catch {
+      favicon.src = '';
+    }
+    favicon.width = 16;
+    favicon.height = 16;
+    favicon.alt = '';
+    const domainSpan = document.createElement('span');
+    domainSpan.className = 'credential-domain';
+    domainSpan.textContent = cred.origin;
+    websiteCell.appendChild(favicon);
+    websiteCell.appendChild(domainSpan);
+
+    // 用户名
+    const usernameCell = document.createElement('span');
+    usernameCell.className = 'credential-col-username';
+    usernameCell.textContent = cred.username;
+
+    // 操作按钮
+    const actionsCell = document.createElement('span');
+    actionsCell.className = 'credential-col-actions';
+    const expandBtn = document.createElement('button');
+    expandBtn.className = 'btn-icon credential-expand-btn';
+    expandBtn.title = '展开详情';
+    expandBtn.setAttribute('aria-expanded', 'false');
+    expandBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+    expandBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleCredentialExpand(cred.id, cred.origin);
+    });
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn-icon credential-delete-btn';
+    deleteBtn.title = '删除';
+    deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path></svg>';
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleCredentialDelete(cred.origin, cred.origin);
+    });
+
+    actionsCell.appendChild(expandBtn);
+    actionsCell.appendChild(deleteBtn);
+
+    row.appendChild(checkboxCell);
+    row.appendChild(websiteCell);
+    row.appendChild(usernameCell);
+    row.appendChild(actionsCell);
+
+    // 点击行展开详情
+    row.addEventListener('click', () => {
+      toggleCredentialExpand(cred.id, cred.origin);
+    });
+
+    tableBody.appendChild(row);
+
+    // 详情行（默认隐藏）— WR-13：DOM 构建 + textContent 防 XSS
+    const detailRow = document.createElement('div');
+    detailRow.className = 'credential-detail hidden';
+    detailRow.id = `credential-detail-${cred.id}`;
+
+    const detailContent = document.createElement('div');
+    detailContent.className = 'credential-detail-content';
+
+    // 密码字段
+    const pwdField = document.createElement('div');
+    pwdField.className = 'credential-detail-field';
+    const pwdLabel = document.createElement('span');
+    pwdLabel.className = 'credential-detail-label';
+    pwdLabel.textContent = '密码';
+    const pwdValue = document.createElement('span');
+    pwdValue.className = 'credential-detail-value';
+    const maskedSpan = document.createElement('span');
+    maskedSpan.className = 'credential-password-masked';
+    maskedSpan.textContent = '••••••••';
+    const togglePwdBtn = document.createElement('button');
+    togglePwdBtn.className = 'btn btn-secondary btn-sm credential-toggle-password';
+    togglePwdBtn.dataset.id = String(cred.id);
+    togglePwdBtn.textContent = '显示';
+    pwdValue.appendChild(maskedSpan);
+    pwdValue.appendChild(togglePwdBtn);
+    pwdField.appendChild(pwdLabel);
+    pwdField.appendChild(pwdValue);
+
+    // 保存时间字段
+    const timeField = document.createElement('div');
+    timeField.className = 'credential-detail-field';
+    const timeLabel = document.createElement('span');
+    timeLabel.className = 'credential-detail-label';
+    timeLabel.textContent = '保存时间';
+    const timeValue = document.createElement('span');
+    timeValue.className = 'credential-detail-value credential-detail-time';
+    timeValue.textContent = new Date(cred.updated_at).toLocaleString();
+    timeField.appendChild(timeLabel);
+    timeField.appendChild(timeValue);
+
+    // 删除按钮
+    const detailActions = document.createElement('div');
+    detailActions.className = 'credential-detail-actions';
+    const detailDeleteBtn = document.createElement('button');
+    detailDeleteBtn.className = 'btn btn-danger btn-sm credential-detail-delete';
+    detailDeleteBtn.textContent = '删除此凭据';
+    detailActions.appendChild(detailDeleteBtn);
+
+    detailContent.appendChild(pwdField);
+    detailContent.appendChild(timeField);
+    detailContent.appendChild(detailActions);
+    detailRow.appendChild(detailContent);
+    tableBody.appendChild(detailRow);
+
+    // 绑定详情行内的事件
+    togglePwdBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await toggleCredentialPassword(cred.id, togglePwdBtn, detailRow);
+    });
+
+    detailDeleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleCredentialDelete(cred.origin, cred.origin);
+    });
+  });
+}
+
+/**
+ * 展开/收起凭据详情行
+ * @param {number} id - 凭据 ID
+ * @param {string} origin - 凭据 origin
+ */
+function toggleCredentialExpand(id, origin) {
+  const detailRow = document.getElementById(`credential-detail-${id}`);
+  if (!detailRow) return;
+
+  const isHidden = detailRow.classList.contains('hidden');
+
+  // 收起所有其他展开的详情行
+  document.querySelectorAll('.credential-detail').forEach(row => {
+    row.classList.add('hidden');
+  });
+  document.querySelectorAll('.credential-row').forEach(row => {
+    row.classList.remove('expanded');
+  });
+  document.querySelectorAll('.credential-expand-btn').forEach(btn => {
+    btn.setAttribute('aria-expanded', 'false');
+  });
+
+  if (isHidden) {
+    detailRow.classList.remove('hidden');
+    const mainRow = detailRow.previousElementSibling;
+    if (mainRow) mainRow.classList.add('expanded');
+    const expandBtn = mainRow?.querySelector('.credential-expand-btn');
+    if (expandBtn) expandBtn.setAttribute('aria-expanded', 'true');
+  }
+}
+
+/**
+ * 切换密码明文/遮罩显示
+ * @param {number} id - 凭据 ID
+ * @param {HTMLElement} btn - 切换按钮
+ * @param {HTMLElement} detailRow - 详情行
+ */
+async function toggleCredentialPassword(id, btn, detailRow) {
+  const maskedSpan = detailRow.querySelector('.credential-password-masked');
+  if (!maskedSpan) return;
+
+  const isShowing = btn.textContent === '隐藏';
+
+  if (isShowing) {
+    // 切换回遮罩
+    maskedSpan.textContent = '••••••••';
+    btn.textContent = '显示';
+  } else {
+    // 获取解密后的密码
+    try {
+      const result = await credentialsApi('get-by-id', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentialId: id }),
+      });
+      if (result.success && result.password) {
+        maskedSpan.textContent = result.password;
+        btn.textContent = '隐藏';
+      } else {
+        showToast('获取密码失败');
+      }
+    } catch (error) {
+      console.error('[Realm] 获取密码失败:', error);
+      showToast('获取密码失败');
+    }
+  }
+}
+
+/**
+ * 搜索凭据（300ms 防抖）
+ */
+function filterCredentials() {
+  const searchInput = document.getElementById('credentialSearchInput');
+  if (!searchInput) return;
+
+  clearTimeout(credentialSearchTimer);
+  credentialSearchTimer = setTimeout(async () => {
+    const keyword = searchInput.value.trim();
+    const containerId = pageParams.get('container') || 'default';
+
+    try {
+      const result = keyword
+        ? await credentialsApi('search', {}, { containerId, keyword })
+        : await credentialsApi('list', {}, { containerId });
+      renderCredentialTable(result.credentials || []);
+    } catch (error) {
+      console.error('[Realm] 搜索凭据失败:', error);
+    }
+  }, 300);
+}
+
+/**
+ * 更新批量操作栏显示状态
+ */
+function updateCredentialBatchBar() {
+  const checkboxes = document.querySelectorAll('.credential-checkbox:checked');
+  const batchBar = document.getElementById('credentialBatchBar');
+  const batchCount = document.getElementById('credentialBatchCount');
+
+  if (!batchBar || !batchCount) return;
+
+  if (checkboxes.length > 0) {
+    batchBar.classList.remove('hidden');
+    batchCount.textContent = `已选择 ${checkboxes.length} 项`;
+  } else {
+    batchBar.classList.add('hidden');
+  }
+}
+
+/**
+ * 全选/取消全选凭据复选框
+ * @param {boolean} selectAll - 是否全选
+ */
+function toggleSelectAll(selectAll) {
+  const checkboxes = document.querySelectorAll('.credential-checkbox');
+  checkboxes.forEach(cb => {
+    cb.checked = selectAll;
+  });
+  updateCredentialBatchBar();
+}
+
+/**
+ * 删除单条凭据
+ * @param {string} origin - 凭据 origin
+ * @param {string} domain - 显示用的域名
+ */
+function handleCredentialDelete(origin, domain) {
+  const modal = document.getElementById('credentialDeleteModal');
+  const desc = document.getElementById('credentialDeleteDesc');
+  const confirmBtn = document.getElementById('credentialDeleteConfirmBtn');
+
+  if (!modal || !desc || !confirmBtn) return;
+
+  desc.textContent = `确定要删除 ${domain} 的凭据吗？`;
+  confirmBtn.textContent = '删除凭据';
+  modal.showModal();
+
+  // 移除旧的事件监听器
+  const newConfirmBtn = confirmBtn.cloneNode(true);
+  confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+
+  newConfirmBtn.addEventListener('click', async () => {
+    const containerId = pageParams.get('container') || 'default';
+    try {
+      await credentialsApi('delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ containerId, origin }),
+      });
+      modal.close();
+      showToast('凭据已删除');
+      await loadCredentials();
+    } catch (error) {
+      console.error('[Realm] 删除凭据失败:', error);
+      showToast('删除失败');
+    }
+  });
+}
+
+/**
+ * 批量删除凭据
+ */
+function handleCredentialBatchDelete() {
+  const checkboxes = document.querySelectorAll('.credential-checkbox:checked');
+  const origins = Array.from(checkboxes).map(cb => {
+    const row = cb.closest('.credential-row');
+    return row?.dataset.origin;
+  }).filter(Boolean);
+
+  if (origins.length === 0) return;
+
+  const modal = document.getElementById('credentialDeleteModal');
+  const desc = document.getElementById('credentialDeleteDesc');
+  const confirmBtn = document.getElementById('credentialDeleteConfirmBtn');
+
+  if (!modal || !desc || !confirmBtn) return;
+
+  desc.textContent = `确定要删除选中的 ${origins.length} 条凭据吗？此操作不可撤销。`;
+  confirmBtn.textContent = '删除凭据';
+  modal.showModal();
+
+  // 移除旧的事件监听器
+  const newConfirmBtn = confirmBtn.cloneNode(true);
+  confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+
+  newConfirmBtn.addEventListener('click', async () => {
+    const containerId = pageParams.get('container') || 'default';
+    try {
+      const result = await credentialsApi('batch-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ containerId, origins }),
+      });
+      modal.close();
+      showToast(`已删除 ${result.deleted || origins.length} 条凭据`);
+      await loadCredentials();
+    } catch (error) {
+      console.error('[Realm] 批量删除凭据失败:', error);
+      showToast('删除失败');
+    }
+  });
+}
+
+/**
+ * 初始化凭据管理事件监听器
+ */
+function setupCredentialListeners() {
+  const searchInput = document.getElementById('credentialSearchInput');
+  const selectAll = document.getElementById('credentialSelectAll');
+  const batchDeleteBtn = document.getElementById('credentialBatchDeleteBtn');
+  const batchDeselectBtn = document.getElementById('credentialBatchDeselectBtn');
+  const deleteCancelBtn = document.getElementById('credentialDeleteCancelBtn');
+  const deleteModal = document.getElementById('credentialDeleteModal');
+
+  if (searchInput) {
+    searchInput.addEventListener('input', filterCredentials);
+  }
+
+  if (selectAll) {
+    selectAll.addEventListener('change', () => {
+      toggleSelectAll(selectAll.checked);
+    });
+  }
+
+  if (batchDeleteBtn) {
+    batchDeleteBtn.addEventListener('click', handleCredentialBatchDelete);
+  }
+
+  if (batchDeselectBtn) {
+    batchDeselectBtn.addEventListener('click', () => {
+      toggleSelectAll(false);
+      const selectAllCb = document.getElementById('credentialSelectAll');
+      if (selectAllCb) selectAllCb.checked = false;
+    });
+  }
+
+  if (deleteCancelBtn) {
+    deleteCancelBtn.addEventListener('click', () => {
+      if (deleteModal) deleteModal.close();
+    });
+  }
+
+  if (deleteModal) {
+    deleteModal.addEventListener('click', (e) => {
+      if (e.target === deleteModal) deleteModal.close();
+    });
+  }
+}
+
 // ==================== AI 助手设置 ====================
 
 /** AI 提供商目录缓存（含模型列表和配置状态） */
@@ -1878,6 +2358,9 @@ async function init() {
 
   // 初始化事件监听
   setupEventListeners();
+
+  // 初始化凭据管理事件监听
+  setupCredentialListeners();
 
   // 初始化 AI 助手设置事件监听
   setupAISettingsListeners();

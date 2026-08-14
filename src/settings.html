@@ -66,6 +66,13 @@
           </svg>
           <span>多媒体</span>
         </div>
+        <div class="sidebar-item" data-page="autofill">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+          <span>自动填充</span>
+        </div>
         <div class="sidebar-item" data-page="about">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10"></circle>
@@ -319,6 +326,55 @@
         </div>
       </section>
 
+      <!-- 自动填充设置页面 -->
+      <section id="settings-autofill" class="settings-section" style="display:none;">
+        <h1 class="settings-page-title">自动填充</h1>
+
+        <!-- 凭据管理 -->
+        <div class="settings-group">
+          <h3 class="settings-group-title">已保存的凭据</h3>
+
+          <!-- 搜索框 -->
+          <div class="credential-search">
+            <input type="text" class="credential-search-input" id="credentialSearchInput"
+                   placeholder="搜索网站或用户名..." aria-label="搜索凭据">
+          </div>
+
+          <!-- 批量操作栏（选中时显示） -->
+          <div class="credential-batch-bar hidden" id="credentialBatchBar">
+            <span class="credential-batch-count" id="credentialBatchCount">已选择 0 项</span>
+            <button class="btn btn-danger btn-sm" id="credentialBatchDeleteBtn">删除所选</button>
+            <button class="btn btn-secondary btn-sm" id="credentialBatchDeselectBtn">取消选择</button>
+          </div>
+
+          <!-- 凭据列表 -->
+          <div class="credential-table" id="credentialTable">
+            <!-- 表头 -->
+            <div class="credential-table-header">
+              <span class="credential-col-checkbox">
+                <input type="checkbox" id="credentialSelectAll" aria-label="选择所有凭据">
+              </span>
+              <span class="credential-col-website">网站</span>
+              <span class="credential-col-username">用户名</span>
+              <span class="credential-col-actions">操作</span>
+            </div>
+            <!-- 表格体：JS 动态渲染 -->
+            <div class="credential-table-body" id="credentialTableBody">
+            </div>
+          </div>
+
+          <!-- 空状态 -->
+          <div class="credential-empty-state" id="credentialEmptyState">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.5">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+            <p class="credential-empty-title">暂无保存的凭据</p>
+            <p class="credential-empty-desc">登录网站时会提示保存密码</p>
+          </div>
+        </div>
+      </section>
+
       <!-- 关于页面 -->
       <section id="settings-about" class="settings-section" style="display:none;">
         <div class="about-page">
@@ -334,6 +390,20 @@
 
   <!-- Toast 提示 -->
   <div id="toast" class="toast hidden"></div>
+
+  <!-- 凭据删除确认对话框 -->
+  <dialog class="modal" id="credentialDeleteModal">
+    <div class="modal-content">
+      <h2>删除凭据</h2>
+      <div class="delete-confirm-content">
+        <p id="credentialDeleteDesc">确定要删除此凭据吗？</p>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" id="credentialDeleteCancelBtn">取消</button>
+        <button type="button" class="btn btn-danger" id="credentialDeleteConfirmBtn">删除凭据</button>
+      </div>
+    </div>
+  </dialog>
 
   <!-- 快捷键捕获对话框 -->
   <dialog class="modal" id="shortcutCaptureModal">
