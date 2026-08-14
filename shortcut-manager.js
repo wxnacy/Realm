@@ -8,21 +8,21 @@
  * - 通过 app.on('web-contents-created') 给每个 webContents（主窗口 + 各 webview guest）
  *   挂上 before-input-event 监听
  * - 按键时与当前快捷键表（getShortcuts）做精确匹配，命中才 preventDefault 并
- *   向主窗口发送 shortcut:triggered，由渲染进程分发到对应动作
+ *   向焦点窗口（BrowserWindow.getFocusedWindow()）发送 shortcut:triggered，
+ *   由渲染进程分发到对应动作
+ * - 非 Realm 管理的窗口（如播放器）仅处理 closeTab 特殊语义（D-13），其余放行
  * - 不命中时完全不拦截，避免干扰系统/网页自身的快捷键（如 Cmd+C/V/A）
  * - 快捷键配置变更后无需重新注册，匹配时实时读取最新配置
  */
 
 const { app, BrowserWindow } = require('electron');
 const Store = require('electron-store');
+const windowManager = require('./window-manager');
 
 // ==================== 存储 ====================
 
 /** 快捷键持久化存储实例 */
 const store = new Store({ name: 'shortcuts' });
-
-/** 当前主窗口引用，用于发送 shortcut:triggered IPC */
-let currentWindow = null;
 
 /** 已挂监听器的 webContents（避免重复绑定） */
 const attachedWebContents = new WeakSet();
@@ -37,6 +37,8 @@ let appListenerAttached = false;
  * 键为操作名称，值为 Electron Accelerator 格式字符串
  */
 const DEFAULT_SHORTCUTS = {
+  'newWindow': 'CmdOrCtrl+N',
+  'closeWindow': 'CmdOrCtrl+Shift+W',
   'newTab': 'CmdOrCtrl+T',
   'closeTab': 'CmdOrCtrl+W',
   'nextTab': 'CmdOrCtrl+Shift+]',
@@ -225,24 +227,23 @@ function attachInputListener(contents) {
     const action = findMatchingAction(input);
     if (!action) return; // 未命中：完全不拦截
 
-    // 事件来自非主窗口（如播放器窗口）时，快捷键不应派发到主窗口：
-    // closeTab（Cmd+W）语义转为关闭来源窗口自身；其余快捷键放行不拦截。
+    // 获取当前焦点窗口（而非固定的 currentWindow 单例），支持多窗口场景
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    if (!focusedWindow || focusedWindow.isDestroyed()) return;
+
+    // 非 Realm 管理的窗口（如播放器窗口）不派发到 managed 窗口：
+    // closeTab（Cmd+W）语义转为关闭来源窗口自身（D-13）；其余快捷键放行不拦截。
     // webview guest 的 fromWebContents 会解析到其宿主主窗口，不受影响。
-    const ownerWindow = BrowserWindow.fromWebContents(contents);
-    if (ownerWindow && currentWindow && !currentWindow.isDestroyed()
-        && ownerWindow.id !== currentWindow.id) {
+    if (!windowManager.isManagedWindow(focusedWindow.id)) {
       if (action === 'closeTab') {
         event.preventDefault();
-        ownerWindow.close();
+        focusedWindow.close();
       }
       return;
     }
 
     event.preventDefault();
-
-    if (currentWindow && !currentWindow.isDestroyed()) {
-      currentWindow.webContents.send('shortcut:triggered', action);
-    }
+    focusedWindow.webContents.send('shortcut:triggered', action);
   });
 }
 
@@ -266,46 +267,28 @@ function ensureAppListener() {
 
 /**
  * 启用应用内快捷键（仅当前应用聚焦时生效）
- * @param {BrowserWindow} window - 接收 shortcut:triggered IPC 的主窗口
+ * 通过 app 级 web-contents-created 自动给所有新 webContents 挂监听，
+ * 无需传入窗口引用——快捷键派发时通过 BrowserWindow.getFocusedWindow() 动态获取焦点窗口。
  */
-function registerShortcuts(window) {
-  currentWindow = window;
-
+function registerShortcuts() {
   ensureAppListener();
-
-  if (window && !window.isDestroyed()) {
-    attachInputListener(window.webContents);
-  }
-
   console.log('[Realm] 应用内快捷键已启用（before-input-event）');
 }
 
 /**
  * 快捷键配置变更后调用。
- * 由于匹配时实时读取 getShortcuts()，无需重新绑定监听器；
- * 此处仅更新主窗口引用（如有）。
- * @param {BrowserWindow} [window] - 可选的新主窗口引用
+ * 由于匹配时实时读取 getShortcuts()，无需重新绑定监听器或更新窗口引用；
+ * 保留函数签名以兼容 ipc-handlers.js 中的调用。
  */
-function rebuildShortcuts(window) {
-  if (window) {
-    currentWindow = window;
-  }
-
-  if (!currentWindow || currentWindow.isDestroyed()) {
-    console.error('[Realm] rebuildShortcuts 失败：无可用窗口');
-    return;
-  }
-
-  attachInputListener(currentWindow.webContents);
+function rebuildShortcuts() {
   console.log('[Realm] 快捷键配置已生效（应用内）');
 }
 
 /**
- * 应用退出前调用：解除主窗口引用。
+ * 应用退出前调用。
  * before-input-event 监听随 webContents 销毁自动清理，无需显式移除。
  */
 function unregisterAll() {
-  currentWindow = null;
   console.log('[Realm] 解除快捷键目标窗口');
 }
 
