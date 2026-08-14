@@ -28,7 +28,7 @@
 - [ ] **AF-04**: 用户可以管理已保存的凭据（在设置页查看和删除）
 - [ ] **AF-05**: 凭据数据按容器隔离存储（不同容器的同一网站凭据独立）
 - [ ] **AF-06**: 用户可以保存地址表单信息（姓名、电话、地址）
-- [ ] **AF-07**: 用户可以在地址表单中自动填充已保存的地址信息
+- [x] **AF-07**: 用户可以在地址表单中自动填充已保存的地址信息
 - [ ] **AF-08**: 自动填充与现有 CDP fillForm 工具互斥（AI 填表时禁用浏览器 autofill）
 - [ ] **AF-09**: 自动填充在 webview preload 脚本中检测表单（需 DOM 上下文）
 
@@ -80,7 +80,7 @@
 | AF-04 | Phase 33 | Pending |
 | AF-05 | Phase 32 | Pending |
 | AF-06 | Phase 33 | Pending |
-| AF-07 | Phase 33 | Pending |
+| AF-07 | Phase 33 | Complete |
 | AF-08 | Phase 32 | Pending |
 | AF-09 | Phase 32 | Pending |
 | FIX-01 | Phase 33 | Pending |
