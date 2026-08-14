@@ -56,17 +56,17 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MW-01 | — | Pending |
-| MW-02 | — | Pending |
-| MW-03 | — | Pending |
-| MW-04 | — | Pending |
-| MW-05 | — | Pending |
-| MW-06 | — | Pending |
-| MW-07 | — | Pending |
-| MW-08 | — | Pending |
-| MW-09 | — | Pending |
-| MW-10 | — | Pending |
-| MW-11 | — | Pending |
-| MW-12 | — | Pending |
-| MW-13 | — | Pending |
-| MW-14 | — | Pending |
+| MW-01 | Phase 34 | Pending |
+| MW-02 | Phase 36 | Pending |
+| MW-03 | Phase 36 | Pending |
+| MW-04 | Phase 36 | Pending |
+| MW-05 | Phase 35 | Pending |
+| MW-06 | Phase 35 | Pending |
+| MW-07 | Phase 34 | Pending |
+| MW-08 | Phase 34 | Pending |
+| MW-09 | Phase 34 | Pending |
+| MW-10 | Phase 34 | Pending |
+| MW-11 | Phase 36 | Pending |
+| MW-12 | Phase 35 | Pending |
+| MW-13 | Phase 36 | Pending |
+| MW-14 | Phase 35 | Pending |

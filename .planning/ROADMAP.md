@@ -14,6 +14,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 - ✅ **v2.1 AI CDP 增强 + Tabbrowser 功能集成** — Phases 22-25 (shipped 2026-08-04)
 - ✅ **v2.2 多媒体功能集成** — Phases 26-29 (shipped 2026-08-11)
 - ✅ **v2.3 浏览器基础功能补全** — Phases 30-33 (shipped 2026-08-14)
+- 🚧 **v2.4 多窗口支持** — Phases 34-36 (in progress)
 
 ## Phases
 
@@ -98,110 +99,70 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 
 </details>
 
+### 🚧 v2.4 多窗口支持 (In Progress)
+
+**Milestone Goal:** 支持多窗口操作，提升多任务处理效率
+
+- [ ] **Phase 34: 窗口管理基础** — 重构窗口管理器支持多窗口，扩展 IPC 信任模型，实现新建/关闭窗口快捷键
+- [ ] **Phase 35: Tab 窗口关联** — Tab 对象新增 windowId 字段，窗口关闭自动销毁 Tab，标题栏显示容器信息
+- [ ] **Phase 36: Tab 拖拽与跨窗口移动** — 窗口内拖拽排序、拖拽出窗口创建新窗口、跨窗口拖拽移动、窗口位置持久化
+
 ## Phase Details
 
-### Phase 30: 下载管理器 — 核心引擎
+### Phase 34: 窗口管理基础
 
-**Goal**: 用户在浏览器中下载文件时，能看到保存对话框、实时进度，并且下载记录持久化
-**Depends on**: Nothing (first v2.3 phase)
-**Requirements**: DL-01, DL-05, DL-09, DL-10, DL-11
+**Goal**: 用户可以通过多种方式创建和管理多个窗口，每个窗口作为独立的浏览上下文
+**Depends on**: Nothing (first v2.4 phase)
+**Requirements**: MW-01, MW-07, MW-08, MW-09, MW-10
 **Success Criteria** (what must be TRUE):
 
-  1. 用户点击下载链接时弹出系统保存对话框，可选择保存位置
-  2. 下载进行时显示实时进度条（文件名、大小、速度、剩余时间）
-  3. 下载完成后记录持久化到 SQLite，重启后仍可查看
-  4. 工具栏下载按钮在有活跃下载时显示数量徽标
-  5. 下载数据按容器隔离存储，不同容器的下载记录互不干扰
+  1. 用户可以通过 Dock 右击菜单选择"新建窗口"创建第二个窗口
+  2. 用户可以使用 Cmd+N 快捷键新建窗口，新窗口继承源窗口的容器上下文
+  3. 用户可以使用 Cmd+Shift+W 关闭当前窗口（不影响其他窗口）
+  4. 多窗口存在时，点击不同窗口可以正常切换焦点，工具栏和 Tab 栏正确响应
+  5. 所有现有 IPC 通道在多窗口环境下正常工作（assertTrustedSender 扩展为 managedWindowIds 集合）
 
-**Plans:** 2/2 plans complete
-Plans:
-
-- [x] 30-01-PLAN.md — 下载管理器后端核心：download-manager.js 模块 + SQLite 持久化 + IPC 通道
-- [x] 30-02-PLAN.md — 下载管理器前端 UI：preload API + 下载按钮 + 进度环 + 徽标 + tooltip
+**Plans**: TBD
 
 **UI hint**: yes
 
-### Phase 31: 下载管理器 — 用户交互
+### Phase 35: Tab 窗口关联
 
-**Goal**: 用户可以通过下载面板管理所有下载任务——查看历史、暂停恢复、操作文件
-**Depends on**: Phase 30
-**Requirements**: DL-02, DL-03, DL-04, DL-06, DL-07, DL-08
+**Goal**: 每个 Tab 明确归属到一个窗口，窗口生命周期与 Tab 生命周期正确联动
+**Depends on**: Phase 34
+**Requirements**: MW-05, MW-06, MW-12, MW-14
 **Success Criteria** (what must be TRUE):
 
-  1. 用户可以打开下载面板查看所有下载历史列表
-  2. 用户可以暂停正在进行的下载，稍后恢复
-  3. 用户可以打开已下载的文件（使用系统默认应用）
-  4. 用户可以在 Finder 中显示已下载的文件
-  5. 用户可以删除单条下载记录（可选是否删除本地文件）或清空所有历史
+  1. 关闭窗口时，窗口内所有 Tab 一起销毁；如果是最后一个窗口则退出应用
+  2. Tab 拖拽过程中保留 URL、容器、标题、favicon 等状态信息（不丢失）
+  3. 窗口标题栏显示当前活动 Tab 所属容器的名称
+  4. 窗口标题栏/工具栏显示容器颜色标识，不同容器的窗口视觉上可区分
 
-**Plans**: 3/3 plans complete
-Plans:
-
-- [x] 31-03-PLAN.md
-
-**Wave 1**
-
-- [x] 31-01-PLAN.md — 下载管理器后端扩展：全局查询 + 删除 + 清空 + realm HTTP API
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 31-02-PLAN.md — 下载管理器前端 UI：下拉面板 + 列表项 + 操作交互 + realm://downloads 页面
+**Plans**: TBD
 
 **UI hint**: yes
 
-### Phase 32: 自动填充 — 凭据引擎
+### Phase 36: Tab 拖拽与跨窗口移动
 
-**Goal**: 用户登录网站时可保存凭据，再次访问时自动填充，并且凭据按容器隔离存储
-**Depends on**: Nothing (与 Phase 30/31 无技术依赖，可并行规划)
-**Requirements**: AF-01, AF-02, AF-03, AF-05, AF-08, AF-09
+**Goal**: 用户可以通过拖拽在窗口内排序 Tab、将 Tab 拖出创建新窗口、将 Tab 拖到另一个窗口移动
+**Depends on**: Phase 35
+**Requirements**: MW-02, MW-03, MW-04, MW-11, MW-13
 **Success Criteria** (what must be TRUE):
 
-  1. 用户提交登录表单时弹出保存凭据提示
-  2. 保存的凭据使用 safeStorage 加密存储（macOS Keychain）
-  3. 用户再次访问已保存凭据的网站时自动填充用户名和密码
-  4. 凭据按容器隔离存储，容器 A 的凭据不会在容器 B 中被填充
-  5. AI 填表（CDP fillForm）激活时，浏览器 autofill 自动禁用，避免冲突
+  1. 用户可以拖拽 Tab 在同一窗口内改变顺序，拖拽时实时显示插入位置指示器
+  2. 用户可以拖拽 Tab 出标签栏区域，松手后该 Tab 从原窗口移出并创建为新窗口
+  3. 用户可以拖拽 Tab 到另一个窗口的标签栏，Tab 从源窗口移动到目标窗口；源窗口仅剩一个 Tab 时自动销毁
+  4. 右键菜单中包含"在新窗口中打开"选项，点击后在新窗口打开该 Tab
+  5. 窗口位置和大小在应用重启后恢复（electron-store 持久化）
 
-**Plans**: 2/2 plans complete
-
-**Wave 1**
-
-- [x] 32-01-PLAN.md — 凭据管理器后端：credential-manager.js 模块 + safeStorage 加密 + SQLite 持久化 + IPC 通道
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 32-02-PLAN.md — 表单检测 + 自动填充注入 + credentialAPI + 保存凭据横幅 UI
-
-**UI hint**: yes
-
-### Phase 33: 自动填充 — 增强
-
-**Goal**: 用户可以管理已保存的凭据和地址信息
-**Depends on**: Phase 32
-**Requirements**: AF-04, AF-06, AF-07
-**Success Criteria** (what must be TRUE):
-
-  1. 用户可以在设置页查看和删除已保存的凭据
-  2. 用户可以保存地址表单信息（姓名、电话、地址），并在地址表单中自动填充
-
-**Plans**: 3/3 plans complete
-
-- [x] 33-03-PLAN.md
-
-**Wave 1**
-
-- [x] 33-01-PLAN.md — 凭据管理 — 后端扩展 + 设置页 UI（credential-manager 扩展 + /api/credentials/* HTTP 路由 + 凭据表格 UI）
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 33-02-PLAN.md — 地址功能 — 全栈实现（address-manager.js + 地址表单检测 + 自动填充 + 保存横幅 + 设置页卡片）
+**Plans**: TBD
 
 **UI hint**: yes
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 30 → 31 → 32 → 33
+Phases execute in numeric order: 34 → 35 → 36
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -234,7 +195,10 @@ Phases execute in numeric order: 30 → 31 → 32 → 33
 | 27. 媒体面板 | v2.2 | 2/2 | Complete | 2026-08-07 |
 | 28. 播放器窗口 | v2.2 | 2/2 | Complete | 2026-08-08 |
 | 29. 多媒体播放器设置控制 | v2.2 | 5/5 | Complete | 2026-08-08 |
-| 30. 下载管理器 — 核心引擎 | v2.3 | 2/2 | Complete   | 2026-08-11 |
-| 31. 下载管理器 — 用户交互 | v2.3 | 3/3 | Complete    | 2026-08-12 |
-| 32. 自动填充 — 凭据引擎 | v2.3 | 2/2 | Complete    | 2026-08-13 |
-| 33. 自动填充 — 增强 + Bug 修复 | v2.3 | 3/3 | Complete   | 2026-08-14 |
+| 30. 下载管理器 — 核心引擎 | v2.3 | 2/2 | Complete | 2026-08-11 |
+| 31. 下载管理器 — 用户交互 | v2.3 | 3/3 | Complete | 2026-08-12 |
+| 32. 自动填充 — 凭据引擎 | v2.3 | 2/2 | Complete | 2026-08-13 |
+| 33. 自动填充 — 增强 + Bug 修复 | v2.3 | 3/3 | Complete | 2026-08-14 |
+| 34. 窗口管理基础 | v2.4 | 0/? | Not started | - |
+| 35. Tab 窗口关联 | v2.4 | 0/? | Not started | - |
+| 36. Tab 拖拽与跨窗口移动 | v2.4 | 0/? | Not started | - |
