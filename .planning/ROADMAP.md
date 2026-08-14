@@ -122,7 +122,12 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
   4. 多窗口存在时，点击不同窗口可以正常切换焦点，工具栏和 Tab 栏正确响应
   5. 所有现有 IPC 通道在多窗口环境下正常工作（assertTrustedSender 扩展为 managedWindowIds 集合）
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 34-01-PLAN.md — window-manager Map 重构 + shortcut-manager 焦点派发（Wave 1）
+- [ ] 34-02-PLAN.md — assertTrustedSender 泛化 + IPC 信任模型扩展（Wave 2）
+- [ ] 34-03-PLAN.md — Dock 菜单 + activate 事件 + 广播替换（Wave 3）
 
 **UI hint**: yes
 
@@ -199,6 +204,6 @@ Phases execute in numeric order: 34 → 35 → 36
 | 31. 下载管理器 — 用户交互 | v2.3 | 3/3 | Complete | 2026-08-12 |
 | 32. 自动填充 — 凭据引擎 | v2.3 | 2/2 | Complete | 2026-08-13 |
 | 33. 自动填充 — 增强 + Bug 修复 | v2.3 | 3/3 | Complete | 2026-08-14 |
-| 34. 窗口管理基础 | v2.4 | 0/? | Not started | - |
+| 34. 窗口管理基础 | v2.4 | 0/3 | Not started | - |
 | 35. Tab 窗口关联 | v2.4 | 0/? | Not started | - |
 | 36. Tab 拖拽与跨窗口移动 | v2.4 | 0/? | Not started | - |
