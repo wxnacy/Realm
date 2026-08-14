@@ -13,7 +13,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 - ✅ **v2.0 收藏夹文件夹支持 + AI Agent 集成** — Phases 14-21 (shipped 2026-08-01)
 - ✅ **v2.1 AI CDP 增强 + Tabbrowser 功能集成** — Phases 22-25 (shipped 2026-08-04)
 - ✅ **v2.2 多媒体功能集成** — Phases 26-29 (shipped 2026-08-11)
-- 🔧 **v2.3 浏览器基础功能补全** — Phases 30-33 (in progress)
+- ✅ **v2.3 浏览器基础功能补全** — Phases 30-33 (shipped 2026-08-14)
 
 ## Phases
 
@@ -88,13 +88,13 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 
 </details>
 
-<details open>
-<summary>🔧 v2.3 浏览器基础功能补全 (Phases 30-33) — IN PROGRESS</summary>
+<details>
+<summary>✅ v2.3 浏览器基础功能补全 (Phases 30-33) — SHIPPED 2026-08-14</summary>
 
-- [ ] **Phase 30: 下载管理器 — 核心引擎** — 文件下载拦截、保存对话框、进度追踪、工具栏集成、SQLite 持久化
-- [x] **Phase 31: 下载管理器 — 用户交互** — 下载历史面板、暂停/恢复、文件操作、批量管理
-- [x] **Phase 32: 自动填充 — 凭据引擎** — 登录凭据加密存储、表单检测、自动填充、容器隔离 (completed 2026-08-13)
-- [ ] **Phase 33: 自动填充 — 增强 + Bug 修复** — 凭据管理 UI、地址表单、autofill/fillForm 互斥、Bug 修复与代码清理
+- [x] Phase 30: 下载管理器 — 核心引擎 (2/2 plans) — completed 2026-08-11
+- [x] Phase 31: 下载管理器 — 用户交互 (3/3 plans) — completed 2026-08-12
+- [x] Phase 32: 自动填充 — 凭据引擎 (2/2 plans) — completed 2026-08-13
+- [x] Phase 33: 自动填充 — 增强 + Bug 修复 (3/3 plans) — completed 2026-08-14
 
 </details>
 
