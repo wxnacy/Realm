@@ -423,14 +423,14 @@ function broadcast(channel, ...args) {
 |---|-------|---------|---------------|
 | (none) | — | — | — |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **renderer.js 如何获取当前窗口的 windowId？**
+1. **renderer.js 如何获取当前窗口的 windowId？** — RESOLVED: Deferred to Phase 35; preload injection via `ipcRenderer.invoke('window:get-id')` recommended
    - What we know: Electron 不直接暴露 windowId 给渲染进程
    - What's unclear: 是否需要新增 IPC 通道 `window:get-id`，还是通过 preload 注入
    - Recommendation: 在 preload 中通过 `ipcRenderer.invoke('window:get-id')` 获取，主进程从 event.sender 反推 windowId。这属于 Phase 35（Tab 窗口关联）的范围。
 
-2. **broadcast() 的频率和性能影响？**
+2. **broadcast() 的频率和性能影响？** — RESOLVED: Phase 34 scope is limited (~3 broadcasts); negligible performance impact
    - What we know: 当前 30+ 处使用 getMainWindow() 发送 IPC
    - What's unclear: 改为 broadcast 后是否会有性能问题
    - Recommendation: Phase 34 只处理 MW-01/07/08/09/10 相关的少量 broadcast，性能影响可忽略。后续 Phase 按需优化。
