@@ -151,6 +151,12 @@ const elements = {
   credentialNeverBtn: document.getElementById('credentialNeverBtn'),
   credentialLaterBtn: document.getElementById('credentialLaterBtn'),
 
+  // 地址保存横幅
+  addressSaveBanner: document.getElementById('addressSaveBanner'),
+  addressSaveConfirmBtn: document.getElementById('addressSaveConfirmBtn'),
+  addressNeverBtn: document.getElementById('addressNeverBtn'),
+  addressLaterBtn: document.getElementById('addressLaterBtn'),
+
 };
 
 // 应用状态
@@ -212,6 +218,10 @@ const state = {
   // 凭据保存横幅状态
   credentialBannerTimer: null,
   pendingCredentialData: null,
+
+  // 地址保存横幅状态
+  pendingAddressData: null,
+  addressBannerTimer: null,
 };
 
 // 已关闭标签栈（LIFO，最多 10 条），用于"重新打开已关闭标签页"功能
@@ -1005,6 +1015,12 @@ function bindWebviewEvents(tabId, webview) {
     } else if (e.channel === 'credential:autofill-request') {
       // 自动填充请求：查询凭据并发送到 webview
       handleAutofillRequest(webview);
+    } else if (e.channel === 'address:form-detected') {
+      // 地址表单检测：显示保存地址横幅
+      handleAddressFormDetected(e.args[0]);
+    } else if (e.channel === 'address:autofill-request') {
+      // 地址自动填充请求：查询地址并发送到 webview
+      handleAddressAutofillRequest(webview);
     }
   });
 
@@ -8382,6 +8398,49 @@ async function handleCredentialFormSubmitted(data) {
 }
 
 /**
+ * 处理地址表单检测事件
+ * 显示保存地址提示横幅（Chrome 风格）
+ *
+ * @param {Object} data - 地址数据 { name, phone, address, ... }
+ */
+async function handleAddressFormDetected(data) {
+  if (!data) return;
+
+  const containerId = state.currentContainer;
+
+  try {
+    // 检查该容器是否已有保存的地址
+    const existing = await window.realmAPI.addressAPI.getAddress(containerId);
+    if (existing) return; // 已有地址，不重复提示
+
+    // 显示保存横幅
+    showSaveAddressBanner(data);
+  } catch (err) {
+    console.error('[Realm Renderer] 处理地址表单检测失败:', err);
+  }
+}
+
+/**
+ * 处理地址自动填充请求
+ * 查询当前容器的地址，找到后发送到 webview 进行填充
+ *
+ * @param {HTMLElement} webview - 发起请求的 webview 元素
+ */
+async function handleAddressAutofillRequest(webview) {
+  const containerId = state.currentContainer;
+
+  try {
+    const address = await window.realmAPI.addressAPI.getAddress(containerId);
+    if (address) {
+      // 发送填充指令到 webview
+      webview.send('address:do-autofill', address);
+    }
+  } catch (err) {
+    console.error('[Realm Renderer] 地址自动填充查询失败:', err);
+  }
+}
+
+/**
  * 处理自动填充请求
  * 查询当前容器和 origin 的凭据，找到后发送到 webview 进行填充
  *
@@ -8539,6 +8598,103 @@ function showSaveCredentialBanner(data) {
 }
 
 /**
+ * 显示保存地址提示横幅（Chrome 风格）
+ * 10 秒后自动消失
+ *
+ * @param {Object} data - 地址数据
+ */
+function showSaveAddressBanner(data) {
+  const banner = elements.addressSaveBanner;
+  if (!banner) return;
+
+  // 清除之前的定时器
+  if (state.addressBannerTimer) {
+    clearTimeout(state.addressBannerTimer);
+    state.addressBannerTimer = null;
+  }
+
+  // 暂存地址数据（保存按钮需要）
+  state.pendingAddressData = data;
+
+  // 显示横幅
+  banner.classList.remove('hidden');
+  banner.offsetHeight; // 强制重排以触发动画
+  banner.classList.add('visible');
+
+  // 10 秒自动消失
+  state.addressBannerTimer = setTimeout(() => {
+    hideAddressBanner();
+  }, 10000);
+
+  // 绑定按钮事件
+  setupAddressBannerButtons();
+
+  // ESC 键隐藏
+  const escHandler = (e) => {
+    if (e.key === 'Escape') {
+      hideAddressBanner();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
+}
+
+/**
+ * 绑定地址保存横幅按钮事件
+ * 每次显示时重新绑定，避免闭包捕获旧数据
+ */
+function setupAddressBannerButtons() {
+  const saveBtn = elements.addressSaveConfirmBtn;
+  const neverBtn = elements.addressNeverBtn;
+  const laterBtn = elements.addressLaterBtn;
+
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      if (state.addressBannerTimer) {
+        clearTimeout(state.addressBannerTimer);
+        state.addressBannerTimer = null;
+      }
+      const addrData = state.pendingAddressData;
+      if (addrData) {
+        try {
+          await window.realmAPI.addressAPI.saveAddress({
+            containerId: state.currentContainer,
+            ...addrData,
+          });
+        } catch (err) {
+          console.error('[Realm Renderer] 保存地址失败:', err);
+        }
+      }
+      state.pendingAddressData = null;
+      hideAddressBanner();
+    };
+  }
+
+  if (neverBtn) {
+    neverBtn.onclick = () => {
+      if (state.addressBannerTimer) {
+        clearTimeout(state.addressBannerTimer);
+        state.addressBannerTimer = null;
+      }
+      // 地址没有"永不保存"功能，直接关闭
+      state.pendingAddressData = null;
+      hideAddressBanner();
+    };
+  }
+
+  if (laterBtn) {
+    laterBtn.onclick = () => {
+      if (state.addressBannerTimer) {
+        clearTimeout(state.addressBannerTimer);
+        state.addressBannerTimer = null;
+      }
+      state.pendingAddressData = null;
+      hideAddressBanner();
+    };
+  }
+}
+
+/**
  * 隐藏凭据保存横幅
  * 移除 visible class 触发退出动画，动画结束后添加 hidden class
  */
@@ -8548,6 +8704,20 @@ function hideCredentialBanner() {
 
   banner.classList.remove('visible');
   // 等待动画结束后隐藏
+  setTimeout(() => {
+    banner.classList.add('hidden');
+  }, 300);
+}
+
+/**
+ * 隐藏地址保存横幅
+ * 移除 visible class 触发退出动画，动画结束后添加 hidden class
+ */
+function hideAddressBanner() {
+  const banner = elements.addressSaveBanner;
+  if (!banner) return;
+
+  banner.classList.remove('visible');
   setTimeout(() => {
     banner.classList.add('hidden');
   }, 300);
