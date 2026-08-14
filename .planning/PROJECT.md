@@ -118,19 +118,14 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 ### Active
 
-<!-- 当前需要构建的功能（v2.3 里程碑） -->
+<!-- 当前需要构建的功能（v2.4 里程碑） -->
 
-- DL-01: 用户可以在浏览器中下载文件，显示下载进度 — v2.3
-- DL-02: 用户可以查看下载历史列表 — v2.3
-- DL-03: 用户可以暂停和恢复下载 — v2.3
-- DL-04: 用户可以管理下载文件（打开/在 Finder 中显示/删除） — v2.3
-- DL-05: 点击下载链接时弹出保存对话框，支持选择保存位置 — v2.3
-- AF-01: 用户可以保存表单登录凭据（用户名/密码） — v2.3
-- AF-02: 用户可以在再次访问时自动填充登录凭据 — v2.3
-- AF-03: 用户可以管理已保存的凭据（查看/删除） — v2.3
-- AF-04: 用户可以保存和填充地址表单信息 — v2.3
-- FIX-01: 修复 20 个已诊断 debug sessions — v2.3
-- FIX-02: 清理 Phase 23 代码审查遗留 19 项（6 Critical） — v2.3
+- MW-01: 用户可以通过 Dock 右击菜单新建窗口 — v2.4
+- MW-02: 用户可以拖拽标签页出窗口，创建新窗口 — v2.4
+- MW-03: 用户可以在窗口间拖拽标签页 — v2.4
+- MW-04: 用户可以拖拽标签改变顺序 — v2.4
+- MW-05: 窗口间拖拽标签时，源窗口仅剩一个标签则自动销毁 — v2.4
+- MW-06: Chrome 其他多窗口基本功能（待调研确认） — v2.4
 
 ### Out of Scope
 
@@ -142,21 +137,23 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - **收藏栏多行显示** — 仅支持单行显示
 - **DASH (.mpd) 播放** — v2.2 暂缓：嗅探/renderer/CSS 已补 dash 支持但复验仍失败，二层根因未诊断（UAT G-28-2，2026-08-08 用户决定，走 /gsd-plan-phase 28 --gaps 续查）
 
-## Current Milestone: v2.3 浏览器基础功能补全
+## Current Milestone: v2.4 多窗口支持
 
-**Goal:** 补全浏览器核心基础功能，提升日常使用体验
+**Goal:** 支持多窗口操作，提升多任务处理效率
 
 **Target features:**
-- 下载管理器（下载进度/历史/暂停续传/文件管理 + 下载提示/保存对话框）
-- 自动填充（表单密码/地址自动填充）
-- Bug Fixes + Polish（20 debug sessions + Phase 23 代码审查遗留 19 项）
+- Dock 右击"新建窗口"按钮
+- 标签页拖拽出窗口
+- 窗口间标签拖拽（源窗口仅剩一个标签时自动销毁）
+- 标签拖拽改变顺序
+- Chrome 其他多窗口基本功能（待调研）
 
 ## Current State
 
-**Shipped:** v2.2 (2026-08-11)
-- 29 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0 + 4 v2.1 + 4 v2.2)
+**Shipped:** v2.3 (2026-08-14)
+- 33 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0 + 4 v2.1 + 4 v2.2 + 4 v2.3)
 - 所有里程碑已完成归档
-- v2.1 Phase 22-25 complete — AI CDP 增强 + Tabbrowser 功能集成
+- v2.3 Phase 30-33 complete — 下载管理器 + 自动填充（凭据+地址）
 - 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core + nodejieba
 
 **Key features delivered:**
@@ -183,7 +180,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - 2 个 UAT 状态标记（Phase 27 completed, Phase 29 diagnosed，0 个待处理场景）
 - Phase 23 代码审查遗留 19 项（6 Critical），详见 `.planning/phases/23-context-reference/23-REVIEW.md`
 
-**Current milestone:** v2.3 浏览器基础功能补全 — 进行中
+**Current milestone:** v2.4 多窗口支持 — 进行中
 
 ## Next Milestone Goals
 
@@ -309,4 +306,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-11 after v2.3 milestone start*
+*Last updated: 2026-08-14 after v2.4 milestone start*

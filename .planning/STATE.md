@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.3
-milestone_name: 浏览器基础功能补全
-current_phase: 33
-current_phase_name: 自动填充 — 增强 + Bug 修复
-status: complete
-stopped_at: Completed 33-03-PLAN.md
-last_updated: "2026-08-14T06:15:54.230Z"
-last_activity: 2026-08-13
-last_activity_desc: Phase 32 complete, transitioned to Phase 33
+milestone: v2.4
+milestone_name: 多窗口支持
+status: planning
+last_updated: "2026-08-14T11:58:04.989Z"
+last_activity: 2026-08-14
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 10
-  completed_plans: 10
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State: Realm Browser
@@ -28,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-08-11)
 
 ## Current Position
 
-Phase: 33 — 自动填充 — 增强 + Bug 修复
-Plan: Not started
-Status: Context gathered, ready for planning
-Last activity: 2026-08-13 — Phase 32 complete, transitioned to Phase 33
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-08-14 — Milestone v2.4 started
 
 ## Performance Metrics
 
