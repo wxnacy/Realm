@@ -236,10 +236,7 @@ function registerHandlers() {
   // WR-4：Tab 回收策略单点实现于主进程（tab-manager），
   // 回收发生时推送 tab:recycled 事件，渲染进程据此移除对应 DOM/webview 并提示
   tabManager.setRecycleListener(({ recycledTabId, message }) => {
-    const win = windowManager.getMainWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('tab:recycled', { tabId: recycledTabId, message });
-    }
+    windowManager.broadcast('tab:recycled', { tabId: recycledTabId, message });
   });
 
   /**
@@ -1341,10 +1338,7 @@ function registerHandlers() {
     }
     const updated = favoritesManager.updateFavicon(data.id, dataUrl);
     if (updated) {
-      const mainWindow = windowManager.getMainWindow();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('bookmarks-bar:refresh');
-      }
+      windowManager.broadcast('bookmarks-bar:refresh');
     }
     return { success: updated };
   });
