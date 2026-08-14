@@ -1,175 +1,126 @@
-# v2.3 Research Summary — 下载管理器 + 自动填充 + Bug 修复
+# Research Summary: Realm Browser
 
 **Project:** Realm Browser
-**Domain:** Electron 32.x 多容器隔离浏览器 — 浏览器基础功能补全
-**Researched:** 2026-08-11
-**Confidence:** HIGH
+**Domain:** Electron 32.x 多容器隔离浏览器
+**Researched:** 2026-08-14
+**Overall confidence:** HIGH
 
-## Executive Summary
+---
 
-v2.3 的核心目标是补全 Realm Browser 作为浏览器的两个基础能力：**下载管理器**和**表单自动填充**。研究结论明确：这两个功能**零新 npm 依赖**，完全基于 Electron 原生 API（DownloadItem、safeStorage）和已有基础设施（better-sqlite3、cdp-manager.js）实现。这是 v2.3 相比 v2.2（引入 hls.js/mpegts.js）的最大优势——技术风险极低，可专注于功能打磨和用户体验。
+## v2.4 多窗口支持
 
-下载管理器的核心挑战在于 **Electron DownloadItem 的时序约束**：`setSavePath()` 只能在 `will-download` 回调内同步调用，异步设置路径会静默失败。断点续传依赖服务端 Range/ETag 支持，不支持时 `resume()` 会从头重新下载。这些是文档明确记录但容易忽略的陷阱。
+### Executive Summary
 
-自动填充的核心挑战在于**安全模型**：`safeStorage` 在 Linux 无密钥管理器时降级为明文加密，必须检测并拒绝存储；容器间凭据必须严格隔离（按 `container_id` 分区查询），否则会违反 Realm 的核心价值——容器数据完全隔离。此外，autofill 与现有 CDP fillForm（Phase 24）可能冲突，需要互斥锁机制。
+v2.4 的核心目标是将 Realm Browser 从单窗口多 Tab 架构扩展为多窗口架构。研究结论表明，Chrome 的多窗口行为是用户的核心参考基准，必须遵循。
 
-## Key Findings
+**核心发现：**
+1. **Chrome 行为明确**：Tab 拖拽出窗口创建新窗口、Tab 拖拽到另一窗口、窗口内排序、窗口关闭自动销毁——这些是用户期望的基础行为
+2. **Electron 限制**：`webContents` 不能跨窗口移动，必须序列化状态后重建；HTML5 Drag and Drop API 限定在同一页面，跨窗口需要 IPC 中转
+3. **架构影响深远**：当前架构是深度单窗口假设——`windowManager.getMainWindow()` 在 30+ 处调用，`assertTrustedSender()` 硬编码主窗口校验，`tab-manager` 全局 Tab Map 无窗口关联
 
-### Recommended Stack
+**关键设计决策：**
+- Tab 全局追踪 + 窗口关联（Tab 对象新增 `windowId`）
+- IPC 信任模型扩展（从单窗口改为 `managedWindowIds` 集合）
+- 每个窗口独立 renderer 状态（加载同一 index.html，各自管理自己窗口的 Tab）
+- webview 不能跨窗口移动（Tab 迁移需要重建 webview，接受页面状态丢失）
 
-**零新依赖**——全部基于 Electron 原生 API + 已有依赖。
+### Key Findings
 
-**核心 API:**
-- **Electron DownloadItem**: 文件下载拦截/暂停/恢复/取消/进度追踪——原生 API，无需 electron-dl
-- **Electron safeStorage**: 凭据加密存储（macOS Keychain 后端）——替代已停止维护的 keytar
-- **CDP Autofill 域**: Chromium 内置表单填充引擎——复用现有 cdp-manager.js 基础设施
-- **better-sqlite3** (已有): 下载历史 + 凭据存储——复用，与 history/favorites 模式一致
+**Stack:** 零新依赖——全部基于 Electron 原生 API + 已有依赖（HTML5 Drag and Drop API）
+**Architecture:** 四个核心子系统需要重构：窗口管理、Tab 归属、IPC 路由、渲染进程状态
+**Critical pitfall:** 跨窗口 drag events 不直接工作，必须通过 IPC 中转
 
-**关键决策:**
-- 下载历史表单表设计（`container_id` 列区分容器），非分表——简化查询
-- 凭据加密使用 safeStorage 异步 API（`encryptStringAsync`/`decryptStringAsync`），避免阻塞主线程
-- 表单检测在 webview-preload.js 中完成（需要 DOM 上下文），凭据读写走主进程 IPC
-
-### Expected Features
-
-**Must have (table stakes) — 下载管理器:**
-- DL-01: 文件下载拦截（`session.on('will-download')`）
-- DL-05: 保存对话框（`setSaveDialogOptions`）
-- DL-02: 下载历史列表（SQLite 持久化 + `realm://downloads` 页面）
-- DL-03: 暂停/恢复
-- DL-04: 文件操作（打开/Finder 显示/删除）
-
-**Must have (table stakes) — 自动填充:**
-- AF-01: 密码保存提示（webview-preload 检测登录表单提交）
-- AF-02: 密码自动填充（域名匹配 + 表单注入）
-- AF-03: 凭据管理（realm://settings 页面）
-
-**Should have (differentiators):**
-- 下载速度实时显示 + 剩余时间估算
-- 来源容器标识（颜色/名称）
-- 工具栏下载图标 + 活跃下载徽标
-- AF-04: 地址表单支持（`autocomplete` 属性检测）
-- 凭据按容器隔离存储
-
-**Defer (v2+):**
-- 多线程分片下载（Electron 不原生支持）
-- BT/磁力链接支持
-- 跨会话断点续传（`createInterruptedDownload` 有局限）
-- 密码生成器、跨设备同步、2FA/Passkey 管理
-- 信用卡信息保存（合规复杂）
-
-### Architecture Approach
-
-遵循现有模式：**主进程承载业务逻辑，渲染进程负责 UI，通过 IPC 通信，数据按容器隔离**。
-
-**Major components:**
-1. **download-manager.js** (新增, 主进程) — 下载拦截、状态机（progressing/completed/cancelled/interrupted）、SQLite 持久化
-2. **autofill-manager.js** (新增, 主进程) — safeStorage 加密/解密、凭据 CRUD、域名匹配
-3. **webview-preload.js** (修改) — 表单检测（MutationObserver）、凭据填充（DOM 操作）、登录提交监听
-4. **download-panel.js** (新增, 渲染进程) — 下载面板 UI 逻辑
-5. **ipc-handlers.js** (修改) — 注册 `download:*` 和 `autofill:*` IPC 通道
-
-**数据模型:**
-- 下载历史：单表 `downloads`，含 `container_id` 列，按容器过滤
-- 凭据：`autofill_credentials` 表，`username_encrypted` + `password_encrypted` 使用 safeStorage BLOB
-- 地址：`autofill_addresses` 表，各字段独立加密
-
-### Critical Pitfalls
-
-1. **DL-1: `will-download` 路径设置时序 (CRITICAL)** — `setSavePath()` 只能在回调内同步调用。使用 `setSaveDialogOptions()` 让 Electron 处理对话框，或在回调内直接 `setSavePath()`。异步设置会静默失败。
-
-2. **DL-2: 断点续传依赖服务端 (CRITICAL)** — `resume()` 需要服务器支持 Range + Last-Modified + ETag。不支持时会丢弃已下载字节从头重下。必须检测并告知用户续传能力。
-
-3. **AF-1: Linux safeStorage 降级为明文 (CRITICAL)** — 无密钥管理器时使用硬编码明文加密。必须调用 `getSelectedStorageBackend()` 检查，返回 `basic_text` 时拒绝存储凭据。
-
-4. **AF-3: 容器间凭据泄漏 (CRITICAL)** — 凭据查询必须带 `container_id` 条件，否则容器 A 的密码会在容器 B 中被填充。这是 Realm 容器隔离核心价值的直接威胁。
-
-5. **AF-6: autofill 与 CDP fillForm 冲突 (HIGH)** — 用户级 autofill 和 AI 级 fillForm 可能同时操作同一字段。需要互斥锁 + 优先级规则。
-
-6. **DL-3: `interrupted` 状态歧义 (HIGH)** — `updated` 事件中 interrupted = 可恢复；`done` 事件中 interrupted = 不可恢复。必须按事件名分别处理。
-
-7. **AF-7: 跨域 iframe 凭据注入 (HIGH)** — 恶意页面可通过隐藏 iframe 获取已保存凭据。只在顶层页面触发 autofill，验证 iframe origin 与顶层一致。
-
-## Implications for Roadmap
+### Implications for Roadmap
 
 Based on research, suggested 4-phase structure:
 
-### Phase 1: Download Manager Core
-**Rationale:** 下载管理器是用户最直接感知的基础功能缺失。先做核心拦截和保存，建立 download-manager.js 模块骨架。
-**Delivers:** 文件下载拦截、保存对话框、基础进度显示、SQLite 持久化
-**Addresses:** DL-01, DL-05, 下载进度显示
-**Avoids:** DL-1 (时序问题) — 使用 `setSaveDialogOptions` 而非异步 `setSaveDialog`
-**Builds:** `download-manager.js`, 修改 `ipc-handlers.js` / `preload.js` / `renderer.js`
+1. **Phase 1: 窗口管理基础** - 重构 window-manager.js 支持多窗口 Map，扩展 assertTrustedSender
+   - Addresses: MW-01 (Dock 新建窗口), MW-08 (Cmd+N)
+   - Avoids: getAllWindows()[0] 歧义（已有 CR-7 决策）
 
-### Phase 2: Download Manager Enhancements
-**Rationale:** 依赖 Phase 1 的基础模块。暂停/恢复需要处理 DL-2（断点续传）和 DL-3（状态歧义）陷阱。
-**Delivers:** 下载历史列表、暂停/恢复/取消、文件操作、重试
-**Addresses:** DL-02, DL-03, DL-04
-**Avoids:** DL-2 (检测 Range/ETag 支持)、DL-3 (按事件区分 interrupted)、DL-5 (每个容器 Session 注册处理器)
-**Builds:** `realm://downloads` 内部页面, 下载面板 UI
+2. **Phase 2: Tab 窗口关联** - Tab 对象新增 windowId，activeTabId 改为 Map
+   - Addresses: MW-05 (窗口关闭自动销毁)
+   - Avoids: 全局 Tab 上限跨窗口回收
 
-### Phase 3: Autofill Core
-**Rationale:** 与 Phase 1/2 无依赖，可并行规划。核心是安全模型——必须先解决 safeStorage 平台差异和容器隔离。
-**Delivers:** 凭据加密存储、登录表单检测、自动填充、保存提示
-**Addresses:** AF-01, AF-02
-**Avoids:** AF-1 (Linux basic_text 检测)、AF-3 (容器隔离查询)、AF-4 (异步 API)
-**Builds:** `autofill-manager.js`, 修改 `webview-preload.js`
+3. **Phase 3: 窗口内 Tab 拖拽排序** - HTML5 DnD 实现
+   - Addresses: MW-04 (窗口内排序)
+   - Avoids: 拖拽视觉反馈问题
 
-### Phase 4: Autofill Enhancements + Integration
-**Rationale:** 依赖 Phase 3 的基础模块。凭据管理 UI + 地址表单 + 与 CDP fillForm 的互斥集成。
-**Delivers:** 凭据管理 UI、地址表单支持、settings 页面集成、autofill/fillForm 互斥
-**Addresses:** AF-03, AF-04
-**Avoids:** AF-6 (互斥锁)、AF-7 (跨域 iframe)、AF-8 (表单字段语义匹配)
-**Builds:** 凭据管理 UI, 地址表单检测
+4. **Phase 4: Tab 跨窗口移动** - 拖拽出窗口 + 右键菜单"移动到窗口"
+   - Addresses: MW-02 (拖拽创建窗口), MW-03 (拖拽到另一窗口)
+   - Avoids: webview 跨窗口移动限制
 
-### Phase Ordering Rationale
+**Phase ordering rationale:**
+- Phase 1 -> Phase 2: Tab 窗口关联依赖窗口管理基础
+- Phase 2 -> Phase 3: 拖拽排序依赖 Tab 窗口关联
+- Phase 2 -> Phase 4: 跨窗口移动依赖 Tab 窗口关联
+- Phase 3 || Phase 4: 可并行，无依赖
 
-- **Phase 1 -> Phase 2**: 下载历史和暂停/恢复依赖核心拦截模块
-- **Phase 3 -> Phase 4**: 凭据管理和地址表单依赖核心加密存储模块
-- **Phase 1/2 || Phase 3/4**: 下载和自动填充无技术依赖，可并行开发（但建议串行以控制复杂度）
-- 每个 Phase 的末尾都包含对应功能的 "Looks Done But Isn't" 检查清单验证
-
-### Research Flags
-
-Phases likely needing deeper research during planning:
-- **Phase 3 (Autofill Core):** safeStorage 在 Linux 的降级策略需要实际环境验证；CDP Autofill 域的 `Autofill.trigger` 需要 `DOM.BackendNodeId`，获取流程需细化
-- **Phase 4 (Autofill Enhancements):** 地址表单的 `autocomplete` 属性检测在不同网站的覆盖率需要调研
-
-Phases with standard patterns (skip research-phase):
-- **Phase 1 (Download Core):** Electron DownloadItem API 文档完善，session 事件拦截模式与 media-sniffer 一致
-- **Phase 2 (Download Enhances):** SQLite CRUD + UI 面板，与 history-manager/favorites-manager 模式完全一致
-
-## Confidence Assessment
+### Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | 零新依赖，全部基于 Electron 原生 API 官方文档 + 已有依赖 |
-| Features | HIGH | 功能边界清晰，与 Chrome/Firefox 内置功能对标明确 |
-| Architecture | HIGH | 遵循现有模式（history-manager、favorites-manager），无架构创新 |
-| Pitfalls | HIGH | 所有陷阱均来自 Electron 官方文档明确说明 + 现有代码库分析 |
-
-**Overall confidence:** HIGH
+| Stack | HIGH | 零新依赖，HTML5 DnD + Electron 原生 API |
+| Features | HIGH | Chrome 行为明确，用户期望清晰 |
+| Architecture | HIGH | 现有代码分析完整，改动点明确 |
+| Pitfalls | HIGH | Electron 官方文档 + 现有代码库分析 |
 
 ### Gaps to Address
 
-- **CDP Autofill 域稳定性**: 文档标注为 Experimental，需要在实际 webview 中验证 `Autofill.trigger` 的可靠性。如果不可靠，降级为 DOM 直接操作（`Input.insertText`）。
-- **safeStorage 跨平台行为**: macOS Keychain 行为明确，Linux/Windows 需要实际环境测试。建议 Phase 3 第一步就做平台检测。
-- **表单字段匹配覆盖率**: `autocomplete` 属性在中文网站覆盖率可能较低，需要 fallback 到 name/id 语义匹配。AF-8 陷阱中的字段模式表需要持续维护。
-- **Bug 修复范围**: 本次研究未覆盖 bug 修复部分，需要在 planning 阶段单独梳理。
+- **跨窗口拖拽 UX**: HTML5 DnD 跨窗口不直接工作，需要 IPC 中转协议设计
+- **Tab 状态保留**: webview 重建后滚动位置/表单数据丢失，Chrome 也如此但用户可能不满意
+- **性能**: 多窗口时 IPC 广播频率需要监控
+
+---
+
+## v2.3 下载管理器 + 自动填充
+
+### Executive Summary
+
+v2.3 的核心目标是补全 Realm Browser 作为浏览器的两个基础能力：**下载管理器**和**表单自动填充**。研究结论明确：这两个功能**零新 npm 依赖**，完全基于 Electron 原生 API（DownloadItem、safeStorage）和已有基础设施（better-sqlite3、cdp-manager.js）实现。
+
+下载管理器的核心挑战在于 **Electron DownloadItem 的时序约束**：`setSavePath()` 只能在 `will-download` 回调内同步调用，异步设置路径会静默失败。断点续传依赖服务端 Range/ETag 支持，不支持时 `resume()` 会从头重新下载。
+
+自动填充的核心挑战在于**安全模型**：`safeStorage` 在 Linux 无密钥管理器时降级为明文加密，必须检测并拒绝存储；容器间凭据必须严格隔离（按 `container_id` 分区查询），否则会违反 Realm 的核心价值——容器数据完全隔离。
+
+### Key Findings
+
+**Stack:** 零新依赖——Electron DownloadItem + safeStorage + better-sqlite3 + cdp-manager.js
+**Architecture:** 遵循现有模式：主进程承载业务逻辑，渲染进程负责 UI，通过 IPC 通信，数据按容器隔离
+**Critical pitfall:** `will-download` 路径设置时序窗口——`setSavePath()` 只能在回调内同步调用
+
+### Critical Pitfalls
+
+1. **DL-1: `will-download` 路径设置时序 (CRITICAL)** — `setSavePath()` 只能在回调内同步调用
+2. **DL-2: 断点续传依赖服务端 (CRITICAL)** — `resume()` 需要服务器支持 Range + Last-Modified + ETag
+3. **AF-1: Linux safeStorage 降级为明文 (CRITICAL)** — 无密钥管理器时使用硬编码明文加密
+4. **AF-3: 容器间凭据泄漏 (CRITICAL)** — 凭据查询必须带 `container_id` 条件
+
+---
+
+## v2.2 多媒体功能集成
+
+### Executive Summary
+
+v2.2 的核心目标是为 Realm Browser 添加视频源检测、媒体面板和独立播放器窗口功能。视频源检测主要依赖两种互补技术路径：**网络层嗅探**（session.webRequest 拦截）和**页面层检测**（executeJavaScript 注入）。播放器层面，hls.js 和 mpegts.js 覆盖了主流流媒体格式。
+
+### Key Findings
+
+**Stack:** hls.js + mpegts.js（2 个新依赖）+ Electron 原生 API
+**Architecture:** 网络嗅探为主 + DOM 检测为辅，独立播放器窗口
+**Critical pitfall:** CSP 阻断 executeJavaScript 脚本注入
+
+---
 
 ## Sources
 
-### Primary (HIGH confidence)
-- [Electron DownloadItem API](https://www.electronjs.org/docs/latest/api/download-item) — 完整方法/事件/状态文档
-- [Electron safeStorage API](https://www.electronjs.org/docs/latest/api/safe-storage) — 加密/解密 API（含异步版本）
-- [Electron Session will-download](https://www.electronjs.org/docs/latest/api/session#event-will-download) — 下载拦截事件
-- [CDP Autofill Domain](https://chromedevtools.github.io/devtools-protocol/tot/Autofill/) — 表单填充协议规范
-- Realm Browser CLAUDE.md — 现有架构、CDP fillForm、容器 Session 模式
-
-### Secondary (MEDIUM confidence)
-- [MDN HTML autocomplete 属性](https://developer.mozilla.org/en-US/docs/Web/HTML/Attributes/autocomplete) — 表单字段标准
-- [Web.dev 登录表单最佳实践](https://web.dev/articles/sign-in-form-best-practices) — 表单检测策略参考
+- [Electron BrowserWindow API](https://www.electronjs.org/docs/latest/api/browser-window)
+- [Electron webContents API](https://www.electronjs.org/docs/latest/api/web-contents)
+- [Electron DownloadItem API](https://www.electronjs.org/docs/latest/api/download-item)
+- [Electron safeStorage API](https://www.electronjs.org/docs/latest/api/safe-storage)
+- [MDN HTML Drag and Drop API](https://developer.mozilla.org/en-US/docs/Web/API/HTML_Drag_and_Drop_API)
+- Realm Browser PROJECT.md — 项目约束和现有架构
+- Realm Browser CLAUDE.md — 现有实现细节
 
 ---
-*Research completed: 2026-08-11*
-*Ready for roadmap: yes*
+*Last updated: 2026-08-14*

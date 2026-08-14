@@ -1,578 +1,557 @@
-# Architecture Research — Download Manager + Autofill (v2.3)
+# Architecture Research — 多窗口支持 (v2.4)
 
-**Domain:** Electron 32.x 多容器隔离浏览器 — 下载管理器与自动填充
-**Researched:** 2026-08-11
+**Domain:** Electron 32.x 多容器隔离浏览器 — 多窗口架构
+**Researched:** 2026-08-14
 **Confidence:** HIGH
 
 ## Executive Summary
 
-本研究聚焦 v2.3 新增的下载管理器（DL-01~05）和自动填充（AF-01~04）功能的架构设计。核心原则：**遵循现有模式** — 主进程承载业务逻辑，渲染进程负责 UI，通过 IPC 通信，数据按容器隔离。
+本研究聚焦 v2.4 多窗口支持（MW-01~06）的架构设计。核心发现：当前架构是**深度单窗口假设** — `windowManager.getMainWindow()` 在 30+ 处调用，`assertTrustedSender()` 硬编码主窗口校验，`tab-manager` 全局 Tab Map 无窗口关联，`renderer.js` 持有独立的 Tab/Webview 状态。多窗口不是简单地"多开几个窗口"，而是需要重构四个核心子系统：**窗口管理**、**Tab 归属**、**IPC 路由**和**渲染进程状态**。
 
-下载管理器应作为独立模块 `download-manager.js` 在主进程运行，利用 Electron 原生 `session.on('will-download')` 事件拦截下载，通过 SQLite 持久化下载历史（复用 better-sqlite3），进度通过 IPC 实时推送到渲染进程。
+关键设计决策：
+1. **Tab 全局追踪 + 窗口关联**：tab-manager 继续维护全局 Map，但每个 Tab 新增 `windowId` 字段
+2. **IPC 信任模型扩展**：从"只信任一个主窗口"改为"信任所有由 createMainWindow 创建的窗口"
+3. **每个窗口独立 renderer 状态**：每个 BrowserWindow 加载同一 index.html，但各自管理自己窗口内的 Tab
+4. **webview 不能跨窗口移动**：Electron 的 webview 绑定到创建它的 BrowserWindow，Tab 迁移需要重建 webview
 
-自动填充凭据应存储在独立的 SQLite 数据库中（`autofill.db`），使用 Electron `safeStorage` API 加密密码字段（macOS Keychain 后端），按容器隔离存储。表单匹配在渲染进程完成（需要 DOM 上下文），凭据读写通过 IPC 走主进程。
+## 当前架构分析
 
-## Download Manager Architecture
+### 单窗口假设的触点
 
-### 为什么在主进程
+| 位置 | 代码模式 | 影响范围 |
+|------|---------|---------|
+| `window-manager.js` | `mainWindowRef` 单例引用 | 所有需要主窗口的地方 |
+| `window-manager.js` | `createMainWindow` 只创建一个 | 入口 |
+| `ipc-handlers.js:assertTrustedSender` | `win.id !== mainWindow.id` 硬编码 | 所有 IPC 安全校验 |
+| `main.js:requestActionConfirmation` | `windowManager.getMainWindow()` | AI 确认卡片路由 |
+| `main.js:_notifyBookmarksBarRefresh` | `windowManager.getMainWindow()` | 收藏栏广播 |
+| `main.js:app.on('open-url')` | `BrowserWindow.getFocusedWindow()` | 外部链接打开 |
+| `main.js:before-quit` | `windowManager.getMainWindow()` | 退出提示 |
+| `main.js:activate` | `BrowserWindow.getAllWindows().length === 0` | macOS 激活 |
+| `main.js:shortcutManager` | `registerShortcuts(mainWindow)` | 全局快捷键 |
+| `tab-manager.js` | `tabs` 全局 Map，无窗口关联 | Tab 数据模型 |
+| `tab-manager.js` | `activeTabId` 全局单例 | 活动 Tab 状态 |
+| `renderer.js` | `state.tabs` / `state.activeTabId` / `state.webviews` | 渲染进程 Tab 状态 |
 
-1. **Electron API 要求**：`session.on('will-download')` 只能在主进程注册
-2. **Session 隔离**：每个容器的 session 独立，下载自然按容器隔离
-3. **文件系统访问**：`dialog.showSaveDialog()` 和文件操作在主进程更自然
-4. **一致性**：与 history-manager、favorites-manager 的模式一致
+### 不需要改动的模块
 
-### 核心组件
+| 模块 | 原因 |
+|------|------|
+| `container-manager.js` | 容器是全局资源，不与窗口绑定 |
+| `cookie-manager.js` | Cookie 按容器隔离，与窗口无关 |
+| `assignment-rules.js` | URL 匹配规则全局共享 |
+| `history-manager.js` | 历史记录按容器隔离 |
+| `favorites-manager.js` | 收藏全局共享 |
+| `frequent-sites-manager.js` | 常用网站全局共享 |
+| `cdp-manager.js` | CDP 按 webview guest 管理 |
+| `media-sniffer.js` | 嗅探按 session 管理 |
+| `download-manager.js` | 下载按 session 管理 |
+| `credential-manager.js` | 凭据按容器隔离 |
+| `address-manager.js` | 地址按容器隔离 |
+| `shortcut-manager.js` | 快捷键只需扩展到多窗口注册 |
+| `src/preload.js` | realmAPI 接口不变，每个窗口各有一份 |
 
-```
-Main Process (新增)
-├── download-manager.js     # 下载管理核心模块
-│   ├── DownloadManager 类
-│   ├── 会话级 will-download 监听器
-│   ├── SQLite 持久化（download_history 表）
-│   └── 下载状态机（progress → completed/cancelled/interrupted）
-│
-├── ipc-handlers.js (修改)
-│   └── download:* IPC 通道注册
+## 架构设计
 
-Renderer Process (修改)
-├── download-panel.js       # 下载面板 UI 逻辑（新增）
-├── renderer.js (修改)
-│   └── 下载按钮/面板交互
-└── preload.js (修改)
-    └── downloadAPI 暴露
-```
-
-### 数据模型
-
-```sql
--- 下载历史表（全局共享，通过 container_id 区分容器）
-CREATE TABLE IF NOT EXISTS downloads (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  container_id TEXT NOT NULL,          -- 来源容器 ID
-  url TEXT NOT NULL,                   -- 下载源 URL
-  filename TEXT NOT NULL,              -- 文件名
-  save_path TEXT NOT NULL,             -- 保存路径
-  mime_type TEXT,                      -- MIME 类型
-  total_bytes INTEGER DEFAULT 0,       -- 文件总大小
-  received_bytes INTEGER DEFAULT 0,    -- 已下载大小
-  state TEXT DEFAULT 'progressing',    -- progressing | completed | cancelled | interrupted
-  start_time INTEGER NOT NULL,         -- 开始时间戳
-  end_time INTEGER,                    -- 结束时间戳
-  error_message TEXT,                  -- 错误信息（interrupted 时）
-  created_at TEXT DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_downloads_container ON downloads(container_id);
-CREATE INDEX IF NOT EXISTS idx_downloads_state ON downloads(state);
-```
-
-### 状态机
+### 新窗口管理模型
 
 ```
-                    ┌─────────────┐
-                    │  will-download │
-                    └──────┬──────┘
-                           │
-                           ▼
-                    ┌─────────────┐
-                    │ progressing  │◄──── pause() / resume()
-                    └──────┬──────┘
-                           │
-              ┌────────────┼────────────┐
-              │            │            │
-              ▼            ▼            ▼
-       ┌──────────┐ ┌──────────┐ ┌──────────────┐
-       │completed │ │cancelled │ │ interrupted  │
-       └──────────┘ └──────────┘ └──────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                      Main Process                       │
+│                                                         │
+│  windowManager (重构)                                   │
+│  ├── windows: Map<windowId, BrowserWindow>              │
+│  ├── createMainWindow(containerId, container)           │
+│  ├── getMainWindow() → 主窗口（兼容旧调用）              │
+│  ├── getWindow(windowId) → 指定窗口                     │
+│  ├── getAllWindows() → 所有窗口                          │
+│  ├── sendToWindow(windowId, channel, data)              │
+│  └── broadcast(channel, data) → 所有窗口                 │
+│                                                         │
+│  tabManager (扩展)                                      │
+│  ├── tabs: Map<tabId, Tab>                              │
+│  │   Tab 新增字段: windowId                             │
+│  ├── activeTabId: Map<windowId, tabId>  // 每窗口独立    │
+│  ├── createTab(windowId, containerId, url)              │
+│  ├── moveTab(tabId, targetWindowId)                     │
+│  └── closeTab(tabId)                                    │
+│                                                         │
+│  assertTrustedSender (扩展)                              │
+│  └── 检查 event.sender ∈ windows Map                    │
+└─────────────────────────────────────────────────────────┘
+                         │
+           ┌─────────────┼─────────────┐
+           ▼             ▼             ▼
+     ┌──────────┐  ┌──────────┐  ┌──────────┐
+     │ Window 1 │  │ Window 2 │  │ Window 3 │
+     │ Renderer │  │ Renderer │  │ Renderer │
+     │ (default)│  │ (work)   │  │ (social) │
+     │ Tabs: 3  │  │ Tabs: 2  │  │ Tabs: 1  │
+     └──────────┘  └──────────┘  └──────────┘
 ```
 
-### IPC 通道设计
+### 数据模型变更
 
-| 通道 | 方向 | 参数 | 返回值 | 说明 |
-|------|------|------|--------|------|
-| `download:list` | renderer→main | `{containerId?, state?, limit?, offset?}` | `Array<DownloadItem>` | 查询下载历史 |
-| `download:pause` | renderer→main | `{id}` | `{success}` | 暂停下载 |
-| `download:resume` | renderer→main | `{id}` | `{success}` | 恢复下载 |
-| `download:cancel` | renderer→main | `{id}` | `{success}` | 取消下载 |
-| `download:open` | renderer→main | `{id}` | `{success}` | 打开文件 |
-| `download:show` | renderer→main | `{id}` | `{success}` | 在 Finder 中显示 |
-| `download:delete` | renderer→main | `{id, deleteFile?}` | `{success}` | 删除记录（可选删文件） |
-| `download:clear` | renderer→main | `{containerId?, state?}` | `{count}` | 清空历史 |
-| `download:retry` | renderer→main | `{id}` | `{success}` | 重新下载（interrupted） |
-| `download:progress` | main→renderer | `DownloadItem` | - | 进度推送（实时） |
-| `download:started` | main→renderer | `DownloadItem` | - | 新下载开始 |
-| `download:done` | main→renderer | `DownloadItem` | - | 下载完成/取消/中断 |
-
-### will-download 拦截流程
+#### Tab 对象扩展
 
 ```javascript
-// download-manager.js 核心逻辑
-function setupSessionDownloadListener(containerId) {
-  const ses = session.fromPartition(`persist:container-${containerId}`);
+// 当前 Tab 对象
+{
+  id: 'tab-1',
+  containerId: 'default',
+  url: 'https://example.com',
+  title: 'Example',
+  createdAt: Date.now(),
+  lastActiveAt: Date.now(),
+  faviconUrl: '',
+  pinned: false,
+}
 
-  ses.on('will-download', (event, item, webContents) => {
-    // 1. 弹出保存对话框（或使用默认路径）
-    const savePath = await dialog.showSaveDialog({
-      defaultPath: path.join(app.getPath('downloads'), item.getFilename()),
-      filters: [{ name: 'All Files', extensions: ['*'] }]
-    });
-
-    if (savePath.canceled) {
-      item.cancel();
-      return;
-    }
-
-    item.setSavePath(savePath.filePath);
-
-    // 2. 记录到 SQLite
-    const record = insertDownload({
-      containerId,
-      url: item.getURL(),
-      filename: item.getFilename(),
-      savePath: item.getSavePath(),
-      mimeType: item.getMimeType(),
-      totalBytes: item.getTotalBytes()
-    });
-
-    // 3. 通知渲染进程
-    sendToRenderer('download:started', record);
-
-    // 4. 监听进度
-    item.on('updated', (event, state) => {
-      if (state === 'progressing') {
-        updateDownloadProgress(record.id, item.getReceivedBytes());
-        sendToRenderer('download:progress', {
-          id: record.id,
-          receivedBytes: item.getReceivedBytes(),
-          totalBytes: item.getTotalBytes()
-        });
-      }
-    });
-
-    // 5. 监听完成
-    item.on('done', (event, state) => {
-      updateDownloadState(record.id, state);
-      sendToRenderer('download:done', { id: record.id, state });
-    });
-  });
+// 多窗口 Tab 对象（新增 windowId）
+{
+  id: 'tab-1',
+  windowId: 1,           // 新增：BrowserWindow.id
+  containerId: 'default',
+  url: 'https://example.com',
+  title: 'Example',
+  createdAt: Date.now(),
+  lastActiveAt: Date.now(),
+  faviconUrl: '',
+  pinned: false,
 }
 ```
 
-### 保存对话框策略
-
-**推荐：先弹对话框再下载**（DL-05 要求）
-
-- 默认路径：`app.getPath('downloads')` + 原始文件名
-- 用户取消 → `item.cancel()`，不记录
-- 支持"始终保存到此目录"设置（electron-store）
-
-**备选：静默下载到临时目录，完成后提示**
-
-- 优点：不打断用户
-- 缺点：不符合 DL-05 需求，且需要额外的"移动文件"逻辑
-
-### 下载进度节流
-
-进度更新频率需要节流，避免高频 IPC 冲刷渲染进程：
+#### 活动 Tab 状态变更
 
 ```javascript
-// 节流：最多每 200ms 推送一次进度
-const PROGRESS_THROTTLE_MS = 200;
-let lastProgressTime = 0;
+// 当前：全局单例
+let activeTabId = null;
 
-item.on('updated', (event, state) => {
-  const now = Date.now();
-  if (now - lastProgressTime < PROGRESS_THROTTLE_MS) return;
-  lastProgressTime = now;
-  // ... 发送进度
-});
+// 多窗口：每窗口独立
+const activeTabByWindow = new Map(); // windowId → tabId
 ```
 
-## Autofill Architecture
+#### Tab 持久化变更
 
-### 存储架构
-
-**核心决策：凭据存储在主进程，按容器隔离**
-
-```
-Main Process (新增)
-├── autofill-manager.js     # 自动填充核心模块
-│   ├── AutofillManager 类
-│   ├── SQLite 持久化（autofill.db）
-│   ├── safeStorage 加密/解密
-│   └── 域名匹配逻辑
-│
-├── ipc-handlers.js (修改)
-│   └── autofill:* IPC 通道注册
-
-Renderer Process (修改)
-├── autofill-bridge.js      # 自动填充桥接（webview guest 内）
-│   ├── 表单检测（MutationObserver）
-│   ├── 凭据填充（DOM 操作）
-│   └── 登录提交监听
-└── preload.js (修改)
-    └── autofillAPI 暴露
+```javascript
+// electron-store 'tabs' 格式扩展
+// 每个 tab 增加 windowId 字段
+// 启动恢复时按 windowId 分组重建窗口
 ```
 
-### 为什么用 safeStorage 而不是 Keytar
+### IPC 信任模型扩展
 
-| 方案 | 优点 | 缺点 |
+```javascript
+// 当前：只信任单个主窗口
+function assertTrustedSender(event) {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const mainWindow = windowManager.getMainWindow();
+  if (!win || !mainWindow || win.id !== mainWindow.id) {
+    throw new Error('不受信任的 IPC 来源');
+  }
+  return win;
+}
+
+// 多窗口：信任所有由 createMainWindow 创建的窗口
+function assertTrustedSender(event) {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || !windowManager.isManagedWindow(win.id)) {
+    throw new Error('不受信任的 IPC 来源');
+  }
+  return win;
+}
+```
+
+### Tab 拖拽跨窗口机制
+
+Electron 原生不支持跨窗口拖拽。需要自定义实现：
+
+```
+方案：IPC + 自定义拖拽协议
+
+1. 拖拽开始（源窗口 renderer）
+   ├── 设置拖拽数据：tabId, containerId, url, title
+   ├── 使用 HTML5 Drag and Drop API（窗口内）
+   └── 如果拖出窗口边界 → 通知主进程
+
+2. 主进程处理
+   ├── 创建新窗口（或找到目标窗口）
+   ├── 从源窗口移除 Tab（tabManager.moveTab）
+   ├── 在目标窗口添加 Tab
+   └── 通知两个 renderer 更新 UI
+
+3. 拖拽落位（目标窗口 renderer）
+   ├── 接收 Tab 数据
+   ├── 创建 webview
+   └── 导航到 URL
+```
+
+**关键约束**：webview 不能跨窗口移动。每个 BrowserWindow 的 webview 绑定到该窗口的渲染进程。Tab 迁移时需要在目标窗口**重建 webview 并重新导航**，而非移动 DOM 元素。这意味着：
+- 页面状态（滚动位置、表单输入）会丢失
+- 需要从 URL 重新加载页面
+- 这是 Chrome 等浏览器的相同行为，用户可接受
+
+### "最后 Tab 关闭窗口" 规则
+
+```
+关闭 Tab 流程：
+
+1. renderer 调用 closeTab(tabId)
+2. tabManager 从全局 Map 删除
+3. 检查：该 windowId 下是否还有 Tab？
+   ├── 有 → 切换到相邻 Tab
+   └── 无 → 关闭窗口
+       ├── BrowserWindow.close()
+       ├── 从 windowManager.windows Map 删除
+       └── 如果是最后一个窗口 → 触发 app 退出流程
+```
+
+### 广播模式
+
+当前很多功能需要向渲染进程广播事件。多窗口时需要决定广播策略：
+
+```javascript
+// 向所有窗口广播
+function broadcast(channel, data) {
+  for (const [id, win] of windows) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(channel, data);
+    }
+  }
+}
+
+// 只向拥有特定 Tab 的窗口广播
+function sendToTabWindow(tabId, channel, data) {
+  const tab = tabManager.getTab(tabId);
+  if (!tab) return;
+  const win = windows.get(tab.windowId);
+  if (win && !win.isDestroyed()) {
+    win.webContents.send(channel, data);
+  }
+}
+```
+
+**需要广播 vs 定向发送的场景：**
+
+| 事件 | 策略 | 原因 |
 |------|------|------|
-| **Electron safeStorage** ✓ | 原生支持，macOS 用 Keychain，零依赖 | 仅加密字符串，需自建存储 |
-| keytar | 专门管理密码 | 已弃用，原生模块打包复杂 |
-| 明文 SQLite | 简单 | 安全性差，密码不应明文存储 |
+| `bookmarks-bar:refresh` | 广播所有窗口 | 收藏栏全局共享 |
+| `settings:updated` | 广播所有窗口 | 设置全局生效 |
+| `tab:recycled` | 定向到目标窗口 | 只影响被回收 Tab 所在窗口 |
+| `shortcut:triggered` | 定向到焦点窗口 | 快捷键作用于当前焦点窗口 |
+| `action:request-confirmation` | 定向到 AI 所在窗口 | 确认卡片需在正确窗口显示 |
+| `open-url-in-tab` | 定向到来源窗口 | 新 Tab 在来源 webview 所在窗口打开 |
+| `show-quit-hint` | 广播所有窗口 | 退出提示所有窗口可见 |
 
-**选择 safeStorage**：Electron 原生 API，macOS 后端是系统 Keychain，无需额外依赖。
+## 组件边界
 
-### 数据模型
+### 需要修改的组件
 
-```sql
--- 自动填充凭据表（按容器隔离）
-CREATE TABLE IF NOT EXISTS autofill_credentials (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  container_id TEXT NOT NULL,          -- 来源容器 ID
-  origin TEXT NOT NULL,                -- 网站 origin（https://example.com）
-  username_encrypted BLOB NOT NULL,    -- 加密的用户名（safeStorage.encryptString）
-  username_hash TEXT NOT NULL,         -- 用户名哈希（用于去重查询，不加密）
-  password_encrypted BLOB NOT NULL,    -- 加密的密码
-  field_names TEXT,                    -- JSON: {username: 'email', password: 'pass'}
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now')),
-  UNIQUE(container_id, origin, username_hash)
-);
+| 组件 | 当前职责 | 修改内容 | 复杂度 |
+|------|---------|---------|--------|
+| `window-manager.js` | 单窗口管理 | 重构为多窗口 Map，新增 `windows` Map、`isManagedWindow()`、`broadcast()` | High |
+| `tab-manager.js` | 全局 Tab 管理 | Tab 对象新增 `windowId`，`activeTabId` 改为 Map，新增 `moveTab()` | High |
+| `ipc-handlers.js` | IPC 注册 | `assertTrustedSender` 扩展，部分处理器增加 windowId 参数 | Medium |
+| `main.js` | 主进程入口 | 将 `getMainWindow()` 调用替换为定向/broadcast，Dock 菜单新增"新建窗口" | High |
+| `src/renderer.js` | UI 逻辑 | Tab/Webview 状态改为只管理当前窗口的子集，接收 windowId 参数 | High |
+| `src/index.html` | UI 结构 | 可能无需改动（每个窗口加载同一文件） | Low |
+| `shortcut-manager.js` | 快捷键 | `registerShortcuts` 扩展为支持多窗口 | Low |
+| `context-menu-manager.js` | 右键菜单 | Tab 右键菜单增加"移动到新窗口"选项 | Low |
 
--- 自动填充地址表（按容器隔离）
-CREATE TABLE IF NOT EXISTS autofill_addresses (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  container_id TEXT NOT NULL,
-  label TEXT NOT NULL,                 -- 地址标签（如"家"、"公司"）
-  name_encrypted BLOB,
-  email_encrypted BLOB,
-  phone_encrypted BLOB,
-  address_encrypted BLOB,             -- JSON: {street, city, state, zip, country}
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
-);
+### 不需要修改的组件
 
-CREATE INDEX IF NOT EXISTS idx_credentials_container_origin
-  ON autofill_credentials(container_id, origin);
+| 组件 | 原因 |
+|------|------|
+| `src/preload.js` | 每个窗口各有一份 preload 实例，API 接口不变 |
+| `container-manager.js` | 容器全局共享 |
+| `cookie-manager.js` | Cookie 按容器隔离 |
+| `assignment-rules.js` | 规则全局共享 |
+| `history-manager.js` | 历史按容器隔离 |
+| `favorites-manager.js` | 收藏全局共享 |
+| `frequent-sites-manager.js` | 常用网站全局共享 |
+| `cdp-manager.js` | CDP 按 webContents 管理 |
+| `media-sniffer.js` | 嗅探按 session 管理 |
+| `download-manager.js` | 下载按 session 管理 |
+| `credential-manager.js` | 凭据按容器隔离 |
+| `address-manager.js` | 地址按容器隔离 |
+| `ai-manager.js` | AI Manager 全局单例 |
+
+### 可能需要新增的组件
+
+| 组件 | 职责 | 必要性 |
+|------|------|--------|
+| `window-state-manager.js` | 管理每个窗口的几何状态（位置、大小）持久化 | 可选，后期增强 |
+| `drag-drop-manager.js` | 管理跨窗口 Tab 拖拽协议 | 必要（MW-03） |
+
+## 数据流
+
+### 新建窗口流程 (MW-01)
+
+```
+1. 用户点击 Dock 右键 → "新建窗口"
+   │
+   ▼
+2. main.js: app.on('activate') 或 Dock 菜单
+   │
+   ▼
+3. windowManager.createMainWindow('default', container)
+   ├── 创建 BrowserWindow（新实例）
+   ├── 加载 src/index.html
+   ├── 注册到 windows Map
+   └── 返回新窗口
+   │
+   ▼
+4. renderer 初始化（新窗口的渲染进程）
+   ├── 获取 windowId（通过 IPC 或 preload 注入）
+   ├── 加载容器列表
+   ├── 创建初始 Tab
+   └── 渲染 UI
+   │
+   ▼
+5. shortcutManager.registerShortcuts(newWindow)
+   └── 为新窗口注册快捷键
 ```
 
-### 加密流程
+### Tab 拖拽出窗口 (MW-02)
+
+```
+1. 用户拖拽 Tab 到窗口外部
+   │
+   ▼
+2. renderer: dragstart 事件
+   ├── 设置 dataTransfer: { tabId, containerId, url, title }
+   └── 监听 dragend 事件
+   │
+   ▼
+3. 检测：dragend 的 screenX/Y 超出窗口边界？
+   ├── 否 → 正常窗口内拖拽排序
+   └── 是 → 通知主进程创建新窗口
+   │
+   ▼
+4. IPC: tab:detach-to-new-window { tabId }
+   │
+   ▼
+5. main.js 处理
+   ├── tabManager.getTab(tabId)
+   ├── windowManager.createMainWindow(containerId, container)
+   ├── tabManager.moveTab(tabId, newWindowId)
+   ├── 通知源 renderer 移除 Tab DOM
+   └── 通知新 renderer 创建 Tab + webview
+   │
+   ▼
+6. 新窗口 renderer
+   ├── 接收 Tab 数据
+   ├── 创建 webview
+   ├── 导航到 URL
+   └── 渲染 Tab 栏
+```
+
+### 窗口间 Tab 拖拽 (MW-03)
+
+```
+1. 用户拖拽 Tab 从窗口 A 到窗口 B
+   │
+   ▼
+2. 由于 Electron 不支持跨窗口原生拖拽，
+   使用以下方案之一：
+   │
+   ├── 方案 A：拖到窗口边界时创建新窗口（MW-02 的扩展）
+   │
+   ├── 方案 B：右键菜单 "移动到窗口" 列表
+   │   └── 显示所有窗口列表，用户选择目标
+   │
+   └── 方案 C：键盘快捷键
+       └── Cmd+Shift+X "移动 Tab 到新窗口"
+```
+
+**推荐方案 B + C**：方案 A 实现复杂且 UX 不直观（用户不知道拖到哪里算"出了窗口"）。方案 B 通过右键菜单提供明确的"移动到窗口"选项，方案 C 提供快捷键快速操作。
+
+### 广播刷新流程
+
+```
+场景：收藏栏状态变更，需要通知所有窗口
+
+1. favoritesManager.deleteRecord(id)
+   │
+   ▼
+2. _notifyBookmarksBarRefresh()
+   │  旧：mainWindow.webContents.send(...)
+   │  新：windowManager.broadcast('bookmarks-bar:refresh')
+   │
+   ▼
+3. 每个窗口的 renderer 收到事件
+   └── 各自刷新收藏栏 UI
+```
+
+## 关键设计决策
+
+### D-MW-01: Tab 全局追踪 vs 窗口内追踪
+
+**决策：全局追踪 + 窗口关联**
+
+- tab-manager 继续维护全局 `Map<tabId, Tab>`
+- Tab 对象新增 `windowId` 字段
+- 每个窗口的 renderer 只管理自己窗口的 Tab 子集
+
+**理由：**
+1. Tab 拖拽跨窗口时，只需修改 `windowId` 字段，不需移动数据
+2. 全局 Tab 回收（TAB_MAX_COUNT）需要跨窗口感知
+3. 持久化恢复需要知道每个 Tab 属于哪个窗口
+
+### D-MW-02: IPC 信任模型
+
+**决策：信任所有由 createMainWindow 创建的窗口**
+
+- windowManager 维护 `managedWindowIds: Set<number>`
+- assertTrustedSender 检查 `managedWindowIds.has(win.id)`
+- 播放器窗口等辅助窗口不加入 managedWindowIds
+
+**理由：**
+1. 每个窗口都是合法的主窗口，都应该被信任
+2. 保持与现有 assertPlayerSender 的分离
+3. 安全边界清晰：只有我们创建的窗口才能调用 IPC
+
+### D-MW-03: 活动 Tab 状态
+
+**决策：每窗口独立的活动 Tab**
 
 ```javascript
-const { safeStorage } = require('electron');
+// 旧：全局单例
+let activeTabId = null;
 
-// 加密
-function encryptField(plaintext) {
-  return safeStorage.encryptString(plaintext);
-}
-
-// 解密
-function decryptField(encrypted) {
-  return safeStorage.decryptString(encrypted);
-}
-
-// 保存凭据
-async function saveCredential(containerId, origin, username, password) {
-  const usernameEncrypted = encryptField(username);
-  const passwordEncrypted = encryptField(password);
-  const usernameHash = crypto.createHash('sha256').update(username).digest('hex');
-
-  db.prepare(`
-    INSERT OR REPLACE INTO autofill_credentials
-    (container_id, origin, username_encrypted, username_hash, password_encrypted)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(containerId, origin, usernameEncrypted, usernameHash, passwordEncrypted);
-}
+// 新：每窗口独立
+const activeTabByWindow = new Map(); // windowId → tabId
 ```
 
-### 表单检测与填充流程
+**理由：**
+1. 每个窗口有自己的 Tab 栏，需要独立的活动 Tab
+2. 快捷键（Cmd+W、Cmd+T）作用于当前焦点窗口的活动 Tab
+3. Tab 持久化时需要记录每个窗口的活动 Tab
 
-**关键决策：检测和填充在 webview guest 的 preload 中完成**
+### D-MW-04: webview 跨窗口迁移
 
-原因：
-1. 表单 DOM 在 webview guest 内部，主进程无法直接访问
-2. 填充需要操作 DOM（设置 input.value），必须在渲染进程
-3. webview guest 已有 preload 脚本（`webview-preload.js`），可以扩展
+**决策：重建 webview，不移动 DOM**
 
-```javascript
-// webview-preload.js 扩展（在 webview guest 内执行）
-const { contextBridge, ipcRenderer } = require('electron');
+- Tab 迁移到新窗口时，在目标窗口创建新 webview
+- 从 URL 重新导航
+- 接受页面状态丢失（滚动位置、表单输入）
 
-// 检测登录表单
-function detectLoginForm() {
-  const forms = document.querySelectorAll('form');
-  for (const form of forms) {
-    const passwordInput = form.querySelector('input[type="password"]');
-    if (!passwordInput) continue;
+**理由：**
+1. Electron 的 webview 绑定到创建它的 BrowserWindow，无法跨窗口移动
+2. Chrome 等浏览器的 Tab 拖拽也是重建页面
+3. 用户对此行为有预期
 
-    const usernameInput = form.querySelector(
-      'input[type="text"], input[type="email"], input[name="username"], input[name="email"]'
-    );
+### D-MW-05: Tab 上限策略
 
-    if (usernameInput) {
-      return {
-        origin: window.location.origin,
-        usernameField: usernameInput.name || usernameInput.id,
-        passwordField: passwordInput.name || passwordInput.id
-      };
-    }
-  }
-  return null;
-}
+**决策：全局 Tab 上限，跨窗口共享配额**
 
-// 监听表单提交
-function watchFormSubmit() {
-  document.addEventListener('submit', async (e) => {
-    const form = e.target;
-    const passwordInput = form.querySelector('input[type="password"]');
-    if (!passwordInput) return;
+- TAB_MAX_COUNT 保持全局 20 个
+- 回收时优先回收最久未使用的 Tab（跨所有窗口）
 
-    const usernameInput = form.querySelector(
-      'input[type="text"], input[type="email"]'
-    );
+**理由：**
+1. 资源限制是全局的（内存、CPU）
+2. 用户不应该通过开新窗口绕过 Tab 上限
+3. 回收逻辑简单：只需遍历全局 Tab Map
 
-    if (usernameInput && passwordInput.value) {
-      // 通知主进程保存凭据
-      ipcRenderer.send('autofill:save-credential', {
-        origin: window.location.origin,
-        username: usernameInput.value,
-        password: passwordInput.value,
-        fieldNames: {
-          username: usernameInput.name || usernameInput.id,
-          password: passwordInput.name || passwordInput.id
-        }
-      });
-    }
-  }, true); // capture phase，早于页面的 submit 处理
-}
+## Anti-Patterns to Avoid
 
-// 请求填充凭据
-async function requestAutofill() {
-  const form = detectLoginForm();
-  if (!form) return;
+### Anti-Pattern 1: 每个窗口独立的 tab-manager 实例
 
-  const credentials = await ipcRenderer.invoke('autofill:get-credentials', {
-    origin: form.origin
-  });
+**What:** 每个 BrowserWindow 创建自己的 tab-manager 实例
+**Why bad:** Tab 拖拽跨窗口需要在两个实例间同步数据，极易出 bug；全局 Tab 上限无法执行；持久化复杂度翻倍
+**Instead:** 全局 tab-manager + Tab 对象的 windowId 字段
 
-  if (credentials && credentials.length > 0) {
-    // 填充第一个匹配的凭据
-    const cred = credentials[0];
-    const usernameInput = document.querySelector(`[name="${cred.fieldNames.username}"], #${cred.fieldNames.username}`);
-    const passwordInput = document.querySelector(`[name="${cred.fieldNames.password}"], #${cred.fieldNames.password}`);
+### Anti-Pattern 2: renderer 直接创建 BrowserWindow
 
-    if (usernameInput) usernameInput.value = cred.username;
-    if (passwordInput) passwordInput.value = cred.password;
-  }
-}
+**What:** 渲染进程通过 IPC 请求创建新窗口，但自己管理窗口生命周期
+**Why bad:** 违反进程隔离原则；renderer 不应持有 BrowserWindow 引用
+**Instead:** 所有窗口操作通过 IPC 走主进程，renderer 只发送请求
 
-// 页面加载完成后检测
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    watchFormSubmit();
-    requestAutofill();
-  });
-} else {
-  watchFormSubmit();
-  requestAutofill();
-}
-```
+### Anti-Pattern 3: 使用 getAllWindows()[0] 获取主窗口
 
-### IPC 通道设计
+**What:** 用 `BrowserWindow.getAllWindows()[0]` 替代 `getMainWindow()`
+**Why bad:** 窗口数组顺序不确定，多窗口时第一个不一定是"主窗口"；已有决策记录（CR-7）明确禁止
+**Instead:** 使用 windowManager 的显式引用管理
 
-| 通道 | 方向 | 参数 | 返回值 | 说明 |
-|------|------|------|--------|------|
-| `autofill:get-credentials` | guest→main | `{origin}` | `Array<Credential>` | 获取匹配凭据（解密） |
-| `autofill:save-credential` | guest→main | `{origin, username, password, fieldNames}` | `{success}` | 保存凭据（加密） |
-| `autofill:delete-credential` | renderer→main | `{id}` | `{success}` | 删除凭据 |
-| `autofill:list-credentials` | renderer→main | `{containerId?, origin?}` | `Array<Credential>` | 列出凭据 |
-| `autofill:get-addresses` | renderer→main | `{containerId}` | `Array<Address>` | 获取地址列表 |
-| `autofill:save-address` | renderer→main | `{containerId, address}` | `{success}` | 保存地址 |
-| `autofill:delete-address` | renderer→main | `{id}` | `{success}` | 删除地址 |
-| `autofill:fill-address` | renderer→main | `{id}` | `Address` | 获取地址详情（解密） |
+### Anti-Pattern 4: 快捷键注册到所有窗口
 
-### 安全考量
+**What:** 每个窗口都注册相同的全局快捷键
+**Why bad:** 多个窗口同时处理同一个快捷键，导致重复执行
+**Instead:** 全局快捷键（Menu Accelerator）只注册一次，作用于焦点窗口；或使用 `before-input-event` 按窗口分发
 
-1. **safeStorage 限制**：
-   - macOS：数据在 Keychain 中，应用签名变化后无法解密
-   - 首次使用前检查 `safeStorage.isEncryptionAvailable()`，不可用时降级为不存储密码
+## Scalability Considerations
 
-2. **内存中的明文**：
-   - 解密后的密码仅在 IPC 处理函数的栈帧内存在
-   - 不缓存解密后的密码到全局变量
-   - 渲染进程填充后立即清除引用
-
-3. **容器隔离**：
-   - 凭据表包含 `container_id` 字段
-   - 查询时强制带上容器 ID 条件
-   - 容器删除时级联删除该容器的凭据
-
-## Integration Points
-
-### 与现有模块的集成
-
-| 现有模块 | 集成方式 | 修改点 |
-|---------|---------|--------|
-| `main.js` | 初始化 download-manager 和 autofill-manager | 添加模块 require 和初始化 |
-| `ipc-handlers.js` | 注册新 IPC 通道 | 添加 download:* 和 autofill:* 通道 |
-| `src/preload.js` | 暴露新 API | 添加 downloadAPI 和 autofillAPI |
-| `src/renderer.js` | 下载面板 UI | 添加下载按钮和面板逻辑 |
-| `webview-preload.js` | 表单检测和填充 | 添加表单监听和填充逻辑 |
-| `session.fromPartition()` | 下载拦截 | 在容器创建时注册 will-download 监听 |
-
-### 新增文件
-
-| 文件 | 职责 | 估计行数 |
-|------|------|---------|
-| `download-manager.js` | 下载管理核心（拦截、持久化、状态机） | 200-250 |
-| `autofill-manager.js` | 自动填充核心（加密存储、域名匹配） | 150-200 |
-| `src/download-panel.js` | 下载面板 UI 逻辑 | 150-200 |
-| `src/download-panel.css` | 下载面板样式 | 100-150 |
-
-### 修改文件
-
-| 文件 | 修改内容 |
-|------|---------|
-| `main.js` | 引入并初始化 download-manager、autofill-manager |
-| `ipc-handlers.js` | 注册 download:* 和 autofill:* IPC 通道 |
-| `src/preload.js` | 添加 downloadAPI 和 autofillAPI |
-| `src/renderer.js` | 下载按钮、面板交互 |
-| `src/index.html` | 下载面板 HTML 结构 |
-| `src/styles/main.css` | 下载面板样式 |
-| `webview-preload.js` | 表单检测、凭据填充逻辑 |
-
-## Data Flow
-
-### 下载流程
-
-```
-1. 用户在 webview 中点击下载链接
-   │
-   ▼
-2. Chromium 发起下载请求
-   │
-   ▼
-3. Session.on('will-download') 触发（主进程）
-   │
-   ▼
-4. 弹出保存对话框（dialog.showSaveDialog）
-   │
-   ├── 用户取消 → item.cancel()，流程结束
-   │
-   └── 用户选择路径 → item.setSavePath(path)
-   │
-   ▼
-5. 插入下载记录到 SQLite
-   │
-   ▼
-6. 发送 'download:started' 到渲染进程
-   │
-   ▼
-7. item.on('updated') → 节流推送进度
-   │
-   ▼
-8. item.on('done') → 更新状态为 completed/cancelled/interrupted
-   │
-   ▼
-9. 发送 'download:done' 到渲染进程
-```
-
-### 自动填充流程
-
-```
-1. webview 加载页面，DOMContentLoaded 触发
-   │
-   ▼
-2. webview-preload.js 检测登录表单
-   │
-   ├── 未检测到表单 → 流程结束
-   │
-   └── 检测到表单 → 发送 autofill:get-credentials IPC
-   │
-   ▼
-3. 主进程查询 SQLite（解密凭据）
-   │
-   ├── 无匹配凭据 → 返回空数组
-   │
-   └── 有匹配凭据 → 返回凭据列表
-   │
-   ▼
-4. webview-preload.js 填充表单字段
-   │
-   ▼
-5. 用户提交表单
-   │
-   ▼
-6. webview-preload.js 拦截 submit 事件
-   │
-   ▼
-7. 发送 autofill:save-credential IPC（主进程）
-   │
-   ▼
-8. 主进程加密并存储到 SQLite
-```
+| 窗口数量 | 影响 | 策略 |
+|---------|------|------|
+| 1-3 个 | 正常使用 | 无特殊处理 |
+| 5-10 个 | 内存压力增大 | Tab 回收机制自动管理 |
+| 10+ 个 | 窗口管理复杂 | 考虑窗口列表面板（后期增强） |
 
 ## Build Order
 
 ### 阶段划分
 
 ```
-Phase A: Download Manager 核心（DL-01, DL-05）
-├── download-manager.js 核心模块
-├── will-download 拦截 + 保存对话框
-├── SQLite 持久化
-├── 进度 IPC 推送
-└── 下载面板 UI
+Phase 1: 窗口管理基础（MW-01, MW-06）
+├── window-manager.js 重构（多窗口 Map）
+├── assertTrustedSender 扩展
+├── Dock 右键"新建窗口"菜单
+├── 每个窗口独立 renderer 初始化
+├── 快捷键多窗口注册
+└── 广播/定向 IPC 基础设施
 
-Phase B: Download Manager 增强（DL-02, DL-03, DL-04）
-├── 下载历史列表
-├── 暂停/恢复/取消
-├── 文件操作（打开/Finder/删除）
-└── 重试（interrupted 状态）
+Phase 2: Tab 窗口关联（MW-04, MW-05）
+├── tab-manager.js 扩展（windowId 字段）
+├── activeTabId → activeTabByWindow Map
+├── Tab 持久化扩展（windowId 恢复）
+├── "最后 Tab 关闭窗口"规则
+└── Tab 上限跨窗口回收
 
-Phase C: Autofill 核心（AF-01, AF-02）
-├── autofill-manager.js 核心模块
-├── safeStorage 加密/解密
-├── SQLite 持久化
-├── webview-preload.js 表单检测
-└── 凭据填充逻辑
+Phase 3: Tab 拖拽排序（MW-04）
+├── 窗口内 Tab 拖拽排序（HTML5 DnD）
+├── 拖拽视觉反馈
+└── 排序持久化
 
-Phase D: Autofill 增强（AF-03, AF-04）
-├── 凭据管理 UI
-├── 地址表单支持
-└── 设置页集成
+Phase 4: Tab 跨窗口移动（MW-02, MW-03）
+├── Tab 拖拽出窗口检测
+├── 右键菜单"移动到新窗口"
+├── 右键菜单"移动到窗口"列表
+├── 快捷键 Cmd+Shift+X
+├── webview 重建 + URL 导航
+└── 源窗口"最后 Tab"自动关闭
 ```
 
 ### 依赖关系
 
 ```
-Phase A ──► Phase B （B 依赖 A 的基础模块）
-Phase C ──► Phase D （D 依赖 C 的基础模块）
-Phase A ∥ Phase C （可并行，无依赖）
+Phase 1 ──► Phase 2 （Tab 窗口关联依赖窗口管理基础）
+Phase 2 ──► Phase 3 （拖拽排序依赖 Tab 窗口关联）
+Phase 2 ──► Phase 4 （跨窗口移动依赖 Tab 窗口关联）
+Phase 3 ∥ Phase 4 （可并行，无依赖）
 ```
 
 ### 最小可验证切片
 
-**Phase A 的最小切片**：
-1. `download-manager.js`：监听 will-download，弹出保存对话框，记录到 SQLite
-2. `ipc-handlers.js`：注册 `download:list` 通道
-3. `renderer.js`：下载按钮点击 → 显示下载计数
+**Phase 1 的最小切片：**
+1. `window-manager.js`：`windows` Map + `createMainWindow` 支持多实例
+2. `ipc-handlers.js`：`assertTrustedSender` 检查 `managedWindowIds`
+3. `main.js`：Dock 菜单"新建窗口" → 创建新 BrowserWindow
+4. 验证：两个窗口可以同时存在，各自独立操作
 
-**Phase C 的最小切片**：
-1. `autofill-manager.js`：SQLite 表创建 + safeStorage 加密/解密
-2. `webview-preload.js`：检测登录表单，发送 IPC
-3. 主进程：接收凭据，加密存储
+**Phase 2 的最小切片：**
+1. `tab-manager.js`：Tab 对象新增 `windowId`
+2. `renderer.js`：初始化时获取 windowId，只加载自己窗口的 Tab
+3. 关闭最后 Tab → 窗口关闭
+4. 验证：两个窗口各有独立的 Tab，互不干扰
 
 ## Sources
 
-- [Electron DownloadItem API](https://www.electronjs.org/docs/latest/api/download-item)
-- [Electron safeStorage API](https://www.electronjs.org/docs/latest/api/safe-storage)
-- [Electron Session Events](https://www.electronjs.org/docs/latest/api/session#instance-events)
-- [better-sqlite3](https://github.com/WiseLibs/better-sqlite3)
-- 现有代码模式：history-manager.js, favorites-manager.js, cookie-manager.js
+- [Electron BrowserWindow API](https://www.electronjs.org/docs/latest/api/browser-window)
+- [Electron WebContents API](https://www.electronjs.org/docs/latest/api/web-contents)
+- [Electron contextBridge API](https://www.electronjs.org/docs/latest/api/context-bridge)
+- 现有代码：window-manager.js, tab-manager.js, ipc-handlers.js, renderer.js, main.js
+- 已有决策：CR-7（windowId vs webContentsId 禁止混用）
 
 ---
 
-*Last updated: 2026-08-11*
+*Last updated: 2026-08-14*
