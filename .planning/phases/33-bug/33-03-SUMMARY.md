@@ -127,6 +127,12 @@ None - no external service configuration required.
 - 地址表单检测 → 保存横幅 → 自动填充的完整链路已打通
 - 需要端到端测试验证：webview 检测表单 → 横幅显示 → 保存 → 下次访问自动填充
 
+## Self-Check: PASSED
+
+- [x] Commit `63590c5` exists in git log
+- [x] `src/renderer.js` contains all 5 new functions (handleAddressFormDetected, handleAddressAutofillRequest, showSaveAddressBanner, setupAddressBannerButtons, hideAddressBanner)
+- [x] All automated grep checks pass (IPC handlers, elements, state variables, functions)
+
 ---
 *Phase: 33-bug*
 *Completed: 2026-08-14*
