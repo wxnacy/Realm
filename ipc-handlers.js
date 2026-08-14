@@ -1431,6 +1431,7 @@ function registerHandlers() {
    * @param {number} contentsId - webview guest 的 webContents ID
    */
   ipcMain.handle('webview:set-active', (event, contentsId) => {
+    assertTrustedSender(event);
     activeWebviewContentsId = contentsId;
   });
 
@@ -1442,6 +1443,7 @@ function registerHandlers() {
    * @param {string} containerId - 容器 ID
    */
   ipcMain.handle('webview:register-container', (event, contentsId, containerId) => {
+    assertTrustedSender(event);
     if (typeof contentsId !== 'number' || typeof containerId !== 'string' || !containerId) {
       return;
     }
