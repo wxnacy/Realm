@@ -1,7 +1,13 @@
 /**
  * Realm Browser - 窗口管理模块
  *
- * 管理 BrowserWindow 实例和窗口与容器的映射关系
+ * 管理所有 BrowserWindow 实例的注册表（windows Map）和受信窗口集合（managedWindowIds Set），
+ * 提供窗口生命周期管理、容器映射、受信窗口判断和跨窗口广播能力。
+ *
+ * 数据结构：
+ * - windows: Map<windowId, BrowserWindow> — 所有通过 createMainWindow 创建的窗口
+ * - managedWindowIds: Set<number> — 受信窗口 ID 集合（仅包含 createMainWindow 创建的窗口）
+ * - windowContainerMap: Map<number, string> — 窗口与容器的映射关系
  */
 
 const { BrowserWindow } = require('electron');
@@ -14,8 +20,11 @@ const path = require('path');
 // BrowserWindow.fromWebContents() 解析出窗口再取 win.id，禁止混用。
 const windowContainerMap = new Map();
 
-/** 主窗口引用（模块级单例，createMainWindow 时登记，closed 时清除） */
-let mainWindowRef = null;
+/** 窗口注册表：winId → BrowserWindow，所有通过 createMainWindow 创建的窗口 */
+const windows = new Map();
+
+/** 受信窗口 ID 集合：仅包含 createMainWindow 创建的窗口，用于 isManagedWindow 判断 */
+const managedWindowIds = new Set();
 
 /**
  * 创建主窗口
@@ -47,17 +56,19 @@ function createMainWindow(containerId, container) {
     },
   });
 
-  // 记录窗口与容器的映射
+  // 注册到窗口注册表、受信窗口集合和容器映射
+  windows.set(mainWindow.id, mainWindow);
+  managedWindowIds.add(mainWindow.id);
   windowContainerMap.set(mainWindow.id, containerId);
-  mainWindowRef = mainWindow;
 
   // 加载 UI（WR-11：使用绝对路径——打包后进程 CWD 不保证为应用目录，相对路径会白屏）
   mainWindow.loadFile(path.join(__dirname, 'src/index.html'));
 
-  // 窗口关闭时清理映射
+  // 窗口关闭时清理三个数据结构
   mainWindow.on('closed', () => {
+    windows.delete(mainWindow.id);
+    managedWindowIds.delete(mainWindow.id);
     windowContainerMap.delete(mainWindow.id);
-    if (mainWindowRef === mainWindow) mainWindowRef = null;
   });
 
   return mainWindow;
@@ -106,15 +117,43 @@ function switchContainer(windowId, containerId, container) {
 }
 
 /**
- * 获取主窗口
- * 使用 createMainWindow 登记的显式引用，而非 getAllWindows()[0]——
- * 后者顺序随焦点/创建变化，播放器等辅助窗口存在时会把辅助窗口误判为主窗口，
+ * 获取主窗口（兼容现有 30+ 处调用）
+ * 从 windows 注册表中获取第一个未销毁的窗口。
+ * 使用显式注册表而非 getAllWindows()[0]——后者顺序随焦点/创建变化，
+ * 播放器等辅助窗口存在时会把辅助窗口误判为主窗口，
  * 导致 assertTrustedSender 拒绝主窗口的合法 IPC（CR-4 校验失效抖动）
  * @returns {BrowserWindow|null} 主窗口实例
  */
 function getMainWindow() {
-  if (mainWindowRef && !mainWindowRef.isDestroyed()) return mainWindowRef;
+  for (const [id, win] of windows) {
+    if (!win.isDestroyed()) return win;
+  }
   return null;
+}
+
+/**
+ * 判断指定窗口是否为 Realm 管理的窗口
+ * 用于 assertTrustedSender 泛化（Plan 02 依赖）和快捷键派发校验
+ * @param {number} winId - BrowserWindow.id
+ * @returns {boolean} 是否为受信的 managed 窗口
+ */
+function isManagedWindow(winId) {
+  return managedWindowIds.has(winId);
+}
+
+/**
+ * 向所有未销毁的窗口广播 IPC 消息
+ * 替代原来 mainWindow.webContents.send() 的单窗口发送模式，
+ * 确保多窗口场景下所有窗口都能收到事件通知（如容器切换、书签刷新等）
+ * @param {string} channel - IPC 通道名
+ * @param {...*} args - 传递给渲染进程的参数
+ */
+function broadcast(channel, ...args) {
+  for (const [id, win] of windows) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(channel, ...args);
+    }
+  }
 }
 
 module.exports = {
@@ -122,4 +161,6 @@ module.exports = {
   getMainWindow,
   getCurrentContainer,
   switchContainer,
+  isManagedWindow,
+  broadcast,
 };
