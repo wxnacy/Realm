@@ -1042,6 +1042,37 @@ contextBridge.exposeInMainWorld('realmAPI', {
      */
     isNeverSave: (containerId, origin) => ipcRenderer.invoke('credential:is-never-save', { containerId, origin }),
   },
+
+  /**
+   * 地址管理 API
+   * 提供地址保存、查询和删除功能（per AF-06）
+   */
+  addressAPI: {
+    /**
+     * 保存地址（加密存储到主进程）
+     * @param {Object} data - 地址数据
+     * @param {string} data.containerId - 容器 ID
+     * @param {string} data.name - 收件人姓名
+     * @param {string} data.phone - 手机号
+     * @param {string} data.address - 详细地址
+     * @returns {Promise<{success: boolean}|{error: string}>}
+     */
+    saveAddress: (data) => ipcRenderer.invoke('address:save', data),
+
+    /**
+     * 获取指定容器的地址
+     * @param {string} containerId - 容器 ID
+     * @returns {Promise<{name: string, phone: string, address: string}|null>}
+     */
+    getAddress: (containerId) => ipcRenderer.invoke('address:get', { containerId }),
+
+    /**
+     * 删除地址
+     * @param {string} containerId - 容器 ID
+     * @returns {Promise<{success: boolean}>}
+     */
+    deleteAddress: (containerId) => ipcRenderer.invoke('address:delete', { containerId }),
+  },
 });
 
 // ==================== 媒体检测 API ====================

@@ -17,6 +17,7 @@ const shortcutManager = require('./shortcut-manager');
 const historyManager = require('./history-manager');
 const downloadManager = require('./download-manager');
 const credentialManager = require('./credential-manager');
+const addressManager = require('./address-manager');
 const favoritesManager = require('./favorites-manager');
 const faviconFetcher = require('./favicon-fetcher');
 const mediaSniffer = require('./media-sniffer');
@@ -1059,6 +1060,57 @@ function registerHandlers() {
       throw new Error('缺少必要参数');
     }
     return credentialManager.deleteCredential(containerId, origin);
+  });
+
+  // ==================== 地址管理 ====================
+
+  /**
+   * 保存地址（per AF-06）
+   * 使用 safeStorage 加密存储姓名、手机号、地址
+   * @param {Object} data - 地址数据
+   * @param {string} data.containerId - 容器 ID
+   * @param {string} data.name - 收件人姓名
+   * @param {string} data.phone - 手机号
+   * @param {string} data.address - 详细地址
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  ipcMain.handle('address:save', async (event, data) => {
+    assertTrustedSender(event);
+    if (!data || typeof data !== 'object' || !data.containerId || !data.name || !data.phone || !data.address) {
+      throw new Error('无效的地址数据');
+    }
+    return await addressManager.saveAddress(
+      data.containerId, data.name, data.phone, data.address
+    );
+  });
+
+  /**
+   * 查询地址（per AF-06）
+   * 返回解密后的姓名、手机号、地址
+   * @param {Object} params - 参数
+   * @param {string} params.containerId - 容器 ID
+   * @returns {Promise<{name: string, phone: string, address: string}|null>}
+   */
+  ipcMain.handle('address:get', async (event, { containerId }) => {
+    assertTrustedSender(event);
+    if (!containerId) {
+      throw new Error('缺少 containerId 参数');
+    }
+    return await addressManager.getAddress(containerId);
+  });
+
+  /**
+   * 删除地址记录
+   * @param {Object} params - 参数
+   * @param {string} params.containerId - 容器 ID
+   * @returns {{success: boolean}}
+   */
+  ipcMain.handle('address:delete', (event, { containerId }) => {
+    assertTrustedSender(event);
+    if (!containerId) {
+      throw new Error('缺少 containerId 参数');
+    }
+    return addressManager.deleteAddress(containerId);
   });
 
   // ==================== 浏览历史 ====================

@@ -55,6 +55,7 @@ const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregis
 const historyManager = require('./history-manager');
 const downloadManager = require('./download-manager');
 const credentialManager = require('./credential-manager');
+const addressManager = require('./address-manager');
 const favoritesManager = require('./favorites-manager');
 const faviconFetcher = require('./favicon-fetcher');
 const frequentSitesManager = require('./frequent-sites-manager');
@@ -1438,6 +1439,66 @@ app.whenReady().then(async () => {
   }
 
   /**
+   * 处理 /api/address/* 地址管理 API 请求
+   * per AF-06, AF-07：设置页地址管理（获取、保存、删除）
+   * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} res - 响应对象
+   * @param {URL} reqUrl - 解析后的请求 URL
+   */
+  async function handleAddressApi(req, res, reqUrl) {
+    // token 鉴权：防 CSRF 与 localhost 端口扫描读取/篡改地址数据
+    if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+      sendJson(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    try {
+      const route = reqUrl.pathname.replace('/api/address/', '');
+
+      // GET /api/address/get — 获取容器的地址
+      if (route === 'get' && req.method === 'GET') {
+        const containerId = reqUrl.searchParams.get('containerId');
+        if (!containerId) {
+          sendJson(res, 400, { error: '缺少 containerId 参数' });
+          return;
+        }
+        const address = await addressManager.getAddress(containerId);
+        sendJson(res, 200, { success: true, address });
+        return;
+      }
+
+      // POST /api/address/save — 保存地址
+      if (route === 'save' && req.method === 'POST') {
+        const { containerId, name, phone, address } = await readJsonBody(req);
+        if (!containerId || !name || !phone || !address) {
+          sendJson(res, 400, { error: '缺少必要参数' });
+          return;
+        }
+        const result = await addressManager.saveAddress(containerId, name, phone, address);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      // POST /api/address/delete — 删除地址
+      if (route === 'delete' && req.method === 'POST') {
+        const { containerId } = await readJsonBody(req);
+        if (!containerId) {
+          sendJson(res, 400, { error: '缺少 containerId 参数' });
+          return;
+        }
+        const result = addressManager.deleteAddress(containerId);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      sendJson(res, 404, { error: 'Not Found' });
+    } catch (err) {
+      console.error('[Realm] 地址 API 处理失败:', err.message);
+      sendJson(res, 400, { error: err.message });
+    }
+  }
+
+  /**
    * 处理 /api/containers/* 容器 API 请求
    * @param {http.IncomingMessage} req - 请求对象
    * @param {http.ServerResponse} res - 响应对象
@@ -1642,9 +1703,15 @@ app.whenReady().then(async () => {
       return;
     }
 
-    // 凭据管理 JSON API（设置页凭据管理数据层）
+    // 凭据管理 JSON API（设置页面自动填充数据层）
     if (reqPath.startsWith('/api/credentials/')) {
       handleCredentialsApi(req, res, reqUrl);
+      return;
+    }
+
+    // 地址管理 JSON API（设置页面自动填充数据层）
+    if (reqPath.startsWith('/api/address/')) {
+      handleAddressApi(req, res, reqUrl);
       return;
     }
 
@@ -2254,6 +2321,9 @@ app.whenReady().then(async () => {
 
   // 初始化凭据管理器数据库
   credentialManager.initDatabase();
+
+  // 初始化地址管理器数据库
+  addressManager.initDatabase();
 
   // 初始化收藏夹数据库
   favoritesManager.initDatabase();
