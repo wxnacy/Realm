@@ -4,7 +4,7 @@ milestone: v2.3
 milestone_name: 浏览器基础功能补全
 current_phase: 33
 current_phase_name: 自动填充 — 增强 + Bug 修复
-status: planning
+status: complete
 stopped_at: Completed 33-03-PLAN.md
 last_updated: "2026-08-14T06:15:54.230Z"
 last_activity: 2026-08-13
