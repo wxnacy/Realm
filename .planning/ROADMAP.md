@@ -125,8 +125,16 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 **Plans**: 3 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 34-01-PLAN.md — window-manager Map 重构 + shortcut-manager 焦点派发（Wave 1）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 34-02-PLAN.md — assertTrustedSender 泛化 + IPC 信任模型扩展（Wave 2）
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 34-03-PLAN.md — Dock 菜单 + activate 事件 + 广播替换（Wave 3）
 
 **UI hint**: yes
