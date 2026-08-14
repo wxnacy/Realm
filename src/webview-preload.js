@@ -75,6 +75,9 @@ const FormDetector = {
   /** 已检测到的表单集合（避免重复绑定 submit 监听） */
   detectedForms: new WeakSet(),
 
+  /** 缓存首次扫描的表单信息，供 credential:do-autofill 直接使用 */
+  cachedCredentialForms: [],
+
   /** autofill 是否暂停（fillForm 互斥，D-13） */
   autofillPaused: false,
 
@@ -387,10 +390,10 @@ ipcRenderer.on('autofill:resume', () => {
 
 /**
  * 监听 autofill 填充指令（来自 renderer，由主进程中转）
- * 收到凭据后扫描表单并填充
+ * 使用缓存的表单信息填充（scanForLoginForms 的 WeakSet 去重会导致重新扫描返回空）
  */
 ipcRenderer.on('credential:do-autofill', (event, credentials) => {
-  const forms = FormDetector.scanForLoginForms();
+  const forms = FormDetector.cachedCredentialForms;
   if (forms.length > 0) {
     AutofillEngine.fillCredentials(credentials, forms[0]);
   }
@@ -416,6 +419,7 @@ ipcRenderer.on('address:do-autofill', (event, addressData) => {
  */
 window.addEventListener('DOMContentLoaded', () => {
   const forms = FormDetector.scanForLoginForms();
+  FormDetector.cachedCredentialForms = forms;
   forms.forEach(formInfo => FormDetector.attachSubmitListener(formInfo));
   if (forms.length > 0) {
     ipcRenderer.sendToHost('credential:autofill-request');
@@ -447,6 +451,9 @@ const _credentialObserver = new MutationObserver(() => {
   if (_credentialMutationTimer) clearTimeout(_credentialMutationTimer);
   _credentialMutationTimer = setTimeout(() => {
     const forms = FormDetector.scanForLoginForms();
+    if (forms.length > 0) {
+      FormDetector.cachedCredentialForms = forms;
+    }
     forms.forEach(formInfo => {
       FormDetector.attachSubmitListener(formInfo);
       // 动态检测到新表单时也发送 autofill 请求
