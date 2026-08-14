@@ -1903,9 +1903,7 @@ app.whenReady().then(async () => {
           click: async () => {
             try {
               await favoritesManager.deleteRecord(info.id);
-              if (!hostWebContents.isDestroyed()) {
-                hostWebContents.send('bookmarks-bar:refresh');
-              }
+              windowManager.broadcast('bookmarks-bar:refresh');
             } catch (err) {
               console.error('[Realm] 删除收藏失败:', err);
             }
@@ -1937,9 +1935,7 @@ app.whenReady().then(async () => {
           click: async () => {
             try {
               await favoritesManager.deleteFolder(info.id);
-              if (!hostWebContents.isDestroyed()) {
-                hostWebContents.send('bookmarks-bar:refresh');
-              }
+              windowManager.broadcast('bookmarks-bar:refresh');
             } catch (err) {
               console.error('[Realm] 删除文件夹失败:', err);
             }
@@ -1988,9 +1984,7 @@ app.whenReady().then(async () => {
           click: () => {
             configStore.set('bookmarksBar.visible', false);
             configStore.set('settings.bookmarksBar.visible', false);
-            if (!hostWebContents.isDestroyed()) {
-              hostWebContents.send('bookmarks-bar:visibility-changed', { visible: false });
-            }
+            windowManager.broadcast('bookmarks-bar:visibility-changed', { visible: false });
           },
         },
       ];
@@ -2069,16 +2063,14 @@ app.whenReady().then(async () => {
   // Chrome JSON 书签导入（per D-03, D-04, D-05, D-10, D-13）
   ipcMain.handle('favorites:import-chrome', async (event, { filePath }) => {
     assertTrustedSender(event);
-    const mainWindow = windowManager.getMainWindow();
-    if (!mainWindow) return { success: false, error: '主窗口不存在' };
 
     // 创建新的 AbortController
     currentImportAbortController = new AbortController();
 
     const onProgress = (data) => {
       currentImportProgress = data;
-      if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('favorites:import-progress', data);
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('favorites:import-progress', data);
       }
     };
 
@@ -2098,15 +2090,13 @@ app.whenReady().then(async () => {
   // HTML 书签导入（per D-11, D-12, D-13）
   ipcMain.handle('favorites:import-html', async (event, { filePath }) => {
     assertTrustedSender(event);
-    const mainWindow = windowManager.getMainWindow();
-    if (!mainWindow) return { success: false, error: '主窗口不存在' };
 
     currentImportAbortController = new AbortController();
 
     const onProgress = (data) => {
       currentImportProgress = data;
-      if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('favorites:import-progress', data);
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('favorites:import-progress', data);
       }
     };
 
