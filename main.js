@@ -1620,8 +1620,7 @@ app.whenReady().then(async () => {
         const { action, accelerator } = await readJsonBody(req);
         const result = shortcutManager.setShortcut(action, accelerator);
         if (result) {
-          const win = windowManager.getMainWindow();
-          shortcutManager.rebuildShortcuts(win);
+          shortcutManager.rebuildShortcuts();
         }
         sendJson(res, 200, { success: result });
         return;
@@ -1631,8 +1630,7 @@ app.whenReady().then(async () => {
         const { action } = await readJsonBody(req);
         const result = shortcutManager.resetShortcut(action);
         if (result) {
-          const win = windowManager.getMainWindow();
-          shortcutManager.rebuildShortcuts(win);
+          shortcutManager.rebuildShortcuts();
         }
         sendJson(res, 200, { success: result });
         return;
@@ -2384,7 +2382,7 @@ app.whenReady().then(async () => {
 
   // 注册全局快捷键
   if (mainWindow) {
-    shortcutManager.registerShortcuts(mainWindow);
+    shortcutManager.registerShortcuts();
   }
 
   // 开发环境启动即打开主窗口 DevTools（停靠右侧，调试 realmAPI/mediaAPI）
@@ -2475,9 +2473,8 @@ app.whenReady().then(async () => {
       const defaultContainer = containerManager.getContainer('default');
       const mainWindow = windowManager.createMainWindow('default', defaultContainer);
       if (mainWindow) {
-        // 重建窗口后重新注册快捷键（Menu Accelerator 无需手动注销旧菜单，
-        // registerShortcuts 会直接替换整个 Application Menu）
-        shortcutManager.registerShortcuts(mainWindow);
+        // 重建窗口后重新注册快捷键
+        shortcutManager.registerShortcuts();
       }
     }
   });
