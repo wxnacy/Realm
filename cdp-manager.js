@@ -1025,6 +1025,9 @@ async function fillForm(webContentsId, fields) {
   const wc = webContents.fromId(webContentsId);
   if (wc && !wc.isDestroyed()) wc.focus();
 
+  // D-13 互斥：fillForm 激活时暂停 webview 自动填充，避免冲突
+  if (wc && !wc.isDestroyed()) wc.send('autofill:pause');
+
   try {
     for (const fieldDef of fields) {
       const { field, value } = fieldDef;
@@ -1359,6 +1362,8 @@ async function fillForm(webContentsId, fields) {
       failed: [...failed, { field: '(system)', error: err.message || '表单填写异常' }],
     };
   } finally {
+    // D-13 互斥：fillForm 结束后恢复 webview 自动填充
+    if (wc && !wc.isDestroyed()) wc.send('autofill:resume');
     detachForAI(webContentsId);
   }
 }
