@@ -292,18 +292,39 @@ async function endDrag(sourceWindowId, data = {}) {
       return { success: false, action: 'cancelled' };
     }
 
-    // 更新 Tab 的 windowId
-    tabManagerRef.updateTab(tabId, { windowId: targetWindowId });
-
-    // 通知源窗口移除 Tab UI
+    // 先通知源窗口移除，再 updateTab，最后通知目标窗口创建
+    // 如果目标窗口通知失败，回滚 updateTab
     const sourceWin = BrowserWindow.fromId(sourceWindowId);
-    if (sourceWin && !sourceWin.isDestroyed()) {
-      sourceWin.webContents.send('tab:removed', { tabId });
+    try {
+      if (sourceWin && !sourceWin.isDestroyed()) {
+        sourceWin.webContents.send('tab:removed', { tabId });
+      }
+    } catch (err) {
+      console.warn(`[Realm DragCoordinator] 通知源窗口失败: ${err.message}`);
     }
 
-    // 通知目标窗口创建 Tab UI
-    targetWin.webContents.send('tab:created', { tab: { ...tab, windowId: targetWindowId } });
-    targetWin.webContents.send('tab:switched', { tabId: tab.id });
+    const updated = tabManagerRef.updateTab(tabId, { windowId: targetWindowId });
+    // updateTab 返回 false 说明 Tab 已不存在（可能被其他操作关闭），取消
+    if (!updated) {
+      return { success: false, action: 'cancelled' };
+    }
+
+    try {
+      targetWin.webContents.send('tab:created', { tab: { ...tab, windowId: targetWindowId } });
+      targetWin.webContents.send('tab:switched', { tabId: tab.id });
+    } catch (err) {
+      // 目标窗口已销毁，回滚
+      console.warn(`[Realm DragCoordinator] 通知目标窗口失败，回滚: ${err.message}`);
+      tabManagerRef.updateTab(tabId, { windowId: sourceWindowId });
+      if (sourceWin && !sourceWin.isDestroyed()) {
+        try {
+          sourceWin.webContents.send('tab:created', { tab });
+        } catch (innerErr) {
+          console.warn(`[Realm DragCoordinator] 回滚时通知源窗口失败: ${innerErr.message}`);
+        }
+      }
+      return { success: false, action: 'cancelled' };
+    }
 
     // 检查源窗口是否仅剩一个 Tab，如果是则自动销毁
     if (tabManagerRef && windowManagerRef) {
