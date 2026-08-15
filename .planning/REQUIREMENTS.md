@@ -21,18 +21,18 @@
 
 ### Tab 拖拽排序（窗口内）
 
-- [ ] **MW-04**: 用户可以拖拽 Tab 在同一窗口内改变顺序，实时显示插入位置指示器
+- [x] **MW-04**: 用户可以拖拽 Tab 在同一窗口内改变顺序，实时显示插入位置指示器
 
 ### Tab 跨窗口移动
 
-- [ ] **MW-02**: 用户可以拖拽 Tab 出标签栏，创建包含该 Tab 的新窗口
-- [ ] **MW-03**: 用户可以拖拽 Tab 到另一个窗口的标签栏，Tab 从源窗口移动到目标窗口；如果源窗口仅剩一个 Tab，源窗口自动销毁
+- [x] **MW-02**: 用户可以拖拽 Tab 出标签栏，创建包含该 Tab 的新窗口
+- [x] **MW-03**: 用户可以拖拽 Tab 到另一个窗口的标签栏，Tab 从源窗口移动到目标窗口；如果源窗口仅剩一个 Tab，源窗口自动销毁
 
 ### 差异化功能
 
-- [ ] **MW-11**: 窗口位置和大小在重启后恢复（electron-store 持久化）
+- [x] **MW-11**: 窗口位置和大小在重启后恢复（electron-store 持久化）
 - [ ] **MW-12**: 窗口标题栏显示当前容器名称
-- [ ] **MW-13**: 右键菜单添加"在新窗口中打开"选项
+- [x] **MW-13**: 右键菜单添加"在新窗口中打开"选项
 - [ ] **MW-14**: 窗口标题栏/工具栏显示容器颜色标识
 
 ## Future Requirements
@@ -57,16 +57,16 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | MW-01 | Phase 34 | Pending |
-| MW-02 | Phase 36 | Pending |
-| MW-03 | Phase 36 | Pending |
-| MW-04 | Phase 36 | Pending |
+| MW-02 | Phase 36 | Complete |
+| MW-03 | Phase 36 | Complete |
+| MW-04 | Phase 36 | Complete |
 | MW-05 | Phase 35 | Pending |
 | MW-06 | Phase 35 | Pending |
 | MW-07 | Phase 34 | Pending |
 | MW-08 | Phase 34 | Pending |
 | MW-09 | Phase 34 | Pending |
 | MW-10 | Phase 34 | Pending |
-| MW-11 | Phase 36 | Pending |
+| MW-11 | Phase 36 | Complete |
 | MW-12 | Phase 35 | Pending |
-| MW-13 | Phase 36 | Pending |
+| MW-13 | Phase 36 | Complete |
 | MW-14 | Phase 35 | Pending |

@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: 多窗口支持
 current_phase: 36
-current_phase_name: tab
-status: ready
-stopped_at: Phase 36 context gathered
-last_updated: "2026-08-15T09:00:00.000Z"
+status: executing
+stopped_at: Phase 36 UI-SPEC approved
+last_updated: "2026-08-15T14:01:17.439Z"
 last_activity: 2026-08-15
-last_activity_desc: Phase 36 context gathered
+last_activity_desc: Phase 36 complete
 progress:
   total_phases: 3
-  completed_phases: 0
-  total_plans: 5
-  completed_plans: 2
-  percent: 0
+  completed_phases: 2
+  total_plans: 9
+  completed_plans: 8
+  percent: 67
+current_phase_name: tab
 ---
 
 # Project State: Realm Browser
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-14)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 35 — tab
+**Current focus:** Phase 36 — tab
 
 ## Current Position
 
-Phase: 35 (tab) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 35
-Last activity: 2026-08-15 — Phase 35 execution started
+Phase: 36
+Plan: Not started
+Status: Executing Phase 36
+Last activity: 2026-08-15 — Phase 36 complete
 
 Progress: [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0%
 
@@ -39,7 +39,7 @@ Progress: [░░░░░░░░░░░░░░░░░░░░░░░
 
 **Velocity:**
 
-- Total plans completed: 0 (v2.4)
+- Total plans completed: 3 (v2.4)
 - Previous milestones: 33 phases, 64+ plans complete
 
 **By Phase:**
@@ -49,6 +49,7 @@ Progress: [░░░░░░░░░░░░░░░░░░░░░░░
 | 34. 窗口管理基础 | 0/? | - | - |
 | 35. Tab 窗口关联 | 0/? | - | - |
 | 36. Tab 拖拽与跨窗口移动 | 0/? | - | - |
+| 36 | 3 | - | - |
 
 *Updated after each plan completion*
 
@@ -96,9 +97,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T09:00:00.000Z
-Stopped at: Phase 36 context gathered
-Resume file: .planning/phases/36-tab/36-CONTEXT.md
+Last session: 2026-08-15T09:12:38.575Z
+Stopped at: Phase 36 UI-SPEC approved
+Resume file: .planning/phases/36-tab/36-UI-SPEC.md
 
 ## Operator Next Steps
 

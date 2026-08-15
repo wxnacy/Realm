@@ -105,7 +105,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 
 - [ ] **Phase 34: 窗口管理基础** — 重构窗口管理器支持多窗口，扩展 IPC 信任模型，实现新建/关闭窗口快捷键
 - [x] **Phase 35: Tab 窗口关联** — Tab 对象新增 windowId 字段，窗口关闭自动销毁 Tab，标题栏显示容器信息 (completed 2026-08-15)
-- [ ] **Phase 36: Tab 拖拽与跨窗口移动** — 窗口内拖拽排序、拖拽出窗口创建新窗口、跨窗口拖拽移动、窗口位置持久化
+- [x] **Phase 36: Tab 拖拽与跨窗口移动** — 窗口内拖拽排序、拖拽出窗口创建新窗口、跨窗口拖拽移动、窗口位置持久化 (completed 2026-08-15)
 
 ## Phase Details
 
@@ -180,18 +180,18 @@ Plans:
   4. 右键菜单中包含"在新窗口中打开"选项，点击后在新窗口打开该 Tab
   5. 窗口位置和大小在应用重启后恢复（electron-store 持久化）
 
-**Plans**: 3 plans
+**Plans**: 3/3 plans complete
 
 Plans:
 
 **Wave 1**
 
-- [ ] 36-01-PLAN.md — 窗口位置持久化 + 右键菜单（Wave 1）
-- [ ] 36-02-PLAN.md — 窗口内 Tab 拖拽排序（Wave 1）
+- [x] 36-01-PLAN.md — 窗口位置持久化 + 右键菜单（Wave 1）
+- [x] 36-02-PLAN.md — 窗口内 Tab 拖拽排序（Wave 1）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 36-03-PLAN.md — 跨窗口 Tab 拖拽（Wave 2）
+- [x] 36-03-PLAN.md — 跨窗口 Tab 拖拽（Wave 2）
 
 **UI hint**: yes
 
@@ -237,4 +237,4 @@ Phases execute in numeric order: 34 → 35 → 36
 | 33. 自动填充 — 增强 + Bug 修复 | v2.3 | 3/3 | Complete | 2026-08-14 |
 | 34. 窗口管理基础 | v2.4 | 3/4 | In Progress|  |
 | 35. Tab 窗口关联 | v2.4 | 2/2 | Complete   | 2026-08-15 |
-| 36. Tab 拖拽与跨窗口移动 | v2.4 | 0/? | Not started | - |
+| 36. Tab 拖拽与跨窗口移动 | v2.4 | 3/3 | Complete    | 2026-08-15 |
