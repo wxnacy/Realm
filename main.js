@@ -2507,16 +2507,14 @@ app.whenReady().then(async () => {
 
   // 获取默认容器并创建主窗口
   const defaultContainer = containerManager.getContainer('default');
+  // 先注册快捷键（设置 web-contents-created 监听器）
+  // 再创建主窗口（此时监听器已就绪，主窗口 webContents 会被自动挂载 attachInputListener）
+  shortcutManager.registerShortcuts();
   const mainWindow = windowManager.createMainWindow('default', defaultContainer);
 
   // 注册窗口关闭处理器
   if (mainWindow) {
     setupWindowCloseHandler(mainWindow);
-  }
-
-  // 注册全局快捷键
-  if (mainWindow) {
-    shortcutManager.registerShortcuts();
   }
 
   // 开发环境启动即打开主窗口 DevTools（停靠右侧，调试 realmAPI/mediaAPI）
@@ -2605,11 +2603,12 @@ app.whenReady().then(async () => {
     if (quitting || cookiesSaved) return;
     if (BrowserWindow.getAllWindows().length === 0) {
       const defaultContainer = containerManager.getContainer('default');
+      // 先注册快捷键（设置 web-contents-created 监听器），再创建窗口
+      shortcutManager.registerShortcuts();
       const mainWindow = windowManager.createMainWindow('default', defaultContainer);
       if (mainWindow) {
-        // 重建窗口后重新注册快捷键和关闭处理器
+        // 重建窗口后重新注册关闭处理器
         setupWindowCloseHandler(mainWindow);
-        shortcutManager.registerShortcuts();
       }
     }
   });
