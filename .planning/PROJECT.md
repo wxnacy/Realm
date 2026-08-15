@@ -174,13 +174,17 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - AI 脚本生成（自然语言生成可执行脚本 + 逐步执行 + 安全验证）
 - AI 智能标签分组（suggest_tab_groups + 建议卡片 + 标签栏重排）
 - 多媒体：视频源嗅探（网络+注入+DOM 三通道）+ 媒体面板 + 独立播放器窗口（HLS/MP4/MPEGTS + 画中画 + 播放列表）
+- Tab 拖拽排序（HTML5 DnD + Chrome 风格插入指示器 + rAF 节流）
+- 跨窗口 Tab 拖拽（DragCoordinator + 自定义鼠标事件 + 浮动预览 + 新窗口创建）
+- 窗口位置持久化（electron-store + 越界检测 + 多显示器支持）
+- 右键菜单"在新窗口中打开"（move/copy 模式）
 
 **Known gaps:**
 - 20 个已诊断 debug session 未修复（从 v2.0-v2.2 延续）
 - 2 个 UAT 状态标记（Phase 27 completed, Phase 29 diagnosed，0 个待处理场景）
 - Phase 23 代码审查遗留 19 项（6 Critical），详见 `.planning/phases/23-context-reference/23-REVIEW.md`
 
-**Current milestone:** v2.4 多窗口支持 — 进行中
+**Current milestone:** v2.4 多窗口支持 — Phase 36 complete (2026-08-15)
 
 ## Next Milestone Goals
 
@@ -306,4 +310,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-14 after v2.4 milestone start*
+*Last updated: 2026-08-15 after Phase 36 completion (Tab drag + cross-window + persistence)*
