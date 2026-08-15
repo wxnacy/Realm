@@ -246,16 +246,26 @@ async function endDrag(sourceWindowId, data = {}) {
     // 在新窗口创建 Tab
     const newTab = tabManagerRef.createTab(tab.containerId, tab.url, newWindow.id);
 
-    // 从源窗口移除原 Tab
-    tabManagerRef.closeTab(tabId);
+    // 先通知源窗口移除 Tab UI，再从 tabManager 中删除
+    // 这样即使 send 失败，最坏情况是 tabManager 中多一个 Tab（可被回收），
+    // 而非 UI 中多一个幽灵 Tab
     const sourceWin = BrowserWindow.fromId(sourceWindowId);
-    if (sourceWin && !sourceWin.isDestroyed()) {
-      sourceWin.webContents.send('tab:removed', { tabId });
+    try {
+      if (sourceWin && !sourceWin.isDestroyed()) {
+        sourceWin.webContents.send('tab:removed', { tabId });
+      }
+    } catch (err) {
+      console.warn(`[Realm DragCoordinator] 通知源窗口失败: ${err.message}`);
     }
+    tabManagerRef.closeTab(tabId);
 
     // 通知新窗口
-    newWindow.webContents.send('tab:created', { tab: newTab });
-    newWindow.webContents.send('tab:switched', { tabId: newTab.id });
+    try {
+      newWindow.webContents.send('tab:created', { tab: newTab });
+      newWindow.webContents.send('tab:switched', { tabId: newTab.id });
+    } catch (err) {
+      console.warn(`[Realm DragCoordinator] 通知新窗口失败: ${err.message}`);
+    }
 
     return { success: true, action: 'new-window', newWindowId: newWindow.id };
   }
