@@ -190,6 +190,8 @@ const state = {
     startScreenX: 0,         // 起始屏幕坐标
     startScreenY: 0,
     lastReportTime: 0,       // 上次报告位置的时间戳（节流用）
+    targetWindowId: null,    // 当前悬停的目标窗口 ID（来自主进程检测）
+    outOfTabBar: false,      // 是否拖出 Tab 栏
   },
 
   // 当前窗口 ID（用于跨窗口拖拽判断）
@@ -985,6 +987,84 @@ function createWebviewForTab(tabId, containerId, url) {
   bindWebviewEvents(tabId, webview);
 
   return webview;
+}
+
+// ==================== 跨窗口 Tab 事件处理（Phase 36 Plan 03） ====================
+
+/**
+ * 处理主进程推送的 tab:created 事件
+ *
+ * 跨窗口 Tab 移动或新窗口创建时，主进程在目标窗口调用此函数。
+ * 创建 Tab DOM 元素和 webview，并切换到该 Tab。
+ *
+ * @param {Object} data - { tab } Tab 数据对象
+ */
+function handleTabCreatedFromMain(data) {
+  if (!data || !data.tab) return;
+  const tab = data.tab;
+
+  // 避免重复创建（如果 Tab 已存在于本窗口）
+  if (state.tabs.has(tab.id)) return;
+
+  console.log(`[Realm Renderer] 收到跨窗口 Tab 创建: ${tab.id} (容器: ${tab.containerId})`);
+
+  // 创建 Tab DOM 元素
+  const tabElement = createTabElement(tab);
+
+  // 添加到 Tab 列表
+  elements.tabList.appendChild(tabElement);
+
+  // 存储 Tab 数据
+  tab.element = tabElement;
+  state.tabs.set(tab.id, tab);
+
+  // 创建 webview
+  if (tab.url) {
+    createWebviewForTab(tab.id, tab.containerId, tab.url);
+  }
+
+  // 切换到新 Tab
+  switchTab(tab.id);
+}
+
+/**
+ * 处理主进程推送的 tab:removed 事件
+ *
+ * 跨窗口 Tab 移动时，主进程通知源窗口移除指定 Tab。
+ * 清理 Tab DOM 元素、webview 和状态。
+ *
+ * @param {Object} data - { tabId } 被移除的 Tab ID
+ */
+function handleTabRemovedFromMain(data) {
+  if (!data || !data.tabId) return;
+  const { tabId } = data;
+
+  console.log(`[Realm Renderer] 收到跨窗口 Tab 移除: ${tabId}`);
+
+  const tabData = state.tabs.get(tabId);
+  if (!tabData) return;
+
+  // 移除 Tab DOM
+  if (tabData.element) tabData.element.remove();
+
+  // 移除 webview
+  const webview = state.webviews.get(tabId);
+  if (webview) webview.remove();
+  state.webviews.delete(tabId);
+
+  // 从 state 中移除
+  state.tabs.delete(tabId);
+
+  // 如果移除的是活动 Tab，切换到相邻 Tab
+  if (state.activeTabId === tabId) {
+    const remaining = Array.from(state.tabs.keys());
+    if (remaining.length > 0) {
+      switchTab(remaining[0]);
+    } else {
+      // 没有 Tab 了，创建新 Tab
+      createTab(state.currentContainer);
+    }
+  }
 }
 
 /**
@@ -2177,6 +2257,22 @@ async function init() {
 
   // 注册右键菜单动作回调
   window.realmAPI.onContextMenuAction(handleContextMenuAction);
+
+  // 监听跨窗口 Tab 事件（Phase 36 Plan 03）
+  // 主进程在跨窗口 Tab 移动或新窗口创建时推送这些事件
+  if (window.realmAPI.onTabCreated) {
+    window.realmAPI.onTabCreated(handleTabCreatedFromMain);
+  }
+  if (window.realmAPI.onTabRemoved) {
+    window.realmAPI.onTabRemoved(handleTabRemovedFromMain);
+  }
+  if (window.realmAPI.onTabSwitched) {
+    window.realmAPI.onTabSwitched((data) => {
+      if (data && data.tabId) {
+        switchTab(data.tabId);
+      }
+    });
+  }
 
   // 初始化收藏栏
   if (window.bookmarksBar) {
@@ -8107,7 +8203,7 @@ function initTabDragAndDrop() {
     // 更新浮动预览位置
     updateDragPreviewPosition(e.screenX, e.screenY);
 
-    // 节流：向主进程报告位置
+    // 节流：向主进程报告位置，获取目标窗口信息
     const now = Date.now();
     if (now - state.crossDrag.lastReportTime >= POSITION_REPORT_INTERVAL) {
       state.crossDrag.lastReportTime = now;
@@ -8116,6 +8212,14 @@ function initTabDragAndDrop() {
         y: e.clientY,
         screenX: e.screenX,
         screenY: e.screenY,
+      }).then(result => {
+        if (result) {
+          // 记录主进程返回的目标窗口信息（用于 mouseup 时判断动作）
+          state.crossDrag.targetWindowId = result.targetWindow
+            ? result.targetWindow.windowId
+            : null;
+          state.crossDrag.outOfTabBar = result.outOfTabBar || false;
+        }
       }).catch(err => {
         console.error('[Realm Renderer] drag:update-position 失败:', err);
       });
@@ -8162,19 +8266,27 @@ function initTabDragAndDrop() {
 
     // 调用主进程结束拖拽，根据位置判断动作
     try {
-      // 先报告最新位置
-      const result = await window.realmAPI.endDrag({
-        outOfTabBar: true, // 超过阈值即视为拖出 Tab 栏
-      });
+      // 传递目标窗口信息（来自 updateDragPosition 的响应）
+      const endData = {};
+      if (state.crossDrag.targetWindowId) {
+        // 鼠标在另一个窗口的 Tab 栏上 → 跨窗口移动
+        endData.targetWindowId = state.crossDrag.targetWindowId;
+      } else if (state.crossDrag.outOfTabBar) {
+        // 鼠标在 Tab 栏外 → 创建新窗口
+        endData.outOfTabBar = true;
+      } else {
+        // 默认：超过阈值视为拖出
+        endData.outOfTabBar = true;
+      }
+
+      const result = await window.realmAPI.endDrag(endData);
 
       if (result && result.success) {
         if (result.action === 'new-window') {
-          // 新窗口已由主进程创建，从当前窗口移除 Tab UI
-          removeTabFromUI(tabId);
+          // 主进程已发送 tab:removed 事件，由 handleTabRemovedFromMain 处理 UI 清理
           console.log(`[Realm Renderer] Tab ${tabId} 已拖出为新窗口`);
         } else if (result.action === 'move-to-window') {
-          // 已移动到另一个窗口，从当前窗口移除 Tab UI
-          removeTabFromUI(tabId);
+          // 主进程已发送 tab:removed 事件，由 handleTabRemovedFromMain 处理 UI 清理
           console.log(`[Realm Renderer] Tab ${tabId} 已移动到窗口 ${result.targetWindowId}`);
         }
         // action === 'reorder' 时不做额外处理（窗口内排序由 HTML5 DnD 处理）
@@ -8196,6 +8308,8 @@ function initTabDragAndDrop() {
     state.crossDrag.startScreenX = 0;
     state.crossDrag.startScreenY = 0;
     state.crossDrag.lastReportTime = 0;
+    state.crossDrag.targetWindowId = null;
+    state.crossDrag.outOfTabBar = false;
   }
 
   /**

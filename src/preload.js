@@ -194,6 +194,39 @@ contextBridge.exposeInMainWorld('realmAPI', {
     ipcRenderer.on('tab:recycled', (event, data) => callback(data));
   },
 
+  /**
+   * 监听 Tab 创建事件（跨窗口移动/新窗口创建时，主进程通知目标窗口）
+   * @param {Function} callback - 回调函数，参数为 { tab }
+   * @returns {Function} 取消监听函数
+   */
+  onTabCreated: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('tab:created', handler);
+    return () => ipcRenderer.removeListener('tab:created', handler);
+  },
+
+  /**
+   * 监听 Tab 移除事件（跨窗口移动时，主进程通知源窗口移除 Tab）
+   * @param {Function} callback - 回调函数，参数为 { tabId }
+   * @returns {Function} 取消监听函数
+   */
+  onTabRemoved: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('tab:removed', handler);
+    return () => ipcRenderer.removeListener('tab:removed', handler);
+  },
+
+  /**
+   * 监听 Tab 切换事件（新窗口创建后，主进程通知切换到指定 Tab）
+   * @param {Function} callback - 回调函数，参数为 { tabId }
+   * @returns {Function} 取消监听函数
+   */
+  onTabSwitched: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('tab:switched', handler);
+    return () => ipcRenderer.removeListener('tab:switched', handler);
+  },
+
   // ==================== Cookie 管理 ====================
 
   /**
