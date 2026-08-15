@@ -151,12 +151,12 @@ Plans:
   3. 窗口标题栏显示当前活动 Tab 所属容器的名称
   4. 窗口标题栏/工具栏显示容器颜色标识，不同容器的窗口视觉上可区分
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 35-01-PLAN.md — Tab 管理重构 + 窗口关闭级联（tab-manager, window-manager, main.js）
+- [x] 35-01-PLAN.md — Tab 管理重构 + 窗口关闭级联（tab-manager, window-manager, main.js）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -222,5 +222,5 @@ Phases execute in numeric order: 34 → 35 → 36
 | 32. 自动填充 — 凭据引擎 | v2.3 | 2/2 | Complete | 2026-08-13 |
 | 33. 自动填充 — 增强 + Bug 修复 | v2.3 | 3/3 | Complete | 2026-08-14 |
 | 34. 窗口管理基础 | v2.4 | 2/3 | In Progress|  |
-| 35. Tab 窗口关联 | v2.4 | 0/? | Not started | - |
+| 35. Tab 窗口关联 | v2.4 | 1/2 | In Progress|  |
 | 36. Tab 拖拽与跨窗口移动 | v2.4 | 0/? | Not started | - |

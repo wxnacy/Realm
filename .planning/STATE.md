@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: 多窗口支持
-current_phase: 34
-current_phase_name: multi-window
+current_phase: 35
+current_phase_name: tab
 status: executing
-stopped_at: Phase 35 context gathered
-last_updated: "2026-08-15T05:18:40.511Z"
-last_activity: 2026-08-14
-last_activity_desc: Phase 34 execution started
+stopped_at: Phase 35 UI-SPEC approved
+last_updated: "2026-08-15T05:37:23.602Z"
+last_activity: 2026-08-15
+last_activity_desc: Phase 35 execution started
 progress:
   total_phases: 3
   completed_phases: 0
-  total_plans: 3
+  total_plans: 5
   completed_plans: 2
   percent: 0
 ---
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-14)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 34 — multi-window
+**Current focus:** Phase 35 — tab
 
 ## Current Position
 
-Phase: 34 (multi-window) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 34
-Last activity: 2026-08-14 — Phase 34 execution started
+Phase: 35 (tab) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 35
+Last activity: 2026-08-15 — Phase 35 execution started
 
 Progress: [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0%
 
@@ -96,9 +96,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T05:18:40.506Z
-Stopped at: Phase 35 context gathered
-Resume file: .planning/phases/35-tab/35-CONTEXT.md
+Last session: 2026-08-15T05:20:00.208Z
+Stopped at: Phase 35 UI-SPEC approved
+Resume file: .planning/phases/35-tab/35-UI-SPEC.md
 
 ## Operator Next Steps
 
