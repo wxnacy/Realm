@@ -1,77 +1,63 @@
 ---
 phase: 36-tab
-fixed_at: 2026-08-15T14:30:00Z
+fixed_at: 2026-08-15T13:00:00Z
 review_path: .planning/phases/36-tab/36-REVIEW.md
-iteration: 1
-findings_in_scope: 8
-fixed: 6
-skipped: 2
-status: partial
+iteration: 3
+findings_in_scope: 5
+fixed: 5
+skipped: 0
+status: all_fixed
 ---
 
 # Phase 36: Code Review Fix Report
 
-**Fixed at:** 2026-08-15T14:30:00Z
+**Fixed at:** 2026-08-15T13:00:00Z
 **Source review:** .planning/phases/36-tab/36-REVIEW.md
-**Iteration:** 1
+**Iteration:** 3
 
 **Summary:**
-- Findings in scope: 8 (3 Critical + 5 Warning, excluding 1 Info)
-- Fixed: 6
-- Skipped: 2
+- Findings in scope: 5 (1 Critical + 4 Warning)
+- Fixed: 5
+- Skipped: 0
 
 ## Fixed Issues
 
-### CR-01: `endDrag`/`cancelDrag` 在广播拖拽状态前已清空状态数据
+### CR-01: 跨窗口拖拽 API 暴露在错误的命名空间下
 
-**Files modified:** `drag-coordinator.js`
-**Commit:** fe03b2a
-**Applied fix:** 在 `endDrag` 和 `cancelDrag` 中，将 `broadcastDragState()` 调用移到 `resetDragState()` 之前，确保广播时 `tabId` 和 `sourceWindowId` 仍有效。
+**Files modified:** `src/preload.js`
+**Commit:** 4c3c391
+**Applied fix:** 将 `startDrag`、`updateDragPosition`、`endDrag`、`cancelDrag`、`onDragStateChanged` 五个方法从 `downloadAPI` 命名空间块移动到 `realmAPI` 命名空间块中，使渲染进程通过 `window.realmAPI.startDrag(...)` 等方式可以正确访问这些 API。
 
-### CR-02: Tab 栏内拖拽松手时错误触发创建新窗口
+### WR-01: mouseup 未移除 keydown 监听器
 
 **Files modified:** `src/renderer.js`
-**Commit:** 7f71ce9
-**Applied fix:** 当 `outOfTabBar` 为 false 且 `targetWindowId` 为 null 时（鼠标仍在源窗口 Tab 栏内），调用 `cancelDrag()` 取消拖拽并回滚 UI，而非设置 `outOfTabBar = true` 触发新建窗口。
+**Commit:** b08722f
+**Applied fix:** 在 `onCrossDragMouseUp` 中补充 `document.removeEventListener('keydown', onCrossDragKeyDown, true)` 调用，确保拖拽结束时三个全局监听器（mousemove、mouseup、keydown）全部移除，防止 keydown 监听器在多次拖拽后累积。
 
-### CR-03: `main.js` 退出流程中 `windowContainerMap` 未导出导致 TypeError
+### WR-02: TAB_BAR_HEIGHT 硬编码无同步标记
 
-**Files modified:** `main.js`
-**Commit:** 365b7c8
-**Applied fix:** 使用 `BrowserWindow.getAllWindows()` 遍历所有窗口，配合 `windowManager.getCurrentContainer(win.id)` 获取容器 ID，避免解构未导出的 `windowContainerMap`。
+**Files modified:** `drag-coordinator.js`, `window-manager.js`
+**Commit:** 0362c95
+**Applied fix:** 在 `drag-coordinator.js:130` 和 `window-manager.js:314` 的 `TAB_BAR_HEIGHT` 常量处添加交叉引用注释，标注需与 CSS `.tab-bar` height 保持同步，方便后续维护时识别关联位置。
 
-### WR-01: 跨窗口移动 Tab 时未验证目标窗口的容器兼容性
-
-**Files modified:** `drag-coordinator.js`
-**Commit:** b242fd7
-**Applied fix:** 在 `move-to-window` 路径中，移动 Tab 前检查目标窗口的容器是否与 Tab 的容器一致。不兼容时拒绝移动并返回 `{ success: false, action: 'cancelled' }`，防止 Cookie 隔离被破坏。
-
-### WR-02: `endDrag` 的 `move-to-window` 路径未验证 `parseInt` 结果
+### WR-03: updatePosition 未校验 position 参数
 
 **Files modified:** `drag-coordinator.js`
-**Commit:** fe03b2a (与 CR-01 同一提交)
-**Applied fix:** 在 `parseInt(data.targetWindowId, 10)` 后添加 `Number.isFinite()` 检查，防止 `NaN` 传入后续逻辑。
+**Commit:** 0658547
+**Applied fix:** 在 `updatePosition` 函数入口处（现有 guard 之后、访问 `position.x` 之前）添加参数校验：`if (!position || typeof position.screenX !== 'number' || typeof position.screenY !== 'number')` 返回 `{ success: false }`，防止畸形输入导致 TypeError。
 
-### WR-05: `broadcastDragState` 中 `isDragging` 字段值不可靠
+### WR-04: window:get-id 未调用 assertTrustedSender
 
-**Files modified:** `drag-coordinator.js`
-**Commit:** fe03b2a (与 CR-01 同一提交)
-**Applied fix:** 将 `isDragging: dragState.isDragging` 改为 `isDragging: eventType === 'started'`，使用传入的事件类型判断而非读取可能已被清空的状态字段。
+**Files modified:** `ipc-handlers.js`
+**Commit:** 9ed70da
+**Applied fix:** 将 `window:get-id` handler 中的 `BrowserWindow.fromWebContents(event.sender)` 替换为 `assertTrustedSender(event)`，统一信任校验模式。`assertTrustedSender` 会校验来源窗口是否为受管理窗口，不受信来源将抛出异常。
 
 ## Skipped Issues
 
-### WR-03: `preload.js` 中拖拽 API 放置在 `downloadAPI` 命名空间下
-
-**File:** `src/preload.js:1317-1360`
-**Reason:** 需要重构 preload.js 的 API 命名空间结构，涉及 renderer.js 中所有拖拽相关调用的路径修改（`window.downloadAPI.startDrag` → `window.realmAPI.startDrag` 等）。改动范围大且属于代码组织优化，不影响功能正确性，建议在后续重构中处理。
-
-### WR-04: 浮动预览定位使用 `window.screenX/Y` 可能存在偏移
-
-**File:** `src/renderer.js:8121-8124`
-**Reason:** macOS `hiddenInset` 模式下的精确偏移计算需要实际测试验证，且当前偏移量很小（仅水平方向可能的交通灯区域 padding），属于视觉微调。建议通过实际运行测试确认是否需要修复及修复值。
+None — all findings were fixed.
 
 ---
 
-_Fixed: 2026-08-15T14:30:00Z_
+_Fixed: 2026-08-15T13:00:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 1_
+_Iteration: 3_
