@@ -8237,9 +8237,10 @@ function initTabDragAndDrop() {
    * 根据松手位置判断执行动作（新窗口/跨窗口移动/取消）
    */
   async function onCrossDragMouseUp(e) {
-    // 清理全局监听器
+    // 清理全局监听器（三个都要移除，否则 keydown 会累积）
     document.removeEventListener('mousemove', onCrossDragMouseMove, true);
     document.removeEventListener('mouseup', onCrossDragMouseUp, true);
+    document.removeEventListener('keydown', onCrossDragKeyDown, true);
     crossDragListenersAttached = false;
 
     if (!state.crossDrag.active) {
