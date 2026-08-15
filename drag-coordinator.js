@@ -182,6 +182,9 @@ function updatePosition(sourceWindowId, position) {
   if (!dragState.isDragging || dragState.sourceWindowId !== sourceWindowId) {
     return { success: false };
   }
+  if (!position || typeof position.screenX !== 'number' || typeof position.screenY !== 'number') {
+    return { success: false };
+  }
 
   dragState.currentX = position.x;
   dragState.currentY = position.y;
