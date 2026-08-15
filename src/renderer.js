@@ -1657,6 +1657,10 @@ function initShortcuts() {
       case 'findInPage':
         openFindInPage();
         break;
+      case 'focusUrl':
+        elements.urlInput.focus();
+        elements.urlInput.select();
+        break;
     }
   });
 }
