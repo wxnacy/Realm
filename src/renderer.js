@@ -179,9 +179,21 @@ const state = {
   tabCounter: 0,
   webviews: new Map(),
 
-  // Tab 拖拽排序状态
+  // Tab 拖拽排序状态（窗口内 HTML5 DnD）
   isDragging: false,
   draggingTabId: null,
+
+  // 跨窗口拖拽状态（自定义 mousedown/mousemove/mouseup）
+  crossDrag: {
+    active: false,           // 跨窗口拖拽是否激活（超过阈值后为 true）
+    tabId: null,             // 被拖拽的 Tab ID
+    startScreenX: 0,         // 起始屏幕坐标
+    startScreenY: 0,
+    lastReportTime: 0,       // 上次报告位置的时间戳（节流用）
+  },
+
+  // 当前窗口 ID（用于跨窗口拖拽判断）
+  windowId: null,
 
   // 内部页面服务器端口（用于加载 realm:// 页面）
   realmPort: null,
@@ -559,6 +571,11 @@ function createTabElement(tab) {
 
   // Tab 拖拽排序：dragstart 事件
   tabElement.addEventListener('dragstart', (e) => {
+    // 跨窗口拖拽激活时，阻止 HTML5 DnD（由自定义鼠标事件接管）
+    if (state.crossDrag.active) {
+      e.preventDefault();
+      return;
+    }
     state.isDragging = true;
     state.draggingTabId = tab.id;
     e.dataTransfer.effectAllowed = 'move';
@@ -2092,6 +2109,13 @@ function renderTabs() {
  */
 async function init() {
   console.log('[Realm Renderer] 初始化...');
+
+  // 获取当前窗口 ID（用于跨窗口拖拽判断自身身份）
+  try {
+    state.windowId = await window.realmAPI.getWindowId();
+  } catch (err) {
+    console.error('[Realm Renderer] 获取窗口 ID 失败:', err);
+  }
 
   // 恢复侧边栏显示状态（默认展开），尽早应用避免启动闪烁
   // HTML 中 sidebar 默认带 hidden，只有明确需要展开时才移除
@@ -7945,6 +7969,282 @@ function initTabDragAndDrop() {
       hideInsertIndicator();
     }
   });
+
+  // ==================== 跨窗口 Tab 拖拽（Phase 36 Plan 03） ====================
+
+  /** 浮动预览 DOM 元素 */
+  let dragPreview = null;
+  /** mousedown 起始位置（屏幕坐标） */
+  let crossDragStartScreenX = 0;
+  let crossDragStartScreenY = 0;
+  /** mousedown 时的 Tab ID */
+  let crossDragTabId = null;
+  /** 是否正在监听 mousemove（避免重复绑定） */
+  let crossDragListenersAttached = false;
+
+  const CROSS_DRAG_THRESHOLD = 5; // 激活跨窗口拖拽的最小移动距离（px）
+  const POSITION_REPORT_INTERVAL = 50; // 向主进程报告位置的节流间隔（ms）
+
+  /**
+   * 创建浮动预览元素
+   * @param {HTMLElement} tabElement - 源 Tab DOM 元素
+   */
+  function createDragPreview(tabElement) {
+    if (dragPreview) dragPreview.remove();
+
+    dragPreview = document.createElement('div');
+    dragPreview.className = 'tab-drag-preview';
+
+    const favicon = document.createElement('img');
+    favicon.className = 'favicon';
+    const faviconEl = tabElement.querySelector('.tab-favicon img, .tab-favicon');
+    if (faviconEl) {
+      favicon.src = faviconEl.src || faviconEl.getAttribute('src') || '';
+    }
+
+    const title = document.createElement('span');
+    title.className = 'title';
+    const titleEl = tabElement.querySelector('.tab-title');
+    title.textContent = titleEl ? titleEl.textContent : 'Tab';
+
+    dragPreview.appendChild(favicon);
+    dragPreview.appendChild(title);
+    dragPreview.style.display = 'none';
+    document.body.appendChild(dragPreview);
+  }
+
+  /**
+   * 更新浮动预览位置
+   * @param {number} screenX - 屏幕坐标 X
+   * @param {number} screenY - 屏幕坐标 Y
+   */
+  function updateDragPreviewPosition(screenX, screenY) {
+    if (!dragPreview) return;
+    // 将屏幕坐标转为窗口内坐标（fixed 定位）
+    // window.screenX/Y 是窗口左上角的屏幕坐标
+    const x = screenX - window.screenX;
+    const y = screenY - window.screenY;
+    dragPreview.style.left = `${x + 10}px`;
+    dragPreview.style.top = `${y + 10}px`;
+  }
+
+  /**
+   * 显示浮动预览
+   */
+  function showDragPreview() {
+    if (dragPreview) dragPreview.style.display = '';
+  }
+
+  /**
+   * 隐藏并移除浮动预览
+   */
+  function removeDragPreview() {
+    if (dragPreview) {
+      dragPreview.remove();
+      dragPreview = null;
+    }
+  }
+
+  /**
+   * 跨窗口拖拽：mousedown 处理器
+   * 记录起始位置和 Tab ID，等待超过阈值后激活
+   */
+  function onCrossDragMouseDown(e) {
+    // 仅处理左键
+    if (e.button !== 0) return;
+    const tabEl = e.target.closest('.tab');
+    if (!tabEl) return;
+
+    crossDragTabId = tabEl.dataset.tabId;
+    crossDragStartScreenX = e.screenX;
+    crossDragStartScreenY = e.screenY;
+
+    // 绑定全局 mousemove/mouseup（capture 阶段确保不被 webview 吞掉）
+    if (!crossDragListenersAttached) {
+      document.addEventListener('mousemove', onCrossDragMouseMove, true);
+      document.addEventListener('mouseup', onCrossDragMouseUp, true);
+      crossDragListenersAttached = true;
+    }
+  }
+
+  /**
+   * 跨窗口拖拽：mousemove 处理器
+   * 超过阈值后激活跨窗口拖拽，更新浮动预览和主进程位置
+   */
+  function onCrossDragMouseMove(e) {
+    if (!crossDragTabId) return;
+
+    const dx = e.screenX - crossDragStartScreenX;
+    const dy = e.screenY - crossDragStartScreenY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // 未超过阈值：不激活
+    if (!state.crossDrag.active && distance < CROSS_DRAG_THRESHOLD) return;
+
+    // 超过阈值：激活跨窗口拖拽
+    if (!state.crossDrag.active) {
+      state.crossDrag.active = true;
+      state.crossDrag.tabId = crossDragTabId;
+      state.crossDrag.startScreenX = crossDragStartScreenX;
+      state.crossDrag.startScreenY = crossDragStartScreenY;
+
+      // 创建浮动预览
+      const tabEl = elements.tabList.querySelector(`[data-tab-id="${crossDragTabId}"]`);
+      if (tabEl) {
+        createDragPreview(tabEl);
+        showDragPreview();
+      }
+
+      // 通知主进程拖拽开始
+      window.realmAPI.startDrag(crossDragTabId).catch(err => {
+        console.error('[Realm Renderer] drag:start 失败:', err);
+      });
+
+      // 添加拖拽中的视觉样式
+      if (tabEl) tabEl.classList.add('cross-dragging');
+    }
+
+    // 更新浮动预览位置
+    updateDragPreviewPosition(e.screenX, e.screenY);
+
+    // 节流：向主进程报告位置
+    const now = Date.now();
+    if (now - state.crossDrag.lastReportTime >= POSITION_REPORT_INTERVAL) {
+      state.crossDrag.lastReportTime = now;
+      window.realmAPI.updateDragPosition({
+        x: e.clientX,
+        y: e.clientY,
+        screenX: e.screenX,
+        screenY: e.screenY,
+      }).catch(err => {
+        console.error('[Realm Renderer] drag:update-position 失败:', err);
+      });
+    }
+  }
+
+  /**
+   * 跨窗口拖拽：mouseup 处理器
+   * 根据松手位置判断执行动作（新窗口/跨窗口移动/取消）
+   */
+  async function onCrossDragMouseUp(e) {
+    // 清理全局监听器
+    document.removeEventListener('mousemove', onCrossDragMouseMove, true);
+    document.removeEventListener('mouseup', onCrossDragMouseUp, true);
+    crossDragListenersAttached = false;
+
+    if (!state.crossDrag.active) {
+      // 未激活跨窗口拖拽，重置状态
+      crossDragTabId = null;
+      return;
+    }
+
+    const tabId = state.crossDrag.tabId;
+
+    // 移除拖拽中样式
+    const tabEl = elements.tabList.querySelector(`[data-tab-id="${tabId}"]`);
+    if (tabEl) tabEl.classList.remove('cross-dragging');
+
+    // 移除浮动预览
+    removeDragPreview();
+
+    // 判断松手位置
+    const dx = e.screenX - state.crossDrag.startScreenX;
+    const dy = e.screenY - state.crossDrag.startScreenY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance < CROSS_DRAG_THRESHOLD) {
+      // 移动距离不足，取消
+      await window.realmAPI.cancelDrag();
+      resetCrossDragState();
+      crossDragTabId = null;
+      return;
+    }
+
+    // 调用主进程结束拖拽，根据位置判断动作
+    try {
+      // 先报告最新位置
+      const result = await window.realmAPI.endDrag({
+        outOfTabBar: true, // 超过阈值即视为拖出 Tab 栏
+      });
+
+      if (result && result.success) {
+        if (result.action === 'new-window') {
+          // 新窗口已由主进程创建，从当前窗口移除 Tab UI
+          removeTabFromUI(tabId);
+          console.log(`[Realm Renderer] Tab ${tabId} 已拖出为新窗口`);
+        } else if (result.action === 'move-to-window') {
+          // 已移动到另一个窗口，从当前窗口移除 Tab UI
+          removeTabFromUI(tabId);
+          console.log(`[Realm Renderer] Tab ${tabId} 已移动到窗口 ${result.targetWindowId}`);
+        }
+        // action === 'reorder' 时不做额外处理（窗口内排序由 HTML5 DnD 处理）
+      }
+    } catch (err) {
+      console.error('[Realm Renderer] drag:end 失败:', err);
+    }
+
+    resetCrossDragState();
+    crossDragTabId = null;
+  }
+
+  /**
+   * 重置跨窗口拖拽状态
+   */
+  function resetCrossDragState() {
+    state.crossDrag.active = false;
+    state.crossDrag.tabId = null;
+    state.crossDrag.startScreenX = 0;
+    state.crossDrag.startScreenY = 0;
+    state.crossDrag.lastReportTime = 0;
+  }
+
+  /**
+   * 从 UI 中移除 Tab（跨窗口移动成功后调用）
+   * @param {string} tabId - Tab ID
+   */
+  function removeTabFromUI(tabId) {
+    const tabData = state.tabs.get(tabId);
+    if (!tabData) return;
+
+    // 移除 Tab DOM
+    if (tabData.element) tabData.element.remove();
+
+    // 移除 webview
+    const webview = state.webviews.get(tabId);
+    if (webview) webview.remove();
+    state.webviews.delete(tabId);
+
+    // 从 state 中移除
+    state.tabs.delete(tabId);
+
+    // 如果移除的是活动 Tab，切换到相邻 Tab
+    if (state.activeTabId === tabId) {
+      const remaining = Array.from(state.tabs.keys());
+      if (remaining.length > 0) {
+        switchTab(remaining[0]);
+      } else {
+        // 没有 Tab 了，创建新 Tab（窗口不应在这里销毁，由主进程处理）
+        createTab(state.currentContainer);
+      }
+    }
+  }
+
+  // 在 tabBar 上绑定 mousedown（捕获阶段，确保优先于 Tab 元素的事件）
+  if (elements.tabBar) {
+    elements.tabBar.addEventListener('mousedown', onCrossDragMouseDown);
+  }
+
+  // 监听主进程拖拽状态变化（目标窗口高亮等）
+  if (window.realmAPI && window.realmAPI.onDragStateChanged) {
+    window.realmAPI.onDragStateChanged((data) => {
+      if (data.type === 'started' && data.sourceWindowId !== state.windowId) {
+        // 另一个窗口开始拖拽到本窗口，高亮 Tab 栏作为可放置目标
+        elements.tabBar?.classList.add('cross-drag-target-ready');
+      } else if (data.type === 'ended' || data.type === 'cancelled') {
+        elements.tabBar?.classList.remove('cross-drag-target-ready');
+      }
+    });
+  }
 }
 
 /**

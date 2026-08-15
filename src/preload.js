@@ -13,6 +13,13 @@ const { contextBridge, ipcRenderer } = require('electron');
  */
 contextBridge.exposeInMainWorld('realmAPI', {
   /**
+   * 获取当前窗口 ID
+   * 用于渲染进程判断自身窗口身份（跨窗口拖拽等场景）
+   * @returns {Promise<number>} BrowserWindow.id
+   */
+  getWindowId: () => ipcRenderer.invoke('window:get-id'),
+
+  /**
    * 获取所有容器列表
    * @returns {Promise<Array<{id: string, name: string, color: string, icon: string}>>}
    */

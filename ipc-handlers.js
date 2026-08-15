@@ -466,6 +466,17 @@ function registerHandlers() {
     return { success: true, newTabId: newTab.id, windowId: newWindow.id };
   });
 
+  /**
+   * 获取当前窗口 ID
+   * 渲染进程用于判断自身窗口身份（跨窗口拖拽等场景）
+   * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+   * @returns {number} BrowserWindow.id
+   */
+  ipcMain.handle('window:get-id', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return win ? win.id : null;
+  });
+
   // ==================== 跨窗口 Tab 拖拽（Phase 36 Plan 03） ====================
 
   /**
