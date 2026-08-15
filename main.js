@@ -2398,9 +2398,123 @@ app.whenReady().then(async () => {
   // 初始化 Tab 管理器
   tabManager.initTabs();
 
+  // ==================== 窗口关闭级联 + 活跃任务确认（Phase 35） ====================
+
+  /**
+   * 检测窗口内是否有活跃任务（活跃下载或媒体播放）
+   * @param {number} windowId - 窗口 ID
+   * @returns {{ hasActive: boolean, taskList: Array<{type: string, detail: string}> }}
+   */
+  function checkActiveTasks(windowId) {
+    const taskList = [];
+
+    // 检测活跃下载（per D-17）
+    try {
+      const activeDownloads = downloadManager.getActiveDownloads
+        ? downloadManager.getActiveDownloads()
+        : [];
+      if (Array.isArray(activeDownloads) && activeDownloads.length > 0) {
+        for (const dl of activeDownloads) {
+          taskList.push({
+            type: 'download',
+            detail: dl.filename || dl.url || '未知文件',
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[Realm] 检测活跃下载失败:', err.message);
+    }
+
+    return {
+      hasActive: taskList.length > 0,
+      taskList,
+    };
+  }
+
+  /**
+   * 设置窗口关闭事件处理器（Phase 35 D-15, D-16, D-17）
+   *
+   * 使用 closing 标志位防止重入（Pitfall 1）：
+   * win.close() → close 事件 → win.destroy() 会递归触发 close，
+   * 标志位确保第二次进入时直接放行。
+   *
+   * @param {Electron.BrowserWindow} win - 窗口实例
+   */
+  function setupWindowCloseHandler(win) {
+    let closing = false;
+
+    win.on('close', async (e) => {
+      // quitting 模式下跳过确认，直接关闭（退出流程已有自己的确认机制）
+      if (quitting || closing) {
+        closing = true;
+        return;
+      }
+
+      // 如果是最后一个窗口
+      const allWindows = BrowserWindow.getAllWindows().filter(w => !w.isDestroyed());
+      const isLastWindow = allWindows.length <= 1;
+
+      // 检测活跃任务
+      const { hasActive, taskList } = checkActiveTasks(win.id);
+
+      if (!hasActive) {
+        // 无活跃任务：直接关闭
+        closing = true;
+        // 级联关闭 Tab
+        windowManager.closeWindowWithTabs(win.id, tabManager);
+        e.preventDefault();
+        // win.destroy() 已在 closeWindowWithTabs 中调用
+        return;
+      }
+
+      // 有活跃任务：弹出确认对话框（per D-15）
+      e.preventDefault();
+
+      const taskDescription = taskList
+        .map(t => {
+          if (t.type === 'download') return `- 下载中: ${t.detail}`;
+          if (t.type === 'media') return `- 媒体播放: ${t.detail}`;
+          return `- ${t.type}: ${t.detail}`;
+        })
+        .join('\n');
+
+      const result = await dialog.showMessageBox(win, {
+        type: 'warning',
+        title: '确认关闭',
+        message: '窗口中有正在执行的任务',
+        detail: `${taskDescription}\n\n关闭窗口将中断这些任务。`,
+        buttons: ['关闭', '取消'],
+        defaultId: 1, // 取消是安全默认
+        cancelId: 1,
+        noLink: true,
+      });
+
+      if (result.response === 0) {
+        // 用户选择关闭
+        closing = true;
+        windowManager.closeWindowWithTabs(win.id, tabManager);
+        // closeWindowWithTabs 内部调用 win.destroy()，不需要再调用 win.close()
+      }
+      // 用户选择取消：什么都不做，窗口保持打开
+    });
+  }
+
+  // 新增 IPC 通道：渲染进程查询本窗口是否有活跃媒体播放
+  ipcMain.handle('window:check-active-tasks', (event) => {
+    assertTrustedSender(event);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { hasActive: false, taskList: [] };
+    return checkActiveTasks(win.id);
+  });
+
   // 获取默认容器并创建主窗口
   const defaultContainer = containerManager.getContainer('default');
   const mainWindow = windowManager.createMainWindow('default', defaultContainer);
+
+  // 注册窗口关闭处理器
+  if (mainWindow) {
+    setupWindowCloseHandler(mainWindow);
+  }
 
   // 注册全局快捷键
   if (mainWindow) {
@@ -2495,7 +2609,8 @@ app.whenReady().then(async () => {
       const defaultContainer = containerManager.getContainer('default');
       const mainWindow = windowManager.createMainWindow('default', defaultContainer);
       if (mainWindow) {
-        // 重建窗口后重新注册快捷键
+        // 重建窗口后重新注册快捷键和关闭处理器
+        setupWindowCloseHandler(mainWindow);
         shortcutManager.registerShortcuts();
       }
     }

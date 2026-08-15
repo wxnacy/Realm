@@ -156,6 +156,41 @@ function broadcast(channel, ...args) {
   }
 }
 
+/**
+ * 关闭窗口并级联销毁其所有 Tab（Phase 35 D-16）
+ *
+ * 销毁顺序（D-16）：先销毁 Tab webContents，再销毁窗口本身，
+ * 避免 webContents 残留（T-35-03）。
+ * 使用 win.destroy() 而非 win.close()，避免在 close 事件中递归（Pitfall 1）。
+ *
+ * @param {number} windowId - 窗口 ID
+ * @param {Object} [tabManager] - tabManager 模块实例（依赖注入，避免模块互相 require）
+ * @returns {boolean} 是否成功关闭
+ */
+function closeWindowWithTabs(windowId, tabManager) {
+  const win = BrowserWindow.fromId(windowId);
+
+  // 如果窗口已销毁或不存在，只清理 Tab 状态
+  if (!win || win.isDestroyed()) {
+    if (tabManager) {
+      tabManager.closeTabsByWindowId(windowId);
+    }
+    return true;
+  }
+
+  // 先销毁 Tab 的 webContents（通过渲染进程通知或直接操作）
+  // 级联关闭该窗口的所有 Tab 状态
+  if (tabManager) {
+    tabManager.closeTabsByWindowId(windowId);
+  }
+
+  // 使用 win.destroy() 销毁窗口，不触发 close 事件，避免递归
+  win.destroy();
+
+  console.log(`[Realm] 窗口 ${windowId} 已关闭（含所有 Tab）`);
+  return true;
+}
+
 module.exports = {
   createMainWindow,
   getMainWindow,
@@ -163,4 +198,5 @@ module.exports = {
   switchContainer,
   isManagedWindow,
   broadcast,
+  closeWindowWithTabs,
 };
