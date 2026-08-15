@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: 多窗口支持
-current_phase: 35
+current_phase: 36
 current_phase_name: tab
-status: executing
-stopped_at: Phase 35 UI-SPEC approved
-last_updated: "2026-08-15T05:37:23.602Z"
+status: ready
+stopped_at: Phase 36 context gathered
+last_updated: "2026-08-15T09:00:00.000Z"
 last_activity: 2026-08-15
-last_activity_desc: Phase 35 execution started
+last_activity_desc: Phase 36 context gathered
 progress:
   total_phases: 3
   completed_phases: 0
@@ -96,10 +96,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T05:20:00.208Z
-Stopped at: Phase 35 UI-SPEC approved
-Resume file: .planning/phases/35-tab/35-UI-SPEC.md
+Last session: 2026-08-15T09:00:00.000Z
+Stopped at: Phase 36 context gathered
+Resume file: .planning/phases/36-tab/36-CONTEXT.md
 
 ## Operator Next Steps
 
-- Plan Phase 34 with `/gsd-plan-phase 34`
+- Plan Phase 36 with `/gsd-plan-phase 36`
