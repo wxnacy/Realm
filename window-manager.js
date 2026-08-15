@@ -311,7 +311,8 @@ function closeWindowWithTabs(windowId, tabManager) {
  * @returns {{ windowId: number, inTabBar: boolean, bounds: Electron.Rectangle }|null}
  */
 function findWindowAtScreenPosition(screenX, screenY, excludeWindowId) {
-  const TAB_BAR_HEIGHT = 38; // Tab 栏高度（与 CSS 一致）
+  // Tab 栏高度（与 CSS .tab-bar height 和 drag-coordinator.js:130 保持同步）
+  const TAB_BAR_HEIGHT = 38;
 
   for (const [winId, win] of windows) {
     if (winId === excludeWindowId) continue;

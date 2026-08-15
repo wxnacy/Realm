@@ -127,6 +127,7 @@ function isDraggedOutOfTabBar(screenX, screenY) {
   if (!sourceWin || sourceWin.isDestroyed()) return false;
 
   const bounds = sourceWin.getBounds();
+  // 与 CSS .tab-bar height 和 window-manager.js:314 保持同步
   const TAB_BAR_HEIGHT = 38;
   const EXIT_THRESHOLD = 30; // 垂直方向额外阈值
 
