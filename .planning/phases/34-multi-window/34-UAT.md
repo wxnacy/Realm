@@ -60,11 +60,17 @@ result: blocked
 blocked_by: prior-phase
 reason: "Plan 03 (Dock 菜单 + main.js 集成) 尚未执行，无法创建多窗口"
 
+### 10. 首次启动 Cmd+W 关闭标签时窗口异常关闭
+expected: 有多个标签时，Cmd+W 只关闭当前标签，窗口保持打开。
+result: issue
+reported: "每次第一次启动，cmd+w 关闭标签时，即使还有很多标签，窗口也会自动关闭。再次从dock点开应用时所有标签会自动打开，再次关闭标签就正常了。"
+severity: blocker
+
 ## Summary
 
-total: 9
+total: 10
 passed: 3
-issues: 1
+issues: 2
 pending: 0
 skipped: 0
 blocked: 5
@@ -85,3 +91,18 @@ blocked: 5
   missing:
     - "在 shortcut-manager.js DEFAULT_SHORTCUTS 添加 'focusUrl': 'CmdOrCtrl+L'"
     - "在 src/renderer.js initShortcuts 添加 case 'focusUrl': elements.urlInput.focus(); elements.urlInput.select(); break;"
+
+- truth: "首次启动时 Cmd+W 只关闭当前标签，窗口保持打开"
+  status: failed
+  reason: "User reported: 每次第一次启动，cmd+w 关闭标签时，即使还有很多标签，窗口也会自动关闭。再次从dock点开应用时所有标签会自动打开，再次关闭标签就正常了。"
+  severity: blocker
+  test: 10
+  root_cause: "初始化顺序错误：main.js 中 createMainWindow() 在 shortcutManager.registerShortcuts() 之前调用。registerShortcuts() 设置的 web-contents-created 监听器只对之后创建的 webContents 生效，导致首次启动时主窗口没有快捷键监听器，Electron 默认的 Cmd+W 关闭窗口行为触发。"
+  artifacts:
+    - path: "main.js"
+      issue: "第2510行 createMainWindow() 在第2519行 registerShortcuts() 之前调用，主窗口 webContents 未挂载快捷键监听器"
+    - path: "shortcut-manager.js"
+      issue: "ensureAppListener() 只监听 web-contents-created 事件，不影响已存在的 webContents"
+  missing:
+    - "将 shortcutManager.registerShortcuts() 移到 createMainWindow() 之前，或者在 createMainWindow() 之后手动对主窗口 webContents 调用 attachInputListener()"
+    - "或者在 registerShortcuts() 中添加对已存在窗口的处理逻辑"
