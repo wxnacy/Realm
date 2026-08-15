@@ -1273,6 +1273,50 @@ contextBridge.exposeInMainWorld('downloadAPI', {
 
   /** 清空所有下载历史 */
   clearAllDownloads: () => ipcRenderer.invoke('download:clear-all'),
+
+  // ==================== 跨窗口 Tab 拖拽（Phase 36 Plan 03） ====================
+
+  /**
+   * 通知主进程开始拖拽 Tab
+   * 渲染进程在 mousedown + 移动超过阈值后调用
+   * @param {string} tabId - 被拖拽的 Tab ID
+   * @returns {Promise<{success: boolean}>}
+   */
+  startDrag: (tabId) => ipcRenderer.invoke('drag:start', tabId),
+
+  /**
+   * 更新拖拽鼠标位置
+   * 渲染进程在 mousemove 时高频调用
+   * @param {Object} position - { x, y, screenX, screenY }
+   * @returns {Promise<{success: boolean, outOfTabBar?: boolean, targetWindow?: Object|null}>}
+   */
+  updateDragPosition: (position) => ipcRenderer.invoke('drag:update-position', position),
+
+  /**
+   * 结束拖拽
+   * 渲染进程在 mouseup 时调用
+   * @param {Object} data - { targetWindowId?, outOfTabBar? }
+   * @returns {Promise<{success: boolean, action?: string}>}
+   */
+  endDrag: (data) => ipcRenderer.invoke('drag:end', data),
+
+  /**
+   * 取消拖拽
+   * 渲染进程按 Escape 或松手目标无效时调用
+   * @returns {Promise<{success: boolean}>}
+   */
+  cancelDrag: () => ipcRenderer.invoke('drag:cancel'),
+
+  /**
+   * 监听拖拽状态变化（主进程广播）
+   * @param {Function} callback - 回调函数，参数为 { type, tabId, sourceWindowId, screenX, screenY, isDragging }
+   * @returns {Function} 取消监听函数
+   */
+  onDragStateChanged: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('drag:state-changed', handler);
+    return () => ipcRenderer.removeListener('drag:state-changed', handler);
+  },
 });
 
 console.log('[Realm] Preload 脚本已加载');

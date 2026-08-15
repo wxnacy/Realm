@@ -299,6 +299,40 @@ function closeWindowWithTabs(windowId, tabManager) {
   return true;
 }
 
+/**
+ * 查找指定屏幕坐标所在的托管窗口
+ *
+ * 遍历所有托管窗口，检查屏幕坐标是否落入窗口边界内。
+ * 用于拖拽场景下检测鼠标是否在某个窗口上。
+ *
+ * @param {number} screenX - 屏幕坐标 X
+ * @param {number} screenY - 屏幕坐标 Y
+ * @param {number} [excludeWindowId] - 排除的窗口 ID（通常是拖拽源窗口）
+ * @returns {{ windowId: number, inTabBar: boolean, bounds: Electron.Rectangle }|null}
+ */
+function findWindowAtScreenPosition(screenX, screenY, excludeWindowId) {
+  const TAB_BAR_HEIGHT = 38; // Tab 栏高度（与 CSS 一致）
+
+  for (const [winId, win] of windows) {
+    if (winId === excludeWindowId) continue;
+    if (win.isDestroyed()) continue;
+
+    const bounds = win.getBounds();
+
+    if (
+      screenX >= bounds.x &&
+      screenX <= bounds.x + bounds.width &&
+      screenY >= bounds.y &&
+      screenY <= bounds.y + bounds.height
+    ) {
+      const inTabBar = screenY <= bounds.y + TAB_BAR_HEIGHT;
+      return { windowId: winId, inTabBar, bounds };
+    }
+  }
+
+  return null;
+}
+
 module.exports = {
   createMainWindow,
   getMainWindow,
@@ -309,4 +343,5 @@ module.exports = {
   closeWindowWithTabs,
   saveWindowBounds,
   restoreWindowBounds,
+  findWindowAtScreenPosition,
 };

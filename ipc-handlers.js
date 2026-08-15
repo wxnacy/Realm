@@ -21,6 +21,7 @@ const addressManager = require('./address-manager');
 const favoritesManager = require('./favorites-manager');
 const faviconFetcher = require('./favicon-fetcher');
 const mediaSniffer = require('./media-sniffer');
+const dragCoordinator = require('./drag-coordinator');
 
 // AI Manager 实例（由 main.js 通过 setAIManager 注入）
 let aiManager = null;
@@ -463,6 +464,70 @@ function registerHandlers() {
     newWindow.webContents.send('tab:switched', { tabId: newTab.id });
 
     return { success: true, newTabId: newTab.id, windowId: newWindow.id };
+  });
+
+  // ==================== 跨窗口 Tab 拖拽（Phase 36 Plan 03） ====================
+
+  /**
+   * 拖拽开始：渲染进程在 mousedown + 超过阈值后调用
+   * DragCoordinator 记录源窗口和 Tab ID，广播拖拽状态
+   *
+   * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+   * @param {string} tabId - 被拖拽的 Tab ID
+   * @returns {{ success: boolean }}
+   */
+  ipcMain.handle('drag:start', (event, tabId) => {
+    assertTrustedSender(event);
+    if (!tabId || typeof tabId !== 'string') {
+      return { success: false, message: '无效的 Tab ID' };
+    }
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { success: false, message: '无法识别来源窗口' };
+    return dragCoordinator.startDrag(win.id, tabId);
+  });
+
+  /**
+   * 更新拖拽位置：渲染进程在 mousemove 时高频调用
+   * DragCoordinator 更新全局位置，返回目标窗口信息
+   *
+   * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+   * @param {Object} position - 鼠标位置 { x, y, screenX, screenY }
+   * @returns {{ success: boolean, outOfTabBar?: boolean, targetWindow?: Object|null }}
+   */
+  ipcMain.handle('drag:update-position', (event, position) => {
+    assertTrustedSender(event);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { success: false };
+    return dragCoordinator.updatePosition(win.id, position);
+  });
+
+  /**
+   * 拖拽结束：渲染进程在 mouseup 时调用
+   * DragCoordinator 根据位置判断执行动作（新窗口/跨窗口移动/回滚）
+   *
+   * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+   * @param {Object} data - 结束数据 { targetWindowId?, outOfTabBar? }
+   * @returns {Promise<{success: boolean, action?: string}>}
+   */
+  ipcMain.handle('drag:end', async (event, data = {}) => {
+    assertTrustedSender(event);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { success: false, action: 'cancelled' };
+    return dragCoordinator.endDrag(win.id, data);
+  });
+
+  /**
+   * 取消拖拽：渲染进程按 Escape 或松手时目标无效时调用
+   * DragCoordinator 清除状态并广播回滚
+   *
+   * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+   * @returns {{ success: boolean }}
+   */
+  ipcMain.handle('drag:cancel', (event) => {
+    assertTrustedSender(event);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { success: false };
+    return dragCoordinator.cancelDrag(win.id);
   });
 
   // ==================== Cookie 管理 ====================

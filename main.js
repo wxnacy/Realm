@@ -65,6 +65,7 @@ const mediaSniffer = require('./media-sniffer');
 const devRequestsWriter = require('./dev-requests-writer');
 const AIManager = require('./ai-manager');
 const { executeScript, validateScriptForSteps } = require('./ai-manager');
+const dragCoordinator = require('./drag-coordinator');
 
 // AI Manager 实例（在 app.whenReady 中初始化，供后续 Phase 通过 require('./main').aiManager 访问）
 let aiManager = null;
@@ -1805,6 +1806,11 @@ app.whenReady().then(async () => {
 
   // 注册 IPC 处理器
   registerHandlers();
+
+  // 初始化拖拽协调器（注入依赖，避免循环 require）
+  dragCoordinator.setWindowManager(windowManager);
+  dragCoordinator.setTabManager(tabManager);
+  dragCoordinator.setContainerManager(containerManager);
 
   /**
    * 验证 IPC 发送方是否为受信任的窗口
