@@ -8275,8 +8275,11 @@ function initTabDragAndDrop() {
         // 鼠标在 Tab 栏外 → 创建新窗口
         endData.outOfTabBar = true;
       } else {
-        // 默认：超过阈值视为拖出
-        endData.outOfTabBar = true;
+        // 鼠标仍在源窗口 Tab 栏内，取消拖拽（回滚到原位）
+        await window.realmAPI.cancelDrag();
+        resetCrossDragState();
+        crossDragTabId = null;
+        return;
       }
 
       const result = await window.realmAPI.endDrag(endData);
