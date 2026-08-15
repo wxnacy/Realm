@@ -2309,6 +2309,9 @@ app.whenReady().then(async () => {
         if (!allTabIds.has(tabId)) {
           return { success: false, message: `标签页 ${tabId} 不存在` };
         }
+        if (flatOrder.includes(tabId)) {
+          return { success: false, message: `标签页 ${tabId} 重复出现在多个分组` };
+        }
         flatOrder.push(tabId);
       }
     }
