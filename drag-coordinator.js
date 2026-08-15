@@ -275,6 +275,13 @@ async function endDrag(sourceWindowId, data = {}) {
       return { success: false, action: 'cancelled' };
     }
 
+    // 容器兼容性检查：目标窗口的容器必须与 Tab 的容器一致，否则 Cookie 隔离被破坏
+    const targetContainerId = windowManagerRef.getCurrentContainer(targetWindowId);
+    if (targetContainerId && targetContainerId !== tab.containerId) {
+      console.log(`[Realm DragCoordinator] 容器不兼容: Tab ${tabId} (${tab.containerId}) → 窗口 ${targetWindowId} (${targetContainerId})，拒绝移动`);
+      return { success: false, action: 'cancelled' };
+    }
+
     // 更新 Tab 的 windowId
     tabManagerRef.updateTab(tabId, { windowId: targetWindowId });
 
@@ -285,7 +292,6 @@ async function endDrag(sourceWindowId, data = {}) {
     }
 
     // 通知目标窗口创建 Tab UI
-    const targetContainerId = windowManagerRef.getCurrentContainer(targetWindowId) || tab.containerId;
     targetWin.webContents.send('tab:created', { tab: { ...tab, windowId: targetWindowId } });
     targetWin.webContents.send('tab:switched', { tabId: tab.id });
 
