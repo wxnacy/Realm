@@ -663,6 +663,57 @@ async function switchTab(tabId) {
 
   // 切换 Tab 时刷新媒体列表（按 webview 级别隔离）
   loadMediaList();
+
+  // 切换 Tab 时更新窗口标题和颜色条
+  updateWindowTitle();
+  updateWindowColorBar();
+}
+
+/**
+ * 更新窗口标题栏显示
+ * 格式：容器名 - 页面标题（默认容器只显示页面标题）
+ */
+function updateWindowTitle() {
+  const tab = state.tabs.get(state.activeTabId);
+  if (!tab) {
+    document.title = 'Realm';
+    return;
+  }
+
+  const container = state.containers.find(c => c.id === tab.containerId);
+  const pageTitle = tab.title || '新标签页';
+
+  // 默认容器（id='default' 或 name='默认'）只显示页面标题
+  if (!container || container.id === 'default' || container.name === '默认') {
+    document.title = pageTitle;
+  } else {
+    document.title = `${container.name} - ${pageTitle}`;
+  }
+}
+
+/**
+ * 更新窗口顶部容器颜色条
+ * 默认容器时隐藏颜色条
+ */
+function updateWindowColorBar() {
+  const colorBar = document.querySelector('.window-color-bar');
+  if (!colorBar) return;
+
+  const tab = state.tabs.get(state.activeTabId);
+  if (!tab) {
+    colorBar.classList.add('hidden');
+    return;
+  }
+
+  const container = state.containers.find(c => c.id === tab.containerId);
+
+  // 默认容器或无颜色时隐藏
+  if (!container || container.id === 'default' || !container.color) {
+    colorBar.classList.add('hidden');
+  } else {
+    colorBar.classList.remove('hidden');
+    colorBar.style.backgroundColor = container.color;
+  }
 }
 
 /**
@@ -1127,6 +1178,11 @@ function bindWebviewEvents(tabId, webview) {
   // 标题更新事件
   webview.addEventListener('page-title-updated', (e) => {
     updateTabTitle(tabId, e.title);
+
+    // 如果是当前活动 Tab，更新窗口标题
+    if (tabId === state.activeTabId) {
+      updateWindowTitle();
+    }
 
     // 更新历史记录中最近一条匹配记录的标题
     if (e.title) {
@@ -2213,6 +2269,10 @@ async function init() {
 
   console.log('[Realm Renderer] 初始化完成');
 
+  // 初始化窗口标题和颜色条
+  updateWindowTitle();
+  updateWindowColorBar();
+
   // 初始化 AI 事件流监听
   handleAIStream();
 
@@ -2629,6 +2689,10 @@ function handleContainerSwitched(data) {
 
   // 创建新 Tab
   createTab(data.containerId);
+
+  // 容器切换后更新窗口标题和颜色条
+  updateWindowTitle();
+  updateWindowColorBar();
 }
 
 /**
