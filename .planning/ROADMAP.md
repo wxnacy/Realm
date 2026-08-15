@@ -151,7 +151,16 @@ Plans:
   3. 窗口标题栏显示当前活动 Tab 所属容器的名称
   4. 窗口标题栏/工具栏显示容器颜色标识，不同容器的窗口视觉上可区分
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 35-01-PLAN.md — Tab 管理重构 + 窗口关闭级联（tab-manager, window-manager, main.js）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 35-02-PLAN.md — 窗口标题栏 + 容器颜色条（renderer, preload, css）
 
 **UI hint**: yes
 
