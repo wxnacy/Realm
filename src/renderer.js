@@ -8155,10 +8155,11 @@ function initTabDragAndDrop() {
     crossDragStartScreenX = e.screenX;
     crossDragStartScreenY = e.screenY;
 
-    // 绑定全局 mousemove/mouseup（capture 阶段确保不被 webview 吞掉）
+    // 绑定全局 mousemove/mouseup/keydown（capture 阶段确保不被 webview 吞掉）
     if (!crossDragListenersAttached) {
       document.addEventListener('mousemove', onCrossDragMouseMove, true);
       document.addEventListener('mouseup', onCrossDragMouseUp, true);
+      document.addEventListener('keydown', onCrossDragKeyDown, true);
       crossDragListenersAttached = true;
     }
   }
@@ -8300,6 +8301,36 @@ function initTabDragAndDrop() {
 
     resetCrossDragState();
     crossDragTabId = null;
+  }
+
+  /**
+   * 跨窗口拖拽：Escape 键处理器
+   * 用户按 Escape 时取消拖拽，回滚 UI 状态
+   */
+  function onCrossDragKeyDown(e) {
+    if (e.key === 'Escape' && state.crossDrag.active) {
+      e.preventDefault();
+
+      // 清理全局监听器
+      document.removeEventListener('mousemove', onCrossDragMouseMove, true);
+      document.removeEventListener('mouseup', onCrossDragMouseUp, true);
+      document.removeEventListener('keydown', onCrossDragKeyDown, true);
+      crossDragListenersAttached = false;
+
+      // 移除拖拽中样式
+      const tabEl = elements.tabList.querySelector(`[data-tab-id="${state.crossDrag.tabId}"]`);
+      if (tabEl) tabEl.classList.remove('cross-dragging');
+
+      // 移除浮动预览
+      removeDragPreview();
+
+      // 通知主进程取消拖拽
+      window.realmAPI.cancelDrag();
+
+      // 重置状态
+      resetCrossDragState();
+      crossDragTabId = null;
+    }
   }
 
   /**
