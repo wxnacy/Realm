@@ -225,11 +225,11 @@ async function endDrag(sourceWindowId, data = {}) {
 
   console.log(`[Realm DragCoordinator] 结束拖拽: Tab ${tabId}, 动作=${action}`);
 
+  // 先广播拖拽结束，再清除状态（确保广播时 tabId/sourceWindowId 仍有效）
+  broadcastDragState('ended');
+
   // 清除拖拽状态
   resetDragState();
-
-  // 广播拖拽结束
-  broadcastDragState('ended');
 
   if (action === 'new-window' && tabManagerRef && windowManagerRef && containerManagerRef) {
     // 拖出 Tab 栏：创建新窗口
@@ -263,6 +263,10 @@ async function endDrag(sourceWindowId, data = {}) {
   if (action === 'move-to-window' && tabManagerRef && windowManagerRef && containerManagerRef) {
     // 移动到另一个窗口
     const targetWindowId = parseInt(data.targetWindowId, 10);
+    if (!Number.isFinite(targetWindowId)) {
+      return { success: false, action: 'cancelled' };
+    }
+
     const tab = tabManagerRef.getTab(tabId);
     if (!tab) return { success: false, action: 'cancelled' };
 
@@ -316,8 +320,9 @@ function cancelDrag(sourceWindowId) {
 
   console.log(`[Realm DragCoordinator] 取消拖拽: Tab ${dragState.tabId}`);
 
-  resetDragState();
+  // 先广播取消状态，再清除（确保广播时 tabId/sourceWindowId 仍有效）
   broadcastDragState('cancelled');
+  resetDragState();
 
   return { success: true };
 }
@@ -352,7 +357,8 @@ function broadcastDragState(eventType) {
     sourceWindowId: dragState.sourceWindowId,
     screenX: dragState.screenX,
     screenY: dragState.screenY,
-    isDragging: dragState.isDragging,
+    // 使用 eventType 判断而非 dragState.isDragging，避免状态时序问题
+    isDragging: eventType === 'started',
   });
 }
 
