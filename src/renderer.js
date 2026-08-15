@@ -7804,6 +7804,19 @@ function handleTabReordered(data) {
     }
   }
 
+  // 同步 state.tabs 的条目顺序，使其与 DOM 一致
+  // 否则下次 renderTabs() 从 state.tabs 重建 DOM 时会丢弃本次重排结果
+  const reorderedTabs = new Map();
+  flatOrder.forEach(tabId => {
+    const tab = state.tabs.get(tabId);
+    if (tab) reorderedTabs.set(tabId, tab);
+  });
+  // 追加 flatOrder 中未包含的 tab（兜底，防止丢失）
+  state.tabs.forEach((tab, id) => {
+    if (!reorderedTabs.has(id)) reorderedTabs.set(id, tab);
+  });
+  state.tabs = reorderedTabs;
+
   console.log(`[Realm Renderer] 标签栏已重排: ${flatOrder.length} 个标签, ${(groups || []).length} 个分组`);
 }
 
