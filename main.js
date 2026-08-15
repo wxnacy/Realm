@@ -2450,10 +2450,6 @@ app.whenReady().then(async () => {
         return;
       }
 
-      // 如果是最后一个窗口
-      const allWindows = BrowserWindow.getAllWindows().filter(w => !w.isDestroyed());
-      const isLastWindow = allWindows.length <= 1;
-
       // 检测活跃任务
       const { hasActive, taskList } = checkActiveTasks(win.id);
 
@@ -2473,7 +2469,6 @@ app.whenReady().then(async () => {
       const taskDescription = taskList
         .map(t => {
           if (t.type === 'download') return `- 下载中: ${t.detail}`;
-          if (t.type === 'media') return `- 媒体播放: ${t.detail}`;
           return `- ${t.type}: ${t.detail}`;
         })
         .join('\n');
