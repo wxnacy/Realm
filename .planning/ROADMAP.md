@@ -180,7 +180,18 @@ Plans:
   4. 右键菜单中包含"在新窗口中打开"选项，点击后在新窗口打开该 Tab
   5. 窗口位置和大小在应用重启后恢复（electron-store 持久化）
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 36-01-PLAN.md — 窗口位置持久化 + 右键菜单（Wave 1）
+- [ ] 36-02-PLAN.md — 窗口内 Tab 拖拽排序（Wave 1）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 36-03-PLAN.md — 跨窗口 Tab 拖拽（Wave 2）
 
 **UI hint**: yes
 
