@@ -2443,6 +2443,27 @@ app.whenReady().then(async () => {
    *
    * @param {Electron.BrowserWindow} win - 窗口实例
    */
+  /**
+   * 设置窗口位置持久化追踪
+   * 监听窗口的 moved 和 resized 事件，实时保存窗口位置
+   * @param {Electron.BrowserWindow} win - 窗口实例
+   * @param {string} containerId - 容器 ID
+   */
+  function setupWindowBoundsTracking(win, containerId) {
+    // 使用 throttle 避免拖拽时过于频繁的写入
+    let saveTimeout = null;
+    const throttledSave = () => {
+      if (saveTimeout) return;
+      saveTimeout = setTimeout(() => {
+        saveTimeout = null;
+        windowManager.saveWindowBounds(win.id, containerId);
+      }, 200);
+    };
+
+    win.on('moved', throttledSave);
+    win.on('resized', throttledSave);
+  }
+
   function setupWindowCloseHandler(win) {
     let closing = false;
 
@@ -2515,6 +2536,8 @@ app.whenReady().then(async () => {
   // 注册窗口关闭处理器
   if (mainWindow) {
     setupWindowCloseHandler(mainWindow);
+    // 窗口位置持久化（Phase 36 Plan 01）
+    setupWindowBoundsTracking(mainWindow, 'default');
   }
 
   // 开发环境启动即打开主窗口 DevTools（停靠右侧，调试 realmAPI/mediaAPI）
@@ -2609,6 +2632,8 @@ app.whenReady().then(async () => {
       if (mainWindow) {
         // 重建窗口后重新注册关闭处理器
         setupWindowCloseHandler(mainWindow);
+        // 窗口位置持久化（Phase 36 Plan 01）
+        setupWindowBoundsTracking(mainWindow, 'default');
       }
     }
   });
@@ -2672,6 +2697,12 @@ app.on('before-quit', async (event) => {
   // 窗口期内第二次按下：进入退出流程
   quitting = true;
   console.log('[Realm] 应用退出，保存 Cookie...');
+
+  // 保存所有窗口的位置和大小（Phase 36 Plan 01）
+  const { windowContainerMap } = require('./window-manager');
+  for (const [winId, containerId] of windowContainerMap) {
+    windowManager.saveWindowBounds(winId, containerId);
+  }
 
   // 清理开发者模式模块（执行最终 flush）
   cdpManager.cleanup();

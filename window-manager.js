@@ -4,14 +4,20 @@
  * 管理所有 BrowserWindow 实例的注册表（windows Map）和受信窗口集合（managedWindowIds Set），
  * 提供窗口生命周期管理、容器映射、受信窗口判断和跨窗口广播能力。
  *
+ * 窗口位置持久化（Phase 36 Plan 01）：
+ * - windowBoundsStore: electron-store 实例，存储每个容器的窗口位置和大小
+ * - saveWindowBounds(): 实时保存窗口位置（moved/resized 事件触发）
+ * - restoreWindowBounds(): 启动时恢复窗口位置（含越界检测）
+ *
  * 数据结构：
  * - windows: Map<windowId, BrowserWindow> — 所有通过 createMainWindow 创建的窗口
  * - managedWindowIds: Set<number> — 受信窗口 ID 集合（仅包含 createMainWindow 创建的窗口）
  * - windowContainerMap: Map<number, string> — 窗口与容器的映射关系
  */
 
-const { BrowserWindow } = require('electron');
+const { BrowserWindow, screen } = require('electron');
 const path = require('path');
+const Store = require('electron-store');
 
 // 窗口与容器的映射关系
 // 键空间约定（CR-7）：一律使用 BrowserWindow.id 作为键。
@@ -26,6 +32,92 @@ const windows = new Map();
 /** 受信窗口 ID 集合：仅包含 createMainWindow 创建的窗口，用于 isManagedWindow 判断 */
 const managedWindowIds = new Set();
 
+// ==================== 窗口位置持久化 ====================
+
+/**
+ * 窗口位置持久化存储（Phase 36 Plan 01）
+ * key 格式：`container-${containerId}`，每个容器独立保存窗口位置
+ * 存储内容：{ x, y, width, height, isMaximized, displayId }
+ * @type {Store}
+ */
+const windowBoundsStore = new Store({ name: 'window-bounds' });
+
+/**
+ * 保存窗口位置和大小
+ * 在窗口 moved/resized 事件触发时调用，实时持久化
+ * @param {number} windowId - BrowserWindow.id
+ * @param {string} containerId - 容器 ID
+ */
+function saveWindowBounds(windowId, containerId) {
+  const win = BrowserWindow.fromId(windowId);
+  if (!win || win.isDestroyed()) return;
+
+  try {
+    const bounds = win.getBounds();
+    const isMaximized = win.isMaximized();
+    const display = screen.getDisplayMatching(bounds);
+
+    windowBoundsStore.set(`container-${containerId}`, {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      isMaximized,
+      displayId: display.id,
+    });
+  } catch (err) {
+    console.error(`[Realm] 保存窗口位置失败 (${containerId}):`, err.message);
+  }
+}
+
+/**
+ * 恢复窗口位置和大小
+ * 启动时调用，检查持久化数据并验证是否在屏幕范围内
+ * @param {string} containerId - 容器 ID
+ * @returns {{ bounds: {x: number, y: number, width: number, height: number}, isMaximized: boolean } | null}
+ */
+function restoreWindowBounds(containerId) {
+  try {
+    const saved = windowBoundsStore.get(`container-${containerId}`);
+    if (!saved || typeof saved !== 'object') return null;
+
+    const { x, y, width, height, isMaximized } = saved;
+
+    // 越界检测（D-34）：检查窗口中心点是否在任何显示器范围内
+    const centerX = x + width / 2;
+    const centerY = y + height / 2;
+    const allDisplays = screen.getAllDisplays();
+    const isInAnyDisplay = allDisplays.some(display => {
+      const { x: dx, y: dy, width: dw, height: dh } = display.bounds;
+      return centerX >= dx && centerX <= dx + dw && centerY >= dy && centerY <= dy + dh;
+    });
+
+    if (!isInAnyDisplay) {
+      // 越界：居中到主显示器
+      console.log(`[Realm] 窗口位置越界，居中到主显示器 (${containerId})`);
+      const primary = screen.getPrimaryDisplay();
+      const pb = primary.bounds;
+      return {
+        bounds: {
+          x: Math.round(pb.x + (pb.width - width) / 2),
+          y: Math.round(pb.y + (pb.height - height) / 2),
+          width,
+          height,
+        },
+        isMaximized: isMaximized || false,
+      };
+    }
+
+    return {
+      bounds: { x, y, width, height },
+      isMaximized: isMaximized || false,
+    };
+  } catch (err) {
+    console.error(`[Realm] 恢复窗口位置失败 (${containerId}):`, err.message);
+    return null;
+  }
+}
+
 /**
  * 创建主窗口
  * @param {string} containerId - 初始容器 ID
@@ -38,9 +130,12 @@ function createMainWindow(containerId, container) {
     return undefined;
   }
 
-  const mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+  // 尝试恢复上次窗口位置
+  const restoredBounds = restoreWindowBounds(containerId);
+
+  const windowOptions = {
+    width: restoredBounds ? restoredBounds.bounds.width : 1400,
+    height: restoredBounds ? restoredBounds.bounds.height : 900,
     minWidth: 800,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
@@ -54,12 +149,25 @@ function createMainWindow(containerId, container) {
       // 使用容器独立的 session
       session: container.session,
     },
-  });
+  };
+
+  // 如果有恢复数据，设置位置
+  if (restoredBounds) {
+    windowOptions.x = restoredBounds.bounds.x;
+    windowOptions.y = restoredBounds.bounds.y;
+  }
+
+  const mainWindow = new BrowserWindow(windowOptions);
 
   // 注册到窗口注册表、受信窗口集合和容器映射
   windows.set(mainWindow.id, mainWindow);
   managedWindowIds.add(mainWindow.id);
   windowContainerMap.set(mainWindow.id, containerId);
+
+  // 恢复最大化状态
+  if (restoredBounds && restoredBounds.isMaximized) {
+    mainWindow.maximize();
+  }
 
   // 加载 UI（WR-11：使用绝对路径——打包后进程 CWD 不保证为应用目录，相对路径会白屏）
   mainWindow.loadFile(path.join(__dirname, 'src/index.html'));
@@ -199,4 +307,6 @@ module.exports = {
   isManagedWindow,
   broadcast,
   closeWindowWithTabs,
+  saveWindowBounds,
+  restoreWindowBounds,
 };
