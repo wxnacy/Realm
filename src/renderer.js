@@ -522,6 +522,8 @@ function createTabElement(tab) {
   tabElement.className = 'tab';
   tabElement.dataset.tabId = tab.id;
   tabElement.draggable = true;
+  tabElement.setAttribute('role', 'tab');
+  tabElement.setAttribute('aria-grabbed', 'false');
 
   const color = getContainerColor(tab.containerId);
   const colorLine = document.createElement('div');
@@ -561,10 +563,37 @@ function createTabElement(tab) {
     state.draggingTabId = tab.id;
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', tab.id);
+
+    // 自定义拖拽预览：cloneNode 副本显示 favicon + 标题
+    const preview = tabElement.cloneNode(true);
+    preview.style.position = 'absolute';
+    preview.style.top = '-1000px';
+    preview.style.width = `${tabElement.offsetWidth}px`;
+    preview.style.opacity = '0.9';
+    document.body.appendChild(preview);
+    e.dataTransfer.setDragImage(preview, tabElement.offsetWidth / 2, tabElement.offsetHeight / 2);
+    // 预览完成后清理离屏副本
+    requestAnimationFrame(() => { preview.remove(); });
+
     // 延迟添加 dragging 样式，避免拖拽预览也被半透明化
     requestAnimationFrame(() => {
       tabElement.classList.add('dragging');
     });
+
+    // 注册 Escape 键取消拖拽
+    const onKeyDown = (ev) => {
+      if (ev.key === 'Escape') {
+        tabElement.classList.remove('dragging');
+        hideInsertIndicator();
+        state.isDragging = false;
+        state.draggingTabId = null;
+        document.removeEventListener('keydown', onKeyDown);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+
+    // 无障碍：标记正在抓取
+    tabElement.setAttribute('aria-grabbed', 'true');
   });
 
   // Tab 拖拽排序：dragend 事件
@@ -575,6 +604,8 @@ function createTabElement(tab) {
     state.draggingTabId = null;
     // 清除所有 drag-over 样式
     elements.tabList.querySelectorAll('.tab').forEach(t => t.classList.remove('drag-over'));
+    // 无障碍：标记未抓取
+    tabElement.setAttribute('aria-grabbed', 'false');
   });
 
   return tabElement;
@@ -2050,6 +2081,8 @@ function renderTabs() {
 
     // 更新 class：固定标签添加 pinned 样式
     tabElement.className = 'tab' + (tabId === state.activeTabId ? ' active' : '') + (tab.pinned ? ' tab-pinned' : '');
+    // 无障碍：标记选中状态
+    tabElement.setAttribute('aria-selected', tabId === state.activeTabId ? 'true' : 'false');
     tabList.appendChild(tabElement);
   });
 }
@@ -3627,6 +3660,9 @@ function setupEventListeners() {
 
   // Tab 栏右键菜单事件委托
   elements.tabList.addEventListener('contextmenu', (e) => {
+    // 拖拽过程中禁用右键菜单
+    if (state.isDragging) { e.preventDefault(); return; }
+
     const tabElement = e.target.closest('.tab');
     if (!tabElement) return;
 
@@ -7784,9 +7820,9 @@ function initScriptStepUpdate() {
 let tabDragIndicator = null;
 
 /**
- * Tab 拖拽节流计时器（限制 dragover 更新频率为每 16ms 一次）
+ * Tab 拖拽节流标志（使用 rAF 限制 dragover 更新频率为每帧一次）
  */
-let tabDragOverThrottle = null;
+let tabDragOverPending = false;
 
 /**
  * 初始化 Tab 拖拽排序功能
@@ -7807,6 +7843,9 @@ function initTabDragAndDrop() {
   // 指示器插入到 tabBar 容器内，使其相对于 tab 栏定位
   elements.tabBar.appendChild(tabDragIndicator);
 
+  // 无障碍：tabList 标记可接受 drop
+  tabList.setAttribute('aria-dropeffect', 'move');
+
   /**
    * dragover 事件处理器（委托在 tabList 上）
    * 计算鼠标位置决定插入指示器位置，允许 drop
@@ -7816,9 +7855,10 @@ function initTabDragAndDrop() {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
 
-    // 节流：16ms 内只处理一次，避免每帧多次重排
-    if (tabDragOverThrottle) return;
-    tabDragOverThrottle = setTimeout(() => { tabDragOverThrottle = null; }, 16);
+    // 节流：使用 rAF 限制每帧最多更新一次，避免同帧多次重排
+    if (tabDragOverPending) return;
+    tabDragOverPending = true;
+    requestAnimationFrame(() => { tabDragOverPending = false; });
 
     const targetTab = e.target.closest('.tab');
     if (!targetTab || targetTab.dataset.tabId === state.draggingTabId) {
