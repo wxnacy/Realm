@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: complete
 phase: 34-multi-window
 source: 34-01-SUMMARY.md, 34-02-SUMMARY.md
 started: 2026-08-15T15:40:00Z
@@ -8,7 +8,7 @@ updated: 2026-08-15T15:50:00Z
 
 ## Current Test
 
-[testing complete]
+[testing complete — gaps verified]
 
 ## Tests
 
@@ -22,9 +22,8 @@ result: pass
 
 ### 3. 现有快捷键仍正常工作
 expected: Cmd+T 新建 Tab、Cmd+W 关闭 Tab、Cmd+L 聚焦地址栏等现有快捷键正常响应。
-result: issue
-reported: "Cmd+L 聚焦地址栏 没有反应"
-severity: major
+result: pass
+fixed_by: 34-04 (ddaf437)
 
 ### 4. Cmd+W 关闭最后一个 Tab 时窗口关闭
 expected: 当窗口只有一个 Tab 时，按 Cmd+W 关闭该 Tab 后窗口正常关闭（或保留窗口显示新标签页，取决于现有行为）。
@@ -62,15 +61,14 @@ reason: "Plan 03 (Dock 菜单 + main.js 集成) 尚未执行，无法创建多�
 
 ### 10. 首次启动 Cmd+W 关闭标签时窗口异常关闭
 expected: 有多个标签时，Cmd+W 只关闭当前标签，窗口保持打开。
-result: issue
-reported: "每次第一次启动，cmd+w 关闭标签时，即使还有很多标签，窗口也会自动关闭。再次从dock点开应用时所有标签会自动打开，再次关闭标签就正常了。"
-severity: blocker
+result: pass
+fixed_by: 34-04 (1c661c2)
 
 ## Summary
 
 total: 10
-passed: 3
-issues: 2
+passed: 5
+issues: 0
 pending: 0
 skipped: 0
 blocked: 5
