@@ -2269,6 +2269,11 @@ async function init() {
 
   console.log('[Realm Renderer] 初始化完成');
 
+  // 创建窗口颜色条元素（3px 容器颜色标识）
+  const colorBar = document.createElement('div');
+  colorBar.className = 'window-color-bar hidden';
+  document.body.prepend(colorBar);
+
   // 初始化窗口标题和颜色条
   updateWindowTitle();
   updateWindowColorBar();
