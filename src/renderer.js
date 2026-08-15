@@ -8080,6 +8080,8 @@ function initTabDragAndDrop() {
 
   const CROSS_DRAG_THRESHOLD = 5; // 激活跨窗口拖拽的最小移动距离（px）
   const POSITION_REPORT_INTERVAL = 50; // 向主进程报告位置的节流间隔（ms）
+  /** 拖拽位置报告请求序列号（用于丢弃过期响应，避免乱序导致 targetWindowId 错误） */
+  let dragRequestSeq = 0;
 
   /**
    * 创建浮动预览元素
@@ -8208,12 +8210,15 @@ function initTabDragAndDrop() {
     const now = Date.now();
     if (now - state.crossDrag.lastReportTime >= POSITION_REPORT_INTERVAL) {
       state.crossDrag.lastReportTime = now;
+      const seq = ++dragRequestSeq;
       window.realmAPI.updateDragPosition({
         x: e.clientX,
         y: e.clientY,
         screenX: e.screenX,
         screenY: e.screenY,
       }).then(result => {
+        // 丢弃过期响应（快速移动时后发请求可能先返回）
+        if (seq !== dragRequestSeq) return;
         if (result) {
           // 记录主进程返回的目标窗口信息（用于 mouseup 时判断动作）
           state.crossDrag.targetWindowId = result.targetWindow
@@ -8342,6 +8347,7 @@ function initTabDragAndDrop() {
     state.crossDrag.startScreenX = 0;
     state.crossDrag.startScreenY = 0;
     state.crossDrag.lastReportTime = 0;
+    dragRequestSeq = 0;
     state.crossDrag.targetWindowId = null;
     state.crossDrag.outOfTabBar = false;
   }
