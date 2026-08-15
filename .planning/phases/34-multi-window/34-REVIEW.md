@@ -1,180 +1,204 @@
 ---
 phase: 34-multi-window
-reviewed: 2026-08-14T23:00:00Z
+reviewed: 2026-08-15T03:00:00Z
 depth: standard
-files_reviewed: 3
+files_reviewed: 4
 files_reviewed_list:
   - ipc-handlers.js
   - shortcut-manager.js
   - window-manager.js
+  - main.js
 findings:
   critical: 0
-  warning: 4
-  info: 2
-  total: 6
+  warning: 2
+  info: 3
+  total: 5
 status: issues_found
 ---
 
-# Phase 34: Code Review Report
+# Phase 34: Code Review Report (Iteration 3)
 
-**Reviewed:** 2026-08-14T23:00:00Z
+**Reviewed:** 2026-08-15T03:00:00Z
 **Depth:** standard
-**Files Reviewed:** 3
+**Files Reviewed:** 4
 **Status:** issues_found
 
 ## Summary
 
-Phase 34 introduces multi-window foundations across three files: window-manager.js adds a `windows` Map registry, `managedWindowIds` Set, and `broadcast()` helper; shortcut-manager.js refactors from single-window dispatch to `BrowserWindow.getFocusedWindow()` dynamic dispatch; ipc-handlers.js generalizes `assertTrustedSender` from hardcoded main-window check to `managedWindowIds` membership, and adds a duplicate-registration guard.
+This is the third review iteration. Previous iterations fixed 7 warnings total (4 in iteration 1, 3 in iteration 2). This review verifies those fixes are in place and scans for remaining issues.
 
-The changes are architecturally sound -- eliminating the single-window singleton pattern and replacing it with dynamic focus-based dispatch is the right approach. However, the refactoring is incomplete: callers in `main.js` were not updated for the changed function signatures, and `broadcast()` is defined but never wired into the IPC notification paths that need multi-window delivery.
+**Fix verification (iteration 2):** All 3 previous warnings remain correctly fixed:
+- WR-01: `_notifyBookmarksBarRefresh()`, `settings:updated`, and `bookmarks-bar:visibility-changed` in IPC handlers all use `windowManager.broadcast()`.
+- WR-02: `requestActionConfirmation()` uses `windowManager.broadcast()` for both confirmation request and timeout settlement.
+- WR-03: All 23 `ipcMain.handle` handlers in main.js now have `assertTrustedSender(event)`, and `get-realm-port` also validates.
+
+**Remaining issues:** Two multi-window consistency gaps remain. The bookmarks bar context menu has 3 code paths that modify global state (delete bookmark, delete folder, hide bookmarks bar) but only notify the source window, not all windows. The import progress notifications (`favorites:import-chrome`, `favorites:import-html`) send progress only to the first window via `getMainWindow()`, not to the window that initiated the import.
 
 ## Warnings
 
-### WR-01: main.js callers not updated for refactored shortcut-manager API
+### WR-01: Bookmarks bar context menu global state changes not broadcast to all windows
 
-**File:** `main.js:1624`, `main.js:1635`, `main.js:2387`, `main.js:2480`
+**File:** `main.js:1907`, `main.js:1941`, `main.js:1992`
 
-**Issue:** The refactored `shortcut-manager.js` changed `registerShortcuts()` and `rebuildShortcuts()` to parameterless functions (removing the `window` argument), but `main.js` still calls them with the old signatures:
+**Issue:** The `show-bookmarks-bar-context-menu` handler has 3 menu actions that modify global shared state (favoritesManager records, configStore settings) but only send the resulting notification to `hostWebContents` (the source window). Other open windows would not see the change until they independently refresh.
 
-```javascript
-// main.js:2387 — old signature, arg silently ignored
-shortcutManager.registerShortcuts(mainWindow);
+The IPC handler for `bookmarks-bar:toggle` at line 1723 correctly uses `windowManager.broadcast('bookmarks-bar:visibility-changed', ...)`, but the context menu path at line 1992 uses `hostWebContents.send(...)`. Similarly, `_notifyBookmarksBarRefresh()` at line 584 uses `windowManager.broadcast('bookmarks-bar:refresh')`, but the delete actions at lines 1907 and 1941 use `hostWebContents.send('bookmarks-bar:refresh')`.
 
-// main.js:1624 — old signature, arg silently ignored
-shortcutManager.rebuildShortcuts(win);
-```
+Affected menu items:
+- **Delete bookmark** (line 1907): `favoritesManager.deleteRecord()` modifies global DB, but only source window refreshes
+- **Delete folder** (line 1941): `favoritesManager.deleteFolder()` modifies global DB, but only source window refreshes
+- **Hide bookmarks bar** (line 1992): `configStore.set()` modifies global config, but only source window gets visibility change event
 
-JavaScript silently ignores extra arguments, so this does not crash. However, it signals incomplete refactoring -- the callers should be updated to match the new API contract. Additionally, the stale comment at main.js:2478-2479 ("registerShortcuts 会直接替换整个 Application Menu") is now incorrect; the function no longer touches the Application Menu.
-
-**Fix:** Update all 4 call sites in main.js to drop the window argument, and update the stale comment:
+**Fix:** Replace `hostWebContents.send(...)` with `windowManager.broadcast(...)` for these 3 actions:
 
 ```javascript
-// main.js:2387
-shortcutManager.registerShortcuts();
-
-// main.js:1624,1635
-shortcutManager.rebuildShortcuts();
-```
-
-### WR-02: IPC event notifications not broadcast to all managed windows
-
-**File:** `ipc-handlers.js:239-241`, `ipc-handlers.js:1344-1346`
-
-**Issue:** The `broadcast()` function was added to `window-manager.js` specifically for multi-window event delivery, but it is never used. Two IPC notification paths still use `getMainWindow()` which only targets the first (oldest) window:
-
-```javascript
-// ipc-handlers.js:239 — tab:recycled only sent to first window
-const win = windowManager.getMainWindow();
-win.webContents.send('tab:recycled', { tabId: recycledTabId, message });
-
-// ipc-handlers.js:1344 — bookmarks-bar:refresh only sent to first window
-const mainWindow = windowManager.getMainWindow();
-mainWindow.webContents.send('bookmarks-bar:refresh');
-```
-
-In a multi-window scenario, windows B and C would never receive tab recycling or bookmark refresh notifications, causing stale UI.
-
-**Fix:** Replace `getMainWindow()` + `send()` with `broadcast()` for events that affect all windows:
-
-```javascript
-// ipc-handlers.js:239
-windowManager.broadcast('tab:recycled', { tabId: recycledTabId, message });
-
-// ipc-handlers.js:1344
-windowManager.broadcast('bookmarks-bar:refresh');
-```
-
-### WR-03: Missing assertTrustedSender on webview management handlers
-
-**File:** `ipc-handlers.js:1439-1441`, `ipc-handlers.js:1450-1457`
-
-**Issue:** The `assertTrustedSender` generalization (D-11) was applied to all other IPC handlers, but `webview:set-active` and `webview:register-container` skip the check entirely. These handlers lack trust validation:
-
-```javascript
-// ipc-handlers.js:1439 — no assertTrustedSender
-ipcMain.handle('webview:set-active', (event, contentsId) => {
-    activeWebviewContentsId = contentsId;
-});
-
-// ipc-handlers.js:1450 — no assertTrustedSender
-ipcMain.handle('webview:register-container', (event, contentsId, containerId) => {
-    if (typeof contentsId !== 'number' || typeof containerId !== 'string' || !containerId) {
-      return;
+// Line 1902-1912: Delete bookmark
+{
+  label: '删除',
+  click: async () => {
+    try {
+      await favoritesManager.deleteRecord(info.id);
+      windowManager.broadcast('bookmarks-bar:refresh');
+    } catch (err) {
+      console.error('[Realm] 删除收藏失败:', err);
     }
-    guestContainerMap.set(contentsId, containerId);
-    mediaSniffer.flushPending(contentsId);
-});
-```
+  },
+},
 
-While Electron's `contextIsolation: true` prevents webview guest pages from directly calling `ipcRenderer.invoke`, the inconsistent trust model means the player window (not in `managedWindowIds`) or any future non-managed window could register guest-container mappings, potentially breaking container isolation.
-
-**Fix:** Add `assertTrustedSender` to both handlers:
-
-```javascript
-ipcMain.handle('webview:set-active', (event, contentsId) => {
-    assertTrustedSender(event);
-    activeWebviewContentsId = contentsId;
-});
-
-ipcMain.handle('webview:register-container', (event, contentsId, containerId) => {
-    assertTrustedSender(event);
-    if (typeof contentsId !== 'number' || typeof containerId !== 'string' || !containerId) {
-      return;
+// Line 1936-1946: Delete folder
+{
+  label: '删除',
+  click: async () => {
+    try {
+      await favoritesManager.deleteFolder(info.id);
+      windowManager.broadcast('bookmarks-bar:refresh');
+    } catch (err) {
+      console.error('[Realm] 删除文件夹失败:', err);
     }
-    guestContainerMap.set(contentsId, containerId);
-    mediaSniffer.flushPending(contentsId);
-});
+  },
+},
+
+// Line 1987-1994: Hide bookmarks bar
+{
+  label: '隐藏收藏栏',
+  click: () => {
+    configStore.set('bookmarksBar.visible', false);
+    configStore.set('settings.bookmarksBar.visible', false);
+    windowManager.broadcast('bookmarks-bar:visibility-changed', { visible: false });
+  },
+},
 ```
 
-### WR-04: registerHandlers guard does not protect against partial registration failure
+### WR-02: Import progress notifications only sent to first window
 
-**File:** `ipc-handlers.js:226-235`, `ipc-handlers.js:1827`
+**File:** `main.js:2070-2096`, `main.js:2099-2124`
 
-**Issue:** The `handlersRegistered` flag is set to `true` at the very end of `registerHandlers()` (line 1827). If the function throws partway through (e.g., a module import fails or a handler registration error), the flag remains `false`. A subsequent call would attempt to re-register all handlers, causing Electron to throw "handler for 'X' already registered" for every channel registered before the failure point.
+**Issue:** Both `favorites:import-chrome` and `favorites:import-html` handlers capture `windowManager.getMainWindow()` at the start and send all progress updates (`favorites:import-progress`) only to that window. In a multi-window scenario:
 
-```javascript
-// Line 231: guard at entry
-if (handlersRegistered) { return; }
+1. User opens window A, then window B
+2. User triggers bookmark import from window B
+3. Progress bar appears on window A (the oldest window), not window B
+4. User sees no feedback in the window they're actively using
 
-// ... 60+ ipcMain.handle() calls ...
+The `getMainWindow()` function returns the first non-destroyed window in the `windows` Map, which is the oldest window -- not necessarily the one the user is interacting with.
 
-// Line 1827: flag set only on success
-handlersRegistered = true;
-```
-
-**Fix:** Either set the flag at the top of the function (before any `ipcMain.handle` calls), or wrap in try/catch with cleanup. The simplest fix:
+**Fix:** Send progress to the window that initiated the import (available via `event.sender`):
 
 ```javascript
-function registerHandlers() {
-  if (handlersRegistered) {
-    console.warn('[Realm] registerHandlers 已调用，跳过重复注册');
-    return;
+// favorites:import-chrome (line 2070-2096)
+ipcMain.handle('favorites:import-chrome', async (event, { filePath }) => {
+  assertTrustedSender(event);
+  currentImportAbortController = new AbortController();
+
+  const onProgress = (data) => {
+    currentImportProgress = data;
+    // Send to the window that initiated the import, not the first window
+    if (!event.sender.isDestroyed()) {
+      event.sender.send('favorites:import-progress', data);
+    }
+  };
+
+  try {
+    const result = await favoritesManager.importChromeBookmarks(
+      { filePath },
+      onProgress,
+      currentImportAbortController.signal
+    );
+    return result;
+  } finally {
+    currentImportAbortController = null;
+    currentImportProgress = null;
   }
-  handlersRegistered = true;  // Set immediately to prevent re-entry
-  // ... all ipcMain.handle() calls ...
-}
+});
+
+// favorites:import-html (line 2099-2124) — same pattern
 ```
+
+Note: The early return `if (!mainWindow) return { success: false, error: '...' }` can also be removed since `assertTrustedSender` already validates the sender exists.
 
 ## Info
 
-### IN-01: broadcast() exported but never imported or used
+### IN-01: ipcMain.on handlers in main.js lack trust validation
 
-**File:** `window-manager.js:151-157`
+**File:** `main.js:1831`, `main.js:1843`, `main.js:1864`, `main.js:1873`
 
-**Issue:** The `broadcast()` function is defined and exported from `window-manager.js` but is never imported by any module (`main.js`, `ipc-handlers.js`, or `shortcut-manager.js` do not reference it). It exists as dead code awaiting integration with WR-02's fix.
+**Issue:** Four `ipcMain.on` handlers in main.js do not validate the sender, while all 23 `ipcMain.handle` handlers have `assertTrustedSender`. The `ipcMain.on` handlers are fire-and-forget (no return value), so the risk is lower, but they still accept messages from any renderer including the non-managed player window:
 
-**Fix:** Wire `broadcast()` into the IPC notification paths as described in WR-02.
+- `show-tab-context-menu` (line 1831)
+- `show-web-context-menu` (line 1843)
+- `context-menu:closed-tab` (line 1864)
+- `show-bookmarks-bar-context-menu` (line 1873)
 
-### IN-02: rebuildShortcuts() and unregisterAll() are now no-ops
+**Fix:** Add sender validation to each handler:
 
-**File:** `shortcut-manager.js:283-285`, `shortcut-manager.js:291-293`
+```javascript
+ipcMain.on('show-tab-context-menu', (event, tabInfo) => {
+  const mainWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!mainWindow || !windowManager.isManagedWindow(mainWindow.id)) return;
+  contextMenuManager.buildTabMenu(tabInfo, mainWindow);
+});
+```
 
-**Issue:** After the refactor, `rebuildShortcuts()` only logs a message (the real-time matching via `getShortcuts()` makes rebuild unnecessary), and `unregisterAll()` only logs (listeners auto-cleanup with webContents). The function signatures are preserved for backward compatibility with main.js callers, but the bodies are effectively dead code. Once WR-01 is resolved (callers updated), these functions could be simplified or removed.
+### IN-02: open-url handler silently drops URLs when no window is focused
 
-**Fix:** No immediate action needed. After WR-01 is fixed, consider removing these no-op functions or documenting them as intentional no-ops for API stability.
+**File:** `main.js:2516-2530`
+
+**Issue:** The `open-url` handler (for `realm://` protocol links from external sources) sends the URL to `BrowserWindow.getFocusedWindow()`. If no window is focused (app starting, all windows minimized, app in background), the URL is silently dropped. This was flagged in iteration 1 as IN-02 and remains unfixed.
+
+**Fix:** Fall back to `windowManager.getMainWindow()`:
+
+```javascript
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  const targetWindow = BrowserWindow.getFocusedWindow() || windowManager.getMainWindow();
+  if (targetWindow && !targetWindow.isDestroyed()) {
+    const settings = configStore.get('settings', {});
+    const defaultContainer = settings.defaultContainer || 'last-used';
+    targetWindow.webContents.send('open-external-url', {
+      url,
+      containerId: defaultContainer === 'last-used' ? null : defaultContainer,
+    });
+  }
+});
+```
+
+### IN-03: before-quit quit hint only sent to first window
+
+**File:** `main.js:2562-2564`
+
+**Issue:** The double-Cmd+Q quit confirmation hint (`show-quit-hint`) is only sent to `windowManager.getMainWindow()`. If the user is actively working in a later window, they won't see the hint and may be confused why the first Cmd+Q didn't quit.
+
+**Fix:** Use `windowManager.broadcast()`:
+
+```javascript
+const win = windowManager.getMainWindow();
+if (win) {
+  windowManager.broadcast('show-quit-hint');
+}
+```
 
 ---
 
-_Reviewed: 2026-08-14T23:00:00Z_
+_Reviewed: 2026-08-15T03:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
