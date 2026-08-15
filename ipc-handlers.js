@@ -410,6 +410,61 @@ function registerHandlers() {
     return { success: true };
   });
 
+  /**
+   * 在新窗口中打开 Tab
+   * 右键菜单"在新窗口中打开"或拖拽场景调用
+   * @param {string} tabId - 源 Tab ID
+   * @param {Object} [options] - 选项
+   * @param {boolean} [options.move=false] - 是否移动（true=从源窗口移除，false=保留原 Tab）
+   * @returns {{success: boolean, newTabId?: string, windowId?: number}}
+   */
+  ipcMain.handle('tab:open-in-new-window', async (event, tabId, options = {}) => {
+    assertTrustedSender(event);
+    if (!tabId || typeof tabId !== 'string') {
+      throw new Error('无效的 Tab ID');
+    }
+
+    const sourceTab = tabManager.getTab(tabId);
+    if (!sourceTab) {
+      return { success: false, error: 'Tab 不存在' };
+    }
+
+    const containerId = sourceTab.containerId;
+    const container = containerManager.getContainer(containerId);
+    if (!container) {
+      return { success: false, error: '容器不存在' };
+    }
+
+    // 创建新窗口
+    const newWindow = windowManager.createMainWindow(containerId, container);
+    if (!newWindow) {
+      return { success: false, error: '创建窗口失败' };
+    }
+
+    // 在新窗口创建 Tab
+    const newTab = tabManager.createTab(containerId, sourceTab.url, newWindow.id);
+
+    // 移动模式：从源窗口移除原 Tab
+    if (options.move) {
+      tabManager.closeTab(tabId);
+      // 通知源窗口渲染进程更新 Tab 列表
+      const sourceWinId = sourceTab.windowId;
+      if (sourceWinId) {
+        const sourceWin = BrowserWindow.fromId(sourceWinId);
+        if (sourceWin && !sourceWin.isDestroyed()) {
+          sourceWin.webContents.send('tab:removed', { tabId });
+        }
+      }
+    }
+
+    // 通知新窗口渲染进程
+    newWindow.webContents.send('tab:created', { tab: newTab });
+    // 切换到新 Tab
+    newWindow.webContents.send('tab:switched', { tabId: newTab.id });
+
+    return { success: true, newTabId: newTab.id, windowId: newWindow.id };
+  });
+
   // ==================== Cookie 管理 ====================
 
   /**

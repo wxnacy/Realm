@@ -1892,6 +1892,12 @@ function handleContextMenuAction(channel, data) {
       break;
     }
 
+    case 'context-menu:open-in-new-window':
+      if (data && data.tabId) {
+        window.realmAPI.openTabInNewWindow(data.tabId, { move: false });
+      }
+      break;
+
     case 'context-menu:open-in-new-tab':
       if (data && data.url) {
         // T-13-04 安全校验：拒绝 javascript: 等非 http(s)/realm 协议；

@@ -169,6 +169,16 @@ contextBridge.exposeInMainWorld('realmAPI', {
   clearAllTabs: () => ipcRenderer.invoke('tab:clear-all'),
 
   /**
+   * 在新窗口中打开 Tab
+   * 右键菜单"在新窗口中打开"或拖拽场景调用
+   * @param {string} tabId - 源 Tab ID
+   * @param {Object} [options] - 选项
+   * @param {boolean} [options.move=false] - 是否移动（true=从源窗口移除，false=保留原 Tab）
+   * @returns {Promise<{success: boolean, newTabId?: string, windowId?: number}>}
+   */
+  openTabInNewWindow: (tabId, options) => ipcRenderer.invoke('tab:open-in-new-window', tabId, options),
+
+  /**
    * 监听 Tab 回收事件（WR-4）
    * 主进程达到 Tab 上限自动回收最久未使用的 Tab 后推送
    * @param {Function} callback - 回调函数，参数为 { tabId, message }
@@ -603,6 +613,7 @@ contextBridge.exposeInMainWorld('realmAPI', {
       'context-menu:add-to-favorites',
       'context-menu:toast',
       'context-menu:text-action',
+      'context-menu:open-in-new-window',
     ];
     channels.forEach(channel => {
       ipcRenderer.on(channel, (event, data) => callback(channel, data));

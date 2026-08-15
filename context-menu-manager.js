@@ -373,15 +373,17 @@ function buildGeneralMenuItems(contextInfo, guestWebContents, hostWebContents) {
 /**
  * 构建标签页右键菜单
  *
- * 菜单项顺序（per UI-SPEC.md Tab Context Menu）：
+ * 菜单项顺序（per UI-SPEC.md Tab Context Menu + Phase 36 Plan 01）：
  * 1. 关闭标签页（CmdOrCtrl+W）
  * 2. 关闭其他标签页（tabCount > 1 时启用）
  * 3. 关闭左侧标签页（tabIndex > 0 时启用）
  * 4. 关闭右侧标签页（tabIndex < tabCount - 1 时启用）
  * 5. separator
- * 6. 重新打开已关闭标签页（CmdOrCtrl+Shift+T，hasClosedTabs 时启用）
+ * 6. 在新窗口中打开（Phase 36 Plan 01）
  * 7. separator
- * 8. 固定/取消固定标签页（根据 isPinned 动态切换 label）
+ * 8. 重新打开已关闭标签页（CmdOrCtrl+Shift+T，hasClosedTabs 时启用）
+ * 9. separator
+ * 10. 固定/取消固定标签页（根据 isPinned 动态切换 label）
  *
  * @param {Object} tabInfo - 标签上下文信息
  * @param {string} tabInfo.tabId - 右键点击的标签 ID
@@ -430,6 +432,15 @@ function buildTabMenu(tabInfo, mainWindow) {
       click: () => {
         if (!hostWebContents.isDestroyed()) {
           hostWebContents.send('context-menu:close-right-tabs', { tabId: tabInfo.tabId });
+        }
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '在新窗口中打开',
+      click: () => {
+        if (!hostWebContents.isDestroyed()) {
+          hostWebContents.send('context-menu:open-in-new-window', { tabId: tabInfo.tabId });
         }
       },
     },
