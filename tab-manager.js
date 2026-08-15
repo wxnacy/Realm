@@ -377,6 +377,41 @@ function clearAllTabs() {
   console.log('[Realm] 已清空所有 Tab（启动时不恢复旧会话）');
 }
 
+/**
+ * 重新排序 Tab（拖拽排序）
+ *
+ * 按照给定的 tabId 数组顺序重建内部 Map，
+ * 同时持久化到 electron-store。
+ *
+ * @param {string[]} orderedIds - 排好序的 Tab ID 数组
+ * @returns {boolean} 是否成功
+ */
+function reorderTabs(orderedIds) {
+  if (!Array.isArray(orderedIds)) return false;
+
+  // 校验所有 tabId 都存在
+  for (const id of orderedIds) {
+    if (!tabs.has(id)) return false;
+  }
+
+  // 按新顺序重建 Map
+  const reordered = new Map();
+  for (const id of orderedIds) {
+    reordered.set(id, tabs.get(id));
+  }
+
+  // 清空并重建（保留不在 orderedIds 中的 Tab，追加到末尾）
+  tabs.clear();
+  for (const [id, tab] of reordered) {
+    tabs.set(id, tab);
+  }
+
+  saveTabs();
+  console.log(`[Realm] Tab 拖拽重排: ${orderedIds.length} 个标签页`);
+
+  return true;
+}
+
 // 模块导出
 module.exports = {
   initTabs,
@@ -389,6 +424,7 @@ module.exports = {
   updateTab,
   closeTab,
   closeTabsByWindowId,
+  reorderTabs,
   recycleOldestTab,
   setRecycleListener,
   saveTabs,

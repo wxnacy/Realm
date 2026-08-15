@@ -1328,6 +1328,7 @@ textarea::placeholder {
 
 /* Tab 栏 */
 .tab-bar {
+  position: relative;
   height: var(--tab-bar-height);
   background-color: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
@@ -1506,6 +1507,33 @@ textarea::placeholder {
 .tab-close:hover {
   background-color: var(--bg-tertiary);
   color: var(--text-primary);
+}
+
+/* ==================== Tab 拖拽排序 ==================== */
+
+/**
+ * Tab 拖拽中的源 Tab：半透明化表示正在被拖拽
+ */
+.tab.dragging {
+  opacity: 0.4;
+}
+
+/**
+ * Chrome 风格的 Tab 拖拽插入位置指示器
+ * 垂直线显示在两个 Tab 之间，使用容器主题色
+ * 绝对定位于 tabBar 容器内
+ */
+.tab-drag-indicator {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background-color: var(--accent-color, #3B82F6);
+  border-radius: 1px;
+  pointer-events: none;
+  z-index: 100;
+  transition: left 0.08s ease;
+  box-shadow: 0 0 4px var(--accent-color, #3B82F6);
 }
 
 /* 新标签页 */

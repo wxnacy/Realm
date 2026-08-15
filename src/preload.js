@@ -991,6 +991,13 @@ contextBridge.exposeInMainWorld('realmAPI', {
   tabReorder: (tabOrder) => ipcRenderer.invoke('tab:reorder', tabOrder),
 
   /**
+   * Tab 拖拽排序：拖拽完成后按新顺序重排标签页
+   * @param {string[]} orderedIds - 排好序的 Tab ID 数组
+   * @returns {Promise<{success: boolean, message?: string}>}
+   */
+  tabDndReorder: (orderedIds) => ipcRenderer.invoke('tab:dnd-reorder', orderedIds),
+
+  /**
    * 监听标签栏重排完成事件
    * 主进程完成重排计算后推送新顺序，渲染进程据此重排标签栏 DOM
    * @param {Function} callback - 回调函数，参数为 { groups, flatOrder }

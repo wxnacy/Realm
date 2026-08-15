@@ -2336,6 +2336,34 @@ app.whenReady().then(async () => {
     };
   });
 
+  /**
+   * Tab 拖拽排序：渲染进程拖拽完成后调用，按新顺序重排
+   *
+   * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+   * @param {string[]} orderedIds - 排好序的 Tab ID 数组
+   * @returns {Promise<{success: boolean, message?: string}>}
+   */
+  ipcMain.handle('tab:dnd-reorder', (event, orderedIds) => {
+    assertTrustedSender(event);
+
+    if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+      return { success: false, message: '标签页顺序数据无效' };
+    }
+
+    const success = tabManager.reorderTabs(orderedIds);
+    if (!success) {
+      return { success: false, message: '标签页重排失败（数据校验未通过）' };
+    }
+
+    // 广播新顺序到所有窗口（多窗口同步）
+    windowManager.broadcast('tab:reordered', {
+      groups: [],
+      flatOrder: orderedIds,
+    });
+
+    return { success: true };
+  });
+
   // 初始化历史记录数据库
   historyManager.initDatabase();
 

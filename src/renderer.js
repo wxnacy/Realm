@@ -179,6 +179,10 @@ const state = {
   tabCounter: 0,
   webviews: new Map(),
 
+  // Tab 拖拽排序状态
+  isDragging: false,
+  draggingTabId: null,
+
   // 内部页面服务器端口（用于加载 realm:// 页面）
   realmPort: null,
   // 内部页面 API token（/api/history/* 鉴权）
@@ -517,6 +521,7 @@ function createTabElement(tab) {
   const tabElement = document.createElement('div');
   tabElement.className = 'tab';
   tabElement.dataset.tabId = tab.id;
+  tabElement.draggable = true;
 
   const color = getContainerColor(tab.containerId);
   const colorLine = document.createElement('div');
@@ -549,6 +554,28 @@ function createTabElement(tab) {
   tabElement.appendChild(colorLine);
   tabElement.appendChild(content);
   tabElement.appendChild(closeBtn);
+
+  // Tab 拖拽排序：dragstart 事件
+  tabElement.addEventListener('dragstart', (e) => {
+    state.isDragging = true;
+    state.draggingTabId = tab.id;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', tab.id);
+    // 延迟添加 dragging 样式，避免拖拽预览也被半透明化
+    requestAnimationFrame(() => {
+      tabElement.classList.add('dragging');
+    });
+  });
+
+  // Tab 拖拽排序：dragend 事件
+  tabElement.addEventListener('dragend', () => {
+    tabElement.classList.remove('dragging');
+    hideInsertIndicator();
+    state.isDragging = false;
+    state.draggingTabId = null;
+    // 清除所有 drag-over 样式
+    elements.tabList.querySelectorAll('.tab').forEach(t => t.classList.remove('drag-over'));
+  });
 
   return tabElement;
 }
@@ -4327,6 +4354,9 @@ function setupEventListeners() {
   // 初始化标签栏重排监听
   initTabReorderListener();
 
+  // 初始化 Tab 拖拽排序
+  initTabDragAndDrop();
+
   // 初始化 AI 面板拖拽调整宽度
   initAIPanelResize();
 
@@ -7745,6 +7775,160 @@ function initScriptStepUpdate() {
     console.log('[Realm Renderer] 脚本步骤更新:', update);
     handleStepUpdate(update);
   });
+}
+
+/**
+ * Tab 拖拽排序指示器 DOM 元素
+ * 在 initTabDragAndDrop 中创建，复用同一个元素避免重复创建
+ */
+let tabDragIndicator = null;
+
+/**
+ * Tab 拖拽节流计时器（限制 dragover 更新频率为每 16ms 一次）
+ */
+let tabDragOverThrottle = null;
+
+/**
+ * 初始化 Tab 拖拽排序功能
+ *
+ * 创建拖拽插入位置指示器，并在 tabList 上注册 dragover / drop 事件处理器，
+ * 实现 Chrome 风格的窗口内 Tab 拖拽排序。
+ *
+ * 在 init() 中调用。
+ */
+function initTabDragAndDrop() {
+  const tabList = elements.tabList;
+  if (!tabList) return;
+
+  // 创建拖拽指示器（Chrome 风格的垂直插入线）
+  tabDragIndicator = document.createElement('div');
+  tabDragIndicator.className = 'tab-drag-indicator';
+  tabDragIndicator.style.display = 'none';
+  // 指示器插入到 tabBar 容器内，使其相对于 tab 栏定位
+  elements.tabBar.appendChild(tabDragIndicator);
+
+  /**
+   * dragover 事件处理器（委托在 tabList 上）
+   * 计算鼠标位置决定插入指示器位置，允许 drop
+   */
+  tabList.addEventListener('dragover', (e) => {
+    if (!state.isDragging) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    // 节流：16ms 内只处理一次，避免每帧多次重排
+    if (tabDragOverThrottle) return;
+    tabDragOverThrottle = setTimeout(() => { tabDragOverThrottle = null; }, 16);
+
+    const targetTab = e.target.closest('.tab');
+    if (!targetTab || targetTab.dataset.tabId === state.draggingTabId) {
+      hideInsertIndicator();
+      return;
+    }
+
+    const rect = targetTab.getBoundingClientRect();
+    const midX = rect.left + rect.width / 2;
+
+    // 鼠标在左半边 → 指示器在目标 Tab 左侧；右半边 → 右侧
+    if (e.clientX < midX) {
+      showInsertIndicator(rect.left);
+    } else {
+      showInsertIndicator(rect.right);
+    }
+  });
+
+  /**
+   * drop 事件处理器（委托在 tabList 上）
+   * 获取拖拽的 tabId，计算新位置，执行排序并同步到主进程
+   */
+  tabList.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    if (!state.isDragging || !state.draggingTabId) return;
+
+    const draggedTabId = state.draggingTabId;
+    const targetTab = e.target.closest('.tab');
+    if (!targetTab || targetTab.dataset.tabId === draggedTabId) {
+      hideInsertIndicator();
+      return;
+    }
+
+    const targetTabId = targetTab.dataset.tabId;
+    const rect = targetTab.getBoundingClientRect();
+    const midX = rect.left + rect.width / 2;
+    const insertAfter = e.clientX >= midX;
+
+    // 收集当前 tabList 中所有 Tab 的顺序
+    const tabElements = Array.from(tabList.querySelectorAll('.tab'));
+    const orderedIds = tabElements.map(el => el.dataset.tabId);
+
+    // 从原位置移除 draggedTabId
+    const fromIndex = orderedIds.indexOf(draggedTabId);
+    if (fromIndex === -1) return;
+    orderedIds.splice(fromIndex, 1);
+
+    // 计算目标位置
+    let toIndex = orderedIds.indexOf(targetTabId);
+    if (insertAfter) toIndex += 1;
+    orderedIds.splice(toIndex, 0, draggedTabId);
+
+    // 1. 更新本地 state.tabs Map 顺序
+    const reorderedTabs = new Map();
+    for (const id of orderedIds) {
+      if (state.tabs.has(id)) {
+        reorderedTabs.set(id, state.tabs.get(id));
+      }
+    }
+    state.tabs = reorderedTabs;
+
+    // 2. 重排 tabList DOM
+    for (const id of orderedIds) {
+      const tab = state.tabs.get(id);
+      if (tab && tab.element) {
+        tabList.appendChild(tab.element);
+      }
+    }
+
+    // 3. 同步到主进程
+    try {
+      await window.realmAPI.tabDndReorder(orderedIds);
+    } catch (err) {
+      console.error('[Realm Renderer] Tab 拖拽排序同步失败:', err);
+    }
+
+    hideInsertIndicator();
+  });
+
+  // 拖拽离开 tabList 时隐藏指示器
+  tabList.addEventListener('dragleave', (e) => {
+    // 只在真正离开 tabList 时隐藏（避免子元素触发的 dragleave）
+    if (!tabList.contains(e.relatedTarget)) {
+      hideInsertIndicator();
+    }
+  });
+}
+
+/**
+ * 显示 Tab 拖拽插入位置指示器
+ * 指示器定位到 tabBar 容器内的指定 X 坐标处
+ *
+ * @param {number} x - 指示器中心的页面 X 坐标
+ */
+function showInsertIndicator(x) {
+  if (!tabDragIndicator || !elements.tabBar) return;
+  // 将页面坐标转为 tabBar 容器内的相对坐标
+  const barRect = elements.tabBar.getBoundingClientRect();
+  const left = x - barRect.left - 1; // -1 使 2px 宽的指示器居中
+  tabDragIndicator.style.left = `${left}px`;
+  tabDragIndicator.style.display = '';
+}
+
+/**
+ * 隐藏 Tab 拖拽插入位置指示器
+ */
+function hideInsertIndicator() {
+  if (tabDragIndicator) {
+    tabDragIndicator.style.display = 'none';
+  }
 }
 
 /**
