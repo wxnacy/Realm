@@ -2733,9 +2733,13 @@ app.on('before-quit', async (event) => {
   console.log('[Realm] 应用退出，保存 Cookie...');
 
   // 保存所有窗口的位置和大小（Phase 36 Plan 01）
-  const { windowContainerMap } = require('./window-manager');
-  for (const [winId, containerId] of windowContainerMap) {
-    windowManager.saveWindowBounds(winId, containerId);
+  // 使用 BrowserWindow.getAllWindows() 遍历，避免 windowContainerMap 未导出导致 TypeError
+  const allWindows = require('electron').BrowserWindow.getAllWindows();
+  for (const win of allWindows) {
+    const containerId = windowManager.getCurrentContainer(win.id);
+    if (containerId) {
+      windowManager.saveWindowBounds(win.id, containerId);
+    }
   }
 
   // 清理开发者模式模块（执行最终 flush）
