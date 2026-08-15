@@ -473,8 +473,8 @@ function registerHandlers() {
    * @returns {number} BrowserWindow.id
    */
   ipcMain.handle('window:get-id', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    return win ? win.id : null;
+    const win = assertTrustedSender(event);
+    return win.id;
   });
 
   // ==================== 跨窗口 Tab 拖拽（Phase 36 Plan 03） ====================
