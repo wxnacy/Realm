@@ -3,6 +3,11 @@
  *
  * 管理浏览器 Tab 的生命周期、状态和持久化
  * 与 container-manager.js 架构一致（模块导出函数，不互相 require）
+ *
+ * 多窗口支持（Phase 35）：
+ * - 每个 Tab 对象包含 windowId 字段，标识其所属窗口
+ * - activeTabs: Map<windowId, tabId> 按窗口维护活动 Tab
+ * - getTabsByWindowId/closeTabsByWindowId 支持按窗口操作
  */
 
 const Store = require('electron-store');
@@ -12,7 +17,8 @@ const store = new Store({ name: 'tabs' });
 
 // Tab 运行时状态
 const tabs = new Map();
-let activeTabId = null;
+// 活动 Tab 映射：Map<windowId, tabId>，按窗口维护当前活动 Tab（Phase 35 D-22）
+const activeTabs = new Map();
 let tabCounter = 0;
 
 // Tab 上限（D-07）
@@ -35,6 +41,7 @@ function setRecycleListener(listener) {
 /**
  * 初始化 Tab 管理器
  * 从 electron-store 恢复上次保存的 Tab 列表
+ * 支持新版 activeTabs Map 格式和旧版单一 activeTabId 格式的兼容回落
  */
 function initTabs() {
   // 损坏数据防御（WR-10）：store.get 仅在 key 不存在时回落默认值；
@@ -43,11 +50,16 @@ function initTabs() {
   const savedTabs = store.get('tabs', []);
   const savedCounter = store.get('tabCounter', 0);
   const savedActiveTabId = store.get('activeTabId', null);
+  const savedActiveTabs = store.get('activeTabs', null);
 
   // 恢复 Tab 列表（逐项校验形状，跳过非法条目）
   if (Array.isArray(savedTabs)) {
     savedTabs.forEach(tab => {
       if (tab && typeof tab === 'object' && typeof tab.id === 'string') {
+        // 兼容旧数据：无 windowId 的 Tab 默认归属主窗口（null）
+        if (tab.windowId === undefined) {
+          tab.windowId = null;
+        }
         tabs.set(tab.id, tab);
       }
     });
@@ -58,14 +70,31 @@ function initTabs() {
   // 恢复计数器（类型校验，损坏时归零）
   tabCounter = Number.isInteger(savedCounter) && savedCounter >= 0 ? savedCounter : 0;
 
-  // 恢复活动 Tab（类型校验）
-  if (typeof savedActiveTabId === 'string' && tabs.has(savedActiveTabId)) {
-    activeTabId = savedActiveTabId;
-  } else if (tabs.size > 0) {
-    activeTabId = tabs.keys().next().value;
+  // 恢复活动 Tab 映射
+  // 优先使用新版 activeTabs Map 格式
+  if (savedActiveTabs && typeof savedActiveTabs === 'object' && !Array.isArray(savedActiveTabs)) {
+    for (const [windowId, tabId] of Object.entries(savedActiveTabs)) {
+      if (typeof tabId === 'string' && tabs.has(tabId)) {
+        // windowId 从 JSON 恢复后是字符串，转回数字（null 保持 null）
+        const wid = windowId === 'null' ? null : Number(windowId);
+        activeTabs.set(wid, tabId);
+      }
+    }
   }
 
-  console.log(`[Realm] Tab 管理器初始化，恢复 ${tabs.size} 个 Tab`);
+  // 兼容旧版单一 activeTabId 格式：如果新版 Map 为空且旧版 activeTabId 存在
+  if (activeTabs.size === 0 && typeof savedActiveTabId === 'string' && tabs.has(savedActiveTabId)) {
+    const tab = tabs.get(savedActiveTabId);
+    activeTabs.set(tab.windowId || null, savedActiveTabId);
+  }
+
+  // 兜底：如果仍然为空但有 Tab，选第一个
+  if (activeTabs.size === 0 && tabs.size > 0) {
+    const firstTab = tabs.values().next().value;
+    activeTabs.set(firstTab.windowId || null, firstTab.id);
+  }
+
+  console.log(`[Realm] Tab 管理器初始化，恢复 ${tabs.size} 个 Tab，${activeTabs.size} 个活动映射`);
 }
 
 /**
@@ -86,20 +115,30 @@ function getTab(tabId) {
 }
 
 /**
- * 获取当前活动 Tab
+ * 获取指定窗口的活动 Tab
+ * @param {number|null} [windowId] - 窗口 ID，不传时返回第一个活动 Tab（兼容旧逻辑）
  * @returns {Object|null} 活动 Tab 对象或 null
  */
-function getActiveTab() {
-  return activeTabId ? tabs.get(activeTabId) : null;
+function getActiveTab(windowId) {
+  if (windowId !== undefined) {
+    const tabId = activeTabs.get(windowId);
+    return tabId ? tabs.get(tabId) || null : null;
+  }
+  // 兼容旧逻辑：不传 windowId 时返回第一个活动 Tab
+  for (const tabId of activeTabs.values()) {
+    return tabs.get(tabId) || null;
+  }
+  return null;
 }
 
 /**
  * 创建新 Tab
  * @param {string} containerId - 容器 ID
  * @param {string} url - 初始 URL
+ * @param {number|null} [windowId=null] - 所属窗口 ID
  * @returns {Object} 新创建的 Tab 对象
  */
-function createTab(containerId, url = '') {
+function createTab(containerId, url = '', windowId = null) {
   // 如果超过上限，回收最久未使用的 Tab
   if (tabs.size >= TAB_MAX_COUNT) {
     recycleOldestTab();
@@ -109,6 +148,7 @@ function createTab(containerId, url = '') {
   const tab = {
     id: tabId,
     containerId,
+    windowId: windowId || null,
     url: url || '',
     title: '新标签页',
     createdAt: Date.now(),
@@ -116,16 +156,17 @@ function createTab(containerId, url = '') {
   };
 
   tabs.set(tabId, tab);
-  activeTabId = tabId;
+  activeTabs.set(tab.windowId, tabId);
   saveTabs();
 
-  console.log(`[Realm] Tab 创建: ${tabId} (容器: ${containerId})`);
+  console.log(`[Realm] Tab 创建: ${tabId} (容器: ${containerId}, 窗口: ${tab.windowId})`);
 
   return tab;
 }
 
 /**
  * 切换到指定 Tab
+ * 根据 tab.windowId 更新对应窗口的活动 Tab
  * @param {string} tabId - Tab ID
  * @returns {boolean} 是否成功切换
  */
@@ -134,8 +175,8 @@ function switchTab(tabId) {
     return false;
   }
 
-  activeTabId = tabId;
   const tab = tabs.get(tabId);
+  activeTabs.set(tab.windowId, tabId);
   tab.lastActiveAt = Date.now();
   saveTabs();
 
@@ -169,39 +210,52 @@ function updateTab(tabId, updates) {
 /**
  * 关闭 Tab
  * @param {string} tabId - Tab ID
- * @returns {Object} 关闭结果，包含新的活动 Tab ID
+ * @returns {Object} 关闭结果，包含新的活动 Tab ID 和 lastInWindow 标识
  */
 function closeTab(tabId) {
   if (!tabs.has(tabId)) {
     return { success: false, message: 'Tab 不存在' };
   }
 
-  // 获取 Tab 数组，找到被关闭 Tab 的索引
-  const tabArray = Array.from(tabs.keys());
-  const closedIndex = tabArray.indexOf(tabId);
+  const tab = tabs.get(tabId);
+  const tabWindowId = tab.windowId;
+
+  // 获取同一窗口的 Tab 数组，找到被关闭 Tab 的索引
+  const windowTabArray = Array.from(tabs.values())
+    .filter(t => t.windowId === tabWindowId)
+    .map(t => t.id);
+  const closedIndex = windowTabArray.indexOf(tabId);
 
   // 删除 Tab
   tabs.delete(tabId);
 
+  // 检查该窗口是否还有剩余 Tab
+  const lastInWindow = !Array.from(tabs.values()).some(t => t.windowId === tabWindowId);
+
   // 确定新的活动 Tab（CR-5 修复）：
-  // 仅当被关闭的就是活动 Tab 时才重选；关闭后台 Tab 必须保持 activeTabId 不变，
+  // 仅当被关闭的就是活动 Tab 时才重选；关闭后台 Tab 必须保持活动 Tab 不变，
   // 否则主进程与渲染进程的活动 Tab 状态分裂，且错误状态会被持久化
-  let newActiveTabId = activeTabId;
-  if (tabId === activeTabId) {
+  const currentActiveId = activeTabs.get(tabWindowId) || null;
+  let newActiveTabId = currentActiveId;
+
+  if (tabId === currentActiveId) {
     newActiveTabId = null;
-    if (tabs.size > 0) {
-      // 切换到右侧 Tab，无右侧则左侧
-      if (closedIndex < tabArray.length - 1) {
-        newActiveTabId = tabArray[closedIndex + 1];
+    if (!lastInWindow && windowTabArray.length > 1) {
+      // 在同一窗口内切换：优先右侧，其次左侧
+      if (closedIndex < windowTabArray.length - 1) {
+        newActiveTabId = windowTabArray[closedIndex + 1];
       } else if (closedIndex > 0) {
-        newActiveTabId = tabArray[closedIndex - 1];
-      } else {
-        newActiveTabId = tabs.keys().next().value;
+        newActiveTabId = windowTabArray[closedIndex - 1];
       }
     }
   }
 
-  activeTabId = newActiveTabId;
+  if (newActiveTabId) {
+    activeTabs.set(tabWindowId, newActiveTabId);
+  } else {
+    activeTabs.delete(tabWindowId);
+  }
+
   saveTabs();
 
   console.log(`[Realm] Tab 关闭: ${tabId}`);
@@ -209,7 +263,8 @@ function closeTab(tabId) {
   return {
     success: true,
     closedTabId: tabId,
-    newActiveTabId: activeTabId,
+    newActiveTabId: newActiveTabId,
+    lastInWindow: lastInWindow,
   };
 }
 
@@ -218,12 +273,15 @@ function closeTab(tabId) {
  * @returns {Object|null} 回收结果，如果没有可回收的 Tab 则返回 null
  */
 function recycleOldestTab() {
+  // 收集所有窗口的活动 Tab ID（这些不可回收）
+  const activeTabIds = new Set(activeTabs.values());
+
   // 找到 lastActiveAt 最小的非活动 Tab
   let oldestTab = null;
   let oldestTime = Infinity;
 
   tabs.forEach((tab, id) => {
-    if (id !== activeTabId && tab.lastActiveAt < oldestTime) {
+    if (!activeTabIds.has(id) && tab.lastActiveAt < oldestTime) {
       oldestTime = tab.lastActiveAt;
       oldestTab = tab;
     }
@@ -252,11 +310,57 @@ function recycleOldestTab() {
 
 /**
  * 保存 Tab 列表到 electron-store
+ * 同时保存 activeTabs Map（多窗口格式）和 activeTabId（兼容旧版读取）
  */
 function saveTabs() {
   store.set('tabs', Array.from(tabs.values()));
   store.set('tabCounter', tabCounter);
-  store.set('activeTabId', activeTabId);
+
+  // 保存新版 activeTabs Map（Object 格式，JSON 可序列化）
+  const activeTabsObj = {};
+  for (const [windowId, tabId] of activeTabs) {
+    activeTabsObj[String(windowId)] = tabId;
+  }
+  store.set('activeTabs', activeTabsObj);
+
+  // 兼容旧版：保存第一个活动 Tab ID
+  const firstActive = activeTabs.values().next().value || null;
+  store.set('activeTabId', firstActive);
+}
+
+/**
+ * 获取指定窗口的所有 Tab
+ * @param {number|null} windowId - 窗口 ID
+ * @returns {Array} 该窗口的 Tab 数组
+ */
+function getTabsByWindowId(windowId) {
+  return Array.from(tabs.values()).filter(tab => tab.windowId === windowId);
+}
+
+/**
+ * 关闭指定窗口的所有 Tab
+ * 用于窗口关闭级联（D-16）
+ * @param {number|null} windowId - 窗口 ID
+ * @returns {Array<string>} 关闭的 Tab ID 列表
+ */
+function closeTabsByWindowId(windowId) {
+  const tabsToClose = getTabsByWindowId(windowId);
+  const closedTabIds = [];
+
+  for (const tab of tabsToClose) {
+    tabs.delete(tab.id);
+    closedTabIds.push(tab.id);
+  }
+
+  // 清除该窗口的活动 Tab 映射
+  activeTabs.delete(windowId);
+
+  if (closedTabIds.length > 0) {
+    saveTabs();
+    console.log(`[Realm] 窗口 ${windowId} 的 ${closedTabIds.length} 个 Tab 已关闭`);
+  }
+
+  return closedTabIds;
 }
 
 /**
@@ -268,7 +372,7 @@ function saveTabs() {
  */
 function clearAllTabs() {
   tabs.clear();
-  activeTabId = null;
+  activeTabs.clear();
   saveTabs();
   console.log('[Realm] 已清空所有 Tab（启动时不恢复旧会话）');
 }
@@ -279,10 +383,12 @@ module.exports = {
   getTabs,
   getTab,
   getActiveTab,
+  getTabsByWindowId,
   createTab,
   switchTab,
   updateTab,
   closeTab,
+  closeTabsByWindowId,
   recycleOldestTab,
   setRecycleListener,
   saveTabs,
