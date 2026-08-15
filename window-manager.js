@@ -178,6 +178,11 @@ function closeWindowWithTabs(windowId, tabManager) {
     return true;
   }
 
+  // 通知渲染进程窗口即将关闭，让其有机会清理 webview webContents（best-effort, 非阻塞）
+  if (!win.webContents.isDestroyed()) {
+    win.webContents.send('window:closing', { windowId });
+  }
+
   // 先销毁 Tab 的 webContents（通过渲染进程通知或直接操作）
   // 级联关闭该窗口的所有 Tab 状态
   if (tabManager) {
