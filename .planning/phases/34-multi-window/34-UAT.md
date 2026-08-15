@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 34-multi-window
 source: 34-01-SUMMARY.md, 34-02-SUMMARY.md
 started: 2026-08-15T15:40:00Z
@@ -76,5 +76,12 @@ blocked: 5
   reason: "User reported: Cmd+L 聚焦地址栏 没有反应"
   severity: major
   test: 3
-  artifacts: []
-  missing: []
+  root_cause: "focusUrl 快捷键 (Cmd+L) 从未在 shortcut-manager.js DEFAULT_SHORTCUTS 中定义，也未在 renderer.js initShortcuts 中添加处理逻辑。这是缺失功能，非 Phase 34 回归。"
+  artifacts:
+    - path: "shortcut-manager.js"
+      issue: "DEFAULT_SHORTCUTS 缺少 'focusUrl': 'CmdOrCtrl+L' 定义"
+    - path: "src/renderer.js"
+      issue: "initShortcuts 缺少 case 'focusUrl' 处理逻辑"
+  missing:
+    - "在 shortcut-manager.js DEFAULT_SHORTCUTS 添加 'focusUrl': 'CmdOrCtrl+L'"
+    - "在 src/renderer.js initShortcuts 添加 case 'focusUrl': elements.urlInput.focus(); elements.urlInput.select(); break;"
