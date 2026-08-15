@@ -104,7 +104,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 **Milestone Goal:** 支持多窗口操作，提升多任务处理效率
 
 - [ ] **Phase 34: 窗口管理基础** — 重构窗口管理器支持多窗口，扩展 IPC 信任模型，实现新建/关闭窗口快捷键
-- [ ] **Phase 35: Tab 窗口关联** — Tab 对象新增 windowId 字段，窗口关闭自动销毁 Tab，标题栏显示容器信息
+- [x] **Phase 35: Tab 窗口关联** — Tab 对象新增 windowId 字段，窗口关闭自动销毁 Tab，标题栏显示容器信息 (completed 2026-08-15)
 - [ ] **Phase 36: Tab 拖拽与跨窗口移动** — 窗口内拖拽排序、拖拽出窗口创建新窗口、跨窗口拖拽移动、窗口位置持久化
 
 ## Phase Details
@@ -151,7 +151,7 @@ Plans:
   3. 窗口标题栏显示当前活动 Tab 所属容器的名称
   4. 窗口标题栏/工具栏显示容器颜色标识，不同容器的窗口视觉上可区分
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans complete
 
 Plans:
 **Wave 1**
@@ -160,7 +160,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 35-02-PLAN.md — 窗口标题栏 + 容器颜色条（renderer, preload, css）
+- [x] 35-02-PLAN.md — 窗口标题栏 + 容器颜色条（renderer, preload, css）
 
 **UI hint**: yes
 
@@ -222,5 +222,5 @@ Phases execute in numeric order: 34 → 35 → 36
 | 32. 自动填充 — 凭据引擎 | v2.3 | 2/2 | Complete | 2026-08-13 |
 | 33. 自动填充 — 增强 + Bug 修复 | v2.3 | 3/3 | Complete | 2026-08-14 |
 | 34. 窗口管理基础 | v2.4 | 2/3 | In Progress|  |
-| 35. Tab 窗口关联 | v2.4 | 1/2 | In Progress|  |
+| 35. Tab 窗口关联 | v2.4 | 2/2 | Complete   | 2026-08-15 |
 | 36. Tab 拖拽与跨窗口移动 | v2.4 | 0/? | Not started | - |
