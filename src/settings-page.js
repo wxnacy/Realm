@@ -152,6 +152,7 @@ const elements = {
   defaultContainer: document.getElementById('defaultContainer'),
   restoreTabsOnLaunch: document.getElementById('restoreTabsOnLaunch'),
   showBookmarksBar: document.getElementById('showBookmarksBar'),
+  themeSelect: document.getElementById('themeSelect'),
   toast: document.getElementById('toast'),
 
   // 侧边栏
