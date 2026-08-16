@@ -397,6 +397,7 @@ npm run dev
 - [fill_form 假成功排查实录](docs/debug/fill-form-silent-success.md) — CDP 表单填写三层根因：`Input.enable` 已被 Chromium 128+ 移除（Input 命令无需 enable）；表单填写用 `Input.insertText` 真实输入管线而非 JS 赋值；工具结果必须回读校验杜绝 `filled` 虚报；AI 口语字段名需语义映射 + availableFields 重试
 - [fill_form 焦点输入管线排查实录](docs/debug/fill-form-focus-pipeline.md) — insertText 打进的是输入管线焦点元素（DOM focus/activeElement ≠ keyboard focus，焦点在 embedder 时会把填表文本打进 AI 聊天框造成串字）；根治：insertText 前合成 dispatchMouseEvent 点击落位 + readback 裁决 + 原生 setter 回退双保险
 - [GitHub 登录跳转 `/sessions/two-factor/app` 404 排查实录](docs/debug/github-login-404-two-factor-app.md) — 双层根因：① `Network.setUserAgentOverride` 在**未导航过的 webContents** 上永久挂起（不要在 `web-contents-created` 阶段对未导航 webview 发 CDP Network 命令）；② **改代码不修旧数据**——历史 session 残留于 `Partitions/container-<id>` + `containers/<id>/cookies.json`，换容器就好、旧容器不行时清这两个位置（须先退出应用，运行中删除会被刷盘重建）
+- [部分网站整页漆黑排查实录](docs/debug/webview-transparent-background-dark-page.md) — webview guest 默认背景透明，不显式设背景的网页（如部分 Docusaurus 站点）会透出窗口深色底色 `backgroundColor: '#1a1a1a'` 导致正文漆黑；修复：`.browser-view webview { background: #fff }` 兜底白画布，网站自身背景不透明时不受影响
 
 ### 查看容器数据
 ```javascript

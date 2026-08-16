@@ -396,6 +396,14 @@ button {
   background-color: var(--bg-primary);
 }
 
+/*
+ * webview guest 默认背景透明，会透出窗口深色底色（window-manager.js backgroundColor: #1a1a1a），
+ * 导致不显式设置背景的网页（如部分 Docusaurus 站点）正文区变漆黑。显式白底对齐普通浏览器行为。
+ */
+.browser-view webview {
+  background: #ffffff;
+}
+
 /* 欢迎页面 */
 .welcome-page {
   height: 100%;
