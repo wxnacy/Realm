@@ -963,6 +963,7 @@ app.whenReady().then(async () => {
           defaultContainer: 'last-used',
           isDefaultBrowser: false,
           restoreTabsOnLaunch: 'ask',
+          theme: 'light',
         });
         // 合并收藏栏显示状态：优先读取 settings.bookmarksBar.visible（设置页面写入），
         // 不存在时回退到根路径 bookmarksBar.visible（主进程早期代码写入）

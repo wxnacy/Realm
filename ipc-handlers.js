@@ -1937,6 +1937,7 @@ function registerHandlers() {
       defaultContainer: 'last-used',
       isDefaultBrowser: false,
       restoreTabsOnLaunch: 'ask',
+      theme: 'light',
     });
     // 多媒体播放器设置默认值（per D-03）
     if (!settings.mediaPlayer) {

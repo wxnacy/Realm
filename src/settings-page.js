@@ -337,6 +337,13 @@ async function loadSettings() {
       elements.showBookmarksBar.checked = bookmarksBarVisible;
     }
 
+    // 主题设置（默认浅色）
+    if (elements.themeSelect) {
+      const theme = state.settings.theme || 'light';
+      elements.themeSelect.value = theme;
+      applyTheme(theme);
+    }
+
     // 多媒体播放器设置
     if (settings.mediaPlayer) {
       state.mediaPlayer = {
@@ -377,6 +384,19 @@ async function saveSettings(key, value) {
   } catch (error) {
     console.error('[Realm] 保存设置失败:', error);
     showToast('保存失败，请重试');
+  }
+}
+
+/**
+ * 应用主题
+ * @param {string} theme - 主题值：'light', 'dark', 'system'
+ */
+function applyTheme(theme) {
+  if (theme === 'system') {
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+  } else {
+    document.documentElement.dataset.theme = theme || 'light';
   }
 }
 
@@ -1058,6 +1078,22 @@ function setupEventListeners() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ visible }),
       }).catch(err => console.error('[Realm] 切换收藏栏失败:', err));
+    });
+  }
+
+  // 主题切换
+  if (elements.themeSelect) {
+    elements.themeSelect.addEventListener('change', async (e) => {
+      const theme = e.target.value;
+      await saveSettings('theme', theme);
+      applyTheme(theme);
+    });
+
+    // 监听系统主题变化（当选择"跟随系统"时）
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (state.settings.theme === 'system') {
+        applyTheme('system');
+      }
     });
   }
 
