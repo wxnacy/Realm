@@ -3,15 +3,15 @@ status: testing
 phase: 36-tab
 source: [36-01-PLAN.md, 36-02-PLAN.md, 36-03-PLAN.md]
 started: 2026-08-16T10:00:00.000Z
-updated: 2026-08-16T11:00:00.000Z
+updated: 2026-08-16T12:00:00.000Z
 ---
 
 ## Current Test
 
-number: 3
-name: 右键菜单"在新窗口中打开"（修复后重测）
+number: 4
+name: 窗口内 Tab 拖拽排序（修复后重测）
 expected: |
-  创建多个 Tab，右键点击某个 Tab，选择"在新窗口中打开"，验证只打开指定的 Tab，新窗口位置有偏移
+  创建 3 个以上 Tab，拖拽第一个 Tab 到第三个 Tab 右侧，验证第一次点击即可拖拽
 awaiting: user response
 
 ## Tests
@@ -26,9 +26,7 @@ result: pass
 
 ### 3. 右键菜单"在新窗口中打开"
 expected: 创建多个 Tab，右键点击某个 Tab，选择"在新窗口中打开"，验证新窗口创建并包含该 Tab
-result: issue
-reported: "可以新建窗口，但是有两个问题。1 不光复制了指定的标签，全部标签页都复制了，并且随着窗口增加，会把所有窗口的都复制。应该只在新窗口打开一个标签页。2 新建的窗口应该和原窗口位置有一定错位，而不是位置完全重合"
-severity: major
+result: pass
 
 ### 4. 窗口内 Tab 拖拽排序
 expected: 创建 3 个以上 Tab，拖拽第一个 Tab 到第三个 Tab 右侧，验证指示器显示和顺序更新
@@ -60,9 +58,9 @@ reason: 跨窗口拖拽功能未实现，无法测试
 ## Summary
 
 total: 8
-passed: 3
-issues: 4
-pending: 0
+passed: 4
+issues: 0
+pending: 3
 skipped: 1
 blocked: 0
 
@@ -73,11 +71,11 @@ blocked: 0
   reason: "用户报告: 不光复制了指定的标签，全部标签页都复制了"
   severity: major
   test: 3
-  root_cause: "tab:list IPC 返回所有窗口的 Tab，而非当前窗口的 Tab"
+  root_cause: "tab:list IPC 返回所有窗口的 Tab，且时序问题导致 restoreTabs 创建额外 Tab"
   artifacts:
     - path: "ipc-handlers.js"
-      issue: "tab:list 处理器调用 getTabs() 返回所有 Tab"
-  fix: "修改 tab:list 处理器调用 getTabsByWindowId(win.id) 只返回当前窗口的 Tab"
+      issue: "tab:list 处理器调用 getTabs() 返回所有 Tab; tab:open-in-new-window 时序问题"
+  fix: "1. tab:list 改用 getTabsByWindowId(win.id) 2. 等待 did-finish-load 后关闭 restoreTabs 创建的 Tab 再创建源 Tab"
 
 - truth: "新窗口位置与原窗口有错位，不完全重合"
   status: fixed
