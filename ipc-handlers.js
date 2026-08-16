@@ -418,10 +418,9 @@ function registerHandlers() {
    * 右键菜单"在新窗口中打开"或拖拽场景调用
    *
    * 时序策略：
-   * 1. 先创建 Tab（windowId=null）— restoreTabs() 按 windowId 过滤，不会恢复它
-   * 2. 创建窗口 — init() → restoreTabs() 执行时窗口内无 Tab，会创建一个空 Tab
-   * 3. 等待窗口加载完成
-   * 4. 更新 Tab 的 windowId，通知新窗口
+   * 1. 创建窗口 — init() → restoreTabs() 会创建一个默认 Tab
+   * 2. 等待窗口加载完成（restoreTabs 执行完毕）
+   * 3. 关闭 restoreTabs 创建的 Tab，创建源 Tab
    *
    * @param {string} tabId - 源 Tab ID
    * @param {Object} [options] - 选项
@@ -445,24 +444,25 @@ function registerHandlers() {
       return { success: false, error: '容器不存在' };
     }
 
-    // 1. 先创建 Tab（windowId=null），这样 restoreTabs() 不会恢复它
-    const newTab = tabManager.createTab(containerId, sourceTab.url, null);
-
-    // 2. 创建新窗口（相对于源窗口偏移位置）
+    // 1. 创建新窗口（相对于源窗口偏移位置）
     const newWindow = windowManager.createMainWindow(containerId, container, { offsetPosition: true });
     if (!newWindow) {
-      // 回滚：删除已创建的 Tab
-      tabManager.closeTab(newTab.id);
       return { success: false, error: '创建窗口失败' };
     }
 
-    // 3. 等待新窗口加载完成
+    // 2. 等待新窗口加载完成（restoreTabs 会创建一个默认 Tab）
     await new Promise((resolve) => {
       newWindow.webContents.once('did-finish-load', resolve);
     });
 
-    // 4. 更新 Tab 的 windowId
-    tabManager.updateTab(newTab.id, { windowId: newWindow.id });
+    // 3. 关闭 restoreTabs 创建的 Tab
+    const newWindowTabs = tabManager.getTabsByWindowId(newWindow.id);
+    for (const tab of newWindowTabs) {
+      tabManager.closeTab(tab.id);
+    }
+
+    // 4. 创建源 Tab
+    const newTab = tabManager.createTab(containerId, sourceTab.url, newWindow.id);
 
     // 移动模式：从源窗口移除原 Tab
     if (options.move) {
@@ -476,9 +476,8 @@ function registerHandlers() {
       }
     }
 
-    // 通知新窗口渲染进程
-    newWindow.webContents.send('tab:created', { tab: { ...newTab, windowId: newWindow.id } });
-    // 切换到新 Tab
+    // 通知新窗口
+    newWindow.webContents.send('tab:created', { tab: newTab });
     newWindow.webContents.send('tab:switched', { tabId: newTab.id });
 
     return { success: true, newTabId: newTab.id, windowId: newWindow.id };
