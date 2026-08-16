@@ -1,0 +1,115 @@
+---
+status: partial
+phase: 36-tab
+source: [36-01-PLAN.md, 36-02-PLAN.md, 36-03-PLAN.md]
+started: 2026-08-16T10:00:00.000Z
+updated: 2026-08-16T10:40:00.000Z
+---
+
+## Current Test
+
+[testing paused — 4 issues need fix]
+
+## Tests
+
+### 1. 窗口位置持久化
+expected: 启动应用，移动窗口到非默认位置，关闭并重启，验证窗口位置恢复
+result: pass
+
+### 2. 越界窗口恢复
+expected: 将窗口移动到屏幕边缘，断开外接显示器（如果有），重启应用，验证窗口居中到主显示器
+result: pass
+
+### 3. 右键菜单"在新窗口中打开"
+expected: 创建多个 Tab，右键点击某个 Tab，选择"在新窗口中打开"，验证新窗口创建并包含该 Tab
+result: issue
+reported: "可以新建窗口，但是有两个问题。1 不光复制了指定的标签，全部标签页都复制了，并且随着窗口增加，会把所有窗口的都复制。应该只在新窗口打开一个标签页。2 新建的窗口应该和原窗口位置有一定错位，而不是位置完全重合"
+severity: major
+
+### 4. 窗口内 Tab 拖拽排序
+expected: 创建 3 个以上 Tab，拖拽第一个 Tab 到第三个 Tab 右侧，验证指示器显示和顺序更新
+result: issue
+reported: "可以移动位置。但也有个问题，经常第一次点击拖动tab不生效，需要再次点击，移动时才能看到另外两个标签中的亮线"
+severity: major
+
+### 5. Tab 拖拽边界处理
+expected: 拖拽 Tab 到 Tab 栏之外，验证不显示指示器；拖拽 Tab 到原位置，验证不显示指示器
+result: pass
+
+### 6. 跨窗口拖拽创建新窗口
+expected: 拖拽 Tab 出标签栏，验证浮动预览显示，在窗口内松手验证新窗口创建
+result: issue
+reported: "没有新建窗口"
+severity: major
+
+### 7. 跨窗口 Tab 移动
+expected: 创建两个窗口，拖拽窗口 A 的 Tab 到窗口 B 的 Tab 栏，验证 Tab 移动成功
+result: issue
+reported: "没有成功移动"
+severity: major
+
+### 8. 源窗口自动销毁
+expected: 跨窗口移动 Tab 后，如果源窗口仅剩一个 Tab，验证源窗口自动销毁
+result: skipped
+reason: 跨窗口拖拽功能未实现，无法测试
+
+## Summary
+
+total: 8
+passed: 3
+issues: 4
+pending: 0
+skipped: 1
+blocked: 0
+
+## Gaps
+
+- truth: "右键菜单'在新窗口中打开'只打开指定的 Tab，不复制其他 Tab"
+  status: failed
+  reason: "用户报告: 不光复制了指定的标签，全部标签页都复制了，并且随着窗口增加，会把所有窗口的都复制"
+  severity: major
+  test: 3
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
+
+- truth: "新窗口位置与原窗口有错位，不完全重合"
+  status: failed
+  reason: "用户报告: 新建的窗口应该和原窗口位置有一定错位，而不是位置完全重合"
+  severity: minor
+  test: 3
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
+
+- truth: "Tab 拖拽排序第一次点击即可生效"
+  status: failed
+  reason: "用户报告: 经常第一次点击拖动tab不生效，需要再次点击，移动时才能看到另外两个标签中的亮线"
+  severity: major
+  test: 4
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
+
+- truth: "拖拽 Tab 出标签栏后松手创建新窗口"
+  status: failed
+  reason: "用户报告: 没有新建窗口"
+  severity: major
+  test: 6
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
+
+- truth: "跨窗口拖拽 Tab 可以移动到另一个窗口"
+  status: failed
+  reason: "用户报告: 没有成功移动"
+  severity: major
+  test: 7
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
