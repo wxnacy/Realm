@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: 多窗口支持
 current_phase: 36
-status: executing
-stopped_at: Phase 36 UI-SPEC approved
-last_updated: "2026-08-15T14:01:17.439Z"
-last_activity: 2026-08-15
-last_activity_desc: Phase 36 complete
+status: completed
+stopped_at: Phase 36 UAT complete
+last_updated: "2026-08-16T14:30:00.000Z"
+last_activity: 2026-08-16
+last_activity_desc: Phase 36 UAT 9/9 passed, phase complete
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 9
-  completed_plans: 8
-  percent: 67
+  completed_plans: 9
+  percent: 100
 current_phase_name: tab
 ---
 
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-08-14)
 ## Current Position
 
 Phase: 36
-Plan: Not started
-Status: Executing Phase 36
-Last activity: 2026-08-15 — Phase 36 complete
+Plan: All complete
+Status: Phase 36 UAT complete (9/9 passed)
+Last activity: 2026-08-16 — Phase 36 UAT 通过，phase 收尾
 
-Progress: [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0%
+Progress: [████████████████████████████████████████████████] 100%
 
 ## Performance Metrics
 
