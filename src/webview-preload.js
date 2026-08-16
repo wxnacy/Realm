@@ -418,26 +418,32 @@ ipcRenderer.on('address:do-autofill', (event, addressData) => {
  * 检测到表单时发送 autofill 请求到 renderer（per D-09）
  */
 window.addEventListener('DOMContentLoaded', () => {
-  const forms = FormDetector.scanForLoginForms();
-  FormDetector.cachedCredentialForms = forms;
-  forms.forEach(formInfo => FormDetector.attachSubmitListener(formInfo));
-  if (forms.length > 0) {
-    ipcRenderer.sendToHost('credential:autofill-request');
-  }
+  // realm:// 内部页面（settings/favorites/history 等）不需要表单检测
+  const isInternalPage = window.location.protocol === 'realm:';
 
-  // 地址表单检测（per D-12：页面加载完成后检测一次）
-  const addressFields = AddressDetector.scanForAddressForms();
-  if (addressFields) {
-    // 通知主窗口检测到地址表单，提取当前字段值
-    const detectedData = {
-      name: addressFields.nameField ? addressFields.nameField.value : '',
-      phone: addressFields.phoneField ? addressFields.phoneField.value : '',
-      address: addressFields.addressField ? addressFields.addressField.value : '',
-    };
-    ipcRenderer.sendToHost('address:form-detected', detectedData);
+  if (!isInternalPage) {
+    // 登录表单检测
+    const forms = FormDetector.scanForLoginForms();
+    FormDetector.cachedCredentialForms = forms;
+    forms.forEach(formInfo => FormDetector.attachSubmitListener(formInfo));
+    if (forms.length > 0) {
+      ipcRenderer.sendToHost('credential:autofill-request');
+    }
 
-    // 请求自动填充地址
-    ipcRenderer.sendToHost('address:autofill-request');
+    // 地址表单检测（per D-12：页面加载完成后检测一次）
+    const addressFields = AddressDetector.scanForAddressForms();
+    if (addressFields) {
+      // 通知主窗口检测到地址表单，提取当前字段值
+      const detectedData = {
+        name: addressFields.nameField ? addressFields.nameField.value : '',
+        phone: addressFields.phoneField ? addressFields.phoneField.value : '',
+        address: addressFields.addressField ? addressFields.addressField.value : '',
+      };
+      ipcRenderer.sendToHost('address:form-detected', detectedData);
+
+      // 请求自动填充地址
+      ipcRenderer.sendToHost('address:autofill-request');
+    }
   }
 });
 
@@ -448,6 +454,9 @@ window.addEventListener('DOMContentLoaded', () => {
  */
 let _credentialMutationTimer = null;
 const _credentialObserver = new MutationObserver(() => {
+  // realm:// 内部页面不需要表单检测
+  if (window.location.protocol === 'realm:') return;
+
   if (_credentialMutationTimer) clearTimeout(_credentialMutationTimer);
   _credentialMutationTimer = setTimeout(() => {
     const forms = FormDetector.scanForLoginForms();
