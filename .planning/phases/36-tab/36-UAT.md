@@ -1,18 +1,14 @@
 ---
-status: testing
+status: partial
 phase: 36-tab
 source: [36-01-PLAN.md, 36-02-PLAN.md, 36-03-PLAN.md]
 started: 2026-08-16T10:00:00.000Z
-updated: 2026-08-16T12:00:00.000Z
+updated: 2026-08-16T12:30:00.000Z
 ---
 
 ## Current Test
 
-number: 4
-name: 窗口内 Tab 拖拽排序（修复后重测）
-expected: |
-  创建 3 个以上 Tab，拖拽第一个 Tab 到第三个 Tab 右侧，验证第一次点击即可拖拽
-awaiting: user response
+[testing paused — 1 issue remaining]
 
 ## Tests
 
@@ -59,8 +55,8 @@ reason: 跨窗口拖拽功能未实现，无法测试
 
 total: 8
 passed: 4
-issues: 0
-pending: 3
+issues: 1
+pending: 2
 skipped: 1
 blocked: 0
 
@@ -89,15 +85,42 @@ blocked: 0
   fix: "添加 offsetPosition 选项，新窗口相对于当前活动窗口偏移 30px"
 
 - truth: "Tab 拖拽排序第一次点击即可生效"
-  status: fixed
-  reason: "用户报告: 经常第一次点击拖动tab不生效"
+  status: open
+  reason: "用户报告: 第一次点击拖动tab不生效，需要第二次才行"
   severity: major
   test: 4
-  root_cause: "mousedown 设置 crossDragTabId 后，dragstart 不阻止 HTML5 DnD"
+  root_cause: "HTML5 DnD 的 dragstart 事件与自定义 mousedown 事件存在冲突。mousedown 记录 crossDragTabId 后，dragstart 需要判断是否阻止 HTML5 DnD。但无论怎么处理都有问题：检查 crossDragTabId 会阻止所有拖拽，不检查则两种拖拽机制同时运行。"
   artifacts:
     - path: "src/renderer.js"
-      issue: "dragstart 只检查 state.crossDrag.active，不检查 crossDragTabId"
-  fix: "添加 isCrossDragPending() 函数，dragstart 中同时检查 active 和 pending 状态"
+      issue: "dragstart 事件 (line ~575) 与 onCrossDragMouseDown (line ~8117) 冲突"
+    - path: "src/renderer.js"
+      issue: "onCrossDragMouseMove (line ~8140) 设置 state.crossDrag.active 的时机不确定"
+  investigation_notes: |
+    ## 问题分析
+
+    ### 根因
+    HTML5 DnD API 和自定义 mousedown/mousemove/mouseup 事件同时绑定在 Tab 元素上，
+    两者存在根本性冲突：
+
+    1. **mousedown** → 记录 `crossDragTabId`
+    2. **dragstart** → 需要判断是否阻止 HTML5 DnD
+    3. **mousemove** → 超过阈值后设置 `state.crossDrag.active = true`
+
+    问题：dragstart 在 mousemove 之前触发，此时 `state.crossDrag.active` 还是 false。
+
+    ### 尝试过的方案
+    1. ❌ 在 dragstart 中检查 `isCrossDragPending()` → 阻止了所有 HTML5 DnD，拖拽完全不工作
+    2. ❌ 只检查 `state.crossDrag.active` → 第一次点击时两种机制同时运行，需要第二次才能正常拖拽
+    3. ❌ 在 mousedown 中阻止事件传播 → 无法解决问题，因为 dragstart 和 mousedown 是独立事件
+
+    ### 建议修复方向
+    1. **方案 A**：放弃 HTML5 DnD，统一使用自定义 mousedown/mousemove/mouseup 实现窗口内排序
+    2. **方案 B**：放弃自定义 mousedown，统一使用 HTML5 DnD + 扩展实现跨窗口拖拽
+    3. **方案 C**：在 mousedown 中延迟设置 crossDragTabId（等一小段时间确认是长按而非点击）
+    4. **方案 D**：在 dragstart 中不阻止，而是在 mousemove 激活跨窗口拖拽时，动态取消正在进行的 HTML5 DnD（通过设置 state.isDragging = false 并清理样式）
+
+    推荐方案 A 或 D，因为可以彻底解决两种拖拽机制的冲突。
+  fix: ""
 
 - truth: "拖拽 Tab 出标签栏后松手创建新窗口"
   status: fixed
