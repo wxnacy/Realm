@@ -2,41 +2,57 @@
 
 ## 项目概述
 
-Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独立的 Cookie 管理，未来将集成 AI Agent SDK。
+Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独立的 Cookie 管理和 AI Agent 集成。
 
 核心目标：
 - 每个容器完全隔离（Cookie、缓存、存储）
 - 可视化容器管理
-- 预留 AI Agent 集成能力
+- 多窗口支持与跨窗口 Tab 拖拽
+- AI Agent 集成（基于 pi-agent-core SDK）
 
 ## 技术架构
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      Main Process                       │
-│  ┌─────────────────┐  ┌─────────────────┐              │
-│  │ Container Manager│  │ Window Manager  │              │
-│  └─────────────────┘  └─────────────────┘              │
-│           │                    │                        │
-│           ▼                    ▼                        │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │              Session Manager                     │   │
-│  │  (persist:container-work, persist:container-*)   │   │
-│  └─────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────┘
-                         │
-                         │ IPC (contextBridge)
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│                    Renderer Process                     │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │                  UI Layer                        │   │
-│  │  - Container List (Sidebar)                      │   │
-│  │  - Toolbar (URL, Navigation)                     │   │
-│  │  - Browser View (webview/webContents)            │   │
-│  │  - Modals (Container CRUD, Cookie Manager)       │   │
-│  └─────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                            Main Process                                 │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                  │
+│  │  container-   │  │   window-    │  │    tab-      │                  │
+│  │  manager      │  │   manager    │  │    manager   │                  │
+│  └──────────────┘  └──────────────┘  └──────────────┘                  │
+│           │                │                 │                           │
+│           ▼                ▼                 ▼                           │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │                    Session Manager                               │   │
+│  │  (persist:container-work, persist:container-*)                   │   │
+│  └──────────────────────────────────────────────────────────────────┘   │
+│           │                                                             │
+│  ┌────────┴────────────────────────────────────────────────────────┐   │
+│  │                     20 个功能模块                                │   │
+│  │  cookie-manager    favorites-manager    history-manager          │   │
+│  │  download-manager  shortcut-manager     context-menu-manager     │   │
+│  │  ai-manager        cdp-manager          drag-coordinator         │   │
+│  │  credential-manager address-manager     frequent-sites-manager   │   │
+│  │  assignment-rules  ua-ch-manager        media-sniffer            │   │
+│  │  dev-requests-writer favicon-fetcher                             │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                              │                                          │
+│                              │ IPC (contextBridge)                      │
+│                              ▼                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                          Renderer Process                               │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │                        UI Layer                                  │   │
+│  │  - Container List (Sidebar)                                      │   │
+│  │  - Toolbar (URL, Navigation)                                     │   │
+│  │  - Browser View (webview/webContents)                            │   │
+│  │  - Bookmarks Bar                                                 │   │
+│  │  - Modals (Container CRUD, Cookie Manager)                       │   │
+│  │  - realm:// 内部页面 (history/favorites/settings/downloads/newtab)│   │
+│  └──────────────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## 代码规范
@@ -69,18 +85,65 @@ const windowContainerMap = new Map();
 
 ## 关键文件说明
 
+### 主进程核心模块
+
 | 文件 | 说明 |
 |------|------|
-| main.js | Electron 主进程，管理容器 Session 和窗口 |
-| ipc-handlers.js | 主进程 IPC 通道注册（cookie/history/shortcut/...） |
-| shortcut-manager.js | 快捷键默认表 + 注册/重建（**默认值唯一来源**） |
-| cookie-manager.js | Cookie 持久化（session ↔ cookies.json 合并） |
-| favorites-manager.js | 收藏数据存储（better-sqlite3，全局共享） |
-| src/preload.js | 安全暴露 IPC 接口给渲染进程 |
-| src/renderer.js | 渲染进程逻辑，处理 UI 交互 |
-| src/favorites-page.js | 收藏列表页（realm://favorites）逻辑 |
+| main.js | 主进程入口，应用生命周期管理、模块组装、操作确认 IPC、本地 HTTP 服务器 |
+| ipc-handlers.js | 集中注册所有 IPC 处理器，使用 `container:*` 等命名空间格式 |
+| container-manager.js | 容器 CRUD，Session partition 管理，4 个默认容器 |
+| window-manager.js | 窗口注册表、容器映射、窗口位置持久化（Phase 36）、跨窗口广播 |
+| tab-manager.js | Tab 生命周期管理，多窗口支持（Phase 35），Tab 回收（D-07 上限 20） |
+| shortcut-manager.js | 快捷键管理，before-input-event 实现，14 个默认快捷键 |
+| cookie-manager.js | Cookie 持久化（session ↔ cookies.json 合并），`.www` 域名去重 |
+| context-menu-manager.js | 右键菜单管理（标签页/网页），已关闭标签栈 LIFO |
+| drag-coordinator.js | 跨窗口 Tab 拖拽协调器，状态机 idle->dragging->ended/cancelled |
+
+### 数据管理模块
+
+| 文件 | 说明 |
+|------|------|
+| favorites-manager.js | 收藏夹管理，better-sqlite3，全局 favorites 表，FTS5 全文搜索 |
+| history-manager.js | 历史记录管理，每容器独立表，FIFO 淘汰（每容器上限 10000 条） |
+| download-manager.js | 下载管理器，进度追踪、SQLite 持久化、滑动窗口速度计算 |
+| credential-manager.js | 登录凭据加密存储（safeStorage + macOS Keychain） |
+| address-manager.js | 收货地址加密存储（safeStorage） |
+| frequent-sites-manager.js | 常用网站管理，frecency 算法（频率+最近性加权） |
+| dev-requests-writer.js | CDP 抓取请求的 SQLite 异步批量写入队列 |
+
+### AI 与网络模块
+
+| 文件 | 说明 |
+|------|------|
+| ai-manager.js | AI Agent 管理器，基于 pi-agent-core SDK，LLM 连接、工具注册、对话状态 |
+| cdp-manager.js | CDP 调试器管理器，Network 域抓包、AI 工具调试器管理 |
+| ua-ch-manager.js | UA Client Hints 覆盖（CDP Network.setUserAgentOverride） |
+| media-sniffer.js | 媒体嗅探器（网络拦截/脚本注入/DOM 监听三种方式） |
+| assignment-rules.js | URL 自动容器分配规则 |
+| favicon-fetcher.js | Favicon 远程抓取转 data URL（net.fetch，非 undici） |
+
+### 渲染进程文件
+
+| 文件 | 说明 |
+|------|------|
+| src/renderer.js | 渲染进程核心逻辑（UI 交互、Tab 管理、容器切换） |
+| src/preload.js | contextBridge 安全暴露 IPC 接口 |
+| src/webview-preload.js | webview guest 预加载脚本 |
 | src/index.html | 主界面结构 |
-| src/styles/main.css | 样式文件 |
+| src/newtab.html + src/newtab-page.js | 新标签页（realm://newtab），常用网站网格、搜索 |
+| src/history.html + src/history-page.js | 浏览历史页面（realm://history），日期分组、搜索过滤 |
+| src/favorites.html + src/favorites-page.js | 收藏夹页面（realm://favorites），文件夹树、拖拽排序 |
+| src/settings.html + src/settings-page.js | 设置页面（realm://settings），快捷键设置、规则管理 |
+| src/downloads.html + src/downloads-page.js | 下载内容页面（realm://downloads） |
+| src/devrequests.html + src/devrequests-page.js | 开发者请求页面 |
+| src/player.html + src/player.js + src/player.css | 多媒体播放器页面 |
+| src/bookmarks-bar.js + src/bookmarks-bar-menu.js | 书签栏组件 |
+| src/container-env-presets.js | 容器环境变量预设 |
+
+### CLI 工具
+
+| 文件 | 说明 |
+|------|------|
 | bin/realm-cli.js | CLI 入口文件（全局命令 `realm`） |
 | cli/commands/container.js | 容器管理命令（list, show） |
 | cli/utils.js | CLI 工具函数（配置文件读取） |
@@ -164,123 +227,127 @@ renderContainerList();  // 必跟
 
 参考 `switchTab`（容器跟随活动 tab）和 `switchContainer`（用户主动切换）的现有写法。
 
-## 扩展模块（待实现）
+## 多窗口支持
 
-### containers/
-容器管理模块，包括：
-- 容器配置持久化
-- 容器生命周期管理
-- 容器间数据迁移
+### 窗口管理架构
 
-### browser/
-浏览器核心模块，包括：
-- Web 视图管理
-- 导航历史
-- 页面加载控制
+**window-manager.js** 核心数据结构：
+- `windows: Map<windowId, BrowserWindow>` -- 所有通过 createMainWindow 创建的窗口
+- `managedWindowIds: Set<number>` -- 受信窗口 ID 集合
+- `windowContainerMap: Map<number, string>` -- 窗口与容器映射
 
-### ui/
-UI 组件模块，包括：
-- 标签页管理
-- 工具栏组件
-- 设置面板
+**tab-manager.js** 多窗口支持（Phase 35）：
+- 每个 Tab 对象包含 `windowId` 字段
+- `activeTabs: Map<windowId, tabId>` 按窗口维护活动 Tab
+- `getTabsByWindowId` / `closeTabsByWindowId` 按窗口操作
 
-### ai/
-AI Agent 集成模块（预留），包括：
-- Agent SDK 接口
-- 上下文管理
-- 工具调用
+### 窗口位置持久化（Phase 36）
 
-## 常见任务
+```javascript
+// window-manager.js
+const windowBoundsStore = new Store({ name: 'window-bounds' });
 
-### 添加新的容器属性
-1. 在 `main.js` 的 `DEFAULT_CONTAINERS` 中添加属性
-2. 更新 `preload.js` 中的 API
-3. 更新 `renderer.js` 中的渲染逻辑
+// moved/resized 事件实时保存
+saveWindowBounds(windowId, bounds);
 
-### 添加新的 UI 组件
-1. 在 `src/index.html` 中添加 HTML 结构
-2. 在 `src/styles/main.css` 中添加样式
-3. 在 `src/renderer.js` 中添加交互逻辑
-
-### 添加新的 CLI 命令
-
-CLI 工具结构：
-```
-bin/realm-cli.js          # 入口，参数解析和路由
-cli/commands/             # 命令模块目录
-  container.js            # 容器相关命令
-cli/utils.js              # 工具函数（配置读取等）
+// 启动时恢复 + 越界检测
+restoreWindowBounds(windowId);
 ```
 
-添加新命令步骤：
-1. 在 `cli/commands/` 下创建新命令模块（如 `cookie.js`）
-2. 导出 `run(subcommand, options, positionals)` 函数
-3. 在 `bin/realm-cli.js` 的 `main()` 中添加路由
+### 跨窗口 Tab 拖拽
 
-添加容器子命令：
-1. 在 `cli/commands/container.js` 的 `run()` 函数中添加 case
-2. 实现对应函数
+**drag-coordinator.js** 实现：
+- 自定义 mousedown/mousemove/mouseup 事件（非 HTML5 DnD）
+- 状态机：idle -> dragging -> ended/cancelled
+- IPC 通道：drag:start/update-position/end/cancel/state-changed
 
-扩展字段读取：
-- `getFieldValue(container, field)` 函数支持从顶级属性或 `envVars` 按 key 查找
-- 添加新数据源只需修改此函数
+## 数据库架构
 
-## CLI 工具使用
+### 共享数据库：history.db
 
-全局命令行工具 `realm`，用于容器管理（无需启动 Electron 应用）。
+| 模块 | 表名 | 说明 |
+|------|------|------|
+| history-manager | `history_{containerId}` | 每容器独立历史记录表 |
+| favorites-manager | `favorites` | 全局收藏夹表（与容器解耦） |
+| download-manager | `downloads` | 下载记录表 |
+| credential-manager | `credentials` | 登录凭据表（safeStorage 加密） |
+| address-manager | `addresses` | 收货地址表（safeStorage 加密） |
 
-### 安装
+### 独立数据库
 
-```bash
-npm link  # 创建全局符号链接
+| 数据库 | 模块 | 说明 |
+|--------|------|------|
+| dev-requests.db | dev-requests-writer | CDP 抓取的网络请求记录 |
+
+### 关键特性
+
+- **FTS5 全文搜索**：favorites-manager 使用 nodejieba 中文分词
+- **fractional-indexing**：收藏夹拖拽排序
+- **FIFO 淘汰**：历史记录每容器上限 10000 杁
+- **frecency 算法**：常用网站按频率+最近性加权
+
+## realm:// 协议
+
+### 协议注册
+
+项目注册了 `realm://` 自定义协议（privileged scheme），支持以下内部页面：
+
+| 页面 | 路径 | 说明 |
+|------|------|------|
+| 新标签页 | `realm://newtab` | 常用网站网格、搜索 |
+| 历史记录 | `realm://history` | 日期分组、搜索过滤 |
+| 收藏夹 | `realm://favorites` | 文件夹树、拖拽排序 |
+| 设置 | `realm://settings` | 快捷键设置、规则管理 |
+| 下载 | `realm://downloads` | 下载内容列表 |
+| 开发者请求 | `realm://devrequests` | 网络请求监控 |
+
+### 数据获取方式
+
+内部页面通过本地 HTTP 服务器的 `/api/*` 端点获取数据（非直接 IPC）：
+
+```javascript
+// main.js
+const server = http.createServer((req, res) => {
+  if (req.url.startsWith('/api/history')) { ... }
+  if (req.url.startsWith('/api/favorites')) { ... }
+  // ...
+});
 ```
 
-### 基本命令
+## AI Agent 集成
 
-```bash
-realm help                          # 显示帮助
-realm version                       # 显示版本
-realm container list                # 列出所有容器
-realm container show <id>           # 显示容器详情
-```
+### ai-manager.js
 
-### 选项
+- 基于 pi-agent-core SDK
+- LLM 连接与对话管理
+- 工具注册与调用
+- 操作确认机制（requestActionConfirmation）
 
-```bash
---fields <field1,field2,...>        # 指定显示字段（逗号分隔）
---env, -e <dev|prod>                # 指定环境（默认：正式环境）
-```
+### cdp-manager.js
 
-### 使用示例
+- CDP 调试器管理
+- Network 域抓包
+- AI 工具调试器管理
 
-```bash
-# 列出容器（默认显示 ID、名称）
-realm container list
+### ua-ch-manager.js
 
-# 显示自定义字段（如 envVars 中的值）
-realm container list --fields phone,email,BILIBILI_NAME
+- UA Client Hints 覆盖
+- CDP Network.setUserAgentOverride
 
-# 开发环境
-realm container list -e dev
+## 媒体嗅探器
 
-# 组合使用
-realm container list --env dev --fields phone,email,notes
-```
+### media-sniffer.js
 
-### 字段查找逻辑
+三种检测方式：
+1. 网络拦截（webRequest）
+2. 脚本注入（executeJavaScript）
+3. DOM 监听（MutationObserver）
 
-`--fields` 支持从容器对象的任意字段读取值：
-1. 优先从顶级属性查找（如 `phone`, `email`, `notes`）
-2. 如果顶级属性不存在，从 `envVars` 数组中按 `key` 查找（如 `BILIBILI_NAME`）
-3. 对象/数组类型的值会显示为 JSON 字符串
+### 播放器页面
 
-### 本地开发测试
-
-```bash
-# 直接运行（不安装到全局）
-node bin/realm-cli.js container list
-node bin/realm-cli.js container list -e dev --fields phone
-```
+- `src/player.html` + `src/player.js` + `src/player.css`
+- 支持 HLS（hls.js）、DASH（dashjs）、FLV（mpegts.js）
+- 配置项在设置页面管理
 
 ## 环境隔离
 
