@@ -243,8 +243,8 @@ async function endDrag(sourceWindowId, data = {}) {
     const container = containerManagerRef.getContainer(tab.containerId);
     if (!container) return { success: false, action: 'cancelled' };
 
-    // 创建新窗口
-    const newWindow = windowManagerRef.createMainWindow(tab.containerId, container);
+    // 创建新窗口（相对于源窗口偏移位置）
+    const newWindow = windowManagerRef.createMainWindow(tab.containerId, container, { offsetPosition: true });
     if (!newWindow) return { success: false, action: 'cancelled' };
 
     // 在新窗口创建 Tab

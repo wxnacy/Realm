@@ -604,20 +604,20 @@ function addOpenInNewWindowOption(tabInfo, menu, mainWindow) {
 
 ## Open Questions
 
-1. **浮动预览窗口的具体实现方式**
+1. **浮动预览窗口的具体实现方式** (RESOLVED → Plan 36-03 Task 2)
    - What we know: D-30 决策要求 mini 卡片浮动窗口（200px 宽）
    - What's unclear: 是使用独立的 BrowserWindow 还是 DOM 元素模拟
-   - Recommendation: 优先使用 DOM 元素模拟（更简单），如果性能不行再考虑独立窗口
+   - Decision: 使用 DOM 元素模拟（Plan 36-03 Task 2 step 1 明确指定）
 
-2. **Tab 栏拖入高亮的精确样式**
+2. **Tab 栏拖入高亮的精确样式** (RESOLVED → Plan 36-03 Task 3)
    - What we know: D-31 要求插入位置线 + Tab 栏背景高亮
    - What's unclear: 高亮的具体颜色和动画
-   - Recommendation: 使用 rgba(59, 130, 246, 0.1) 作为背景高亮，200ms transition
+   - Decision: 使用 rgba(59, 130, 246, 0.1) 作为背景高亮，CSS transition 动画（UI-SPEC.md 已定义）
 
-3. **窗口位置持久化的存储 key 命名**
+3. **窗口位置持久化的存储 key 命名** (RESOLVED → Plan 36-01 Task 1)
    - What we know: electron-store 用于保存窗口 bounds
    - What's unclear: 具体的 key 命名和数据结构
-   - Recommendation: 使用 `windowBounds.${windowId}` 作为 key，保存 {x, y, width, height, isMaximized, displayId}
+   - Decision: 使用 `container-${containerId}` 作为 key，保存 {x, y, width, height, isMaximized, displayId}（Plan 36-01 Task 1 step 2）
 
 ## Environment Availability
 

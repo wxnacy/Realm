@@ -573,8 +573,8 @@ function createTabElement(tab) {
 
   // Tab 拖拽排序：dragstart 事件
   tabElement.addEventListener('dragstart', (e) => {
-    // 跨窗口拖拽激活时，阻止 HTML5 DnD（由自定义鼠标事件接管）
-    if (state.crossDrag.active) {
+    // 跨窗口拖拽激活或准备中时，阻止 HTML5 DnD（由自定义鼠标事件接管）
+    if (state.crossDrag.active || isCrossDragPending()) {
       e.preventDefault();
       return;
     }
@@ -741,9 +741,8 @@ async function switchTab(tabId) {
   // 切换 Tab 时刷新媒体列表（按 webview 级别隔离）
   loadMediaList();
 
-  // 切换 Tab 时更新窗口标题和颜色条
+  // 切换 Tab 时更新窗口标题
   updateWindowTitle();
-  updateWindowColorBar();
 }
 
 /**
@@ -765,31 +764,6 @@ function updateWindowTitle() {
     document.title = pageTitle;
   } else {
     document.title = `${container.name} - ${pageTitle}`;
-  }
-}
-
-/**
- * 更新窗口顶部容器颜色条
- * 默认容器时隐藏颜色条
- */
-function updateWindowColorBar() {
-  const colorBar = document.querySelector('.window-color-bar');
-  if (!colorBar) return;
-
-  const tab = state.tabs.get(state.activeTabId);
-  if (!tab) {
-    colorBar.classList.add('hidden');
-    return;
-  }
-
-  const container = state.containers.find(c => c.id === tab.containerId);
-
-  // 默认容器或无颜色时隐藏
-  if (!container || container.id === 'default' || !container.color) {
-    colorBar.classList.add('hidden');
-  } else {
-    colorBar.classList.remove('hidden');
-    colorBar.style.backgroundColor = container.color;
   }
 }
 
@@ -2459,14 +2433,8 @@ async function init() {
 
   console.log('[Realm Renderer] 初始化完成');
 
-  // 创建窗口颜色条元素（3px 容器颜色标识）
-  const colorBar = document.createElement('div');
-  colorBar.className = 'window-color-bar hidden';
-  document.body.prepend(colorBar);
-
-  // 初始化窗口标题和颜色条
+  // 初始化窗口标题
   updateWindowTitle();
-  updateWindowColorBar();
 
   // 初始化 AI 事件流监听
   handleAIStream();
@@ -2885,9 +2853,8 @@ function handleContainerSwitched(data) {
   // 创建新 Tab
   createTab(data.containerId);
 
-  // 容器切换后更新窗口标题和颜色条
+  // 容器切换后更新窗口标题
   updateWindowTitle();
-  updateWindowColorBar();
 }
 
 /**
@@ -8164,6 +8131,15 @@ function initTabDragAndDrop() {
       document.addEventListener('keydown', onCrossDragKeyDown, true);
       crossDragListenersAttached = true;
     }
+  }
+
+  /**
+   * 跨窗口拖拽：检查是否正在准备跨窗口拖拽
+   * 用于 dragstart 事件判断是否阻止 HTML5 DnD
+   * @returns {boolean} 是否正在准备跨窗口拖拽
+   */
+  function isCrossDragPending() {
+    return crossDragTabId !== null;
   }
 
   /**

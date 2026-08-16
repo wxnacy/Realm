@@ -325,12 +325,14 @@ function registerHandlers() {
   // ==================== Tab 管理 ====================
 
   /**
-   * 获取所有 Tab
-   * @returns {Array} Tab 数组
+   * 获取当前窗口的 Tab 列表
+   * 每个窗口只显示自己拥有的 Tab，不显示其他窗口的 Tab
+   * @returns {Array} 当前窗口的 Tab 数组
    */
   ipcMain.handle('tab:list', (event) => {
-    assertTrustedSender(event);
-    return tabManager.getTabs();
+    const win = assertTrustedSender(event);
+    if (!win) return [];
+    return tabManager.getTabsByWindowId(win.id);
   });
 
   /**
@@ -436,8 +438,8 @@ function registerHandlers() {
       return { success: false, error: '容器不存在' };
     }
 
-    // 创建新窗口
-    const newWindow = windowManager.createMainWindow(containerId, container);
+    // 创建新窗口（相对于源窗口偏移位置）
+    const newWindow = windowManager.createMainWindow(containerId, container, { offsetPosition: true });
     if (!newWindow) {
       return { success: false, error: '创建窗口失败' };
     }

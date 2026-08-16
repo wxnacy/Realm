@@ -7617,22 +7617,3 @@ textarea::placeholder {
 
 /* ==================== 窗口容器颜色条 ==================== */
 
-/**
- * 窗口顶部容器颜色条
- * 显示当前活动 Tab 对应容器的颜色标识
- * 默认容器或无颜色时隐藏
- */
-.window-color-bar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  z-index: 10000;
-  transition: background-color 0.2s ease;
-  pointer-events: none;
-}
-
-.window-color-bar.hidden {
-  display: none;
-}

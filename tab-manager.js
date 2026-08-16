@@ -201,6 +201,7 @@ function updateTab(tabId, updates) {
   if (updates.lastActiveAt !== undefined) tab.lastActiveAt = updates.lastActiveAt;
   if (updates.faviconUrl !== undefined) tab.faviconUrl = updates.faviconUrl;
   if (updates.pinned !== undefined) tab.pinned = updates.pinned;
+  if (updates.windowId !== undefined) tab.windowId = updates.windowId;
 
   saveTabs();
 

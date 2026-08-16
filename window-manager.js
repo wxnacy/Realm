@@ -122,9 +122,11 @@ function restoreWindowBounds(containerId) {
  * 创建主窗口
  * @param {string} containerId - 初始容器 ID
  * @param {Object} container - 容器配置对象（必须包含 session）
+ * @param {Object} [options] - 额外选项
+ * @param {boolean} [options.offsetPosition=false] - 是否相对于当前活动窗口偏移位置
  * @returns {BrowserWindow|undefined} 创建的窗口实例
  */
-function createMainWindow(containerId, container) {
+function createMainWindow(containerId, container, options = {}) {
   if (!container || !container.session) {
     console.error(`[Realm] 无效的容器配置: ${containerId}`);
     return undefined;
@@ -155,6 +157,14 @@ function createMainWindow(containerId, container) {
   if (restoredBounds) {
     windowOptions.x = restoredBounds.bounds.x;
     windowOptions.y = restoredBounds.bounds.y;
+  } else if (options.offsetPosition) {
+    // 新窗口相对于当前活动窗口偏移位置
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    if (focusedWindow && !focusedWindow.isDestroyed()) {
+      const bounds = focusedWindow.getBounds();
+      windowOptions.x = bounds.x + 30;
+      windowOptions.y = bounds.y + 30;
+    }
   }
 
   const mainWindow = new BrowserWindow(windowOptions);

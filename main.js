@@ -2691,11 +2691,10 @@ app.on('open-url', (event, url) => {
 });
 
 // 所有窗口关闭事件
+// macOS 上也直接退出（不保留后台），因为 Realm 浏览器不需要"关闭窗口后保留在 Dock"的行为
 app.on('window-all-closed', () => {
   console.log('[Realm] window-all-closed, quitting:', quitting, 'cookiesSaved:', cookiesSaved);
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  app.quit();
 });
 
 // 应用退出前保存所有容器的 Cookie（WR-6）

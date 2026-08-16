@@ -12,10 +12,10 @@ files_reviewed_list:
   - src/styles/main.css
   - window-manager.js
 findings:
-  critical: 3
-  warning: 5
-  info: 1
-  total: 9
+  critical: 1
+  warning: 4
+  info: 2
+  total: 7
 status: issues_found
 ---
 
@@ -28,192 +28,155 @@ status: issues_found
 
 ## Summary
 
-对 Phase 36（跨窗口 Tab 拖拽、浮动预览、窗口位置持久化）的 7 个源文件进行了标准深度审查。发现了 3 个关键缺陷和 5 个警告级别问题。
+Phase 36 实现了跨窗口 Tab 拖拽（Plan 03）、窗口位置持久化（Plan 01）等功能。上一轮审查发现的关键问题（CR-01 move-to-window 通知顺序、CR-02 new-window 通知顺序、WR-01 Escape 键处理、WR-04 序列号防乱序、WR-05 updateTab 返回值检查）均已在当前代码中修复。整体架构合理，拖拽协调器的状态机设计清晰，跨窗口移动的回滚机制到位。
 
-关键问题集中在：(1) `drag-coordinator.js` 的状态管理逻辑缺陷（`resetDragState` 在 `broadcastDragState` 之前调用导致广播空数据）；(2) `renderer.js` 中跨窗口拖拽鼠标松手时的逻辑判断错误（Tab 栏内松手会错误触发新建窗口）；(3) `main.js` 退出流程中 `windowContainerMap` 未导出导致 TypeError，使应用无法正常退出且 Cookie 无法保存。
+本轮发现 1 个新的关键问题：跨窗口拖拽的 5 个 IPC API 方法在 preload 中被错误地暴露在 `downloadAPI` 命名空间下，渲染进程通过 `window.realmAPI` 访问时会抛出 TypeError，导致跨窗口拖拽功能完全无法工作。另发现 4 个 Warning 级别问题和 2 个 Info 级别建议。
 
 ## Critical Issues
 
-### CR-01: `endDrag`/`cancelDrag` 在广播拖拽状态前已清空状态数据
+### CR-01: 跨窗口拖拽 API 暴露在错误的命名空间下，渲染进程调用会抛出 TypeError
 
-**File:** `drag-coordinator.js:229-232` 和 `drag-coordinator.js:319-320`
-**Issue:** `endDrag` 函数在第 229 行调用 `resetDragState()` 清空了 `dragState.tabId` 和 `dragState.sourceWindowId`（设为 null），然后在第 232 行调用 `broadcastDragState('ended')`。`broadcastDragState` 读取 `dragState` 的当前值（第 349-356 行），此时 `tabId` 和 `sourceWindowId` 已经是 null。同样的问题存在于 `cancelDrag`（第 319-320 行）。
+**File:** `src/preload.js:1317-1359`
+**Issue:** 跨窗口拖拽的 5 个 API 方法（`startDrag`、`updateDragPosition`、`endDrag`、`cancelDrag`、`onDragStateChanged`）被错误地放在 `downloadAPI` 命名空间下（`window.downloadAPI`），而非 `realmAPI` 命名空间。但渲染进程中所有调用都通过 `window.realmAPI.startDrag(...)` 等方式访问（`src/renderer.js:8198,8214,8267,8291,8393`）。
 
-这意味着目标窗口收到 `drag:state-changed` 事件时，`data.tabId` 和 `data.sourceWindowId` 为 null，无法正确清理拖拽高亮状态或执行依赖这些字段的逻辑。
-
-**Fix:**
-```javascript
-// drag-coordinator.js endDrag 函数，第 228-232 行
-// 修改前：
-resetDragState();
-broadcastDragState('ended');
-
-// 修改后：先广播，再清空
-broadcastDragState('ended');
-resetDragState();
-```
-
-```javascript
-// drag-coordinator.js cancelDrag 函数，第 319-320 行
-// 修改前：
-resetDragState();
-broadcastDragState('cancelled');
-
-// 修改后：
-broadcastDragState('cancelled');
-resetDragState();
-```
-
-### CR-02: Tab 栏内拖拽松手时默认回退为 `outOfTabBar: true`，错误触发创建新窗口
-
-**File:** `src/renderer.js:8277-8279`
-**Issue:** `onCrossDragMouseUp` 中，当跨窗口拖拽已激活但 `targetWindowId` 为 null 且 `outOfTabBar` 为 false 时（即鼠标仍在 Tab 栏内松手），代码回退到 `else` 分支并设置 `endData.outOfTabBar = true`：
-
-```javascript
-} else {
-  // 默认：超过阈值视为拖出
-  endData.outOfTabBar = true;
-}
-```
-
-这会导致在 Tab 栏内拖拽后松手时，主进程 `endDrag` 收到 `outOfTabBar: true`，执行 `action === 'new-window'` 逻辑——创建新窗口而非回滚到原位。
-
-实际上，当 `state.crossDrag.outOfTabBar === false` 且 `state.crossDrag.targetWindowId === null` 时，说明鼠标仍在源窗口 Tab 栏区域，正确的动作应该是取消拖拽（回滚）。
+运行时 `window.realmAPI.startDrag` 为 `undefined`，调用时会抛出 `TypeError: window.realmAPI.startDrag is not a function`，导致跨窗口拖拽功能完全无法工作。
 
 **Fix:**
+将 `startDrag`、`updateDragPosition`、`endDrag`、`cancelDrag`、`onDragStateChanged` 从 `downloadAPI` 块移动到 `realmAPI` 块中（在 `src/preload.js` 的 `contextBridge.exposeInMainWorld('realmAPI', {...})` 内部）。
+
 ```javascript
-// src/renderer.js 第 8277-8279 行
-// 修改前：
-} else {
-  // 默认：超过阈值视为拖出
-  endData.outOfTabBar = true;
-}
+// 在 realmAPI 块中添加（而非 downloadAPI 块中）
+// ==================== 跨窗口 Tab 拖拽（Phase 36 Plan 03） ====================
 
-// 修改后：
-} else {
-  // 鼠标仍在 Tab 栏内，取消拖拽
-  await window.realmAPI.cancelDrag();
-  resetCrossDragState();
-  crossDragTabId = null;
-  return;
-}
-```
+/**
+ * 通知主进程开始拖拽 Tab
+ * @param {string} tabId - 被拖拽的 Tab ID
+ * @returns {Promise<{success: boolean}>}
+ */
+startDrag: (tabId) => ipcRenderer.invoke('drag:start', tabId),
 
-### CR-03: `main.js` 退出流程中 `windowContainerMap` 未导出导致 TypeError，应用无法正常退出
+/**
+ * 更新拖拽鼠标位置
+ * @param {Object} position - { x, y, screenX, screenY }
+ * @returns {Promise<{success: boolean, outOfTabBar?: boolean, targetWindow?: Object|null}>}
+ */
+updateDragPosition: (position) => ipcRenderer.invoke('drag:update-position', position),
 
-**File:** `main.js:2736-2738`
-**Issue:** `main.js` 第 2736 行通过 `const { windowContainerMap } = require('./window-manager')` 获取 `windowContainerMap`，但 `window-manager.js` 的 `module.exports`（第 336-347 行）并未导出此 Map。解构结果为 `undefined`。
+/**
+ * 结束拖拽
+ * @param {Object} data - { targetWindowId?, outOfTabBar? }
+ * @returns {Promise<{success: boolean, action?: string}>}
+ */
+endDrag: (data) => ipcRenderer.invoke('drag:end', data),
 
-第 2737 行 `for (const [winId, containerId] of windowContainerMap)` 对 `undefined` 迭代会抛出 `TypeError: undefined is not iterable`。此代码位于 `before-quit` handler 中，在 `event.preventDefault()` 调用之后、`try...catch` 块之前。TypeError 会导致：
+/**
+ * 取消拖拽
+ * @returns {Promise<{success: boolean}>}
+ */
+cancelDrag: () => ipcRenderer.invoke('drag:cancel'),
 
-1. 应用退出流程被中断（`app.quit()` 永远不会被调用）
-2. Cookie 保存代码（`cookieManager.saveAllCookies()`）永远不会执行
-3. 应用卡死在退出状态（`event.preventDefault()` 已阻止默认退出，但后续代码崩溃）
-
-用户必须强制终止进程，且未保存的 Cookie 数据会丢失。
-
-**Fix:**
-```javascript
-// main.js 第 2736-2738 行
-// 修改前：
-const { windowContainerMap } = require('./window-manager');
-for (const [winId, containerId] of windowContainerMap) {
-  windowManager.saveWindowBounds(winId, containerId);
-}
-
-// 修改后（使用已有的 windowManager 引用）：
-const allWindows = require('electron').BrowserWindow.getAllWindows();
-for (const win of allWindows) {
-  const containerId = windowManager.getCurrentContainer(win.id);
-  if (containerId) {
-    windowManager.saveWindowBounds(win.id, containerId);
-  }
-}
-```
-
-或者在 `window-manager.js` 中导出 `windowContainerMap`：
-```javascript
-// window-manager.js module.exports 中添加：
-module.exports = {
-  // ...existing exports...
-  windowContainerMap,
-};
+/**
+ * 监听拖拽状态变化（主进程广播）
+ * @param {Function} callback - 回调函数
+ * @returns {Function} 取消监听函数
+ */
+onDragStateChanged: (callback) => {
+  const handler = (_event, data) => callback(data);
+  ipcRenderer.on('drag:state-changed', handler);
+  return () => ipcRenderer.removeListener('drag:state-changed', handler);
+},
 ```
 
 ## Warnings
 
-### WR-01: 跨窗口移动 Tab 时未验证目标窗口的容器兼容性
+### WR-01: mouseup 未移除 keydown 监听器，Escape 键处理在多次拖拽后失效
 
-**File:** `drag-coordinator.js:263-297`
-**Issue:** `endDrag` 的 `move-to-window` 路径将 Tab 移动到另一个窗口时，未检查目标窗口的容器是否与 Tab 的容器一致。如果 Tab 属于容器 A 而目标窗口运行容器 B，Tab 的 webview 会在错误的 Session 上下文中运行，导致 Cookie 隔离被破坏。
+**File:** `src/renderer.js:8240-8243`
+**Issue:** `onCrossDragMouseUp` 中移除了 `mousemove` 和 `mouseup` 监听器，但未移除 `keydown` 监听器（`onCrossDragKeyDown`）。`crossDragListenersAttached` 被设为 `false`，但 keydown 仍在监听。
 
-与 `new-window` 路径（第 239 行明确检查 `containerManagerRef.getContainer(tab.containerId)`）不同，`move-to-window` 路径直接将 Tab 移过去而不验证容器兼容性。
-
-**Fix:** 在移动 Tab 前检查目标窗口的容器是否与 Tab 的容器一致，或者在移动后更新 Tab 的容器上下文。
-
-### WR-02: `endDrag` 的 `move-to-window` 路径未验证 `parseInt` 结果
-
-**File:** `drag-coordinator.js:265`
-**Issue:** `const targetWindowId = parseInt(data.targetWindowId, 10);` 未检查结果是否为 `NaN`。如果 `data.targetWindowId` 不是有效数字字符串，`parseInt` 返回 `NaN`，`BrowserWindow.fromId(NaN)` 返回 `undefined`，虽然会被后续检查捕获，但属于防御性编程不足。
+后果：(1) 第一次拖拽后 keydown 监听器成为孤儿；(2) 第二次拖拽时 `onCrossDragMouseDown` 中 `crossDragListenersAttached === false`，重新绑定一个新的 keydown 监听器，旧的仍未清理——多次拖拽后 keydown 监听器累积；(3) 孤儿 keydown 监听器中的闭包引用旧的 `state.crossDrag` 状态，按 Escape 可能在非拖拽状态下调用 `cancelDrag`。
 
 **Fix:**
+在 `onCrossDragMouseUp` 中补充 keydown 移除：
+
 ```javascript
-const targetWindowId = parseInt(data.targetWindowId, 10);
-if (!Number.isFinite(targetWindowId)) {
-  return { success: false, action: 'cancelled' };
+async function onCrossDragMouseUp(e) {
+  // 清理全局监听器（三个都要移除）
+  document.removeEventListener('mousemove', onCrossDragMouseMove, true);
+  document.removeEventListener('mouseup', onCrossDragMouseUp, true);
+  document.removeEventListener('keydown', onCrossDragKeyDown, true);  // 添加此行
+  crossDragListenersAttached = false;
+  // ...
 }
 ```
 
-### WR-03: `preload.js` 中拖拽 API 放置在 `downloadAPI` 命名空间下
+### WR-02: `TAB_BAR_HEIGHT` 在两个模块中硬编码（38px），与 CSS 不同步风险
 
-**File:** `src/preload.js:1317-1360`
-**Issue:** 跨窗口 Tab 拖拽的 IPC 方法（`startDrag`、`updateDragPosition`、`endDrag`、`cancelDrag`、`onDragStateChanged`）被放在 `downloadAPI` 命名空间内。注释 `// ==================== 跨窗口 Tab 拖拽（Phase 36 Plan 03） ====================` 虽然标明了用途，但代码位于 `downloadAPI` 的 `contextBridge.exposeInMainWorld` 调用内部。
+**File:** `drag-coordinator.js:130`、`window-manager.js:314`
+**Issue:** `TAB_BAR_HEIGHT = 38` 在 `drag-coordinator.js` 和 `window-manager.js` 中分别硬编码。`EXIT_THRESHOLD = 30` 也是硬编码。如果 CSS 中 Tab 栏高度变更，必须同步修改三处（CSS + 两个 JS 文件），遗漏任何一处会导致拖拽检测区域偏移。
 
-这意味着渲染进程调用这些方法时使用 `window.downloadAPI.startDrag()` 而非语义上更合理的 `window.realmAPI.startDrag()`，容易造成维护困惑。
+**Fix:**
+将常量提取到共享模块或配置中，至少在两个文件中用相同注释标记互相关联：
 
-**Fix:** 将拖拽相关 API 移到 `realmAPI` 命名空间下，或创建独立的 `dragAPI` 命名空间。
-
-### WR-04: 浮动预览定位使用 `window.screenX/Y` 可能存在偏移
-
-**File:** `src/renderer.js:8121-8124`
-**Issue:** 浮动预览的坐标计算使用 `window.screenX` 和 `window.screenY` 将屏幕坐标转为窗口内坐标。但 `window.screenX/Y` 返回的是 BrowserWindow 的左上角坐标，而非 webContents（渲染区域）的左上角。窗口使用 `titleBarStyle: 'hiddenInset'`，标题栏区域会偏移渲染区域的起始位置。
-
-在 macOS `hiddenInset` 模式下，渲染区域的 Y 起始位置为 0（标题栏嵌入），`window.screenY` 与渲染区域的屏幕 Y 坐标一致。但水平方向上，`hiddenInset` 的交通灯按钮区域有额外 padding，可能导致预览位置在水平方向有微小偏移。
-
-**Fix:** 如需精确对齐，可使用 `window.screenLeft` 和 `window.outerHeight - window.innerHeight` 计算标题栏偏移，或使用 `webFrame.getZoomFactor()` 校正。
-
-### WR-05: `broadcastDragState` 在 `dragState.isDragging` 已被清空时仍广播
-
-**File:** `drag-coordinator.js:346-357`
-**Issue:** `broadcastDragState` 广播的 payload 中包含 `isDragging: dragState.isDragging`。在 `endDrag` 和 `cancelDrag` 中，`resetDragState()` 已将 `isDragging` 设为 false（CR-01 的伴生问题）。即使修复了 CR-01 的调用顺序，`broadcastDragState('ended')` 仍在 `resetDragState()` 之前调用，此时 `isDragging` 仍为 true。
-
-目标窗口收到 `drag:state-changed` 事件时，`data.isDragging` 的值取决于广播时机：`started` 时为 true，`ended`/`cancelled` 时在 CR-01 修复前为 false（因已 reset），修复后为 true（因未 reset）。
-
-建议 `broadcastDragState` 显式使用传入的 `eventType` 来判断拖拽是否结束，而非依赖 `isDragging` 字段。
-
-**Fix:** 在 `broadcastDragState` 中，`ended`/`cancelled` 事件类型的 `isDragging` 应始终为 false：
 ```javascript
-function broadcastDragState(eventType) {
-  if (!windowManagerRef) return;
-  windowManagerRef.broadcast('drag:state-changed', {
-    type: eventType,
-    tabId: dragState.tabId,
-    sourceWindowId: dragState.sourceWindowId,
-    screenX: dragState.screenX,
-    screenY: dragState.screenY,
-    isDragging: eventType === 'started',
-  });
+// 与 CSS .tab-bar height 和 window-manager.js:314 保持同步
+const TAB_BAR_HEIGHT = 38;
+```
+
+### WR-03: `updatePosition` 未校验 `position` 参数，畸形输入可导致 TypeError
+
+**File:** `drag-coordinator.js:180`
+**Issue:** `updatePosition(sourceWindowId, position)` 直接访问 `position.x`、`position.y`、`position.screenX`、`position.screenY`，未校验 `position` 是否为对象或是否包含这些属性。虽然渲染进程是受信来源（经 `assertTrustedSender`），但防御性编程应做基本校验。
+
+**Fix:**
+在函数入口添加参数校验：
+
+```javascript
+function updatePosition(sourceWindowId, position) {
+  if (!dragState.isDragging || dragState.sourceWindowId !== sourceWindowId) {
+    return { success: false };
+  }
+  if (!position || typeof position.screenX !== 'number' || typeof position.screenY !== 'number') {
+    return { success: false };
+  }
+  // ...
 }
+```
+
+### WR-04: `window:get-id` 未调用 `assertTrustedSender`
+
+**File:** `ipc-handlers.js:475-478`
+**Issue:** `window:get-id` handler 直接从 `event.sender` 获取 BrowserWindow，未调用 `assertTrustedSender` 校验。任何 webview guest 均可 invoke 获取 BrowserWindow.id。虽然 window ID 是数字、不是直接的安全凭证，但这与所有其他 handler 的信任校验模式不一致，应统一加固。
+
+**Fix:**
+```javascript
+ipcMain.handle('window:get-id', (event) => {
+  const win = assertTrustedSender(event);  // 统一校验
+  return win.id;
+});
 ```
 
 ## Info
 
-### IN-01: `drag-coordinator.js` 注释引用了不存在的 D-25/D-26/D-27/D-28/MW-02/MW-03 决策编号
+### IN-01: `endDrag` 中 action 判断逻辑可读性可优化
 
-**File:** `drag-coordinator.js:8,114,209`
-**Issue:** 文件头部注释引用了 `D-25, D-26`、函数注释引用了 `D-27, D-28`、`endDrag` 注释引用了 `MW-02, MW-03` 等决策编号。这些编号可能来自 Phase 36 的内部规划文档，但在此源文件中作为追溯引用时，如果规划文档未提交或编号变更，会造成维护困惑。
+**File:** `drag-coordinator.js:224`
+**Issue:** `const action = data.targetWindowId ? 'move-to-window' : (data.outOfTabBar ? 'new-window' : 'reorder');` 嵌套三元表达式可读性较差。
 
-**Fix:** 确保引用的决策文档存在于代码库中，或在注释中简述决策内容而非仅引用编号。
+**Fix:**
+```javascript
+let action = 'reorder';
+if (data.targetWindowId) {
+  action = 'move-to-window';
+} else if (data.outOfTabBar) {
+  action = 'new-window';
+}
+```
+
+### IN-02: CSS 中 `tab-drag-preview` 的 z-index 使用魔法数字 10000
+
+**File:** `src/styles/main.css:1557`
+**Issue:** `z-index: 10000` 是典型的魔法数字。建议定义 CSS 自定义变量 `--z-drag-preview` 或在样式表顶部定义 z-index 层级常量。
 
 ---
 
