@@ -2131,6 +2131,9 @@ async function init() {
     // 多媒体播放器开关初始化（per D-12）
     const mediaPlayerEnabled = settings.mediaPlayer && settings.mediaPlayer.enabled;
     updateMediaPlayerVisibility(mediaPlayerEnabled);
+
+    // 主题初始化（默认浅色）
+    applyTheme(settings.theme || 'light');
   } catch (err) {
     console.error('[Realm Renderer] 恢复 Sidebar 状态失败:', err);
     // 默认展开：移除 hidden
@@ -2405,17 +2408,41 @@ async function init() {
   // 初始化下载管理 UI
   initDownloads();
 
-  // 监听设置变更事件，实时刷新多媒体开关状态（closing UAT gap G-29-6）
+  // 监听设置变更事件
   window.realmAPI.onSettingsUpdated(async (changedKeys) => {
-    if (!changedKeys.some((key) => key.startsWith('mediaPlayer'))) return;
-    try {
-      const settings = await window.realmAPI.getSettings();
-      const mediaPlayerEnabled = settings.mediaPlayer && settings.mediaPlayer.enabled;
-      updateMediaPlayerVisibility(mediaPlayerEnabled);
-    } catch (err) {
-      console.warn('[Realm Renderer] 应用多媒体设置变更失败:', err.message);
+    // 主题变更
+    if (changedKeys.includes('theme')) {
+      try {
+        const settings = await window.realmAPI.getSettings();
+        applyTheme(settings.theme || 'light');
+      } catch (err) {
+        console.warn('[Realm Renderer] 应用主题设置变更失败:', err.message);
+      }
+    }
+    // 多媒体开关状态（closing UAT gap G-29-6）
+    if (changedKeys.some((key) => key.startsWith('mediaPlayer'))) {
+      try {
+        const settings = await window.realmAPI.getSettings();
+        const mediaPlayerEnabled = settings.mediaPlayer && settings.mediaPlayer.enabled;
+        updateMediaPlayerVisibility(mediaPlayerEnabled);
+      } catch (err) {
+        console.warn('[Realm Renderer] 应用多媒体设置变更失败:', err.message);
+      }
     }
   });
+}
+
+/**
+ * 应用主题
+ * @param {string} theme - 主题值：'light', 'dark', 'system'
+ */
+function applyTheme(theme) {
+  if (theme === 'system') {
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+  } else {
+    document.documentElement.dataset.theme = theme || 'light';
+  }
 }
 
 /**
