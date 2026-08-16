@@ -130,6 +130,16 @@
 
 **修复**: 在 `main.js` 的 Electron 导入中添加 `nativeTheme`。
 
+### 问题 6：窗口上/左/右露出 8px 底色缝
+
+**现象**: 窗口上、左、右三边露出几像素底色（深色主题露黑色、浅色主题露白色），UI 没有顶到窗口边缘。
+
+**原因**: CSS 结构错误。把 `:root` 拆成 `:root, [data-theme="dark"]` 和 `[data-theme="light"]` 两个块时，`--sidebar-width`、`--toolbar-height` 等约 50 行与主题无关的布局变量被遗留在任何选择器之外（顶层裸露声明 + 一个多余的 `}`），CSS 解析错误恢复机制把紧随其后的 `* { margin: 0; box-sizing: border-box }` 重置规则一并丢弃。body 退回 UA 默认 8px margin，窗口边缘露出 body/canvas 底色（`--bg-primary`）。同时所有布局变量失效（侧边栏宽度退化为 shrink-to-fit）。
+
+**排查方法**: 像素采样确认缝隙颜色等于 `--bg-primary`；playwright `_electron` 驱动 dev 应用实测 computed style，发现 body margin 为 UA 默认 8px、`var(--sidebar-width)` 未生效。
+
+**修复**: 把与主题无关的布局变量包进独立的 `:root {}` 块（`src/styles/main.css:41`），并加注释防止再被拆散。
+
 ## 涉及文件
 
 | 文件 | 修改内容 |
