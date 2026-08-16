@@ -310,6 +310,21 @@ function closeWindowWithTabs(windowId, tabManager) {
 }
 
 /**
+ * 获取当前存活的托管窗口数量
+ * 用于"关闭窗口最后一个 Tab 时是否销毁窗口"的判断：
+ * 仅剩一个窗口时保持创建新 Tab 的现行为，多窗口时才销毁
+ *
+ * @returns {number} 托管窗口数
+ */
+function getWindowCount() {
+  let count = 0;
+  for (const win of windows.values()) {
+    if (!win.isDestroyed()) count++;
+  }
+  return count;
+}
+
+/**
  * 查找指定屏幕坐标所在的托管窗口
  *
  * 遍历所有托管窗口，检查屏幕坐标是否落入窗口边界内。
@@ -352,6 +367,7 @@ module.exports = {
   isManagedWindow,
   broadcast,
   closeWindowWithTabs,
+  getWindowCount,
   saveWindowBounds,
   restoreWindowBounds,
   findWindowAtScreenPosition,

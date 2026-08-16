@@ -346,7 +346,13 @@ function registerHandlers() {
     if (!containerId || typeof containerId !== 'string') {
       throw new Error('无效的容器 ID');
     }
-    return tabManager.createTab(containerId, url);
+    // 必须归属到来源窗口：windowId 缺失会导致 getTabsByWindowId 漏算，
+    // 跨窗口移动后的"源窗口自动销毁"检查会把还有 Tab 的窗口误判为空（36-UAT 问题 8）
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win && win.isDestroyed()) {
+      throw new Error('来源窗口已销毁');
+    }
+    return tabManager.createTab(containerId, url, win ? win.id : null);
   });
 
   /**
@@ -389,7 +395,24 @@ function registerHandlers() {
     if (!tabId || typeof tabId !== 'string') {
       throw new Error('无效的 Tab ID');
     }
-    return tabManager.closeTab(tabId);
+    const result = tabManager.closeTab(tabId);
+
+    // 多窗口场景：关闭的是本窗口最后一个 Tab 且仍有其他窗口时，销毁本窗口
+    // （单窗口保持现行为：渲染进程创建新 Tab）。
+    // setImmediate 延迟销毁，让本 IPC 响应先回到渲染进程（携带 windowClosed 标记），
+    // 渲染进程据此跳过"创建新 Tab"的兜底逻辑
+    if (result.lastInWindow && windowManager.getWindowCount() > 1) {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (win && !win.isDestroyed()) {
+        result.windowClosed = true;
+        const winId = win.id;
+        setImmediate(() => {
+          windowManager.closeWindowWithTabs(winId, tabManager);
+        });
+      }
+    }
+
+    return result;
   });
 
   /**

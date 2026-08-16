@@ -2567,6 +2567,11 @@ app.whenReady().then(async () => {
   shortcutManager.registerShortcuts();
   const mainWindow = windowManager.createMainWindow('default', defaultContainer);
 
+  // 多窗口迁移：历史 windowId=null 及失效窗口的 Tab 归属主窗口（36-UAT 问题 8 关联修复）
+  if (mainWindow) {
+    tabManager.migrateWindowlessTabs(mainWindow.id, new Set([mainWindow.id]));
+  }
+
   // 注册窗口关闭处理器
   if (mainWindow) {
     setupWindowCloseHandler(mainWindow);
@@ -2664,6 +2669,8 @@ app.whenReady().then(async () => {
       shortcutManager.registerShortcuts();
       const mainWindow = windowManager.createMainWindow('default', defaultContainer);
       if (mainWindow) {
+        // 旧窗口已关闭，其 Tab 失去归属，收编到重建的主窗口
+        tabManager.migrateWindowlessTabs(mainWindow.id, new Set([mainWindow.id]));
         // 重建窗口后重新注册关闭处理器
         setupWindowCloseHandler(mainWindow);
         // 窗口位置持久化（Phase 36 Plan 01）

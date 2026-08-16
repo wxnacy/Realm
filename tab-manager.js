@@ -339,6 +339,48 @@ function getTabsByWindowId(windowId) {
 }
 
 /**
+ * 将无归属窗口的历史 Tab 迁移到指定窗口
+ *
+ * 两类无归属 Tab：
+ * 1. windowId 为 null/undefined：多窗口支持（Phase 36）之前创建的历史数据
+ * 2. windowId 指向已不存在的窗口：上次会话的多窗口 Tab 随会话保存，
+ *    重启后只创建主窗口，原窗口 ID 已失效（且窗口 ID 会被新会话复用，
+ *    不迁移的话这些 Tab 会被"撞号"的新窗口错误认领）
+ *
+ * 启动时创建主窗口后调用，把上述 Tab 统一归属主窗口（单窗口恢复语义）。
+ *
+ * @param {number} windowId - 主窗口 ID
+ * @param {Set<number>} [aliveWindowIds] - 当前存活窗口 ID 集合（启动时仅主窗口）
+ */
+function migrateWindowlessTabs(windowId, aliveWindowIds = null) {
+  const isOrphanWindow = (wid) =>
+    wid === null || wid === undefined
+    || (aliveWindowIds && wid !== windowId && !aliveWindowIds.has(wid));
+
+  let migrated = 0;
+  for (const tab of tabs.values()) {
+    if (isOrphanWindow(tab.windowId)) {
+      tab.windowId = windowId;
+      migrated++;
+    }
+  }
+
+  // 活动映射同步迁移：失效窗口的映射收编到主窗口（主窗口已有映射则丢弃）
+  for (const [wid, tabId] of Array.from(activeTabs.entries())) {
+    if (isOrphanWindow(wid)) {
+      activeTabs.delete(wid);
+      if (!activeTabs.has(windowId) && tabs.has(tabId)) {
+        activeTabs.set(windowId, tabId);
+      }
+    }
+  }
+
+  if (migrated > 0) {
+    console.log(`[Realm] ${migrated} 个历史 Tab 已归属到窗口 ${windowId}`);
+  }
+}
+
+/**
  * 关闭指定窗口的所有 Tab
  * 用于窗口关闭级联（D-16）
  * @param {number|null} windowId - 窗口 ID
@@ -420,6 +462,7 @@ module.exports = {
   getTab,
   getActiveTab,
   getTabsByWindowId,
+  migrateWindowlessTabs,
   createTab,
   switchTab,
   updateTab,

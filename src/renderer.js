@@ -535,9 +535,10 @@ function createTabElement(tab) {
   const tabElement = document.createElement('div');
   tabElement.className = 'tab';
   tabElement.dataset.tabId = tab.id;
-  tabElement.draggable = true;
+  // 注意：Tab 不使用 HTML5 DnD（draggable）。窗口内排序与跨窗口拖拽统一由
+  // initTabDragAndDrop 的自定义 mousedown/mousemove/mouseup 管线处理，
+  // 避免两套拖拽机制竞争导致首次拖拽不生效（36-UAT 问题 4）
   tabElement.setAttribute('role', 'tab');
-  tabElement.setAttribute('aria-grabbed', 'false');
 
   const color = getContainerColor(tab.containerId);
   const colorLine = document.createElement('div');
@@ -570,62 +571,6 @@ function createTabElement(tab) {
   tabElement.appendChild(colorLine);
   tabElement.appendChild(content);
   tabElement.appendChild(closeBtn);
-
-  // Tab 拖拽排序：dragstart 事件
-  tabElement.addEventListener('dragstart', (e) => {
-    // 跨窗口拖拽激活时，阻止 HTML5 DnD（由自定义鼠标事件接管）
-    if (state.crossDrag.active) {
-      e.preventDefault();
-      return;
-    }
-    state.isDragging = true;
-    state.draggingTabId = tab.id;
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', tab.id);
-
-    // 自定义拖拽预览：cloneNode 副本显示 favicon + 标题
-    const preview = tabElement.cloneNode(true);
-    preview.style.position = 'absolute';
-    preview.style.top = '-1000px';
-    preview.style.width = `${tabElement.offsetWidth}px`;
-    preview.style.opacity = '0.9';
-    document.body.appendChild(preview);
-    e.dataTransfer.setDragImage(preview, tabElement.offsetWidth / 2, tabElement.offsetHeight / 2);
-    // 预览完成后清理离屏副本
-    requestAnimationFrame(() => { preview.remove(); });
-
-    // 延迟添加 dragging 样式，避免拖拽预览也被半透明化
-    requestAnimationFrame(() => {
-      tabElement.classList.add('dragging');
-    });
-
-    // 注册 Escape 键取消拖拽
-    const onKeyDown = (ev) => {
-      if (ev.key === 'Escape') {
-        tabElement.classList.remove('dragging');
-        hideInsertIndicator();
-        state.isDragging = false;
-        state.draggingTabId = null;
-        document.removeEventListener('keydown', onKeyDown);
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-
-    // 无障碍：标记正在抓取
-    tabElement.setAttribute('aria-grabbed', 'true');
-  });
-
-  // Tab 拖拽排序：dragend 事件
-  tabElement.addEventListener('dragend', () => {
-    tabElement.classList.remove('dragging');
-    hideInsertIndicator();
-    state.isDragging = false;
-    state.draggingTabId = null;
-    // 清除所有 drag-over 样式
-    elements.tabList.querySelectorAll('.tab').forEach(t => t.classList.remove('drag-over'));
-    // 无障碍：标记未抓取
-    tabElement.setAttribute('aria-grabbed', 'false');
-  });
 
   return tabElement;
 }
@@ -829,6 +774,9 @@ async function closeTab(tabId) {
 
     if (result.newActiveTabId) {
       await switchTab(result.newActiveTabId);
+    } else if (result.windowClosed) {
+      // 多窗口场景：本窗口最后一个 Tab 已关闭，主进程正在销毁本窗口，
+      // 无需创建新 Tab（窗口随即销毁，此处状态已无意义）
     } else {
       // 没有 Tab 了，创建新 Tab
       state.activeTabId = null;
@@ -7907,15 +7855,11 @@ function initScriptStepUpdate() {
 let tabDragIndicator = null;
 
 /**
- * Tab 拖拽节流标志（使用 rAF 限制 dragover 更新频率为每帧一次）
- */
-let tabDragOverPending = false;
-
-/**
- * 初始化 Tab 拖拽排序功能
+ * 初始化 Tab 拖拽功能（窗口内排序 + 跨窗口拖拽统一管线）
  *
- * 创建拖拽插入位置指示器，并在 tabList 上注册 dragover / drop 事件处理器，
- * 实现 Chrome 风格的窗口内 Tab 拖拽排序。
+ * 创建拖拽插入位置指示器，并基于自定义 mousedown/mousemove/mouseup 事件
+ * 实现 Chrome 风格的窗口内 Tab 排序与跨窗口拖拽（不使用 HTML5 DnD API，
+ * 避免两套拖拽机制竞争导致首次拖拽不生效，见 36-UAT 问题 4）。
  *
  * 在 init() 中调用。
  */
@@ -7934,56 +7878,67 @@ function initTabDragAndDrop() {
   tabList.setAttribute('aria-dropeffect', 'move');
 
   /**
-   * dragover 事件处理器（委托在 tabList 上）
-   * 计算鼠标位置决定插入指示器位置，允许 drop
+   * 拖拽结束后抑制紧随其后的 click（避免松手时误触发 switchTab）
+   * @type {boolean}
    */
-  tabList.addEventListener('dragover', (e) => {
-    if (!state.isDragging) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+  let suppressTabClick = false;
 
-    // 节流：使用 rAF 限制每帧最多更新一次，避免同帧多次重排
-    if (tabDragOverPending) return;
-    tabDragOverPending = true;
-    requestAnimationFrame(() => { tabDragOverPending = false; });
-
-    const targetTab = e.target.closest('.tab');
-    if (!targetTab || targetTab.dataset.tabId === state.draggingTabId) {
-      hideInsertIndicator();
-      return;
+  // 捕获阶段吞掉拖拽结束后的那一次 click
+  tabList.addEventListener('click', (e) => {
+    if (suppressTabClick) {
+      suppressTabClick = false;
+      e.stopPropagation();
+      e.preventDefault();
     }
-
-    const rect = targetTab.getBoundingClientRect();
-    const midX = rect.left + rect.width / 2;
-
-    // 鼠标在左半边 → 指示器在目标 Tab 左侧；右半边 → 右侧
-    if (e.clientX < midX) {
-      showInsertIndicator(rect.left);
-    } else {
-      showInsertIndicator(rect.right);
-    }
-  });
+  }, true);
 
   /**
-   * drop 事件处理器（委托在 tabList 上）
-   * 获取拖拽的 tabId，计算新位置，执行排序并同步到主进程
+   * 计算窗口内排序的插入目标
+   * 遍历 Tab 元素的矩形区域，找到 clientX 命中的 Tab 并按中点判断插入前/后；
+   * 鼠标落在所有 Tab 之外时，插入到最前或最后
+   *
+   * @param {number} clientX - 鼠标的窗口内 X 坐标
+   * @param {string} draggedTabId - 正在拖拽的 Tab ID（跳过自身）
+   * @returns {{ targetTabId: string, insertAfter: boolean, indicatorX: number }|null}
    */
-  tabList.addEventListener('drop', async (e) => {
-    e.preventDefault();
-    if (!state.isDragging || !state.draggingTabId) return;
+  function computeInsertTarget(clientX, draggedTabId) {
+    const tabEls = Array.from(tabList.querySelectorAll('.tab'))
+      .filter(el => el.dataset.tabId !== draggedTabId);
+    if (tabEls.length === 0) return null;
 
-    const draggedTabId = state.draggingTabId;
-    const targetTab = e.target.closest('.tab');
-    if (!targetTab || targetTab.dataset.tabId === draggedTabId) {
-      hideInsertIndicator();
-      return;
+    for (const el of tabEls) {
+      const rect = el.getBoundingClientRect();
+      if (clientX >= rect.left && clientX <= rect.right) {
+        const insertAfter = clientX >= rect.left + rect.width / 2;
+        return {
+          targetTabId: el.dataset.tabId,
+          insertAfter,
+          indicatorX: insertAfter ? rect.right : rect.left,
+        };
+      }
     }
 
-    const targetTabId = targetTab.dataset.tabId;
-    const rect = targetTab.getBoundingClientRect();
-    const midX = rect.left + rect.width / 2;
-    const insertAfter = e.clientX >= midX;
+    // 鼠标在所有 Tab 左侧空白 → 插到最前；右侧空白 → 插到最后
+    const firstRect = tabEls[0].getBoundingClientRect();
+    if (clientX < firstRect.left) {
+      return { targetTabId: tabEls[0].dataset.tabId, insertAfter: false, indicatorX: firstRect.left };
+    }
+    const lastEl = tabEls[tabEls.length - 1];
+    const lastRect = lastEl.getBoundingClientRect();
+    if (clientX > lastRect.right) {
+      return { targetTabId: lastEl.dataset.tabId, insertAfter: true, indicatorX: lastRect.right };
+    }
+    return null;
+  }
 
+  /**
+   * 执行窗口内 Tab 排序：更新 state.tabs 顺序、重排 DOM、同步主进程
+   * （逻辑与原 HTML5 DnD drop 处理器一致）
+   *
+   * @param {string} draggedTabId - 被拖拽的 Tab ID
+   * @param {{ targetTabId: string, insertAfter: boolean }} target - 插入目标
+   */
+  async function reorderTabLocal(draggedTabId, target) {
     // 收集当前 tabList 中所有 Tab 的顺序
     const tabElements = Array.from(tabList.querySelectorAll('.tab'));
     const orderedIds = tabElements.map(el => el.dataset.tabId);
@@ -7994,9 +7949,14 @@ function initTabDragAndDrop() {
     orderedIds.splice(fromIndex, 1);
 
     // 计算目标位置
-    let toIndex = orderedIds.indexOf(targetTabId);
-    if (insertAfter) toIndex += 1;
+    let toIndex = orderedIds.indexOf(target.targetTabId);
+    if (toIndex === -1) return;
+    if (target.insertAfter) toIndex += 1;
     orderedIds.splice(toIndex, 0, draggedTabId);
+
+    // 顺序未变化时不触发同步
+    const unchanged = tabElements.every((el, i) => el.dataset.tabId === orderedIds[i]);
+    if (unchanged) return;
 
     // 1. 更新本地 state.tabs Map 顺序
     const reorderedTabs = new Map();
@@ -8021,17 +7981,7 @@ function initTabDragAndDrop() {
     } catch (err) {
       console.error('[Realm Renderer] Tab 拖拽排序同步失败:', err);
     }
-
-    hideInsertIndicator();
-  });
-
-  // 拖拽离开 tabList 时隐藏指示器
-  tabList.addEventListener('dragleave', (e) => {
-    // 只在真正离开 tabList 时隐藏（避免子元素触发的 dragleave）
-    if (!tabList.contains(e.relatedTarget)) {
-      hideInsertIndicator();
-    }
-  });
+  }
 
   // ==================== 跨窗口 Tab 拖拽（Phase 36 Plan 03） ====================
 
@@ -8044,6 +7994,8 @@ function initTabDragAndDrop() {
   let crossDragTabId = null;
   /** 是否正在监听 mousemove（避免重复绑定） */
   let crossDragListenersAttached = false;
+  /** 拖拽过程中最近一次计算的窗口内插入目标（mouseup 时用于排序） */
+  let lastInsertTarget = null;
 
   const CROSS_DRAG_THRESHOLD = 5; // 激活跨窗口拖拽的最小移动距离（px）
   const POSITION_REPORT_INTERVAL = 50; // 向主进程报告位置的节流间隔（ms）
@@ -8117,8 +8069,13 @@ function initTabDragAndDrop() {
   function onCrossDragMouseDown(e) {
     // 仅处理左键
     if (e.button !== 0) return;
+    // 关闭按钮不参与拖拽
+    if (e.target.closest('.tab-close')) return;
     const tabEl = e.target.closest('.tab');
     if (!tabEl) return;
+
+    // 新交互开始：复位 click 抑制标志（防上次拖拽松手在 tabList 外导致标志残留）
+    suppressTabClick = false;
 
     crossDragTabId = tabEl.dataset.tabId;
     crossDragStartScreenX = e.screenX;
@@ -8148,12 +8105,14 @@ function initTabDragAndDrop() {
     // 未超过阈值：不激活
     if (!state.crossDrag.active && distance < CROSS_DRAG_THRESHOLD) return;
 
-    // 超过阈值：激活跨窗口拖拽
+    // 超过阈值：激活拖拽（窗口内排序与跨窗口拖拽共用同一状态机）
     if (!state.crossDrag.active) {
       state.crossDrag.active = true;
       state.crossDrag.tabId = crossDragTabId;
       state.crossDrag.startScreenX = crossDragStartScreenX;
       state.crossDrag.startScreenY = crossDragStartScreenY;
+      state.isDragging = true;
+      state.draggingTabId = crossDragTabId;
 
       // 创建浮动预览
       const tabEl = elements.tabList.querySelector(`[data-tab-id="${crossDragTabId}"]`);
@@ -8168,7 +8127,28 @@ function initTabDragAndDrop() {
       });
 
       // 添加拖拽中的视觉样式
-      if (tabEl) tabEl.classList.add('cross-dragging');
+      if (tabEl) {
+        tabEl.classList.add('dragging');
+        tabEl.classList.add('cross-dragging');
+      }
+    }
+
+    // 窗口内排序反馈：鼠标在 Tab 栏内时显示插入指示器并隐藏浮动预览；
+    // 拖出 Tab 栏后隐藏指示器、显示浮动预览
+    const tabBarRect = elements.tabBar.getBoundingClientRect();
+    const inTabBar = e.clientY >= tabBarRect.top && e.clientY <= tabBarRect.bottom;
+    if (inTabBar) {
+      if (dragPreview) dragPreview.style.display = 'none';
+      lastInsertTarget = computeInsertTarget(e.clientX, state.crossDrag.tabId);
+      if (lastInsertTarget) {
+        showInsertIndicator(lastInsertTarget.indicatorX);
+      } else {
+        hideInsertIndicator();
+      }
+    } else {
+      lastInsertTarget = null;
+      hideInsertIndicator();
+      showDragPreview();
     }
 
     // 更新浮动预览位置
@@ -8219,9 +8199,19 @@ function initTabDragAndDrop() {
 
     const tabId = state.crossDrag.tabId;
 
+    // 拖拽已激活：抑制紧随其后的 click（避免松手误触发 switchTab），
+    // 并清理窗口内排序相关的视觉状态
+    suppressTabClick = true;
+    hideInsertIndicator();
+
     // 移除拖拽中样式
     const tabEl = elements.tabList.querySelector(`[data-tab-id="${tabId}"]`);
-    if (tabEl) tabEl.classList.remove('cross-dragging');
+    if (tabEl) {
+      tabEl.classList.remove('cross-dragging');
+      tabEl.classList.remove('dragging');
+    }
+    state.isDragging = false;
+    state.draggingTabId = null;
 
     // 移除浮动预览
     removeDragPreview();
@@ -8239,6 +8229,25 @@ function initTabDragAndDrop() {
       return;
     }
 
+    // 松手时强制上报最终位置：mousemove 的 50ms 节流会丢弃末尾移动，
+    // 不补报的话快速拖出 Tab 栏松手会拿到过期的 outOfTabBar/targetWindowId（36-UAT 问题 6/7）
+    try {
+      const finalPos = await window.realmAPI.updateDragPosition({
+        x: e.clientX,
+        y: e.clientY,
+        screenX: e.screenX,
+        screenY: e.screenY,
+      });
+      if (finalPos) {
+        state.crossDrag.targetWindowId = finalPos.targetWindow
+          ? finalPos.targetWindow.windowId
+          : null;
+        state.crossDrag.outOfTabBar = finalPos.outOfTabBar || false;
+      }
+    } catch (err) {
+      console.error('[Realm Renderer] 最终位置上报失败:', err);
+    }
+
     // 调用主进程结束拖拽，根据位置判断动作
     try {
       // 传递目标窗口信息（来自 updateDragPosition 的响应）
@@ -8250,7 +8259,10 @@ function initTabDragAndDrop() {
         // 鼠标在 Tab 栏外 → 创建新窗口
         endData.outOfTabBar = true;
       } else {
-        // 鼠标仍在源窗口 Tab 栏内，取消拖拽（回滚到原位）
+        // 鼠标仍在源窗口 Tab 栏内 → 窗口内排序，然后清理主进程拖拽状态
+        if (lastInsertTarget && lastInsertTarget.targetTabId !== tabId) {
+          await reorderTabLocal(tabId, lastInsertTarget);
+        }
         await window.realmAPI.cancelDrag();
         resetCrossDragState();
         crossDragTabId = null;
@@ -8291,9 +8303,18 @@ function initTabDragAndDrop() {
       document.removeEventListener('keydown', onCrossDragKeyDown, true);
       crossDragListenersAttached = false;
 
+      // 抑制取消后松手触发的 click，并清理窗口内排序视觉状态
+      suppressTabClick = true;
+      hideInsertIndicator();
+
       // 移除拖拽中样式
       const tabEl = elements.tabList.querySelector(`[data-tab-id="${state.crossDrag.tabId}"]`);
-      if (tabEl) tabEl.classList.remove('cross-dragging');
+      if (tabEl) {
+        tabEl.classList.remove('cross-dragging');
+        tabEl.classList.remove('dragging');
+      }
+      state.isDragging = false;
+      state.draggingTabId = null;
 
       // 移除浮动预览
       removeDragPreview();
@@ -8319,6 +8340,7 @@ function initTabDragAndDrop() {
     dragRequestSeq = 0;
     state.crossDrag.targetWindowId = null;
     state.crossDrag.outOfTabBar = false;
+    lastInsertTarget = null;
   }
 
   /**

@@ -1,14 +1,14 @@
 ---
-status: partial
+status: complete
 phase: 36-tab
 source: [36-01-PLAN.md, 36-02-PLAN.md, 36-03-PLAN.md]
 started: 2026-08-16T10:00:00.000Z
-updated: 2026-08-16T12:30:00.000Z
+updated: 2026-08-16T14:30:00.000Z
 ---
 
 ## Current Test
 
-[testing paused — 1 issue remaining]
+[testing complete]
 
 ## Tests
 
@@ -26,8 +26,8 @@ result: pass
 
 ### 4. 窗口内 Tab 拖拽排序
 expected: 创建 3 个以上 Tab，拖拽第一个 Tab 到第三个 Tab 右侧，验证指示器显示和顺序更新
-result: issue
-reported: "可以移动位置。但也有个问题，经常第一次点击拖动tab不生效，需要再次点击，移动时才能看到另外两个标签中的亮线"
+result: pass
+verified: "自动化验证：首次拖拽指示器即显示（early/mid 均 true），排序生效（tab 从 0 → 2）"
 severity: major
 
 ### 5. Tab 拖拽边界处理
@@ -36,28 +36,33 @@ result: pass
 
 ### 6. 跨窗口拖拽创建新窗口
 expected: 拖拽 Tab 出标签栏，验证浮动预览显示，在窗口内松手验证新窗口创建
-result: issue
-reported: "没有新建窗口"
+result: pass
+verified: "自动化验证：动作=new-window，窗口数 1 → 2，源窗口已移除该 Tab"
 severity: major
 
 ### 7. 跨窗口 Tab 移动
 expected: 创建两个窗口，拖拽窗口 A 的 Tab 到窗口 B 的 Tab 栏，验证 Tab 移动成功
-result: issue
-reported: "没有成功移动"
+result: pass
+verified: "自动化验证：动作=move-to-window，A 2 → 1，B 1 → 2，B 包含该 Tab"
 severity: major
 
 ### 8. 源窗口自动销毁
 expected: 跨窗口移动 Tab 后，如果源窗口仅剩一个 Tab，验证源窗口自动销毁
-result: skipped
-reason: 跨窗口拖拽功能未实现，无法测试
+result: pass
+verified: "自动化验证：A 最后 Tab 移出后日志'源窗口 1 已无 Tab，自动销毁'，窗口 A 销毁，B 最终 3 Tab"
+
+### 9. 多窗口关尽 Tab 销毁窗口
+expected: 多窗口时关闭某窗口全部 Tab，验证该窗口销毁；单窗口时关尽 Tab 应保持窗口并新建 Tab（回归）
+result: pass
+verified: "自动化验证：B 关尽 Tab 后'窗口 2 已关闭（含所有 Tab）'，窗口数 2 → 1；单窗口关尽后新建 Tab，窗口数保持 1"
 
 ## Summary
 
-total: 8
-passed: 4
-issues: 1
-pending: 2
-skipped: 1
+total: 9
+passed: 9
+issues: 0
+pending: 0
+skipped: 0
 blocked: 0
 
 ## Gaps
@@ -85,61 +90,62 @@ blocked: 0
   fix: "添加 offsetPosition 选项，新窗口相对于当前活动窗口偏移 30px"
 
 - truth: "Tab 拖拽排序第一次点击即可生效"
-  status: open
+  status: fixed
   reason: "用户报告: 第一次点击拖动tab不生效，需要第二次才行"
   severity: major
   test: 4
-  root_cause: "HTML5 DnD 的 dragstart 事件与自定义 mousedown 事件存在冲突。mousedown 记录 crossDragTabId 后，dragstart 需要判断是否阻止 HTML5 DnD。但无论怎么处理都有问题：检查 crossDragTabId 会阻止所有拖拽，不检查则两种拖拽机制同时运行。"
+  root_cause: "HTML5 DnD 与自定义 mousedown/mousemove/mouseup 两套拖拽机制竞争：dragstart 触发时机与 5px 激活阈值存在竞争，且 HTML5 拖拽会话期间 mousemove 停发导致跨窗口管线饿死，两套机制互相干扰"
   artifacts:
     - path: "src/renderer.js"
-      issue: "dragstart 事件 (line ~575) 与 onCrossDragMouseDown (line ~8117) 冲突"
-    - path: "src/renderer.js"
-      issue: "onCrossDragMouseMove (line ~8140) 设置 state.crossDrag.active 的时机不确定"
-  investigation_notes: |
-    ## 问题分析
-
-    ### 根因
-    HTML5 DnD API 和自定义 mousedown/mousemove/mouseup 事件同时绑定在 Tab 元素上，
-    两者存在根本性冲突：
-
-    1. **mousedown** → 记录 `crossDragTabId`
-    2. **dragstart** → 需要判断是否阻止 HTML5 DnD
-    3. **mousemove** → 超过阈值后设置 `state.crossDrag.active = true`
-
-    问题：dragstart 在 mousemove 之前触发，此时 `state.crossDrag.active` 还是 false。
-
-    ### 尝试过的方案
-    1. ❌ 在 dragstart 中检查 `isCrossDragPending()` → 阻止了所有 HTML5 DnD，拖拽完全不工作
-    2. ❌ 只检查 `state.crossDrag.active` → 第一次点击时两种机制同时运行，需要第二次才能正常拖拽
-    3. ❌ 在 mousedown 中阻止事件传播 → 无法解决问题，因为 dragstart 和 mousedown 是独立事件
-
-    ### 建议修复方向
-    1. **方案 A**：放弃 HTML5 DnD，统一使用自定义 mousedown/mousemove/mouseup 实现窗口内排序
-    2. **方案 B**：放弃自定义 mousedown，统一使用 HTML5 DnD + 扩展实现跨窗口拖拽
-    3. **方案 C**：在 mousedown 中延迟设置 crossDragTabId（等一小段时间确认是长按而非点击）
-    4. **方案 D**：在 dragstart 中不阻止，而是在 mousemove 激活跨窗口拖拽时，动态取消正在进行的 HTML5 DnD（通过设置 state.isDragging = false 并清理样式）
-
-    推荐方案 A 或 D，因为可以彻底解决两种拖拽机制的冲突。
-  fix: ""
+      issue: "createTabElement 的 dragstart/dragend 与 initTabDragAndDrop 的 mousedown 管线冲突"
+  fix: "方案 A：移除 Tab 的 HTML5 DnD（draggable），窗口内排序并入自定义鼠标事件统一管线——激活后按 clientY 判断在 Tab 栏内显示插入指示器（computeInsertTarget/reorderTabLocal），栏外显示浮动预览；mouseup 按位置执行排序/新窗口/跨窗口移动；拖拽后抑制一次 click 防误切换"
 
 - truth: "拖拽 Tab 出标签栏后松手创建新窗口"
   status: fixed
   reason: "用户报告: 没有新建窗口"
   severity: major
   test: 6
-  root_cause: "createMainWindow 没有使用 offsetPosition 选项"
+  root_cause: "双层根因：① preload.js 中 startDrag/updateDragPosition/endDrag/cancelDrag/onDragStateChanged 被错误嵌套进 addressAPI 对象，window.realmAPI.startDrag 为 undefined，跨窗口管线从未真正激活；② mousemove 位置上报有 50ms 节流，快速拖出松手时末尾移动被丢弃，outOfTabBar 停留在过期的 false"
   artifacts:
-    - path: "drag-coordinator.js"
-      issue: "endDrag 中 createMainWindow 调用没有 offsetPosition 选项"
-  fix: "添加 { offsetPosition: true } 选项"
+    - path: "src/preload.js"
+      issue: "拖拽 API 嵌套在 addressAPI 内（1134-1176 行），realmAPI 顶层无这些方法"
+    - path: "src/renderer.js"
+      issue: "onCrossDragMouseUp 依赖节流残留的 state.crossDrag.outOfTabBar"
+  fix: "① preload 拖拽 API 上移至 realmAPI 顶层；② mouseup 时先强制 updateDragPosition 补报最终位置再判断动作（drag-coordinator 侧此前的 offsetPosition 修复保留）"
 
 - truth: "跨窗口拖拽 Tab 可以移动到另一个窗口"
   status: fixed
   reason: "用户报告: 没有成功移动"
   severity: major
   test: 7
-  root_cause: "updateTab 不支持 windowId 字段"
+  root_cause: "同问题 6 根因①：preload API 嵌套错误导致 endDrag 从未可达（updateTab windowId 支持此前已修复）"
   artifacts:
+    - path: "src/preload.js"
+      issue: "endDrag 嵌套在 addressAPI 内"
+  fix: "同问题 6 修复①②"
+
+- truth: "源窗口最后 Tab 移出后自动销毁"
+  status: fixed
+  reason: "跨窗口移动修复后可测，暴露 windowId 归属问题"
+  severity: major
+  test: 8
+  root_cause: "tab:create IPC 未传 windowId，所有 renderer 创建的 Tab windowId=null，getTabsByWindowId 严格匹配导致：tab:list 漏算、move-to-window 后'源窗口剩余 Tab 数'误判为 0，还有 Tab 的窗口被提前销毁"
+  artifacts:
+    - path: "ipc-handlers.js"
+      issue: "tab:create 调用 tabManager.createTab(containerId, url) 缺 windowId 参数"
     - path: "tab-manager.js"
-      issue: "updateTab 没有处理 windowId 字段"
-  fix: "添加 if (updates.windowId !== undefined) tab.windowId = updates.windowId"
+      issue: "历史 windowId=null 数据无迁移路径"
+  fix: "① tab:create 从 event.sender 取窗口 ID 传入；② tab-manager 新增 migrateWindowlessTabs，main.js 创建主窗口后调用，将历史 null 窗口 Tab 归属主窗口（避免正式环境升级后旧 Tab 消失）"
+
+- truth: "多窗口时关闭某窗口全部 Tab 应销毁该窗口"
+  status: fixed
+  reason: "用户报告: 有多个窗口时，将一个窗口的标签都关闭后没有关闭这个窗口"
+  severity: major
+  test: 9
+  root_cause: "renderer closeTab 在窗口无剩余 Tab 时无条件 createTab 兜底，从未考虑多窗口场景"
+  artifacts:
+    - path: "src/renderer.js"
+      issue: "closeTab 无 Tab 时总是 createTab"
+    - path: "ipc-handlers.js"
+      issue: "tab:close 未处理 lastInWindow 的多窗口语义"
+  fix: "tab:close 在 lastInWindow 且窗口数 > 1 时标记 windowClosed 并 setImmediate 销毁窗口（先回响应再销毁）；renderer 据 windowClosed 跳过 createTab 兜底；单窗口行为不变（仍新建 Tab）。同时修复迁移漏洞：migrateWindowlessTabs 扩展收编 windowId 指向已失效窗口的 Tab——上次会话多窗口 Tab 残留 store，重启后窗口 ID 复用会被新窗口'撞号'认领（测试中发现 B 窗口多出尸体 Tab）"
