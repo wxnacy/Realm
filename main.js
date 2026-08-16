@@ -987,6 +987,17 @@ app.whenReady().then(async () => {
         // 设置页在 webview 内通过 HTTP 写入，主进程需主动通知所有窗口 renderer 刷新（closing UAT gap G-29-6）
         const changedKeys = Object.keys(updates);
         windowManager.broadcast('settings:updated', changedKeys);
+        // 同步主题到 nativeTheme（影响 DevTools 主题）
+        if (changedKeys.includes('theme')) {
+          const theme = updates.theme;
+          if (theme === 'system') {
+            nativeTheme.themeSource = 'system';
+          } else if (theme === 'dark') {
+            nativeTheme.themeSource = 'dark';
+          } else {
+            nativeTheme.themeSource = 'light';
+          }
+        }
         sendJson(res, 200, { success: true });
         return;
       }
@@ -2577,6 +2588,17 @@ app.whenReady().then(async () => {
 
   // 获取默认容器并创建主窗口
   const defaultContainer = containerManager.getContainer('default');
+
+  // 初始化主题设置（影响 DevTools 主题）
+  const initTheme = configStore.get('settings.theme', 'light');
+  if (initTheme === 'system') {
+    nativeTheme.themeSource = 'system';
+  } else if (initTheme === 'dark') {
+    nativeTheme.themeSource = 'dark';
+  } else {
+    nativeTheme.themeSource = 'light';
+  }
+
   // 先注册快捷键（设置 web-contents-created 监听器）
   // 再创建主窗口（此时监听器已就绪，主窗口 webContents 会被自动挂载 attachInputListener）
   shortcutManager.registerShortcuts();
