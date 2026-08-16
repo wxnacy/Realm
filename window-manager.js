@@ -132,8 +132,8 @@ function createMainWindow(containerId, container, options = {}) {
     return undefined;
   }
 
-  // 尝试恢复上次窗口位置
-  const restoredBounds = restoreWindowBounds(containerId);
+  // 尝试恢复上次窗口位置（仅在非偏移模式下恢复）
+  const restoredBounds = options.offsetPosition ? null : restoreWindowBounds(containerId);
 
   const windowOptions = {
     width: restoredBounds ? restoredBounds.bounds.width : 1400,

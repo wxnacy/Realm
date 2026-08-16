@@ -416,6 +416,10 @@ function registerHandlers() {
   /**
    * 在新窗口中打开 Tab
    * 右键菜单"在新窗口中打开"或拖拽场景调用
+   *
+   * 时序要求：必须等待新窗口加载完成后再创建 Tab，
+   * 否则新窗口的 restoreTabs() 会因为没有 Tab 而创建额外的 Tab。
+   *
    * @param {string} tabId - 源 Tab ID
    * @param {Object} [options] - 选项
    * @param {boolean} [options.move=false] - 是否移动（true=从源窗口移除，false=保留原 Tab）
@@ -443,6 +447,12 @@ function registerHandlers() {
     if (!newWindow) {
       return { success: false, error: '创建窗口失败' };
     }
+
+    // 等待新窗口加载完成后再创建 Tab
+    // 避免时序问题：新窗口 init() → restoreTabs() 在 Tab 创建之前执行
+    await new Promise((resolve) => {
+      newWindow.webContents.once('did-finish-load', resolve);
+    });
 
     // 在新窗口创建 Tab
     const newTab = tabManager.createTab(containerId, sourceTab.url, newWindow.id);
