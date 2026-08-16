@@ -115,17 +115,29 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ PANEL-01~05: 媒体面板（浮动层 + 类型徽标列表 + 播放/复制 + 数量徽标 + 实时更新） — Phase 27
 - ✓ PLAYER-01~10: 独立播放器窗口（无边框 + HLS/MP4/MPEGTS 播放 + 完整控制 + 画中画 + 播放列表 + Session 隔离 + 资源释放） — Phase 28
 - ✓ SC-01~05: 多媒体播放器设置控制（功能开关 + 域名白名单 + webRequest/注入双路径过滤 + 实时广播） — Phase 29
+- ✓ MW-01: 用户可以通过 Dock 右击菜单新建窗口 — v2.4
+- ✓ MW-02: 用户可以拖拽标签页出窗口，创建新窗口 — v2.4
+- ✓ MW-03: 用户可以在窗口间拖拽标签页 — v2.4
+- ✓ MW-04: 用户可以拖拽标签改变顺序 — v2.4
+- ✓ MW-05: 窗口间拖拽标签时，源窗口仅剩一个标签则自动销毁 — v2.4
+- ✓ MW-06: 窗口位置和大小在重启后恢复 — v2.4
+- ✓ MW-07: 新建窗口时继承源窗口的容器上下文 — v2.4
+- ✓ MW-08: 用户可以使用 Cmd+N 快捷键新建窗口 — v2.4
+- ✓ MW-09: 用户可以使用 Cmd+Shift+W 关闭当前窗口 — v2.4
+- ✓ MW-10: 多窗口时窗口间焦点切换正常工作 — v2.4
+- ✓ MW-11: 右键菜单添加"在新窗口中打开"选项 — v2.4
+- ✓ MW-12: 窗口标题栏显示当前容器名称 — v2.4
+- ✓ MW-13: 窗口标题栏/工具栏显示容器颜色标识 — v2.4
 
 ### Active
 
-<!-- 当前需要构建的功能（v2.4 里程碑） -->
+<!-- 当前需要构建的功能（v2.5 里程碑） -->
 
-- MW-01: 用户可以通过 Dock 右击菜单新建窗口 — v2.4
-- MW-02: 用户可以拖拽标签页出窗口，创建新窗口 — v2.4
-- MW-03: 用户可以在窗口间拖拽标签页 — v2.4
-- MW-04: 用户可以拖拽标签改变顺序 — v2.4
-- MW-05: 窗口间拖拽标签时，源窗口仅剩一个标签则自动销毁 — v2.4
-- MW-06: Chrome 其他多窗口基本功能（待调研确认） — v2.4
+- 边播边缓存 (Deferred from v2.3)
+- 增强功能 (ENH-01~06: 截图/画中画/播放列表/字幕/DASH/RTMP)
+- 书签导出
+- 全屏模式
+- 无痕/隐私浏览
 
 ### Out of Scope
 
@@ -137,23 +149,16 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - **收藏栏多行显示** — 仅支持单行显示
 - **DASH (.mpd) 播放** — v2.2 暂缓：嗅探/renderer/CSS 已补 dash 支持但复验仍失败，二层根因未诊断（UAT G-28-2，2026-08-08 用户决定，走 /gsd-plan-phase 28 --gaps 续查）
 
-## Current Milestone: v2.4 多窗口支持
+## Current Milestone: v2.5 (Planned)
 
-**Goal:** 支持多窗口操作，提升多任务处理效率
-
-**Target features:**
-- Dock 右击"新建窗口"按钮
-- 标签页拖拽出窗口
-- 窗口间标签拖拽（源窗口仅剩一个标签时自动销毁）
-- 标签拖拽改变顺序
-- Chrome 其他多窗口基本功能（待调研）
+**Goal:** 待规划
 
 ## Current State
 
-**Shipped:** v2.3 (2026-08-14)
-- 33 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0 + 4 v2.1 + 4 v2.2 + 4 v2.3)
+**Shipped:** v2.4 (2026-08-16)
+- 36 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0 + 4 v2.1 + 4 v2.2 + 4 v2.3 + 3 v2.4)
 - 所有里程碑已完成归档
-- v2.3 Phase 30-33 complete — 下载管理器 + 自动填充（凭据+地址）
+- v2.4 Phase 34-36 complete — 多窗口支持（窗口管理 + Tab 拖拽 + 跨窗口移动）
 - 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core + nodejieba
 
 **Key features delivered:**
@@ -178,17 +183,17 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - 跨窗口 Tab 拖拽（DragCoordinator + 自定义鼠标事件 + 浮动预览 + 新窗口创建）
 - 窗口位置持久化（electron-store + 越界检测 + 多显示器支持）
 - 右键菜单"在新窗口中打开"（move/copy 模式）
+- 多窗口架构（windowManager Map + Set 双重注册 + broadcast 广播）
 
 **Known gaps:**
-- 20 个已诊断 debug session 未修复（从 v2.0-v2.2 延续）
-- 2 个 UAT 状态标记（Phase 27 completed, Phase 29 diagnosed，0 个待处理场景）
-- Phase 23 代码审查遗留 19 项（6 Critical），详见 `.planning/phases/23-context-reference/23-REVIEW.md`
+- 20 个 debug session（18 个已 fixed，2 个 unknown — container-delete-partitions 和 whitelist-bypass-script-injection 已确认修复待 UAT 回归）
+- 2 个 Verification gaps（Phase 30 和 Phase 35 需 human 验证）
 
-**Current milestone:** v2.4 多窗口支持 — Phase 36 complete (2026-08-15)
+**Current milestone:** v2.5 (planned)
 
 ## Next Milestone Goals
 
-**v2.4** (planned)
+**v2.5** (planned)
 - 边播边缓存 (Deferred from v2.3)
 - 增强功能 (ENH-01~06: 截图/画中画/播放列表/字幕/DASH/RTMP)
 - 书签导出
@@ -217,9 +222,9 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - AutoBrowser 项目的 Cookie 持久化方案（JSON 文件格式，支持 domain 前缀点号保留）
 
 **代码库状态：**
-- v2.2 已 shipped，包含完整的多容器浏览器功能 + 历史记录 + 收藏夹 + 常用网站 + 设置 + 开发者模式 + 右键菜单 + 收藏夹文件夹 + Chrome 导入 + 收藏栏 + AI Agent + 多媒体播放器
-- 29 个阶段完成，所有计划完成
-- 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core + hls.js + mpegts.js + dashjs
+- v2.4 已 shipped，包含完整的多容器浏览器功能 + 历史记录 + 收藏夹 + 常用网站 + 设置 + 开发者模式 + 右键菜单 + 收藏夹文件夹 + Chrome 导入 + 收藏栏 + AI Agent + 多媒体播放器 + 下载管理器 + 自动填充 + 多窗口支持
+- 36 个阶段完成，所有计划完成
+- 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core + hls.js + mpegts.js + dashjs + nodejieba
 
 ## Constraints
 
@@ -310,4 +315,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-15 after Phase 36 completion (Tab drag + cross-window + persistence)*
+*Last updated: 2026-08-16 after v2.4 milestone completion (多窗口支持)*

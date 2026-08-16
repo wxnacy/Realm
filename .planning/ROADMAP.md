@@ -14,7 +14,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 - ✅ **v2.1 AI CDP 增强 + Tabbrowser 功能集成** — Phases 22-25 (shipped 2026-08-04)
 - ✅ **v2.2 多媒体功能集成** — Phases 26-29 (shipped 2026-08-11)
 - ✅ **v2.3 浏览器基础功能补全** — Phases 30-33 (shipped 2026-08-14)
-- 🚧 **v2.4 多窗口支持** — Phases 34-36 (in progress)
+- ✅ **v2.4 多窗口支持** — Phases 34-36 (shipped 2026-08-16)
 
 ## Phases
 
@@ -99,106 +99,16 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 
 </details>
 
-### ✅ v2.4 多窗口支持 (Completed 2026-08-16)
+<details>
+<summary>✅ v2.4 多窗口支持 (Phases 34-36) — SHIPPED 2026-08-16</summary>
 
-**Milestone Goal:** 支持多窗口操作，提升多任务处理效率
+- [x] Phase 34: 窗口管理基础 (4/4 plans) — completed 2026-08-16
+- [x] Phase 35: Tab 窗口关联 (3/3 plans) — completed 2026-08-15
+- [x] Phase 36: Tab 拖拽与跨窗口移动 (3/3 plans) — completed 2026-08-15
 
-- [x] **Phase 34: 窗口管理基础** — 重构窗口管理器支持多窗口，扩展 IPC 信任模型，实现新建/关闭窗口快捷键 (completed 2026-08-16)
-- [x] **Phase 35: Tab 窗口关联** — Tab 对象新增 windowId 字段，窗口关闭自动销毁 Tab，标题栏显示容器信息 (completed 2026-08-15)
-- [x] **Phase 36: Tab 拖拽与跨窗口移动** — 窗口内拖拽排序、拖拽出窗口创建新窗口、跨窗口拖拽移动、窗口位置持久化 (completed 2026-08-15)
-
-## Phase Details
-
-### Phase 34: 窗口管理基础
-
-**Goal**: 用户可以通过多种方式创建和管理多个窗口，每个窗口作为独立的浏览上下文
-**Depends on**: Nothing (first v2.4 phase)
-**Requirements**: MW-01, MW-07, MW-08, MW-09, MW-10
-**Success Criteria** (what must be TRUE):
-
-  1. 用户可以通过 Dock 右击菜单选择"新建窗口"创建第二个窗口
-  2. 用户可以使用 Cmd+N 快捷键新建窗口，新窗口继承源窗口的容器上下文
-  3. 用户可以使用 Cmd+Shift+W 关闭当前窗口（不影响其他窗口）
-  4. 多窗口存在时，点击不同窗口可以正常切换焦点，工具栏和 Tab 栏正确响应
-  5. 所有现有 IPC 通道在多窗口环境下正常工作（assertTrustedSender 扩展为 managedWindowIds 集合）
-
-**Plans**: 4/4 plans executed
-
-Plans:
-
-- [x] 34-04-PLAN.md
-
-**Wave 1**
-
-- [x] 34-01-PLAN.md — window-manager Map 重构 + shortcut-manager 焦点派发（Wave 1）
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 34-02-PLAN.md — assertTrustedSender 泛化 + IPC 信任模型扩展（Wave 2）
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 34-03-PLAN.md — Dock 菜单 + activate 事件 + 广播替换（Wave 3）
-
-**UI hint**: yes
-
-### Phase 35: Tab 窗口关联
-
-**Goal**: 每个 Tab 明确归属到一个窗口，窗口生命周期与 Tab 生命周期正确联动
-**Depends on**: Phase 34
-**Requirements**: MW-05, MW-06, MW-12, MW-14
-**Success Criteria** (what must be TRUE):
-
-  1. 关闭窗口时，窗口内所有 Tab 一起销毁；如果是最后一个窗口则退出应用
-  2. Tab 拖拽过程中保留 URL、容器、标题、favicon 等状态信息（不丢失）
-  3. 窗口标题栏显示当前活动 Tab 所属容器的名称
-  4. 窗口标题栏/工具栏显示容器颜色标识，不同容器的窗口视觉上可区分
-
-**Plans**: 2/2 plans complete
-
-Plans:
-**Wave 1**
-
-- [x] 35-01-PLAN.md — Tab 管理重构 + 窗口关闭级联（tab-manager, window-manager, main.js）
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 35-02-PLAN.md — 窗口标题栏 + 容器颜色条（renderer, preload, css）
-
-**UI hint**: yes
-
-### Phase 36: Tab 拖拽与跨窗口移动
-
-**Goal**: 用户可以通过拖拽在窗口内排序 Tab、将 Tab 拖出创建新窗口、将 Tab 拖到另一个窗口移动
-**Depends on**: Phase 35
-**Requirements**: MW-02, MW-03, MW-04, MW-11, MW-13
-**Success Criteria** (what must be TRUE):
-
-  1. 用户可以拖拽 Tab 在同一窗口内改变顺序，拖拽时实时显示插入位置指示器
-  2. 用户可以拖拽 Tab 出标签栏区域，松手后该 Tab 从原窗口移出并创建为新窗口
-  3. 用户可以拖拽 Tab 到另一个窗口的标签栏，Tab 从源窗口移动到目标窗口；源窗口仅剩一个 Tab 时自动销毁
-  4. 右键菜单中包含"在新窗口中打开"选项，点击后在新窗口打开该 Tab
-  5. 窗口位置和大小在应用重启后恢复（electron-store 持久化）
-
-**Plans**: 3/3 plans complete
-
-Plans:
-
-**Wave 1**
-
-- [x] 36-01-PLAN.md — 窗口位置持久化 + 右键菜单（Wave 1）
-- [x] 36-02-PLAN.md — 窗口内 Tab 拖拽排序（Wave 1）
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 36-03-PLAN.md — 跨窗口 Tab 拖拽（Wave 2）
-
-**UI hint**: yes
+</details>
 
 ## Progress
-
-**Execution Order:**
-Phases execute in numeric order: 34 → 35 → 36
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -235,6 +145,6 @@ Phases execute in numeric order: 34 → 35 → 36
 | 31. 下载管理器 — 用户交互 | v2.3 | 3/3 | Complete | 2026-08-12 |
 | 32. 自动填充 — 凭据引擎 | v2.3 | 2/2 | Complete | 2026-08-13 |
 | 33. 自动填充 — 增强 + Bug 修复 | v2.3 | 3/3 | Complete | 2026-08-14 |
-| 34. 窗口管理基础 | v2.4 | 3/4 | In Progress|  |
-| 35. Tab 窗口关联 | v2.4 | 2/2 | Complete   | 2026-08-15 |
-| 36. Tab 拖拽与跨窗口移动 | v2.4 | 3/3 | Complete    | 2026-08-15 |
+| 34. 窗口管理基础 | v2.4 | 4/4 | Complete | 2026-08-16 |
+| 35. Tab 窗口关联 | v2.4 | 3/3 | Complete | 2026-08-15 |
+| 36. Tab 拖拽与跨窗口移动 | v2.4 | 3/3 | Complete | 2026-08-15 |
