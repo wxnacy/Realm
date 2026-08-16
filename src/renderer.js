@@ -165,7 +165,6 @@ const state = {
   currentContainer: 'default',
   selectedColor: '#3B82F6',
   selectedIcon: 'fingerprint',
-  selectedIconType: 'symbol',
   editingContainerId: null,
   deletingContainerId: null,
   sidebarVisible: true,
@@ -1401,10 +1400,7 @@ function renderContainerShortcuts() {
     icon.className = 'shortcut-icon';
     icon.textContent = '';
     const iconEl = renderContainerIcon(container, 32);
-    // 符号图标使用容器颜色
-    if (isSymbolIcon(container) && iconEl instanceof SVGElement) {
-      iconEl.style.color = container.color;
-    }
+    iconEl.style.color = container.color;
     icon.appendChild(iconEl);
 
     const name = document.createElement('div');
@@ -2467,10 +2463,7 @@ function renderContainerList() {
     name.className = 'container-name';
     name.textContent = '';
     const icon = renderContainerIcon(container, 16);
-    // 符号图标使用容器颜色
-    if (isSymbolIcon(container) && icon instanceof SVGElement) {
-      icon.style.color = container.color;
-    }
+    icon.style.color = container.color;
     name.appendChild(icon);
     name.appendChild(document.createTextNode(` ${container.name}`));
 
@@ -2610,9 +2603,7 @@ function updateIndicatorIcon(container) {
   if (!indicatorIcon) return;
   indicatorIcon.textContent = '';
   const icon = renderContainerIcon(container, 16);
-  if (isSymbolIcon(container) && icon instanceof SVGElement) {
-    icon.style.color = container.color;
-  }
+  icon.style.color = container.color;
   indicatorIcon.appendChild(icon);
 }
 
@@ -2662,10 +2653,7 @@ function showDeleteConfirmModal(containerId) {
   previewInfo.className = 'preview-info';
   previewInfo.textContent = '';
   const icon = renderContainerIcon(container, 16);
-  // 符号图标使用容器颜色
-  if (isSymbolIcon(container) && icon instanceof SVGElement) {
-    icon.style.color = container.color;
-  }
+  icon.style.color = container.color;
   previewInfo.appendChild(icon);
   previewInfo.appendChild(document.createTextNode(` ${container.name}`));
 
@@ -2814,7 +2802,6 @@ function showCreateContainerModal() {
   elements.containerNameInput.value = '';
   state.selectedColor = '#3B82F6';
   state.selectedIcon = 'fingerprint';
-  state.selectedIconType = 'symbol';
   elements.containerModalTitle.textContent = '新建容器';
   elements.saveContainerBtn.textContent = '创建容器';
   elements.nameError.classList.remove('visible');
@@ -2829,13 +2816,7 @@ function showCreateContainerModal() {
   state.containerEnvVars = [];
   resetEnvVarsUI();
   updateColorSelection();
-  updateEmojiSelection();
   updateSymbolSelection();
-  // 重置标签页状态
-  document.querySelectorAll('.icon-tab').forEach(tab => tab.classList.remove('active'));
-  document.querySelector('.icon-tab[data-tab="symbol"]').classList.add('active');
-  document.getElementById('symbolPanel').style.display = '';
-  document.getElementById('emojiPanel').style.display = 'none';
   elements.containerModal.showModal();
 }
 
@@ -2852,7 +2833,6 @@ function showEditContainerModal(containerId) {
   elements.containerNameInput.value = container.name;
   state.selectedColor = container.color;
   state.selectedIcon = container.icon;
-  state.selectedIconType = container.iconType || 'emoji';
   elements.containerModalTitle.textContent = '编辑容器';
   elements.saveContainerBtn.textContent = '保存';
   elements.nameError.classList.remove('visible');
@@ -2868,14 +2848,7 @@ function showEditContainerModal(containerId) {
   resetEnvVarsUI();
   renderEnvVars();
   updateColorSelection();
-  updateEmojiSelection();
   updateSymbolSelection();
-  // 根据 iconType 设置标签页状态
-  const activeTab = state.selectedIconType === 'symbol' ? 'symbol' : 'emoji';
-  document.querySelectorAll('.icon-tab').forEach(tab => tab.classList.remove('active'));
-  document.querySelector(`.icon-tab[data-tab="${activeTab}"]`).classList.add('active');
-  document.getElementById('emojiPanel').style.display = activeTab === 'emoji' ? '' : 'none';
-  document.getElementById('symbolPanel').style.display = activeTab === 'symbol' ? '' : 'none';
   elements.containerModal.showModal();
 }
 
@@ -2893,19 +2866,6 @@ function updateColorSelection() {
 }
 
 /**
- * 更新 Emoji 选择器选中状态
- */
-function updateEmojiSelection() {
-  const emojiOptions = elements.emojiPicker.querySelectorAll('.emoji-option');
-  emojiOptions.forEach(option => {
-    option.classList.remove('selected');
-    if (option.dataset.icon === state.selectedIcon && state.selectedIconType === 'emoji') {
-      option.classList.add('selected');
-    }
-  });
-}
-
-/**
  * 更新符号选择器选中状态
  */
 function updateSymbolSelection() {
@@ -2914,41 +2874,27 @@ function updateSymbolSelection() {
   const symbolOptions = symbolPicker.querySelectorAll('.symbol-option');
   symbolOptions.forEach(option => {
     option.classList.remove('selected');
-    if (option.dataset.icon === state.selectedIcon && state.selectedIconType === 'symbol') {
+    if (option.dataset.icon === state.selectedIcon) {
       option.classList.add('selected');
     }
   });
 }
 
 /**
- * 判断容器图标是否为 SVG 符号类型
- * 向后兼容：无 iconType 字段时默认为 emoji
- * @param {Object} container
- * @returns {boolean}
- */
-function isSymbolIcon(container) {
-  return container.iconType === 'symbol';
-}
-
-/**
- * 渲染容器图标 DOM 元素
+ * 渲染容器图标 DOM 元素（SVG symbol）
  * @param {Object} container - 容器配置
  * @param {number} [size=20] - 图标尺寸
- * @returns {HTMLElement} 图标 DOM（span 文本 或 svg 元素）
+ * @returns {SVGElement} 图标 DOM
  */
 function renderContainerIcon(container, size = 20) {
-  if (isSymbolIcon(container)) {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('width', String(size));
-    svg.setAttribute('height', String(size));
-    svg.style.verticalAlign = 'middle';
-    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-    use.setAttribute('href', `#realm-icon-${container.icon}`);
-    svg.appendChild(use);
-    return svg;
-  }
-  // emoji 模式：返回文本节点
-  return document.createTextNode(container.icon || '');
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('width', String(size));
+  svg.setAttribute('height', String(size));
+  svg.style.verticalAlign = 'middle';
+  const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  use.setAttribute('href', `#realm-icon-${container.icon}`);
+  svg.appendChild(use);
+  return svg;
 }
 
 // ==================== 容器环境变量 ====================
@@ -3866,7 +3812,6 @@ function setupEventListeners() {
           name,
           color: state.selectedColor,
           icon: state.selectedIcon,
-          iconType: state.selectedIconType,
           phone,
           email,
           notes,
@@ -3878,7 +3823,6 @@ function setupEventListeners() {
           name,
           color: state.selectedColor,
           icon: state.selectedIcon,
-          iconType: state.selectedIconType,
           phone,
           email,
           notes,
@@ -3905,17 +3849,6 @@ function setupEventListeners() {
     updateColorSelection();
   });
 
-  // Emoji 选择器 - 事件委托
-  elements.emojiPicker.addEventListener('click', (e) => {
-    const button = e.target.closest('.emoji-option');
-    if (!button) return;
-
-    state.selectedIcon = button.dataset.icon;
-    state.selectedIconType = 'emoji';
-    updateEmojiSelection();
-    updateSymbolSelection();
-  });
-
   // 符号选择器 - 事件委托
   const symbolPicker = document.getElementById('symbolPicker');
   if (symbolPicker) {
@@ -3924,22 +3857,9 @@ function setupEventListeners() {
       if (!button) return;
 
       state.selectedIcon = button.dataset.icon;
-      state.selectedIconType = 'symbol';
       updateSymbolSelection();
-      updateEmojiSelection();
     });
   }
-
-  // 图标类型标签页切换
-  document.querySelectorAll('.icon-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.icon-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      const tabType = tab.dataset.tab;
-      document.getElementById('emojiPanel').style.display = tabType === 'emoji' ? '' : 'none';
-      document.getElementById('symbolPanel').style.display = tabType === 'symbol' ? '' : 'none';
-    });
-  });
 
   // 环境变量折叠面板
   elements.envVarsToggle.addEventListener('click', () => {

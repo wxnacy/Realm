@@ -22,10 +22,10 @@ const containers = new Map();
  * 默认容器配置
  */
 const DEFAULT_CONTAINERS = [
-  { id: 'default', name: '默认', color: '#6B7280', icon: '🌐', phone: '', email: '', notes: '', envVars: [] },
-  { id: 'work', name: '工作', color: '#3B82F6', icon: '💼', phone: '', email: '', notes: '', envVars: [] },
-  { id: 'personal', name: '个人', color: '#10B981', icon: '👤', phone: '', email: '', notes: '', envVars: [] },
-  { id: 'finance', name: '金融', color: '#F59E0B', icon: '🏦', phone: '', email: '', notes: '', envVars: [] },
+  { id: 'default', name: '默认', color: '#6B7280', icon: 'fingerprint', phone: '', email: '', notes: '', envVars: [] },
+  { id: 'work', name: '工作', color: '#3B82F6', icon: 'briefcase', phone: '', email: '', notes: '', envVars: [] },
+  { id: 'personal', name: '个人', color: '#10B981', icon: 'user', phone: '', email: '', notes: '', envVars: [] },
+  { id: 'finance', name: '金融', color: '#F59E0B', icon: 'bank', phone: '', email: '', notes: '', envVars: [] },
 ];
 
 /**
@@ -69,7 +69,6 @@ function toPlainContainer(c) {
     name: c.name,
     color: c.color,
     icon: c.icon,
-    iconType: c.iconType,  // undefined 时前端按 emoji 处理
     phone: c.phone,
     email: c.email,
     notes: c.notes,
@@ -83,6 +82,44 @@ function toPlainContainer(c) {
  */
 function initContainers() {
   const savedContainers = configStore.get('containers', DEFAULT_CONTAINERS);
+
+  // 数据迁移：将旧的 emoji 图标转换为 symbol ID
+  const EMOJI_TO_SYMBOL = {
+    '🌐': 'fingerprint',
+    '💼': 'briefcase',
+    '👤': 'user',
+    '🏦': 'bank',
+    '🎮': 'game',
+    '📚': 'book',
+    '🛒': 'cart',
+    '💰': 'dollar',
+    '🏠': 'home',
+    '📧': 'mail',
+    '🔬': 'science',
+    '🎵': 'music',
+    '📱': 'phone',
+    '✈️': 'plane',
+    '🎨': 'palette',
+    '🔧': 'wrench',
+    '📊': 'chart',
+    '🏢': 'building',
+    '🎯': 'target',
+    '🛡️': 'shield',
+    '📌': 'fingerprint',
+  };
+
+  let needsMigration = false;
+  savedContainers.forEach(container => {
+    if (EMOJI_TO_SYMBOL[container.icon]) {
+      container.icon = EMOJI_TO_SYMBOL[container.icon];
+      needsMigration = true;
+    }
+  });
+
+  if (needsMigration) {
+    configStore.set('containers', savedContainers);
+    console.log('[Realm] 已将 emoji 图标迁移为 symbol 图标');
+  }
 
   savedContainers.forEach(container => {
     const partition = `persist:container-${container.id}`;
@@ -132,7 +169,6 @@ function getContainers() {
     name: c.name,
     color: c.color,
     icon: c.icon,
-    iconType: c.iconType,  // undefined 时前端按 emoji 处理
     phone: c.phone || '',
     email: c.email || '',
     notes: c.notes || '',
@@ -154,14 +190,14 @@ function getContainer(id) {
  * @param {Object} config - 容器配置
  * @param {string} config.name - 容器名称（必填）
  * @param {string} [config.color='#6B7280'] - 容器颜色
- * @param {string} [config.icon='📌'] - 容器图标
+ * @param {string} [config.icon='fingerprint'] - 容器图标（symbol ID）
  * @param {string} [config.phone=''] - 手机号（可选）
  * @param {string} [config.email=''] - 邮箱（可选）
  * @param {string} [config.notes=''] - 备注（可选）
  * @returns {Object} 创建的容器配置
  * @throws {Error} 名称为空时抛出错误
  */
-function createContainer({ name, color = '#6B7280', icon = '📌', iconType, phone = '', email = '', notes = '', envVars = [] }) {
+function createContainer({ name, color = '#6B7280', icon = 'fingerprint', phone = '', email = '', notes = '', envVars = [] }) {
   // 验证名称非空
   if (!name || typeof name !== 'string' || name.trim() === '') {
     throw new Error('容器名称不能为空');
@@ -173,7 +209,6 @@ function createContainer({ name, color = '#6B7280', icon = '📌', iconType, pho
     name: name.trim(),
     color,
     icon,
-    iconType: iconType || undefined,  // 仅在有值时存储
     phone: phone || '',
     email: email || '',
     notes: notes || '',
@@ -211,7 +246,7 @@ function createContainer({ name, color = '#6B7280', icon = '📌', iconType, pho
  * @param {string} [updates.notes] - 新备注
  * @returns {Object|undefined} 更新后的容器配置或 undefined
  */
-function updateContainer(id, { name, color, icon, iconType, phone, email, notes, envVars }) {
+function updateContainer(id, { name, color, icon, phone, email, notes, envVars }) {
   const container = containers.get(id);
   if (!container) {
     console.error(`[Realm] 容器不存在: ${id}`);
@@ -222,7 +257,6 @@ function updateContainer(id, { name, color, icon, iconType, phone, email, notes,
   if (name !== undefined) container.name = name;
   if (color !== undefined) container.color = color;
   if (icon !== undefined) container.icon = icon;
-  if (iconType !== undefined) container.iconType = iconType;
   if (phone !== undefined) container.phone = phone;
   if (email !== undefined) container.email = email;
   if (notes !== undefined) container.notes = notes;

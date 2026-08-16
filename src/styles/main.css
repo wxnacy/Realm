@@ -586,66 +586,6 @@ textarea::placeholder {
   transform: scale(1.1);
 }
 
-/* Emoji 选择器 */
-.emoji-picker {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 8px;
-}
-
-.emoji-option {
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  border-radius: 8px;
-  border: 2px solid transparent;
-  cursor: pointer;
-  transition: border-color 0.2s, transform 0.2s;
-  background: none;
-}
-
-.emoji-option:hover {
-  transform: scale(1.1);
-}
-
-.emoji-option.selected {
-  border-color: var(--accent-color);
-  background-color: var(--bg-tertiary);
-}
-
-/* 图标类型标签页 */
-.icon-type-tabs {
-  display: flex;
-  gap: 0;
-  margin-bottom: 10px;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid var(--border-color);
-}
-
-.icon-tab {
-  flex: 1;
-  padding: 6px 12px;
-  background: var(--bg-secondary);
-  border: none;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text-secondary);
-  transition: background 0.2s, color 0.2s;
-}
-
-.icon-tab.active {
-  background: var(--accent-color);
-  color: #fff;
-}
-
-.icon-tab:hover:not(.active) {
-  background: var(--bg-hover);
-}
-
 /* SVG 符号选择器 */
 .symbol-picker {
   display: grid;
