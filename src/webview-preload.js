@@ -418,8 +418,8 @@ ipcRenderer.on('address:do-autofill', (event, addressData) => {
  * 检测到表单时发送 autofill 请求到 renderer（per D-09）
  */
 window.addEventListener('DOMContentLoaded', () => {
-  // realm:// 内部页面（settings/favorites/history 等）不需要表单检测
-  const isInternalPage = window.location.protocol === 'realm:';
+  // realm:// 内部页面（settings/favorites/history 等）通过 http://localhost:PORT/ 加载，不需要表单检测
+  const isInternalPage = window.location.hostname === 'localhost';
 
   if (!isInternalPage) {
     // 登录表单检测
@@ -454,8 +454,8 @@ window.addEventListener('DOMContentLoaded', () => {
  */
 let _credentialMutationTimer = null;
 const _credentialObserver = new MutationObserver(() => {
-  // realm:// 内部页面不需要表单检测
-  if (window.location.protocol === 'realm:') return;
+  // realm:// 内部页面（通过 http://localhost:PORT/ 加载）不需要表单检测
+  if (window.location.hostname === 'localhost') return;
 
   if (_credentialMutationTimer) clearTimeout(_credentialMutationTimer);
   _credentialMutationTimer = setTimeout(() => {
