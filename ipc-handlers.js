@@ -417,8 +417,11 @@ function registerHandlers() {
    * 在新窗口中打开 Tab
    * 右键菜单"在新窗口中打开"或拖拽场景调用
    *
-   * 时序要求：必须等待新窗口加载完成后再创建 Tab，
-   * 否则新窗口的 restoreTabs() 会因为没有 Tab 而创建额外的 Tab。
+   * 时序策略：
+   * 1. 先创建 Tab（windowId=null）— restoreTabs() 按 windowId 过滤，不会恢复它
+   * 2. 创建窗口 — init() → restoreTabs() 执行时窗口内无 Tab，会创建一个空 Tab
+   * 3. 等待窗口加载完成
+   * 4. 更新 Tab 的 windowId，通知新窗口
    *
    * @param {string} tabId - 源 Tab ID
    * @param {Object} [options] - 选项
@@ -442,25 +445,28 @@ function registerHandlers() {
       return { success: false, error: '容器不存在' };
     }
 
-    // 创建新窗口（相对于源窗口偏移位置）
+    // 1. 先创建 Tab（windowId=null），这样 restoreTabs() 不会恢复它
+    const newTab = tabManager.createTab(containerId, sourceTab.url, null);
+
+    // 2. 创建新窗口（相对于源窗口偏移位置）
     const newWindow = windowManager.createMainWindow(containerId, container, { offsetPosition: true });
     if (!newWindow) {
+      // 回滚：删除已创建的 Tab
+      tabManager.closeTab(newTab.id);
       return { success: false, error: '创建窗口失败' };
     }
 
-    // 等待新窗口加载完成后再创建 Tab
-    // 避免时序问题：新窗口 init() → restoreTabs() 在 Tab 创建之前执行
+    // 3. 等待新窗口加载完成
     await new Promise((resolve) => {
       newWindow.webContents.once('did-finish-load', resolve);
     });
 
-    // 在新窗口创建 Tab
-    const newTab = tabManager.createTab(containerId, sourceTab.url, newWindow.id);
+    // 4. 更新 Tab 的 windowId
+    tabManager.updateTab(newTab.id, { windowId: newWindow.id });
 
     // 移动模式：从源窗口移除原 Tab
     if (options.move) {
       tabManager.closeTab(tabId);
-      // 通知源窗口渲染进程更新 Tab 列表
       const sourceWinId = sourceTab.windowId;
       if (sourceWinId) {
         const sourceWin = BrowserWindow.fromId(sourceWinId);
@@ -471,7 +477,7 @@ function registerHandlers() {
     }
 
     // 通知新窗口渲染进程
-    newWindow.webContents.send('tab:created', { tab: newTab });
+    newWindow.webContents.send('tab:created', { tab: { ...newTab, windowId: newWindow.id } });
     // 切换到新 Tab
     newWindow.webContents.send('tab:switched', { tabId: newTab.id });
 
