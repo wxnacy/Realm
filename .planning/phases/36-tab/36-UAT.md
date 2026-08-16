@@ -1,14 +1,18 @@
 ---
-status: partial
+status: testing
 phase: 36-tab
 source: [36-01-PLAN.md, 36-02-PLAN.md, 36-03-PLAN.md]
 started: 2026-08-16T10:00:00.000Z
-updated: 2026-08-16T10:40:00.000Z
+updated: 2026-08-16T11:00:00.000Z
 ---
 
 ## Current Test
 
-[testing paused — 4 issues need fix]
+number: 3
+name: 右键菜单"在新窗口中打开"（修复后重测）
+expected: |
+  创建多个 Tab，右键点击某个 Tab，选择"在新窗口中打开"，验证只打开指定的 Tab，新窗口位置有偏移
+awaiting: user response
 
 ## Tests
 
@@ -65,51 +69,56 @@ blocked: 0
 ## Gaps
 
 - truth: "右键菜单'在新窗口中打开'只打开指定的 Tab，不复制其他 Tab"
-  status: failed
-  reason: "用户报告: 不光复制了指定的标签，全部标签页都复制了，并且随着窗口增加，会把所有窗口的都复制"
+  status: fixed
+  reason: "用户报告: 不光复制了指定的标签，全部标签页都复制了"
   severity: major
   test: 3
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "tab:list IPC 返回所有窗口的 Tab，而非当前窗口的 Tab"
+  artifacts:
+    - path: "ipc-handlers.js"
+      issue: "tab:list 处理器调用 getTabs() 返回所有 Tab"
+  fix: "修改 tab:list 处理器调用 getTabsByWindowId(win.id) 只返回当前窗口的 Tab"
 
 - truth: "新窗口位置与原窗口有错位，不完全重合"
-  status: failed
-  reason: "用户报告: 新建的窗口应该和原窗口位置有一定错位，而不是位置完全重合"
+  status: fixed
+  reason: "用户报告: 新建的窗口应该和原窗口位置有一定错位"
   severity: minor
   test: 3
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "createMainWindow 没有位置偏移逻辑"
+  artifacts:
+    - path: "window-manager.js"
+      issue: "createMainWindow 没有 offsetPosition 选项"
+  fix: "添加 offsetPosition 选项，新窗口相对于当前活动窗口偏移 30px"
 
 - truth: "Tab 拖拽排序第一次点击即可生效"
-  status: failed
-  reason: "用户报告: 经常第一次点击拖动tab不生效，需要再次点击，移动时才能看到另外两个标签中的亮线"
+  status: fixed
+  reason: "用户报告: 经常第一次点击拖动tab不生效"
   severity: major
   test: 4
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "mousedown 设置 crossDragTabId 后，dragstart 不阻止 HTML5 DnD"
+  artifacts:
+    - path: "src/renderer.js"
+      issue: "dragstart 只检查 state.crossDrag.active，不检查 crossDragTabId"
+  fix: "添加 isCrossDragPending() 函数，dragstart 中同时检查 active 和 pending 状态"
 
 - truth: "拖拽 Tab 出标签栏后松手创建新窗口"
-  status: failed
+  status: fixed
   reason: "用户报告: 没有新建窗口"
   severity: major
   test: 6
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "createMainWindow 没有使用 offsetPosition 选项"
+  artifacts:
+    - path: "drag-coordinator.js"
+      issue: "endDrag 中 createMainWindow 调用没有 offsetPosition 选项"
+  fix: "添加 { offsetPosition: true } 选项"
 
 - truth: "跨窗口拖拽 Tab 可以移动到另一个窗口"
-  status: failed
+  status: fixed
   reason: "用户报告: 没有成功移动"
   severity: major
   test: 7
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "updateTab 不支持 windowId 字段"
+  artifacts:
+    - path: "tab-manager.js"
+      issue: "updateTab 没有处理 windowId 字段"
+  fix: "添加 if (updates.windowId !== undefined) tab.windowId = updates.windowId"
