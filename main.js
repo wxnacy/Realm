@@ -8,7 +8,7 @@
 try { require('electron-reloader')(module); } catch {}
 
 const path = require('path');
-const { app, BrowserWindow, protocol, net, ipcMain, Menu, dialog } = require('electron');
+const { app, BrowserWindow, protocol, net, ipcMain, Menu, dialog, nativeTheme } = require('electron');
 const { pathToFileURL } = require('url');
 const http = require('http');
 const fs = require('fs');
