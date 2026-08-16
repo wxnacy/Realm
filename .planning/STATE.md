@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: 多窗口支持
-current_phase: 36
+current_phase: 34
 status: completed
-stopped_at: Phase 36 UAT complete
-last_updated: "2026-08-16T14:30:00.000Z"
+stopped_at: Milestone v2.4 complete (Phase 34 closed, audit re-passed)
+last_updated: "2026-08-16T16:30:00.000Z"
 last_activity: 2026-08-16
-last_activity_desc: Phase 36 UAT 9/9 passed, phase complete
+last_activity_desc: Phase 34 Plan 03 补执行 + 快捷键双重注册修复，UAT 10/10，里程碑 v2.4 审计复审通过
 progress:
   total_phases: 3
   completed_phases: 3
@@ -24,14 +24,14 @@ current_phase_name: tab
 See: .planning/PROJECT.md (updated 2026-08-14)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 36 — tab
+**Current focus:** Milestone v2.4 多窗口支持 — 已完成
 
 ## Current Position
 
-Phase: 36
+Phase: 34-36 all complete (milestone v2.4 done)
 Plan: All complete
-Status: Phase 36 UAT complete (9/9 passed)
-Last activity: 2026-08-16 — Phase 36 UAT 通过，phase 收尾
+Status: Phase 34 UAT 10/10 passed，里程碑审计复审通过（v2.4-MILESTONE-AUDIT.md status: passed）
+Last activity: 2026-08-16 — Phase 34 Plan 03 补执行 + Cmd+N/Cmd+Shift+W 双重注册吞键修复 + 新窗口错位，phase 34 收尾
 
 Progress: [████████████████████████████████████████████████] 100%
 

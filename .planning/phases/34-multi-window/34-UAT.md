@@ -3,7 +3,7 @@ status: complete
 phase: 34-multi-window
 source: 34-01-SUMMARY.md, 34-02-SUMMARY.md
 started: 2026-08-15T15:40:00Z
-updated: 2026-08-15T15:50:00Z
+updated: 2026-08-16T16:00:00Z
 ---
 
 ## Current Test
@@ -31,33 +31,28 @@ result: pass
 
 ### 5. Cmd+N 新建窗口（Plan 03 未完成）
 expected: 按 Cmd+N 创建新窗口，新窗口加载完整界面，使用默认容器，显示新标签页。
-result: blocked
-blocked_by: prior-phase
-reason: "Plan 03 (Dock 菜单 + main.js 集成) 尚未执行，newWindow 快捷键未接通实际窗口创建逻辑"
+result: pass
+fixed_by: "Plan 03 已执行 + 快捷键双重注册修复（2026-08-16）：newWindow 在 before-input-event 拦截后改为主进程直接创建窗口（renderer 无对应分发分支，原实现吞键）；新窗口 offsetPosition 错位 30px 不覆盖原窗口。连续按 Cmd+N 均生效"
 
 ### 6. Cmd+Shift+W 关闭窗口（Plan 03 未完成）
 expected: 按 Cmd+Shift+W 关闭当前焦点窗口，不影响其他窗口。
-result: blocked
-blocked_by: prior-phase
-reason: "Plan 03 (Dock 菜单 + main.js 集成) 尚未执行，closeWindow 快捷键未接通实际窗口关闭逻辑"
+result: pass
+fixed_by: "Plan 03 已执行 + 快捷键双重注册修复（2026-08-16）：closeWindow 同样改为主进程直接 focusedWindow.close()"
 
 ### 7. Dock 右键"新建窗口"（Plan 03 未完成）
 expected: 右键点击 Dock 图标，选择"新建窗口"创建第二个窗口。
-result: blocked
-blocked_by: prior-phase
-reason: "Plan 03 (Dock 菜单 + main.js 集成) 尚未执行，Dock 菜单未添加"
+result: pass
+fixed_by: "Plan 03 已执行：main.js app.dock.setMenu 添加「新建窗口」入口（offsetPosition 错位）"
 
 ### 8. App Menu 新建/关闭窗口（Plan 03 未完成）
 expected: File 菜单显示"新建窗口 ⌘N"和"关闭窗口 ⇧⌘W"选项，点击可执行对应操作。
-result: blocked
-blocked_by: prior-phase
-reason: "Plan 03 (Dock 菜单 + main.js 集成) 尚未执行，App Menu 未更新"
+result: pass
+fixed_by: "Plan 03 已执行：「窗口」菜单添加 新建窗口 ⌘N / 关闭窗口 ⇧⌘W 菜单项"
 
 ### 9. 多窗口焦点切换（Plan 03 未完成）
 expected: 多个窗口存在时，点击不同窗口切换焦点，工具栏和 Tab 栏正确响应。
-result: blocked
-blocked_by: prior-phase
-reason: "Plan 03 (Dock 菜单 + main.js 集成) 尚未执行，无法创建多窗口"
+result: pass
+fixed_by: "Plan 03 已执行（2026-08-16 用户验证通过）"
 
 ### 10. 首次启动 Cmd+W 关闭标签时窗口异常关闭
 expected: 有多个标签时，Cmd+W 只关闭当前标签，窗口保持打开。
@@ -67,11 +62,11 @@ fixed_by: 34-04 (1c661c2)
 ## Summary
 
 total: 10
-passed: 5
+passed: 10
 issues: 0
 pending: 0
 skipped: 0
-blocked: 5
+blocked: 0
 
 ## Gaps
 

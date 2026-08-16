@@ -99,11 +99,11 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 
 </details>
 
-### 🚧 v2.4 多窗口支持 (In Progress)
+### ✅ v2.4 多窗口支持 (Completed 2026-08-16)
 
 **Milestone Goal:** 支持多窗口操作，提升多任务处理效率
 
-- [ ] **Phase 34: 窗口管理基础** — 重构窗口管理器支持多窗口，扩展 IPC 信任模型，实现新建/关闭窗口快捷键
+- [x] **Phase 34: 窗口管理基础** — 重构窗口管理器支持多窗口，扩展 IPC 信任模型，实现新建/关闭窗口快捷键 (completed 2026-08-16)
 - [x] **Phase 35: Tab 窗口关联** — Tab 对象新增 windowId 字段，窗口关闭自动销毁 Tab，标题栏显示容器信息 (completed 2026-08-15)
 - [x] **Phase 36: Tab 拖拽与跨窗口移动** — 窗口内拖拽排序、拖拽出窗口创建新窗口、跨窗口拖拽移动、窗口位置持久化 (completed 2026-08-15)
 
@@ -122,7 +122,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
   4. 多窗口存在时，点击不同窗口可以正常切换焦点，工具栏和 Tab 栏正确响应
   5. 所有现有 IPC 通道在多窗口环境下正常工作（assertTrustedSender 扩展为 managedWindowIds 集合）
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans executed
 
 Plans:
 
@@ -138,7 +138,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 34-03-PLAN.md — Dock 菜单 + activate 事件 + 广播替换（Wave 3）
+- [x] 34-03-PLAN.md — Dock 菜单 + activate 事件 + 广播替换（Wave 3）
 
 **UI hint**: yes
 

@@ -8,16 +8,16 @@
 
 ### 窗口管理基础
 
-- [ ] **MW-01**: 用户可以通过 Dock 右击菜单新建窗口
-- [ ] **MW-08**: 用户可以使用 Cmd+N 快捷键新建窗口
-- [ ] **MW-09**: 用户可以使用 Cmd+Shift+W 关闭当前窗口
-- [ ] **MW-10**: 多窗口时窗口间焦点切换正常工作
+- [x] **MW-01**: 用户可以通过 Dock 右击菜单新建窗口
+- [x] **MW-08**: 用户可以使用 Cmd+N 快捷键新建窗口
+- [x] **MW-09**: 用户可以使用 Cmd+Shift+W 关闭当前窗口
+- [x] **MW-10**: 多窗口时窗口间焦点切换正常工作
 
 ### Tab 窗口关联
 
 - [ ] **MW-05**: 关闭窗口时，窗口内所有 Tab 一起关闭；如果是最后一个窗口则退出应用
 - [ ] **MW-06**: Tab 拖拽过程中保留 URL、容器、标题、favicon 等状态
-- [ ] **MW-07**: 新建窗口时继承源窗口的容器上下文
+- [x] **MW-07**: 新建窗口时继承源窗口的容器上下文
 
 ### Tab 拖拽排序（窗口内）
 
@@ -56,16 +56,16 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MW-01 | Phase 34 | Pending |
+| MW-01 | Phase 34 | Complete |
 | MW-02 | Phase 36 | Complete |
 | MW-03 | Phase 36 | Complete |
 | MW-04 | Phase 36 | Complete |
 | MW-05 | Phase 35 | Pending |
 | MW-06 | Phase 35 | Pending |
-| MW-07 | Phase 34 | Pending |
-| MW-08 | Phase 34 | Pending |
-| MW-09 | Phase 34 | Pending |
-| MW-10 | Phase 34 | Pending |
+| MW-07 | Phase 34 | Complete |
+| MW-08 | Phase 34 | Complete |
+| MW-09 | Phase 34 | Complete |
+| MW-10 | Phase 34 | Complete |
 | MW-11 | Phase 36 | Complete |
 | MW-12 | Phase 35 | Pending |
 | MW-13 | Phase 36 | Complete |
