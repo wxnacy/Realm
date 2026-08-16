@@ -284,20 +284,32 @@ node bin/realm-cli.js container list -e dev --fields phone
 
 ## 环境隔离
 
-开发环境和正式环境使用独立的 `userData` 目录，互不干扰：
+开发、测试、正式三个环境使用独立的 `userData` 目录，互不干扰：
 
 | 命令 | 环境 | userData 路径 |
 |------|------|--------------|
 | `npm run dev` | 开发 | `~/Library/Application Support/realm-dev/` |
+| `npm run test` | 测试 | `~/Library/Application Support/realm-test/` |
 | `npm start` / .app | 正式 | `~/Library/Application Support/realm/` |
 
-实现在 `main.js` 顶部，通过 `process.env.NODE_ENV === 'development'` 判断：
+实现在 `main.js` 顶部，通过 `process.env.NODE_ENV` 判断：
 
 ```javascript
 if (process.env.NODE_ENV === 'development') {
   app.setName('realm-dev');
+} else if (process.env.NODE_ENV === 'test') {
+  app.setName('realm-test');
 }
 ```
+
+### 构建安装命令
+
+| 命令 | 用途 | 安装路径 |
+|------|------|---------|
+| `make install` | 构建正式版 .app | `/Applications/Realm.app` |
+| `make install-test` | 构建测试版 .app | `/Applications/Realm-Test.app` |
+
+`make install-test` 构建时会临时在 main.js 注入 `process.env.NODE_ENV = 'test'`，构建完成后自动恢复源代码。测试版使用独立的 appId（`com.realm.browser.test`）和 productName（`Realm-Test`）。
 
 这会影响所有本地存储：
 - electron-store 配置（`realm-config.json`）

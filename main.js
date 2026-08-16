@@ -14,9 +14,11 @@ const http = require('http');
 const fs = require('fs');
 const crypto = require('crypto');
 
-// 环境隔离：开发环境使用独立的 userData 目录
+// 环境隔离：开发/测试环境使用独立的 userData 目录
 if (process.env.NODE_ENV === 'development') {
   app.setName('realm-dev');
+} else if (process.env.NODE_ENV === 'test') {
+  app.setName('realm-test');
 }
 
 const Store = require('electron-store');

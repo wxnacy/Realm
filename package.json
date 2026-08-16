@@ -9,6 +9,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "NODE_ENV=development electron .",
+    "test": "NODE_ENV=test electron .",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",
     "postinstall": "node scripts/postinstall.js",
