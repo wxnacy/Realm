@@ -2430,6 +2430,18 @@ async function init() {
       }
     }
   });
+
+  // 监听系统主题变化（当选择"跟随系统"时）
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', async () => {
+    try {
+      const settings = await window.realmAPI.getSettings();
+      if (settings.theme === 'system') {
+        applyTheme('system');
+      }
+    } catch (err) {
+      console.warn('[Realm Renderer] 应用系统主题变化失败:', err.message);
+    }
+  });
 }
 
 /**
