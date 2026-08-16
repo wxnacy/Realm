@@ -573,8 +573,8 @@ function createTabElement(tab) {
 
   // Tab 拖拽排序：dragstart 事件
   tabElement.addEventListener('dragstart', (e) => {
-    // 跨窗口拖拽激活或准备中时，阻止 HTML5 DnD（由自定义鼠标事件接管）
-    if (state.crossDrag.active || isCrossDragPending()) {
+    // 跨窗口拖拽激活时，阻止 HTML5 DnD（由自定义鼠标事件接管）
+    if (state.crossDrag.active) {
       e.preventDefault();
       return;
     }
@@ -8133,14 +8133,6 @@ function initTabDragAndDrop() {
     }
   }
 
-  /**
-   * 跨窗口拖拽：检查是否正在准备跨窗口拖拽
-   * 用于 dragstart 事件判断是否阻止 HTML5 DnD
-   * @returns {boolean} 是否正在准备跨窗口拖拽
-   */
-  function isCrossDragPending() {
-    return crossDragTabId !== null;
-  }
 
   /**
    * 跨窗口拖拽：mousemove 处理器
