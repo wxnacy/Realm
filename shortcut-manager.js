@@ -244,6 +244,26 @@ function attachInputListener(contents) {
     }
 
     event.preventDefault();
+
+    // 窗口级操作（newWindow/closeWindow）在主进程直接处理：
+    // renderer 的 shortcut:triggered 分发没有这两个分支（窗口创建/关闭不属于渲染层职责），
+    // 若只 preventDefault + 派发，按键会被吞掉——同时 preventDefault 还阻止了应用菜单
+    // 同键 accelerator（Cmd+N / Cmd+Shift+W），表现为快捷键完全失效。
+    if (action === 'newWindow') {
+      // 懒加载避免模块加载顺序问题；行为与 main.js 菜单「新建窗口」保持一致（default 容器）
+      const containerManager = require('./container-manager');
+      const defaultContainer = containerManager.getContainer('default');
+      if (defaultContainer) {
+        // offsetPosition：相对当前焦点窗口错位 30px，避免完全覆盖原窗口
+        windowManager.createMainWindow('default', defaultContainer, { offsetPosition: true });
+      }
+      return;
+    }
+    if (action === 'closeWindow') {
+      focusedWindow.close();
+      return;
+    }
+
     focusedWindow.webContents.send('shortcut:triggered', action);
   });
 }

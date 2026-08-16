@@ -2560,6 +2560,18 @@ app.whenReady().then(async () => {
     return checkActiveTasks(win.id);
   });
 
+  // ==================== macOS Dock 菜单（Phase 34 Plan 03, MW-01） ====================
+  const dockMenu = Menu.buildFromTemplate([
+    {
+      label: '新建窗口',
+      click: () => {
+        const defaultContainer = containerManager.getContainer('default');
+        windowManager.createMainWindow('default', defaultContainer, { offsetPosition: true });
+      },
+    },
+  ]);
+  app.dock.setMenu(dockMenu);
+
   // 获取默认容器并创建主窗口
   const defaultContainer = containerManager.getContainer('default');
   // 先注册快捷键（设置 web-contents-created 监听器）
@@ -2614,6 +2626,23 @@ app.whenReady().then(async () => {
     {
       label: '窗口',
       submenu: [
+        {
+          label: '新建窗口',
+          accelerator: 'CmdOrCtrl+N',
+          click: () => {
+            const defaultContainer = containerManager.getContainer('default');
+            windowManager.createMainWindow('default', defaultContainer, { offsetPosition: true });
+          },
+        },
+        {
+          label: '关闭窗口',
+          accelerator: 'CmdOrCtrl+Shift+W',
+          click: () => {
+            const focused = BrowserWindow.getFocusedWindow();
+            if (focused) focused.close();
+          },
+        },
+        { type: 'separator' },
         { role: 'minimize' },
         { role: 'zoom' },
         { role: 'close' },
@@ -2628,11 +2657,12 @@ app.whenReady().then(async () => {
           label: '切换主窗口开发者工具',
           accelerator: 'CmdOrCtrl+Alt+I',
           click: () => {
-            if (mainWindow.isDestroyed()) return;
-            if (mainWindow.webContents.isDevToolsOpened()) {
-              mainWindow.webContents.closeDevTools();
+            const win = windowManager.getMainWindow();
+            if (!win || win.isDestroyed()) return;
+            if (win.webContents.isDevToolsOpened()) {
+              win.webContents.closeDevTools();
             } else {
-              mainWindow.webContents.openDevTools();
+              win.webContents.openDevTools();
             }
           },
         },
@@ -2658,25 +2688,32 @@ app.whenReady().then(async () => {
   ]);
   Menu.setApplicationMenu(appMenu);
 
-  // macOS 应用激活事件
-  app.on('activate', () => {
+  // macOS 应用激活事件（Phase 34 Plan 03, Pitfall MW-7: hasVisibleWindows）
+  app.on('activate', (event, hasVisibleWindows) => {
     // 退出流程中禁止重建窗口：macOS 在退出关闭最后窗口时可能触发 activate，
     // 此时重建窗口会打断 quit 序列，导致「关窗代替退出」
     if (quitting || cookiesSaved) return;
-    if (BrowserWindow.getAllWindows().length === 0) {
-      const defaultContainer = containerManager.getContainer('default');
-      // 先注册快捷键（设置 web-contents-created 监听器），再创建窗口
-      shortcutManager.registerShortcuts();
-      const mainWindow = windowManager.createMainWindow('default', defaultContainer);
-      if (mainWindow) {
-        // 旧窗口已关闭，其 Tab 失去归属，收编到重建的主窗口
-        tabManager.migrateWindowlessTabs(mainWindow.id, new Set([mainWindow.id]));
-        // 重建窗口后重新注册关闭处理器
-        setupWindowCloseHandler(mainWindow);
-        // 窗口位置持久化（Phase 36 Plan 01）
-        setupWindowBoundsTracking(mainWindow, 'default');
+
+    if (!hasVisibleWindows) {
+      const allWindows = BrowserWindow.getAllWindows();
+      if (allWindows.length > 0) {
+        // 有最小化窗口：恢复第一个
+        const first = allWindows[0];
+        if (first.isMinimized()) first.restore();
+        first.focus();
+      } else {
+        // 无窗口：创建新窗口
+        const defaultContainer = containerManager.getContainer('default');
+        shortcutManager.registerShortcuts();
+        const mainWindow = windowManager.createMainWindow('default', defaultContainer);
+        if (mainWindow) {
+          tabManager.migrateWindowlessTabs(mainWindow.id, new Set([mainWindow.id]));
+          setupWindowCloseHandler(mainWindow);
+          setupWindowBoundsTracking(mainWindow, 'default');
+        }
       }
     }
+    // hasVisibleWindows === true: macOS 自动处理焦点切换，无需操作
   });
 });
 
@@ -2726,10 +2763,7 @@ app.on('before-quit', async (event) => {
   const now = Date.now();
   if (now - quitConfirmAt > QUIT_CONFIRM_WINDOW_MS) {
     quitConfirmAt = now;
-    const win = windowManager.getMainWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('show-quit-hint');
-    }
+    windowManager.broadcast('show-quit-hint');
     console.log('[Realm] 退出确认：再次按下 Cmd+Q 退出');
     return;
   }
