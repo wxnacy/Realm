@@ -8,7 +8,7 @@
 // ==================== 状态管理 ====================
 
 // 页面运行在 webview guest 中，IPC 会被主进程 assertTrustedSender（CR-4）拒绝，
-// 因此数据访问走本地 HTTP 服务器的 /api/frequent-sites/* 端点。
+// 因此数据访问走本地 HTTP 服务器的 /api/* 端点。
 // API token 由渲染进程创建 webview 时注入 URL 查询参数。
 const pageParams = new URLSearchParams(window.location.search);
 
@@ -23,6 +23,43 @@ const state = {
 
 /** API token（来自 URL 查询参数） */
 const apiToken = pageParams.get('token') || '';
+
+/**
+ * 应用主题（与 settings-page.js 保持一致）
+ * @param {string} theme - 主题值：'light', 'dark', 'system'
+ */
+function applyTheme(theme) {
+  if (theme === 'system') {
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+  } else {
+    document.documentElement.dataset.theme = theme || 'light';
+  }
+}
+
+/**
+ * 同步主题设置
+ * 从主进程获取当前主题并应用
+ */
+async function syncTheme() {
+  try {
+    const res = await fetch(`/api/settings/get?token=${encodeURIComponent(apiToken)}`);
+    if (res.ok) {
+      const settings = await res.json();
+      applyTheme(settings.theme || 'light');
+
+      // 如果是跟随系统主题，监听系统主题变化
+      if (settings.theme === 'system') {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+          applyTheme('system');
+        });
+      }
+    }
+  } catch (error) {
+    console.error('[Realm] 同步主题失败:', error);
+    applyTheme('light');
+  }
+}
 
 // ==================== API 调用 ====================
 
@@ -135,6 +172,9 @@ function renderSites(sites) {
 async function init() {
   console.log('[Realm] 新标签页初始化');
 
+  // 同步主题设置
+  syncTheme();
+
   try {
     // 加载常用网站
     const sites = await frequentSitesApi('list', {}, { limit: 12 });
@@ -156,6 +196,9 @@ async function init() {
     }
   });
 }
+
+// 立即同步主题，避免页面闪烁（DOMContentLoaded 之前执行）
+syncTheme();
 
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', init);

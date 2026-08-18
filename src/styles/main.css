@@ -2412,8 +2412,8 @@ textarea::placeholder {
   width: 220px;
   min-width: 200px;
   max-width: 240px;
-  background-color: #2a2a2a;
-  border-right: 1px solid #3a3a3a;
+  background-color: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2424,19 +2424,19 @@ textarea::placeholder {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  border-bottom: 1px solid #3a3a3a;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .favorites-folder-title {
   font-size: 14px;
   font-weight: 600;
-  color: #d1d5db;
+  color: var(--text-primary);
 }
 
 .favorites-folder-add-btn {
   background: none;
   border: none;
-  color: #9ca3af;
+  color: var(--text-secondary);
   cursor: pointer;
   padding: 4px;
   border-radius: 4px;
@@ -2447,8 +2447,8 @@ textarea::placeholder {
 }
 
 .favorites-folder-add-btn:hover {
-  background-color: #3a3a3a;
-  color: #e5e5e5;
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .favorites-folder-tree {
@@ -2464,14 +2464,14 @@ textarea::placeholder {
   height: 32px;
   padding: 0 16px;
   cursor: pointer;
-  color: #d1d5db;
+  color: var(--text-primary);
   font-size: 14px;
   transition: background-color 0.15s;
   user-select: none;
 }
 
 .folder-tree-item:hover {
-  background-color: #3a3a3a;
+  background-color: var(--bg-hover);
 }
 
 .folder-tree-item.active {
@@ -2505,13 +2505,13 @@ textarea::placeholder {
 
 .folder-tree-item .folder-count {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--text-muted);
   margin-left: 8px;
   flex-shrink: 0;
 }
 
 .folder-tree-item.active .folder-count {
-  color: #bfdbfe;
+  color: rgba(255, 255, 255, 0.8);
 }
 
 /* 面包屑导航 */
@@ -2520,8 +2520,8 @@ textarea::placeholder {
   align-items: center;
   padding: 8px 16px;
   font-size: 14px;
-  color: #9ca3af;
-  border-bottom: 1px solid #2a2a2a;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
   flex-wrap: wrap;
 }
 
@@ -2538,11 +2538,11 @@ textarea::placeholder {
 
 .breadcrumb-separator {
   margin: 0 8px;
-  color: #6b7280;
+  color: var(--text-muted);
 }
 
 .breadcrumb-current {
-  color: #e5e5e5;
+  color: var(--text-primary);
 }
 
 /* 右侧内容区 */
@@ -2632,8 +2632,8 @@ textarea::placeholder {
 
 .context-menu {
   position: fixed;
-  background-color: #2a2a2a;
-  border: 1px solid #3a3a3a;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 4px 0;
   min-width: 180px;
@@ -2645,7 +2645,7 @@ textarea::placeholder {
   padding: 8px 16px;
   cursor: pointer;
   font-size: 14px;
-  color: #d1d5db;
+  color: var(--text-primary);
   transition: background-color 0.15s, color 0.15s;
 }
 
@@ -2655,28 +2655,28 @@ textarea::placeholder {
 }
 
 .context-menu-item.disabled {
-  color: #6b7280;
+  color: var(--text-muted);
   cursor: default;
 }
 
 .context-menu-item.disabled:hover {
   background-color: transparent;
-  color: #6b7280;
+  color: var(--text-muted);
 }
 
 .context-menu-separator {
   height: 1px;
-  background-color: #3a3a3a;
+  background-color: var(--border-color);
   margin: 4px 0;
 }
 
 /* 文件夹名输入框 */
 .folder-name-input {
   width: 100%;
-  background-color: #1a1a1a;
+  background-color: var(--bg-primary);
   border: 1px solid #3B82F6;
   border-radius: 4px;
-  color: #e5e5e5;
+  color: var(--text-primary);
   padding: 2px 8px;
   font-size: 14px;
   outline: none;
@@ -4021,8 +4021,8 @@ textarea::placeholder {
   position: fixed;
   min-width: var(--bookmarks-dropdown-min-width);
   max-width: var(--bookmarks-dropdown-max-width);
-  background-color: #2d2d2d;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 6px 0;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
@@ -4105,8 +4105,8 @@ textarea::placeholder {
   position: fixed;
   min-width: var(--bookmarks-dropdown-min-width);
   max-width: var(--bookmarks-dropdown-max-width);
-  background-color: #2d2d2d;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 6px 0;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
@@ -4129,7 +4129,7 @@ textarea::placeholder {
 
 .bookmarks-dropdown-separator {
   height: 1px;
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: var(--border-color);
   margin: 4px 10px;
 }
 
@@ -4147,7 +4147,7 @@ textarea::placeholder {
 
 .bookmarks-dropdown::-webkit-scrollbar-thumb,
 .bookmarks-submenu::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.15);
+  background-color: var(--bg-hover);
   border-radius: 2px;
 }
 

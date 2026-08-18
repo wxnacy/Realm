@@ -37,6 +37,51 @@ const selectedIds = new Set();
 /** @type {boolean} 列表事件是否已绑定 */
 let itemActionsBound = false;
 
+// ==================== 主题同步 ====================
+
+/**
+ * 应用主题（与 settings-page.js 保持一致）
+ * @param {string} theme - 主题值：'light', 'dark', 'system'
+ */
+function applyTheme(theme) {
+  if (theme === 'system') {
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+  } else {
+    document.documentElement.dataset.theme = theme || 'light';
+  }
+}
+
+/**
+ * 同步主题设置
+ * 从主进程获取当前主题并应用
+ */
+async function syncTheme() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (!token) return;
+
+    const res = await fetch(`/api/settings/get?token=${encodeURIComponent(token)}`);
+    if (res.ok) {
+      const settings = await res.json();
+      applyTheme(settings.theme || 'light');
+
+      if (settings.theme === 'system') {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+          applyTheme('system');
+        });
+      }
+    }
+  } catch (error) {
+    console.error('[Realm] 同步主题失败:', error);
+    applyTheme('light');
+  }
+}
+
+// 立即同步主题，避免页面闪烁
+syncTheme();
+
 // ==================== 初始化 ====================
 
 /**
