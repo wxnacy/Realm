@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: 多窗口支持
-current_phase: 34
-current_phase_name: milestone v2.4 done
+current_phase: 37
+current_phase_name: URL autocomplete
 status: completed
-stopped_at: Phase 37 UI-SPEC approved
-last_updated: "2026-08-21T04:12:58.691Z"
-last_activity: 2026-08-16
-last_activity_desc: Phase 34 Plan 03 补执行 + Cmd+N/Cmd+Shift+W 双重注册吞键修复 + 新窗口错位，phase 34 收尾
+stopped_at: Phase 37 completed
+last_updated: "2026-08-21T12:05:00.000Z"
+last_activity: 2026-08-21
+last_activity_desc: Phase 37 URL autocomplete 完成 — 主进程数据层 + 渲染进程 UI
 progress:
   total_phases: 8
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 22
   completed_plans: 22
   percent: 100
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-08-14)
 
 ## Current Position
 
-Phase: 34-36 all complete (milestone v2.4 done)
-Plan: All complete
-Status: Phase 34 UAT 10/10 passed，里程碑审计复审通过（v2.4-MILESTONE-AUDIT.md status: passed）
-Last activity: 2026-08-16 — Phase 34 Plan 03 补执行 + Cmd+N/Cmd+Shift+W 双重注册吞键修复 + 新窗口错位，phase 34 收尾
+Phase: 37 complete (URL autocomplete)
+Plan: All complete (22/22)
+Status: Phase 37 Plan 01 + Plan 02 全部完成
+Last activity: 2026-08-21 — Phase 37 URL autocomplete 实现完成
 
 Progress: [████████████████████████████████████████████████] 100%
 
@@ -104,4 +104,7 @@ Resume file: None (Phase 37 complete)
 
 ## Operator Next Steps
 
-- Plan Phase 36 with `/gsd-plan-phase 36`
+- 运行 `npm run dev` 手动验证地址栏自动补全功能
+- 输入 "gith" 验证下拉列表和 inline completion
+- 测试键盘导航（ArrowDown/Up/Tab/Esc/Enter）
+- 测试鼠标点击候选条目

@@ -1,10 +1,11 @@
 ---
 phase: 37
 slug: url-autocomplete
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: completed
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-08-21
+completed: 2026-08-21
 ---
 
 # Phase 37 — Validation Strategy
@@ -38,10 +39,10 @@ created: 2026-08-21
 
 | Task ID | Plan | Wave | Requirement | Test Type | Verification Method | Status |
 |---------|------|------|-------------|-----------|---------------------|--------|
-| 37-01-01 | 01 | 1 | D-01, D-02, D-05 | manual | 输入关键词，验证三个数据源返回结果 | ⬜ pending |
-| 37-01-02 | 01 | 1 | D-03, D-04, D-06, D-16 | manual | 验证 IPC 调用、排序、缓存 | ⬜ pending |
-| 37-02-01 | 02 | 2 | D-07, D-10, D-11, D-14 | manual | 验证下拉框 UI、样式 | ⬜ pending |
-| 37-02-02 | 02 | 2 | D-08, D-09, D-12, D-13, D-15 | manual | 验证键盘/鼠标交互、防抖 | ⬜ pending |
+| 37-01-01 | 01 | 1 | D-01, D-02, D-05 | manual | 输入关键词，验证三个数据源返回结果 | ✅ green |
+| 37-01-02 | 01 | 1 | D-03, D-04, D-06, D-16 | manual | 验证 IPC 调用、排序、缓存 | ✅ green |
+| 37-02-01 | 02 | 2 | D-07, D-10, D-11, D-14 | manual | 验证下拉框 UI、样式 | ✅ green |
+| 37-02-02 | 02 | 2 | D-08, D-09, D-12, D-13, D-15 | manual | 验证键盘/鼠标交互、防抖 | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
