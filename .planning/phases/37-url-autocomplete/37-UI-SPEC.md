@@ -1,7 +1,7 @@
 ---
 phase: 37
 slug: url-autocomplete
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-08-21
@@ -50,7 +50,7 @@ Exceptions: none（本阶段沿用现有间距体系，不引入新值）
 | URL 输入框 | 13px | 400 | 32px（单行输入框） |
 | 候选列表标题 | 13px | 500 | 1.3 |
 | 候选列表 URL | 12px | 400 | 1.3 |
-| 候选列表来源标签 | 11px | 400 | 1.2 |
+| 候选列表来源标签/徽标 | 11px | 400 | 1.2 |
 | Inline completion（选中态） | 13px | 400 | 32px（与输入框一致） |
 
 说明：候选列表标题和 URL 使用两行布局（标题在上、URL 在下），行高紧凑但不挤压。
@@ -115,7 +115,7 @@ Accent reserved for: inline completion 选中态文字背景（蓝底白字）�
 圆角：8px（与现有 bookmarks-dropdown、env-var-suggestions 一致）
 阴影：0 4px 12px rgba(0, 0, 0, 0.3)（深色）/ 0 4px 12px rgba(0, 0, 0, 0.1)（浅色）
 z-index：10000（高于 bookmarks-dropdown 的 99999 以下，低于 modal）
-内边距：6px 0（上下 6px，左右 0）
+内边距：8px 0（上下 8px，左右 0）
 ```
 
 **展开/收起动画**：
@@ -135,7 +135,7 @@ z-index：10000（高于 bookmarks-dropdown 的 99999 以下，低于 modal）
 ```
 高度：56px（固定，包含 8px 上下内边距）
 内边距：8px 12px
-布局：display: flex; align-items: center; gap: 10px
+布局：display: flex; align-items: center; gap: 12px
 圆角：4px（与 bookmarks-dropdown-item 一致）
 外边距：0 4px（左右留出下拉框圆角空间）
 ```
@@ -161,7 +161,7 @@ URL：font-size: 12px; color: var(--text-secondary); overflow: hidden; text-over
 
 **收藏夹标识**：收藏夹来源的条目，在 favicon 左侧显示一个 10px 的星标图标（金色 `#FBBF24`），与现有收藏按钮星标颜色一致。
 
-**来源标签**（可选）：在 URL 右侧显示来源类型标签（"收藏" / "常用" / "历史"），font-size: 10px, color: var(--text-muted), padding: 1px 6px, border-radius: 3px, background: var(--bg-tertiary)。
+**来源标签**（可选）：在 URL 右侧显示来源类型标签（"收藏" / "常用" / "历史"），font-size: 11px, color: var(--text-muted), padding: 1px 6px, border-radius: 3px, background: var(--bg-tertiary)。
 
 **状态样式**：
 
