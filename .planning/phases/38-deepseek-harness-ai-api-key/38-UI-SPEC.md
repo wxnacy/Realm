@@ -52,11 +52,11 @@ Exceptions: none
 | Role | Size | Weight | Line Height |
 |------|------|--------|-------------|
 | Body | 14px | 400 (regular) | 1.5 |
-| Label | 13px | 500 (medium) | 1.4 |
+| Label | 13px | 400 (regular) | 1.4 |
 | Heading | 18px | 600 (semibold) | 1.3 |
 | Display | 14px | 600 (semibold) | 1.3 |
 
-> Source: existing patterns — `.settings-group-title` uses 18px/600, `.settings-item label` uses 13px/500, `.ai-input` uses 14px/400, `.btn` uses 14px/600. Font weights in this project: 400 (default), 500 (medium/labels), 600 (semibold/headings/buttons).
+> Source: existing patterns — `.settings-group-title` uses 18px/600, `.settings-item label` uses 13px, `.ai-input` uses 14px/400, `.btn` uses 14px/600. Font weights in this project: 400 (regular, body and labels), 600 (semibold, headings and buttons).
 
 ---
 
@@ -162,7 +162,7 @@ Applicable state considerations resolved: 8 covered, 1 backstop, 0 unresolved
 - 左侧列表区宽度：280px，固定
 - 右侧表单区：flex: 1，自适应
 - 列表项高度：48px
-- 列表项间距：2px
+- 列表项间距：4px
 - 列表区最大高度：calc(100vh - 300px)，超出滚动
 
 **列表项结构**：
@@ -172,7 +172,7 @@ Applicable state considerations resolved: 8 covered, 1 backstop, 0 unresolved
 └──────────────────────────────┘
 ```
 - 左侧：16x16 SVG 图标（Feather style）
-- 中间：提供商名称，14px/500
+- 中间：提供商名称，14px/400
 - 右侧：激活状态圆点（`--accent-color`），仅当前激活提供商显示
 - Hover：`--bg-hover` 背景
 - Active/Selected：`--bg-tertiary` 背景 + 左边框 2px `--accent-color`
@@ -247,7 +247,7 @@ Applicable state considerations resolved: 8 covered, 1 backstop, 0 unresolved
 
 | 元素 | 位置 | 尺寸 | 样式 |
 |------|------|------|------|
-| 新对话按钮 | 左侧 | 32px 高，icon + 文字 | btn-icon + 文字，13px/500 |
+| 新对话按钮 | 左侧 | 32px 高，icon + 文字 | btn-icon + 文字，13px/400 |
 | 模型选择器 | 中间（flex: 1） | 自适应，max-width: 200px | 类似 btn-secondary 样式，右侧 ▾ 箭头 |
 | 发送按钮 | 右侧 | 32x32 | 从输入区移到工具栏，保持现有 ai-send-btn 样式 |
 
