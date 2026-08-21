@@ -409,6 +409,179 @@ button {
   color: var(--text-muted);
 }
 
+/* ==================== 地址栏自动补全样式 ==================== */
+
+/* 自动补全相对定位容器 */
+.url-input-wrapper {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+/* 内联补全层：覆盖在 input 上方，pointer-events: none 不拦截鼠标事件 */
+.autocomplete-inline {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 32px;
+  color: var(--text-muted);
+  padding: 0 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  display: none;
+}
+
+/* 下拉候选列表容器 */
+.autocomplete-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 10000;
+  max-height: 360px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 0;
+  opacity: 0;
+  transform: scaleY(0.95);
+  transform-origin: top;
+  pointer-events: none;
+  transition: opacity 0.1s ease, transform 0.1s ease;
+}
+
+[data-theme="light"] .autocomplete-dropdown {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* 下拉框展开态 */
+.autocomplete-dropdown.visible {
+  opacity: 1;
+  transform: scaleY(1);
+  pointer-events: auto;
+}
+
+/* 候选列表项 */
+.autocomplete-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  margin: 0 4px;
+  height: 56px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.06s ease;
+}
+
+/* hover 态 */
+.autocomplete-item:hover {
+  background-color: var(--bg-hover);
+}
+
+/* 键盘选中态 */
+.autocomplete-item.selected {
+  background-color: rgba(59, 130, 246, 0.15);
+  border-left: 2px solid var(--accent-color);
+}
+
+/* hover + 选中：保持选中态 */
+.autocomplete-item.selected:hover {
+  background-color: rgba(59, 130, 246, 0.15);
+}
+
+/* Favicon 图标 */
+.autocomplete-item-favicon {
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+/* Favicon 缺失时的默认图标 */
+.autocomplete-item-favicon-fallback {
+  width: 16px;
+  height: 16px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+/* 文字区域 */
+.autocomplete-item-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* 标题 */
+.autocomplete-item-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* URL */
+.autocomplete-item-url {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 来源标签 */
+.autocomplete-item-badge {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* 收藏夹星标 */
+.autocomplete-star {
+  width: 10px;
+  height: 10px;
+  color: #FBBF24;
+  flex-shrink: 0;
+}
+
+/* 下拉框滚动条样式（复用 bookmarks-dropdown） */
+.autocomplete-dropdown::-webkit-scrollbar,
+.autocomplete-dropdown::-webkit-scrollbar-thumb,
+.autocomplete-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.autocomplete-dropdown::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.autocomplete-dropdown::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
 /* 浏览器视图区域 */
 .browser-view {
   flex: 1;
