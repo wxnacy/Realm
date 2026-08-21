@@ -22,6 +22,7 @@ const favoritesManager = require('./favorites-manager');
 const faviconFetcher = require('./favicon-fetcher');
 const mediaSniffer = require('./media-sniffer');
 const dragCoordinator = require('./drag-coordinator');
+const autocompleteManager = require('./autocomplete-manager');
 
 // AI Manager 实例（由 main.js 通过 setAIManager 注入）
 let aiManager = null;
@@ -1255,6 +1256,24 @@ function registerHandlers() {
       throw new Error('缺少 containerId 参数');
     }
     return addressManager.deleteAddress(containerId);
+  });
+
+  // ==================== 地址栏自动补全 ====================
+
+  /**
+   * 查询地址栏自动补全建议
+   * 合并收藏夹、常用网站和历史记录三个数据源，返回排序后的匹配结果
+   * @param {Object} data - 查询参数
+   * @param {string} data.keyword - 搜索关键词
+   * @param {number} [data.limit=6] - 返回结果数量限制
+   * @returns {Array<{url: string, title: string, faviconUrl: string, source: string}>} 补全建议列表
+   */
+  ipcMain.handle('autocomplete:query', (event, data) => {
+    assertTrustedSender(event);
+    if (!data || typeof data !== 'object' || typeof data.keyword !== 'string') {
+      throw new Error('无效的查询参数');
+    }
+    return autocompleteManager.getSuggestions(data.keyword, data.limit || 6);
   });
 
   // ==================== 浏览历史 ====================

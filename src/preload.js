@@ -124,6 +124,16 @@ contextBridge.exposeInMainWorld('realmAPI', {
     ipcRenderer.on('show-quit-hint', () => callback());
   },
 
+  // ==================== 地址栏自动补全 ====================
+
+  /**
+   * 查询地址栏自动补全建议
+   * 合并收藏夹、常用网站和历史记录三个数据源
+   * @param {string} keyword - 搜索关键词
+   * @returns {Promise<Array<{url: string, title: string, faviconUrl: string, source: string}>>}
+   */
+  getAutocompleteSuggestions: (keyword) => ipcRenderer.invoke('autocomplete:query', { keyword }),
+
   // ==================== Tab 管理 ====================
 
   /**

@@ -61,6 +61,7 @@ const addressManager = require('./address-manager');
 const favoritesManager = require('./favorites-manager');
 const faviconFetcher = require('./favicon-fetcher');
 const frequentSitesManager = require('./frequent-sites-manager');
+const autocompleteManager = require('./autocomplete-manager');
 const cdpManager = require('./cdp-manager');
 const uaChManager = require('./ua-ch-manager');
 const mediaSniffer = require('./media-sniffer');
