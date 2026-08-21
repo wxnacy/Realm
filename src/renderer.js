@@ -157,6 +157,11 @@ const elements = {
   addressNeverBtn: document.getElementById('addressNeverBtn'),
   addressLaterBtn: document.getElementById('addressLaterBtn'),
 
+  // 地址栏自动补全
+  urlInputWrapper: document.querySelector('.url-input-wrapper'),
+  autocompleteInline: document.getElementById('autocompleteInline'),
+  autocompleteDropdown: document.getElementById('autocompleteDropdown'),
+
 };
 
 // 应用状态
@@ -239,6 +244,17 @@ const state = {
   // 地址保存横幅状态
   pendingAddressData: null,
   addressBannerTimer: null,
+};
+
+// 地址栏自动补全状态
+state.autocomplete = {
+  query: '',
+  suggestions: [],
+  selectedIndex: -1,
+  inlineText: '',
+  isOpen: false,
+  debounceTimer: null,
+  cache: new Map(),
 };
 
 // 已关闭标签栈（LIFO，最多 10 条），用于"重新打开已关闭标签页"功能
@@ -3656,6 +3672,438 @@ async function clearContainerCookies() {
   }
 }
 
+// ==================== 地址栏自动补全功能 ====================
+
+/**
+ * 初始化地址栏自动补全功能
+ * 注册 input/keydown/blur/focus 事件监听
+ */
+function initAutocomplete() {
+  // input 事件：防抖查询
+  elements.urlInput.addEventListener('input', handleAutocompleteInput);
+
+  // keydown 事件：键盘导航
+  elements.urlInput.addEventListener('keydown', handleAutocompleteKeydown);
+
+  // blur 事件：延迟关闭下拉框（允许点击候选条目）
+  elements.urlInput.addEventListener('blur', () => {
+    setTimeout(() => {
+      closeAutocomplete();
+    }, 150);
+  });
+
+  // focus 事件：如果有查询内容则重新打开
+  elements.urlInput.addEventListener('focus', () => {
+    if (state.autocomplete.query && state.autocomplete.suggestions.length > 0) {
+      openAutocomplete();
+    }
+  });
+}
+
+/**
+ * 处理地址栏输入事件（100ms 防抖）
+ * @param {Event} e - input 事件对象
+ */
+async function handleAutocompleteInput(e) {
+  const query = elements.urlInput.value.trim();
+
+  // 清除之前的防抖定时器
+  if (state.autocomplete.debounceTimer) {
+    clearTimeout(state.autocomplete.debounceTimer);
+    state.autocomplete.debounceTimer = null;
+  }
+
+  // 空输入：关闭下拉框
+  if (!query) {
+    closeAutocomplete();
+    return;
+  }
+
+  // 设置 100ms 防抖定时器
+  state.autocomplete.debounceTimer = setTimeout(async () => {
+    try {
+      // 更新查询状态
+      state.autocomplete.query = query;
+
+      // 检查客户端缓存
+      const cached = getCachedSuggestions(query);
+      if (cached) {
+        updateAutocompleteUI(cached);
+        return;
+      }
+
+      // 调用主进程 API 获取补全建议
+      const suggestions = await window.realmAPI.getAutocompleteSuggestions(query);
+
+      // 存入缓存
+      cacheSuggestions(query, suggestions);
+
+      // 更新 UI
+      updateAutocompleteUI(suggestions);
+    } catch (err) {
+      console.error('[Realm Renderer] 获取补全建议失败:', err);
+    }
+  }, 100);
+}
+
+/**
+ * 处理地址栏键盘事件
+ * @param {KeyboardEvent} e - 键盘事件对象
+ */
+function handleAutocompleteKeydown(e) {
+  // 如果下拉框未打开，只处理 Enter 键（原有导航逻辑）
+  if (!state.autocomplete.isOpen && e.key !== 'Enter') {
+    return;
+  }
+
+  switch (e.key) {
+    case 'ArrowDown':
+      e.preventDefault();
+      navigateAutocomplete(1);
+      break;
+
+    case 'ArrowUp':
+      e.preventDefault();
+      navigateAutocomplete(-1);
+      break;
+
+    case 'Enter':
+      // 如果有选中的候选条目，选择该条目
+      if (state.autocomplete.selectedIndex >= 0) {
+        e.preventDefault();
+        selectAutocompleteItem(state.autocomplete.selectedIndex);
+      }
+      // 否则走原有 Enter 导航逻辑（不阻止默认行为）
+      break;
+
+    case 'Tab':
+      // 如果有 inline 补全，接受补全
+      if (state.autocomplete.inlineText) {
+        e.preventDefault();
+        acceptInlineCompletion();
+      }
+      break;
+
+    case 'ArrowRight':
+      // 如果光标在末尾且有 inline 补全，接受补全
+      if (elements.urlInput.selectionStart === elements.urlInput.value.length && state.autocomplete.inlineText) {
+        e.preventDefault();
+        acceptInlineCompletion();
+      }
+      break;
+
+    case 'Escape':
+      e.preventDefault();
+      closeAutocomplete();
+      break;
+  }
+}
+
+/**
+ * 更新自动补全 UI
+ * @param {Array} suggestions - 补全建议列表
+ */
+function updateAutocompleteUI(suggestions) {
+  state.autocomplete.suggestions = suggestions;
+  state.autocomplete.selectedIndex = -1;
+
+  // 无匹配结果：关闭下拉框
+  if (!suggestions || suggestions.length === 0) {
+    closeAutocomplete();
+    return;
+  }
+
+  // 更新 inline completion（使用第一条建议）
+  updateInlineCompletion(suggestions[0]);
+
+  // 渲染下拉列表
+  renderAutocompleteDropdown(suggestions);
+
+  // 打开下拉框
+  openAutocomplete();
+}
+
+/**
+ * 更新 inline completion 文本
+ * Chrome 风格：在光标后显示高亮补全
+ * @param {Object} suggestion - 补全建议对象
+ */
+function updateInlineCompletion(suggestion) {
+  const query = state.autocomplete.query;
+
+  // 去除协议前缀
+  const urlWithoutProtocol = suggestion.url.replace(/^https?:\/\//i, '');
+
+  // 检查是否匹配（不区分大小写）
+  if (urlWithoutProtocol.toLowerCase().startsWith(query.toLowerCase())) {
+    const completion = urlWithoutProtocol.slice(query.length);
+    state.autocomplete.inlineText = completion;
+    elements.autocompleteInline.textContent = query + completion;
+    elements.autocompleteInline.style.display = 'block';
+  } else {
+    state.autocomplete.inlineText = '';
+    elements.autocompleteInline.style.display = 'none';
+  }
+}
+
+/**
+ * 渲染下拉候选列表
+ * @param {Array} suggestions - 补全建议列表
+ */
+function renderAutocompleteDropdown(suggestions) {
+  const dropdown = elements.autocompleteDropdown;
+  dropdown.innerHTML = '';
+
+  // 最多显示 6 条
+  const items = suggestions.slice(0, 6);
+
+  items.forEach((item, index) => {
+    const itemEl = document.createElement('div');
+    itemEl.className = 'autocomplete-item';
+    itemEl.dataset.index = index;
+
+    // 收藏夹星标（如果是收藏夹来源）
+    if (item.source === 'favorite') {
+      const starEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      starEl.setAttribute('class', 'autocomplete-star');
+      starEl.setAttribute('width', '10');
+      starEl.setAttribute('height', '10');
+      starEl.setAttribute('viewBox', '0 0 24 24');
+      starEl.setAttribute('fill', '#FBBF24');
+      starEl.setAttribute('stroke', '#FBBF24');
+      starEl.setAttribute('stroke-width', '2');
+      const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+      polygon.setAttribute('points', '12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2');
+      starEl.appendChild(polygon);
+      itemEl.appendChild(starEl);
+    }
+
+    // Favicon
+    const faviconEl = document.createElement('img');
+    faviconEl.className = 'autocomplete-item-favicon';
+    faviconEl.src = item.faviconUrl || '';
+    faviconEl.onerror = () => {
+      // Favicon 加载失败时显示默认图标
+      faviconEl.style.display = 'none';
+      const fallback = document.createElement('div');
+      fallback.className = 'autocomplete-item-favicon-fallback';
+      fallback.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+      itemEl.insertBefore(fallback, faviconEl.nextSibling);
+    };
+    itemEl.appendChild(faviconEl);
+
+    // 文字区域
+    const textEl = document.createElement('div');
+    textEl.className = 'autocomplete-item-text';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'autocomplete-item-title';
+    titleEl.textContent = item.title || item.url;
+
+    const urlEl = document.createElement('div');
+    urlEl.className = 'autocomplete-item-url';
+    urlEl.textContent = item.url;
+
+    textEl.appendChild(titleEl);
+    textEl.appendChild(urlEl);
+    itemEl.appendChild(textEl);
+
+    // 来源标签
+    const badgeEl = document.createElement('span');
+    badgeEl.className = 'autocomplete-item-badge';
+    switch (item.source) {
+      case 'favorite':
+        badgeEl.textContent = '收藏';
+        break;
+      case 'frequent':
+        badgeEl.textContent = '常用';
+        break;
+      case 'history':
+        badgeEl.textContent = '历史';
+        break;
+    }
+    itemEl.appendChild(badgeEl);
+
+    // mousedown 事件（非 click，因为 blur 会先于 click 触发）
+    itemEl.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      selectAutocompleteItem(index);
+    });
+
+    // mouseenter 事件：更新选中状态
+    itemEl.addEventListener('mouseenter', () => {
+      state.autocomplete.selectedIndex = index;
+      updateDropdownHighlight();
+    });
+
+    dropdown.appendChild(itemEl);
+  });
+}
+
+/**
+ * 导航自动补全列表（上下键循环选择）
+ * @param {number} direction - 方向：1 下，-1 上
+ */
+function navigateAutocomplete(direction) {
+  const maxIndex = state.autocomplete.suggestions.length - 1;
+  let newIndex = state.autocomplete.selectedIndex + direction;
+
+  // 循环选择
+  if (newIndex < 0) {
+    newIndex = maxIndex;
+  } else if (newIndex > maxIndex) {
+    newIndex = 0;
+  }
+
+  state.autocomplete.selectedIndex = newIndex;
+  updateDropdownHighlight();
+
+  // 键盘选择时同步更新 inline completion
+  if (newIndex >= 0) {
+    updateInlineCompletion(state.autocomplete.suggestions[newIndex]);
+  }
+}
+
+/**
+ * 更新下拉列表高亮状态
+ */
+function updateDropdownHighlight() {
+  const items = elements.autocompleteDropdown.querySelectorAll('.autocomplete-item');
+  items.forEach((item, index) => {
+    if (index === state.autocomplete.selectedIndex) {
+      item.classList.add('selected');
+    } else {
+      item.classList.remove('selected');
+    }
+  });
+}
+
+/**
+ * 选择自动补全条目
+ * @param {number} index - 条目索引
+ */
+function selectAutocompleteItem(index) {
+  const suggestion = state.autocomplete.suggestions[index];
+  if (!suggestion) return;
+
+  // 设置 input 值
+  elements.urlInput.value = suggestion.url;
+
+  // 关闭下拉框
+  closeAutocomplete();
+
+  // 触发导航
+  if (state.activeTabId) {
+    const tab = state.tabs.get(state.activeTabId);
+    const webview = state.webviews.get(state.activeTabId);
+
+    if (tab && webview) {
+      webview.loadURL(suggestion.url);
+      tab.url = suggestion.url;
+      window.realmAPI.updateTab(state.activeTabId, { url: suggestion.url });
+    } else if (tab) {
+      createWebviewForTab(state.activeTabId, tab.containerId, suggestion.url);
+      tab.url = suggestion.url;
+      window.realmAPI.updateTab(state.activeTabId, { url: suggestion.url });
+      showWebview(state.activeTabId);
+    }
+
+    if (tab) {
+      elements.newTabPage.style.display = 'none';
+    }
+  } else {
+    createTab(state.currentContainer, suggestion.url);
+  }
+
+  // 输入框聚焦时全选文本
+  elements.urlInput.select();
+}
+
+/**
+ * 接受 inline completion
+ */
+function acceptInlineCompletion() {
+  // 将 inline 补全文本追加到 input value
+  elements.urlInput.value += state.autocomplete.inlineText;
+
+  // 清除 inline 状态
+  state.autocomplete.inlineText = '';
+  elements.autocompleteInline.style.display = 'none';
+
+  // 关闭下拉框
+  closeAutocomplete();
+
+  // 光标移到末尾
+  elements.urlInput.setSelectionRange(elements.urlInput.value.length, elements.urlInput.value.length);
+}
+
+/**
+ * 打开自动补全下拉框
+ */
+function openAutocomplete() {
+  state.autocomplete.isOpen = true;
+  elements.autocompleteDropdown.classList.add('visible');
+}
+
+/**
+ * 关闭自动补全下拉框
+ */
+function closeAutocomplete() {
+  state.autocomplete.isOpen = false;
+  state.autocomplete.selectedIndex = -1;
+  state.autocomplete.inlineText = '';
+  elements.autocompleteDropdown.classList.remove('visible');
+  elements.autocompleteInline.style.display = 'none';
+}
+
+/**
+ * 获取缓存的补全建议
+ * @param {string} keyword - 查询关键词
+ * @returns {Array|null} 缓存的建议列表或 null
+ */
+function getCachedSuggestions(keyword) {
+  const normalizedKey = keyword.toLowerCase();
+
+  // 精确匹配
+  if (state.autocomplete.cache.has(normalizedKey)) {
+    return state.autocomplete.cache.get(normalizedKey);
+  }
+
+  // 检查更短前缀的缓存子集
+  for (const [key, value] of state.autocomplete.cache.entries()) {
+    if (normalizedKey.startsWith(key)) {
+      // 过滤匹配的结果
+      const filtered = value.filter(item => {
+        const urlWithoutProtocol = item.url.replace(/^https?:\/\//i, '');
+        return urlWithoutProtocol.toLowerCase().includes(normalizedKey) ||
+               (item.title && item.title.toLowerCase().includes(normalizedKey));
+      });
+      if (filtered.length > 0) {
+        return filtered;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * 缓存补全建议
+ * @param {string} keyword - 查询关键词
+ * @param {Array} suggestions - 补全建议列表
+ */
+function cacheSuggestions(keyword, suggestions) {
+  const normalizedKey = keyword.toLowerCase();
+
+  // 缓存上限 50 条，超过时删除最旧条目
+  if (state.autocomplete.cache.size >= 50) {
+    const firstKey = state.autocomplete.cache.keys().next().value;
+    state.autocomplete.cache.delete(firstKey);
+  }
+
+  state.autocomplete.cache.set(normalizedKey, suggestions);
+}
+
 /**
  * 设置事件监听器
  */
@@ -4395,6 +4843,9 @@ function setupEventListeners() {
 
   // 初始化页面内搜索
   initFindInPage();
+
+  // 初始化地址栏自动补全
+  initAutocomplete();
 }
 
 // ==================== AI 助手 ====================
