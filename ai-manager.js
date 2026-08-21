@@ -320,6 +320,29 @@ const SCRIPT_ALLOWED_ACTIONS = [
   'submit', 'keydown', 'keyup',
 ];
 
+/**
+ * 提供商 → 环境变量映射表
+ * 基于 pi-ai SDK env-api-keys.js，覆盖 15+ 提供商的约定环境变量名。
+ * detectEnvVar() 优先使用用户自定义环境变量名，其次查此映射表。
+ */
+const PROVIDER_ENV_MAP = {
+  openai: 'OPENAI_API_KEY',
+  deepseek: 'DEEPSEEK_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
+  google: 'GEMINI_API_KEY',
+  groq: 'GROQ_API_KEY',
+  xai: 'XAI_API_KEY',
+  mistral: 'MISTRAL_API_KEY',
+  fireworks: 'FIREWORKS_API_KEY',
+  together: 'TOGETHER_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  cerebras: 'CEREBRAS_API_KEY',
+  xiaomi: 'XIAOMI_API_KEY',
+  'azure-openai-responses': 'AZURE_OPENAI_API_KEY',
+  'google-vertex': 'GOOGLE_CLOUD_API_KEY',
+  cohere: 'COHERE_API_KEY',
+};
+
 // ==================== 脚本执行引擎 ====================
 
 /**
@@ -661,7 +684,13 @@ class AIManager {
 
     const providers = this.configStore.get('ai.providers', {});
     if (!providers.openai) {
-      providers.openai = { apiKey: legacyKey, model: 'gpt-4o-mini' };
+      providers.openai = {
+        apiKey: legacyKey,
+        model: 'gpt-4o-mini',
+        isBuiltin: true,
+        envVarName: 'OPENAI_API_KEY',
+        customModels: [],
+      };
       this.configStore.set('ai.providers', providers);
       if (!this.configStore.get('ai.activeProvider')) {
         this.configStore.set('ai.activeProvider', 'openai');
@@ -684,7 +713,10 @@ class AIManager {
         const { builtinModels } = await import('@earendil-works/pi-ai/providers/all');
         const { InMemoryCredentialStore } = await import('@earendil-works/pi-ai');
         return builtinModels({ credentials: new InMemoryCredentialStore() });
-      })();
+      })().catch(err => {
+        this._catalogPromise = null;  // 允许重试，避免永久缓存拒绝状态
+        throw err;
+      });
     }
     return this._catalogPromise;
   }
@@ -1084,29 +1116,59 @@ ${content}
    * @returns {Promise<{success: boolean}>} 操作结果
    */
   async configureProviders(config) {
-    const { provider, apiKey, model } = config;
+    const { provider, model, envVarName, customModels, isBuiltin, baseURL, displayName } = config;
+    let { apiKey } = config;
 
-    if (!provider || !apiKey) {
-      throw new Error('提供商和 API Key 不能为空');
+    if (!provider) {
+      throw new Error('提供商不能为空');
     }
 
-    // 校验提供商存在，并解析有效模型 ID
-    const catalog = await this._getCatalog();
-    const catalogProvider = catalog.getProviders().find(p => p.id === provider);
-    if (!catalogProvider) {
-      throw new Error(`未知提供商: ${provider}`);
+    // __keep__ 哨兵值：保留现有 API Key
+    if (apiKey === '__keep__') {
+      const existing = this.configStore ? this.configStore.get(`ai.providers.${provider}`) : null;
+      if (existing && existing.apiKey) {
+        apiKey = existing.apiKey;
+      } else {
+        throw new Error('未找到已保存的 API Key，请手动输入');
+      }
     }
-    const providerModels = catalogProvider.getModels();
-    const validModel = model && providerModels.some(m => m.id === model)
-      ? model
-      : (providerModels[0] && providerModels[0].id);
+
+    if (!apiKey) {
+      throw new Error('API Key 不能为空');
+    }
+
+    // 校验提供商存在（内置供应商），自定义供应商跳过校验
+    let validModel = model || null;
+    if (isBuiltin !== false) {
+      const catalog = await this._getCatalog();
+      const catalogProvider = catalog.getProviders().find(p => p.id === provider);
+      if (!catalogProvider) {
+        throw new Error(`未知提供商: ${provider}`);
+      }
+      const providerModels = catalogProvider.getModels();
+      validModel = model && providerModels.some(m => m.id === model)
+        ? model
+        : (providerModels[0] && providerModels[0].id);
+    }
 
     // 更新 configStore
     if (this.configStore) {
       const providers = this.configStore.get('ai.providers', {});
-      providers[provider] = { apiKey, model: validModel };
+      const existing = providers[provider] || {};
+      providers[provider] = {
+        ...existing,
+        apiKey,
+        model: validModel || existing.model,
+        envVarName: envVarName !== undefined ? envVarName : existing.envVarName,
+        customModels: customModels !== undefined ? customModels : existing.customModels,
+        isBuiltin: isBuiltin !== undefined ? isBuiltin : (existing.isBuiltin !== undefined ? existing.isBuiltin : true),
+        baseURL: baseURL !== undefined ? baseURL : existing.baseURL,
+        displayName: displayName !== undefined ? displayName : existing.displayName,
+      };
       this.configStore.set('ai.providers', providers);
       this.configStore.set('ai.activeProvider', provider);
+
+      console.log(`[Realm AI] 供应商已保存: ${provider} (builtin: ${isBuiltin !== undefined ? isBuiltin : true})`);
 
       // 重新初始化 Agent
       await this.init(this.configStore);
@@ -1134,13 +1196,34 @@ ${content}
       const apiKey = saved && saved.apiKey ? saved.apiKey : '';
       return {
         id: p.id,
-        name: p.name,
+        name: saved && saved.displayName ? saved.displayName : p.name,
         configured: Boolean(apiKey),
         keyPreview: apiKey ? `…${apiKey.slice(-4)}` : null,
         activeModel: saved && saved.model ? saved.model : null,
         models: p.getModels().map(m => ({ id: m.id, name: m.name })),
+        envVarName: saved && saved.envVarName ? saved.envVarName : null,
+        isBuiltin: true,
+        customModels: saved && saved.customModels ? saved.customModels : [],
       };
     });
+
+    // 附加自定义供应商（不在 catalog 中的）
+    for (const [id, saved] of Object.entries(providersCfg)) {
+      if (saved && !catalog.getProviders().find(p => p.id === id) && saved.apiKey) {
+        providers.push({
+          id,
+          name: saved.displayName || id,
+          configured: true,
+          keyPreview: `…${saved.apiKey.slice(-4)}`,
+          activeModel: saved.model || null,
+          models: saved.customModels ? saved.customModels.map(m => ({ id: m, name: m })) : [],
+          envVarName: saved.envVarName || null,
+          isBuiltin: false,
+          customModels: saved.customModels || [],
+          baseURL: saved.baseURL || null,
+        });
+      }
+    }
 
     return {
       providers,
@@ -1149,6 +1232,145 @@ ${content}
         ? providersCfg[activeProvider].model
         : null,
     };
+  }
+
+  /**
+   * 检测环境变量（per D-07/D-08）
+   *
+   * 按提供商约定自动检测环境变量名。优先使用用户自定义环境变量名，
+   * 否则查 PROVIDER_ENV_MAP 映射表。只读访问 process.env，不修改。
+   *
+   * @param {string} providerId - 提供商 ID（如 'openai'、'deepseek'）
+   * @param {string|null} [customEnvVarName] - 用户自定义环境变量名
+   * @returns {{found: boolean, name: string|null, value: string|null}}
+   */
+  detectEnvVar(providerId, customEnvVarName) {
+    const envName = customEnvVarName || PROVIDER_ENV_MAP[providerId] || null;
+    if (envName && process.env[envName]) {
+      return { found: true, name: envName, value: process.env[envName] };
+    }
+    return { found: false, name: envName, value: null };
+  }
+
+  /**
+   * 检测模型列表（per D-16/D-17）
+   *
+   * 调用提供商的 /models 端点获取可用模型列表。对内置供应商使用默认端点，
+   * 对自定义供应商使用传入的 baseURL。
+   *
+   * @param {string} providerId - 提供商 ID
+   * @param {string} apiKey - API Key
+   * @param {string|null} [baseURL] - 自定义端点 URL
+   * @returns {Promise<{models?: Array<{id: string, name: string}>, error?: string}>}
+   */
+  async detectModels(providerId, apiKey, baseURL) {
+    if (!apiKey) {
+      return { error: 'API Key 不能为空' };
+    }
+
+    let modelsURL;
+    if (baseURL) {
+      modelsURL = `${baseURL.replace(/\/$/, '')}/models`;
+    } else {
+      // 从内置目录获取默认端点
+      try {
+        const catalog = await this._getCatalog();
+        const provider = catalog.getProviders().find(p => p.id === providerId);
+        if (provider && provider.baseURL) {
+          modelsURL = `${provider.baseURL.replace(/\/$/, '')}/models`;
+        } else if (providerId === 'openai') {
+          modelsURL = 'https://api.openai.com/v1/models';
+        } else if (providerId === 'deepseek') {
+          modelsURL = 'https://api.deepseek.com/v1/models';
+        } else if (providerId === 'anthropic') {
+          modelsURL = 'https://api.anthropic.com/v1/models';
+        } else if (providerId === 'google') {
+          modelsURL = 'https://generativelanguage.googleapis.com/v1beta/models';
+        } else if (providerId === 'groq') {
+          modelsURL = 'https://api.groq.com/openai/v1/models';
+        } else if (providerId === 'xai') {
+          modelsURL = 'https://api.x.ai/v1/models';
+        } else if (providerId === 'mistral') {
+          modelsURL = 'https://api.mistral.ai/v1/models';
+        } else {
+          return { error: `提供商 ${providerId} 没有默认端点，请手动指定 base URL` };
+        }
+      } catch {
+        return { error: `提供商 ${providerId} 端点解析失败` };
+      }
+    }
+
+    try {
+      console.log(`[Realm AI] 检测模型: ${providerId} → ${modelsURL}`);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+
+      const res = await fetch(modelsURL, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          return { error: 'API Key 无效' };
+        }
+        return { error: `HTTP ${res.status}` };
+      }
+
+      const data = await res.json();
+      const models = (data.data || data.models || []).map(m => ({
+        id: m.id,
+        name: m.id,
+      }));
+
+      console.log(`[Realm AI] 检测模型: ${providerId} → ${models.length} 个模型`);
+      return { models };
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        return { error: '请求超时（10秒）' };
+      }
+      return { error: `网络连接失败: ${err.message}` };
+    }
+  }
+
+  /**
+   * 删除供应商配置（per D-05）
+   *
+   * 从 configStore 中彻底清除指定供应商的配置。如果被删除的供应商
+   * 是当前激活供应商，同时清除 activeProvider 设置。
+   *
+   * @param {string} providerId - 要删除的提供商 ID
+   * @returns {Promise<void>}
+   */
+  async removeProvider(providerId) {
+    if (!this.configStore) return;
+
+    const providers = this.configStore.get('ai.providers', {});
+    if (!providers[providerId]) {
+      console.warn(`[Realm AI] 供应商 ${providerId} 不存在，跳过删除`);
+      return;
+    }
+
+    delete providers[providerId];
+    this.configStore.set('ai.providers', providers);
+
+    // 清除激活供应商（如果是被删供应商）
+    if (this.configStore.get('ai.activeProvider') === providerId) {
+      this.configStore.delete('ai.activeProvider');
+    }
+
+    console.log(`[Realm AI] 供应商已删除: ${providerId}`);
+
+    // 重新初始化（如有其他已配置供应商）
+    const remainingIds = Object.keys(providers).filter(id => providers[id] && providers[id].apiKey);
+    if (remainingIds.length > 0) {
+      await this.init(this.configStore);
+    } else {
+      this.isInitialized = false;
+      this.agent = null;
+      this.models = null;
+    }
   }
 
   /**

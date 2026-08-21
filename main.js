@@ -1103,6 +1103,8 @@ app.whenReady().then(async () => {
         return;
       }
 
+      // DEPRECATED: ai/models 与 ai/providers 返回相同数据，保留仅为向后兼容
+      // 新代码应使用 GET /api/ai/providers
       if (route === 'ai/models' && req.method === 'GET') {
         if (!aiManager) {
           sendJson(res, 200, { providers: [], activeProvider: null, activeModel: null });
@@ -1126,6 +1128,82 @@ app.whenReady().then(async () => {
           });
         }
         sendJson(res, 200, { success: true });
+        return;
+      }
+
+      // ==================== 供应商管理 API ====================
+
+      // GET /api/ai/providers — 获取已配置供应商列表（含 envVarName、isBuiltin）
+      if (route === 'ai/providers' && req.method === 'GET') {
+        if (!aiManager) {
+          sendJson(res, 200, { providers: [], activeProvider: null, activeModel: null });
+          return;
+        }
+        sendJson(res, 200, await aiManager.getAvailableModels());
+        return;
+      }
+
+      // POST /api/ai/providers — 保存供应商配置
+      if (route === 'ai/providers' && req.method === 'POST') {
+        const config = await readJsonBody(req);
+        if (!config || !config.provider || !config.apiKey) {
+          sendJson(res, 400, { error: '提供商和 API Key 不能为空' });
+          return;
+        }
+        if (aiManager) {
+          await aiManager.configureProviders(config);
+        }
+        sendJson(res, 200, { success: true });
+        return;
+      }
+
+      // DELETE /api/ai/providers/:id — 删除供应商
+      if (route.startsWith('ai/providers/') && req.method === 'DELETE') {
+        const parts = route.split('/');
+        const providerId = parts[2];
+        if (!providerId) {
+          sendJson(res, 400, { error: '供应商 ID 不能为空' });
+          return;
+        }
+        if (aiManager) {
+          await aiManager.removeProvider(providerId);
+        }
+        sendJson(res, 200, { success: true });
+        return;
+      }
+
+      // POST /api/ai/providers/:id/detect-models — 检测模型列表
+      if (route.match(/^ai\/providers\/[^/]+\/detect-models$/) && req.method === 'POST') {
+        const parts = route.split('/');
+        const providerId = parts[2];
+        const body = await readJsonBody(req);
+        const apiKey = body && body.apiKey;
+        const baseURL = body && body.baseURL;
+        if (!apiKey) {
+          sendJson(res, 400, { error: 'API Key 不能为空' });
+          return;
+        }
+        if (!aiManager) {
+          sendJson(res, 500, { error: 'AI Manager 未初始化' });
+          return;
+        }
+        const result = await aiManager.detectModels(providerId, apiKey, baseURL);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      // GET /api/ai/providers/:id/env-var — 检测环境变量
+      // 注意：不返回 value（API Key 原值），仅返回 found/name，避免泄露到渲染进程
+      if (route.match(/^ai\/providers\/[^/]+\/env-var$/) && req.method === 'GET') {
+        const parts = route.split('/');
+        const providerId = parts[2];
+        const customName = reqUrl.searchParams.get('customName');
+        if (!aiManager) {
+          sendJson(res, 200, { found: false, name: null });
+          return;
+        }
+        const result = aiManager.detectEnvVar(providerId, customName);
+        sendJson(res, 200, { found: result.found, name: result.name });
         return;
       }
 

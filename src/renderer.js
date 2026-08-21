@@ -128,6 +128,11 @@ const elements = {
   aiScrollToBottom: document.getElementById('aiScrollToBottom'),
   aiPanelResizeHandle: document.getElementById('aiPanelResizeHandle'),
 
+  // AI 工具栏
+  aiToolbar: document.getElementById('aiToolbar'),
+  aiNewChatBtn: document.getElementById('aiNewChatBtn'),
+  aiModelSelector: document.getElementById('aiModelSelector'),
+
   // @ 引用标签页
   aiContextPills: document.getElementById('aiContextPills'),
   contextPickerPanel: document.getElementById('contextPickerPanel'),
@@ -4800,6 +4805,17 @@ function setupEventListeners() {
     elements.aiSendBtn.addEventListener('click', handleSendAIMessage);
   }
 
+  // AI 新对话按钮
+  if (elements.aiNewChatBtn) {
+    elements.aiNewChatBtn.addEventListener('click', handleNewConversation);
+  }
+
+  // AI 模型选择器
+  if (elements.aiModelSelector) {
+    elements.aiModelSelector.addEventListener('click', toggleModelDropdown);
+    elements.aiModelSelector.addEventListener('keydown', handleModelSelectorKeydown);
+  }
+
   // AI 输入框键盘事件（Enter 发送，Shift+Enter 换行）
   if (elements.aiInput) {
     elements.aiInput.addEventListener('keydown', handleAIInputKeydown);
@@ -4899,6 +4915,224 @@ function toggleSidebar() {
   }
 }
 
+// ==================== AI 工具栏功能 ====================
+
+/** AI 模型选择器数据缓存 */
+let aiModelsData = null;
+/** 模型选择器下拉框是否打开 */
+let aiModelSelectorOpen = false;
+
+/**
+ * 新对话：清空聊天消息列表，重置对话状态
+ */
+function handleNewConversation() {
+  if (elements.aiMessageList) {
+    elements.aiMessageList.innerHTML = '';
+  }
+  state.aiStreaming = false;
+  state.aiCurrentMessageId = null;
+  // 清除引用的标签页
+  state.referencedTabs = [];
+  if (elements.aiContextPills) {
+    elements.aiContextPills.innerHTML = '';
+  }
+  console.log('[Realm] AI 新对话已开始');
+}
+
+/**
+ * 加载模型选择器数据
+ * 从 API 获取供应商列表和模型列表，缓存到 aiModelsData
+ */
+async function loadModelSelectorData() {
+  try {
+    const data = await fetch('http://localhost:${location.port}/api/ai/providers').then(r => r.json());
+    aiModelsData = data;
+    updateModelSelectorButton();
+  } catch (err) {
+    console.error('[Realm] 加载模型选择器数据失败:', err);
+  }
+}
+
+/**
+ * 更新模型选择器按钮显示当前模型名
+ */
+function updateModelSelectorButton() {
+  if (!elements.aiModelSelector || !aiModelsData) return;
+
+  const { providers, activeProvider, activeModel } = aiModelsData;
+  if (activeProvider && activeModel) {
+    const provider = providers.find(p => p.id === activeProvider);
+    const modelName = activeModel.length > 15 ? activeModel.substring(0, 12) + '...' : activeModel;
+    elements.aiModelSelector.textContent = modelName + ' ▾';
+  } else {
+    elements.aiModelSelector.textContent = '选择模型 ▾';
+  }
+}
+
+/**
+ * 切换模型选择器下拉框
+ */
+function toggleModelDropdown() {
+  if (aiModelSelectorOpen) {
+    closeModelDropdown();
+  } else {
+    openModelDropdown();
+  }
+}
+
+/**
+ * 打开模型选择器下拉框
+ */
+function openModelDropdown() {
+  if (!aiModelsData) {
+    loadModelSelectorData().then(() => {
+      if (aiModelsData) openModelDropdown();
+    });
+    return;
+  }
+
+  aiModelSelectorOpen = true;
+  renderModelDropdown();
+
+  // 点击外部关闭
+  setTimeout(() => {
+    document.addEventListener('pointerdown', handleModelDropdownOutsideClick);
+  }, 0);
+}
+
+/**
+ * 关闭模型选择器下拉框
+ */
+function closeModelDropdown() {
+  aiModelSelectorOpen = false;
+  const dropdown = document.querySelector('.ai-model-dropdown');
+  if (dropdown) dropdown.remove();
+  document.removeEventListener('pointerdown', handleModelDropdownOutsideClick);
+}
+
+/**
+ * 点击外部关闭下拉框
+ */
+function handleModelDropdownOutsideClick(e) {
+  if (!elements.aiModelSelector) return;
+  const dropdown = document.querySelector('.ai-model-dropdown');
+  if (dropdown && !dropdown.contains(e.target) && !elements.aiModelSelector.contains(e.target)) {
+    closeModelDropdown();
+  }
+}
+
+/**
+ * 渲染模型下拉框
+ */
+function renderModelDropdown() {
+  // 移除旧下拉框
+  const oldDropdown = document.querySelector('.ai-model-dropdown');
+  if (oldDropdown) oldDropdown.remove();
+
+  if (!aiModelsData || !elements.aiModelSelector) return;
+
+  const { providers, activeProvider, activeModel } = aiModelsData;
+
+  const dropdown = document.createElement('div');
+  dropdown.className = 'ai-model-dropdown';
+
+  // 按供应商分组
+  providers.forEach(provider => {
+    if (!provider.configured || !provider.models || provider.models.length === 0) return;
+
+    const groupTitle = document.createElement('div');
+    groupTitle.className = 'ai-model-group-title';
+    groupTitle.textContent = provider.name;
+    dropdown.appendChild(groupTitle);
+
+    provider.models.forEach(model => {
+      const option = document.createElement('div');
+      option.className = 'ai-model-option';
+      if (provider.id === activeProvider && model.id === activeModel) {
+        option.classList.add('active');
+      }
+
+      if (provider.id === activeProvider && model.id === activeModel) {
+        const dot = document.createElement('span');
+        dot.className = 'model-active-dot';
+        option.appendChild(dot);
+      }
+
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = model.name || model.id;
+      option.appendChild(nameSpan);
+
+      option.addEventListener('click', () => {
+        selectModel(provider.id, model.id);
+      });
+
+      dropdown.appendChild(option);
+    });
+  });
+
+  // 挂载到模型选择器的父节点
+  elements.aiModelSelector.parentNode.appendChild(dropdown);
+}
+
+/**
+ * 选择模型并激活对应供应商
+ * @param {string} providerId - 供应商 ID
+ * @param {string} modelId - 模型 ID
+ */
+async function selectModel(providerId, modelId) {
+  // 关闭下拉框
+  closeModelDropdown();
+
+  // 先更新后端配置，成功后再更新 UI（避免请求失败时 UI 与后端状态不一致）
+  try {
+    const port = location.port;
+    await fetch(`http://localhost:${port}/api/ai/providers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider: providerId,
+        apiKey: '__keep__',
+        model: modelId,
+      }),
+    });
+    // 请求成功后再更新本地缓存和按钮
+    if (aiModelsData) {
+      aiModelsData.activeProvider = providerId;
+      aiModelsData.activeModel = modelId;
+    }
+    updateModelSelectorButton();
+    console.log(`[Realm] 已切换模型: ${providerId}/${modelId}`);
+  } catch (err) {
+    console.error('[Realm] 切换模型失败:', err);
+  }
+}
+
+/**
+ * 模型选择器键盘导航
+ */
+function handleModelSelectorKeydown(e) {
+  if (e.key === 'Escape') {
+    closeModelDropdown();
+  } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const options = document.querySelectorAll('.ai-model-option');
+    if (options.length === 0) return;
+    const currentIdx = Array.from(options).findIndex(o => o.classList.contains('focused'));
+    options.forEach(o => o.classList.remove('focused'));
+    let nextIdx;
+    if (e.key === 'ArrowDown') {
+      nextIdx = currentIdx < options.length - 1 ? currentIdx + 1 : 0;
+    } else {
+      nextIdx = currentIdx > 0 ? currentIdx - 1 : options.length - 1;
+    }
+    options[nextIdx].classList.add('focused');
+    options[nextIdx].scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter') {
+    const focused = document.querySelector('.ai-model-option.focused');
+    if (focused) focused.click();
+  }
+}
+
 /**
  * 切换 AI 面板的显示/隐藏状态
  * 同时更新按钮激活态和面板可见性，持久化状态到 electron-store
@@ -4911,6 +5145,8 @@ function toggleAIPanel() {
     elements.aiPanel.classList.remove('hidden');
     // 加载持久化的面板宽度
     loadAIPanelWidth();
+    // 加载模型选择器数据
+    loadModelSelectorData();
   } else {
     elements.aiPanel.classList.add('hidden');
   }
