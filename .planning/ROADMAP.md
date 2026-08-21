@@ -172,7 +172,11 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
+**Wave 1**
 
 - [ ] 38-01-PLAN.md — 主进程数据层：多供应商配置模型 + 环境变量检测 + 模型检测 API + HTTP 端点
 - [ ] 38-02-PLAN.md — 设置页 UI：左右分栏布局 + 供应商 CRUD + 内置供应商弹窗 + 环境变量提示
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 38-03-PLAN.md — 聊天面板工具栏：新对话按钮 + 模型选择器下拉 + 发送按钮迁移
