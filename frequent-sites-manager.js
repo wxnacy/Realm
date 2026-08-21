@@ -255,14 +255,15 @@ function getFrequentSites(limit = 12) {
 // ==================== 关键词搜索 ====================
 
 /**
- * 搜索常用网站（URL 前缀匹配 + 标题子串匹配）
+ * 搜索常用网站（URL 匹配 + 标题子串匹配，支持多词查询）
  *
  * 先获取更多常用网站（100 条），再按关键词过滤。
- * URL 匹配时去除协议前缀（http:// 或 https://），支持前缀匹配。
+ * URL 匹配时去除协议前缀（http:// 或 https://），支持包含匹配。
+ * 多词查询时（如 "git wxnacy"），每个词都必须在 URL 或标题中出现。
  *
  * 用途：地址栏自动补全（Phase 37）
  *
- * @param {string} keyword - 搜索关键词
+ * @param {string} keyword - 搜索关键词（支持空格分隔的多词查询）
  * @param {number} [limit=10] - 返回结果数量限制
  * @returns {Array} 匹配的常用网站列表
  */
@@ -273,20 +274,20 @@ function searchFrequentSites(keyword, limit = 10) {
 
   // 获取更多常用网站以便过滤
   const allSites = getFrequentSites(100);
-  const lowerKeyword = keyword.toLowerCase();
 
-  // 过滤匹配的记录
+  // 拆分多词查询
+  const words = keyword.toLowerCase().trim().split(/\s+/).filter(Boolean);
+
+  // 过滤匹配的记录（每个词都必须在 URL 或标题中出现）
   const matched = allSites.filter(site => {
-    // URL 去除协议后前缀匹配
-    const urlWithoutProtocol = site.url.replace(/^https?:\/\//i, '');
-    if (urlWithoutProtocol.toLowerCase().startsWith(lowerKeyword)) {
-      return true;
-    }
-    // 标题子串匹配
-    if (site.title && site.title.toLowerCase().includes(lowerKeyword)) {
-      return true;
-    }
-    return false;
+    const urlLower = site.url.replace(/^https?:\/\//i, '').toLowerCase();
+    const titleLower = (site.title || '').toLowerCase();
+
+    return words.every(word => {
+      if (urlLower.includes(word)) return true;
+      if (titleLower.includes(word)) return true;
+      return false;
+    });
   });
 
   return matched.slice(0, limit);

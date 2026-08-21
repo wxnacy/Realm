@@ -285,12 +285,13 @@ function dropTable(containerId) {
 // ==================== 跨容器搜索 ====================
 
 /**
- * 跨所有容器搜索历史记录（URL 和标题模糊匹配）
+ * 跨所有容器搜索历史记录（URL 和标题模糊匹配，支持多词查询）
  * 使用 UNION ALL 合并所有 history_* 表，按访问时间倒序返回
+ * 多词查询时（如 "git wxnacy"），每个词都必须在 URL 或标题中出现
  *
  * 用途：地址栏自动补全（Phase 37），需要搜索全部容器的历史记录
  *
- * @param {string} keyword - 搜索关键词
+ * @param {string} keyword - 搜索关键词（支持空格分隔的多词查询）
  * @param {number} [limit=20] - 返回结果数量限制
  * @returns {Array<{url: string, title: string, favicon_url: string, visited_at: number}>} 匹配的记录列表
  */
@@ -314,12 +315,26 @@ function searchAllContainers(keyword, limit = 20) {
       return [];
     }
 
+    // 安全校验：只允许 history_ 前缀 + 合法字符的表名（防 SQL 注入）
+    const validTables = tables.filter(t => /^history_[a-zA-Z0-9_-]+$/.test(t.name));
+    if (validTables.length === 0) {
+      return [];
+    }
+    if (validTables.length !== tables.length) {
+      console.warn(`[Realm] 发现 ${tables.length - validTables.length} 个异常历史记录表名，已跳过`);
+    }
+
+    // 拆分多词查询
+    const words = keyword.trim().split(/\s+/).filter(Boolean);
+
+    // 构建多词 AND 条件：每个词都必须在 URL 或标题中出现
+    const andConditions = words.map(() => `(url LIKE ? OR title LIKE ?)`).join(' AND ');
+
     // 构建 UNION ALL 查询：每个子查询从对应表中搜索
-    const pattern = `%${keyword}%`;
-    const unionQueries = tables.map(table => `
+    const unionQueries = validTables.map(table => `
       SELECT url, title, favicon_url, visited_at
-      FROM ${table.name}
-      WHERE url LIKE ? OR title LIKE ?
+      FROM "${table.name}"
+      WHERE ${andConditions}
     `).join(' UNION ALL ');
 
     // 最外层按访问时间倒序，截取 limit 条
@@ -331,10 +346,13 @@ function searchAllContainers(keyword, limit = 20) {
       LIMIT ?
     `;
 
-    // 每个子查询两个参数（pattern 用于 url 和 title）
+    // 每个子查询每个词两个参数（pattern 用于 url 和 title）
     const params = [];
-    for (let i = 0; i < tables.length; i++) {
-      params.push(pattern, pattern);
+    for (let i = 0; i < validTables.length; i++) {
+      for (const word of words) {
+        const pattern = `%${word}%`;
+        params.push(pattern, pattern);
+      }
     }
     params.push(limit);
 

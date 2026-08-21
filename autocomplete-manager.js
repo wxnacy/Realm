@@ -6,7 +6,8 @@
  *
  * 特性：
  * - LRU 缓存（最多 100 条，60 秒过期）
- * - 收藏夹条目置顶（per D-04）
+ * - 匹配度优先排序：URL 前缀 > 域名匹配 > 标题匹配
+ * - 相同匹配度时收藏夹优先（per D-04）
  * - 其余按 frecency 排序（per D-06）
  * - URL 前缀 + 标题子串双重匹配（per D-05）
  *
@@ -28,18 +29,97 @@ const CACHE_MAX_SIZE = 100;
 /** 缓存过期时间（毫秒） */
 const CACHE_TTL_MS = 60 * 1000;
 
+/** 缓存清理定时器引用（用于应用退出时清理） */
+let cleanupTimer = null;
+
 /**
- * 缓存清理定时器：每 30 秒清理超过 60 秒的条目
+ * 启动缓存清理定时器：每 30 秒清理超过 60 秒的条目
  * 避免长时间运行后缓存无限增长
  */
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of cache) {
-    if (now - entry.timestamp > CACHE_TTL_MS) {
-      cache.delete(key);
+function startCleanupTimer() {
+  if (cleanupTimer) clearInterval(cleanupTimer);
+  cleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of cache) {
+      if (now - entry.timestamp > CACHE_TTL_MS) {
+        cache.delete(key);
+      }
     }
+  }, 30 * 1000);
+}
+
+/**
+ * 停止缓存清理定时器（应用退出时调用，防止内存泄漏）
+ */
+function stopCleanupTimer() {
+  if (cleanupTimer) {
+    clearInterval(cleanupTimer);
+    cleanupTimer = null;
   }
-}, 30 * 1000);
+}
+
+// 启动清理定时器
+startCleanupTimer();
+
+// ==================== 匹配度评分 ====================
+
+/**
+ * 计算搜索结果的匹配度分数（越高越相关，支持多词查询）
+ *
+ * 评分规则（每个词独立评分后取平均）：
+ * - URL 前缀精确匹配（去协议后）：100 分
+ * - URL 中域名开头匹配：80 分
+ * - URL 中包含关键词：40 分
+ * - 标题包含关键词：20 分
+ * - 收藏夹加分：+5 分（仅在匹配度相同时起区分作用）
+ *
+ * @param {Object} item - 补全建议对象
+ * @param {string} keywordLower - 小写关键词（可能包含空格）
+ * @returns {number} 匹配度分数
+ */
+function calculateRelevanceScore(item, keywordLower) {
+  const urlLower = item.url.replace(/^https?:\/\//i, '').toLowerCase();
+  const titleLower = (item.title || '').toLowerCase();
+  const domain = urlLower.split('/')[0];
+
+  // 拆分多词
+  const words = keywordLower.split(/\s+/).filter(Boolean);
+
+  // 每个词独立评分，取平均
+  let totalScore = 0;
+  for (const word of words) {
+    let wordScore = 0;
+
+    // URL 前缀匹配（最高优先级）
+    if (urlLower.startsWith(word)) {
+      wordScore = 100;
+    }
+    // 域名部分开头匹配（如输入 "hugg" 匹配 "huggingface.co"）
+    else if (domain.startsWith(word)) {
+      wordScore = 80;
+    }
+    // URL 中包含关键词
+    else if (urlLower.includes(word)) {
+      wordScore = 40;
+    }
+
+    // 标题匹配（独立加分，与 URL 匹配叠加）
+    if (titleLower.includes(word)) {
+      wordScore += 20;
+    }
+
+    totalScore += wordScore;
+  }
+
+  const score = totalScore / words.length;
+
+  // 收藏夹加分（仅在匹配度相同时起区分作用）
+  if (item.source === 'favorite') {
+    return score + 5;
+  }
+
+  return score;
+}
 
 // ==================== 核心查询 ====================
 
@@ -111,14 +191,20 @@ function getSuggestions(keyword, limit = 6) {
     }
   }
 
-  // 排序：收藏夹置顶，其余按 frecency（per D-04, D-06）
+  // 排序：匹配度优先，相同匹配度时收藏夹优先，再按 frecency（per D-04, D-05, D-06）
+  const keywordLower = keyword.toLowerCase();
   const allResults = Array.from(urlMap.values());
   allResults.sort((a, b) => {
-    // 收藏夹始终排在最前
+    // 匹配度优先
+    const relA = calculateRelevanceScore(a, keywordLower);
+    const relB = calculateRelevanceScore(b, keywordLower);
+    if (relA !== relB) return relB - relA;
+
+    // 相同匹配度时，收藏夹优先
     if (a.source === 'favorite' && b.source !== 'favorite') return -1;
     if (a.source !== 'favorite' && b.source === 'favorite') return 1;
 
-    // 非收藏夹条目按 frecency 排序
+    // 再按 frecency 排序
     const scoreA = a.frecencyScore || 0;
     const scoreB = b.frecencyScore || 0;
     return scoreB - scoreA;
@@ -134,7 +220,7 @@ function getSuggestions(keyword, limit = 6) {
   });
 
   // 缓存大小限制：超过上限时删除最旧的条目
-  if (cache.size > CACHE_MAX_SIZE) {
+  while (cache.size >= CACHE_MAX_SIZE) {
     const oldestKey = cache.keys().next().value;
     cache.delete(oldestKey);
   }
@@ -146,4 +232,5 @@ function getSuggestions(keyword, limit = 6) {
 
 module.exports = {
   getSuggestions,
+  stopCleanupTimer,
 };

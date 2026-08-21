@@ -255,6 +255,7 @@ state.autocomplete = {
   isOpen: false,
   debounceTimer: null,
   cache: new Map(),
+  lastRequestId: 0,  // 用于追踪最新请求，防止竞态条件
 };
 
 // 已关闭标签栈（LIFO，最多 10 条），用于"重新打开已关闭标签页"功能
@@ -3702,6 +3703,7 @@ function initAutocomplete() {
 
 /**
  * 处理地址栏输入事件（100ms 防抖）
+ * 使用请求 ID 追踪最新请求，防止快速输入时的竞态条件
  * @param {Event} e - input 事件对象
  */
 async function handleAutocompleteInput(e) {
@@ -3721,6 +3723,9 @@ async function handleAutocompleteInput(e) {
 
   // 设置 100ms 防抖定时器
   state.autocomplete.debounceTimer = setTimeout(async () => {
+    // 递增请求 ID，用于追踪最新请求
+    const requestId = ++state.autocomplete.lastRequestId;
+
     try {
       // 更新查询状态
       state.autocomplete.query = query;
@@ -3728,6 +3733,8 @@ async function handleAutocompleteInput(e) {
       // 检查客户端缓存
       const cached = getCachedSuggestions(query);
       if (cached) {
+        // 检查是否仍是最新的请求
+        if (requestId !== state.autocomplete.lastRequestId) return;
         updateAutocompleteUI(cached);
         return;
       }
@@ -3735,13 +3742,19 @@ async function handleAutocompleteInput(e) {
       // 调用主进程 API 获取补全建议
       const suggestions = await window.realmAPI.getAutocompleteSuggestions(query);
 
+      // 检查是否仍是最新的请求（防止过期结果覆盖新结果）
+      if (requestId !== state.autocomplete.lastRequestId) return;
+
       // 存入缓存
       cacheSuggestions(query, suggestions);
 
       // 更新 UI
       updateAutocompleteUI(suggestions);
     } catch (err) {
-      console.error('[Realm Renderer] 获取补全建议失败:', err);
+      // 仅在仍是最新请求时输出错误（避免过期请求的错误干扰）
+      if (requestId === state.autocomplete.lastRequestId) {
+        console.error('[Realm Renderer] 获取补全建议失败:', err);
+      }
     }
   }, 100);
 }
@@ -3825,25 +3838,59 @@ function updateAutocompleteUI(suggestions) {
 
 /**
  * 更新 inline completion 文本
- * Chrome 风格：在光标后显示高亮补全
+ * Chrome 风格：在光标后显示高亮补全（仅显示补全部分，不重复已输入文字）
+ * 多词查询时使用最后一个词进行匹配（用户正在输入的词）
+ * 优先匹配 URL 前缀，其次匹配 URL 中的关键词位置
  * @param {Object} suggestion - 补全建议对象
  */
 function updateInlineCompletion(suggestion) {
   const query = state.autocomplete.query;
 
+  // 多词查询时使用最后一个词进行匹配（用户正在输入的词）
+  const words = query.split(/\s+/);
+  const lastWord = words[words.length - 1];
+  const lastWordLower = lastWord.toLowerCase();
+
   // 去除协议前缀
   const urlWithoutProtocol = suggestion.url.replace(/^https?:\/\//i, '');
+  const urlLower = urlWithoutProtocol.toLowerCase();
 
-  // 检查是否匹配（不区分大小写）
-  if (urlWithoutProtocol.toLowerCase().startsWith(query.toLowerCase())) {
-    const completion = urlWithoutProtocol.slice(query.length);
+  let completion = '';
+
+  // 优先：URL 前缀匹配（补全部分 = URL 去掉已输入部分）
+  if (urlLower.startsWith(lastWordLower)) {
+    completion = urlWithoutProtocol.slice(lastWord.length);
+  } else {
+    // 次选：URL 中包含关键词（如输入 "wxnacy" 匹配 "github.com/wxnacy"）
+    const matchIndex = urlLower.indexOf(lastWordLower);
+    if (matchIndex >= 0) {
+      completion = urlWithoutProtocol.slice(matchIndex + lastWord.length);
+    }
+  }
+
+  if (completion) {
     state.autocomplete.inlineText = completion;
-    elements.autocompleteInline.textContent = query + completion;
+    elements.autocompleteInline.textContent = completion;
+    // 定位到输入文字末尾（光标位置）
+    const textWidth = measureInputTextWidth(query);
+    elements.autocompleteInline.style.left = (12 + textWidth) + 'px'; // 12px = input padding-left
     elements.autocompleteInline.style.display = 'block';
   } else {
     state.autocomplete.inlineText = '';
     elements.autocompleteInline.style.display = 'none';
   }
+}
+
+/**
+ * 测量输入框中文字的像素宽度
+ * @param {string} text - 要测量的文字
+ * @returns {number} 文字宽度（px）
+ */
+function measureInputTextWidth(text) {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  return ctx.measureText(text).width;
 }
 
 /**
@@ -4064,24 +4111,9 @@ function closeAutocomplete() {
 function getCachedSuggestions(keyword) {
   const normalizedKey = keyword.toLowerCase();
 
-  // 精确匹配
+  // 精确匹配（不使用前缀子集优化，避免旧结果混入）
   if (state.autocomplete.cache.has(normalizedKey)) {
     return state.autocomplete.cache.get(normalizedKey);
-  }
-
-  // 检查更短前缀的缓存子集
-  for (const [key, value] of state.autocomplete.cache.entries()) {
-    if (normalizedKey.startsWith(key)) {
-      // 过滤匹配的结果
-      const filtered = value.filter(item => {
-        const urlWithoutProtocol = item.url.replace(/^https?:\/\//i, '');
-        return urlWithoutProtocol.toLowerCase().includes(normalizedKey) ||
-               (item.title && item.title.toLowerCase().includes(normalizedKey));
-      });
-      if (filtered.length > 0) {
-        return filtered;
-      }
-    }
   }
 
   return null;
