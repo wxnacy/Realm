@@ -158,5 +158,8 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 
 Plans:
 
-- [ ] 37-01-PLAN.md — 主进程数据层：autocomplete-manager + 数据源方法 + IPC 通道 + preload API
-- [ ] 37-02-PLAN.md — 渲染进程 UI：DOM 结构 + CSS 样式 + 交互逻辑（防抖、inline completion、下拉列表、键盘导航）
+- [x] 37-01-PLAN.md — 主进程数据层：autocomplete-manager + 数据源方法 + IPC 通道 + preload API
+- [x] 37-02-PLAN.md — 渲染进程 UI：DOM 结构 + CSS 样式 + 交互逻辑（防抖、inline completion、下拉列表、键盘导航）
+
+**Status:** Complete ✓
+**Completed:** 2026-08-21
