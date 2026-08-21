@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: 多窗口支持
 current_phase: 34
+current_phase_name: milestone v2.4 done
 status: completed
-stopped_at: Milestone v2.4 complete (Phase 34 closed, audit re-passed)
-last_updated: "2026-08-16T16:30:00.000Z"
+stopped_at: Phase 37 context gathered
+last_updated: "2026-08-21T02:31:30.518Z"
 last_activity: 2026-08-16
-last_activity_desc: Phase 34 Plan 03 补执行 + 快捷键双重注册修复，UAT 10/10，里程碑 v2.4 审计复审通过
+last_activity_desc: Phase 34 Plan 03 补执行 + Cmd+N/Cmd+Shift+W 双重注册吞键修复 + 新窗口错位，phase 34 收尾
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 9
-  completed_plans: 9
-  percent: 100
-current_phase_name: tab
+  total_phases: 8
+  completed_phases: 7
+  total_plans: 20
+  completed_plans: 20
+  percent: 88
 ---
 
 # Project State: Realm Browser
@@ -61,6 +61,7 @@ Progress: [███████████████████████
   - Phase 34: 窗口管理基础 (MW-01, MW-07, MW-08, MW-09, MW-10) — window-manager refactor + dock menu + shortcuts
   - Phase 35: Tab 窗口关联 (MW-05, MW-06, MW-12, MW-14) — tab windowId + window close behavior + title/color
   - Phase 36: Tab 拖拽与跨窗口移动 (MW-02, MW-03, MW-04, MW-11, MW-13) — DnD reorder + cross-window + position persistence
+- Phase 37 added: 地址栏地址补全功能
 
 ### Decisions
 
@@ -97,9 +98,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T09:12:38.575Z
-Stopped at: Phase 36 UI-SPEC approved
-Resume file: .planning/phases/36-tab/36-UI-SPEC.md
+Last session: 2026-08-21T02:31:30.514Z
+Stopped at: Phase 37 context gathered
+Resume file: .planning/phases/37-url-autocomplete/37-CONTEXT.md
 
 ## Operator Next Steps
 
