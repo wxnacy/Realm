@@ -252,9 +252,50 @@ function getFrequentSites(limit = 12) {
   }
 }
 
+// ==================== 关键词搜索 ====================
+
+/**
+ * 搜索常用网站（URL 前缀匹配 + 标题子串匹配）
+ *
+ * 先获取更多常用网站（100 条），再按关键词过滤。
+ * URL 匹配时去除协议前缀（http:// 或 https://），支持前缀匹配。
+ *
+ * 用途：地址栏自动补全（Phase 37）
+ *
+ * @param {string} keyword - 搜索关键词
+ * @param {number} [limit=10] - 返回结果数量限制
+ * @returns {Array} 匹配的常用网站列表
+ */
+function searchFrequentSites(keyword, limit = 10) {
+  if (!keyword || keyword.trim() === '') {
+    return [];
+  }
+
+  // 获取更多常用网站以便过滤
+  const allSites = getFrequentSites(100);
+  const lowerKeyword = keyword.toLowerCase();
+
+  // 过滤匹配的记录
+  const matched = allSites.filter(site => {
+    // URL 去除协议后前缀匹配
+    const urlWithoutProtocol = site.url.replace(/^https?:\/\//i, '');
+    if (urlWithoutProtocol.toLowerCase().startsWith(lowerKeyword)) {
+      return true;
+    }
+    // 标题子串匹配
+    if (site.title && site.title.toLowerCase().includes(lowerKeyword)) {
+      return true;
+    }
+    return false;
+  });
+
+  return matched.slice(0, limit);
+}
+
 // ==================== 导出 ====================
 
 module.exports = {
   initDatabase,
   getFrequentSites,
+  searchFrequentSites,
 };

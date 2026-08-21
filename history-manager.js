@@ -282,6 +282,69 @@ function dropTable(containerId) {
   console.log(`[Realm] 已删除历史记录表: ${tableName}`);
 }
 
+// ==================== 跨容器搜索 ====================
+
+/**
+ * 跨所有容器搜索历史记录（URL 和标题模糊匹配）
+ * 使用 UNION ALL 合并所有 history_* 表，按访问时间倒序返回
+ *
+ * 用途：地址栏自动补全（Phase 37），需要搜索全部容器的历史记录
+ *
+ * @param {string} keyword - 搜索关键词
+ * @param {number} [limit=20] - 返回结果数量限制
+ * @returns {Array<{url: string, title: string, favicon_url: string, visited_at: number}>} 匹配的记录列表
+ */
+function searchAllContainers(keyword, limit = 20) {
+  if (!db) {
+    console.error('[Realm] 数据库未初始化，请先调用 initDatabase()');
+    return [];
+  }
+
+  if (!keyword || keyword.trim() === '') {
+    return [];
+  }
+
+  try {
+    // 获取所有 history_* 表名
+    const tables = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'history_%'"
+    ).all();
+
+    if (tables.length === 0) {
+      return [];
+    }
+
+    // 构建 UNION ALL 查询：每个子查询从对应表中搜索
+    const pattern = `%${keyword}%`;
+    const unionQueries = tables.map(table => `
+      SELECT url, title, favicon_url, visited_at
+      FROM ${table.name}
+      WHERE url LIKE ? OR title LIKE ?
+    `).join(' UNION ALL ');
+
+    // 最外层按访问时间倒序，截取 limit 条
+    const query = `
+      SELECT * FROM (
+        ${unionQueries}
+      )
+      ORDER BY visited_at DESC
+      LIMIT ?
+    `;
+
+    // 每个子查询两个参数（pattern 用于 url 和 title）
+    const params = [];
+    for (let i = 0; i < tables.length; i++) {
+      params.push(pattern, pattern);
+    }
+    params.push(limit);
+
+    return db.prepare(query).all(...params);
+  } catch (error) {
+    console.error('[Realm] 跨容器搜索历史记录失败:', error);
+    return [];
+  }
+}
+
 // ==================== 导出 ====================
 
 module.exports = {
@@ -289,6 +352,7 @@ module.exports = {
   addRecord,
   updateLastTitle,
   searchRecords,
+  searchAllContainers,
   listRecords,
   deleteRecord,
   deleteRecords,
