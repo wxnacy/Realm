@@ -163,3 +163,16 @@ Plans:
 
 **Status:** Complete ✓
 **Completed:** 2026-08-21
+
+### Phase 38: 研究 deepseek-harness 项目，AI 助手增加增删改供应商能力，API Key 环境变量优先+自定义，对话框增加模型选择
+
+**Goal:** 扩展 AI 助手的供应商管理能力，从单提供商配置升级为多供应商增删改，API Key 支持环境变量优先+手动输入兜底，聊天对话框底部增加模型选择器
+**Requirements**: D-01 ~ D-18
+**Depends on:** Phase 37
+**Plans:** 3 plans
+
+Plans:
+
+- [ ] 38-01-PLAN.md — 主进程数据层：多供应商配置模型 + 环境变量检测 + 模型检测 API + HTTP 端点
+- [ ] 38-02-PLAN.md — 设置页 UI：左右分栏布局 + 供应商 CRUD + 内置供应商弹窗 + 环境变量提示
+- [ ] 38-03-PLAN.md — 聊天面板工具栏：新对话按钮 + 模型选择器下拉 + 发送按钮迁移
