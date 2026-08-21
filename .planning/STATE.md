@@ -5,8 +5,8 @@ milestone_name: 多窗口支持
 current_phase: 34
 current_phase_name: milestone v2.4 done
 status: completed
-stopped_at: Phase 37 context gathered
-last_updated: "2026-08-21T02:31:30.518Z"
+stopped_at: Phase 37 UI-SPEC approved
+last_updated: "2026-08-21T02:44:38.720Z"
 last_activity: 2026-08-16
 last_activity_desc: Phase 34 Plan 03 补执行 + Cmd+N/Cmd+Shift+W 双重注册吞键修复 + 新窗口错位，phase 34 收尾
 progress:
@@ -98,9 +98,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-21T02:31:30.514Z
-Stopped at: Phase 37 context gathered
-Resume file: .planning/phases/37-url-autocomplete/37-CONTEXT.md
+Last session: 2026-08-21T02:44:38.715Z
+Stopped at: Phase 37 UI-SPEC approved
+Resume file: .planning/phases/37-url-autocomplete/37-UI-SPEC.md
 
 ## Operator Next Steps
 
