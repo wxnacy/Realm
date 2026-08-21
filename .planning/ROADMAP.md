@@ -148,3 +148,15 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 | 34. 窗口管理基础 | v2.4 | 4/4 | Complete | 2026-08-16 |
 | 35. Tab 窗口关联 | v2.4 | 3/3 | Complete | 2026-08-15 |
 | 36. Tab 拖拽与跨窗口移动 | v2.4 | 3/3 | Complete | 2026-08-15 |
+
+### Phase 37: 地址栏地址补全功能
+
+**Goal:** 用户在地址栏输入字符后，最匹配的地址自动补充到地址栏（inline completion），同时出现候选地址列表（dropdown）
+**Requirements**: D-01 ~ D-16
+**Depends on:** Phase 36
+**Plans:** 2 plans
+
+Plans:
+
+- [ ] 37-01-PLAN.md — 主进程数据层：autocomplete-manager + 数据源方法 + IPC 通道 + preload API
+- [ ] 37-02-PLAN.md — 渲染进程 UI：DOM 结构 + CSS 样式 + 交互逻辑（防抖、inline completion、下拉列表、键盘导航）
