@@ -2169,6 +2169,10 @@ async function init() {
   state.realmToken = realmInfo.token;
   console.log('[Realm Renderer] 内部页面服务器端口:', state.realmPort);
 
+  // 预加载模型选择器数据：让工具栏按钮启动即显示上次选择的模型，
+  // 否则要点开下拉一次（触发数据加载）后才显示
+  loadModelSelectorData();
+
   // 加载容器列表
   await loadContainers();
 
@@ -4924,8 +4928,12 @@ let aiModelSelectorOpen = false;
 
 /**
  * 新对话：清空聊天消息列表，重置对话状态
+ * 必须同时重置主进程 Agent 的 transcript 和 renderer 的 state.aiMessages——
+ * 否则再次发送时旧消息仍在 LLM 上下文中，且会随 renderAIMessages 重新渲染
  */
-function handleNewConversation() {
+async function handleNewConversation() {
+  // 清空 renderer 消息数据源（renderAIMessages 的渲染来源）
+  state.aiMessages = [];
   if (elements.aiMessageList) {
     elements.aiMessageList.innerHTML = '';
   }
@@ -4936,6 +4944,12 @@ function handleNewConversation() {
   if (elements.aiContextPills) {
     elements.aiContextPills.innerHTML = '';
   }
+  // 重置主进程 Agent 的对话状态（transcript/流式/队列）
+  try {
+    await window.realmAPI.ai.newConversation();
+  } catch (err) {
+    console.error('[Realm] 重置 AI 对话状态失败:', err);
+  }
   console.log('[Realm] AI 新对话已开始');
 }
 
@@ -4945,8 +4959,9 @@ function handleNewConversation() {
  */
 async function loadModelSelectorData() {
   try {
-    const data = await fetch('http://localhost:${location.port}/api/ai/providers').then(r => r.json());
-    aiModelsData = data;
+    // 主窗口是 file:// 源，fetch localhost HTTP API 会被 CORS 拦截，
+    // 走受信 IPC（preload 暴露的 realmAPI.ai）
+    aiModelsData = await window.realmAPI.ai.getAvailableModels();
     updateModelSelectorButton();
   } catch (err) {
     console.error('[Realm] 加载模型选择器数据失败:', err);
@@ -4984,20 +4999,19 @@ function toggleModelDropdown() {
  * 打开模型选择器下拉框
  */
 function openModelDropdown() {
-  if (!aiModelsData) {
-    loadModelSelectorData().then(() => {
-      if (aiModelsData) openModelDropdown();
-    });
-    return;
-  }
+  // 每次打开都重新拉取数据：设置页增删模型/供应商后保持同步，
+  // 避免使用过期缓存（aiModelsData 是内存缓存，设置页变更不会主动推送）
+  loadModelSelectorData().then(() => {
+    if (!aiModelsData || !elements.aiModelSelector) return;
 
-  aiModelSelectorOpen = true;
-  renderModelDropdown();
+    aiModelSelectorOpen = true;
+    renderModelDropdown();
 
-  // 点击外部关闭
-  setTimeout(() => {
-    document.addEventListener('pointerdown', handleModelDropdownOutsideClick);
-  }, 0);
+    // 点击外部关闭
+    setTimeout(() => {
+      document.addEventListener('pointerdown', handleModelDropdownOutsideClick);
+    }, 0);
+  });
 }
 
 /**
@@ -5050,6 +5064,8 @@ function renderModelDropdown() {
       option.className = 'ai-model-option';
       if (provider.id === activeProvider && model.id === activeModel) {
         option.classList.add('active');
+        // 键盘导航初始聚焦当前激活项，打开下拉即可上下移动
+        option.classList.add('focused');
       }
 
       if (provider.id === activeProvider && model.id === activeModel) {
@@ -5072,6 +5088,12 @@ function renderModelDropdown() {
 
   // 挂载到模型选择器的父节点
   elements.aiModelSelector.parentNode.appendChild(dropdown);
+
+  // 打开即定位到当前激活项（列表深处时不再停留在第一页）
+  const focusedOption = dropdown.querySelector('.ai-model-option.focused');
+  if (focusedOption) {
+    scrollModelDropdownToOption(focusedOption, true);
+  }
 }
 
 /**
@@ -5084,16 +5106,17 @@ async function selectModel(providerId, modelId) {
   closeModelDropdown();
 
   // 先更新后端配置，成功后再更新 UI（避免请求失败时 UI 与后端状态不一致）
+  // 主窗口是 file:// 源，fetch localhost HTTP API 会被 CORS 拦截，走受信 IPC
   try {
-    const port = location.port;
-    await fetch(`http://localhost:${port}/api/ai/providers`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        provider: providerId,
-        apiKey: '__keep__',
-        model: modelId,
-      }),
+    // 自定义供应商必须传 isBuiltin: false，否则后端按内置校验报「未知提供商」
+    const providerCfg = aiModelsData && aiModelsData.providers
+      ? aiModelsData.providers.find(p => p.id === providerId)
+      : null;
+    await window.realmAPI.ai.configureProviders({
+      provider: providerId,
+      apiKey: '__keep__',
+      model: modelId,
+      isBuiltin: providerCfg ? providerCfg.isBuiltin : undefined,
     });
     // 请求成功后再更新本地缓存和按钮
     if (aiModelsData) {
@@ -5104,6 +5127,28 @@ async function selectModel(providerId, modelId) {
     console.log(`[Realm] 已切换模型: ${providerId}/${modelId}`);
   } catch (err) {
     console.error('[Realm] 切换模型失败:', err);
+  }
+}
+
+/**
+ * 将下拉容器滚动到指定选项（只滚动下拉容器自身，不用 scrollIntoView——
+ * 它会连带滚动外层页面容器，导致焦点项在列表深处时视口跳回第一页）
+ * @param {HTMLElement} optionEl - 目标选项元素
+ * @param {boolean} [center] - true 时居中显示（打开下拉定位用），false 时贴边（键盘导航用）
+ */
+function scrollModelDropdownToOption(optionEl, center) {
+  const dropdown = document.querySelector('.ai-model-dropdown');
+  if (!dropdown || !optionEl) return;
+  const elTop = optionEl.offsetTop;
+  const elBottom = elTop + optionEl.offsetHeight;
+  if (center) {
+    dropdown.scrollTop = elTop - (dropdown.clientHeight - optionEl.offsetHeight) / 2;
+    return;
+  }
+  if (elTop < dropdown.scrollTop) {
+    dropdown.scrollTop = elTop;
+  } else if (elBottom > dropdown.scrollTop + dropdown.clientHeight) {
+    dropdown.scrollTop = elBottom - dropdown.clientHeight;
   }
 }
 
@@ -5126,7 +5171,7 @@ function handleModelSelectorKeydown(e) {
       nextIdx = currentIdx > 0 ? currentIdx - 1 : options.length - 1;
     }
     options[nextIdx].classList.add('focused');
-    options[nextIdx].scrollIntoView({ block: 'nearest' });
+    scrollModelDropdownToOption(options[nextIdx], false);
   } else if (e.key === 'Enter') {
     const focused = document.querySelector('.ai-model-option.focused');
     if (focused) focused.click();

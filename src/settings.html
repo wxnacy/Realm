@@ -259,49 +259,102 @@
       <section id="settings-ai-assistant" class="settings-section" style="display:none;">
         <h1 class="settings-page-title">AI 助手</h1>
 
-        <!-- API 配置组 -->
-        <div class="settings-group">
-          <h3 class="settings-group-title">API 配置</h3>
-
-          <div class="settings-item">
-            <label for="aiProviderInput">提供商</label>
-            <div class="ai-provider-combobox" id="aiProviderCombobox">
-              <input type="text" id="aiProviderInput" class="text-input" placeholder="输入以筛选提供商（如 xiaomi、openai）" autocomplete="off">
-              <div class="ai-provider-dropdown hidden" id="aiProviderDropdown"></div>
-            </div>
-          </div>
-
-          <div class="settings-item">
-            <label for="aiModelSelect">模型</label>
-            <select class="settings-select" id="aiModelSelect" disabled>
-              <option value="">先选择提供商</option>
-            </select>
-          </div>
-
-          <div class="settings-item">
-            <label for="aiApiKey">API Key</label>
-            <div class="settings-input-wrapper">
-              <input type="password" id="aiApiKey" class="text-input" placeholder="先选择提供商">
-              <button class="btn btn-secondary btn-sm" id="aiToggleKeyVisibility" title="显示/隐藏">显示</button>
-            </div>
-          </div>
-
-          <div class="settings-item">
-            <button class="btn btn-primary" id="aiSaveConfig">保存配置</button>
+        <!-- 连接状态 -->
+        <div class="settings-group" style="margin-bottom: 16px;">
+          <div class="ai-status-indicator">
+            <span class="ai-status-dot" id="aiStatusDot"></span>
+            <span class="ai-status-text" id="aiStatusText">未配置 API Key</span>
           </div>
         </div>
 
-        <!-- 连接状态组 -->
-        <div class="settings-group">
-          <h3 class="settings-group-title">连接状态</h3>
+        <!-- 供应商管理左右分栏 -->
+        <div class="settings-ai-split">
+          <!-- 左侧供应商列表 -->
+          <div class="settings-ai-sidebar">
+            <input type="text" id="aiProviderSearch" class="text-input" placeholder="搜索供应商..." autocomplete="off">
+            <div id="aiProviderList" class="ai-provider-list"></div>
+            <div class="settings-ai-sidebar-actions">
+              <button class="btn btn-primary btn-sm" id="aiAddBuiltinBtn">添加内置供应商</button>
+              <button class="btn btn-secondary btn-sm" id="aiAddCustomBtn">添加自定义供应商</button>
+            </div>
+          </div>
 
-          <div class="settings-item">
-            <div class="ai-status-indicator">
-              <span class="ai-status-dot" id="aiStatusDot"></span>
-              <span class="ai-status-text" id="aiStatusText">未配置 API Key</span>
+          <!-- 右侧编辑表单 -->
+          <div class="settings-ai-editor">
+            <!-- 空状态 -->
+            <div id="aiEditorEmpty" class="ai-editor-empty">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.3;margin-bottom:12px;">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              <div style="font-size:15px;font-weight:600;margin-bottom:4px;">尚未配置供应商</div>
+              <div style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">点击左侧按钮添加 AI 供应商，开始使用 AI 助手</div>
+              <button class="btn btn-primary" id="aiEmptyAddBtn">添加供应商</button>
+            </div>
+
+            <!-- 编辑表单（初始隐藏） -->
+            <div id="aiEditorForm" class="ai-editor-form" style="display:none;">
+              <div class="ai-editor-header">
+                <h3 id="aiEditorTitle" class="ai-editor-title">编辑供应商</h3>
+              </div>
+
+              <div class="ai-form-group">
+                <label>提供商名称</label>
+                <input type="text" id="aiEditorName" class="text-input" placeholder="提供商名称" readonly>
+              </div>
+
+              <div class="ai-form-group">
+                <label>API Key</label>
+                <div class="settings-input-wrapper">
+                  <input type="password" id="aiEditorApiKey" class="text-input" placeholder="输入 API Key">
+                  <button class="btn btn-secondary btn-sm" id="aiEditorToggleKey" title="显示/隐藏">显示</button>
+                </div>
+                <div id="aiEnvVarHint" class="ai-env-var-hint" style="display:none;"></div>
+              </div>
+
+              <div class="ai-form-group">
+                <label>Base URL</label>
+                <input type="text" id="aiEditorBaseURL" class="text-input" placeholder="如 https://api.example.com/v1">
+                <div class="ai-form-hint">自定义供应商必填，用于模型检测和 API 调用</div>
+              </div>
+
+              <div class="ai-form-group">
+                <label>环境变量名</label>
+                <input type="text" id="aiEditorEnvVarName" class="text-input" placeholder="如 OPENAI_API_KEY">
+                <div class="ai-form-hint">留空使用提供商默认环境变量名</div>
+              </div>
+
+              <div class="ai-form-group">
+                <label>模型列表</label>
+                <div id="aiModelTags" class="ai-model-tags"></div>
+                <div id="aiModelEmpty" class="ai-model-empty" style="display:none;">
+                  <span>未检测到模型</span>
+                  <span class="ai-form-hint">请先填写 API Key，然后点击"检测模型"获取可用模型列表</span>
+                </div>
+                <div id="aiModelError" class="ai-model-error" style="display:none;"></div>
+                <button class="btn btn-secondary btn-sm" id="aiDetectModelsBtn">检测模型</button>
+              </div>
+
+              <div class="ai-editor-actions">
+                <button class="btn btn-danger btn-sm" id="aiDeleteProviderBtn">删除供应商</button>
+                <div style="flex:1;"></div>
+                <button class="btn btn-primary" id="aiSaveProviderBtn">保存配置</button>
+              </div>
             </div>
           </div>
         </div>
+
+        <!-- 内置供应商选择弹窗 -->
+        <dialog id="aiBuiltinDialog" class="ai-builtin-dialog">
+          <h3>选择供应商</h3>
+          <input type="text" id="aiBuiltinSearch" class="text-input" placeholder="输入以筛选..." autocomplete="off">
+          <div id="aiBuiltinList" class="ai-builtin-list"></div>
+          <div class="dialog-actions">
+            <button class="btn btn-secondary" id="aiBuiltinCancelBtn">取消</button>
+            <button class="btn btn-primary" id="aiBuiltinAddBtn">添加</button>
+          </div>
+        </dialog>
       </section>
 
       <!-- 多媒体设置页面 -->

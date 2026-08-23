@@ -596,7 +596,9 @@ class AIManager {
       // pi-ai 和 pi-agent-core 的 package.json 声明 "type": "module"，
       // CommonJS 的 require() 无法加载，必须用动态 import()
       const { builtinModels } = await import('@earendil-works/pi-ai/providers/all');
-      const { InMemoryCredentialStore } = await import('@earendil-works/pi-ai');
+      const { InMemoryCredentialStore, createProvider, envApiKeyAuth } = await import('@earendil-works/pi-ai');
+      // openAICompletionsApi 不从主入口导出，需从子路径导入（同内置 provider 的用法）
+      const { openAICompletionsApi } = await import('@earendil-works/pi-ai/api/openai-completions.lazy');
       const { Agent } = await import('@earendil-works/pi-agent-core');
 
       // 创建凭证存储并注入所有已配置提供商的 API Key
@@ -613,6 +615,43 @@ class AIManager {
       this.models = builtinModels({
         credentials: credentialStore,
       });
+
+      // 注册自定义供应商：pi-ai 内置目录不含这些 id，
+      // 按 OpenAI 兼容协议动态构造 provider 注册进 Models，
+      // 否则 getModel 返回 undefined，Agent 初始化失败报「AI 助手未初始化」。
+      // 判定按「id 是否在内置目录」（getProvider 查不到即自定义），
+      // 不依赖 configStore 的 isBuiltin 字段——该字段可能被历史数据写坏
+      for (const providerId of configuredIds) {
+        const cfg = providersCfg[providerId];
+        if (!cfg) continue;
+        if (this.models.getProvider(providerId)) continue;  // 内置已注册
+        if (!cfg.baseURL) {
+          console.warn(`[Realm AI] 自定义供应商 ${providerId} 缺少 baseURL，跳过注册`);
+          continue;
+        }
+        const customModels = Array.isArray(cfg.customModels) ? cfg.customModels : [];
+        const providerModels = customModels.map(id => ({
+          id,
+          name: id,
+          api: 'openai-completions',
+          provider: providerId,
+          baseUrl: cfg.baseURL,
+          reasoning: false,
+          input: ['text'],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 128000,
+          maxTokens: 8192,
+        }));
+        this.models.setProvider(createProvider({
+          id: providerId,
+          name: cfg.displayName || providerId,
+          baseUrl: cfg.baseURL,
+          auth: { apiKey: envApiKeyAuth(cfg.displayName || providerId, cfg.envVarName ? [cfg.envVarName] : []) },
+          models: providerModels,
+          api: openAICompletionsApi(),
+        }));
+        console.log(`[Realm AI] 自定义供应商已注册: ${providerId} (${providerModels.length} 个模型)`);
+      }
 
       // 确定激活提供商：优先 ai.activeProvider，须已配置；否则取第一个已配置项
       const savedActive = configStore.get('ai.activeProvider');
@@ -702,12 +741,14 @@ class AIManager {
 
   /**
    * 获取（或惰性创建）用于枚举提供商/模型的目录实例
-   * 目录枚举不依赖初始化状态——设置页在任何时刻都需要完整提供商列表
+   * 目录枚举不依赖初始化状态——设置页在任何时刻都需要完整提供商列表。
+   * 注意：catalog 必须是纯净的内置目录（独立实例），不能复用 this.models——
+   * init 会把自定义供应商 setProvider 注册进 this.models，
+   * 复用会导致 getAvailableModels 把自定义供应商误判为内置（isBuiltin: true）。
    * @returns {Promise<Object>} pi-ai Models 实例
    * @private
    */
   async _getCatalog() {
-    if (this.models) return this.models;
     if (!this._catalogPromise) {
       this._catalogPromise = (async () => {
         const { builtinModels } = await import('@earendil-works/pi-ai/providers/all');
@@ -1123,22 +1164,71 @@ ${content}
       throw new Error('提供商不能为空');
     }
 
-    // __keep__ 哨兵值：保留现有 API Key
+    // __keep__ 哨兵值：用户未输入新 Key。
+    // 优先级：环境变量 > 已保存的 Key——设置页提示「环境变量已自动使用」，
+    // 若此时保留旧的已保存 Key（可能已失效），保存后 Agent 仍用旧 Key 导致 401。
     if (apiKey === '__keep__') {
-      const existing = this.configStore ? this.configStore.get(`ai.providers.${provider}`) : null;
-      if (existing && existing.apiKey) {
-        apiKey = existing.apiKey;
+      const envResult = this.detectEnvVar(provider, envVarName);
+      if (envResult && envResult.found) {
+        apiKey = envResult.value;
+        console.log(`[Realm AI] 从环境变量 ${envResult.name} 检测到 API Key（覆盖已保存）`);
       } else {
-        throw new Error('未找到已保存的 API Key，请手动输入');
+        const existing = this.configStore ? this.configStore.get(`ai.providers.${provider}`) : null;
+        if (existing && existing.apiKey) {
+          apiKey = existing.apiKey;
+        } else {
+          throw new Error('未找到已保存的 API Key，请手动输入');
+        }
       }
     }
 
     if (!apiKey) {
-      throw new Error('API Key 不能为空');
+      // 如果没有 apiKey，尝试从环境变量检测
+      if (this.configStore && provider) {
+        const envResult = this.detectEnvVar(provider, envVarName);
+        if (envResult && envResult.found) {
+          apiKey = envResult.value;
+          console.log(`[Realm AI] 从环境变量 ${envResult.name} 检测到 API Key`);
+        }
+      }
+    }
+
+    // 自定义供应商允许首次创建时无 apiKey（用户稍后填写）
+    if (!apiKey && isBuiltin === false) {
+      // 保存配置但不初始化 Agent
+      if (this.configStore) {
+        const providers = this.configStore.get('ai.providers', {});
+        const existing = providers[provider] || {};
+        providers[provider] = {
+          ...existing,
+          apiKey: '',
+          model: existing.model || null,
+          envVarName: envVarName !== undefined ? envVarName : existing.envVarName,
+          customModels: customModels !== undefined ? customModels : existing.customModels,
+          isBuiltin: false,
+          baseURL: baseURL !== undefined ? baseURL : existing.baseURL,
+          displayName: displayName !== undefined ? displayName : existing.displayName,
+        };
+        this.configStore.set('ai.providers', providers);
+        console.log(`[Realm AI] 自定义供应商已保存（待填写 API Key）: ${provider}`);
+      }
+      return { success: true, pending: true };
+    }
+
+    if (!apiKey) {
+      throw new Error('API Key 不能为空，请在输入框填写或设置环境变量');
     }
 
     // 校验提供商存在（内置供应商），自定义供应商跳过校验
+    // 可选模型集合优先使用 customModels（用户检测/删减后的列表），
+    // 请求未携带时回退已保存的 existing.customModels（如下拉切换模型只传 model），
+    // 否则回退 catalog 默认列表——检测到的新模型可能不在 catalog 中
+    const existingProviders = this.configStore ? this.configStore.get('ai.providers', {}) : {};
+    const existingCfg = existingProviders[provider] || {};
     let validModel = model || null;
+    const customList = (Array.isArray(customModels) && customModels.length > 0 && customModels)
+      || (Array.isArray(existingCfg.customModels) && existingCfg.customModels.length > 0 && existingCfg.customModels)
+      || null;
     if (isBuiltin !== false) {
       const catalog = await this._getCatalog();
       const catalogProvider = catalog.getProviders().find(p => p.id === provider);
@@ -1146,9 +1236,12 @@ ${content}
         throw new Error(`未知提供商: ${provider}`);
       }
       const providerModels = catalogProvider.getModels();
-      validModel = model && providerModels.some(m => m.id === model)
+      const availableIds = customList || providerModels.map(m => m.id);
+      validModel = model && availableIds.includes(model)
         ? model
-        : (providerModels[0] && providerModels[0].id);
+        : (availableIds[0] || null);
+    } else if (!validModel && customList) {
+      validModel = customList[0];
     }
 
     // 更新 configStore
@@ -1194,27 +1287,39 @@ ${content}
     const providers = catalog.getProviders().map(p => {
       const saved = providersCfg[p.id];
       const apiKey = saved && saved.apiKey ? saved.apiKey : '';
+      const customModels = saved && saved.customModels ? saved.customModels : [];
+      // customModels 非空时视为用户确认过的列表（检测/删减后的结果），
+      // 优先于 catalog 默认列表回显；名称尽量从 catalog 补全
+      const catalogModels = p.getModels();
+      const models = customModels.length > 0
+        ? customModels.map(id => {
+            const cm = catalogModels.find(m => m.id === id);
+            return { id, name: cm ? cm.name : id };
+          })
+        : catalogModels.map(m => ({ id: m.id, name: m.name }));
       return {
         id: p.id,
         name: saved && saved.displayName ? saved.displayName : p.name,
         configured: Boolean(apiKey),
         keyPreview: apiKey ? `…${apiKey.slice(-4)}` : null,
         activeModel: saved && saved.model ? saved.model : null,
-        models: p.getModels().map(m => ({ id: m.id, name: m.name })),
+        models,
         envVarName: saved && saved.envVarName ? saved.envVarName : null,
         isBuiltin: true,
-        customModels: saved && saved.customModels ? saved.customModels : [],
+        customModels,
+        baseURL: p.baseURL || p.baseUrl || null,
       };
     });
 
     // 附加自定义供应商（不在 catalog 中的）
     for (const [id, saved] of Object.entries(providersCfg)) {
-      if (saved && !catalog.getProviders().find(p => p.id === id) && saved.apiKey) {
+      if (saved && !catalog.getProviders().find(p => p.id === id)) {
+        const apiKey = saved.apiKey || '';
         providers.push({
           id,
           name: saved.displayName || id,
-          configured: true,
-          keyPreview: `…${saved.apiKey.slice(-4)}`,
+          configured: Boolean(apiKey),
+          keyPreview: apiKey ? `…${apiKey.slice(-4)}` : null,
           activeModel: saved.model || null,
           models: saved.customModels ? saved.customModels.map(m => ({ id: m, name: m })) : [],
           envVarName: saved.envVarName || null,
@@ -1276,8 +1381,9 @@ ${content}
       try {
         const catalog = await this._getCatalog();
         const provider = catalog.getProviders().find(p => p.id === providerId);
-        if (provider && provider.baseURL) {
-          modelsURL = `${provider.baseURL.replace(/\/$/, '')}/models`;
+        const providerBaseURL = provider && (provider.baseURL || provider.baseUrl);
+        if (providerBaseURL) {
+          modelsURL = `${providerBaseURL.replace(/\/$/, '')}/models`;
         } else if (providerId === 'openai') {
           modelsURL = 'https://api.openai.com/v1/models';
         } else if (providerId === 'deepseek') {
@@ -1331,6 +1437,34 @@ ${content}
         return { error: '请求超时（10秒）' };
       }
       return { error: `网络连接失败: ${err.message}` };
+    }
+  }
+
+  /**
+   * 获取指定供应商已保存的完整 API Key
+   *
+   * 供设置页输入框回显/显隐切换查看使用。
+   * 与 env-var 端点不同：这是用户已保存到 configStore 的自有数据，按需返回。
+   *
+   * @param {string} providerId - 提供商 ID
+   * @returns {string|null} 完整 API Key，未保存时返回 null
+   */
+  getProviderApiKey(providerId) {
+    if (!this.configStore) return null;
+    const cfg = this.configStore.get(`ai.providers.${providerId}`);
+    return cfg && cfg.apiKey ? cfg.apiKey : null;
+  }
+
+  /**
+   * 开始新对话
+   *
+   * 重置 Agent 的对话状态：清空消息 transcript、流式状态和排队消息，
+   * 保留 systemPrompt/模型/工具配置。用户在聊天面板点击「新对话」时调用。
+   */
+  newConversation() {
+    if (this.agent) {
+      this.agent.reset();
+      console.log('[Realm AI] 对话状态已重置（新对话）');
     }
   }
 

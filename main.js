@@ -1146,8 +1146,8 @@ app.whenReady().then(async () => {
       // POST /api/ai/providers — 保存供应商配置
       if (route === 'ai/providers' && req.method === 'POST') {
         const config = await readJsonBody(req);
-        if (!config || !config.provider || !config.apiKey) {
-          sendJson(res, 400, { error: '提供商和 API Key 不能为空' });
+        if (!config || !config.provider) {
+          sendJson(res, 400, { error: '提供商不能为空' });
           return;
         }
         if (aiManager) {
@@ -1177,10 +1177,20 @@ app.whenReady().then(async () => {
         const parts = route.split('/');
         const providerId = parts[2];
         const body = await readJsonBody(req);
-        const apiKey = body && body.apiKey;
+        let apiKey = body && body.apiKey;
         const baseURL = body && body.baseURL;
+        const envVarName = body && body.envVarName;
+
+        // 如果请求中没有 apiKey，尝试从环境变量检测（优先用户自定义变量名）
+        if (!apiKey && aiManager) {
+          const envResult = aiManager.detectEnvVar(providerId, envVarName || undefined);
+          if (envResult && envResult.found) {
+            apiKey = envResult.value;
+          }
+        }
+
         if (!apiKey) {
-          sendJson(res, 400, { error: 'API Key 不能为空' });
+          sendJson(res, 400, { error: 'API Key 不能为空，请在输入框填写或设置环境变量' });
           return;
         }
         if (!aiManager) {
@@ -1204,6 +1214,19 @@ app.whenReady().then(async () => {
         }
         const result = aiManager.detectEnvVar(providerId, customName);
         sendJson(res, 200, { found: result.found, name: result.name });
+        return;
+      }
+
+      // GET /api/ai/providers/:id/api-key — 获取已保存的完整 API Key
+      // 用于设置页显隐切换查看（输入框回显），按需获取而非随列表返回
+      if (route.match(/^ai\/providers\/[^/]+\/api-key$/) && req.method === 'GET') {
+        const parts = route.split('/');
+        const providerId = parts[2];
+        if (!aiManager) {
+          sendJson(res, 200, { apiKey: null });
+          return;
+        }
+        sendJson(res, 200, { apiKey: aiManager.getProviderApiKey(providerId) });
         return;
       }
 

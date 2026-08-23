@@ -4422,6 +4422,287 @@ textarea::placeholder {
   color: var(--danger-color, #ef4444);
 }
 
+/* ==================== AI 供应商管理分栏布局 ==================== */
+
+.settings-ai-split {
+  display: flex;
+  gap: 16px;
+  min-height: 400px;
+}
+
+.settings-ai-sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-ai-sidebar .text-input {
+  width: 100%;
+}
+
+.ai-provider-list {
+  flex: 1;
+  max-height: calc(100vh - 300px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 4px;
+}
+
+.ai-provider-item {
+  height: 48px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--text-primary);
+  border-left: 2px solid transparent;
+  transition: background 0.15s;
+}
+
+.ai-provider-item:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.06));
+}
+
+.ai-provider-item.active {
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.08));
+  border-left-color: var(--accent-color);
+}
+
+.ai-provider-item .provider-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-provider-item .provider-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.ai-provider-item .provider-active-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-color);
+  flex-shrink: 0;
+}
+
+.settings-ai-sidebar-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.settings-ai-editor {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-editor-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.ai-editor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ai-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ai-editor-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.ai-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-form-group label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.ai-form-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.ai-env-var-hint {
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  margin-top: 4px;
+}
+
+.ai-env-var-hint.env-found {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--success-color, #10b981);
+}
+
+.ai-env-var-hint.env-not-found {
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--text-secondary);
+}
+
+.ai-model-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 32px;
+}
+
+.ai-model-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 13px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-model-tag .model-tag-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-model-tag .model-tag-remove {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.ai-model-tag .model-tag-remove:hover {
+  color: var(--danger-color, #ef4444);
+}
+
+.ai-model-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-model-error {
+  font-size: 13px;
+  color: var(--danger-color, #ef4444);
+  padding: 8px;
+  background: rgba(239, 68, 68, 0.08);
+  border-radius: 4px;
+}
+
+.ai-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+  margin-top: 8px;
+}
+
+/* 内置供应商弹窗 */
+.ai-builtin-dialog {
+  max-width: 480px;
+  width: 100%;
+  padding: 24px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.ai-builtin-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.ai-builtin-dialog h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.ai-builtin-dialog .text-input {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.ai-builtin-list {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.ai-builtin-option {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.ai-builtin-option:last-child {
+  border-bottom: none;
+}
+
+.ai-builtin-option:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.06));
+}
+
+.ai-builtin-option.selected {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--accent-color);
+}
+
+.ai-builtin-option.already-configured {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .settings-input-wrapper {
   display: flex;
   align-items: center;
@@ -4861,6 +5142,133 @@ textarea::placeholder {
 
 .ai-send-btn:hover {
   background-color: var(--bg-hover);
+}
+
+/* AI 工具栏 */
+.ai-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 12px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+}
+
+.ai-new-chat-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  /* 覆盖 .btn-icon 的 32px 固定宽度：该按钮含 svg + 文字，
+     固定宽度会把文字压成竖排 */
+  width: auto;
+  height: auto;
+  white-space: nowrap;
+}
+
+.ai-new-chat-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.ai-toolbar-spacer {
+  flex: 1;
+}
+
+.ai-model-selector {
+  padding: 4px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  max-width: 200px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+  font-family: inherit;
+}
+
+.ai-model-selector:hover {
+  border-color: var(--accent-color);
+}
+
+.ai-send-btn-toolbar {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--accent-color);
+  flex-shrink: 0;
+}
+
+.ai-send-btn-toolbar:hover {
+  background-color: var(--bg-hover);
+}
+
+/* 模型选择器下拉框 */
+.ai-model-dropdown {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  right: 0;
+  min-width: 200px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+}
+
+.ai-model-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 8px 12px 4px;
+  text-transform: uppercase;
+}
+
+.ai-model-option {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.ai-model-option:hover {
+  background: var(--bg-hover);
+}
+
+/* 键盘导航聚焦态（↑↓ 移动时由 handleModelSelectorKeydown 切换） */
+.ai-model-option.focused {
+  background: var(--bg-hover);
+  outline: 1px solid var(--accent-color);
+  outline-offset: -1px;
+}
+
+.ai-model-option.active {
+  color: var(--accent-color);
+}
+
+.ai-model-option .model-active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-color);
+  margin-right: 8px;
 }
 
 /* 回到底部按钮 */

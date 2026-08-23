@@ -314,6 +314,15 @@ const server = http.createServer((req, res) => {
 });
 ```
 
+**主窗口（index.html）不能 fetch 这些 HTTP API**：主窗口从 `file://` 加载，
+fetch `http://localhost:PORT` 是跨域请求会被 CORS 拦截（`TypeError: Failed to fetch`）。
+数据访问分层约定：
+- **主窗口 renderer**（受信 webContents）→ 一律走 preload 暴露的 `realmAPI.*` IPC
+- **webview guest 内部页面**（`http://localhost:PORT` 同源）→ 走 `/api/*` + URL token 鉴权
+
+事故参考：Phase 38 模型选择器下拉打不开——renderer.js 直接 fetch `/api/ai/providers`，
+叠加单引号模板字符串不插值，双重失效。
+
 ## AI Agent 集成
 
 ### ai-manager.js

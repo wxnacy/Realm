@@ -55,7 +55,13 @@ async function settingsApi(route, options = {}, query = {}) {
   const params = new URLSearchParams({ token: apiToken, ...query });
   const res = await fetch(`/api/settings/${route}?${params.toString()}`, options);
   if (!res.ok) {
-    throw new Error(`设置 API 请求失败: ${res.status}`);
+    // 优先使用后端返回的错误详情（如「API Key 不能为空，请设置环境变量」）
+    let detail = '';
+    try {
+      const data = await res.json();
+      if (data && data.error) detail = data.error;
+    } catch { /* 非 JSON 响应忽略 */ }
+    throw new Error(detail || `设置 API 请求失败: ${res.status}`);
   }
   return res.json();
 }
@@ -259,13 +265,17 @@ function switchSettingsPage(pageName) {
 /**
  * 显示 Toast 提示
  * @param {string} message - 提示消息
+ * @param {string} [type] - 类型（'error' 时红色标识并延长显示时间）
  */
-function showToast(message) {
+function showToast(message, type) {
   elements.toast.textContent = message;
-  elements.toast.classList.remove('hidden');
+  elements.toast.classList.remove('hidden', 'toast-error');
+  if (type === 'error') {
+    elements.toast.classList.add('toast-error');
+  }
   setTimeout(() => {
     elements.toast.classList.add('hidden');
-  }, 2000);
+  }, type === 'error' ? 4000 : 2000);
 }
 
 /**
@@ -2388,8 +2398,8 @@ async function loadAISettings() {
     aiProvidersCatalog = catalogData.providers || [];
     aiActiveProviderId = catalogData.activeProvider || null;
 
-    // 只显示已配置的供应商
-    aiProvidersList = aiProvidersCatalog.filter(p => p.configured);
+    // 显示所有供应商（包括未配置 apiKey 的自定义供应商，方便用户后续填写）
+    aiProvidersList = aiProvidersCatalog.filter(p => p.configured || p.isBuiltin === false);
 
     // 渲染供应商列表
     renderProviderList();
@@ -2513,6 +2523,7 @@ async function showEditorForm(providerId) {
   const nameInput = document.getElementById('aiEditorName');
   const apiKeyInput = document.getElementById('aiEditorApiKey');
   const envVarNameInput = document.getElementById('aiEditorEnvVarName');
+  const baseURLInput = document.getElementById('aiEditorBaseURL');
   const envVarHint = document.getElementById('aiEnvVarHint');
 
   if (titleEl) titleEl.textContent = provider.name;
@@ -2522,12 +2533,33 @@ async function showEditorForm(providerId) {
   }
   if (apiKeyInput) {
     apiKeyInput.value = '';
+    // 重置遮蔽状态（上次可能切到了明文显示）
+    apiKeyInput.type = 'password';
+    const toggleBtn = document.getElementById('aiEditorToggleKey');
+    if (toggleBtn) toggleBtn.textContent = '显示';
+    // 已配置的供应商回显完整 Key（默认 password 遮蔽，点「显示」可查看）
+    if (provider.configured) {
+      try {
+        const keyResult = await settingsApi(`ai/providers/${providerId}/api-key`);
+        if (keyResult && keyResult.apiKey) {
+          apiKeyInput.value = keyResult.apiKey;
+        }
+      } catch { /* 回显失败不阻塞编辑 */ }
+    }
     apiKeyInput.placeholder = provider.configured
-      ? `已保存 (${provider.keyPreview})，输入新 Key 覆盖`
-      : `输入 API Key`;
+      ? '留空则使用环境变量（如有）或保留原 Key'
+      : '输入 API Key';
   }
   if (envVarNameInput) {
     envVarNameInput.value = provider.envVarName || '';
+  }
+  if (baseURLInput) {
+    baseURLInput.value = provider.baseURL || '';
+    // 自定义供应商显示 baseURL 字段，内置供应商隐藏
+    const baseURLGroup = baseURLInput.closest('.ai-form-group');
+    if (baseURLGroup) {
+      baseURLGroup.style.display = provider.isBuiltin === false ? '' : 'none';
+    }
   }
 
   // 检测环境变量
@@ -2535,14 +2567,17 @@ async function showEditorForm(providerId) {
     envVarHint.style.display = 'none';
     try {
       const customName = envVarNameInput ? envVarNameInput.value : '';
+      // customName 走 settingsApi 的 query 参数：直接拼进 route 会和 token 的 `?` 冲突
       const envResult = await settingsApi(
-        `ai/providers/${providerId}/env-var${customName ? '?customName=' + encodeURIComponent(customName) : ''}`
+        `ai/providers/${providerId}/env-var`, {}, customName ? { customName } : {}
       );
       if (envResult && envResult.found) {
         envVarHint.style.display = '';
         envVarHint.className = 'ai-env-var-hint env-found';
-        envVarHint.textContent = `检测到环境变量 ${envResult.name}，已自动使用`;
-        if (apiKeyInput && !apiKeyInput.value) {
+        envVarHint.textContent = provider.configured
+          ? `检测到环境变量 ${envResult.name}，保存时将使用它覆盖已保存的 Key`
+          : `检测到环境变量 ${envResult.name}，已自动使用`;
+        if (apiKeyInput && !apiKeyInput.value && !provider.configured) {
           apiKeyInput.placeholder = `环境变量 ${envResult.name} 已配置`;
         }
       } else if (envResult && envResult.name) {
@@ -2618,11 +2653,13 @@ async function saveProviderConfig() {
   const apiKeyInput = document.getElementById('aiEditorApiKey');
   const envVarNameInput = document.getElementById('aiEditorEnvVarName');
   const nameInput = document.getElementById('aiEditorName');
+  const baseURLInput = document.getElementById('aiEditorBaseURL');
   const saveBtn = document.getElementById('aiSaveProviderBtn');
 
   const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
   const envVarName = envVarNameInput ? envVarNameInput.value.trim() : '';
   const displayName = nameInput ? nameInput.value.trim() : '';
+  const baseURL = baseURLInput ? baseURLInput.value.trim() : '';
 
   // 如果用户没有输入新 Key，尝试使用环境变量检测到的值
   let effectiveApiKey = apiKey;
@@ -2631,11 +2668,8 @@ async function saveProviderConfig() {
     effectiveApiKey = '__keep__';
   }
 
-  if (!effectiveApiKey) {
-    showToast('请输入 API Key', 'error');
-    return;
-  }
-
+  // 不在前端拦截空 apiKey：后端 configureProviders 会回退到环境变量，
+  // 环境变量也没有时会返回明确错误，经 catch 分支 toast 提示
   try {
     if (saveBtn) {
       saveBtn.disabled = true;
@@ -2650,8 +2684,8 @@ async function saveProviderConfig() {
       customModels: provider.models ? provider.models.map(m => m.id) : [],
       isBuiltin: provider.isBuiltin !== false,
       displayName: displayName || null,
+      baseURL: baseURL || null,
     };
-    if (provider.baseURL) body.baseURL = provider.baseURL;
 
     await settingsApi('ai/providers', {
       method: 'POST',
@@ -2706,17 +2740,18 @@ async function detectModels() {
   if (!provider) return;
 
   const apiKeyInput = document.getElementById('aiEditorApiKey');
+  const baseURLInput = document.getElementById('aiEditorBaseURL');
+  const envVarNameInput = document.getElementById('aiEditorEnvVarName');
   const detectBtn = document.getElementById('aiDetectModelsBtn');
   const errorEl = document.getElementById('aiModelError');
   const emptyEl = document.getElementById('aiModelEmpty');
 
   const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+  const baseURL = baseURLInput ? baseURLInput.value.trim() : '';
+  const envVarName = envVarNameInput ? envVarNameInput.value.trim() : '';
 
-  if (!apiKey && !provider.configured) {
-    showToast('请先填写 API Key', 'error');
-    return;
-  }
-
+  // 不在前端拦截空 apiKey：后端会回退到环境变量（detectEnvVar），
+  // 环境变量也没有时返回 400，错误信息显示在 aiModelError
   try {
     if (detectBtn) {
       detectBtn.disabled = true;
@@ -2726,7 +2761,8 @@ async function detectModels() {
     if (emptyEl) emptyEl.style.display = 'none';
 
     const body = { apiKey: apiKey || undefined };
-    if (provider.baseURL) body.baseURL = provider.baseURL;
+    if (baseURL) body.baseURL = baseURL;
+    if (envVarName) body.envVarName = envVarName;
 
     const result = await settingsApi(`ai/providers/${aiSelectedProviderId}/detect-models`, {
       method: 'POST',
@@ -2854,19 +2890,24 @@ function setupAISettingsListeners() {
   const addCustomBtn = document.getElementById('aiAddCustomBtn');
   if (addCustomBtn) {
     addCustomBtn.addEventListener('click', async () => {
-      const customId = 'custom-' + Date.now();
-      await settingsApi('ai/providers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: customId,
-          apiKey: '',
-          isBuiltin: false,
-          displayName: '未命名供应商',
-        }),
-      });
-      await loadAISettings();
-      showEditorForm(customId);
+      try {
+        const customId = 'custom-' + Date.now();
+        await settingsApi('ai/providers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: customId,
+            apiKey: '',
+            isBuiltin: false,
+            displayName: '未命名供应商',
+          }),
+        });
+        await loadAISettings();
+        showEditorForm(customId);
+      } catch (error) {
+        console.error('[Realm] 添加自定义供应商失败:', error);
+        alert('添加供应商失败: ' + error.message);
+      }
     });
   }
 
@@ -2912,7 +2953,7 @@ function setupAISettingsListeners() {
         try {
           const customName = envVarNameInput.value.trim();
           const envResult = await settingsApi(
-            `ai/providers/${aiSelectedProviderId}/env-var${customName ? '?customName=' + encodeURIComponent(customName) : ''}`
+            `ai/providers/${aiSelectedProviderId}/env-var`, {}, customName ? { customName } : {}
           );
           if (envResult && envResult.found) {
             envVarHint.style.display = '';

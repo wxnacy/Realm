@@ -4,16 +4,16 @@ milestone: v2.4
 current_phase: 38
 current_phase_name: deepseek-harness-ai-api-key
 status: completed
-stopped_at: Phase 38 UI-SPEC approved
-last_updated: "2026-08-21T08:32:27.344Z"
-last_activity: 2026-08-21
-last_activity_desc: Phase 37 URL autocomplete 实现完成
+stopped_at: Phase 38 UAT complete (11/11 pass, 18 issues fixed)
+last_updated: "2026-08-22T20:30:00.000Z"
+last_activity: 2026-08-22
+last_activity_desc: Phase 38 UAT 全量通过（含键盘导航/显隐回显/上下文重置等 18 项问题修复）
 state_head: 209b81261b5842714732444772fbad666fa6914c
 progress:
   total_phases: 9
-  completed_phases: 3
-  total_plans: 25
-  completed_plans: 22
+  completed_phases: 4
+  total_plans: 28
+  completed_plans: 25
 milestone_name: 多窗口支持
 ---
 
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-08-14)
 
 ## Current Position
 
-Phase: 38 (deepseek-harness-ai-api-key) — READY TO EXECUTE
-Plan: All complete (22/22)
-Status: Phase 37 Plan 01 + Plan 02 全部完成
-Last activity: 2026-08-21 — Phase 37 URL autocomplete 实现完成
+Phase: 38 (deepseek-harness-ai-api-key) — COMPLETE
+Plan: All complete (25/25)
+Status: Phase 38 UAT 通过（11/11 + 补充 5 项），18 个 UAT 问题全部修复复验
+Last activity: 2026-08-22 — Phase 38 UAT 收尾完成
 
 Progress: [████████████████████████████████████████████████] 100%
 
@@ -50,6 +50,7 @@ Progress: [███████████████████████
 | 35. Tab 窗口关联 | 0/? | - | - |
 | 36. Tab 拖拽与跨窗口移动 | 0/? | - | - |
 | 37. 地址栏地址补全 | 2 | 6min | 3min |
+| 38. AI 助手供应商管理 | 3 | — | — |
 
 *Updated after each plan completion*
 
@@ -62,7 +63,7 @@ Progress: [███████████████████████
   - Phase 35: Tab 窗口关联 (MW-05, MW-06, MW-12, MW-14) — tab windowId + window close behavior + title/color
   - Phase 36: Tab 拖拽与跨窗口移动 (MW-02, MW-03, MW-04, MW-11, MW-13) — DnD reorder + cross-window + position persistence
 - Phase 37 added: 地址栏地址补全功能
-- Phase 38 added: 研究 deepseek-harness 项目，AI 助手增加增删改供应商能力，API Key 环境变量优先+自定义，对话框增加模型选择
+- Phase 38 completed: AI 助手多供应商管理（左右分栏设置页 + 环境变量检测 + 模型检测 + 聊天面板工具栏 + 模型选择器）
 
 ### Decisions
 
@@ -99,13 +100,15 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-21T07:25:58.712Z
-Stopped at: Phase 38 UI-SPEC approved
-Resume file: .planning/phases/38-deepseek-harness-ai-api-key/38-UI-SPEC.md
+Last session: 2026-08-21T10:00:00.000Z
+Stopped at: Phase 38 all plans complete
+Resume file: none
 
 ## Operator Next Steps
 
-- 运行 `npm run dev` 手动验证地址栏自动补全功能
-- 输入 "gith" 验证下拉列表和 inline completion
-- 测试键盘导航（ArrowDown/Up/Tab/Esc/Enter）
-- 测试鼠标点击候选条目
+- 运行 `npm run dev` 手动验证 AI 助手供应商管理功能
+- 进入设置 → AI 助手，验证左右分栏布局
+- 添加一个内置供应商（如 DeepSeek），配置 API Key
+- 点击“检测模型”验证模型列表获取
+- 打开 AI 面板，验证工具栏和模型选择器
+- 切换模型后验证供应商激活

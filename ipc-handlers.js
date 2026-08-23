@@ -1714,6 +1714,18 @@ function registerHandlers() {
     return aiManager.getState();
   });
 
+  /**
+   * 开始新对话：重置 Agent 的消息 transcript 和流式状态
+   * @returns {{success: boolean}}
+   */
+  ipcMain.handle('ai:new-conversation', async (event) => {
+    assertTrustedSender(event);
+    if (aiManager) {
+      aiManager.newConversation();
+    }
+    return { success: true };
+  });
+
   // ==================== 播放器窗口状态 ====================
 
   /** @type {BrowserWindow|null} 播放器窗口引用（D-20 窗口复用） */

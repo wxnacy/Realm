@@ -956,6 +956,12 @@ contextBridge.exposeInMainWorld('realmAPI', {
      * @returns {Promise<{initialized: boolean, model: string|null, toolsCount: number}>}
      */
     getState: () => ipcRenderer.invoke('ai:get-state'),
+
+    /**
+     * 开始新对话：重置主进程 Agent 的消息 transcript 和流式状态
+     * @returns {Promise<{success: boolean}>}
+     */
+    newConversation: () => ipcRenderer.invoke('ai:new-conversation'),
   },
 
   // ==================== 脚本执行 ====================
