@@ -59,8 +59,8 @@ Exceptions: Hint label touch target minimum 20px (compact overlay, not interacti
 |---------|------|------|--------|-------------|
 | Hint character | `'Courier New', Courier, monospace` | 12px | 700 | 1.0 |
 | Search input | system-ui | 14px | 400 | 1.4 |
-| Help dialog key | `'Courier New', Courier, monospace` | 13px | 600 | 1.4 |
-| Help dialog desc | system-ui | 13px | 400 | 1.4 |
+| Help dialog key | `'Courier New', Courier, monospace` | 12px | 600 | 1.4 |
+| Help dialog desc | system-ui | 14px | 400 | 1.4 |
 
 ---
 
@@ -293,7 +293,7 @@ Accent reserved for: Hint labels (amber), search match highlights (amber) — th
 }
 
 .vimium-help-category-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -310,7 +310,7 @@ Accent reserved for: Hint labels (amber), search match highlights (amber) — th
 
 .vimium-help-key {
   font-family: 'Courier New', Courier, monospace;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: #FFB800;
   min-width: 80px;
@@ -318,7 +318,7 @@ Accent reserved for: Hint labels (amber), search match highlights (amber) — th
 }
 
 .vimium-help-desc {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-primary);
 }
 ```
@@ -472,11 +472,11 @@ Applicable state considerations resolved: 5 covered, 1 backstop, 0 unresolved
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS (FLAG: no explicit focal point for Help Dialog — non-blocking)
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS (fixed: removed 13px, consolidated to 4 sizes: 12/14/16/20px)
+- [x] Dimension 5 Spacing: PASS (FLAG: inline CSS 1px/3px/6px deviations — documented exceptions)
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** APPROVED (revision 1)
