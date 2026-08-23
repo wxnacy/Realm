@@ -9,13 +9,20 @@
 为 Realm Browser 添加类似 Vimium 的键盘操作功能，支持页面滚动、链接跟随、标签管理、搜索模式等键盘操作，提升键盘操作效率。
 
 **核心交付：**
-- 页面滚动控制（j/k/gg/G/d/u）
-- 链接跟随 Hint Mode（f/F）
-- 标签页管理（J/K/x/X/t/T/gt/gT）
-- 浏览历史导航（H/L）
-- 搜索模式（//n/N）
-- URL 操作（o/O/ge）
-- 快捷键帮助（?）
+
+| 优先级 | 功能 | 快捷键 |
+|--------|------|--------|
+| P0 | 页面滚动控制 | j/k/h/l（上下左右）、gg/G（首尾）、d/u（半页） |
+| P0 | 标签页管理 | x/X（关闭/恢复）、t（新建）、gt/gT（切换）、g0/g$（首尾标签）、^（上一个标签） |
+| P0 | 浏览历史导航 | H/L（后退/前进） |
+| P0 | 页面刷新 | r（刷新）、R（硬刷新） |
+| P1 | 链接跟随 Hint Mode | f（当前标签页）、F（新标签页） |
+| P1 | 搜索模式 | /（搜索）、n/N（下一个/上一个） |
+| P1 | URL 操作 | o/O（打开 URL）、ge（编辑 URL） |
+| P1 | 复制操作 | yy（复制当前 URL）、yf（复制链接 URL） |
+| P1 | 标签增强 | yt（复制标签）、W（移动到新窗口）、a-p（固定标签） |
+| P1 | 查看源代码 | gs |
+| P2 | 快捷键帮助 | ? |
 
 **不在本 Phase 范围：**
 - 插入模式（i）— P2 优先级，后续版本实现
@@ -45,6 +52,24 @@
 - **D-10:** 页面滚动使用 `webview.executeJavaScript` 注入 `window.scrollBy`/`scrollTo`，轻量级实现
 - **D-11:** 滚动行为使用平滑滚动（`behavior: 'smooth'`），用户体验更好
 - **D-12:** 搜索模式使用浏览器原生的 `findInPage` API（`window.find` 或 CDP），性能好
+
+### 页面刷新
+- **D-13:** `r` 键调用 `webview.reload()` 刷新页面
+- **D-14:** `R` 键调用 `webview.reloadIgnoringCache()` 硬刷新（跳过缓存）
+
+### 复制操作
+- **D-15:** `yy` 复制当前标签页 URL 到剪贴板，使用 `navigator.clipboard.writeText()` 或 Electron clipboard API
+- **D-16:** `yf` 在 Hint Mode 下复制链接 URL 到剪贴板（不打开链接）
+
+### 标签增强操作
+- **D-17:** `g0` 切换到第一个标签，`g$` 切换到最后一个标签
+- **D-18:** `^` 切换到上一个访问的标签（需要维护标签访问历史栈）
+- **D-19:** `yt` 复制当前标签（创建新标签并导航到相同 URL）
+- **D-20:** `W` 移动当前标签到新窗口
+- **D-21:** `<a-p>`（Alt+p）固定/取消固定当前标签
+
+### 查看源代码
+- **D-22:** `gs` 使用 `webview.loadURL('view-source:' + url)` 或 CDP 获取页面源代码
 
 ### Claude's Discretion
 - Hint overlay 的具体 DOM 结构和 CSS 细节
