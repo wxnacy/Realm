@@ -327,6 +327,11 @@ function normalizeUrl(input) {
     return input;
   }
 
+  // 如果是 file:// 本地文件 URL，直接返回（访问本地 HTML 等）
+  if (/^file:\/\//i.test(input)) {
+    return input;
+  }
+
   // 如果看起来像域名（包含点号），添加 https://
   if (/^[\w-]+(\.[\w-]+)+/.test(input)) {
     return `https://${input}`;
@@ -921,13 +926,13 @@ async function updateTabTitle(tabId, title) {
  * @returns {HTMLElement} 创建的 webview 元素
  */
 function createWebviewForTab(tabId, containerId, url) {
-  // URL scheme 白名单（WR-9）：仅 http(s) 和 realm:// 允许写入 webview src。
-  // 规则匹配与新窗口两条路径的 URL 均来自 guest 页面，不限制 scheme 时
-  // file: 可在浏览器上下文读取本地文件、data: 可注入脚本；
+  // URL scheme 白名单（WR-9）：仅 http(s)、realm://、file:// 允许写入 webview src。
+  // file:// 为用户在地址栏显式输入的本地文件访问（本地 HTML 等），予以放行；
+  // data: 等可注入脚本的 scheme 仍拦截；
   // 空 URL（新标签页）与 about:blank 放行。
   // view-source: 仅在包裹 http(s) 内层 URL 时放行（查看页面源代码场景）。
   const isViewSourceHttp = url && /^view-source:https?:\/\//i.test(url);
-  if (url && url !== 'about:blank' && !/^https?:\/\//i.test(url) && !/^realm:\/\//i.test(url) && !isViewSourceHttp) {
+  if (url && url !== 'about:blank' && !/^https?:\/\//i.test(url) && !/^realm:\/\//i.test(url) && !/^file:\/\//i.test(url) && !isViewSourceHttp) {
     console.warn('[Realm] 拒绝非 http(s)/realm URL:', url);
     return null;
   }

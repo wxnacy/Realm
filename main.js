@@ -137,13 +137,15 @@ function requestActionConfirmation(actionData) {
 // ==================== webview guest 拦截（WR-1/WR-2/WR-9） ====================
 
 /**
- * URL scheme 白名单：仅 http/https 允许加载/新建 Tab（WR-9）
+ * URL scheme 白名单：http/https/realm/file 允许加载/新建 Tab（WR-9）
+ * file:// 为用户显式访问本地文件（本地 HTML 等）的需求放行；
+ * data: 等可注入脚本的 scheme 仍拦截。
  * guest 侧提供的 URL（window.open、导航）一律先过此白名单
  * @param {string} url - 待校验的 URL
  * @returns {boolean} 是否允许
  */
 function isAllowedWebUrl(url) {
-  return typeof url === 'string' && (/^https?:\/\//i.test(url) || /^realm:\/\//i.test(url));
+  return typeof url === 'string' && (/^https?:\/\//i.test(url) || /^realm:\/\//i.test(url) || /^file:\/\//i.test(url));
 }
 
 /**
