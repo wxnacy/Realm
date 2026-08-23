@@ -139,6 +139,9 @@ const windowContainerMap = new Map();
 | src/player.html + src/player.js + src/player.css | 多媒体播放器页面 |
 | src/bookmarks-bar.js + src/bookmarks-bar-menu.js | 书签栏组件 |
 | src/container-env-presets.js | 容器环境变量预设 |
+| src/ai-brand-map.js | AI 品牌词典+模型元数据快照（scripts/generate-ai-brand-map.js 生成，勿手改；数据源 models.dev + @lobehub/icons-static-svg，均 MIT） |
+| src/model-family.js | 模型家族分组/每组最新选取/图标 HTML（window.ModelFamily，settings 页与 renderer 共用） |
+| src/assets/ai-icons/ | 品牌 SVG 图标子集（统一白色圆角底板渲染；kimi 等白字形图标用深色底板，dark 标记由生成器写入词典） |
 
 ### CLI 工具
 
@@ -191,6 +194,25 @@ window.open(url, '_blank');
 ```
 
 主进程 `main.js` 的 `setWindowOpenHandler` 统一拦截，按 D-09 决策在**来源容器**新建 tab。不要为这些页面单独写 IPC。
+
+### 内部页面 CSP：markup 内联 style 会被拦截
+
+`realm://` 页面的 CSP 是 `style-src 'self'`（无 unsafe-inline），**HTML markup 里的 `style="display:none"` 属性不生效**，元素会在页面加载时短暂或持续可见。规则：
+
+- 元素的**初始隐藏**必须走 CSS 类规则（如 `.ai-modal-overlay { display:none }`）
+- JS 里 `el.style.display = 'flex'`（CSSOM 方式）不受 CSP 限制，可正常覆盖样式表规则
+- 显隐切换用具体的 `'flex'/'block'/'none'` 值，不要依赖 `''` 回落到 markup 状态
+- 同理不要在内联 style 里写 `mask-image`（单色品牌图标因此改用 `<img>` + 白色圆角底板，见 `model-family.js iconHtml`；白字形图标如 kimi 用 `.ai-icon-dark-tile` 深色底板，dark 标记在词典数据里）
+
+### AI 供应商模型分组与品牌图标
+
+设置页 AI 分区的模型列表按「品牌家族」分组（如 Qwen 3 / Qwen Max / GLM 4.6）：
+
+- `src/ai-brand-map.js`（生成的快照）：品牌别名表、供应商图标表、模型元数据（family/release_date/能力/模态）
+- `src/model-family.js`：`groupModels` 分组（词典 → 斜杠后段 → 启发式）、`latestPerGroup`（需求：≥10 个模型时每组只自动添加最新一个）、`iconHtml` 图标渲染
+- 分组规则：剩余串**字母开头**取子产品线（qwen-image → Qwen Image），**数字开头**取版本号（qwen3.8-max → Qwen 3.8），参数量（235b/8x7b）和日期（2026-02-13/-1106）先剥离
+- 供应商 `enabled` 字段（默认 true）：设置页编辑器右上角开关即改即存；禁用后聊天框模型下拉不展示，存储的 activeProvider 记录保留，重新启用自动恢复
+- 词典更新：`curl -sL https://models.dev/api.json -o /tmp/realm-modelsdev.json && npm pack @lobehub/icons-static-svg -p /tmp/realm-icons && tar xzf /tmp/realm-icons/*.tgz -C /tmp/realm-icons && node scripts/generate-ai-brand-map.js`
 
 ### Cookie 面板的数据源语义
 

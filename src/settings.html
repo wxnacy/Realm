@@ -274,8 +274,7 @@
             <input type="text" id="aiProviderSearch" class="text-input" placeholder="搜索供应商..." autocomplete="off">
             <div id="aiProviderList" class="ai-provider-list"></div>
             <div class="settings-ai-sidebar-actions">
-              <button class="btn btn-primary btn-sm" id="aiAddBuiltinBtn">添加内置供应商</button>
-              <button class="btn btn-secondary btn-sm" id="aiAddCustomBtn">添加自定义供应商</button>
+              <button class="btn btn-primary btn-sm" id="aiAddProviderBtn">添加供应商</button>
             </div>
           </div>
 
@@ -296,7 +295,12 @@
             <!-- 编辑表单（初始隐藏） -->
             <div id="aiEditorForm" class="ai-editor-form" style="display:none;">
               <div class="ai-editor-header">
+                <span id="aiEditorIcon" class="ai-editor-icon"></span>
                 <h3 id="aiEditorTitle" class="ai-editor-title">编辑供应商</h3>
+                <div class="ai-editor-header-right">
+                  <span class="ai-enable-label" id="aiEnableLabel">启用</span>
+                  <button type="button" id="aiEnableToggle" class="ai-switch" role="switch" aria-checked="true" title="不启用时，聊天框模型选择不展示该供应商"></button>
+                </div>
               </div>
 
               <div class="ai-form-group">
@@ -316,7 +320,7 @@
               <div class="ai-form-group">
                 <label>Base URL</label>
                 <input type="text" id="aiEditorBaseURL" class="text-input" placeholder="如 https://api.example.com/v1">
-                <div class="ai-form-hint">自定义供应商必填，用于模型检测和 API 调用</div>
+                <div class="ai-form-hint" id="aiBaseURLHint">自定义供应商必填，用于模型检测和 API 调用</div>
               </div>
 
               <div class="ai-form-group">
@@ -326,14 +330,25 @@
               </div>
 
               <div class="ai-form-group">
-                <label>模型列表</label>
-                <div id="aiModelTags" class="ai-model-tags"></div>
+                <div class="ai-model-header">
+                  <label id="aiModelHeaderTitle">模型</label>
+                  <div class="ai-model-header-actions">
+                    <button class="btn btn-icon btn-sm" id="aiModelSearchBtn" title="搜索模型">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    </button>
+                    <button class="btn btn-secondary btn-sm" id="aiFetchModelsBtn">获取模型列表</button>
+                    <button class="btn btn-icon btn-sm" id="aiModelAddBtn" title="手动添加模型">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    </button>
+                  </div>
+                </div>
+                <input type="text" id="aiModelSearch" class="text-input ai-model-search" placeholder="搜索模型..." autocomplete="off">
+                <div id="aiModelGroups" class="ai-model-groups"></div>
                 <div id="aiModelEmpty" class="ai-model-empty" style="display:none;">
-                  <span>未检测到模型</span>
-                  <span class="ai-form-hint">请先填写 API Key，然后点击"检测模型"获取可用模型列表</span>
+                  <span>暂无模型</span>
+                  <span class="ai-form-hint">请先填写 API Key 并保存，然后点击「获取模型列表」选择要添加的模型</span>
                 </div>
                 <div id="aiModelError" class="ai-model-error" style="display:none;"></div>
-                <button class="btn btn-secondary btn-sm" id="aiDetectModelsBtn">检测模型</button>
               </div>
 
               <div class="ai-editor-actions">
@@ -345,16 +360,54 @@
           </div>
         </div>
 
-        <!-- 内置供应商选择弹窗 -->
-        <dialog id="aiBuiltinDialog" class="ai-builtin-dialog">
-          <h3>选择供应商</h3>
-          <input type="text" id="aiBuiltinSearch" class="text-input" placeholder="输入以筛选..." autocomplete="off">
-          <div id="aiBuiltinList" class="ai-builtin-list"></div>
-          <div class="dialog-actions">
-            <button class="btn btn-secondary" id="aiBuiltinCancelBtn">取消</button>
-            <button class="btn btn-primary" id="aiBuiltinAddBtn">添加</button>
+        <!-- 添加供应商弹窗（居中模态，默认隐藏走 CSS——CSP 拦截 markup 内联 style） -->
+        <div id="aiAddDialog" class="ai-modal-overlay">
+          <div class="ai-modal ai-add-dialog">
+            <div class="ai-modal-header">
+              <h3>添加供应商</h3>
+              <button class="btn btn-icon btn-sm ai-modal-close" id="aiAddDialogClose" title="关闭">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+            <input type="text" id="aiAddSearch" class="text-input" placeholder="搜索供应商..." autocomplete="off">
+            <div id="aiAddGrid" class="ai-add-grid"></div>
+            <!-- 自定义供应商内联表单 -->
+            <div class="ai-add-custom" id="aiAddCustomEntry">
+              <div class="ai-add-custom-header" id="aiAddCustomHeader">
+                <span class="ai-icon ai-icon-fallback">+</span>
+                <span>自定义供应商（OpenAI 兼容）</span>
+                <svg class="ai-add-custom-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </div>
+              <div class="ai-add-custom-form" id="aiAddCustomForm">
+                <input type="text" id="aiCustomName" class="text-input" placeholder="供应商名称，如 我的网关" autocomplete="off">
+                <input type="text" id="aiCustomBaseURL" class="text-input" placeholder="Base URL，如 https://api.example.com/v1" autocomplete="off">
+                <input type="password" id="aiCustomApiKey" class="text-input" placeholder="API Key（可稍后填写）" autocomplete="off">
+                <div class="ai-add-custom-actions">
+                  <div id="aiCustomError" class="ai-model-error"></div>
+                  <button class="btn btn-primary btn-sm" id="aiCustomCreateBtn">创建</button>
+                </div>
+              </div>
+            </div>
           </div>
-        </dialog>
+        </div>
+
+        <!-- 获取模型列表弹窗（居中模态） -->
+        <div id="aiFetchDialog" class="ai-modal-overlay">
+          <div class="ai-modal ai-fetch-dialog">
+            <div class="ai-modal-header">
+              <h3 id="aiFetchTitle">获取模型列表</h3>
+              <span id="aiFetchCount" class="ai-fetch-count"></span>
+              <div style="flex:1;"></div>
+              <button class="btn btn-secondary btn-sm" id="aiFetchAddAllBtn">添加全部模型</button>
+              <button class="btn btn-icon btn-sm ai-modal-close" id="aiFetchDialogClose" title="关闭">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+            <input type="text" id="aiFetchSearch" class="text-input" placeholder="搜索模型..." autocomplete="off">
+            <div id="aiFetchTabs" class="ai-fetch-tabs"></div>
+            <div id="aiFetchList" class="ai-fetch-list"></div>
+          </div>
+        </div>
       </section>
 
       <!-- 多媒体设置页面 -->
@@ -541,6 +594,8 @@
     </div>
   </dialog>
 
+  <script src="ai-brand-map.js"></script>
+  <script src="model-family.js"></script>
   <script src="settings-page.js"></script>
 </body>
 </html>

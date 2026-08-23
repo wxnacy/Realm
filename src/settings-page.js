@@ -1689,7 +1689,7 @@ function renderWhitelistTags() {
     removeBtn.className = 'whitelist-tag-remove';
     removeBtn.dataset.domain = domain;
     removeBtn.title = '移除';
-    removeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4L12 12M4 12L12 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+    removeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4L12 12M4 12L12 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
 
     removeBtn.addEventListener('click', () => removeWhitelistDomain(domain));
 
@@ -2439,7 +2439,7 @@ function updateAIStatusIndicator(aiState) {
 
 /**
  * 渲染左侧供应商列表
- * 按搜索框文本过滤，显示供应商名称和激活状态
+ * 按搜索框文本过滤，显示供应商图标、名称、激活/禁用状态
  */
 function renderProviderList() {
   const listEl = document.getElementById('aiProviderList');
@@ -2463,17 +2463,35 @@ function renderProviderList() {
     return;
   }
 
+  const MF = window.ModelFamily;
   filtered.forEach(p => {
+    const enabled = p.enabled !== false;
     const item = document.createElement('div');
-    item.className = 'ai-provider-item' + (aiSelectedProviderId === p.id ? ' active' : '');
+    item.className = 'ai-provider-item'
+      + (aiSelectedProviderId === p.id ? ' active' : '')
+      + (enabled ? '' : ' disabled');
     item.dataset.providerId = p.id;
+
+    // 供应商图标（内置查图标表，自定义/未知用字母头像）
+    const iconInfo = MF ? MF.getProviderIcon(p.id) : null;
+    const iconWrap = document.createElement('span');
+    iconWrap.className = 'provider-icon';
+    iconWrap.innerHTML = MF
+      ? MF.iconHtml(iconInfo && iconInfo.icon, iconInfo ? iconInfo.color : false, p.name, iconInfo ? iconInfo.dark : false)
+      : '';
+    item.appendChild(iconWrap);
 
     const nameSpan = document.createElement('span');
     nameSpan.className = 'provider-name';
     nameSpan.textContent = p.name;
     item.appendChild(nameSpan);
 
-    if (p.id === aiActiveProviderId) {
+    if (!enabled) {
+      const tag = document.createElement('span');
+      tag.className = 'provider-disabled-tag';
+      tag.textContent = '已停用';
+      item.appendChild(tag);
+    } else if (p.id === aiActiveProviderId) {
       const dot = document.createElement('span');
       dot.className = 'provider-active-dot';
       dot.title = '当前激活';
@@ -2520,11 +2538,28 @@ async function showEditorForm(providerId) {
 
   // 填充表单
   const titleEl = document.getElementById('aiEditorTitle');
+  const iconEl = document.getElementById('aiEditorIcon');
   const nameInput = document.getElementById('aiEditorName');
   const apiKeyInput = document.getElementById('aiEditorApiKey');
   const envVarNameInput = document.getElementById('aiEditorEnvVarName');
   const baseURLInput = document.getElementById('aiEditorBaseURL');
+  const baseURLHint = document.getElementById('aiBaseURLHint');
   const envVarHint = document.getElementById('aiEnvVarHint');
+  const enableToggle = document.getElementById('aiEnableToggle');
+
+  // 编辑器头部图标
+  const MF = window.ModelFamily;
+  if (iconEl && MF) {
+    const iconInfo = MF.getProviderIcon(provider.id);
+    iconEl.innerHTML = MF.iconHtml(iconInfo && iconInfo.icon, iconInfo ? iconInfo.color : false, provider.name, iconInfo ? iconInfo.dark : false);
+  }
+
+  // 启用开关状态
+  if (enableToggle) {
+    const enabled = provider.enabled !== false;
+    enableToggle.classList.toggle('on', enabled);
+    enableToggle.setAttribute('aria-checked', String(enabled));
+  }
 
   if (titleEl) titleEl.textContent = provider.name;
   if (nameInput) {
@@ -2555,10 +2590,12 @@ async function showEditorForm(providerId) {
   }
   if (baseURLInput) {
     baseURLInput.value = provider.baseURL || '';
-    // 自定义供应商显示 baseURL 字段，内置供应商隐藏
-    const baseURLGroup = baseURLInput.closest('.ai-form-group');
-    if (baseURLGroup) {
-      baseURLGroup.style.display = provider.isBuiltin === false ? '' : 'none';
+    // Base URL 始终展示：内置供应商只读，自定义供应商可编辑
+    baseURLInput.readOnly = provider.isBuiltin !== false;
+    if (baseURLHint) {
+      baseURLHint.textContent = provider.isBuiltin !== false
+        ? '内置供应商默认端点（只读）'
+        : '自定义供应商必填，用于模型检测和 API 调用';
     }
   }
 
@@ -2590,54 +2627,126 @@ async function showEditorForm(providerId) {
     }
   }
 
-  // 渲染模型标签
-  renderModelTags(provider);
+  // 渲染模型分组列表
+  renderModelGroups(provider);
+}
+
+/** 模型分组折叠状态（groupKey → 是否折叠），跨渲染保持 */
+const aiModelGroupCollapsed = new Map();
+
+/**
+ * 能力徽章小图标（视觉/推理/工具）
+ * @param {string} kind - vision | reasoning | tools
+ * @returns {string} SVG HTML
+ */
+function aiCapBadgeSvg(kind) {
+  const attrs = 'width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
+  if (kind === 'vision') {
+    return `<svg ${attrs}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
+  }
+  if (kind === 'reasoning') {
+    return `<svg ${attrs}><path d="M9.5 2a5.5 5.5 0 0 0-5.5 5.5c0 1.2.4 2.3 1 3.2.5.8 1 1.9 1 3.3h6c0-1.4.5-2.5 1-3.3.6-.9 1-2 1-3.2A5.5 5.5 0 0 0 9.5 2z"></path><line x1="7" y1="17" x2="12" y2="17"></line><line x1="8" y1="21" x2="11" y2="21"></line></svg>`;
+  }
+  // tools（扳手）
+  return `<svg ${attrs}><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>`;
 }
 
 /**
- * 渲染模型标签
+ * 渲染模型分组列表（按品牌家族分组，组可折叠，行尾删除按钮）
  * @param {Object} provider - 供应商对象
  */
-function renderModelTags(provider) {
-  const tagsEl = document.getElementById('aiModelTags');
+function renderModelGroups(provider) {
+  const groupsEl = document.getElementById('aiModelGroups');
   const emptyEl = document.getElementById('aiModelEmpty');
   const errorEl = document.getElementById('aiModelError');
-  if (!tagsEl) return;
+  const titleEl = document.getElementById('aiModelHeaderTitle');
+  if (!groupsEl) return;
 
   if (errorEl) errorEl.style.display = 'none';
 
-  const models = provider.models || [];
-  if (models.length === 0) {
-    tagsEl.innerHTML = '';
+  const allModels = provider.models || [];
+  if (titleEl) titleEl.textContent = `模型 (${allModels.length})`;
+
+  // 搜索过滤
+  const searchInput = document.getElementById('aiModelSearch');
+  const keyword = (searchInput && searchInput.style.display !== 'none' ? searchInput.value : '').trim().toLowerCase();
+  const models = keyword
+    ? allModels.filter(m => (m.id || '').toLowerCase().includes(keyword) || (m.name || '').toLowerCase().includes(keyword))
+    : allModels;
+
+  if (allModels.length === 0) {
+    groupsEl.innerHTML = '';
     if (emptyEl) emptyEl.style.display = '';
     return;
   }
-
   if (emptyEl) emptyEl.style.display = 'none';
-  tagsEl.innerHTML = '';
 
-  models.forEach(m => {
-    const tag = document.createElement('span');
-    tag.className = 'ai-model-tag';
+  const MF = window.ModelFamily;
+  const groups = MF ? MF.groupModels(models) : [{ key: 'all', title: '模型', icon: null, color: false, models }];
 
-    const nameSpan = document.createElement('span');
-    nameSpan.className = 'model-tag-name';
-    nameSpan.textContent = m.name || m.id;
-    nameSpan.title = m.id;
-    tag.appendChild(nameSpan);
+  groupsEl.innerHTML = '';
 
-    const removeBtn = document.createElement('span');
-    removeBtn.className = 'model-tag-remove';
-    removeBtn.textContent = '×';
-    removeBtn.addEventListener('click', () => {
-      // 从供应商的模型列表中移除
-      const idx = provider.models.findIndex(pm => pm.id === m.id);
-      if (idx >= 0) provider.models.splice(idx, 1);
-      renderModelTags(provider);
+  if (keyword && models.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'ai-model-empty';
+    empty.style.display = '';
+    empty.innerHTML = '<span>无匹配模型</span>';
+    groupsEl.appendChild(empty);
+    return;
+  }
+
+  groups.forEach(g => {
+    const collapsed = aiModelGroupCollapsed.get(g.key) === true && !keyword; // 搜索时强制展开
+    const groupEl = document.createElement('div');
+    groupEl.className = 'ai-model-group' + (collapsed ? ' collapsed' : '');
+
+    const header = document.createElement('div');
+    header.className = 'ai-model-group-header';
+    header.innerHTML = `
+      <svg class="ai-model-group-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+      ${MF ? MF.iconHtml(g.icon, g.color, g.title, g.dark) : ''}
+      <span class="ai-family-title">${g.title}</span>
+      <span class="ai-family-count">${g.models.length}</span>
+    `;
+    header.addEventListener('click', () => {
+      aiModelGroupCollapsed.set(g.key, !collapsed);
+      renderModelGroups(provider);
     });
-    tag.appendChild(removeBtn);
+    groupEl.appendChild(header);
 
-    tagsEl.appendChild(tag);
+    const body = document.createElement('div');
+    body.className = 'ai-model-group-body';
+    g.models.forEach(m => {
+      const row = document.createElement('div');
+      row.className = 'ai-model-row';
+
+      const r = m._resolved || (MF ? MF.resolveModel(m.id) : null);
+      const badges = r && r.caps
+        ? [
+            r.caps.vision ? `<span class="ai-cap-badge vision" title="支持视觉输入">${aiCapBadgeSvg('vision')}</span>` : '',
+            r.caps.reasoning ? `<span class="ai-cap-badge reasoning" title="支持推理">${aiCapBadgeSvg('reasoning')}</span>` : '',
+            r.caps.tools ? `<span class="ai-cap-badge tools" title="支持工具调用">${aiCapBadgeSvg('tools')}</span>` : '',
+          ].join('')
+        : '';
+
+      row.innerHTML = `
+        ${MF && r ? MF.iconHtml(r.icon, r.color, m.name || m.id, r.darkTile) : ''}
+        <span class="ai-model-name" title="${m.id}">${m.name || m.id}</span>
+        <span class="ai-model-badges">${badges}</span>
+        <button class="btn btn-icon btn-sm ai-model-remove" title="移除该模型">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+      `;
+      row.querySelector('.ai-model-remove').addEventListener('click', () => {
+        const idx = provider.models.findIndex(pm => pm.id === m.id);
+        if (idx >= 0) provider.models.splice(idx, 1);
+        renderModelGroups(provider);
+      });
+      body.appendChild(row);
+    });
+    groupEl.appendChild(body);
+
+    groupsEl.appendChild(groupEl);
   });
 }
 
@@ -2685,6 +2794,7 @@ async function saveProviderConfig() {
       isBuiltin: provider.isBuiltin !== false,
       displayName: displayName || null,
       baseURL: baseURL || null,
+      enabled: provider.enabled !== false,
     };
 
     await settingsApi('ai/providers', {
@@ -2694,7 +2804,14 @@ async function saveProviderConfig() {
     });
 
     showToast('配置已保存');
+
+    // 首次保存（新输入了 Key 且模型列表为空）后自动拉取模型：
+    // <10 个全部展示；>=10 个每个分组只保留最新模型（其余可在「获取模型列表」中补加）
+    const hadModels = provider.models && provider.models.length > 0;
     await loadAISettings();
+    if (apiKey && !hadModels) {
+      await autoPopulateModels(aiSelectedProviderId, { apiKey, baseURL, envVarName });
+    }
   } catch (error) {
     console.error('[Realm] 保存 AI 配置失败:', error);
     showToast('保存失败: ' + error.message, 'error');
@@ -2731,137 +2848,465 @@ async function deleteProvider() {
 }
 
 /**
- * 检测模型列表
+ * 请求模型检测端点（/models 拉取）
+ * @param {string} providerId - 供应商 ID
+ * @param {Object} [creds] - { apiKey, baseURL, envVarName }
+ * @returns {Promise<{models?: Array, error?: string}>}
  */
-async function detectModels() {
-  if (!aiSelectedProviderId) return;
+async function requestDetectModels(providerId, creds = {}) {
+  const body = {};
+  if (creds.apiKey) body.apiKey = creds.apiKey;
+  if (creds.baseURL) body.baseURL = creds.baseURL;
+  if (creds.envVarName) body.envVarName = creds.envVarName;
+  return settingsApi(`ai/providers/${providerId}/detect-models`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
 
+/**
+ * 首次配置后自动填充模型列表：
+ * 检测结果 <10 个全部添加；>=10 个每个家族分组只保留最新模型。
+ * 填充结果直接持久化（customModels），并 toast 告知用户可在弹框中调整。
+ * @param {string} providerId - 供应商 ID
+ * @param {Object} creds - { apiKey, baseURL, envVarName }
+ */
+async function autoPopulateModels(providerId, creds) {
+  try {
+    const result = await requestDetectModels(providerId, creds);
+    if (!result.models || result.models.length === 0) return;
+
+    const MF = window.ModelFamily;
+    const picked = result.models.length < 10 || !MF
+      ? result.models
+      : MF.latestPerGroup(result.models);
+
+    const provider = aiProvidersList.find(p => p.id === providerId);
+    if (!provider) return;
+    provider.models = picked.map(m => ({ id: m.id, name: m.name || m.id }));
+
+    await settingsApi('ai/providers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider: providerId,
+        apiKey: '__keep__',
+        customModels: provider.models.map(m => m.id),
+        isBuiltin: provider.isBuiltin !== false,
+        enabled: provider.enabled !== false,
+      }),
+    });
+
+    await loadAISettings();
+    const trimmed = result.models.length - picked.length;
+    showToast(trimmed > 0
+      ? `已自动添加 ${picked.length} 个模型（每个分组取最新），点击「获取模型列表」可调整`
+      : `已自动添加 ${picked.length} 个模型`);
+  } catch (e) {
+    // 自动填充失败不阻塞，用户可手动点「获取模型列表」
+    console.warn('[Realm] 自动填充模型失败:', e.message);
+  }
+}
+
+// ==================== 获取模型列表弹框 ====================
+
+/** 弹框中拉取到的全部可用模型 */
+let aiFetchAvailable = [];
+/** 弹框当前类型 tab */
+let aiFetchActiveTab = 'all';
+
+const AI_FETCH_TABS = [
+  ['all', '全部'], ['text', '文本'], ['image', '图片'], ['embedding', '嵌入'],
+  ['audio', '音频'], ['video', '视频'], ['rerank', '重排'],
+];
+
+/**
+ * 打开「获取模型列表」弹框并拉取模型
+ */
+async function showFetchModelsDialog() {
   const provider = aiProvidersList.find(p => p.id === aiSelectedProviderId);
   if (!provider) return;
+
+  const dialog = document.getElementById('aiFetchDialog');
+  const listEl = document.getElementById('aiFetchList');
+  const titleEl = document.getElementById('aiFetchTitle');
+  const countEl = document.getElementById('aiFetchCount');
+  if (!dialog || !listEl) return;
+
+  if (titleEl) titleEl.textContent = provider.name;
+  if (countEl) countEl.textContent = '';
+  listEl.innerHTML = '<div class="ai-fetch-loading">正在获取模型列表...</div>';
+  dialog.style.display = 'flex';
 
   const apiKeyInput = document.getElementById('aiEditorApiKey');
   const baseURLInput = document.getElementById('aiEditorBaseURL');
   const envVarNameInput = document.getElementById('aiEditorEnvVarName');
-  const detectBtn = document.getElementById('aiDetectModelsBtn');
-  const errorEl = document.getElementById('aiModelError');
-  const emptyEl = document.getElementById('aiModelEmpty');
 
-  const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
-  const baseURL = baseURLInput ? baseURLInput.value.trim() : '';
-  const envVarName = envVarNameInput ? envVarNameInput.value.trim() : '';
-
-  // 不在前端拦截空 apiKey：后端会回退到环境变量（detectEnvVar），
-  // 环境变量也没有时返回 400，错误信息显示在 aiModelError
   try {
-    if (detectBtn) {
-      detectBtn.disabled = true;
-      detectBtn.textContent = '检测中...';
-    }
-    if (errorEl) errorEl.style.display = 'none';
-    if (emptyEl) emptyEl.style.display = 'none';
-
-    const body = { apiKey: apiKey || undefined };
-    if (baseURL) body.baseURL = baseURL;
-    if (envVarName) body.envVarName = envVarName;
-
-    const result = await settingsApi(`ai/providers/${aiSelectedProviderId}/detect-models`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+    const result = await requestDetectModels(provider.id, {
+      apiKey: apiKeyInput ? apiKeyInput.value.trim() : '',
+      baseURL: baseURLInput ? baseURLInput.value.trim() : '',
+      envVarName: envVarNameInput ? envVarNameInput.value.trim() : '',
     });
 
     if (result.error) {
-      if (errorEl) {
-        errorEl.style.display = '';
-        errorEl.textContent = `模型检测失败：${result.error}。请检查 API Key 和网络连接后重试`;
-      }
+      listEl.innerHTML = `<div class="ai-model-error" style="display:block;">模型获取失败：${result.error}。请检查 API Key 和网络连接后重试</div>`;
       return;
     }
 
-    if (result.models && result.models.length > 0) {
-      provider.models = result.models;
-      renderModelTags(provider);
-    } else {
-      if (emptyEl) emptyEl.style.display = '';
-    }
+    aiFetchAvailable = result.models || [];
+    aiFetchActiveTab = 'all';
+    const searchEl = document.getElementById('aiFetchSearch');
+    if (searchEl) searchEl.value = '';
+    renderFetchDialog(provider);
   } catch (error) {
-    if (errorEl) {
-      errorEl.style.display = '';
-      errorEl.textContent = `模型检测失败：${error.message}。请检查 API Key 和网络连接后重试`;
-    }
-  } finally {
-    if (detectBtn) {
-      detectBtn.disabled = false;
-      detectBtn.textContent = '检测模型';
-    }
+    listEl.innerHTML = `<div class="ai-model-error" style="display:block;">模型获取失败：${error.message}</div>`;
   }
 }
 
 /**
- * 显示内置供应商选择弹窗
+ * 渲染获取模型弹框（tab + 搜索 + 分组列表）
+ * @param {Object} provider - 供应商对象
  */
-function showBuiltinProviderDialog() {
-  const dialog = document.getElementById('aiBuiltinDialog');
-  if (!dialog) return;
-
-  renderBuiltinList('');
-  dialog.showModal();
-}
-
-/**
- * 渲染内置供应商列表（按搜索文本过滤）
- * @param {string} filterText - 搜索关键词
- */
-function renderBuiltinList(filterText) {
-  const listEl = document.getElementById('aiBuiltinList');
+function renderFetchDialog(provider) {
+  const listEl = document.getElementById('aiFetchList');
+  const tabsEl = document.getElementById('aiFetchTabs');
+  const countEl = document.getElementById('aiFetchCount');
+  const searchEl = document.getElementById('aiFetchSearch');
   if (!listEl) return;
 
-  const keyword = (filterText || '').trim().toLowerCase();
-  const configuredIds = new Set(aiProvidersList.map(p => p.id));
+  const MF = window.ModelFamily;
+  const addedIds = new Set((provider.models || []).map(m => m.id));
 
-  // 从完整目录中筛选（含未配置的）
-  const matched = aiProvidersCatalog.filter(p =>
-    !keyword ||
-    p.id.toLowerCase().includes(keyword) ||
-    p.name.toLowerCase().includes(keyword)
+  // 类型统计
+  const resolved = aiFetchAvailable.map(m => ({ ...m, _resolved: MF ? MF.resolveModel(m.id) : null }));
+  const typeCounts = { all: resolved.length };
+  resolved.forEach(m => {
+    const t = m._resolved ? m._resolved.type : 'text';
+    typeCounts[t] = (typeCounts[t] || 0) + 1;
+  });
+
+  if (countEl) countEl.textContent = aiFetchAvailable.length ? `(${aiFetchAvailable.length})` : '';
+
+  // tab 栏（0 个的类型不展示）
+  if (tabsEl) {
+    tabsEl.innerHTML = '';
+    AI_FETCH_TABS.forEach(([key, label]) => {
+      if (key !== 'all' && !typeCounts[key]) return;
+      const tab = document.createElement('button');
+      tab.className = 'ai-fetch-tab' + (aiFetchActiveTab === key ? ' active' : '');
+      tab.textContent = `${label} ${typeCounts[key] || 0}`;
+      tab.addEventListener('click', () => {
+        aiFetchActiveTab = key;
+        renderFetchDialog(provider);
+      });
+      tabsEl.appendChild(tab);
+    });
+  }
+
+  // 过滤
+  const keyword = (searchEl ? searchEl.value : '').trim().toLowerCase();
+  let filtered = resolved.filter(m =>
+    aiFetchActiveTab === 'all' || (m._resolved && m._resolved.type === aiFetchActiveTab)
   );
+  if (keyword) {
+    filtered = filtered.filter(m =>
+      (m.id || '').toLowerCase().includes(keyword) || (m.name || '').toLowerCase().includes(keyword)
+    );
+  }
 
   listEl.innerHTML = '';
-
-  if (matched.length === 0) {
-    const empty = document.createElement('div');
-    empty.style.cssText = 'padding:16px;text-align:center;font-size:13px;color:var(--text-muted);';
-    empty.textContent = '无匹配提供商';
-    listEl.appendChild(empty);
+  if (filtered.length === 0) {
+    listEl.innerHTML = '<div class="ai-fetch-loading">无匹配模型</div>';
     return;
   }
 
-  matched.forEach(p => {
-    const option = document.createElement('div');
-    option.className = 'ai-builtin-option';
-    if (configuredIds.has(p.id)) {
-      option.classList.add('already-configured');
-    }
-    option.dataset.providerId = p.id;
-    option.textContent = p.name;
+  const groups = MF ? MF.groupModels(filtered) : [{ key: 'all', title: '模型', icon: null, color: false, models: filtered }];
 
-    if (!configuredIds.has(p.id)) {
-      option.addEventListener('click', () => {
-        // 关闭弹窗，直接打开编辑表单（不发送空 apiKey 到后端）
-        // 用户填写 API Key 后点击「保存」时才会实际写入
-        const dialog = document.getElementById('aiBuiltinDialog');
-        if (dialog) dialog.close();
-        // 将未配置的供应商临时加入列表以便 showEditorForm 能找到它
-        if (!aiProvidersList.find(lp => lp.id === p.id)) {
-          aiProvidersList.push({ ...p, configured: false });
-        }
-        renderProviderList();
-        showEditorForm(p.id);
+  groups.forEach(g => {
+    const groupEl = document.createElement('div');
+    groupEl.className = 'ai-model-group';
+
+    const allAdded = g.models.every(m => addedIds.has(m.id));
+    const header = document.createElement('div');
+    header.className = 'ai-model-group-header';
+    header.innerHTML = `
+      ${MF ? MF.iconHtml(g.icon, g.color, g.title, g.dark) : ''}
+      <span class="ai-family-title">${g.title}</span>
+      <span class="ai-family-count">${g.models.length}</span>
+      <div style="flex:1;"></div>
+      <button class="btn btn-icon btn-sm ai-fetch-group-add" title="${allAdded ? '该组已全部添加' : '添加该组全部模型'}" ${allAdded ? 'disabled' : ''}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      </button>
+    `;
+    if (!allAdded) {
+      header.querySelector('.ai-fetch-group-add').addEventListener('click', () => {
+        g.models.forEach(m => {
+          if (!addedIds.has(m.id)) {
+            provider.models.push({ id: m.id, name: m.name || m.id });
+            addedIds.add(m.id);
+          }
+        });
+        renderFetchDialog(provider);
+        renderModelGroups(provider);
       });
     }
+    groupEl.appendChild(header);
 
-    listEl.appendChild(option);
+    const body = document.createElement('div');
+    body.className = 'ai-model-group-body';
+    g.models.forEach(m => {
+      const added = addedIds.has(m.id);
+      const r = m._resolved;
+      const badges = r && r.caps
+        ? [
+            r.caps.vision ? `<span class="ai-cap-badge vision" title="支持视觉输入">${aiCapBadgeSvg('vision')}</span>` : '',
+            r.caps.reasoning ? `<span class="ai-cap-badge reasoning" title="支持推理">${aiCapBadgeSvg('reasoning')}</span>` : '',
+            r.caps.tools ? `<span class="ai-cap-badge tools" title="支持工具调用">${aiCapBadgeSvg('tools')}</span>` : '',
+          ].join('')
+        : '';
+
+      const row = document.createElement('div');
+      row.className = 'ai-model-row';
+      row.innerHTML = `
+        ${MF && r ? MF.iconHtml(r.icon, r.color, m.name || m.id, r.darkTile) : ''}
+        <span class="ai-model-name" title="${m.id}">${m.name || m.id}</span>
+        <span class="ai-model-badges">${badges}</span>
+        <button class="btn btn-icon btn-sm ai-model-remove ${added ? 'is-added' : ''}" title="${added ? '移除' : '添加'}">
+          ${added
+            ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>'
+            : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>'}
+        </button>
+      `;
+      row.querySelector('.ai-model-remove').addEventListener('click', () => {
+        if (added) {
+          const idx = provider.models.findIndex(pm => pm.id === m.id);
+          if (idx >= 0) provider.models.splice(idx, 1);
+        } else {
+          provider.models.push({ id: m.id, name: m.name || m.id });
+        }
+        renderFetchDialog(provider);
+        renderModelGroups(provider);
+      });
+      body.appendChild(row);
+    });
+    groupEl.appendChild(body);
+
+    listEl.appendChild(groupEl);
   });
+}
+
+/**
+ * 显示手动添加模型输入行（在模型分组列表顶部插入）
+ */
+function showModelAddInput() {
+  const provider = aiProvidersList.find(p => p.id === aiSelectedProviderId);
+  const groupsEl = document.getElementById('aiModelGroups');
+  if (!provider || !groupsEl) return;
+  if (groupsEl.querySelector('.ai-model-add-row')) return; // 已存在
+
+  const row = document.createElement('div');
+  row.className = 'ai-model-row ai-model-add-row';
+  row.innerHTML = `
+    <span class="ai-icon ai-icon-fallback">+</span>
+    <input type="text" class="text-input ai-model-add-input" placeholder="输入模型 ID，回车添加" autocomplete="off">
+  `;
+  groupsEl.prepend(row);
+  const input = row.querySelector('.ai-model-add-input');
+  input.focus();
+
+  const commit = () => {
+    const id = input.value.trim();
+    if (id && !provider.models.some(m => m.id === id)) {
+      provider.models.push({ id, name: id });
+    }
+    renderModelGroups(provider);
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') commit();
+    if (e.key === 'Escape') renderModelGroups(provider);
+  });
+  input.addEventListener('blur', commit);
+}
+
+// ==================== 添加供应商弹框 ====================
+
+/**
+ * 显示添加供应商弹窗（居中模态：内置供应商图标网格 + 自定义供应商内联表单）
+ */
+function showAddProviderDialog() {
+  const dialog = document.getElementById('aiAddDialog');
+  if (!dialog) return;
+
+  const searchEl = document.getElementById('aiAddSearch');
+  if (searchEl) searchEl.value = '';
+  // 收起自定义表单
+  const customForm = document.getElementById('aiAddCustomForm');
+  if (customForm) customForm.style.display = 'none';
+  const customErr = document.getElementById('aiCustomError');
+  if (customErr) customErr.style.display = 'none';
+
+  renderAddProviderGrid('');
+  dialog.style.display = 'flex';
+  if (searchEl) searchEl.focus();
+}
+
+/**
+ * 渲染添加供应商弹框的内置供应商图标网格
+ * @param {string} filterText - 搜索关键词
+ */
+function renderAddProviderGrid(filterText) {
+  const gridEl = document.getElementById('aiAddGrid');
+  if (!gridEl) return;
+
+  const keyword = (filterText || '').trim().toLowerCase();
+  const addedIds = new Set(aiProvidersList.map(p => p.id));
+
+  const matched = aiProvidersCatalog.filter(p =>
+    !addedIds.has(p.id) &&
+    (!keyword || p.id.toLowerCase().includes(keyword) || p.name.toLowerCase().includes(keyword))
+  );
+
+  gridEl.innerHTML = '';
+
+  if (matched.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'ai-fetch-loading';
+    empty.textContent = keyword ? '无匹配供应商' : '内置供应商均已添加';
+    gridEl.appendChild(empty);
+    return;
+  }
+
+  const MF = window.ModelFamily;
+  matched.forEach(p => {
+    const cell = document.createElement('div');
+    cell.className = 'ai-add-cell';
+    cell.dataset.providerId = p.id;
+
+    const iconInfo = MF ? MF.getProviderIcon(p.id) : null;
+    cell.innerHTML = `
+      <span class="ai-add-cell-icon">${MF ? MF.iconHtml(iconInfo && iconInfo.icon, iconInfo ? iconInfo.color : false, p.name, iconInfo ? iconInfo.dark : false) : ''}</span>
+      <span class="ai-add-cell-name" title="${p.name}">${p.name}</span>
+    `;
+
+    cell.addEventListener('click', () => {
+      const dialog = document.getElementById('aiAddDialog');
+      if (dialog) dialog.style.display = 'none';
+      // 将未配置的供应商临时加入列表以便 showEditorForm 能找到它，
+      // 用户填写 API Key 点击「保存」时才实际写入后端
+      if (!aiProvidersList.find(lp => lp.id === p.id)) {
+        aiProvidersList.push({ ...p, configured: false });
+      }
+      renderProviderList();
+      showEditorForm(p.id);
+    });
+
+    gridEl.appendChild(cell);
+  });
+}
+
+/**
+ * 创建自定义供应商（弹框内联表单提交）
+ */
+async function createCustomProvider() {
+  const nameInput = document.getElementById('aiCustomName');
+  const baseURLInput = document.getElementById('aiCustomBaseURL');
+  const apiKeyInput = document.getElementById('aiCustomApiKey');
+  const errEl = document.getElementById('aiCustomError');
+  const createBtn = document.getElementById('aiCustomCreateBtn');
+
+  const name = nameInput ? nameInput.value.trim() : '';
+  const baseURL = baseURLInput ? baseURLInput.value.trim() : '';
+  const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+
+  if (!name) {
+    if (errEl) { errEl.style.display = 'block'; errEl.textContent = '请填写供应商名称'; }
+    return;
+  }
+  if (!baseURL) {
+    if (errEl) { errEl.style.display = 'block'; errEl.textContent = '请填写 Base URL'; }
+    return;
+  }
+  if (errEl) errEl.style.display = 'none';
+
+  try {
+    if (createBtn) { createBtn.disabled = true; createBtn.textContent = '创建中...'; }
+    const customId = 'custom-' + Date.now();
+    await settingsApi('ai/providers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider: customId,
+        apiKey: apiKey || '',
+        isBuiltin: false,
+        displayName: name,
+        baseURL,
+      }),
+    });
+
+    const dialog = document.getElementById('aiAddDialog');
+    if (dialog) dialog.style.display = 'none';
+
+    await loadAISettings();
+    showEditorForm(customId);
+
+    // 创建时填了 Key：自动拉取模型（<10 全加，>=10 每组取最新）
+    if (apiKey) {
+      await autoPopulateModels(customId, { apiKey, baseURL });
+    }
+  } catch (error) {
+    console.error('[Realm] 添加自定义供应商失败:', error);
+    if (errEl) { errEl.style.display = 'block'; errEl.textContent = '创建失败: ' + error.message; }
+  } finally {
+    if (createBtn) { createBtn.disabled = false; createBtn.textContent = '创建'; }
+  }
+}
+
+/**
+ * 切换供应商启用状态（立即生效，无需点保存）
+ * 禁用后聊天框模型选择不展示该供应商；存储的激活记录保留，重新启用后恢复
+ * @param {boolean} enabled
+ */
+async function setProviderEnabled(enabled) {
+  const provider = aiProvidersList.find(p => p.id === aiSelectedProviderId);
+  if (!provider) return;
+
+  provider.enabled = enabled;
+  const toggle = document.getElementById('aiEnableToggle');
+  if (toggle) {
+    toggle.classList.toggle('on', enabled);
+    toggle.setAttribute('aria-checked', String(enabled));
+  }
+  renderProviderList();
+
+  // 未配置的供应商（尚未保存过后端）只改本地状态
+  if (!provider.configured) return;
+
+  try {
+    await settingsApi('ai/providers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider: provider.id,
+        apiKey: '__keep__',
+        model: provider.activeModel || null,
+        enabled,
+        setActive: false,
+        isBuiltin: provider.isBuiltin !== false,
+      }),
+    });
+    showToast(enabled ? '供应商已启用' : '供应商已停用，聊天框将不再展示');
+  } catch (error) {
+    // 回滚
+    provider.enabled = !enabled;
+    if (toggle) {
+      toggle.classList.toggle('on', !enabled);
+      toggle.setAttribute('aria-checked', String(!enabled));
+    }
+    renderProviderList();
+    showToast('操作失败: ' + error.message, 'error');
+  }
 }
 
 /**
@@ -2874,40 +3319,57 @@ function setupAISettingsListeners() {
     searchInput.addEventListener('input', () => renderProviderList());
   }
 
-  // 添加内置供应商按钮
-  const addBuiltinBtn = document.getElementById('aiAddBuiltinBtn');
-  if (addBuiltinBtn) {
-    addBuiltinBtn.addEventListener('click', showBuiltinProviderDialog);
+  // 添加供应商按钮（打开统一弹框）
+  const addProviderBtn = document.getElementById('aiAddProviderBtn');
+  if (addProviderBtn) {
+    addProviderBtn.addEventListener('click', showAddProviderDialog);
   }
 
   // 空状态的添加按钮
   const emptyAddBtn = document.getElementById('aiEmptyAddBtn');
   if (emptyAddBtn) {
-    emptyAddBtn.addEventListener('click', showBuiltinProviderDialog);
+    emptyAddBtn.addEventListener('click', showAddProviderDialog);
   }
 
-  // 添加自定义供应商按钮
-  const addCustomBtn = document.getElementById('aiAddCustomBtn');
-  if (addCustomBtn) {
-    addCustomBtn.addEventListener('click', async () => {
-      try {
-        const customId = 'custom-' + Date.now();
-        await settingsApi('ai/providers', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            provider: customId,
-            apiKey: '',
-            isBuiltin: false,
-            displayName: '未命名供应商',
-          }),
-        });
-        await loadAISettings();
-        showEditorForm(customId);
-      } catch (error) {
-        console.error('[Realm] 添加自定义供应商失败:', error);
-        alert('添加供应商失败: ' + error.message);
+  // 添加弹框：关闭 / 搜索 / 自定义表单展开 / 创建
+  const addDialog = document.getElementById('aiAddDialog');
+  const addDialogClose = document.getElementById('aiAddDialogClose');
+  if (addDialogClose) {
+    addDialogClose.addEventListener('click', () => { if (addDialog) addDialog.style.display = 'none'; });
+  }
+  if (addDialog) {
+    addDialog.addEventListener('click', (e) => {
+      if (e.target === addDialog) addDialog.style.display = 'none'; // 点遮罩关闭
+    });
+  }
+  const addSearch = document.getElementById('aiAddSearch');
+  if (addSearch) {
+    addSearch.addEventListener('input', () => renderAddProviderGrid(addSearch.value));
+  }
+  const customHeader = document.getElementById('aiAddCustomHeader');
+  if (customHeader) {
+    customHeader.addEventListener('click', () => {
+      const form = document.getElementById('aiAddCustomForm');
+      if (!form) return;
+      const show = form.style.display !== 'flex';
+      form.style.display = show ? 'flex' : 'none';
+      customHeader.classList.toggle('expanded', show);
+      if (show) {
+        const nameInput = document.getElementById('aiCustomName');
+        if (nameInput) nameInput.focus();
       }
+    });
+  }
+  const customCreateBtn = document.getElementById('aiCustomCreateBtn');
+  if (customCreateBtn) {
+    customCreateBtn.addEventListener('click', createCustomProvider);
+  }
+
+  // 启用/停用开关
+  const enableToggle = document.getElementById('aiEnableToggle');
+  if (enableToggle) {
+    enableToggle.addEventListener('click', () => {
+      setProviderEnabled(!enableToggle.classList.contains('on'));
     });
   }
 
@@ -2923,10 +3385,71 @@ function setupAISettingsListeners() {
     deleteBtn.addEventListener('click', deleteProvider);
   }
 
-  // 检测模型按钮
-  const detectBtn = document.getElementById('aiDetectModelsBtn');
-  if (detectBtn) {
-    detectBtn.addEventListener('click', detectModels);
+  // 模型搜索框（放大镜按钮切换显隐）
+  const modelSearchBtn = document.getElementById('aiModelSearchBtn');
+  const modelSearch = document.getElementById('aiModelSearch');
+  if (modelSearchBtn && modelSearch) {
+    modelSearchBtn.addEventListener('click', () => {
+      // CSS 默认 display:none（markup 内联 style 会被 CSP 拦截），显隐用 'block'/'none'
+      const show = modelSearch.style.display !== 'block';
+      modelSearch.style.display = show ? 'block' : 'none';
+      modelSearchBtn.classList.toggle('active', show);
+      if (show) modelSearch.focus();
+      else {
+        modelSearch.value = '';
+        const provider = aiProvidersList.find(p => p.id === aiSelectedProviderId);
+        if (provider) renderModelGroups(provider);
+      }
+    });
+    modelSearch.addEventListener('input', () => {
+      const provider = aiProvidersList.find(p => p.id === aiSelectedProviderId);
+      if (provider) renderModelGroups(provider);
+    });
+  }
+
+  // 获取模型列表按钮 + 弹框
+  const fetchBtn = document.getElementById('aiFetchModelsBtn');
+  if (fetchBtn) {
+    fetchBtn.addEventListener('click', showFetchModelsDialog);
+  }
+  const fetchDialog = document.getElementById('aiFetchDialog');
+  const fetchDialogClose = document.getElementById('aiFetchDialogClose');
+  if (fetchDialogClose) {
+    fetchDialogClose.addEventListener('click', () => { if (fetchDialog) fetchDialog.style.display = 'none'; });
+  }
+  if (fetchDialog) {
+    fetchDialog.addEventListener('click', (e) => {
+      if (e.target === fetchDialog) fetchDialog.style.display = 'none';
+    });
+  }
+  const fetchSearch = document.getElementById('aiFetchSearch');
+  if (fetchSearch) {
+    fetchSearch.addEventListener('input', () => {
+      const provider = aiProvidersList.find(p => p.id === aiSelectedProviderId);
+      if (provider) renderFetchDialog(provider);
+    });
+  }
+  const fetchAddAllBtn = document.getElementById('aiFetchAddAllBtn');
+  if (fetchAddAllBtn) {
+    fetchAddAllBtn.addEventListener('click', () => {
+      const provider = aiProvidersList.find(p => p.id === aiSelectedProviderId);
+      if (!provider) return;
+      const addedIds = new Set(provider.models.map(m => m.id));
+      aiFetchAvailable.forEach(m => {
+        if (!addedIds.has(m.id)) {
+          provider.models.push({ id: m.id, name: m.name || m.id });
+          addedIds.add(m.id);
+        }
+      });
+      renderFetchDialog(provider);
+      renderModelGroups(provider);
+    });
+  }
+
+  // 手动添加模型按钮
+  const modelAddBtn = document.getElementById('aiModelAddBtn');
+  if (modelAddBtn) {
+    modelAddBtn.addEventListener('click', showModelAddInput);
   }
 
   // API Key 显示/隐藏切换
@@ -2970,30 +3493,6 @@ function setupAISettingsListeners() {
           // 忽略
         }
       }, 500);
-    });
-  }
-
-  // 内置供应商弹窗搜索
-  const builtinSearch = document.getElementById('aiBuiltinSearch');
-  if (builtinSearch) {
-    builtinSearch.addEventListener('input', () => renderBuiltinList(builtinSearch.value));
-  }
-
-  // 内置供应商弹窗取消按钮
-  const builtinCancel = document.getElementById('aiBuiltinCancelBtn');
-  if (builtinCancel) {
-    builtinCancel.addEventListener('click', () => {
-      const dialog = document.getElementById('aiBuiltinDialog');
-      if (dialog) dialog.close();
-    });
-  }
-
-  // 内置供应商弹窗添加按钮（未选中时关闭）
-  const builtinAdd = document.getElementById('aiBuiltinAddBtn');
-  if (builtinAdd) {
-    builtinAdd.addEventListener('click', () => {
-      const dialog = document.getElementById('aiBuiltinDialog');
-      if (dialog) dialog.close();
     });
   }
 }

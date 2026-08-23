@@ -5050,9 +5050,24 @@ function updateModelSelectorButton() {
   if (!elements.aiModelSelector || !aiModelsData) return;
 
   const { providers, activeProvider, activeModel } = aiModelsData;
-  if (activeProvider && activeModel) {
-    const provider = providers.find(p => p.id === activeProvider);
-    const modelName = activeModel.length > 15 ? activeModel.substring(0, 12) + '...' : activeModel;
+  // 激活供应商被禁用时，按钮显示与后端 init 回落逻辑一致的第一个可用供应商
+  let effProviderId = activeProvider;
+  let effModel = activeModel;
+  const activeVisible = providers.some(p =>
+    p.id === activeProvider && p.enabled !== false && p.configured
+  );
+  if (!activeVisible) {
+    const fallback = providers.find(p => p.enabled !== false && p.configured && p.models && p.models.length > 0);
+    if (fallback) {
+      effProviderId = fallback.id;
+      effModel = fallback.activeModel || fallback.models[0].id;
+    } else {
+      effProviderId = null;
+      effModel = null;
+    }
+  }
+  if (effProviderId && effModel) {
+    const modelName = effModel.length > 15 ? effModel.substring(0, 12) + '...' : effModel;
     elements.aiModelSelector.textContent = modelName + ' ▾';
   } else {
     elements.aiModelSelector.textContent = '选择模型 ▾';
@@ -5125,13 +5140,21 @@ function renderModelDropdown() {
   const dropdown = document.createElement('div');
   dropdown.className = 'ai-model-dropdown';
 
-  // 按供应商分组
+  // 按供应商分组（禁用的供应商不展示；存储的激活记录保留，重新启用后恢复）
+  const MF = window.ModelFamily;
   providers.forEach(provider => {
+    if (provider.enabled === false) return;
     if (!provider.configured || !provider.models || provider.models.length === 0) return;
 
     const groupTitle = document.createElement('div');
     groupTitle.className = 'ai-model-group-title';
-    groupTitle.textContent = provider.name;
+    const iconInfo = MF ? MF.getProviderIcon(provider.id) : null;
+    if (MF && (iconInfo || provider.isBuiltin === false)) {
+      groupTitle.innerHTML = MF.iconHtml(iconInfo && iconInfo.icon, iconInfo ? iconInfo.color : false, provider.name, iconInfo ? iconInfo.dark : false);
+    }
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = provider.name;
+    groupTitle.appendChild(nameSpan);
     dropdown.appendChild(groupTitle);
 
     provider.models.forEach(model => {
@@ -5147,6 +5170,15 @@ function renderModelDropdown() {
         const dot = document.createElement('span');
         dot.className = 'model-active-dot';
         option.appendChild(dot);
+      }
+
+      // 模型家族图标（与设置页同一词典）
+      if (MF) {
+        const r = MF.resolveModel(model.id);
+        const iconWrap = document.createElement('span');
+        iconWrap.className = 'ai-model-option-icon';
+        iconWrap.innerHTML = MF.iconHtml(r.icon, r.color, model.name || model.id, r.darkTile);
+        option.appendChild(iconWrap);
       }
 
       const nameSpan = document.createElement('span');

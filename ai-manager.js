@@ -653,11 +653,20 @@ class AIManager {
         console.log(`[Realm AI] 自定义供应商已注册: ${providerId} (${providerModels.length} 个模型)`);
       }
 
-      // 确定激活提供商：优先 ai.activeProvider，须已配置；否则取第一个已配置项
+      // 确定激活提供商：优先 ai.activeProvider，须已配置且未禁用；否则取第一个可用项
+      // 禁用的供应商保留存储记录（ai.activeProvider 不改写），仅在运行时被跳过，
+      // 重新启用后自动恢复为激活供应商
+      const enabledIds = configuredIds.filter(id => providersCfg[id].enabled !== false);
       const savedActive = configStore.get('ai.activeProvider');
-      const activeProvider = savedActive && configuredIds.includes(savedActive)
+      const activeProvider = savedActive && enabledIds.includes(savedActive)
         ? savedActive
-        : configuredIds[0];
+        : enabledIds[0];
+
+      if (!activeProvider) {
+        console.log('[Realm AI] 已配置供应商均被禁用，跳过初始化');
+        this.isInitialized = false;
+        return;
+      }
 
       // 确定模型：提供商配置中的 model，否则取该提供商目录中的第一个模型
       const providerCfg = providersCfg[activeProvider];
@@ -1157,7 +1166,7 @@ ${content}
    * @returns {Promise<{success: boolean}>} 操作结果
    */
   async configureProviders(config) {
-    const { provider, model, envVarName, customModels, isBuiltin, baseURL, displayName } = config;
+    const { provider, model, envVarName, customModels, isBuiltin, baseURL, displayName, enabled } = config;
     let { apiKey } = config;
 
     if (!provider) {
@@ -1208,6 +1217,7 @@ ${content}
           isBuiltin: false,
           baseURL: baseURL !== undefined ? baseURL : existing.baseURL,
           displayName: displayName !== undefined ? displayName : existing.displayName,
+          enabled: enabled !== undefined ? enabled : existing.enabled,
         };
         this.configStore.set('ai.providers', providers);
         console.log(`[Realm AI] 自定义供应商已保存（待填写 API Key）: ${provider}`);
@@ -1257,9 +1267,13 @@ ${content}
         isBuiltin: isBuiltin !== undefined ? isBuiltin : (existing.isBuiltin !== undefined ? existing.isBuiltin : true),
         baseURL: baseURL !== undefined ? baseURL : existing.baseURL,
         displayName: displayName !== undefined ? displayName : existing.displayName,
+        enabled: enabled !== undefined ? enabled : existing.enabled,
       };
       this.configStore.set('ai.providers', providers);
-      this.configStore.set('ai.activeProvider', provider);
+      // setActive=false 时（如启用/停用开关）不劫持当前激活供应商
+      if (config.setActive !== false) {
+        this.configStore.set('ai.activeProvider', provider);
+      }
 
       console.log(`[Realm AI] 供应商已保存: ${provider} (builtin: ${isBuiltin !== undefined ? isBuiltin : true})`);
 
@@ -1308,6 +1322,7 @@ ${content}
         isBuiltin: true,
         customModels,
         baseURL: p.baseURL || p.baseUrl || null,
+        enabled: saved && saved.enabled === false ? false : true,
       };
     });
 
@@ -1326,6 +1341,7 @@ ${content}
           isBuiltin: false,
           customModels: saved.customModels || [],
           baseURL: saved.baseURL || null,
+          enabled: saved.enabled === false ? false : true,
         });
       }
     }
