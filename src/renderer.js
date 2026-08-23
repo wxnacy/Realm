@@ -842,6 +842,51 @@ function getContainerColor(containerId) {
 }
 
 /**
+ * 页面无 <title> 时的标题回退：把当前 URL 格式化成展示文本。
+ * 对齐 Chromium GetTitleForDisplay / FormatUrl 行为：
+ * - http/https：省略协议、www 前缀、默认端口（80/443）、裸域名尾斜杠、认证信息
+ * - file：只显示文件名（忽略查询/锚点参数）
+ * - 其余 scheme（realm://、about:、data: 等）返回空串，由调用方决定是否保留原标题
+ * @param {string} url - 当前页面 URL
+ * @returns {string} 格式化后的展示文本，无法格式化时返回空串
+ */
+function formatUrlForDisplay(url) {
+  if (!url) return '';
+
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (err) {
+    return '';
+  }
+  const { protocol, hostname, port, pathname, search, hash } = parsed;
+
+  // file:// 用文件名作为标题，忽略参考和查询参数
+  if (protocol === 'file:') {
+    const parts = pathname.split('#')[0].split('?')[0].split('/');
+    return parts[parts.length - 1] || '';
+  }
+
+  // 仅 http/https 走 URL 展示；其余 scheme 返回空串
+  if (protocol !== 'http:' && protocol !== 'https:') return '';
+
+  // 省略 www. 等平凡子域名
+  let host = hostname;
+  if (host.startsWith('www.')) host = host.slice(4);
+
+  // 省略默认端口
+  const isDefaultPort =
+    (protocol === 'http:' && port === '80') ||
+    (protocol === 'https:' && port === '443');
+  const portText = port && !isDefaultPort ? `:${port}` : '';
+
+  // 裸域名省略尾斜杠
+  const pathText = pathname === '/' || pathname === '' ? '' : pathname;
+
+  return `${host}${portText}${pathText}${search}${hash}`.replace(/%20/g, ' ');
+}
+
+/**
  * 更新 Tab 标题
  * @param {string} tabId - Tab ID
  * @param {string} title - 新标题
@@ -849,6 +894,9 @@ function getContainerColor(containerId) {
 async function updateTabTitle(tabId, title) {
   const tab = state.tabs.get(tabId);
   if (!tab) return;
+
+  // title 为空时忽略，保留现有标题（'新标签页' 或之前的标题），避免被空白覆盖
+  if (!title) return;
 
   // 调用主进程更新 Tab
   await window.realmAPI.updateTab(tabId, { title });
@@ -1212,14 +1260,27 @@ function bindWebviewEvents(tabId, webview) {
         ? navPartition.slice(navPrefix.length)
         : state.currentContainer;
 
+      // 页面无 <title> 时回退显示 URL（对齐 Chromium GetTitleForDisplay）：
+      // page-title-updated 对始终无 title 的页面不会触发（Chromium 检测到 title 无变化会跳过），
+      // 因此必须在导航提交时兜底设置标题。
+      const navTitle = webview.getTitle() || formatUrlForDisplay(e.url);
+
       // D-21/D-23：导航完成后自动写入历史记录（过滤内部页面）
       if (e.url && e.url !== 'about:blank' && !displayUrl.startsWith('realm://')) {
         window.realmAPI.historyAdd({
           containerId: navContainerId,
           url: e.url,
-          title: webview.getTitle() || '',
+          title: navTitle,
           visitedAt: Date.now(),
         }).catch(err => console.error('[Realm] 历史记录写入失败:', err));
+      }
+
+      // 无 title 页面用 URL 作为标签页标题
+      if (navTitle) {
+        updateTabTitle(tabId, navTitle);
+        if (tabId === state.activeTabId) {
+          updateWindowTitle();
+        }
       }
 
       // 导航时清空该 tab 对应 webview 的媒体列表（per D-13/D-14：跨页面导航清空，锚点跳转不清空）
@@ -1251,6 +1312,15 @@ function bindWebviewEvents(tabId, webview) {
           updateQuickSaveBtnState();
         }
       }
+
+      // SPA 内跳转（hash/query）：页面无 title 时同步更新 URL 回退标题
+      const inPageTitle = webview.getTitle() || formatUrlForDisplay(e.url);
+      if (inPageTitle) {
+        updateTabTitle(tabId, inPageTitle);
+        if (tabId === state.activeTabId) {
+          updateWindowTitle();
+        }
+      }
     }
   });
 
@@ -1275,15 +1345,20 @@ function bindWebviewEvents(tabId, webview) {
 
   // 标题更新事件
   webview.addEventListener('page-title-updated', (e) => {
-    updateTabTitle(tabId, e.title);
+    // 页面未设置 <title> 时回退显示格式化后的 URL（对齐 Chromium GetTitleForDisplay）
+    const title = e.title || formatUrlForDisplay(webview.getURL());
 
-    // 如果是当前活动 Tab，更新窗口标题
-    if (tabId === state.activeTabId) {
-      updateWindowTitle();
+    if (title) {
+      updateTabTitle(tabId, title);
+
+      // 如果是当前活动 Tab，更新窗口标题
+      if (tabId === state.activeTabId) {
+        updateWindowTitle();
+      }
     }
 
     // 更新历史记录中最近一条匹配记录的标题
-    if (e.title) {
+    if (title) {
       const partition = webview.partition || '';
       const prefix = 'persist:container-';
       const historyContainerId = partition.startsWith(prefix)
@@ -1295,7 +1370,7 @@ function bindWebviewEvents(tabId, webview) {
         window.realmAPI.historyUpdateTitle({
           containerId: historyContainerId,
           url: currentUrl,
-          title: e.title,
+          title,
         }).catch(err => console.error('[Realm] 历史记录标题更新失败:', err));
       }
     }
