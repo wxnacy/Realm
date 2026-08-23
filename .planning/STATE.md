@@ -4,15 +4,15 @@ milestone: v2.4
 current_phase: 38
 current_phase_name: deepseek-harness-ai-api-key
 status: completed
-stopped_at: Phase 38 UAT complete (11/11 pass, 18 issues fixed)
-last_updated: "2026-08-22T20:30:00.000Z"
+stopped_at: Phase 39 context gathered
+last_updated: "2026-08-23T14:58:51.974Z"
 last_activity: 2026-08-22
 last_activity_desc: Phase 38 UAT 全量通过（含键盘导航/显隐回显/上下文重置等 18 项问题修复）
-state_head: 209b81261b5842714732444772fbad666fa6914c
+state_head: 8bcc9327fb0acf1934770fe16bc77ee7107dc78b
 progress:
-  total_phases: 9
-  completed_phases: 4
-  total_plans: 28
+  total_phases: 10
+  completed_phases: 3
+  total_plans: 25
   completed_plans: 25
 milestone_name: 多窗口支持
 ---
@@ -64,6 +64,7 @@ Progress: [███████████████████████
   - Phase 36: Tab 拖拽与跨窗口移动 (MW-02, MW-03, MW-04, MW-11, MW-13) — DnD reorder + cross-window + position persistence
 - Phase 37 added: 地址栏地址补全功能
 - Phase 38 completed: AI 助手多供应商管理（左右分栏设置页 + 环境变量检测 + 模型检测 + 聊天面板工具栏 + 模型选择器）
+- Phase 39 added: Vimium 键盘操作功能
 
 ### Decisions
 
@@ -100,9 +101,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-21T10:00:00.000Z
-Stopped at: Phase 38 all plans complete
-Resume file: none
+Last session: 2026-08-23T14:58:50.932Z
+Stopped at: Phase 39 context gathered
+Resume file: .planning/phases/39-vimium/39-CONTEXT.md
 
 ## Operator Next Steps
 
