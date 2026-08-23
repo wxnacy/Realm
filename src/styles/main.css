@@ -4817,10 +4817,18 @@ textarea::placeholder {
   padding: 1px 7px;
 }
 
+/* 分组头部右侧留白 + 删除整组按钮（常显，与模型行 − 按钮一致） */
+.ai-group-spacer {
+  flex: 1;
+}
+
+.ai-group-remove {
+  opacity: 1;
+}
+
 .ai-model-group-body {
   display: flex;
-  flex-direction: column;
-}
+  flex-direction: column;}
 
 .ai-model-row {
   display: flex;
@@ -5125,6 +5133,15 @@ textarea::placeholder {
 
 .ai-fetch-list .ai-model-row .ai-model-remove {
   opacity: 1;
+}
+
+/* 已添加的模型行：浅绿色背景标识（参考 CherryStudio） */
+.ai-fetch-list .ai-model-row.is-added {
+  background: rgba(34, 197, 94, 0.10);
+}
+
+.ai-fetch-list .ai-model-row.is-added:hover {
+  background: rgba(34, 197, 94, 0.16);
 }
 
 .ai-fetch-loading {

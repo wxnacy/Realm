@@ -2707,9 +2707,19 @@ function renderModelGroups(provider) {
       ${MF ? MF.iconHtml(g.icon, g.color, g.title, g.dark) : ''}
       <span class="ai-family-title">${g.title}</span>
       <span class="ai-family-count">${g.models.length}</span>
+      <span class="ai-group-spacer"></span>
+      <button class="btn btn-icon btn-sm ai-model-remove ai-group-remove" title="删除该组全部模型">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      </button>
     `;
     header.addEventListener('click', () => {
       aiModelGroupCollapsed.set(g.key, !collapsed);
+      renderModelGroups(provider);
+    });
+    header.querySelector('.ai-group-remove').addEventListener('click', (e) => {
+      e.stopPropagation(); // 不触发分组折叠
+      const ids = new Set(g.models.map(m => m.id));
+      provider.models = (provider.models || []).filter(pm => !ids.has(pm.id));
       renderModelGroups(provider);
     });
     groupEl.appendChild(header);
@@ -3035,7 +3045,7 @@ function renderFetchDialog(provider) {
       ${MF ? MF.iconHtml(g.icon, g.color, g.title, g.dark) : ''}
       <span class="ai-family-title">${g.title}</span>
       <span class="ai-family-count">${g.models.length}</span>
-      <div style="flex:1;"></div>
+      <span class="ai-group-spacer"></span>
       <button class="btn btn-icon btn-sm ai-fetch-group-add" title="${allAdded ? '该组已全部添加' : '添加该组全部模型'}" ${allAdded ? 'disabled' : ''}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
       </button>
@@ -3068,7 +3078,7 @@ function renderFetchDialog(provider) {
         : '';
 
       const row = document.createElement('div');
-      row.className = 'ai-model-row';
+      row.className = 'ai-model-row' + (added ? ' is-added' : '');
       row.innerHTML = `
         ${MF && r ? MF.iconHtml(r.icon, r.color, m.name || m.id, r.darkTile) : ''}
         <span class="ai-model-name" title="${m.id}">${m.name || m.id}</span>
