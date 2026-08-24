@@ -347,6 +347,10 @@ function ensureAppListener() {
     const type = contents.getType();
     if (type === 'window' || type === 'webview') {
       attachInputListener(contents);
+      // webContents 销毁时清理焦点状态，防止 Map 无限增长
+      contents.on('destroyed', () => {
+        vimFocusStates.delete(contents.id);
+      });
     }
   });
 }
