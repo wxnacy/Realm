@@ -180,3 +180,20 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [ ] 38-03-PLAN.md — 聊天面板工具栏：新对话按钮 + 模型选择器下拉 + 发送按钮迁移
+
+### Phase 39: Vimium 键盘操作功能
+
+**Goal:** 为 Realm Browser 添加类似 Vimium 的键盘操作功能，提升键盘操作效率，支持页面滚动、链接跟随、标签管理、搜索模式等
+**Requirements**: docs/todo/vimium.md
+**Depends on:** Phase 38
+**Plans:** 3 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 39-01-PLAN.md — Vim 快捷键基础设施 + 页面滚动 + 基础标签管理（tracer：完整链路从按键到滚动）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 39-02-PLAN.md — Hint Mode 链接跟随 + 搜索模式 + 复制操作 + 标签增强
+- [ ] 39-03-PLAN.md — Settings 页面 Vim 模式设置 + 快捷键帮助对话框
