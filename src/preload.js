@@ -992,6 +992,15 @@ contextBridge.exposeInMainWorld('realmAPI', {
     return ipcRenderer.invoke('vim:get-enabled');
   },
 
+  /**
+   * 设置 Vim 搜索模式激活状态
+   * 搜索模式激活时，n/N 键切换为搜索导航（searchNext/searchPrev）
+   * @param {boolean} active - 搜索模式是否激活
+   */
+  setVimSearchActive: (active) => {
+    ipcRenderer.invoke('vim:set-search-active', active);
+  },
+
   // ==================== 脚本执行 ====================
 
   /**

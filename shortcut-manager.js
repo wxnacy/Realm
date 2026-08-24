@@ -412,6 +412,12 @@ function registerVimIpcHandlers() {
     return isVimEnabled(settingsStore);
   });
 
+  // 处理 Vim 搜索模式激活状态设置
+  // 搜索模式激活时，n/N 键切换为搜索导航（searchNext/searchPrev）
+  ipcMain.handle('vim:set-search-active', (event, active) => {
+    VimStateMachine.searchActive = active;
+  });
+
   console.log('[Realm] Vim IPC 处理器已注册');
 }
 

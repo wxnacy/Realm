@@ -42,6 +42,17 @@ contextBridge.exposeInMainWorld('__realmBridge', {
   },
 
   /**
+   * 发送 Vim 命令到 renderer 进程
+   * 注入脚本通过此方法与 renderer 通信（如 Hint Mode 退出、URL 复制等）
+   *
+   * @param {string} command - 命令名称（hintModeExit, copyUrl, findInPage, searchModeExit 等）
+   * @param {Object} [data] - 命令附加数据
+   */
+  sendVimCommand: (command, data) => {
+    ipcRenderer.sendToHost('vim:command', command, data);
+  },
+
+  /**
    * 发送表单提交的凭据数据到 renderer 进程
    * 表单检测引擎在检测到登录表单提交时调用
    *
