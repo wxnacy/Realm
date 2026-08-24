@@ -986,6 +986,15 @@ contextBridge.exposeInMainWorld('realmAPI', {
   },
 
   /**
+   * 设置 host 主窗口自身的输入框焦点状态（地址栏等 chrome 内输入框）
+   * 主进程以 event.sender.id 作为 key，与 guest 焦点状态互不干扰
+   * @param {boolean} isInInput - 焦点是否在输入框中
+   */
+  setHostVimFocusState: (isInInput) => {
+    ipcRenderer.invoke('vim:set-focus-state', null, isInInput);
+  },
+
+  /**
    * 查询 Vimium 是否启用
    * @returns {Promise<boolean>} 是否启用
    */
@@ -1002,7 +1011,33 @@ contextBridge.exposeInMainWorld('realmAPI', {
     ipcRenderer.invoke('vim:set-search-active', active);
   },
 
-  // ==================== 脚本执行 ====================
+  /**
+   * 设置搜索输入激活状态
+   * 激活期间主进程跳过所有 Vim 按键处理，按键直达 guest 搜索输入框。
+   * 主进程在派发 searchMode 时已同步置位；renderer 在 Enter 确认 / Escape 退出后调用清除。
+   * @param {boolean} active - 搜索输入是否激活
+   */
+  setVimSearchInputActive: (active) => {
+    ipcRenderer.invoke('vim:set-search-input-active', active);
+  },
+
+  /**
+   * 设置 Hint Mode 激活状态
+   * renderer 在 hint mode 进入/退出时同步此状态到主进程
+   * @param {boolean} active - hint mode 是否激活
+   */
+  setVimHintActive: (active) => {
+    ipcRenderer.invoke('vim:set-hint-active', active);
+  },
+
+  // ==================== 剪贴板 ====================
+
+  /**
+   * 通用剪贴板写入文本
+   * @param {string} text - 要写入的文本
+   * @returns {Promise<{success: boolean}>}
+   */
+  copyToClipboard: (text) => ipcRenderer.invoke('clipboard:write-text', text),
 
   /**
    * 执行脚本：逐步执行脚本步骤

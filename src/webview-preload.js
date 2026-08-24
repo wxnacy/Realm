@@ -538,17 +538,12 @@ function _checkAndReportFocusState() {
   }
 }
 
-// 排除 realm:// 内部页面（通过 http://localhost:PORT/ 加载）
-const _isVimInternalPage = window.location.hostname === 'localhost';
+// 监听 focusin/focusout 事件检测焦点变化（所有页面都生效，含 realm:// 内部页）
+document.addEventListener('focusin', _checkAndReportFocusState, true);
+document.addEventListener('focusout', _checkAndReportFocusState, true);
 
-if (!_isVimInternalPage) {
-  // 监听 focusin/focusout 事件检测焦点变化
-  document.addEventListener('focusin', _checkAndReportFocusState, true);
-  document.addEventListener('focusout', _checkAndReportFocusState, true);
+// 页面加载完成后检查初始焦点状态
+window.addEventListener('DOMContentLoaded', _checkAndReportFocusState);
 
-  // 页面加载完成后检查初始焦点状态
-  window.addEventListener('DOMContentLoaded', _checkAndReportFocusState);
-
-  // 兜底：定期检查焦点状态（处理动态创建的输入框）
-  setInterval(_checkAndReportFocusState, 500);
-}
+// 兜底：定期检查焦点状态（处理动态创建的输入框）
+setInterval(_checkAndReportFocusState, 500);

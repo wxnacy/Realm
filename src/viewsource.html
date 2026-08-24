@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>查看源码</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    background: #1a1a1a;
+    color: #d4d4d4;
+    min-height: 100vh;
+    overflow: auto;
+  }
+  .header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #252526;
+    border-bottom: 1px solid #333;
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .header .url {
+    color: #9cdcfe;
+    font-size: 12px;
+    word-break: break-all;
+    flex: 1;
+  }
+  .header .label {
+    color: #858585;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .content {
+    padding: 16px;
+  }
+  pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .error {
+    color: #f48771;
+    padding: 16px;
+  }
+  .loading {
+    color: #858585;
+    padding: 16px;
+  }
+</style>
+</head>
+<body>
+<div class="header">
+  <span class="label">源码</span>
+  <span class="url" id="urlLabel"></span>
+</div>
+<div class="content" id="content">
+  <div class="loading">加载中...</div>
+</div>
+<script>
+(function() {
+  const params = new URLSearchParams(location.search);
+  const targetUrl = params.get('url');
+  const token = params.get('token');
+
+  const urlLabel = document.getElementById('urlLabel');
+  const content = document.getElementById('content');
+
+  if (!targetUrl) {
+    content.innerHTML = '<div class="error">缺少 URL 参数</div>';
+    return;
+  }
+
+  urlLabel.textContent = targetUrl;
+
+  fetch('/api/viewsource?url=' + encodeURIComponent(targetUrl) + '&token=' + encodeURIComponent(token))
+    .then(function(resp) {
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return resp.json();
+    })
+    .then(function(data) {
+      if (data.error) {
+        content.innerHTML = '<div class="error">' + escapeHtml(data.error) + '</div>';
+        return;
+      }
+      const pre = document.createElement('pre');
+      pre.textContent = data.source || '';
+      content.innerHTML = '';
+      content.appendChild(pre);
+    })
+    .catch(function(err) {
+      content.innerHTML = '<div class="error">加载失败: ' + escapeHtml(err.message) + '</div>';
+    });
+
+  function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+})();
+</script>
+</body>
+</html>

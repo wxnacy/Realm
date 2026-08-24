@@ -30,8 +30,36 @@ const attachedWebContents = new WeakSet();
 
 // ==================== Vim 快捷键状态 ====================
 
-/** 设置存储实例（读取 vimium.enabled） */
-const settingsStore = new Store({ name: 'settings' });
+/** 设置存储实例（读取 realm-config.json 的 settings.vimium.enabled） */
+const settingsStore = new Store({ name: 'realm-config', watch: true });
+
+/** Hint Mode 激活状态（由 renderer 通过 IPC 同步） */
+let hintModeActive = false;
+
+/**
+ * 搜索输入激活状态
+ * 在派发 searchMode 命令时由主进程同步置位（不等 renderer IPC，消除按键竞态），
+ * 由 renderer 在搜索确认（Enter）/退出（Escape）后通过 IPC 清除。
+ * 激活期间主进程跳过所有 Vim 命令处理，按键直达 guest 搜索输入框。
+ */
+let searchInputActive = false;
+
+/**
+ * 设置 Hint Mode 激活状态
+ * 当 hint mode 激活时，主进程跳过所有 Vim 命令处理，由 guest 内部独立接管按键
+ * @param {boolean} active
+ */
+function setHintModeActive(active) {
+  hintModeActive = active;
+}
+
+/**
+ * 设置搜索输入激活状态
+ * @param {boolean} active
+ */
+function setSearchInputActive(active) {
+  searchInputActive = active;
+}
 
 /**
  * 每个 webContents 的输入框焦点状态
@@ -245,48 +273,55 @@ function attachInputListener(contents) {
     const hasModifier = input.meta || input.control || input.alt;
 
     // ==================== 优先级 3：Vim 快捷键处理 ====================
-    // Alt+P 特殊处理：固定/取消固定标签（需在 !hasModifier 之前检查，因为 Alt 本身是修饰键）
-    if (input.alt && !input.meta && !input.control && input.key && input.key.toLowerCase() === 'p') {
-      const contentsUrl = contents.getURL() || '';
-      const isInternalPage = contentsUrl.includes('localhost') || contentsUrl.startsWith('realm://');
-      const isInInput = vimFocusStates.get(contents.id) || false;
-      const vimEnabled = isVimEnabled(settingsStore);
-      if (!isInternalPage && !isInInput && vimEnabled) {
-        event.preventDefault();
-        const focusedWindow = BrowserWindow.getFocusedWindow();
-        if (focusedWindow && !focusedWindow.isDestroyed() && windowManager.isManagedWindow(focusedWindow.id)) {
-          focusedWindow.webContents.send('vim:triggered', 'togglePinTab');
-        }
-        return;
-      }
-    }
-
-    if (!hasModifier) {
-      // 检查是否为 realm:// 内部页面（通过 webContents URL 判断）
-      const contentsUrl = contents.getURL() || '';
-      const isInternalPage = contentsUrl.includes('localhost') || contentsUrl.startsWith('realm://');
-
-      // 检查焦点状态（输入框中则跳过 Vim 快捷键）
-      const isInInput = vimFocusStates.get(contents.id) || false;
-
-      // 检查 Vimium 是否启用
-      const vimEnabled = isVimEnabled(settingsStore);
-
-      if (!isInternalPage && !isInInput && vimEnabled) {
-        const command = VimStateMachine.processKey(input.key, { shift: input.shift });
-        if (command) {
-          // 命中命令：preventDefault + 发送到 renderer
+    // Hint Mode / 搜索输入激活期间，所有 Vim 命令由 guest 内部独立处理，主进程完全跳过
+    if (!hintModeActive && !searchInputActive) {
+      // Alt+P 特殊处理：固定/取消固定标签（需在 !hasModifier 之前检查，因为 Alt 本身是修饰键）
+      if (input.alt && !input.meta && !input.control && input.key && input.key.toLowerCase() === 'p') {
+        const isInInput = vimFocusStates.get(contents.id) || false;
+        const vimEnabled = isVimEnabled(settingsStore);
+        if (!isInInput && vimEnabled) {
           event.preventDefault();
           const focusedWindow = BrowserWindow.getFocusedWindow();
           if (focusedWindow && !focusedWindow.isDestroyed() && windowManager.isManagedWindow(focusedWindow.id)) {
-            focusedWindow.webContents.send('vim:triggered', command);
+            focusedWindow.webContents.send('vim:triggered', 'togglePinTab');
           }
           return;
         }
-        if (VimStateMachine.state !== 'idle') {
-          // 等待双键序列的第二个键：吞掉按键
-          event.preventDefault();
-          return;
+      }
+
+      if (!hasModifier) {
+        // 检查焦点状态（输入框中则跳过 Vim 快捷键）
+        const isInInput = vimFocusStates.get(contents.id) || false;
+
+        // 检查 Vimium 是否启用
+        const vimEnabled = isVimEnabled(settingsStore);
+
+        if (!isInInput && vimEnabled) {
+          const command = VimStateMachine.processKey(input.key, { shift: input.shift });
+          if (command) {
+            // 命中命令：preventDefault + 发送到 renderer
+            event.preventDefault();
+            // 搜索模式状态在主进程同步切换（不等 renderer IPC 回传）：
+            // 进入搜索立即置 searchInputActive，让后续输入字符直达搜索框，零竞态；
+            // 退出搜索立即清 searchActive，避免 n/N 映射残留吞键。
+            if (command === 'searchMode') {
+              searchInputActive = true;
+              VimStateMachine.searchActive = false;
+            } else if (command === 'searchModeExit') {
+              searchInputActive = false;
+              VimStateMachine.searchActive = false;
+            }
+            const focusedWindow = BrowserWindow.getFocusedWindow();
+            if (focusedWindow && !focusedWindow.isDestroyed() && windowManager.isManagedWindow(focusedWindow.id)) {
+              focusedWindow.webContents.send('vim:triggered', command);
+            }
+            return;
+          }
+          if (VimStateMachine.state !== 'idle') {
+            // 等待双键序列的第二个键：吞掉按键
+            event.preventDefault();
+            return;
+          }
         }
       }
     }
@@ -410,7 +445,10 @@ function setVimFocusState(webContentsId, isInInput) {
 function registerVimIpcHandlers() {
   // 处理焦点状态设置请求（renderer 报告 webview guest 的焦点状态）
   ipcMain.handle('vim:set-focus-state', (event, webContentsId, isInInput) => {
-    setVimFocusState(webContentsId, isInInput);
+    // webContentsId 缺省时取发送者自身：host 主窗口报告地址栏等 chrome 内输入框焦点，
+    // 缺了 host 侧状态会导致焦点在地址栏时 f/F 等键被当作 Vim 命令拦截（打不进地址栏）
+    const id = typeof webContentsId === 'number' ? webContentsId : event.sender.id;
+    setVimFocusState(id, isInInput);
   });
 
   // 处理 Vimium 启用状态查询请求
@@ -422,6 +460,19 @@ function registerVimIpcHandlers() {
   // 搜索模式激活时，n/N 键切换为搜索导航（searchNext/searchPrev）
   ipcMain.handle('vim:set-search-active', (event, active) => {
     VimStateMachine.searchActive = active;
+  });
+
+  // 处理搜索输入激活状态设置
+  // renderer 在搜索确认（Enter）/退出（Escape）后清除；
+  // 激活期间主进程跳过所有 Vim 处理，按键直达 guest 搜索输入框
+  ipcMain.handle('vim:set-search-input-active', (event, active) => {
+    setSearchInputActive(active);
+  });
+
+  // 处理 Hint Mode 激活状态设置
+  // renderer 在 hint mode 进入/退出时同步此状态，主进程据此跳过 Vim 命令处理
+  ipcMain.handle('vim:set-hint-active', (event, active) => {
+    setHintModeActive(active);
   });
 
   console.log('[Realm] Vim IPC 处理器已注册');
@@ -439,5 +490,7 @@ module.exports = {
   rebuildShortcuts,
   unregisterAll,
   setVimFocusState,
+  setHintModeActive,
+  setSearchInputActive,
   registerVimIpcHandlers,
 };

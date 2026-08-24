@@ -18,7 +18,7 @@
  * Vimium 启用设置的 electron-store 键名
  * @type {string}
  */
-const VIM_ENABLED_KEY = 'vimium.enabled';
+const VIM_ENABLED_KEY = 'settings.vimium.enabled';
 
 /**
  * 双键序列超时时间（毫秒）
@@ -113,7 +113,8 @@ const PENDING_Y_MAP = {
  * - 超时 → 自动回到 idle
  *
  * 特殊状态：
- * - searchActive: 搜索模式激活时，n→searchNext, N→searchPrev
+ * - searchActive: 搜索导航阶段（Enter 确认后），n→searchNext, N→searchPrev，
+ *   / 重开搜索，Escape 退出搜索，其余按键走常规映射
  */
 const VimStateMachine = {
   /** @type {'idle'|'pending_g'|'pending_y'} 当前状态 */
@@ -142,8 +143,15 @@ const VimStateMachine = {
       effectiveKey = key.toUpperCase();
     }
 
-    // 搜索模式激活时：n→searchNext, N→searchPrev（CapsLock 安全：统一转小写比较）
+    // 搜索导航阶段（Enter 确认后）：n→searchNext, N→searchPrev（CapsLock 安全：统一转小写比较）
+    // / 重新打开搜索栏；Escape 退出搜索；其余按键落入常规映射（等价普通模式 + n/N，与 Vimium 一致）
     if (this.searchActive) {
+      if (key === '/') {
+        return 'searchMode';
+      }
+      if (key === 'Escape') {
+        return 'searchModeExit';
+      }
       const lowerKey = key.toLowerCase();
       if (lowerKey === 'n') {
         return shift ? 'searchPrev' : 'searchNext';

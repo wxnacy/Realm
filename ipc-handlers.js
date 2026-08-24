@@ -1911,6 +1911,18 @@ function registerHandlers() {
   });
 
   /**
+   * 通用剪贴板写入文本
+   * @param {string} text - 要写入的文本
+   * @returns {{success: boolean}}
+   */
+  ipcMain.handle('clipboard:write-text', (event, text) => {
+    assertTrustedSender(event);
+    if (typeof text !== 'string') return { success: false };
+    clipboard.writeText(text);
+    return { success: true };
+  });
+
+  /**
    * 清空指定 webview 的媒体列表（per IPC-04）
    * @param {number} webContentsId - webview 的 webContents ID
    * @returns {Promise<{success: boolean}>}

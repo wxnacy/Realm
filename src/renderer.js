@@ -318,8 +318,14 @@ function realmUrlToHttp(url, containerId) {
 function httpUrlToRealm(url) {
   if (!state.realmPort || !url.startsWith(`http://localhost:${state.realmPort}/`)) return url;
   const converted = url.replace(`http://localhost:${state.realmPort}/`, 'realm://');
-  // 剥离查询参数（含 API token），避免泄露到地址栏/持久化 Tab
-  return converted.split('?')[0];
+  // 剥离 realm 系统查询参数（token/container），保留业务参数（如 viewsource?url=）
+  const [base, query] = converted.split('?');
+  if (!query) return base;
+  const params = new URLSearchParams(query);
+  params.delete('token');
+  params.delete('container');
+  const remaining = params.toString();
+  return remaining ? `${base}?${remaining}` : base;
 }
 
 /**
@@ -673,6 +679,16 @@ async function switchTab(tabId) {
   // 切换 Tab 时关闭页面内搜索框
   closeFindInPage();
 
+  // 切换 Tab 时退出 Vim 搜索模式（搜索状态不跨 Tab 泄漏，否则 n/N 映射残留吞键）
+  if (state.vimSearchActive) {
+    exitVimSearch();
+  }
+
+  // 切换 Tab 时退出 Vim Hint Mode（hint 状态不跨 Tab 泄漏，否则主进程 hintModeActive 卡死吞键）
+  if (state.vimHintActive) {
+    exitVimHint();
+  }
+
   // 调用主进程切换 Tab
   await window.realmAPI.switchTab(tabId);
 
@@ -816,6 +832,16 @@ async function closeTab(tabId) {
   if (tabId === state.activeTabId) {
     // 关闭页面内搜索框
     closeFindInPage();
+
+    // 退出 Vim 搜索模式（webview 已销毁，主进程侧标志必须清除）
+    if (state.vimSearchActive) {
+      exitVimSearch();
+    }
+
+    // 退出 Vim Hint Mode（webview 已销毁，主进程侧 hintModeActive 必须清除）
+    if (state.vimHintActive) {
+      exitVimHint();
+    }
 
     if (result.newActiveTabId) {
       await switchTab(result.newActiveTabId);
@@ -1251,6 +1277,16 @@ function bindWebviewEvents(tabId, webview) {
 
   // 页面导航事件
   webview.addEventListener('did-navigate', (e) => {
+    // 跨页导航会销毁 guest 注入的搜索栏 DOM，退出 Vim 搜索模式防状态泄漏
+    if (tabId === state.activeTabId && state.vimSearchActive) {
+      exitVimSearch();
+    }
+
+    // 跨页导航同时销毁 guest 注入的 hint overlay，退出 Hint Mode 防 hintModeActive 卡死
+    if (tabId === state.activeTabId && state.vimHintActive) {
+      exitVimHint();
+    }
+
     const tab = state.tabs.get(tabId);
     if (tab) {
       // 内部页面 URL 转换回 realm:// 格式（用于存储和地址栏显示）
@@ -1325,6 +1361,11 @@ function bindWebviewEvents(tabId, webview) {
   });
 
   webview.addEventListener('did-navigate-in-page', (e) => {
+    // SPA 跳转（pushState 不触发 guest 的 popstate/hashchange）：旧 hint 全部失效，退出 Hint Mode
+    if (tabId === state.activeTabId && state.vimHintActive) {
+      exitVimHint(webview);
+    }
+
     const tab = state.tabs.get(tabId);
     if (tab) {
       const previousUrl = tab.url;
@@ -1941,17 +1982,23 @@ function injectScroll(direction) {
  */
 function injectHintMode(mode) {
   const webview = state.webviews.get(state.activeTabId);
-  if (!webview) return;
+  if (!webview) {
+    // 无 webview 时回退标志，否则主进程 hintModeActive 卡死吞掉全部 Vim 键
+    exitVimHint();
+    return;
+  }
 
   const hintScript = `(function() {
-    // 防止重复注入
-    if (document.getElementById('realm-vimium-hints')) return;
+    // 重复触发时先退出上一次（清理残留 overlay 和 keydown 监听），再重新渲染
+    if (window.__realmHintExit) { window.__realmHintExit(); }
 
     const MODE = '${mode}';
     const CHARS = 'asdfghjklqwertyuiopzxcvbnm';
     let container = null;
     let hints = [];
     let typedChars = '';
+    let exited = false;
+    let repositionScheduled = false;
 
     function createOverlay() {
       const style = document.createElement('style');
@@ -1970,33 +2017,50 @@ function injectHintMode(mode) {
     function collectClickableElements() {
       const selectors = 'a[href],button,input:not([type="hidden"]),select,textarea,[onclick],[role="button"],[role="link"],[tabindex]:not([tabindex="-1"])';
       const elements = document.querySelectorAll(selectors);
-      hints = Array.from(elements).filter(function(el) {
+      const visibleElements = Array.from(elements).filter(function(el) {
         var rect = el.getBoundingClientRect();
         return rect.width > 0 && rect.height > 0 &&
                rect.top < window.innerHeight && rect.bottom > 0 &&
                rect.left < window.innerWidth && rect.right > 0;
-      }).map(function(el, i) {
-        return { element: el, hintString: generateHintString(i) };
+      });
+      const hintStrings = assignHintStrings(visibleElements.length, CHARS);
+      hints = visibleElements.map(function(el, i) {
+        return { element: el, hintString: hintStrings[i] };
       });
     }
 
-    function generateHintString(index) {
-      var result = '';
-      var n = index;
-      do {
-        result = CHARS[n % 26] + result;
-        n = Math.floor(n / 26) - 1;
-      } while (n >= 0);
-      return result;
+    function assignHintStrings(count, chars) {
+      var hints = [];
+      var queue = chars.split('');
+      while (hints.length < count) {
+        var str = queue.shift();
+        if (hints.length + queue.length + 1 < count) {
+          for (var i = 0; i < chars.length; i++) {
+            queue.push(str + chars[i]);
+          }
+        } else {
+          hints.push(str);
+        }
+      }
+      return hints;
+    }
+
+    // 容器是 position:fixed（原点即视口），label 直接用 getBoundingClientRect 的
+    // 视口坐标，不能加 window.scrollY/scrollX（否则滚动后整体偏移一个滚动量）
+    function positionLabel(h) {
+      var rect = h.element.getBoundingClientRect();
+      h.label.style.top = rect.top + 'px';
+      h.label.style.left = rect.left + 'px';
+      // 滚出视口的元素隐藏 label，滚回时恢复
+      var visible = rect.bottom > 0 && rect.top < window.innerHeight &&
+                    rect.right > 0 && rect.left < window.innerWidth;
+      h.label.style.display = visible ? '' : 'none';
     }
 
     function renderHints() {
       hints.forEach(function(h) {
-        var rect = h.element.getBoundingClientRect();
         var label = document.createElement('div');
         label.className = 'realm-hint-label';
-        label.style.top = (rect.top + window.scrollY) + 'px';
-        label.style.left = (rect.left + window.scrollX) + 'px';
         for (var i = 0; i < h.hintString.length; i++) {
           var span = document.createElement('span');
           span.className = 'realm-hint-char';
@@ -2004,7 +2068,19 @@ function injectHintMode(mode) {
           label.appendChild(span);
         }
         h.label = label;
+        positionLabel(h);
         container.appendChild(label);
+      });
+    }
+
+    // 滚动/缩放后按元素最新视口坐标重排 label（rAF 节流，捕获阶段监听覆盖内层滚动容器）
+    function onViewportChange() {
+      if (repositionScheduled) return;
+      repositionScheduled = true;
+      requestAnimationFrame(function() {
+        repositionScheduled = false;
+        if (exited) return;
+        hints.forEach(function(h) { if (h.label) positionLabel(h); });
       });
     }
 
@@ -2050,7 +2126,13 @@ function injectHintMode(mode) {
       if (e.key === 'Backspace') { typedChars = typedChars.slice(0, -1); updateHighlight(); return; }
       if (e.key.length !== 1) return;
 
-      typedChars += e.key.toLowerCase();
+      var key = e.key.toLowerCase();
+      if (CHARS.indexOf(key) === -1) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      typedChars += key;
       var possibleMatches = updateHighlight();
 
       var matched = hints.find(function(h) { return h.hintString === typedChars; });
@@ -2060,36 +2142,58 @@ function injectHintMode(mode) {
     }
 
     function exit() {
+      if (exited) return;
+      exited = true;
       var el = document.getElementById('realm-vimium-hints');
       if (el) el.remove();
       var st = document.getElementById('realm-vimium-hints-style');
       if (st) st.remove();
       document.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('scroll', onViewportChange, true);
+      window.removeEventListener('resize', onViewportChange);
+      window.removeEventListener('hashchange', exit);
+      window.removeEventListener('popstate', exit);
+      if (window.__realmHintExit === exit) window.__realmHintExit = null;
       if (window.__realmBridge) {
         window.__realmBridge.sendVimCommand('hintModeExit');
       }
     }
 
+    // 暴露给 renderer：状态清理时远程销毁残留 overlay（见 exitVimHint）
+    window.__realmHintExit = exit;
+
     createOverlay();
     collectClickableElements();
     if (hints.length === 0) {
-      if (window.__realmBridge) {
-        window.__realmBridge.sendVimCommand('hintModeExit');
-      }
+      exit();
       return;
     }
     renderHints();
     updateHighlight();
     document.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('scroll', onViewportChange, true);
+    window.addEventListener('resize', onViewportChange);
+    // SPA 跳转（hash/popstate）后旧 hint 全部失效，自动退出
+    window.addEventListener('hashchange', exit);
+    window.addEventListener('popstate', exit);
   })()`;
 
-  webview.executeJavaScript(hintScript).catch(() => {});
+  webview.executeJavaScript(hintScript).catch(() => {
+    // 注入失败回退标志，否则主进程 hintModeActive 卡死吞掉全部 Vim 键
+    exitVimHint();
+  });
 }
 
 /**
  * 向当前活动 webview 注入搜索栏
  * 通过 webview.executeJavaScript 注入搜索栏 DOM 和交互逻辑到 webview guest
  * 搜索通过 webview.findInPage API 实现，搜索结果通过 __realmBridge 回传更新
+ *
+ * 按键模型（与主进程 searchInputActive 标志配合）：
+ * - 输入阶段：主进程已同步置 searchInputActive=true，所有按键直达输入框，
+ *   guest 内部 keydown 捕获处理 Enter/Escape，零 IPC 竞态
+ * - Enter：发送 searchConfirm，renderer 进入 n/N 导航阶段
+ * - Escape：发送 searchModeExit，彻底移除搜索栏
  */
 function injectSearchBar() {
   const webview = state.webviews.get(state.activeTabId);
@@ -2111,7 +2215,15 @@ function injectSearchBar() {
   }
 
   const searchScript = `(function() {
-    if (document.getElementById('realm-vimium-search')) return;
+    // 移除已有的搜索栏和样式（重复按 / 时重置，也避免隐藏元素阻塞重新注入）
+    var existing = document.getElementById('realm-vimium-search');
+    if (existing) existing.remove();
+    var existingStyle = document.getElementById('realm-vimium-search-style');
+    if (existingStyle) existingStyle.remove();
+
+    // body 未就绪时兜底挂 documentElement（realm:// 动态页注入时机可能早于 body 构建）
+    var mountPoint = document.body || document.documentElement;
+    if (!mountPoint) return false;
 
     const style = document.createElement('style');
     style.id = 'realm-vimium-search-style';
@@ -2120,7 +2232,7 @@ function injectSearchBar() {
       '.realm-search-icon{color:#FFB800;font-family:"Courier New",Courier,monospace;font-size:14px;font-weight:700}' +
       '.realm-search-input{flex:1;background:transparent;border:none;outline:none;color:#f0f0f0;font-size:14px;font-family:system-ui}' +
       '.realm-search-count{color:#a0a0a0;font-size:12px;white-space:nowrap}';
-    document.head.appendChild(style);
+    (document.head || mountPoint).appendChild(style);
 
     const container = document.createElement('div');
     container.id = 'realm-vimium-search';
@@ -2129,33 +2241,80 @@ function injectSearchBar() {
       '<input type="text" class="realm-search-input" placeholder="输入搜索内容..." />' +
       '<span class="realm-search-count"></span>' +
       '</div>';
-    document.body.appendChild(container);
+    mountPoint.appendChild(container);
 
     const input = container.querySelector('.realm-search-input');
-    const countEl = container.querySelector('.realm-search-count');
     container.style.display = 'block';
-    input.focus();
 
-    // 监听搜索结果更新
-    window.addEventListener('message', function onMsg(e) {
-      if (e.data && e.data.type === 'realm-vimium-search-result') {
-        countEl.textContent = e.data.text;
-      }
+    // 搜索结果计数：全局单例监听，查询时取当前 DOM，
+    // 避免每次注入重复绑监听、闭包持有已移除元素
+    if (!window.__realmVimSearchMsgBound) {
+      window.__realmVimSearchMsgBound = true;
+      window.addEventListener('message', function(e) {
+        if (e.data && e.data.type === 'realm-vimium-search-result') {
+          var el = document.querySelector('#realm-vimium-search .realm-search-count');
+          if (el) el.textContent = e.data.text;
+        }
+      });
+    }
+
+    // closing 标志：Enter/Escape 主动关闭路径不触发 blur 退出
+    var closing = false;
+    input.focus();
+    // 主动同步焦点状态到主进程（不等 focusin 事件链路，缩短竞态窗口）
+    if (window.__realmBridge) {
+      window.__realmBridge.sendFocusState(true);
+    }
+
+    // 失焦处理（延迟到焦点转移完成后判定）：
+    // - 焦点仍在 guest 文档内（findInPage 激活匹配落在可编辑元素抢焦、点击页面等）
+    //   → 夺回焦点，搜索栏是模态输入，中断会让主进程放行的按键落空
+    // - 焦点离开 guest（点击工具栏/切换窗口）→ 退出搜索
+    input.addEventListener('blur', function() {
+      if (closing) return;
+      setTimeout(function() {
+        if (closing) return;
+        if (!document.getElementById('realm-vimium-search')) return;
+        if (document.hasFocus()) {
+          input.focus();
+        } else {
+          closing = true;
+          container.remove();
+          style.remove();
+          if (window.__realmBridge) {
+            window.__realmBridge.sendFocusState(false);
+            window.__realmBridge.sendVimCommand('searchModeExit');
+          }
+        }
+      }, 0);
     });
 
-    let debounceTimer = null;
-
     input.addEventListener('keydown', function(e) {
+      // 所有按键止于搜索框，不透传给页面自身的键盘监听
+      e.stopPropagation();
       if (e.key === 'Enter') {
         var text = input.value.trim();
-        if (text && window.__realmBridge) {
-          window.__realmBridge.sendVimCommand('findInPage', { text: text });
+        closing = true;
+        // 回车后隐藏搜索栏并移除焦点，让 n/N 导航可正常工作
+        container.style.display = 'none';
+        input.blur();
+        if (window.__realmBridge) {
+          window.__realmBridge.sendFocusState(false);
+          if (text) {
+            window.__realmBridge.sendVimCommand('searchConfirm', { text: text });
+          } else {
+            // 空输入回车等价于退出
+            window.__realmBridge.sendVimCommand('searchModeExit');
+          }
         }
         e.preventDefault();
-      }
-      if (e.key === 'Escape') {
-        container.style.display = 'none';
+      } else if (e.key === 'Escape') {
+        closing = true;
+        // 从 DOM 彻底移除，确保下次 / 能重新注入
+        container.remove();
+        style.remove();
         if (window.__realmBridge) {
+          window.__realmBridge.sendFocusState(false);
           window.__realmBridge.sendVimCommand('searchModeExit');
         }
         e.preventDefault();
@@ -2163,6 +2322,7 @@ function injectSearchBar() {
     });
 
     // 实时搜索（300ms 防抖）
+    let debounceTimer = null;
     input.addEventListener('input', function() {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(function() {
@@ -2172,9 +2332,63 @@ function injectSearchBar() {
         }
       }, 300);
     });
+    return true;
   })()`;
 
-  webview.executeJavaScript(searchScript).catch(() => {});
+  // 注入失败（guest 忙/无挂载点）时回退主进程 searchInputActive，否则按键持续被吞
+  webview.executeJavaScript(searchScript).then((ok) => {
+    if (ok === false) {
+      state.vimSearchActive = false;
+      window.realmAPI.setVimSearchInputActive(false);
+    }
+  }).catch(() => {
+    state.vimSearchActive = false;
+    window.realmAPI.setVimSearchInputActive(false);
+  });
+}
+
+/**
+ * 退出 Vim 搜索模式（统一清理入口，幂等）
+ * 清理 renderer 状态、主进程 searchActive / searchInputActive 标志，并清除页面高亮。
+ * 触发路径：Escape、空输入回车、切换/关闭 Tab、页面导航。
+ */
+function exitVimSearch() {
+  state.vimSearchActive = false;
+  state.vimSearchText = '';
+  window.realmAPI.setVimSearchActive(false);
+  window.realmAPI.setVimSearchInputActive(false);
+  const webview = state.webviews.get(state.activeTabId);
+  if (webview) {
+    try {
+      webview.stopFindInPage('clearSelection');
+    } catch (err) {
+      // webview 可能已销毁，忽略
+    }
+  }
+}
+
+/**
+ * 退出 Vim Hint Mode（统一清理入口，幂等）
+ * 清理 renderer 状态和主进程 hintModeActive 标志；guest overlay 存活时通知其自毁。
+ * 触发路径：guest 主动 hintModeExit、切换/关闭 Tab、页面导航（含 SPA）、注入失败回退。
+ * 关键：主进程 hintModeActive 一旦残留为 true，before-input-event 会整段跳过
+ * Vim 处理，表现为 Vim 模式完全失效只能重启，所以所有出口都必须走到这里。
+ *
+ * @param {HTMLElement} [webview] - hint 所在的 webview，缺省取当前活动 Tab
+ */
+function exitVimHint(webview) {
+  if (!state.vimHintActive) return;
+  state.vimHintActive = false;
+  window.realmAPI.setVimHintActive(false);
+  const wv = webview || state.webviews.get(state.activeTabId);
+  if (wv) {
+    try {
+      // guest 侧 __realmHintExit 幂等（已退出则为 null，此调用为 no-op）
+      wv.executeJavaScript('if (window.__realmHintExit) window.__realmHintExit();').catch(() => {});
+    } catch (err) {
+      // webview 可能已销毁，忽略
+    }
+  }
 }
 
 /**
@@ -2431,6 +2645,22 @@ function closeHelpDialog() {
  * 同时监听 webview 的焦点状态变化（vim:focus-state 通道）。
  */
 function initVimShortcuts() {
+  // host 主窗口（地址栏等 chrome 内输入框）焦点状态上报：
+  // 主进程按 vimFocusStates 判定是否放行 Vim 单键，缺了 host 侧状态会导致
+  // 焦点在地址栏时 f/F 等键被当作 Vim 命令拦截（第一个字符打不进地址栏）
+  let hostFocusInInput = null;
+  const reportHostFocus = () => {
+    const el = document.activeElement;
+    const inInput = !!(el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable));
+    if (inInput !== hostFocusInInput) {
+      hostFocusInInput = inInput;
+      window.realmAPI.setHostVimFocusState(inInput);
+    }
+  };
+  document.addEventListener('focusin', reportHostFocus);
+  // focusout 时 activeElement 尚未更新，延迟一帧再判定
+  document.addEventListener('focusout', () => setTimeout(reportHostFocus, 0));
+
   // 监听主进程的 Vim 命令触发
   window.realmAPI.onVimTriggered((command) => {
     console.log('[Realm Renderer] Vim 命令触发:', command);
@@ -2439,7 +2669,15 @@ function initVimShortcuts() {
     if (state.vimHelpOpen) {
       if (command === 'showHelp' || command === 'escape') {
         closeHelpDialog();
+      } else if (command === 'searchMode') {
+        // 主进程派发前已同步置 searchInputActive，丢弃命令时必须回退，否则按键持续被吞
+        window.realmAPI.setVimSearchInputActive(false);
       }
+      return;
+    }
+
+    // Hint Mode 激活期间，屏蔽所有 Vim 命令（由 guest 内部监听器独立处理）
+    if (state.vimHintActive) {
       return;
     }
 
@@ -2541,8 +2779,8 @@ function initVimShortcuts() {
       case 'copyUrl': {
         const activeTab = state.tabs.get(state.activeTabId);
         if (activeTab && activeTab.url) {
-          navigator.clipboard.writeText(activeTab.url).then(() => {
-            showToast('URL 已复制到剪贴板', 'success');
+          window.realmAPI.copyToClipboard(activeTab.url).then((res) => {
+            showToast(res.success ? 'URL 已复制到剪贴板' : '复制失败', res.success ? 'success' : 'error');
           }).catch(() => {
             showToast('复制失败', 'error');
           });
@@ -2561,7 +2799,7 @@ function initVimShortcuts() {
         if (wv) {
           const currentUrl = wv.getURL();
           if (currentUrl && currentUrl.startsWith('http')) {
-            wv.loadURL('view-source:' + currentUrl);
+            createTab(state.currentContainer, 'realm://viewsource?url=' + encodeURIComponent(currentUrl));
           }
         }
         break;
@@ -2580,23 +2818,33 @@ function initVimShortcuts() {
       // ==================== Hint Mode ====================
       case 'hintMode':
         state.vimHintActive = true;
+        window.realmAPI.setVimHintActive(true);
         injectHintMode('current');
         break;
       case 'hintModeNewTab':
         state.vimHintActive = true;
+        window.realmAPI.setVimHintActive(true);
         injectHintMode('newTab');
         break;
       case 'copyLinkUrl':
         state.vimHintActive = true;
+        window.realmAPI.setVimHintActive(true);
         injectHintMode('copyUrl');
         break;
 
       // ==================== 搜索模式 ====================
-      case 'searchMode':
+      case 'searchMode': {
+        // 主进程派发前已同步置 searchInputActive；无 webview 时必须回退清除，否则按键全被吞
+        const wvSearch = state.webviews.get(state.activeTabId);
+        if (!wvSearch) {
+          window.realmAPI.setVimSearchInputActive(false);
+          break;
+        }
+        // 输入阶段不开启 searchActive（n/N 导航），等 searchConfirm 后再开
         state.vimSearchActive = true;
-        window.realmAPI.setVimSearchActive(true);
         injectSearchBar();
         break;
+      }
       case 'searchNext': {
         const wvNext = state.webviews.get(state.activeTabId);
         if (wvNext && state.vimSearchText) {
@@ -2612,9 +2860,7 @@ function initVimShortcuts() {
         break;
       }
       case 'searchModeExit':
-        state.vimSearchActive = false;
-        state.vimSearchText = '';
-        window.realmAPI.setVimSearchActive(false);
+        exitVimSearch();
         break;
 
       // ==================== 标签页搜索 ====================
@@ -2643,27 +2889,40 @@ function initVimFocusListener(webview) {
       const data = e.args[1];
       if (command === 'hintModeExit') {
         // Hint Mode 退出，清除状态
-        state.vimHintActive = false;
+        exitVimHint(webview);
       } else if (command === 'copyUrl' && data && data.url) {
-        navigator.clipboard.writeText(data.url).then(() => {
-          showToast('链接 URL 已复制到剪贴板', 'success');
+        window.realmAPI.copyToClipboard(data.url).then((res) => {
+          showToast(res.success ? '链接 URL 已复制到剪贴板' : '复制失败', res.success ? 'success' : 'error');
         }).catch(() => {
           showToast('复制失败', 'error');
         });
       } else if (command === 'findInPage' && data && data.text) {
-        // 搜索模式：执行 findInPage
+        // 搜索输入阶段的实时预览：只执行查找并暂存搜索词，不进入 n/N 导航阶段
+        // 注意必须用 findNext:true —— 实证（Electron webview）：全新 find 会话的
+        // findNext:false 不高亮也不触发 found-in-page（无计数），findNext:true 才会
+        // 高亮全部匹配并激活首个。预览期间文本逐字变化，每次调用都是新词定位第一个匹配。
+        state.vimSearchText = data.text;
+        try {
+          webview.findInPage(data.text, { forward: true, findNext: true });
+        } catch (err) { /* webview 可能已销毁 */ }
+      } else if (command === 'searchConfirm' && data && data.text) {
+        // Enter 确认：固定搜索词，进入 n/N 导航阶段
+        // （searchInputActive 由主进程在输入阶段持有，此处清除并开启 searchActive）
+        // 若确认词与预览词相同（高亮/计数已在），跳过 findInPage —— 否则 findNext:true
+        // 语义会把激活匹配前移到第二个，Enter 应停留在第一个匹配。
+        const needFind = data.text !== state.vimSearchText;
         state.vimSearchText = data.text;
         state.vimSearchActive = true;
+        window.realmAPI.setVimSearchInputActive(false);
         window.realmAPI.setVimSearchActive(true);
-        const wv = state.webviews.get(state.activeTabId);
-        if (wv) {
-          wv.findInPage(data.text, { forward: true, findNext: false });
+        if (needFind) {
+          try {
+            webview.findInPage(data.text, { forward: true, findNext: true });
+          } catch (err) { /* webview 可能已销毁 */ }
         }
       } else if (command === 'searchModeExit') {
         // 搜索模式退出
-        state.vimSearchActive = false;
-        state.vimSearchText = '';
-        window.realmAPI.setVimSearchActive(false);
+        exitVimSearch();
       }
     }
   });
@@ -5581,7 +5840,12 @@ function setupEventListeners() {
     if (e.key === 'Enter') {
       const url = elements.urlInput.value.trim();
       if (url) {
-        const normalizedUrl = normalizeUrl(url);
+        let normalizedUrl = normalizeUrl(url);
+        // realm:// URL 需要转换为 localhost HTTP URL（webview 无法直接加载自定义协议）
+        if (normalizedUrl.startsWith('realm://')) {
+          const tab = state.tabs.get(state.activeTabId);
+          normalizedUrl = realmUrlToHttp(normalizedUrl, tab && tab.containerId);
+        }
         console.log('[Realm] 导航到:', normalizedUrl);
 
         // 如果有活动 Tab 和对应的 webview
@@ -5613,6 +5877,14 @@ function setupEventListeners() {
           // 无活动 Tab（冷启动空 Tab 栏或关闭最后 Tab 后）：用当前容器惰性创建 Tab
           // 传 normalizedUrl（主进程不规范化）；建 webview/切 Tab/隐藏新标签页由 createTab 全链路覆盖
           await createTab(state.currentContainer, normalizedUrl);
+        }
+
+        // 导航发起后焦点还给页面（webview guest）：焦点留在地址栏时主进程判定在输入框中，
+        // Vim 键位会被放行给地址栏而非操作页面
+        elements.urlInput.blur();
+        const activeWebview = state.webviews.get(state.activeTabId);
+        if (activeWebview) {
+          activeWebview.focus();
         }
 
         // 输入框聚焦时全选文本

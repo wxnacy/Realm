@@ -1809,6 +1809,31 @@ app.whenReady().then(async () => {
       return;
     }
 
+    // 查看源码 API（viewsource 页面数据层）
+    if (reqPath === '/api/viewsource') {
+      if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+        sendJson(res, 403, { error: 'Forbidden' });
+        return;
+      }
+      const targetUrl = reqUrl.searchParams.get('url');
+      if (!targetUrl || (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://'))) {
+        sendJson(res, 400, { error: 'Invalid URL' });
+        return;
+      }
+      try {
+        const resp = await net.fetch(targetUrl, { signal: AbortSignal.timeout(15000) });
+        if (!resp.ok) {
+          sendJson(res, 502, { error: 'HTTP ' + resp.status });
+          return;
+        }
+        const source = await resp.text();
+        sendJson(res, 200, { source });
+      } catch (err) {
+        sendJson(res, 502, { error: err.message });
+      }
+      return;
+    }
+
     // 下载管理 JSON API（下载面板数据层）
     if (reqPath.startsWith('/api/downloads/')) {
       handleDownloadsApi(req, res, reqUrl);
@@ -1882,6 +1907,11 @@ app.whenReady().then(async () => {
       filePath = path.join(__dirname, 'src', 'devrequest-detail.html');
     } else if (reqPath.startsWith('/devrequests/')) {
       const subPath = reqPath.replace('/devrequests/', '');
+      filePath = path.join(__dirname, 'src', subPath);
+    } else if (reqPath === '/viewsource' || reqPath === '/viewsource/') {
+      filePath = path.join(__dirname, 'src', 'viewsource.html');
+    } else if (reqPath.startsWith('/viewsource/')) {
+      const subPath = reqPath.replace('/viewsource/', '');
       filePath = path.join(__dirname, 'src', subPath);
     } else {
       res.writeHead(404);
