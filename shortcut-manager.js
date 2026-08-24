@@ -244,8 +244,24 @@ function attachInputListener(contents) {
     // ==================== 优先级 2：CmdOrCtrl 修饰键优先走现有 Accelerator 匹配（D-08） ====================
     const hasModifier = input.meta || input.control || input.alt;
 
-    // ==================== 优先级 3：Vim 快捷键处理（仅在无 CmdOrCtrl 修饰键时） ====================
-    if (!hasModifier && !input.control) {
+    // ==================== 优先级 3：Vim 快捷键处理 ====================
+    // Alt+P 特殊处理：固定/取消固定标签（需在 !hasModifier 之前检查，因为 Alt 本身是修饰键）
+    if (input.alt && !input.meta && !input.control && input.key && input.key.toLowerCase() === 'p') {
+      const contentsUrl = contents.getURL() || '';
+      const isInternalPage = contentsUrl.includes('localhost') || contentsUrl.startsWith('realm://');
+      const isInInput = vimFocusStates.get(contents.id) || false;
+      const vimEnabled = isVimEnabled(settingsStore);
+      if (!isInternalPage && !isInInput && vimEnabled) {
+        event.preventDefault();
+        const focusedWindow = BrowserWindow.getFocusedWindow();
+        if (focusedWindow && !focusedWindow.isDestroyed() && windowManager.isManagedWindow(focusedWindow.id)) {
+          focusedWindow.webContents.send('vim:triggered', 'togglePinTab');
+        }
+        return;
+      }
+    }
+
+    if (!hasModifier) {
       // 检查是否为 realm:// 内部页面（通过 webContents URL 判断）
       const contentsUrl = contents.getURL() || '';
       const isInternalPage = contentsUrl.includes('localhost') || contentsUrl.startsWith('realm://');
@@ -257,33 +273,20 @@ function attachInputListener(contents) {
       const vimEnabled = isVimEnabled(settingsStore);
 
       if (!isInternalPage && !isInInput && vimEnabled) {
-        // Alt+P 特殊处理：固定/取消固定标签（不经过 VimStateMachine）
-        if (input.alt && input.key && input.key.toLowerCase() === 'p') {
+        const command = VimStateMachine.processKey(input.key, { shift: input.shift });
+        if (command) {
+          // 命中命令：preventDefault + 发送到 renderer
           event.preventDefault();
           const focusedWindow = BrowserWindow.getFocusedWindow();
           if (focusedWindow && !focusedWindow.isDestroyed() && windowManager.isManagedWindow(focusedWindow.id)) {
-            focusedWindow.webContents.send('vim:triggered', 'togglePinTab');
+            focusedWindow.webContents.send('vim:triggered', command);
           }
           return;
         }
-
-        // 非 Alt 修饰键时处理 Vim 单键/双键序列
-        if (!input.alt) {
-          const command = VimStateMachine.processKey(input.key, { shift: input.shift });
-          if (command) {
-            // 命中命令：preventDefault + 发送到 renderer
-            event.preventDefault();
-            const focusedWindow = BrowserWindow.getFocusedWindow();
-            if (focusedWindow && !focusedWindow.isDestroyed() && windowManager.isManagedWindow(focusedWindow.id)) {
-              focusedWindow.webContents.send('vim:triggered', command);
-            }
-            return;
-          }
-          if (VimStateMachine.state !== 'idle') {
-            // 等待双键序列的第二个键：吞掉按键
-            event.preventDefault();
-            return;
-          }
+        if (VimStateMachine.state !== 'idle') {
+          // 等待双键序列的第二个键：吞掉按键
+          event.preventDefault();
+          return;
         }
       }
     }
