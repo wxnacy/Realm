@@ -238,6 +238,9 @@ const state = {
   // Vim 标签历史栈（用于 ^ 命令切换到上一个访问的标签）
   tabHistoryStack: [],
 
+  // Vim 帮助对话框状态
+  vimHelpOpen: false,
+
   // 页面内搜索状态
   findInPageOpen: false,
   findInPageText: '',
@@ -1848,11 +1851,20 @@ function initShortcuts() {
         elements.urlInput.focus();
         elements.urlInput.select();
         break;
+      case 'escape':
+        // Escape 键：关闭 Vim 帮助对话框（如果打开）
+        if (state.vimHelpOpen) {
+          closeHelpDialog();
+        }
+        break;
     }
   });
 
   // 初始化 Vim 快捷键监听
   initVimShortcuts();
+
+  // 预创建 Vim 帮助对话框 DOM
+  createHelpDialog();
 }
 
 // ==================== Vim 快捷键处理 ====================
@@ -1975,6 +1987,190 @@ function reopenClosedTab() {
 }
 
 /**
+ * Vim 快捷键帮助对话框分类定义
+ * 每组包含：标题、快捷键列表（key + description）
+ * @type {Array<{title: string, keys: Array<{key: string, desc: string}>}>}
+ */
+const VIM_HELP_CATEGORIES = [
+  {
+    title: '页面滚动',
+    keys: [
+      { key: 'j / k', desc: '向下 / 向上滚动' },
+      { key: 'h / l', desc: '向左 / 向右滚动' },
+      { key: 'gg / G', desc: '滚动到页面顶部 / 底部' },
+      { key: 'd / u', desc: '向下 / 向上滚动半屏' },
+    ],
+  },
+  {
+    title: '浏览历史',
+    keys: [
+      { key: 'H / L', desc: '后退 / 前进' },
+      { key: 'r / R', desc: '刷新页面 / 强制刷新' },
+    ],
+  },
+  {
+    title: '标签管理',
+    keys: [
+      { key: 'J / K', desc: '切换到上一个 / 下一个标签页' },
+      { key: 'gT / gt', desc: '切换到上一个 / 下一个标签页' },
+      { key: 'g0 / g$', desc: '切换到第一个 / 最后一个标签页' },
+      { key: '^', desc: '切换到上一个访问的标签页' },
+      { key: 't', desc: '新建标签页' },
+      { key: 'x / X', desc: '关闭标签页 / 恢复已关闭的标签页' },
+      { key: 'yt', desc: '复制当前标签页' },
+      { key: 'W', desc: '移动标签页到新窗口' },
+      { key: 'Alt+P', desc: '固定 / 取消固定标签页' },
+    ],
+  },
+  {
+    title: '链接跟随',
+    keys: [
+      { key: 'f', desc: '在当前标签页打开链接' },
+      { key: 'F', desc: '在新标签页打开链接' },
+    ],
+  },
+  {
+    title: '搜索',
+    keys: [
+      { key: '/', desc: '进入搜索模式' },
+      { key: 'n / N', desc: '跳转到下一个 / 上一个匹配' },
+    ],
+  },
+  {
+    title: 'URL 操作',
+    keys: [
+      { key: 'o / O', desc: '打开 URL / 在新标签页打开 URL' },
+      { key: 'ge', desc: '编辑当前 URL' },
+    ],
+  },
+  {
+    title: '复制',
+    keys: [
+      { key: 'yy', desc: '复制当前页面 URL' },
+      { key: 'yf', desc: '复制链接 URL' },
+    ],
+  },
+  {
+    title: '其他',
+    keys: [
+      { key: 'gs', desc: '查看页面源代码' },
+      { key: 'T', desc: '搜索标签页' },
+      { key: '?', desc: '显示快捷键帮助' },
+    ],
+  },
+];
+
+/**
+ * 渲染帮助对话框分类内容
+ * 使用 DOM 构建 + textContent 防 XSS（WR-13）
+ *
+ * @returns {DocumentFragment} 包含所有分类的文档片段
+ */
+function renderHelpCategories() {
+  const fragment = document.createDocumentFragment();
+
+  VIM_HELP_CATEGORIES.forEach(category => {
+    const categoryEl = document.createElement('div');
+    categoryEl.className = 'vimium-help-category';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'vimium-help-category-title';
+    titleEl.textContent = category.title;
+    categoryEl.appendChild(titleEl);
+
+    category.keys.forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'vimium-help-row';
+
+      const keyEl = document.createElement('span');
+      keyEl.className = 'vimium-help-key';
+      keyEl.textContent = item.key;
+
+      const descEl = document.createElement('span');
+      descEl.className = 'vimium-help-desc';
+      descEl.textContent = item.desc;
+
+      row.appendChild(keyEl);
+      row.appendChild(descEl);
+      categoryEl.appendChild(row);
+    });
+
+    fragment.appendChild(categoryEl);
+  });
+
+  return fragment;
+}
+
+/**
+ * 创建 Vim 快捷键帮助对话框
+ * 预创建 DOM 结构，初始隐藏，按 ? 键时显示
+ */
+function createHelpDialog() {
+  // 如果已存在则不重复创建
+  if (document.querySelector('.vimium-help-overlay')) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'vimium-help-overlay';
+  overlay.id = 'vimiumHelpOverlay';
+
+  const dialog = document.createElement('div');
+  dialog.className = 'vimium-help-dialog';
+
+  // 头部
+  const header = document.createElement('div');
+  header.className = 'vimium-help-header';
+
+  const title = document.createElement('h2');
+  title.textContent = '快捷键帮助';
+
+  const closeHint = document.createElement('span');
+  closeHint.className = 'vimium-help-close-hint';
+  closeHint.textContent = '按 Esc 关闭';
+
+  header.appendChild(title);
+  header.appendChild(closeHint);
+
+  // 内容区
+  const body = document.createElement('div');
+  body.className = 'vimium-help-body';
+  body.appendChild(renderHelpCategories());
+
+  dialog.appendChild(header);
+  dialog.appendChild(body);
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  // 点击背景关闭
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      closeHelpDialog();
+    }
+  });
+}
+
+/**
+ * 显示 Vim 快捷键帮助对话框
+ */
+function showHelpDialog() {
+  const overlay = document.getElementById('vimiumHelpOverlay');
+  if (!overlay) return;
+
+  overlay.classList.add('active');
+  state.vimHelpOpen = true;
+}
+
+/**
+ * 关闭 Vim 快捷键帮助对话框
+ */
+function closeHelpDialog() {
+  const overlay = document.getElementById('vimiumHelpOverlay');
+  if (!overlay) return;
+
+  overlay.classList.remove('active');
+  state.vimHelpOpen = false;
+}
+
+/**
  * 初始化 Vim 快捷键监听
  *
  * 监听主进程发送的 vim:triggered 事件，分发到对应的处理函数。
@@ -1985,7 +2181,20 @@ function initVimShortcuts() {
   window.realmAPI.onVimTriggered((command) => {
     console.log('[Realm Renderer] Vim 命令触发:', command);
 
+    // 帮助对话框打开时，只处理 Escape（关闭帮助）和 showHelp（切换关闭）
+    if (state.vimHelpOpen) {
+      if (command === 'showHelp' || command === 'escape') {
+        closeHelpDialog();
+      }
+      return;
+    }
+
     switch (command) {
+      // ==================== 帮助对话框 ====================
+      case 'showHelp':
+        showHelpDialog();
+        return; // 不传递给其他处理
+
       // ==================== 滚动命令 ====================
       case 'scrollDown': injectScroll('down'); break;
       case 'scrollUp': injectScroll('up'); break;
