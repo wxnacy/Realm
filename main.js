@@ -10,9 +10,51 @@ try { require('electron-reloader')(module); } catch {}
 const path = require('path');
 const { app, BrowserWindow, protocol, net, ipcMain, Menu, dialog, nativeTheme } = require('electron');
 const { pathToFileURL } = require('url');
+const { execSync } = require('child_process');
 const http = require('http');
 const fs = require('fs');
 const crypto = require('crypto');
+
+/**
+ * 加载 shell 环境变量
+ *
+ * macOS 打包后的 .app 从 Finder/Launchpad 启动时不会继承 shell 环境变量，
+ * 导致 process.env 中读取不到用户在 ~/.zshrc 或 ~/.bash_profile 中设置的变量（如 API KEY）。
+ * 此函数通过执行 `env -i bash -l -c env` 获取完整的 login shell 环境，合并到 process.env。
+ * 仅在非开发模式下执行（开发模式通过终端启动，已继承环境）。
+ */
+function loadShellEnv() {
+  // 开发模式通过终端启动，已继承环境变量
+  if (process.env.NODE_ENV === 'development') return;
+
+  try {
+    const shell = process.env.SHELL || '/bin/zsh';
+    // 使用 login shell 读取 .zshrc/.bash_profile 等配置
+    const cmd = `${shell} -l -c 'env -0'`;
+    const output = execSync(cmd, {
+      encoding: 'utf8',
+      timeout: 5000,
+      stdio: ['pipe', 'pipe', 'ignore']
+    });
+
+    // env -0 使用 null 字符分隔，解析为 key=value 对
+    const entries = output.split('\0').filter(Boolean);
+    for (const entry of entries) {
+      const eqIdx = entry.indexOf('=');
+      if (eqIdx > 0) {
+        const key = entry.slice(0, eqIdx);
+        const value = entry.slice(eqIdx + 1);
+        // 只设置尚未存在的环境变量，不覆盖已有值
+        if (!process.env[key]) {
+          process.env[key] = value;
+        }
+      }
+    }
+    console.log('[Realm] Shell 环境变量已加载');
+  } catch (err) {
+    console.warn('[Realm] 加载 shell 环境变量失败（非致命）:', err.message);
+  }
+}
 
 // 环境隔离：开发/测试环境使用独立的 userData 目录
 if (process.env.NODE_ENV === 'development') {
@@ -20,6 +62,9 @@ if (process.env.NODE_ENV === 'development') {
 } else if (process.env.NODE_ENV === 'test') {
   app.setName('realm-test');
 }
+
+// 加载 shell 环境变量（打包后 .app 需要）
+loadShellEnv();
 
 const Store = require('electron-store');
 const containerManager = require('./container-manager');
