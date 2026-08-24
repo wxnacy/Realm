@@ -142,12 +142,12 @@ const VimStateMachine = {
       effectiveKey = key.toUpperCase();
     }
 
-    // 搜索模式激活时：n→searchNext, N→searchPrev
-    if (this.searchActive && !shift && key === 'n') {
-      return 'searchNext';
-    }
-    if (this.searchActive && shift && key === 'N') {
-      return 'searchPrev';
+    // 搜索模式激活时：n→searchNext, N→searchPrev（CapsLock 安全：统一转小写比较）
+    if (this.searchActive) {
+      const lowerKey = key.toLowerCase();
+      if (lowerKey === 'n') {
+        return shift ? 'searchPrev' : 'searchNext';
+      }
     }
 
     // idle 状态：检查是否为双键序列的起始键
