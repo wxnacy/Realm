@@ -37,6 +37,10 @@ const state = {
     enabled: false,
     whitelist: [],
   },
+  /** Vim 模式配置 */
+  vimium: {
+    enabled: false,
+  },
 };
 
 /** API token（来自 URL 查询参数） */
@@ -187,6 +191,10 @@ const elements = {
   cancelKeyCaptureBtn: document.getElementById('cancelKeyCaptureBtn'),
   saveKeyCaptureBtn: document.getElementById('saveKeyCaptureBtn'),
 
+  // Vim 模式
+  vimiumEnabled: document.getElementById('vimiumEnabled'),
+  vimiumShortcutsTable: document.getElementById('vimiumShortcutsTable'),
+
   // 关于页面
   aboutVersion: document.getElementById('aboutVersion'),
   aboutIcon: document.getElementById('aboutIcon'),
@@ -254,6 +262,8 @@ function switchSettingsPage(pageName) {
   } else if (pageName === 'autofill') {
     loadCredentials();
     loadAddress();
+  } else if (pageName === 'vimium') {
+    renderVimiumShortcuts();
   } else {
     // 离开开发者模式页面时停止轮询
     stopQueueStatusPolling();
@@ -361,6 +371,16 @@ async function loadSettings() {
         enabled: settings.mediaPlayer.enabled || false,
         whitelist: settings.mediaPlayer.whitelist || [],
       };
+    }
+
+    // Vim 模式设置
+    if (settings.vimium) {
+      state.vimium = {
+        enabled: settings.vimium.enabled || false,
+      };
+    }
+    if (elements.vimiumEnabled) {
+      elements.vimiumEnabled.checked = state.vimium.enabled;
     }
 
     // 更新版本号
@@ -1108,6 +1128,15 @@ function setupEventListeners() {
     });
   }
 
+  // Vim 模式开关
+  if (elements.vimiumEnabled) {
+    elements.vimiumEnabled.addEventListener('change', () => {
+      const enabled = elements.vimiumEnabled.checked;
+      state.vimium.enabled = enabled;
+      saveSettings('vimium.enabled', enabled);
+    });
+  }
+
   // 规则管理事件
   elements.addRuleBtn.addEventListener('click', () => {
     elements.rulesAddForm.style.display = 'flex';
@@ -1696,6 +1725,121 @@ function renderWhitelistTags() {
     tag.appendChild(textSpan);
     tag.appendChild(removeBtn);
     elements.whitelistTags.appendChild(tag);
+  });
+}
+
+// ==================== Vim 模式设置 ====================
+
+/**
+ * Vim 快捷键分组定义
+ * 每组包含：标题、快捷键列表（key + description）
+ * @type {Array<{title: string, keys: Array<{key: string, desc: string}>}>}
+ */
+const VIMIUM_SHORTCUT_GROUPS = [
+  {
+    title: '页面滚动',
+    keys: [
+      { key: 'j / k', desc: '向下 / 向上滚动' },
+      { key: 'h / l', desc: '向左 / 向右滚动' },
+      { key: 'gg / G', desc: '滚动到页面顶部 / 底部' },
+      { key: 'd / u', desc: '向下 / 向上滚动半屏' },
+    ],
+  },
+  {
+    title: '浏览历史',
+    keys: [
+      { key: 'H / L', desc: '后退 / 前进' },
+      { key: 'r / R', desc: '刷新页面 / 强制刷新' },
+    ],
+  },
+  {
+    title: '标签管理',
+    keys: [
+      { key: 'J / K', desc: '切换到上一个 / 下一个标签页' },
+      { key: 'gT / gt', desc: '切换到上一个 / 下一个标签页' },
+      { key: 'g0 / g$', desc: '切换到第一个 / 最后一个标签页' },
+      { key: '^', desc: '切换到上一个访问的标签页' },
+      { key: 't', desc: '新建标签页' },
+      { key: 'x / X', desc: '关闭标签页 / 恢复已关闭的标签页' },
+      { key: 'yt', desc: '复制当前标签页' },
+      { key: 'W', desc: '移动标签页到新窗口' },
+      { key: 'Alt+P', desc: '固定 / 取消固定标签页' },
+    ],
+  },
+  {
+    title: '链接跟随',
+    keys: [
+      { key: 'f', desc: '在当前标签页打开链接' },
+      { key: 'F', desc: '在新标签页打开链接' },
+    ],
+  },
+  {
+    title: '搜索',
+    keys: [
+      { key: '/', desc: '进入搜索模式' },
+      { key: 'n / N', desc: '跳转到下一个 / 上一个匹配' },
+    ],
+  },
+  {
+    title: 'URL 操作',
+    keys: [
+      { key: 'o / O', desc: '打开 URL / 在新标签页打开 URL' },
+      { key: 'ge', desc: '编辑当前 URL' },
+    ],
+  },
+  {
+    title: '复制',
+    keys: [
+      { key: 'yy', desc: '复制当前页面 URL' },
+      { key: 'yf', desc: '复制链接 URL' },
+    ],
+  },
+  {
+    title: '其他',
+    keys: [
+      { key: 'gs', desc: '查看页面源代码' },
+      { key: 'T', desc: '搜索标签页' },
+      { key: '?', desc: '显示快捷键帮助' },
+    ],
+  },
+];
+
+/**
+ * 渲染 Vim 快捷键说明表格（只读，不可编辑）
+ * 使用 DOM 构建 + textContent 防 XSS（WR-13）
+ */
+function renderVimiumShortcuts() {
+  if (!elements.vimiumShortcutsTable) return;
+
+  elements.vimiumShortcutsTable.innerHTML = '';
+
+  VIMIUM_SHORTCUT_GROUPS.forEach(group => {
+    const groupEl = document.createElement('div');
+    groupEl.className = 'vimium-shortcut-group';
+
+    const titleEl = document.createElement('h3');
+    titleEl.className = 'vimium-shortcut-group-title';
+    titleEl.textContent = group.title;
+    groupEl.appendChild(titleEl);
+
+    group.keys.forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'vimium-shortcut-row';
+
+      const keyEl = document.createElement('span');
+      keyEl.className = 'vimium-shortcut-key';
+      keyEl.textContent = item.key;
+
+      const descEl = document.createElement('span');
+      descEl.className = 'vimium-shortcut-desc';
+      descEl.textContent = item.desc;
+
+      row.appendChild(keyEl);
+      row.appendChild(descEl);
+      groupEl.appendChild(row);
+    });
+
+    elements.vimiumShortcutsTable.appendChild(groupEl);
   });
 }
 
