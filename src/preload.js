@@ -964,6 +964,34 @@ contextBridge.exposeInMainWorld('realmAPI', {
     newConversation: () => ipcRenderer.invoke('ai:new-conversation'),
   },
 
+  // ==================== Vim 快捷键 ====================
+
+  /**
+   * 监听 Vim 快捷键触发事件
+   * 主进程识别到 Vim 快捷键后发送命令名到 renderer
+   * @param {Function} callback - 回调函数，参数为命令名（如 'scrollDown', 'closeTab'）
+   */
+  onVimTriggered: (callback) => {
+    ipcRenderer.on('vim:triggered', (event, command) => callback(command));
+  },
+
+  /**
+   * 设置当前 webview 的输入框焦点状态
+   * 用于告知主进程是否应禁用 Vim 单键快捷键（D-07）
+   * @param {boolean} isInInput - 焦点是否在输入框中
+   */
+  setVimFocusState: (isInInput) => {
+    ipcRenderer.invoke('vim:set-focus-state', isInInput);
+  },
+
+  /**
+   * 查询 Vimium 是否启用
+   * @returns {Promise<boolean>} 是否启用
+   */
+  getVimEnabled: () => {
+    return ipcRenderer.invoke('vim:get-enabled');
+  },
+
   // ==================== 脚本执行 ====================
 
   /**
