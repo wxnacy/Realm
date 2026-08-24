@@ -191,9 +191,12 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 39-01-PLAN.md — Vim 快捷键基础设施 + 页面滚动 + 基础标签管理（tracer：完整链路从按键到滚动）
+- [x] 39-01-PLAN.md — Vim 快捷键基础设施 + 页面滚动 + 基础标签管理（tracer：完整链路从按键到滚动）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 39-02-PLAN.md — Hint Mode 链接跟随 + 搜索模式 + 复制操作 + 标签增强
-- [ ] 39-03-PLAN.md — Settings 页面 Vim 模式设置 + 快捷键帮助对话框
+- [x] 39-02-PLAN.md — Hint Mode 链接跟随 + 搜索模式 + 复制操作 + 标签增强
+- [x] 39-03-PLAN.md — Settings 页面 Vim 模式设置 + 快捷键帮助对话框
+
+**Status:** Complete ✓
+**Completed:** 2026-08-24
