@@ -15,9 +15,10 @@
  * - 快捷键配置变更后无需重新注册，匹配时实时读取最新配置
  */
 
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const Store = require('electron-store');
 const windowManager = require('./window-manager');
+const { VimStateMachine, isVimEnabled } = require('./src/vimium/vimium-manager');
 
 // ==================== 存储 ====================
 
@@ -26,6 +27,18 @@ const store = new Store({ name: 'shortcuts' });
 
 /** 已挂监听器的 webContents（避免重复绑定） */
 const attachedWebContents = new WeakSet();
+
+// ==================== Vim 快捷键状态 ====================
+
+/** 设置存储实例（读取 vimium.enabled） */
+const settingsStore = new Store({ name: 'settings' });
+
+/**
+ * 每个 webContents 的输入框焦点状态
+ * key: webContents.id, value: boolean（true 表示焦点在输入框中）
+ * @type {Map<number, boolean>}
+ */
+const vimFocusStates = new Map();
 
 /** app 级 web-contents-created 监听器是否已挂 */
 let appListenerAttached = false;
@@ -225,6 +238,57 @@ function attachInputListener(contents) {
   attachedWebContents.add(contents);
 
   contents.on('before-input-event', (event, input) => {
+    // ==================== 优先级 1：非 keyDown 事件忽略 ====================
+    if (input.type !== 'keyDown') return;
+
+    // ==================== 优先级 2：CmdOrCtrl 修饰键优先走现有 Accelerator 匹配（D-08） ====================
+    const hasModifier = input.meta || input.control || input.alt;
+
+    // ==================== 优先级 3：Vim 快捷键处理（仅在无 CmdOrCtrl 修饰键时） ====================
+    if (!hasModifier && !input.control) {
+      // 检查是否为 realm:// 内部页面（通过 webContents URL 判断）
+      const contentsUrl = contents.getURL() || '';
+      const isInternalPage = contentsUrl.includes('localhost') || contentsUrl.startsWith('realm://');
+
+      // 检查焦点状态（输入框中则跳过 Vim 快捷键）
+      const isInInput = vimFocusStates.get(contents.id) || false;
+
+      // 检查 Vimium 是否启用
+      const vimEnabled = isVimEnabled(settingsStore);
+
+      if (!isInternalPage && !isInInput && vimEnabled) {
+        // Alt+P 特殊处理：固定/取消固定标签（不经过 VimStateMachine）
+        if (input.alt && input.key && input.key.toLowerCase() === 'p') {
+          event.preventDefault();
+          const focusedWindow = BrowserWindow.getFocusedWindow();
+          if (focusedWindow && !focusedWindow.isDestroyed() && windowManager.isManagedWindow(focusedWindow.id)) {
+            focusedWindow.webContents.send('vim:triggered', 'togglePinTab');
+          }
+          return;
+        }
+
+        // 非 Alt 修饰键时处理 Vim 单键/双键序列
+        if (!input.alt) {
+          const command = VimStateMachine.processKey(input.key, { shift: input.shift });
+          if (command) {
+            // 命中命令：preventDefault + 发送到 renderer
+            event.preventDefault();
+            const focusedWindow = BrowserWindow.getFocusedWindow();
+            if (focusedWindow && !focusedWindow.isDestroyed() && windowManager.isManagedWindow(focusedWindow.id)) {
+              focusedWindow.webContents.send('vim:triggered', command);
+            }
+            return;
+          }
+          if (VimStateMachine.state !== 'idle') {
+            // 等待双键序列的第二个键：吞掉按键
+            event.preventDefault();
+            return;
+          }
+        }
+      }
+    }
+
+    // ==================== 优先级 4：现有 Accelerator 匹配 ====================
     const action = findMatchingAction(input);
     if (!action) return; // 未命中：完全不拦截
 
@@ -293,6 +357,7 @@ function ensureAppListener() {
  */
 function registerShortcuts() {
   ensureAppListener();
+  registerVimIpcHandlers();
   console.log('[Realm] 应用内快捷键已启用（before-input-event）');
 }
 
@@ -313,6 +378,43 @@ function unregisterAll() {
   console.log('[Realm] 解除快捷键目标窗口');
 }
 
+// ==================== Vim 焦点状态管理 ====================
+
+/**
+ * 设置指定 webContents 的输入框焦点状态
+ * 由 renderer 通过 IPC 调用，报告 webview guest 中的焦点变化
+ *
+ * @param {number} webContentsId - webview guest 的 webContents ID
+ * @param {boolean} isInInput - 焦点是否在输入框中
+ */
+function setVimFocusState(webContentsId, isInInput) {
+  vimFocusStates.set(webContentsId, isInInput);
+
+  // 如果焦点进入输入框，重置 VimStateMachine 的 pending 状态
+  if (isInInput) {
+    VimStateMachine.reset();
+  }
+}
+
+/**
+ * 注册 Vim 相关的 IPC 处理器
+ * 在 registerShortcuts 中调用
+ */
+function registerVimIpcHandlers() {
+  // 处理焦点状态设置请求（renderer 报告 webview guest 的焦点状态）
+  ipcMain.handle('vim:set-focus-state', (event, isInInput) => {
+    const webContentsId = event.sender.id;
+    setVimFocusState(webContentsId, isInInput);
+  });
+
+  // 处理 Vimium 启用状态查询请求
+  ipcMain.handle('vim:get-enabled', () => {
+    return isVimEnabled(settingsStore);
+  });
+
+  console.log('[Realm] Vim IPC 处理器已注册');
+}
+
 // ==================== 模块导出 ====================
 
 module.exports = {
@@ -324,4 +426,6 @@ module.exports = {
   registerShortcuts,
   rebuildShortcuts,
   unregisterAll,
+  setVimFocusState,
+  registerVimIpcHandlers,
 };

@@ -31,6 +31,17 @@ contextBridge.exposeInMainWorld('__realmBridge', {
   },
 
   /**
+   * 发送输入框焦点状态到 renderer 进程
+   * 用于 Vim 快捷键禁用逻辑（D-07, D-09）
+   * 当焦点在 input/textarea/select/contentEditable 时报告 true
+   *
+   * @param {boolean} isInInput - 焦点是否在输入框中
+   */
+  sendFocusState: (isInInput) => {
+    ipcRenderer.sendToHost('vim:focus-state', isInInput);
+  },
+
+  /**
    * 发送表单提交的凭据数据到 renderer 进程
    * 表单检测引擎在检测到登录表单提交时调用
    *
@@ -474,3 +485,59 @@ _credentialObserver.observe(document.body || document.documentElement, {
   childList: true,
   subtree: true,
 });
+
+// ==================== Vim 快捷键焦点检测 ====================
+
+/**
+ * 检测当前焦点元素是否为输入框
+ * 用于 Vim 快捷键禁用逻辑（D-07, D-09）
+ *
+ * @returns {boolean} 焦点是否在输入框中
+ */
+function _isFocusInInputElement() {
+  const el = document.activeElement;
+  if (!el) return false;
+
+  const tag = el.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (el.isContentEditable) return true;
+
+  return false;
+}
+
+/**
+ * 上一次报告的焦点状态（避免重复发送）
+ * @type {boolean}
+ */
+let _lastFocusInInput = false;
+
+/**
+ * 检查焦点状态并报告变化
+ * 仅在状态发生变化时发送 IPC 消息，避免频繁通信
+ */
+function _checkAndReportFocusState() {
+  const isInInput = _isFocusInInputElement();
+  if (isInInput !== _lastFocusInInput) {
+    _lastFocusInInput = isInInput;
+    try {
+      window.__realmBridge.sendFocusState(isInInput);
+    } catch (err) {
+      // __realmBridge 可能尚未初始化，忽略错误
+    }
+  }
+}
+
+// 排除 realm:// 内部页面（通过 http://localhost:PORT/ 加载）
+const _isVimInternalPage = window.location.hostname === 'localhost';
+
+if (!_isVimInternalPage) {
+  // 监听 focusin/focusout 事件检测焦点变化
+  document.addEventListener('focusin', _checkAndReportFocusState, true);
+  document.addEventListener('focusout', _checkAndReportFocusState, true);
+
+  // 页面加载完成后检查初始焦点状态
+  window.addEventListener('DOMContentLoaded', _checkAndReportFocusState);
+
+  // 兜底：定期检查焦点状态（处理动态创建的输入框）
+  setInterval(_checkAndReportFocusState, 500);
+}

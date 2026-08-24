@@ -235,6 +235,9 @@ const state = {
   contextPickerSearch: '',
   referencedTabs: [],
 
+  // Vim 标签历史栈（用于 ^ 命令切换到上一个访问的标签）
+  tabHistoryStack: [],
+
   // 页面内搜索状态
   findInPageOpen: false,
   findInPageText: '',
@@ -647,6 +650,12 @@ async function createTab(containerId, url = null) {
  */
 async function switchTab(tabId) {
   if (tabId === state.activeTabId) return;
+
+  // Vim 标签历史：切换前将旧 activeTabId push 到历史栈（^ 命令用）
+  if (state.activeTabId && state.tabHistoryStack[state.tabHistoryStack.length - 1] !== state.activeTabId) {
+    state.tabHistoryStack.push(state.activeTabId);
+    if (state.tabHistoryStack.length > 50) state.tabHistoryStack.shift();
+  }
 
   const tab = state.tabs.get(tabId);
   if (!tab) return;
@@ -1195,6 +1204,9 @@ function bindWebviewEvents(tabId, webview) {
 })()`;
     webview.executeJavaScript(mediaSnifferScript).catch(() => {});
   });
+
+  // ==================== Vim 焦点状态监听 ====================
+  initVimFocusListener(webview);
 
   // ==================== 媒体嗅探 + 凭据检测：ipc-message 监听 ====================
   webview.addEventListener('ipc-message', (e) => {
@@ -1836,6 +1848,285 @@ function initShortcuts() {
         elements.urlInput.focus();
         elements.urlInput.select();
         break;
+    }
+  });
+
+  // 初始化 Vim 快捷键监听
+  initVimShortcuts();
+}
+
+// ==================== Vim 快捷键处理 ====================
+
+/**
+ * Vim 滚动参数配置
+ * 各方向的滚动距离（像素）
+ * @type {Object}
+ */
+const VIM_SCROLL_CONFIG = {
+  vertical: 100,       // j/k 上下滚动距离
+  horizontal: 100,     // h/l 左右滚动距离
+  halfPageRatio: 0.5,  // d/u 半屏滚动比例
+};
+
+/**
+ * 向当前活动 webview 注入滚动命令
+ *
+ * @param {'down'|'up'|'left'|'right'|'halfDown'|'halfUp'|'top'|'bottom'} direction - 滚动方向
+ */
+function injectScroll(direction) {
+  const webview = state.webviews.get(state.activeTabId);
+  if (!webview) return;
+
+  let scrollScript = '';
+
+  switch (direction) {
+    case 'down':
+      scrollScript = `window.scrollBy({ top: ${VIM_SCROLL_CONFIG.vertical}, behavior: 'smooth' })`;
+      break;
+    case 'up':
+      scrollScript = `window.scrollBy({ top: ${-VIM_SCROLL_CONFIG.vertical}, behavior: 'smooth' })`;
+      break;
+    case 'left':
+      scrollScript = `window.scrollBy({ left: ${-VIM_SCROLL_CONFIG.horizontal}, behavior: 'smooth' })`;
+      break;
+    case 'right':
+      scrollScript = `window.scrollBy({ left: ${VIM_SCROLL_CONFIG.horizontal}, behavior: 'smooth' })`;
+      break;
+    case 'halfDown':
+      scrollScript = `window.scrollBy({ top: window.innerHeight * ${VIM_SCROLL_CONFIG.halfPageRatio}, behavior: 'smooth' })`;
+      break;
+    case 'halfUp':
+      scrollScript = `window.scrollBy({ top: -window.innerHeight * ${VIM_SCROLL_CONFIG.halfPageRatio}, behavior: 'smooth' })`;
+      break;
+    case 'top':
+      scrollScript = `window.scrollTo({ top: 0, behavior: 'smooth' })`;
+      break;
+    case 'bottom':
+      scrollScript = `window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })`;
+      break;
+  }
+
+  if (scrollScript) {
+    webview.executeJavaScript(scrollScript).catch(() => {});
+  }
+}
+
+/**
+ * 切换到相邻的标签页（循环）
+ *
+ * @param {number} offset - 偏移量（1=下一个，-1=上一个）
+ */
+function switchToAdjacentTab(offset) {
+  const tabIds = Array.from(state.tabs.keys());
+  if (tabIds.length <= 1) return;
+
+  const currentIndex = tabIds.indexOf(state.activeTabId);
+  const nextIndex = (currentIndex + offset + tabIds.length) % tabIds.length;
+  switchTab(tabIds[nextIndex]);
+}
+
+/**
+ * 切换到指定索引的标签页
+ *
+ * @param {number} index - 索引（0=第一个，-1=最后一个）
+ */
+function switchToTabByIndex(index) {
+  const tabIds = Array.from(state.tabs.keys());
+  if (tabIds.length === 0) return;
+
+  const targetIndex = index === -1 ? tabIds.length - 1 : Math.min(index, tabIds.length - 1);
+  switchTab(tabIds[targetIndex]);
+}
+
+/**
+ * 切换到上一个访问的标签页（^ 命令）
+ * 从标签历史栈中弹出最近的标签 ID 并切换
+ */
+function visitPrevTab() {
+  if (state.tabHistoryStack.length === 0) {
+    showToast('没有上一个访问的标签页', 'info');
+    return;
+  }
+
+  // 弹出栈顶，跳过已关闭的标签
+  while (state.tabHistoryStack.length > 0) {
+    const prevTabId = state.tabHistoryStack.pop();
+    if (state.tabs.has(prevTabId)) {
+      switchTab(prevTabId);
+      return;
+    }
+  }
+
+  showToast('没有上一个访问的标签页', 'info');
+}
+
+/**
+ * 重新打开已关闭的标签页（X 命令）
+ * 从 closedTabsStack 中弹出最近关闭的标签并重新创建
+ */
+function reopenClosedTab() {
+  if (closedTabsStack.length === 0) {
+    showToast('没有可恢复的标签页', 'info');
+    return;
+  }
+
+  const lastClosed = closedTabsStack.pop();
+  createTab(lastClosed.containerId, lastClosed.url);
+}
+
+/**
+ * 初始化 Vim 快捷键监听
+ *
+ * 监听主进程发送的 vim:triggered 事件，分发到对应的处理函数。
+ * 同时监听 webview 的焦点状态变化（vim:focus-state 通道）。
+ */
+function initVimShortcuts() {
+  // 监听主进程的 Vim 命令触发
+  window.realmAPI.onVimTriggered((command) => {
+    console.log('[Realm Renderer] Vim 命令触发:', command);
+
+    switch (command) {
+      // ==================== 滚动命令 ====================
+      case 'scrollDown': injectScroll('down'); break;
+      case 'scrollUp': injectScroll('up'); break;
+      case 'scrollLeft': injectScroll('left'); break;
+      case 'scrollRight': injectScroll('right'); break;
+      case 'scrollHalfPageDown': injectScroll('halfDown'); break;
+      case 'scrollHalfPageUp': injectScroll('halfUp'); break;
+      case 'scrollToTop': injectScroll('top'); break;
+      case 'scrollToBottom': injectScroll('bottom'); break;
+
+      // ==================== 标签管理 ====================
+      case 'closeTab':
+        if (state.activeTabId) closeTab(state.activeTabId);
+        break;
+      case 'restoreTab':
+        reopenClosedTab();
+        break;
+      case 'newTab':
+        createTab(state.currentContainer);
+        break;
+      case 'nextTab':
+        switchToAdjacentTab(1);
+        break;
+      case 'prevTab':
+        switchToAdjacentTab(-1);
+        break;
+      case 'firstTab':
+        switchToTabByIndex(0);
+        break;
+      case 'lastTab':
+        switchToTabByIndex(-1);
+        break;
+      case 'visitPrevTab':
+        visitPrevTab();
+        break;
+      case 'duplicateTab': {
+        const activeTab = state.tabs.get(state.activeTabId);
+        if (activeTab && activeTab.url) {
+          createTab(state.currentContainer, activeTab.url);
+        }
+        break;
+      }
+
+      // ==================== 浏览导航 ====================
+      case 'goBack': {
+        const wv = state.webviews.get(state.activeTabId);
+        if (wv && wv.canGoBack()) wv.goBack();
+        break;
+      }
+      case 'goForward': {
+        const wv = state.webviews.get(state.activeTabId);
+        if (wv && wv.canGoForward()) wv.goForward();
+        break;
+      }
+      case 'reload': {
+        const wv = state.webviews.get(state.activeTabId);
+        if (wv) wv.reload();
+        break;
+      }
+      case 'hardReload': {
+        const wv = state.webviews.get(state.activeTabId);
+        if (wv) wv.reloadIgnoringCache();
+        break;
+      }
+
+      // ==================== URL 操作 ====================
+      case 'focusUrl':
+        elements.urlInput.focus();
+        elements.urlInput.select();
+        break;
+      case 'focusUrlNewTab':
+        createTab(state.currentContainer);
+        // 延迟聚焦地址栏，等待新 tab 创建完成
+        setTimeout(() => {
+          elements.urlInput.focus();
+          elements.urlInput.select();
+        }, 100);
+        break;
+      case 'editUrl': {
+        const activeTab = state.tabs.get(state.activeTabId);
+        if (activeTab && activeTab.url) {
+          elements.urlInput.value = activeTab.url;
+          elements.urlInput.focus();
+          elements.urlInput.select();
+        }
+        break;
+      }
+
+      // ==================== 复制操作 ====================
+      case 'copyUrl': {
+        const activeTab = state.tabs.get(state.activeTabId);
+        if (activeTab && activeTab.url) {
+          navigator.clipboard.writeText(activeTab.url).then(() => {
+            showToast('URL 已复制到剪贴板', 'success');
+          }).catch(() => {
+            showToast('复制失败', 'error');
+          });
+        }
+        break;
+      }
+
+      // ==================== 标签增强 ====================
+      case 'moveTabToNewWindow':
+        if (state.activeTabId) {
+          window.realmAPI.openTabInNewWindow(state.activeTabId, { move: true });
+        }
+        break;
+      case 'viewSource': {
+        const wv = state.webviews.get(state.activeTabId);
+        if (wv) {
+          const currentUrl = wv.getURL();
+          if (currentUrl && currentUrl.startsWith('http')) {
+            wv.loadURL('view-source:' + currentUrl);
+          }
+        }
+        break;
+      }
+      case 'togglePinTab': {
+        const tab = state.tabs.get(state.activeTabId);
+        if (tab) {
+          tab.pinned = !tab.pinned;
+          window.realmAPI.updateTab(state.activeTabId, { pinned: tab.pinned });
+          renderTabs();
+          showToast(tab.pinned ? '标签页已固定' : '标签页已取消固定', 'success');
+        }
+        break;
+      }
+    }
+  });
+}
+
+/**
+ * 初始化 webview 的 Vim 焦点状态监听
+ * 在 webview 创建时调用，处理 vim:focus-state 通道
+ *
+ * @param {HTMLElement} webview - webview 元素
+ */
+function initVimFocusListener(webview) {
+  webview.addEventListener('ipc-message', (e) => {
+    if (e.channel === 'vim:focus-state') {
+      window.realmAPI.setVimFocusState(e.args[0]);
     }
   });
 }
