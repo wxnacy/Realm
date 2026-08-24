@@ -238,6 +238,13 @@ const state = {
   // Vim 标签历史栈（用于 ^ 命令切换到上一个访问的标签）
   tabHistoryStack: [],
 
+  // Vim Hint Mode 状态
+  vimHintActive: false,
+
+  // Vim 搜索模式状态
+  vimSearchActive: false,
+  vimSearchText: '',
+
   // 页面内搜索状态
   findInPageOpen: false,
   findInPageText: '',
@@ -1912,6 +1919,253 @@ function injectScroll(direction) {
 }
 
 /**
+ * 向当前活动 webview 注入 Hint Mode overlay
+ * 通过 webview.executeJavaScript 注入完整的 hint overlay 脚本到 webview guest
+ *
+ * @param {'current'|'newTab'|'copyUrl'} mode - 操作模式
+ *   - current: 点击元素（当前标签页）
+ *   - newTab: 在新标签页打开链接
+ *   - copyUrl: 复制链接 URL 到剪贴板
+ */
+function injectHintMode(mode) {
+  const webview = state.webviews.get(state.activeTabId);
+  if (!webview) return;
+
+  const hintScript = `(function() {
+    // 防止重复注入
+    if (document.getElementById('realm-vimium-hints')) return;
+
+    const MODE = '${mode}';
+    const CHARS = 'asdfghjklqwertyuiopzxcvbnm';
+    let container = null;
+    let hints = [];
+    let typedChars = '';
+
+    function createOverlay() {
+      const style = document.createElement('style');
+      style.id = 'realm-vimium-hints-style';
+      style.textContent = '#realm-vimium-hints{position:fixed;top:0;left:0;width:100%;height:100%;z-index:2147483647;pointer-events:none}' +
+        '.realm-hint-label{position:absolute;background:#FFB800;border:1px solid #E5A200;border-radius:2px;padding:1px 3px;font-family:"Courier New",Courier,monospace;font-size:12px;font-weight:700;line-height:1;color:#1a1a1a;pointer-events:none;z-index:2147483647;box-shadow:0 1px 3px rgba(0,0,0,0.3);white-space:nowrap}' +
+        '.realm-hint-char.matched{color:#FF6B00}' +
+        '.realm-hint-char{color:rgba(0,0,0,0.4)}';
+      document.head.appendChild(style);
+
+      container = document.createElement('div');
+      container.id = 'realm-vimium-hints';
+      document.body.appendChild(container);
+    }
+
+    function collectClickableElements() {
+      const selectors = 'a[href],button,input:not([type="hidden"]),select,textarea,[onclick],[role="button"],[role="link"],[tabindex]:not([tabindex="-1"])';
+      const elements = document.querySelectorAll(selectors);
+      hints = Array.from(elements).filter(function(el) {
+        var rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 &&
+               rect.top < window.innerHeight && rect.bottom > 0 &&
+               rect.left < window.innerWidth && rect.right > 0;
+      }).map(function(el, i) {
+        return { element: el, hintString: generateHintString(i) };
+      });
+    }
+
+    function generateHintString(index) {
+      var result = '';
+      var n = index;
+      do {
+        result = CHARS[n % 26] + result;
+        n = Math.floor(n / 26) - 1;
+      } while (n >= 0);
+      return result;
+    }
+
+    function renderHints() {
+      hints.forEach(function(h) {
+        var rect = h.element.getBoundingClientRect();
+        var label = document.createElement('div');
+        label.className = 'realm-hint-label';
+        label.style.top = (rect.top + window.scrollY) + 'px';
+        label.style.left = (rect.left + window.scrollX) + 'px';
+        for (var i = 0; i < h.hintString.length; i++) {
+          var span = document.createElement('span');
+          span.className = 'realm-hint-char';
+          span.textContent = h.hintString[i];
+          label.appendChild(span);
+        }
+        h.label = label;
+        container.appendChild(label);
+      });
+    }
+
+    function updateHighlight() {
+      var possibleMatches = hints.filter(function(h) {
+        return h.hintString.startsWith(typedChars);
+      });
+      hints.forEach(function(h) {
+        if (!h.label) return;
+        if (h.hintString.startsWith(typedChars)) {
+          h.label.style.opacity = '1';
+        } else {
+          h.label.style.opacity = '0.2';
+        }
+        var chars = h.label.querySelectorAll('.realm-hint-char');
+        for (var i = 0; i < chars.length; i++) {
+          if (i < typedChars.length) {
+            chars[i].className = 'realm-hint-char matched';
+          } else {
+            chars[i].className = 'realm-hint-char';
+          }
+        }
+      });
+      return possibleMatches;
+    }
+
+    function activateHint(hint) {
+      var href = hint.element.href || hint.element.action || '';
+      if (MODE === 'current') {
+        hint.element.click();
+      } else if (MODE === 'newTab') {
+        if (href) window.open(href, '_blank');
+      } else if (MODE === 'copyUrl') {
+        if (href && window.__realmBridge) {
+          window.__realmBridge.sendVimCommand('copyUrl', { url: href });
+        }
+      }
+      exit();
+    }
+
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') { exit(); return; }
+      if (e.key === 'Backspace') { typedChars = typedChars.slice(0, -1); updateHighlight(); return; }
+      if (e.key.length !== 1) return;
+
+      typedChars += e.key.toLowerCase();
+      var possibleMatches = updateHighlight();
+
+      var matched = hints.find(function(h) { return h.hintString === typedChars; });
+      if (matched) { activateHint(matched); return; }
+
+      if (possibleMatches.length === 0) exit();
+    }
+
+    function exit() {
+      var el = document.getElementById('realm-vimium-hints');
+      if (el) el.remove();
+      var st = document.getElementById('realm-vimium-hints-style');
+      if (st) st.remove();
+      document.removeEventListener('keydown', handleKeyDown, true);
+      if (window.__realmBridge) {
+        window.__realmBridge.sendVimCommand('hintModeExit');
+      }
+    }
+
+    createOverlay();
+    collectClickableElements();
+    if (hints.length === 0) {
+      if (window.__realmBridge) {
+        window.__realmBridge.sendVimCommand('hintModeExit');
+      }
+      return;
+    }
+    renderHints();
+    updateHighlight();
+    document.addEventListener('keydown', handleKeyDown, true);
+  })()`;
+
+  webview.executeJavaScript(hintScript).catch(() => {});
+}
+
+/**
+ * 向当前活动 webview 注入搜索栏
+ * 通过 webview.executeJavaScript 注入搜索栏 DOM 和交互逻辑到 webview guest
+ * 搜索通过 webview.findInPage API 实现，搜索结果通过 __realmBridge 回传更新
+ */
+function injectSearchBar() {
+  const webview = state.webviews.get(state.activeTabId);
+  if (!webview) return;
+
+  // 绑定 found-in-page 事件监听（如果尚未绑定）
+  if (!webview._vimSearchBound) {
+    webview._vimSearchBound = true;
+    webview.addEventListener('found-in-page', (event) => {
+      const { activeMatchOrdinal, matches } = event.result;
+      // 通过 postMessage 更新搜索栏计数
+      const msg = matches > 0
+        ? '第 ' + activeMatchOrdinal + '/' + matches + ' 个匹配'
+        : '未找到匹配项';
+      webview.executeJavaScript(
+        `window.postMessage({type:'realm-vimium-search-result',text:${JSON.stringify(msg)}}, '*')`
+      ).catch(() => {});
+    });
+  }
+
+  const searchScript = `(function() {
+    if (document.getElementById('realm-vimium-search')) return;
+
+    const style = document.createElement('style');
+    style.id = 'realm-vimium-search-style';
+    style.textContent = '#realm-vimium-search{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:2147483646;display:none}' +
+      '.realm-search-inner{display:flex;align-items:center;background:#2a2a2a;border:1px solid #404040;border-radius:6px;padding:6px 12px;box-shadow:0 4px 12px rgba(0,0,0,0.4);gap:8px;min-width:300px;max-width:500px}' +
+      '.realm-search-icon{color:#FFB800;font-family:"Courier New",Courier,monospace;font-size:14px;font-weight:700}' +
+      '.realm-search-input{flex:1;background:transparent;border:none;outline:none;color:#f0f0f0;font-size:14px;font-family:system-ui}' +
+      '.realm-search-count{color:#a0a0a0;font-size:12px;white-space:nowrap}';
+    document.head.appendChild(style);
+
+    const container = document.createElement('div');
+    container.id = 'realm-vimium-search';
+    container.innerHTML = '<div class="realm-search-inner">' +
+      '<span class="realm-search-icon">/</span>' +
+      '<input type="text" class="realm-search-input" placeholder="输入搜索内容..." />' +
+      '<span class="realm-search-count"></span>' +
+      '</div>';
+    document.body.appendChild(container);
+
+    const input = container.querySelector('.realm-search-input');
+    const countEl = container.querySelector('.realm-search-count');
+    container.style.display = 'block';
+    input.focus();
+
+    // 监听搜索结果更新
+    window.addEventListener('message', function onMsg(e) {
+      if (e.data && e.data.type === 'realm-vimium-search-result') {
+        countEl.textContent = e.data.text;
+      }
+    });
+
+    let debounceTimer = null;
+
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        var text = input.value.trim();
+        if (text && window.__realmBridge) {
+          window.__realmBridge.sendVimCommand('findInPage', { text: text });
+        }
+        e.preventDefault();
+      }
+      if (e.key === 'Escape') {
+        container.style.display = 'none';
+        if (window.__realmBridge) {
+          window.__realmBridge.sendVimCommand('searchModeExit');
+        }
+        e.preventDefault();
+      }
+    });
+
+    // 实时搜索（300ms 防抖）
+    input.addEventListener('input', function() {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function() {
+        var text = input.value.trim();
+        if (text && window.__realmBridge) {
+          window.__realmBridge.sendVimCommand('findInPage', { text: text });
+        }
+      }, 300);
+    });
+  })()`;
+
+  webview.executeJavaScript(searchScript).catch(() => {});
+}
+
+/**
  * 切换到相邻的标签页（循环）
  *
  * @param {number} offset - 偏移量（1=下一个，-1=上一个）
@@ -2113,13 +2367,58 @@ function initVimShortcuts() {
         }
         break;
       }
+
+      // ==================== Hint Mode ====================
+      case 'hintMode':
+        state.vimHintActive = true;
+        injectHintMode('current');
+        break;
+      case 'hintModeNewTab':
+        state.vimHintActive = true;
+        injectHintMode('newTab');
+        break;
+      case 'copyLinkUrl':
+        state.vimHintActive = true;
+        injectHintMode('copyUrl');
+        break;
+
+      // ==================== 搜索模式 ====================
+      case 'searchMode':
+        state.vimSearchActive = true;
+        window.realmAPI.setVimSearchActive(true);
+        injectSearchBar();
+        break;
+      case 'searchNext': {
+        const wvNext = state.webviews.get(state.activeTabId);
+        if (wvNext && state.vimSearchText) {
+          wvNext.findInPage(state.vimSearchText, { forward: true, findNext: true });
+        }
+        break;
+      }
+      case 'searchPrev': {
+        const wvPrev = state.webviews.get(state.activeTabId);
+        if (wvPrev && state.vimSearchText) {
+          wvPrev.findInPage(state.vimSearchText, { forward: false, findNext: true });
+        }
+        break;
+      }
+      case 'searchModeExit':
+        state.vimSearchActive = false;
+        state.vimSearchText = '';
+        window.realmAPI.setVimSearchActive(false);
+        break;
+
+      // ==================== 标签页搜索 ====================
+      case 'searchTabs':
+        openSettingsTab('shortcuts');
+        break;
     }
   });
 }
 
 /**
- * 初始化 webview 的 Vim 焦点状态监听
- * 在 webview 创建时调用，处理 vim:focus-state 通道
+ * 初始化 webview 的 Vim 焦点状态监听和 Vim 命令通道
+ * 在 webview 创建时调用，处理 vim:focus-state 和 vim:command 通道
  *
  * @param {HTMLElement} webview - webview 元素
  */
@@ -2127,6 +2426,33 @@ function initVimFocusListener(webview) {
   webview.addEventListener('ipc-message', (e) => {
     if (e.channel === 'vim:focus-state') {
       window.realmAPI.setVimFocusState(e.args[0]);
+    } else if (e.channel === 'vim:command') {
+      const command = e.args[0];
+      const data = e.args[1];
+      if (command === 'hintModeExit') {
+        // Hint Mode 退出，清除状态
+        state.vimHintActive = false;
+      } else if (command === 'copyUrl' && data && data.url) {
+        navigator.clipboard.writeText(data.url).then(() => {
+          showToast('链接 URL 已复制到剪贴板', 'success');
+        }).catch(() => {
+          showToast('复制失败', 'error');
+        });
+      } else if (command === 'findInPage' && data && data.text) {
+        // 搜索模式：执行 findInPage
+        state.vimSearchText = data.text;
+        state.vimSearchActive = true;
+        window.realmAPI.setVimSearchActive(true);
+        const wv = state.webviews.get(state.activeTabId);
+        if (wv) {
+          wv.findInPage(data.text, { forward: true, findNext: false });
+        }
+      } else if (command === 'searchModeExit') {
+        // 搜索模式退出
+        state.vimSearchActive = false;
+        state.vimSearchText = '';
+        window.realmAPI.setVimSearchActive(false);
+      }
     }
   });
 }

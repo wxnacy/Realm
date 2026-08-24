@@ -92,6 +92,7 @@ const PENDING_G_MAP = {
 const PENDING_Y_MAP = {
   'y': 'copyUrl',         // yy
   'f': 'copyLinkUrl',     // yf
+  't': 'duplicateTab',    // yt
 };
 
 // ==================== Vim 状态机 ====================
@@ -102,7 +103,7 @@ const PENDING_Y_MAP = {
  * 管理双键序列的识别：
  * - idle: 等待第一个按键
  * - pending_g: 已按下 g，等待第二个按键（gg/g0/g$/ge/gt/gT/gs）
- * - pending_y: 已按下 y，等待第二个按键（yy/yf）
+ * - pending_y: 已按下 y，等待第二个按键（yy/yf/yt）
  *
  * 状态转换：
  * - idle + g → pending_g（启动 500ms 超时）
@@ -110,10 +111,16 @@ const PENDING_Y_MAP = {
  * - pending_g + 第二键 → 返回命令 + 回到 idle
  * - pending_y + 第二键 → 返回命令 + 回到 idle
  * - 超时 → 自动回到 idle
+ *
+ * 特殊状态：
+ * - searchActive: 搜索模式激活时，n→searchNext, N→searchPrev
  */
 const VimStateMachine = {
   /** @type {'idle'|'pending_g'|'pending_y'} 当前状态 */
   state: 'idle',
+
+  /** @type {boolean} 搜索模式是否激活 */
+  searchActive: false,
 
   /** @type {NodeJS.Timeout|null} 超时定时器 */
   _timeout: null,
@@ -133,6 +140,14 @@ const VimStateMachine = {
     let effectiveKey = key;
     if (shift && key.length === 1 && key >= 'a' && key <= 'z') {
       effectiveKey = key.toUpperCase();
+    }
+
+    // 搜索模式激活时：n→searchNext, N→searchPrev
+    if (this.searchActive && !shift && key === 'n') {
+      return 'searchNext';
+    }
+    if (this.searchActive && shift && key === 'N') {
+      return 'searchPrev';
     }
 
     // idle 状态：检查是否为双键序列的起始键
