@@ -186,13 +186,13 @@ Plans:
 **Goal:** 为 Realm Browser 添加类似 Vimium 的键盘操作功能，提升键盘操作效率，支持页面滚动、链接跟随、标签管理、搜索模式等
 **Requirements**: docs/todo/vimium.md
 **Depends on:** Phase 38
-**Plans:** 4 plans
+**Plans:** 4/4 plans complete
 
 Plans:
 **Wave 1**
 
 - [x] 39-01-PLAN.md — Vim 快捷键基础设施 + 页面滚动 + 基础标签管理（tracer：完整链路从按键到滚动）
-- [ ] 39-04-PLAN.md — Gap 修复：Vimium 开关 store/键路径错配（G-39-1/G-39-2 共享根因）+ 真实环境复核
+- [x] 39-04-PLAN.md — Gap 修复：Vimium 开关 store/键路径错配（G-39-1/G-39-2 共享根因）+ 真实环境复核
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
