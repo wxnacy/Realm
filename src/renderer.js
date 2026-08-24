@@ -2634,7 +2634,10 @@ function initVimShortcuts() {
 function initVimFocusListener(webview) {
   webview.addEventListener('ipc-message', (e) => {
     if (e.channel === 'vim:focus-state') {
-      window.realmAPI.setVimFocusState(e.args[0]);
+      // 传递 webview guest 的 webContents ID，而非 renderer 的 ID
+      let guestId;
+      try { guestId = webview.getWebContentsId(); } catch { return; }
+      window.realmAPI.setVimFocusState(guestId, e.args[0]);
     } else if (e.channel === 'vim:command') {
       const command = e.args[0];
       const data = e.args[1];

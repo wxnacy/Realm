@@ -402,8 +402,7 @@ function setVimFocusState(webContentsId, isInInput) {
  */
 function registerVimIpcHandlers() {
   // 处理焦点状态设置请求（renderer 报告 webview guest 的焦点状态）
-  ipcMain.handle('vim:set-focus-state', (event, isInInput) => {
-    const webContentsId = event.sender.id;
+  ipcMain.handle('vim:set-focus-state', (event, webContentsId, isInInput) => {
     setVimFocusState(webContentsId, isInInput);
   });
 

@@ -978,10 +978,11 @@ contextBridge.exposeInMainWorld('realmAPI', {
   /**
    * 设置当前 webview 的输入框焦点状态
    * 用于告知主进程是否应禁用 Vim 单键快捷键（D-07）
+   * @param {number} webContentsId - webview guest 的 webContents ID
    * @param {boolean} isInInput - 焦点是否在输入框中
    */
-  setVimFocusState: (isInInput) => {
-    ipcRenderer.invoke('vim:set-focus-state', isInInput);
+  setVimFocusState: (webContentsId, isInInput) => {
+    ipcRenderer.invoke('vim:set-focus-state', webContentsId, isInInput);
   },
 
   /**
