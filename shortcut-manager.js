@@ -274,6 +274,24 @@ function attachInputListener(contents) {
     const hasModifier = input.meta || input.control || input.alt;
 
     // ==================== 优先级 3：Vim 快捷键处理 ====================
+    // Hint Mode 激活期间：按键路由改为「主进程捕获 → IPC 转发 → renderer 注入 guest」。
+    // 键盘焦点跨 webview guest 转移在 Chromium 层不可靠（快捷键切标签后焦点卡在旧 guest，
+    // renderer 侧 webview.focus() 无法拉出，见 docs/debug/vim-hint-focus-cross-tab-failure.md），
+    // 因此 hint 按键不再依赖 guest 焦点，由主进程统一捕获转发。
+    // 焦点在输入框（地址栏 / 页面 input）时放行，保持原有输入语义。
+    if (hintModeActive && !hasModifier) {
+      const isInInput = vimFocusStates.get(contents.id) || false;
+      const key = input.key || '';
+      if (!isInInput && (key === 'Escape' || key === 'Backspace' || key.length === 1)) {
+        event.preventDefault();
+        const focusedWindow = BrowserWindow.getFocusedWindow();
+        if (focusedWindow && !focusedWindow.isDestroyed() && windowManager.isManagedWindow(focusedWindow.id)) {
+          focusedWindow.webContents.send('vim:hint-key', key);
+        }
+        return;
+      }
+    }
+
     // Hint Mode / 搜索输入激活期间，所有 Vim 命令由 guest 内部独立处理，主进程完全跳过
     if (!hintModeActive && !searchInputActive) {
       // Alt+P 特殊处理：固定/取消固定标签（需在 !hasModifier 之前检查，因为 Alt 本身是修饰键）

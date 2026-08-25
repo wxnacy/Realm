@@ -1,4 +1,6 @@
-# Vim f/F Hint Mode 焦点跨标签页转移失败
+# Vim f/F Hint Mode 焦点跨标签页转移失败（已修复）
+
+> **状态**：2026-08-25 已修复。根因确认为推测 A，修复见文末「最终修复方案」。
 
 ## 问题症状
 
@@ -135,3 +137,41 @@ webview 被 `visibility:hidden` 后，其 guest WebContents 可能进入某种**
 3. **尝试 renderer DOM 中转**：在 `switchTab` 中先 `elements.urlInput.focus()` 再 `blur()`，再 `activeWebview.focus()`，验证推测 A。
 4. **尝试更换隐藏方式**：将 `showWebview` 中的 `visibility:hidden` 替换为 `transform: translateX(-9999px)`，验证推测 C。
 5. **检查 Electron 版本兼容性**：确认当前 Electron 版本是否存在已知的 webview focus 跨切换 bug。
+
+## 最终修复方案（2026-08-25，已验证）
+
+**根因确认（推测 A）**：键盘焦点位于 webview A 的 guest WebContents 内部时，renderer 侧
+DOM `webview.focus()` **无法**把焦点拉出旧 guest——真实环境实测：快捷键切标签后
+新 guest 的 `document.hasFocus()` 为 `false`，后续按键全部投递到已隐藏的旧 guest。
+这也是 11 次 renderer 侧 focus 尝试全部失败的原因。
+
+修复分两层：
+
+### 第一层：焦点转移改走主进程 `WebContents.focus()`（根因修复）
+
+- 新增 IPC `webview:focus-contents`（`ipc-handlers.js`）：主进程 `webContents.fromId(id).focus()`
+- `switchTab`（`src/renderer.js`）：切换后 DOM focus + 主进程 focus 双管齐下
+  （替换原 `setTimeout(..., 1000)` 的无效重试）
+- `injectHintMode` 注入后同样补一记主进程 focus
+
+这一层同时修好了更广的问题：快捷键切标签后**所有**键盘输入（表单打字、空格滚动等）
+此前都要鼠标点一下才恢复，不只影响 Vim hint。
+
+### 第二层：Hint 按键路由不依赖 guest 焦点（兜底保证）
+
+即使焦点机制未来再出问题，hint 也能用：
+
+- `shortcut-manager.js`：`hintModeActive` 期间，主进程在 `before-input-event` 直接捕获
+  无修饰键的单字符/Escape/Backspace，`preventDefault` 后经 `vim:hint-key` 通道转发给
+  host renderer；焦点在输入框（地址栏/页面 input）时放行，保持原有输入语义
+- `src/renderer.js`：收到 `vim:hint-key` 后 `executeJavaScript` 调用 guest 内新暴露的
+  `window.__realmHintKey(key)`，喂给同一个 `handleKeyDown`；`exit()` 时清理该全局
+
+### 验证（playwright _electron 驱动真实 dev 应用）
+
+1. guest A 内取焦点 → `shortcut:triggered nextTab` 切标签 → 新 guest B `document.hasFocus() === true` ✅
+2. `vim:triggered hintMode` → overlay 渲染 ✅
+3. `vim:hint-key 'a'` → guest 消费按键、触发 click 跳转到目标链接 ✅
+
+注意：Playwright 合成键进不了主进程 `before-input-event`（见 memory），主进程捕获那一腿
+只能测到 IPC 接缝（`vim:hint-key` 发送点），捕获逻辑本身靠代码走查保证。

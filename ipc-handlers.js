@@ -1595,6 +1595,22 @@ function registerHandlers() {
   });
 
   /**
+   * 主进程侧聚焦指定 webview guest 的 webContents
+   * renderer 侧 DOM webview.focus() 无法把键盘焦点从另一个 webview guest 中拉出
+   * （Chromium 层限制，见 docs/debug/vim-hint-focus-cross-tab-failure.md），
+   * 快捷键切标签后必须由主进程 WebContents.focus() 完成跨 guest 焦点转移
+   * @param {number} contentsId - webview guest 的 webContents ID
+   */
+  ipcMain.handle('webview:focus-contents', (event, contentsId) => {
+    assertTrustedSender(event);
+    if (typeof contentsId !== 'number') return;
+    const wc = webContents.fromId(contentsId);
+    if (wc && !wc.isDestroyed()) {
+      wc.focus();
+    }
+  });
+
+  /**
    * 渲染进程上报 guest webContentsId → 容器 ID 映射
    * 主进程无法从 guest session 反推 partition（Electron 32 限制），
    * 容器分配规则匹配和 CDP 抓取依赖此映射

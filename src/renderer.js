@@ -751,9 +751,14 @@ async function switchTab(tabId) {
     window.realmAPI.setActiveWebview(activeWebview.getWebContentsId());
   }
 
-  // 切换标签后强制将焦点转移到新 webview，避免 Vim 按键被旧 webview 截获
+  // 切换标签后强制将焦点转移到新 webview，避免键盘输入被旧 webview guest 截获。
+  // DOM focus() 无法跨 guest 转移键盘焦点（见 docs/debug/vim-hint-focus-cross-tab-failure.md），
+  // 必须同时走主进程 WebContents.focus() 路径
   if (activeWebview) {
-    setTimeout(() => activeWebview.focus(), 1000);
+    activeWebview.focus();
+    try {
+      window.realmAPI.focusWebviewContents(activeWebview.getWebContentsId());
+    } catch { /* webview 过渡态时 getWebContentsId 会抛，忽略 */ }
   }
 
   // 隐藏内嵌新标签页（现在使用 realm://newtab 加载新标签页）
@@ -2190,6 +2195,7 @@ function injectHintMode(mode) {
       window.removeEventListener('hashchange', exit);
       window.removeEventListener('popstate', exit);
       if (window.__realmHintExit === exit) window.__realmHintExit = null;
+      window.__realmHintKey = null;
       if (window.__realmBridge) {
         window.__realmBridge.sendVimCommand('hintModeExit');
       }
@@ -2197,6 +2203,14 @@ function injectHintMode(mode) {
 
     // 暴露给 renderer：状态清理时远程销毁残留 overlay（见 exitVimHint）
     window.__realmHintExit = exit;
+
+    // 暴露给主进程→renderer 转发链路的按键入口：
+    // hint 按键由主进程捕获后经 IPC 转发（vim:hint-key），renderer 调此函数喂给
+    // 同一个 handleKeyDown，不依赖 guest 键盘焦点（焦点跨 guest 转移不可靠）
+    window.__realmHintKey = function(key) {
+      if (exited) return;
+      handleKeyDown({ key: key, preventDefault: function() {}, stopPropagation: function() {} });
+    };
 
     createOverlay();
     collectClickableElements();
@@ -2215,9 +2229,13 @@ function injectHintMode(mode) {
   })()`;
 
   webview.executeJavaScript(hintScript).then(() => {
-    // webview 从 hidden 切回 visible 后 tabIndex 可能失效，重新设置后再 focus
+    // webview 从 hidden 切回 visible 后 tabIndex 可能失效，重新设置后再 focus；
+    // 跨 guest 键盘焦点转移必须同时走主进程 WebContents.focus() 路径
     webview.tabIndex = -1;
     webview.focus();
+    try {
+      window.realmAPI.focusWebviewContents(webview.getWebContentsId());
+    } catch { /* webview 过渡态时 getWebContentsId 会抛，忽略 */ }
   }).catch(() => {
     // 注入失败回退标志，否则主进程 hintModeActive 卡死吞掉全部 Vim 键
     exitVimHint();
@@ -2700,6 +2718,14 @@ function initVimShortcuts() {
   document.addEventListener('focusin', reportHostFocus);
   // focusout 时 activeElement 尚未更新，延迟一帧再判定
   document.addEventListener('focusout', () => setTimeout(reportHostFocus, 0));
+
+  // 监听主进程转发的 Hint Mode 按键（主进程捕获 → IPC → 注入 guest）
+  window.realmAPI.onVimHintKey((key) => {
+    if (!state.vimHintActive) return;
+    const wv = state.webviews.get(state.activeTabId);
+    if (!wv) return;
+    wv.executeJavaScript(`window.__realmHintKey && window.__realmHintKey(${JSON.stringify(key)})`).catch(() => {});
+  });
 
   // 监听主进程的 Vim 命令触发
   window.realmAPI.onVimTriggered((command) => {

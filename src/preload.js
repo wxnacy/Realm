@@ -582,6 +582,13 @@ contextBridge.exposeInMainWorld('realmAPI', {
   setActiveWebview: (contentsId) => ipcRenderer.invoke('webview:set-active', contentsId),
 
   /**
+   * 主进程侧聚焦指定 webview guest 的 webContents
+   * DOM webview.focus() 无法跨 guest 转移键盘焦点时必须走此通道
+   * @param {number} contentsId - webview guest 的 webContents ID
+   */
+  focusWebviewContents: (contentsId) => ipcRenderer.invoke('webview:focus-contents', contentsId),
+
+  /**
    * 上报 guest webContentsId → 容器 ID 映射
    * 主进程无法从 guest session 反推 partition（Electron 32 限制），
    * 分配规则匹配和 CDP 抓取依赖此映射
@@ -973,6 +980,16 @@ contextBridge.exposeInMainWorld('realmAPI', {
    */
   onVimTriggered: (callback) => {
     ipcRenderer.on('vim:triggered', (event, command) => callback(command));
+  },
+
+  /**
+   * 监听 Hint Mode 按键转发
+   * Hint Mode 激活期间主进程捕获的按键（字母/Escape/Backspace）经此通道送达，
+   * 由 renderer 注入到活动 webview guest 的 hint 处理器，不依赖 guest 键盘焦点
+   * @param {Function} callback - 回调函数，参数为按键名（如 'a', 'Escape'）
+   */
+  onVimHintKey: (callback) => {
+    ipcRenderer.on('vim:hint-key', (event, key) => callback(key));
   },
 
   /**
