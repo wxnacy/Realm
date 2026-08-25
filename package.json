@@ -34,8 +34,8 @@
     "esbuild": "^0.28.1"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "^0.82.1",
-    "@earendil-works/pi-ai": "^0.82.1",
+    "@earendil-works/pi-agent-core": "^0.84.3",
+    "@earendil-works/pi-ai": "^0.84.3",
     "better-sqlite3": "^13.0.2",
     "cheerio": "^1.2.0",
     "dashjs": "^5.2.0",

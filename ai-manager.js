@@ -341,6 +341,8 @@ const PROVIDER_ENV_MAP = {
   'azure-openai-responses': 'AZURE_OPENAI_API_KEY',
   'google-vertex': 'GOOGLE_CLOUD_API_KEY',
   cohere: 'COHERE_API_KEY',
+  baseten: 'BASETEN_API_KEY',
+  'qwen-token-plan-individual': 'QWEN_TOKEN_PLAN_API_KEY',
 };
 
 // ==================== 脚本执行引擎 ====================
