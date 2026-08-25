@@ -751,6 +751,11 @@ async function switchTab(tabId) {
     window.realmAPI.setActiveWebview(activeWebview.getWebContentsId());
   }
 
+  // 若焦点在 webview 上，同步转移到新 webview；否则保持原焦点位置（地址栏/tab 等）
+  if (activeWebview && document.activeElement && document.activeElement.tagName === 'WEBVIEW') {
+    activeWebview.focus();
+  }
+
   // 隐藏内嵌新标签页（现在使用 realm://newtab 加载新标签页）
   elements.newTabPage.style.display = 'none';
 
