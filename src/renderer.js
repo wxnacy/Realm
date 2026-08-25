@@ -351,6 +351,16 @@ function normalizeUrl(input) {
     return input;
   }
 
+  // localhost 地址（带端口），添加 http://
+  if (/^localhost(:\d+)?(\/.*)?$/i.test(input)) {
+    return `http://${input}`;
+  }
+
+  // IP 地址（带端口），添加 http://
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?(\/.*)?$/.test(input)) {
+    return `http://${input}`;
+  }
+
   // 如果看起来像域名（包含点号），添加 https://
   if (/^[\w-]+(\.[\w-]+)+/.test(input)) {
     return `https://${input}`;
