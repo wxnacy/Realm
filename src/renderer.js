@@ -1978,43 +1978,68 @@ const VIM_SCROLL_CONFIG = {
 /**
  * 向当前活动 webview 注入滚动命令
  *
+ * 内部页面（realm://）body 设为 overflow:hidden，真正的滚动容器是子元素
+ * （如 .history-page、.favorites-page 等）。通用策略：找到视口内第一个
+ * overflow-y:auto/scroll 的可滚动祖先，window.scrollBy 回退。
+ *
  * @param {'down'|'up'|'left'|'right'|'halfDown'|'halfUp'|'top'|'bottom'} direction - 滚动方向
  */
 function injectScroll(direction) {
   const webview = state.webviews.get(state.activeTabId);
   if (!webview) return;
 
-  let scrollScript = '';
+  const V = VIM_SCROLL_CONFIG.vertical;
+  const H = VIM_SCROLL_CONFIG.horizontal;
+  const R = VIM_SCROLL_CONFIG.halfPageRatio;
+
+  // 查找离活动元素最近的可滚动祖先（含 document.scrollingElement 兜底）
+  const findScroller = `(function(){
+    var el = document.activeElement;
+    while (el && el !== document.body) {
+      var s = getComputedStyle(el);
+      if ((s.overflowY==='auto'||s.overflowY==='scroll') && el.scrollHeight>el.clientHeight) return el;
+      el = el.parentElement;
+    }
+    // body 不可滚动时，遍历 body 直接子元素找第一个可滚动容器
+    var kids = document.body.children;
+    for (var i=0;i<kids.length;i++) {
+      var cs = getComputedStyle(kids[i]);
+      if ((cs.overflowY==='auto'||cs.overflowY==='scroll') && kids[i].scrollHeight>kids[i].clientHeight) return kids[i];
+    }
+    return null;
+  })()`;
+
+  let scrollExpr = '';
 
   switch (direction) {
     case 'down':
-      scrollScript = `window.scrollBy({ top: ${VIM_SCROLL_CONFIG.vertical}, behavior: 'smooth' })`;
+      scrollExpr = `(function(){var s=${findScroller};if(s)s.scrollBy({top:${V},behavior:'smooth'});else window.scrollBy({top:${V},behavior:'smooth'})})()`;
       break;
     case 'up':
-      scrollScript = `window.scrollBy({ top: ${-VIM_SCROLL_CONFIG.vertical}, behavior: 'smooth' })`;
+      scrollExpr = `(function(){var s=${findScroller};if(s)s.scrollBy({top:${-V},behavior:'smooth'});else window.scrollBy({top:${-V},behavior:'smooth'})})()`;
       break;
     case 'left':
-      scrollScript = `window.scrollBy({ left: ${-VIM_SCROLL_CONFIG.horizontal}, behavior: 'smooth' })`;
+      scrollExpr = `(function(){var s=${findScroller};if(s)s.scrollBy({left:${-H},behavior:'smooth'});else window.scrollBy({left:${-H},behavior:'smooth'})})()`;
       break;
     case 'right':
-      scrollScript = `window.scrollBy({ left: ${VIM_SCROLL_CONFIG.horizontal}, behavior: 'smooth' })`;
+      scrollExpr = `(function(){var s=${findScroller};if(s)s.scrollBy({left:${H},behavior:'smooth'});else window.scrollBy({left:${H},behavior:'smooth'})})()`;
       break;
     case 'halfDown':
-      scrollScript = `window.scrollBy({ top: window.innerHeight * ${VIM_SCROLL_CONFIG.halfPageRatio}, behavior: 'smooth' })`;
+      scrollExpr = `(function(){var s=${findScroller};var d=window.innerHeight*${R};if(s)s.scrollBy({top:d,behavior:'smooth'});else window.scrollBy({top:d,behavior:'smooth'})})()`;
       break;
     case 'halfUp':
-      scrollScript = `window.scrollBy({ top: -window.innerHeight * ${VIM_SCROLL_CONFIG.halfPageRatio}, behavior: 'smooth' })`;
+      scrollExpr = `(function(){var s=${findScroller};var d=-window.innerHeight*${R};if(s)s.scrollBy({top:d,behavior:'smooth'});else window.scrollBy({top:d,behavior:'smooth'})})()`;
       break;
     case 'top':
-      scrollScript = `window.scrollTo({ top: 0, behavior: 'smooth' })`;
+      scrollExpr = `(function(){var s=${findScroller};if(s)s.scrollTo({top:0,behavior:'smooth'});else window.scrollTo({top:0,behavior:'smooth'})})()`;
       break;
     case 'bottom':
-      scrollScript = `window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })`;
+      scrollExpr = `(function(){var s=${findScroller};if(s)s.scrollTo({top:s.scrollHeight,behavior:'smooth'});else window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'})})()`;
       break;
   }
 
-  if (scrollScript) {
-    webview.executeJavaScript(scrollScript).catch(() => {});
+  if (scrollExpr) {
+    webview.executeJavaScript(scrollExpr).catch(() => {});
   }
 }
 
@@ -2047,24 +2072,30 @@ function injectHintMode(mode) {
     let exited = false;
     let repositionScheduled = false;
 
-    function createOverlay() {
-      const style = document.createElement('style');
-      style.id = 'realm-vimium-hints-style';
-      style.textContent = '#realm-vimium-hints{position:fixed;top:0;left:0;width:100%;height:100%;z-index:2147483647;pointer-events:none}' +
-        '.realm-hint-label{position:absolute;background:#FFB800;border:1px solid #E5A200;border-radius:2px;padding:1px 3px;font-family:"Courier New",Courier,monospace;font-size:12px;font-weight:700;line-height:1;color:#1a1a1a;pointer-events:none;z-index:2147483647;box-shadow:0 1px 3px rgba(0,0,0,0.3);white-space:nowrap}' +
-        '.realm-hint-char.matched{color:#FF6B00}' +
-        '.realm-hint-char{color:rgba(0,0,0,0.4)}';
-      document.head.appendChild(style);
+    // 内联样式常量——realm:// 页面 CSP style-src 'self' 会阻止动态 <style> 元素，
+    // 因此将所有样式直接写到元素 style 属性上
+    var LABEL_BASE_STYLE = 'position:absolute;background:#FFB800;border:1px solid #E5A200;border-radius:2px;padding:1px 3px;font-family:"Courier New",Courier,monospace;font-size:12px;font-weight:700;line-height:1;color:#1a1a1a;pointer-events:none;z-index:2147483647;box-shadow:0 1px 3px rgba(0,0,0,0.3);white-space:nowrap';
+    var CHAR_STYLE = 'color:rgba(0,0,0,0.4)';
+    var CHAR_MATCHED_STYLE = 'color:#FF6B00';
 
+    function createOverlay() {
       container = document.createElement('div');
       container.id = 'realm-vimium-hints';
+      container.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:2147483647;pointer-events:none';
       document.body.appendChild(container);
     }
 
     function collectClickableElements() {
       const selectors = 'a[href],button,input:not([type="hidden"]),select,textarea,[onclick],[role="button"],[role="link"],[tabindex]:not([tabindex="-1"])';
-      const elements = document.querySelectorAll(selectors);
-      const visibleElements = Array.from(elements).filter(function(el) {
+      var elements = Array.from(document.querySelectorAll(selectors));
+      // 补充：cursor:pointer 的元素通常是可点击的（JS 事件监听不体现在 DOM 属性上）
+      var all = document.querySelectorAll('*');
+      for (var i = 0; i < all.length; i++) {
+        if (elements.indexOf(all[i]) === -1 && getComputedStyle(all[i]).cursor === 'pointer') {
+          elements.push(all[i]);
+        }
+      }
+      const visibleElements = elements.filter(function(el) {
         var rect = el.getBoundingClientRect();
         return rect.width > 0 && rect.height > 0 &&
                rect.top < window.innerHeight && rect.bottom > 0 &&
@@ -2107,10 +2138,10 @@ function injectHintMode(mode) {
     function renderHints() {
       hints.forEach(function(h) {
         var label = document.createElement('div');
-        label.className = 'realm-hint-label';
+        label.style.cssText = LABEL_BASE_STYLE;
         for (var i = 0; i < h.hintString.length; i++) {
           var span = document.createElement('span');
-          span.className = 'realm-hint-char';
+          span.style.cssText = CHAR_STYLE;
           span.textContent = h.hintString[i];
           label.appendChild(span);
         }
@@ -2142,24 +2173,29 @@ function injectHintMode(mode) {
         } else {
           h.label.style.opacity = '0.2';
         }
-        var chars = h.label.querySelectorAll('.realm-hint-char');
+        var chars = h.label.children;
         for (var i = 0; i < chars.length; i++) {
-          if (i < typedChars.length) {
-            chars[i].className = 'realm-hint-char matched';
-          } else {
-            chars[i].className = 'realm-hint-char';
-          }
+          chars[i].style.cssText = i < typedChars.length ? CHAR_MATCHED_STYLE : CHAR_STYLE;
         }
       });
       return possibleMatches;
     }
 
     function activateHint(hint) {
-      var href = hint.element.href || hint.element.action || '';
+      var el = hint.element;
+      // 向上找最近的 <a href>（history 标题等非 <a> 元素可能包裹在可点击容器里）
+      var anchor = el.closest ? el.closest('a[href]') : null;
+      var href = (anchor && anchor.href) || el.href || el.action || '';
       if (MODE === 'current') {
-        hint.element.click();
+        el.click();
       } else if (MODE === 'newTab') {
-        if (href) window.open(href, '_blank');
+        if (href) {
+          window.open(href, '_blank');
+        } else {
+          // 无 href 的可点击元素（如 history 标题 div），回退到 click——
+          // 其事件处理函数通常自行 window.open
+          el.click();
+        }
       } else if (MODE === 'copyUrl') {
         if (href && window.__realmBridge) {
           window.__realmBridge.sendVimCommand('copyUrl', { url: href });
