@@ -89,6 +89,8 @@ const DEFAULT_SHORTCUTS = {
   'forward': 'CmdOrCtrl+Right',
   'bookmark': 'CmdOrCtrl+D',
   'openSettings': 'CmdOrCtrl+,',
+  'openHistory': 'CmdOrCtrl+Y',
+  'openFavorites': 'CmdOrCtrl+B',
   'toggleAIPanel': 'CmdOrCtrl+]',
   'toggleSidebar': 'CmdOrCtrl+[',
   'findInPage': 'CmdOrCtrl+F',

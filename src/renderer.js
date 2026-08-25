@@ -1905,6 +1905,12 @@ function initShortcuts() {
       case 'openSettings':
         openSettingsTab();
         break;
+      case 'openHistory':
+        openRealmPage('history', 'realm://history');
+        break;
+      case 'openFavorites':
+        openRealmPage('favorites', 'realm://favorites');
+        break;
       case 'bookmark':
         const activeTab = state.tabs.get(state.activeTabId);
         if (activeTab && activeTab.url) {
@@ -3047,6 +3053,29 @@ function openSettingsTab(tabName) {
     }
   } else {
     createTab(containerId, `realm://settings${suffix}`);
+  }
+}
+
+/**
+ * 打开 realm:// 内部页面
+ * 当前容器已有对应 Tab 则切换过去，否则新建。
+ * @param {string} pageName - 页面名称（用于匹配已有 tab 的 url 前缀）
+ * @param {string} url - 完整的 realm:// 页面地址
+ */
+function openRealmPage(pageName, url) {
+  const containerId = state.currentContainer;
+
+  let existingTabId = null;
+  state.tabs.forEach((tab, tabId) => {
+    if (tab.url && tab.url.startsWith(`realm://${pageName}`) && tab.containerId === containerId) {
+      existingTabId = tabId;
+    }
+  });
+
+  if (existingTabId) {
+    switchTab(existingTabId);
+  } else {
+    createTab(containerId, url);
   }
 }
 
