@@ -94,6 +94,7 @@
 ## 当前代码状态（截至最新提交）
 
 ```
+757f2a1 fix(vim): route hint keys via main-process IPC and focus guest via WebContents.focus()
 8bb284b feat: add CmdOrCtrl+; shortcut to focus webview page
 b52d211 fix(vim): focus webview after injecting hint mode
 fd1a364 fix(vim): transfer focus to new webview on tab switch
@@ -138,7 +139,7 @@ webview 被 `visibility:hidden` 后，其 guest WebContents 可能进入某种**
 4. **尝试更换隐藏方式**：将 `showWebview` 中的 `visibility:hidden` 替换为 `transform: translateX(-9999px)`，验证推测 C。
 5. **检查 Electron 版本兼容性**：确认当前 Electron 版本是否存在已知的 webview focus 跨切换 bug。
 
-## 最终修复方案（2026-08-25，已验证）
+## 最终修复方案（2026-08-25，已验证，commit `757f2a1`）
 
 **根因确认（推测 A）**：键盘焦点位于 webview A 的 guest WebContents 内部时，renderer 侧
 DOM `webview.focus()` **无法**把焦点拉出旧 guest——真实环境实测：快捷键切标签后
