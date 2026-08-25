@@ -1535,10 +1535,11 @@ function showWebview(tabId) {
     if (wv) {
       wv.style.visibility = id === tabId ? 'visible' : 'hidden';
       wv.style.position = id === tabId ? 'relative' : 'absolute';
-      // 隐藏 webview 时若焦点滞留在其 guest 内，先 blur 释放焦点，
-      // 否则后续对新 webview 调用 focus() 焦点转移不生效（Vim f/F 等依赖 webview 焦点）
-      if (id !== tabId && document.activeElement === wv) {
+      if (id !== tabId) {
+        // 无条件 blur：DOM 层释放 + guest 层 window.blur()，
+        // 双保险确保焦点从 hidden webview 的 guest WebContents 中彻底移出
         wv.blur();
+        wv.executeJavaScript('window.blur();').catch(() => {});
       }
     }
   });
