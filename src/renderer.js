@@ -751,9 +751,9 @@ async function switchTab(tabId) {
     window.realmAPI.setActiveWebview(activeWebview.getWebContentsId());
   }
 
-  // 若焦点在 webview 上，同步转移到新 webview；否则保持原焦点位置（地址栏/tab 等）
-  if (activeWebview && document.activeElement && document.activeElement.tagName === 'WEBVIEW') {
-    activeWebview.focus();
+  // 切换标签后强制将焦点转移到新 webview，避免 Vim 按键被旧 webview 截获
+  if (activeWebview) {
+    setTimeout(() => activeWebview.focus(), 1000);
   }
 
   // 隐藏内嵌新标签页（现在使用 realm://newtab 加载新标签页）
@@ -2212,9 +2212,9 @@ function injectHintMode(mode) {
   })()`;
 
   webview.executeJavaScript(hintScript).then(() => {
-    // webview 从 hidden 切回 visible 后，底层 guest WebContents 需要一小段时间
-    // 才能重新接收 focus()；rAF 不够，用 100ms setTimeout 确保就绪
-    setTimeout(() => webview.focus(), 100);
+    // webview 从 hidden 切回 visible 后 tabIndex 可能失效，重新设置后再 focus
+    webview.tabIndex = -1;
+    webview.focus();
   }).catch(() => {
     // 注入失败回退标志，否则主进程 hintModeActive 卡死吞掉全部 Vim 键
     exitVimHint();
