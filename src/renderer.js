@@ -2200,7 +2200,10 @@ function injectHintMode(mode) {
     window.addEventListener('popstate', exit);
   })()`;
 
-  webview.executeJavaScript(hintScript).catch(() => {
+  webview.executeJavaScript(hintScript).then(() => {
+    // 将焦点移到 webview，确保后续字母按键被 guest 的 keydown 捕获
+    webview.focus();
+  }).catch(() => {
     // 注入失败回退标志，否则主进程 hintModeActive 卡死吞掉全部 Vim 键
     exitVimHint();
   });
