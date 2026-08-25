@@ -1535,9 +1535,9 @@ function showWebview(tabId) {
     if (wv) {
       wv.style.visibility = id === tabId ? 'visible' : 'hidden';
       wv.style.position = id === tabId ? 'relative' : 'absolute';
+      // 对非活动 webview 同时禁用 pointer-events，防止它继续接收 before-input-event
+      wv.style.pointerEvents = id === tabId ? 'auto' : 'none';
       if (id !== tabId) {
-        // 无条件 blur：DOM 层释放 + guest 层 window.blur()，
-        // 双保险确保焦点从 hidden webview 的 guest WebContents 中彻底移出
         wv.blur();
         wv.executeJavaScript('window.blur();').catch(() => {});
       }
