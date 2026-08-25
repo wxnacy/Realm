@@ -2211,8 +2211,9 @@ function injectHintMode(mode) {
   })()`;
 
   webview.executeJavaScript(hintScript).then(() => {
-    // 将焦点移到 webview，确保后续字母按键被 guest 的 keydown 捕获
-    webview.focus();
+    // webview 从 hidden 切回 visible 后，底层 guest WebContents 需要一小段时间
+    // 才能重新接收 focus()；rAF 不够，用 100ms setTimeout 确保就绪
+    setTimeout(() => webview.focus(), 100);
   }).catch(() => {
     // 注入失败回退标志，否则主进程 hintModeActive 卡死吞掉全部 Vim 键
     exitVimHint();
