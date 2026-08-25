@@ -93,6 +93,7 @@ const DEFAULT_SHORTCUTS = {
   'toggleSidebar': 'CmdOrCtrl+[',
   'findInPage': 'CmdOrCtrl+F',
   'focusUrl': 'CmdOrCtrl+L',
+  'focusPage': 'CmdOrCtrl+;',
 };
 
 // ==================== 读写函数 ====================

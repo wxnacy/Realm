@@ -716,6 +716,11 @@ async function switchTab(tabId) {
   // 更新 URL 输入框
   elements.urlInput.value = tab.url || '';
 
+  // 切换标签时重置地址栏自动补全状态，避免旧下拉框/inline 补全残留
+  state.autocomplete.query = '';
+  state.autocomplete.suggestions = [];
+  closeAutocomplete();
+
   // 更新容器指示器
   const container = state.containers.find(c => c.id === tab.containerId);
   if (container) {
@@ -1909,6 +1914,13 @@ function initShortcuts() {
         elements.urlInput.focus();
         elements.urlInput.select();
         break;
+      case 'focusPage': {
+        const pageWebview = state.webviews.get(state.activeTabId);
+        if (pageWebview) {
+          pageWebview.focus();
+        }
+        break;
+      }
       case 'escape':
         // Escape 键：关闭 Vim 帮助对话框（如果打开）
         if (state.vimHelpOpen) {
