@@ -2961,7 +2961,8 @@ async function saveProviderConfig() {
 
     // 首次保存（新输入了 Key 且模型列表为空）后自动拉取模型：
     // <10 个全部展示；>=10 个每个分组只保留最新模型（其余可在「获取模型列表」中补加）
-    const hadModels = provider.models && provider.models.length > 0;
+    // 用 customModels 判断：内置供应商 models 会 fallback 到 catalog，不能代表用户已检测过
+    const hadModels = provider.customModels && provider.customModels.length > 0;
     await loadAISettings();
     if (apiKey && !hadModels) {
       await autoPopulateModels(aiSelectedProviderId, { apiKey, baseURL, envVarName });
