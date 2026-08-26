@@ -123,7 +123,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 - Provider 定义: `shared/search-providers.ts`
 - 浏览器解析: `lib/browser/browser-search-extractors.cjs`
 
-- [ ] **Phase 40: 搜索基础设施 + web_search 工具** - search-manager.js 模块（Provider 体系 + 速率限制器 + SSRF 防护 + Auto Fallback）+ web_search AI 工具
+- [x] **Phase 40: 搜索基础设施 + web_search 工具** - search-manager.js 模块（Provider 体系 + 速率限制器 + SSRF 防护 + Auto Fallback）+ web_search AI 工具 (completed 2026-08-26)
 - [ ] **Phase 41: web_fetch 工具 + 搜索配置 UI** - web_fetch AI 工具（URL 内容抓取 + HTML 转 Markdown）+ 设置页搜索配置子区域（Provider 选择 + API Key 管理）
 
 ## Phase Details
@@ -205,5 +205,5 @@ Phases execute in numeric order: 40 → 41
 | 37. 地址栏地址补全功能 | v2.4 | 2/2 | Complete | 2026-08-21 |
 | 38. AI 助手供应商管理 | v2.4 | 3/3 | Complete | 2026-08-23 |
 | 39. Vimium 键盘操作功能 | v2.4 | 4/4 | Complete | 2026-08-24 |
-| 40. 搜索基础设施 + web_search 工具 | v2.5 | 1/1 | In Progress|  |
+| 40. 搜索基础设施 + web_search 工具 | v2.5 | 1/1 | Complete    | 2026-08-26 |
 | 41. web_fetch 工具 + 搜索配置 UI | v2.5 | 0/? | Not started | - |
