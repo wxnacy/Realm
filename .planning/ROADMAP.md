@@ -117,6 +117,7 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 **Milestone Goal:** 为 AI 助手添加网络搜索能力，使其能够搜索互联网获取实时信息并抓取网页内容
 
 **参考实现:** OpenHanako 项目（/Volumes/ZhiTai/Projects/github/openhanako/）
+
 - 实现文档: `.docs/web-search-implementation.md`
 - 核心源码: `lib/tools/web-search.ts`、`lib/tools/search-rate-limiter.ts`、`lib/tools/web-fetch.ts`
 - Provider 定义: `shared/search-providers.ts`
@@ -128,26 +129,33 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 ## Phase Details
 
 ### Phase 40: 搜索基础设施 + web_search 工具
+
 **Goal**: AI 助手能够搜索互联网，用户在聊天中提问实时信息时返回搜索结果
 **Depends on**: Phase 39
 **Requirements**: SEARCH-01, SEARCH-02, SEARCH-03, SEARCH-04, TOOL-01, TOOL-02, TOOL-03, TOOL-04
 **Success Criteria** (what must be TRUE):
+
   1. 用户在 AI 聊天中询问实时信息（如"今天天气如何"），AI 调用 web_search 返回包含标题、链接、摘要的搜索结果
   2. 当首选搜索 Provider 失败时，系统自动降级到免费 Provider（anysearch_free），无需用户手动配置
   3. 连续快速搜索不会触发 API 限流错误，速率限制器自动控制调用间隔
   4. 搜索失败时，AI 返回明确的错误诊断信息而非沉默失败
+
 Plans:
-- [ ] 40-01-PLAN.md — search-manager.js 完整实现（SearchRateLimiter + SSRF 防护 + 5 个 Provider + Auto Fallback）+ web_search AI 工具集成
+
+- [x] 40-01-PLAN.md — search-manager.js 完整实现（SearchRateLimiter + SSRF 防护 + 5 个 Provider + Auto Fallback）+ web_search AI 工具集成
 
 ### Phase 41: web_fetch 工具 + 搜索配置 UI
+
 **Goal**: AI 助手能够抓取网页全文内容，用户可以在设置中管理搜索 Provider 和 API Key
 **Depends on**: Phase 40
 **Requirements**: FETCH-01, FETCH-02, FETCH-03, FETCH-04, CONFIG-01, CONFIG-02, CONFIG-03, CONFIG-04
 **Success Criteria** (what must be TRUE):
+
   1. 用户要求 AI 读取某个 URL 的内容时，AI 调用 web_fetch 抓取页面并返回可读的 Markdown 文本
   2. web_fetch 拒绝访问内网地址（127.x、10.x、192.168.x 等），防止 SSRF 攻击
   3. 用户在设置页"网络搜索"子区域可以选择搜索 Provider、添加/删除 API Key，切换即时生效
   4. 用户添加 API Key 后可以发送测试查询验证 Key 是否有效
+
 **Plans**: TBD
 **UI hint**: yes
 
@@ -197,5 +205,5 @@ Phases execute in numeric order: 40 → 41
 | 37. 地址栏地址补全功能 | v2.4 | 2/2 | Complete | 2026-08-21 |
 | 38. AI 助手供应商管理 | v2.4 | 3/3 | Complete | 2026-08-23 |
 | 39. Vimium 键盘操作功能 | v2.4 | 4/4 | Complete | 2026-08-24 |
-| 40. 搜索基础设施 + web_search 工具 | v2.5 | 0/1 | Not started | - |
+| 40. 搜索基础设施 + web_search 工具 | v2.5 | 1/1 | In Progress|  |
 | 41. web_fetch 工具 + 搜索配置 UI | v2.5 | 0/? | Not started | - |

@@ -10,17 +10,17 @@
 
 ### 搜索基础设施
 
-- [ ] **SEARCH-01**: search-manager.js 模块初始化 — electron-store 配置读取、Provider 注册表、搜索入口函数
-- [ ] **SEARCH-02**: 速率限制器 — 每 Provider 独立策略（minIntervalMs + maxConcurrent + jitter），指数退避，429 响应处理
-- [ ] **SEARCH-03**: SSRF 防护 — 私有 IP 检测（127.x/10.x/192.168.x/172.16-31.x/localhost），DNS 解析校验，逐跳重定向检查
-- [ ] **SEARCH-04**: 搜索结果标准化 — 统一输出格式 `{title, url, content}`，Markdown 编号列表渲染
+- [x] **SEARCH-01**: search-manager.js 模块初始化 — electron-store 配置读取、Provider 注册表、搜索入口函数
+- [x] **SEARCH-02**: 速率限制器 — 每 Provider 独立策略（minIntervalMs + maxConcurrent + jitter），指数退避，429 响应处理
+- [x] **SEARCH-03**: SSRF 防护 — 私有 IP 检测（127.x/10.x/192.168.x/172.16-31.x/localhost），DNS 解析校验，逐跳重定向检查
+- [x] **SEARCH-04**: 搜索结果标准化 — 统一输出格式 `{title, url, content}`，Markdown 编号列表渲染
 
 ### web_search 工具
 
-- [ ] **TOOL-01**: web_search 工具定义 — 注册到 `_buildRealmTools()`，参数：query（必填）、maxResults（可选，默认 10）
-- [ ] **TOOL-02**: API Provider 实现 — Tavily（Bearer token）、Brave（X-Subscription-Token）、Serper（X-API-KEY）、AnySearch（Bearer/匿名）
-- [ ] **TOOL-03**: Auto 智能 Fallback 策略 — 付费 API → anysearch_free → 浏览器 Provider，失败状态分类（rate_limited/auth/empty/low_quality/blocked）
-- [ ] **TOOL-04**: 错误处理与用户反馈 — 搜索失败时返回明确错误信息，诊断信息（attempts 数组）
+- [x] **TOOL-01**: web_search 工具定义 — 注册到 `_buildRealmTools()`，参数：query（必填）、maxResults（可选，默认 10）
+- [x] **TOOL-02**: API Provider 实现 — Tavily（Bearer token）、Brave（X-Subscription-Token）、Serper（X-API-KEY）、AnySearch（Bearer/匿名）
+- [x] **TOOL-03**: Auto 智能 Fallback 策略 — 付费 API → anysearch_free → 浏览器 Provider，失败状态分类（rate_limited/auth/empty/low_quality/blocked）
+- [x] **TOOL-04**: 错误处理与用户反馈 — 搜索失败时返回明确错误信息，诊断信息（attempts 数组）
 
 ### web_fetch 工具
 
