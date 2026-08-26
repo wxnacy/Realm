@@ -114,6 +114,7 @@ const devRequestsWriter = require('./dev-requests-writer');
 const AIManager = require('./ai-manager');
 const { executeScript, validateScriptForSteps } = require('./ai-manager');
 const dragCoordinator = require('./drag-coordinator');
+const searchManager = require('./search-manager');
 
 // AI Manager 实例（在 app.whenReady 中初始化，供后续 Phase 通过 require('./main').aiManager 访问）
 let aiManager = null;
@@ -2586,6 +2587,9 @@ app.whenReady().then(async () => {
   cdpManager.init(configStore);
   devRequestsWriter.init();
   cdpManager.setWriter(devRequestsWriter);
+
+  // 初始化搜索管理器（per Phase 40）
+  searchManager.initSearchManager(configStore);
 
   // 初始化 AI Manager（per Phase 19）
   aiManager = new AIManager();

@@ -24,6 +24,7 @@ const historyManager = require('./history-manager');
 const favoritesManager = require('./favorites-manager');
 const windowManager = require('./window-manager');
 const cdpManager = require('./cdp-manager');
+const searchManager = require('./search-manager');
 
 // ==================== Readability 库缓存 ====================
 
@@ -2890,6 +2891,84 @@ ${content}
               droppedGroups,
             },
           };
+        },
+      },
+
+      // ==================== web_search 工具 ====================
+      /**
+       * 网络搜索工具
+       *
+       * 搜索互联网获取实时信息。当需要最新新闻、技术文档、当前事件或任何不在记忆中的外部知识时使用。
+       * 委托 search-manager.js 执行搜索，支持多个 Provider 和智能 Fallback。
+       */
+      {
+        name: 'web_search',
+        label: '网络搜索',
+        description: '搜索互联网获取实时信息。当需要最新新闻、技术文档、当前事件或任何不在记忆中的外部知识时使用。',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: '搜索关键词',
+            },
+            maxResults: {
+              type: 'number',
+              description: '返回结果数量（可选，默认 10）',
+            },
+          },
+          required: ['query'],
+        },
+        execute: async (toolCallId, params) => {
+          const { query, maxResults = 10 } = params;
+          if (!query || !query.trim()) {
+            throw new Error('搜索关键词不能为空');
+          }
+
+          try {
+            const searchPayload = await searchManager.doSearch(query, maxResults);
+            const { results, provider } = searchPayload;
+
+            if (results.length === 0) {
+              return {
+                content: [{
+                  type: 'text',
+                  text: `未找到「${query}」的搜索结果。已尝试 Provider: ${provider}。请尝试换个关键词搜索。`,
+                }],
+                details: searchPayload,
+              };
+            }
+
+            const displayLimit = searchManager.clampResultsToRange(maxResults, {
+              defaultValue: 10,
+              max: 100,
+            });
+            const formatted = searchManager.formatSearchResults(results, displayLimit);
+
+            return {
+              content: [{
+                type: 'text',
+                text: formatted,
+              }],
+              details: {
+                provider,
+                resultCount: results.length,
+              },
+            };
+          } catch (err) {
+            // 错误处理：返回包含诊断信息的错误文本
+            const attempts = err.attempts || [];
+            const attemptsInfo = attempts.length > 0
+              ? `已尝试 ${attempts.length} 个 Provider，均不可用。`
+              : '';
+            return {
+              content: [{
+                type: 'text',
+                text: `搜索失败：${err.message}。${attemptsInfo}请检查网络连接或在设置中配置搜索 API Key。`,
+              }],
+              details: { error: err.message },
+            };
+          }
         },
       },
     ];
