@@ -7237,6 +7237,94 @@ function handleAIStream() {
 }
 
 /**
+ * 切换图片放大/缩小状态
+ * 点击图片时居中显示，再次点击恢复原位
+ * @param {HTMLImageElement} img - 图片元素
+ */
+function toggleImageZoom(img) {
+  const isZoomed = img.classList.contains('image-zoomed');
+
+  // 移除已有的放大遮罩
+  const existingOverlay = document.querySelector('.image-zoom-overlay');
+  if (existingOverlay) {
+    existingOverlay.remove();
+  }
+
+  if (isZoomed) {
+    // 恢复原位
+    img.classList.remove('image-zoomed');
+    document.body.style.overflow = '';
+  } else {
+    // 创建遮罩层
+    const overlay = document.createElement('div');
+    overlay.className = 'image-zoom-overlay';
+    overlay.addEventListener('click', () => {
+      img.classList.remove('image-zoomed');
+      overlay.remove();
+      document.body.style.overflow = '';
+    });
+    document.body.appendChild(overlay);
+
+    // 放大图片
+    img.classList.add('image-zoomed');
+    document.body.style.overflow = 'hidden';
+  }
+}
+
+/**
+ * 显示图片右键菜单
+ * @param {MouseEvent} e - 鼠标事件
+ * @param {string} base64Data - 图片 base64 数据
+ */
+function showImageContextMenu(e, base64Data) {
+  // 移除已有的菜单
+  const existingMenu = document.querySelector('.image-context-menu');
+  if (existingMenu) {
+    existingMenu.remove();
+  }
+
+  // 创建菜单
+  const menu = document.createElement('div');
+  menu.className = 'image-context-menu';
+  menu.style.left = `${e.clientX}px`;
+  menu.style.top = `${e.clientY}px`;
+
+  // 下载按钮
+  const downloadBtn = document.createElement('div');
+  downloadBtn.className = 'image-context-menu-item';
+  downloadBtn.textContent = '下载图片';
+  downloadBtn.addEventListener('click', () => {
+    downloadImage(base64Data);
+    menu.remove();
+  });
+
+  menu.appendChild(downloadBtn);
+  document.body.appendChild(menu);
+
+  // 点击其他地方关闭菜单
+  const closeMenu = (e) => {
+    if (!menu.contains(e.target)) {
+      menu.remove();
+      document.removeEventListener('click', closeMenu);
+    }
+  };
+  setTimeout(() => {
+    document.addEventListener('click', closeMenu);
+  }, 0);
+}
+
+/**
+ * 下载图片到本地
+ * @param {string} base64Data - 图片 base64 数据
+ */
+function downloadImage(base64Data) {
+  const link = document.createElement('a');
+  link.href = `data:image/png;base64,${base64Data}`;
+  link.download = `screenshot-${Date.now()}.png`;
+  link.click();
+}
+
+/**
  * 渲染单个工具执行卡片
  * 创建可折叠的工具卡片，显示工具名称、状态图标和执行详情
  * 参数和结果使用 textContent 设置，防止 XSS（T-21-03 缓解）
@@ -7371,6 +7459,21 @@ function renderToolCard(toolExecution) {
     if (base64Data) {
       img.src = `data:image/png;base64,${base64Data}`;
       img.alt = '截图';
+      img.dataset.base64 = base64Data;
+
+      // 左键点击：放大/缩小图片
+      img.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleImageZoom(img);
+      });
+
+      // 右键菜单：下载图片
+      img.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        showImageContextMenu(e, base64Data);
+      });
+
       imageContainer.appendChild(img);
       card.appendChild(imageContainer);
     }
