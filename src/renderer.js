@@ -229,6 +229,7 @@ const state = {
   aiStreaming: false,
   aiCurrentMessageId: null,
   aiAutoScroll: true,
+  aiCancelledByUser: false,
 
   // @ 引用标签页状态
   contextPickerOpen: false,
@@ -6262,6 +6263,7 @@ async function handleNewConversation() {
   }
   state.aiStreaming = false;
   state.aiCurrentMessageId = null;
+  state.aiCancelledByUser = false;
   // 清除引用的标签页
   state.referencedTabs = [];
   if (elements.aiContextPills) {
@@ -6926,10 +6928,13 @@ function updateSendButtonState(isStreaming) {
  */
 async function handleStopAI() {
   try {
+    // 标记为用户主动取消
+    state.aiCancelledByUser = true;
     await window.realmAPI.ai.abort();
     console.log('[Realm Renderer] AI 回复已停止');
   } catch (err) {
     console.error('[Realm Renderer] 停止 AI 回复失败:', err);
+    state.aiCancelledByUser = false;
   }
 }
 
@@ -7183,6 +7188,23 @@ function handleAIStream() {
         }
 
         case 'error': {
+          // 用户主动取消：在 AI 气泡中显示"用户已取消"
+          if (state.aiCancelledByUser) {
+            state.aiCancelledByUser = false;
+            const cancelIdx = state.aiMessages.findIndex(
+              m => m.role === 'assistant' && m.id === state.aiCurrentMessageId
+            );
+            if (cancelIdx >= 0) {
+              state.aiMessages[cancelIdx].content = '*用户已取消*';
+            }
+            state.aiStreaming = false;
+            state.aiCurrentMessageId = null;
+            // 切换回发送按钮
+            updateSendButtonState(false);
+            needsRender = true;
+            break;
+          }
+
           // 错误事件：停止流式状态，显示错误提示和重试按钮
           // 若 AI 占位气泡仍为空（无内容无工具卡片），移除它——
           // 错误条本身就是反馈，留个空气泡没有意义
@@ -7198,6 +7220,8 @@ function handleAIStream() {
           }
           state.aiStreaming = false;
           state.aiCurrentMessageId = null;
+          // 切换回发送按钮
+          updateSendButtonState(false);
           needsRender = true;
           // 延迟调用 showAIError，确保 renderAIMessages 先执行
           setTimeout(() => showAIError(event.message), 0);
