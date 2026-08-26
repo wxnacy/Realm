@@ -812,13 +812,14 @@ function formatSearchResults(results, displayLimit) {
 const PROVIDERS = {};
 
 // 延迟注册 Provider（函数定义后）
+// endpoint: API 端点 URL（用于 SSRF 防护检查，仅 API 类型 Provider 需要）
 function registerProviders() {
-  PROVIDERS.tavily = { search: searchTavily, requiresApiKey: true, sourceType: 'api' };
-  PROVIDERS.brave = { search: searchBrave, requiresApiKey: true, sourceType: 'api' };
-  PROVIDERS.serper = { search: searchSerper, requiresApiKey: true, sourceType: 'api' };
-  PROVIDERS[ANYSEARCH_PROVIDER] = { search: searchAnySearch, requiresApiKey: true, sourceType: 'api' };
-  PROVIDERS[ANYSEARCH_FREE_PROVIDER] = { search: searchAnySearchFree, requiresApiKey: false, sourceType: 'api' };
-  PROVIDERS.duckduckgo_browser = { search: searchDDGBrowser, requiresApiKey: false, sourceType: 'browser' };
+  PROVIDERS.tavily = { search: searchTavily, requiresApiKey: true, sourceType: 'api', endpoint: 'https://api.tavily.com/search' };
+  PROVIDERS.brave = { search: searchBrave, requiresApiKey: true, sourceType: 'api', endpoint: 'https://api.search.brave.com/res/v1/web/search' };
+  PROVIDERS.serper = { search: searchSerper, requiresApiKey: true, sourceType: 'api', endpoint: 'https://google.serper.dev/search' };
+  PROVIDERS[ANYSEARCH_PROVIDER] = { search: searchAnySearch, requiresApiKey: true, sourceType: 'api', endpoint: ANYSEARCH_SEARCH_URL };
+  PROVIDERS[ANYSEARCH_FREE_PROVIDER] = { search: searchAnySearchFree, requiresApiKey: false, sourceType: 'api', endpoint: ANYSEARCH_SEARCH_URL };
+  PROVIDERS.duckduckgo_browser = { search: searchDDGBrowser, requiresApiKey: false, sourceType: 'browser', endpoint: 'https://duckduckgo.com/' };
 }
 
 /**
@@ -1345,6 +1346,15 @@ async function runProviderSearch({ provider, query, maxResults, apiKey, rateLimi
   if (meta.requiresApiKey && !apiKey) {
     throw new Error(`搜索 Provider ${provider} 需要 API Key，请在设置中配置`);
   }
+
+  // SSRF 防护：检查 Provider 端点是否解析到私有 IP
+  if (meta.endpoint) {
+    const hostname = new URL(meta.endpoint).hostname;
+    if (await isPrivateHost(hostname)) {
+      throw new Error(`搜索 Provider ${provider} 的端点 ${hostname} 解析到私有 IP，请求已阻止`);
+    }
+  }
+
   const providerMaxResults = maxResultsForProvider(provider, maxResults);
   const limiter = rateLimiter || _rateLimiter;
   const payload = await limiter.run(provider, meta.sourceType, () => {
