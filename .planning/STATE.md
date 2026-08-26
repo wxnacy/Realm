@@ -1,19 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.4
-current_phase: 39
-status: completed
-stopped_at: Phase 39 complete — all phases complete
-last_updated: "2026-08-24T15:09:32.489Z"
-last_activity: 2026-08-24
-last_activity_desc: Phase 39 complete
-state_head: 16761b6530923a37bb11b4e0a7d2a2c1ad5c3596
+milestone: v2.5
+milestone_name: AI 网络搜索功能
+status: planning
+last_updated: "2026-08-26T11:15:33.963Z"
+last_activity: 2026-08-26
 progress:
-  total_phases: 10
-  completed_phases: 4
-  total_plans: 29
-  completed_plans: 29
-milestone_name: 多窗口支持
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State: Realm Browser
@@ -27,12 +24,10 @@ See: .planning/PROJECT.md (updated 2026-08-14)
 
 ## Current Position
 
-Phase: 39
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-08-24 — Phase 39 complete
-
-Progress: [████████████████████████████████████████████████] 100%
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-08-26 — Milestone v2.5 started
 
 ## Performance Metrics
 

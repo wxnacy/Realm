@@ -149,9 +149,18 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - **收藏栏多行显示** — 仅支持单行显示
 - **DASH (.mpd) 播放** — v2.2 暂缓：嗅探/renderer/CSS 已补 dash 支持但复验仍失败，二层根因未诊断（UAT G-28-2，2026-08-08 用户决定，走 /gsd-plan-phase 28 --gaps 续查）
 
-## Current Milestone: v2.5 (Planned)
+## Current Milestone: v2.5 AI 网络搜索功能
 
-**Goal:** 待规划
+**Goal:** 为 AI 助手添加网络搜索能力，使其能够搜索互联网获取实时信息
+
+**Target features:**
+- web_search 工具（API Provider: tavily/brave/serper/anysearch）
+- web_search 工具（免费 Provider: anysearch_free）
+- web_search 工具（浏览器 Provider: bing_browser/google_browser/duckduckgo_browser）
+- Auto 智能 Fallback 策略
+- 速率限制器
+- web_fetch 工具（URL 内容抓取 + SSRF 防护）
+- 搜索配置 UI（设置页面集成）
 
 ## Current State
 
@@ -193,7 +202,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 ## Next Milestone Goals
 
-**v2.5** (planned)
+**v2.6** (planned)
 - 边播边缓存 (Deferred from v2.3)
 - 增强功能 (ENH-01~06: 截图/画中画/播放列表/字幕/DASH/RTMP)
 - 书签导出
