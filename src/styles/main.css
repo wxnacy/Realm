@@ -5534,6 +5534,7 @@ textarea::placeholder {
 /* 展开状态 */
 .tool-card.expanded .tool-card-content {
   max-height: 500px;
+  overflow-y: auto;
 }
 
 /* 参数/结果区域 */

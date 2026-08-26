@@ -2462,6 +2462,23 @@ ${content}
             result.success ? `${action} 操作执行成功` : (result.error || '操作执行失败'));
 
           // 7. 返回操作结果 + 页面变化信息（per D-12）
+
+          // 截图操作特殊处理：返回图片类型，让 AI 模型能真正"看到"图片内容
+          if (action === 'screenshot' && result.success) {
+            return {
+              content: [
+                { type: 'image', data: result.result, mimeType: 'image/png' },
+                { type: 'text', text: '截图已完成，请分析图片内容。' },
+              ],
+              details: {
+                action,
+                success: true,
+                pageChanges: result.pageChanges,
+              },
+            };
+          }
+
+          // 其他操作返回文本结果
           return {
             content: [{
               type: 'text',
