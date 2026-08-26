@@ -19,6 +19,7 @@
   --danger-color: #EF4444;
   --success-color: #10B981;
   --warning-color: #F59E0B;
+  --ai-tool-card-bg: #252525;
 }
 
 [data-theme="light"] {
@@ -5187,7 +5188,6 @@ textarea::placeholder {
   --ai-input-max-height: 120px;
   --ai-bubble-radius: 12px;
   --ai-bubble-max-width: 85%;
-  --ai-tool-card-bg: #252525;
 }
 
 /* 面板容器（右侧侧边栏，默认隐藏） */
