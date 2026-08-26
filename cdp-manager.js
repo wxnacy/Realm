@@ -21,6 +21,9 @@
 const { ipcMain, webContents } = require('electron');
 const uaChManager = require('./ua-ch-manager');
 
+/** Canvas 拼接最大维度限制（浏览器安全限制） */
+const MAX_CANVAS_DIMENSION = 16384;
+
 // ==================== 状态管理 ====================
 
 /** @type {import('electron-store')|null} electron-store 实例 */
@@ -460,6 +463,266 @@ async function executeCommand(webContentsId, method, params = {}, timeout = 1000
     return { success: false, error: err.message };
   } finally {
     clearTimeout(timeoutId);
+  }
+}
+
+// ==================== 全页面截图（滚动拼接）====================
+
+/**
+ * 使用 offscreen BrowserWindow + Canvas 拼接多张截图
+ *
+ * @param {string[]} screenshots - Data URL 数组
+ * @param {number} width - 拼接后总宽度（物理像素）
+ * @param {number} height - 拼接后总高度（物理像素）
+ * @param {number} stepHeight - 每张截图的高度（物理像素）
+ * @param {string} format - 输出格式（png/jpeg）
+ * @param {number} quality - 输出质量（jpeg 用）
+ * @returns {Promise<string>} base64 编码的图片数据
+ */
+async function stitchScreenshots(screenshots, width, height, stepHeight, format, quality) {
+  const { BrowserWindow } = require('electron');
+
+  // 限制 canvas 尺寸，避免内存溢出
+  if (width > MAX_CANVAS_DIMENSION || height > MAX_CANVAS_DIMENSION) {
+    throw new Error(`截图尺寸过大: ${width}x${height}，超过浏览器最大限制 ${MAX_CANVAS_DIMENSION}`);
+  }
+
+  const win = new BrowserWindow({
+    show: false,
+    webPreferences: { offscreen: true },
+    width: 1,
+    height: 1,
+  });
+
+  try {
+    await win.loadURL('about:blank');
+
+    // 初始化 canvas
+    await win.webContents.executeJavaScript(`
+      window._stitchCanvas = document.createElement('canvas');
+      window._stitchCanvas.width = ${width};
+      window._stitchCanvas.height = ${height};
+      window._stitchCtx = window._stitchCanvas.getContext('2d');
+    `);
+
+    // 逐张绘制
+    for (let i = 0; i < screenshots.length; i++) {
+      const dataUrl = screenshots[i];
+      const y = i * stepHeight;
+      const isLast = i === screenshots.length - 1;
+      // 最后一张可能只需要绘制剩余高度
+      const remainingHeight = height - y;
+      const drawHeight = isLast && remainingHeight < stepHeight ? remainingHeight : stepHeight;
+
+      await win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => {
+            if (${drawHeight} < img.naturalHeight) {
+              // 最后一段底部对齐：截取时已锚定页面底部（scroll = maxScroll），
+              // 取截图底部 drawHeight 区域，避免把底部视口的顶部内容重复画到末尾
+              window._stitchCtx.drawImage(
+                img,
+                0, img.naturalHeight - ${drawHeight}, img.naturalWidth, ${drawHeight},
+                0, ${y}, img.naturalWidth, ${drawHeight}
+              );
+            } else {
+              window._stitchCtx.drawImage(img, 0, ${y});
+            }
+            resolve();
+          };
+          img.onerror = () => reject(new Error('截图拼接失败: 图片加载错误'));
+          img.src = ${JSON.stringify(dataUrl)};
+        })
+      `);
+    }
+
+    // 导出为指定格式
+    const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+    const qualityArg = format === 'jpeg' ? `, ${quality / 100}` : '';
+    const resultDataUrl = await win.webContents.executeJavaScript(`
+      window._stitchCanvas.toDataURL('${mimeType}'${qualityArg})
+    `);
+
+    return resultDataUrl.split(',')[1];
+  } finally {
+    win.destroy();
+  }
+}
+
+/**
+ * 使用滚动拼接方式截取全页面截图
+ * 解决 Electron webview 中 CDP captureBeyondViewport 不工作的问题
+ *
+ * @param {number} webContentsId - webContents ID
+ * @param {string} format - 图片格式（png/jpeg）
+ * @param {number} quality - 图片质量（jpeg 用）
+ * @returns {Promise<{success: boolean, result?: string, error?: string}>}
+ */
+async function captureFullPageByScrolling(webContentsId, format, quality) {
+  const { webContents } = require('electron');
+  const wc = webContents.fromId(webContentsId);
+  if (!wc || wc.isDestroyed()) {
+    return { success: false, error: '标签页已关闭' };
+  }
+
+  let originalScrollY = 0;
+  let zoomAdjusted = false;
+  let originalZoomFactor = 1;
+
+  try {
+    // 获取页面尺寸和滚动位置
+    const metrics = await wc.executeJavaScript(`
+      (function() {
+        const de = document.documentElement;
+        const body = document.body;
+        return {
+          clientWidth: de.clientWidth,
+          clientHeight: de.clientHeight,
+          scrollHeight: Math.max(de.scrollHeight, body ? body.scrollHeight : 0),
+          dpr: window.devicePixelRatio || 1,
+          scrollY: window.scrollY || window.pageYOffset || 0
+        };
+      })()
+    `);
+
+    const MAX_HEIGHT = 10000;
+    let totalHeightCSS = Math.min(metrics.scrollHeight, MAX_HEIGHT);
+    originalScrollY = metrics.scrollY;
+
+    console.log(`[Realm CDP] 滚动拼接全页面截图: 视口 ${metrics.clientWidth}x${metrics.clientHeight}, 页面高度 ${metrics.scrollHeight}, DPR ${metrics.dpr}`);
+
+    // 滚动到顶部并截取第一张，确定实际截图尺寸
+    await wc.executeJavaScript('window.scrollTo(0, 0)');
+    await new Promise(r => setTimeout(r, 300));
+
+    let firstImage = await wc.capturePage();
+    let { width: screenshotWidth, height: screenshotHeight } = firstImage.getSize();
+    let clientHeight = metrics.clientHeight;
+
+    // 超出 canvas 物理像素上限时：临时降低缩放因子，让完整页面高度可拼接
+    // 截断会丢失底部内容；降缩放是等比缩小，内容完整保留，代价是整体分辨率降低
+    if (Math.round(totalHeightCSS * screenshotHeight / clientHeight) > MAX_CANVAS_DIMENSION) {
+      originalZoomFactor = wc.getZoomFactor();
+      const shrink = MAX_CANVAS_DIMENSION * clientHeight / (totalHeightCSS * screenshotHeight) * 0.98;
+      const newZoomFactor = Math.max(0.25, originalZoomFactor * shrink);
+      console.log(`[Realm CDP] 页面高度超出 canvas 限制，缩放因子 ${originalZoomFactor} -> ${newZoomFactor.toFixed(3)}`);
+      await wc.setZoomFactor(newZoomFactor);
+      zoomAdjusted = true;
+      await new Promise(r => setTimeout(r, 300));
+
+      // zoom 改变布局视口尺寸，重新测量并重截第一张
+      const zoomedMetrics = await wc.executeJavaScript(`
+        (function() {
+          const de = document.documentElement;
+          const body = document.body;
+          return {
+            clientHeight: de.clientHeight,
+            scrollHeight: Math.max(de.scrollHeight, body ? body.scrollHeight : 0)
+          };
+        })()
+      `);
+      clientHeight = zoomedMetrics.clientHeight;
+      totalHeightCSS = Math.min(zoomedMetrics.scrollHeight, MAX_HEIGHT);
+      await wc.executeJavaScript('window.scrollTo(0, 0)');
+      await new Promise(r => setTimeout(r, 300));
+      firstImage = await wc.capturePage();
+      ({ width: screenshotWidth, height: screenshotHeight } = firstImage.getSize());
+    }
+
+    // 预滚动到底部触发懒加载/IntersectionObserver，获取真实页面高度
+    // 某些组件（如"五大焦点看点"）依赖滚动进入视口才渲染完整内容
+    await wc.executeJavaScript(`window.scrollTo(0, ${totalHeightCSS})`);
+    await new Promise(r => setTimeout(r, 600));
+    // 触发 scroll 事件帮助懒加载组件感知位置
+    await wc.executeJavaScript(`window.dispatchEvent(new Event('scroll'))`);
+    await new Promise(r => setTimeout(r, 400));
+
+    // 重新测量 scrollHeight（懒加载后可能增加）
+    const finalMetrics = await wc.executeJavaScript(`
+      (function() {
+        const de = document.documentElement;
+        const body = document.body;
+        return {
+          scrollHeight: Math.max(de.scrollHeight, body ? body.scrollHeight : 0)
+        };
+      })()
+    `);
+    if (finalMetrics.scrollHeight > totalHeightCSS) {
+      console.log(`[Realm CDP] 懒加载后页面高度增加: ${totalHeightCSS} -> ${finalMetrics.scrollHeight}`);
+      totalHeightCSS = Math.min(finalMetrics.scrollHeight, MAX_HEIGHT);
+    }
+
+    // 根据 canvas 最大限制反推允许的最大 CSS 高度（兜底：缩放已到下限 0.25 仍超限的极端情况）
+    // screenshotHeight 是物理像素，clientHeight 是 CSS 像素，比值 ≈ DPR × zoomFactor
+    const maxCSSHeightByCanvas = Math.floor(
+      MAX_CANVAS_DIMENSION * clientHeight / screenshotHeight
+    );
+    if (totalHeightCSS > maxCSSHeightByCanvas) {
+      console.log(`[Realm CDP] Canvas 高度限制: CSS 高度从 ${totalHeightCSS} 截断到 ${maxCSSHeightByCanvas}`);
+      totalHeightCSS = maxCSSHeightByCanvas;
+    }
+
+    // 计算 canvas 总尺寸（物理像素）
+    const canvasWidth = screenshotWidth;
+    const canvasHeight = Math.round(totalHeightCSS * screenshotHeight / clientHeight);
+
+    // 如果页面高度不超过一个视口，直接返回单张截图
+    if (canvasHeight <= screenshotHeight) {
+      await wc.executeJavaScript(`window.scrollTo(0, ${originalScrollY})`);
+      if (format === 'jpeg') {
+        return { success: true, result: firstImage.toJPEG(quality).toString('base64') };
+      }
+      return { success: true, result: firstImage.toPNG().toString('base64') };
+    }
+
+    // 计算需要截图的次数
+    const stepHeight = screenshotHeight;
+    const steps = Math.ceil(canvasHeight / stepHeight);
+
+    console.log(`[Realm CDP] 截图拼接: canvas ${canvasWidth}x${canvasHeight}, 步长 ${stepHeight}, 共 ${steps} 张`);
+
+    const screenshots = [firstImage.toDataURL()];
+
+    // 滚动并截图
+    for (let i = 1; i < steps; i++) {
+      // 钳制到最大滚动位置（最后一段锚定页面底部）：
+      // scrollTo 超过 maxScroll 会被浏览器静默钳制，若不钳制计划值，
+      // 拼接时会把底部视口的顶部内容错位画到末尾（内容重复、真实底部丢失）
+      const scrollCSS = Math.min(
+        Math.round(i * stepHeight * clientHeight / screenshotHeight),
+        Math.max(0, totalHeightCSS - clientHeight)
+      );
+      await wc.executeJavaScript(`
+        window.scrollTo(0, ${scrollCSS});
+        window.dispatchEvent(new Event('scroll'));
+      `);
+      await new Promise(r => setTimeout(r, 500));
+
+      const image = await wc.capturePage();
+      screenshots.push(image.toDataURL());
+    }
+
+    // 恢复原始滚动位置
+    await wc.executeJavaScript(`window.scrollTo(0, ${originalScrollY})`);
+
+    // 拼接截图
+    const stitchedBase64 = await stitchScreenshots(
+      screenshots, canvasWidth, canvasHeight, stepHeight, format, quality
+    );
+
+    return { success: true, result: stitchedBase64 };
+  } catch (err) {
+    console.error('[Realm CDP] 滚动拼接截图失败:', err);
+    return { success: false, error: err.message || '全页面截图失败' };
+  } finally {
+    // 异常时也要尝试恢复缩放因子与滚动位置
+    if (wc && !wc.isDestroyed()) {
+      if (zoomAdjusted) {
+        Promise.resolve(wc.setZoomFactor(originalZoomFactor)).catch(() => {});
+      }
+      wc.executeJavaScript(`window.scrollTo(0, ${originalScrollY})`).catch(() => {});
+    }
   }
 }
 
@@ -1444,66 +1707,21 @@ async function executeAction(webContentsId, action, target, options) {
       const quality = options?.quality || 80;
       const fullPage = options?.fullPage || false;
 
+      // 全页面截图：使用滚动拼接方案（CDP captureBeyondViewport 在 Electron webview 中不工作）
+      if (fullPage) {
+        const result = await captureFullPageByScrolling(webContentsId, format, quality);
+        if (result.success) {
+          const pageChanges = await _collectPageChanges(webContentsId);
+          return { success: true, result: result.result, pageChanges };
+        }
+        return result;
+      }
+
+      // 普通截图：使用 CDP Page.captureScreenshot
       let screenshotOptions = {
         format,
         quality,
       };
-
-      // 全页面截图：先设置视口大小为完整页面尺寸，再截取
-      if (fullPage) {
-        // 获取页面布局信息
-        const layoutResult = await executeCommand(webContentsId, 'Page.getLayoutMetrics');
-        if (!layoutResult.success) {
-          return { success: false, error: '获取页面尺寸失败' };
-        }
-
-        const contentSize = layoutResult.result?.contentSize;
-        if (!contentSize || !contentSize.width || !contentSize.height) {
-          return { success: false, error: '无法获取页面尺寸' };
-        }
-
-        // 限制最大高度为 10000px，避免生成过大的图片
-        const maxHeight = 10000;
-        const height = Math.min(contentSize.height, maxHeight);
-
-        console.log(`[Realm CDP] 全页面截图: ${contentSize.width}x${height} (原始高度: ${contentSize.height})`);
-
-        // 保存原始视口信息
-        const originalViewport = await executeCommand(webContentsId, 'Page.getFrameTree');
-
-        // 设置视口大小为完整页面尺寸
-        await executeCommand(webContentsId, 'Emulation.setDeviceMetricsOverride', {
-          width: Math.round(contentSize.width),
-          height: Math.round(height),
-          deviceScaleFactor: 1,
-          mobile: false,
-        });
-
-        // 等待视口调整生效
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        screenshotOptions.captureBeyondViewport = true;
-        screenshotOptions.clip = {
-          x: 0,
-          y: 0,
-          width: contentSize.width,
-          height: height,
-          scale: 1,
-        };
-
-        // 截图后恢复原始视口
-        try {
-          const result = await executeCommand(webContentsId, 'Page.captureScreenshot', screenshotOptions);
-          if (!result.success) {
-            return { success: false, error: result.error || '截图失败' };
-          }
-          const pageChanges = await _collectPageChanges(webContentsId);
-          return { success: true, result: result.result?.data, pageChanges };
-        } finally {
-          // 恢复默认视口
-          await executeCommand(webContentsId, 'Emulation.clearDeviceMetricsOverride');
-        }
-      }
 
       const result = await executeCommand(webContentsId, 'Page.captureScreenshot', screenshotOptions);
       if (!result.success) {
