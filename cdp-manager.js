@@ -355,30 +355,47 @@ async function attachForAI(webContentsId, domains = ['Runtime']) {
     }
   }
 
-  try {
-    // 附加 CDP 调试器（协议版本 1.3）
-    wc.debugger.attach('1.3');
+  // 重试机制：最多尝试 3 次，每次间隔 500ms
+  // 解决页面加载完成后 webContents 仍处于过渡状态的问题
+  const maxRetries = 3;
+  const retryDelay = 500;
 
-    // 逐个启用请求的域
-    for (const domain of domains) {
-      await wc.debugger.sendCommand(`${domain}.enable`);
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // 附加 CDP 调试器（协议版本 1.3）
+      wc.debugger.attach('1.3');
+
+      // 逐个启用请求的域
+      for (const domain of domains) {
+        await wc.debugger.sendCommand(`${domain}.enable`);
+      }
+
+      // 更新状态（source 标记区分 AI 附加和 Network 抓取附加）
+      debuggerStates.set(wc.id, {
+        attached: true,
+        source: 'ai-tool',
+        domains,
+      });
+
+      console.log(`[Realm CDP] AI 调试器已附加, webContents: ${wc.id}, 域: ${domains.join(', ')}`);
+      return { success: true };
+    } catch (err) {
+      console.error(`[Realm CDP] AI 调试器附加失败 (尝试 ${attempt}/${maxRetries}): ${err.message}`);
+
+      // 清理本次尝试的状态
+      try { wc.debugger.detach(); } catch {}
+      debuggerStates.delete(wc.id);
+
+      // 如果还有重试机会，等待后重试
+      if (attempt < maxRetries) {
+        console.log(`[Realm CDP] ${retryDelay}ms 后重试...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      }
     }
-
-    // 更新状态（source 标记区分 AI 附加和 Network 抓取附加）
-    debuggerStates.set(wc.id, {
-      attached: true,
-      source: 'ai-tool',
-      domains,
-    });
-
-    console.log(`[Realm CDP] AI 调试器已附加, webContents: ${wc.id}, 域: ${domains.join(', ')}`);
-    return { success: true };
-  } catch (err) {
-    console.error(`[Realm CDP] AI 调试器附加失败: ${err.message}`);
-    try { wc.debugger.detach(); } catch {}
-    // 用户可见文案按 22-UI-SPEC 契约，技术细节保留在上方日志
-    return { success: false, error: '无法连接到页面调试器，请刷新页面后重试' };
   }
+
+  // 所有重试都失败
+  return { success: false, error: '无法连接到页面调试器，请刷新页面后重试' };
 }
 
 /**
