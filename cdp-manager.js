@@ -1449,7 +1449,7 @@ async function executeAction(webContentsId, action, target, options) {
         quality,
       };
 
-      // 全页面截图：获取页面完整尺寸并使用 captureBeyondViewport
+      // 全页面截图：先设置视口大小为完整页面尺寸，再截取
       if (fullPage) {
         // 获取页面布局信息
         const layoutResult = await executeCommand(webContentsId, 'Page.getLayoutMetrics');
@@ -1466,6 +1466,22 @@ async function executeAction(webContentsId, action, target, options) {
         const maxHeight = 10000;
         const height = Math.min(contentSize.height, maxHeight);
 
+        console.log(`[Realm CDP] 全页面截图: ${contentSize.width}x${height} (原始高度: ${contentSize.height})`);
+
+        // 保存原始视口信息
+        const originalViewport = await executeCommand(webContentsId, 'Page.getFrameTree');
+
+        // 设置视口大小为完整页面尺寸
+        await executeCommand(webContentsId, 'Emulation.setDeviceMetricsOverride', {
+          width: Math.round(contentSize.width),
+          height: Math.round(height),
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+
+        // 等待视口调整生效
+        await new Promise(resolve => setTimeout(resolve, 100));
+
         screenshotOptions.captureBeyondViewport = true;
         screenshotOptions.clip = {
           x: 0,
@@ -1475,7 +1491,18 @@ async function executeAction(webContentsId, action, target, options) {
           scale: 1,
         };
 
-        console.log(`[Realm CDP] 全页面截图: ${contentSize.width}x${height} (原始高度: ${contentSize.height})`);
+        // 截图后恢复原始视口
+        try {
+          const result = await executeCommand(webContentsId, 'Page.captureScreenshot', screenshotOptions);
+          if (!result.success) {
+            return { success: false, error: result.error || '截图失败' };
+          }
+          const pageChanges = await _collectPageChanges(webContentsId);
+          return { success: true, result: result.result?.data, pageChanges };
+        } finally {
+          // 恢复默认视口
+          await executeCommand(webContentsId, 'Emulation.clearDeviceMetricsOverride');
+        }
       }
 
       const result = await executeCommand(webContentsId, 'Page.captureScreenshot', screenshotOptions);
