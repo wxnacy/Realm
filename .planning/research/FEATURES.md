@@ -1,243 +1,159 @@
-# Feature Landscape -- v2.4 多窗口支持
+# Feature Research: Realm Browser AI 网络搜索功能
 
-**Domain:** Electron 多容器浏览器 - 多窗口功能
-**Researched:** 2026-08-14
-**Overall confidence:** HIGH
+**Domain:** AI Agent 网络搜索工具（Electron 桌面浏览器）
+**Researched:** 2026-08-26
+**Confidence:** HIGH（基于 HanaAgent 参考实现 + 现有代码库分析）
 
-## Executive Summary
+## Feature Landscape
 
-v2.4 的核心目标是将 Realm Browser 从单窗口多 Tab 架构扩展为多窗口架构。研究结论表明，Chrome 的多窗口行为是用户的核心参考基准，必须遵循。
+### Table Stakes (Users Expect These)
 
-**Chrome 核心行为：**
-- 拖拽 Tab 出标签栏创建新窗口（detach）
-- 拖拽 Tab 到另一个窗口的标签栏（attach）
-- 拖拽 Tab 改变窗口内顺序（reorder）
-- 窗口关闭时如果只剩一个 Tab，自动销毁窗口
-- Dock 右击"新建窗口"（macOS: Cmd+N）
-- Tab 状态在拖拽过程中保留（URL、容器、滚动位置）
-
-**Electron 限制：**
-- `webContents` 不能直接在窗口间移动，必须序列化状态后重建
-- macOS 原生 Tab 支持（`tabbingIdentifier`）与自定义 Tab 栏冲突，不使用
-- 必须实现自定义拖拽逻辑（HTML5 Drag and Drop API）
-
-**架构影响：**
-- `tab-manager.js` 的全局 `tabs` Map 需要改为每窗口独立
-- `window-manager.js` 的单例 `mainWindowRef` 需要改为窗口集合
-- `shortcut-manager.js` 的单窗口派发需要改为焦点窗口派发
-- 渲染进程需要支持多实例（每个窗口独立的 renderer.js 实例）
-
-## Table Stakes
-
-功能用户期望的基础能力。缺失 = 产品不完整。
+用户认为理所当然存在的功能。缺失 = 产品不完整。
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| MW-01: Dock 右击"新建窗口" | macOS 标准行为 | Low | app.dock.setMenu 或 app.on('activate') |
-| MW-02: 拖拽 Tab 出窗口创建新窗口 | Chrome 核心交互 | High | HTML5 drag + 主进程窗口创建 |
-| MW-03: 拖拽 Tab 到另一个窗口 | Chrome 核心交互 | High | 跨窗口 drag events + IPC 协调 |
-| MW-04: 拖拽 Tab 改变窗口内顺序 | Chrome 核心交互 | Medium | DOM 拖拽 + tab-manager reorder |
-| MW-05: 窗口关闭时仅剩一个 Tab 自动销毁 | Chrome 标准行为 | Medium | 检测 Tab 数量 + 窗口关闭逻辑 |
-| MW-06: Tab 状态拖拽保留 | 用户期望不丢失页面状态 | Medium | 序列化 URL/title/containerId/favicon |
-| MW-07: 新窗口继承容器上下文 | 容器隔离一致性 | Low | 从源窗口的当前 Tab 读取容器 |
-| MW-08: 快捷键 Cmd+N 新建窗口 | macOS 标准快捷键 | Low | shortcut-manager 新增 newWindow |
-| MW-09: 快捷键 Cmd+Shift+W 关闭窗口 | macOS 标准快捷键 | Low | shortcut-manager 新增 closeWindow |
-| MW-10: 窗口间焦点切换 | 多窗口基础交互 | Low | Electron 原生支持 |
+| **web_search 工具** | AI 助手核心能力，用户期望能搜索实时信息 | MEDIUM | 参考 HanaAgent 的 `createWebSearchTool()` 工厂函数模式；需注册到 `_buildRealmTools()` |
+| **web_fetch 工具** | 搜索结果需要抓取全文；现有 `read_page_content` 只能读当前标签页 | MEDIUM | 独立于 web_search，可抓取任意 URL；需 SSRF 防护 |
+| **至少一个搜索 Provider** | 无 Provider 则工具无法工作 | LOW | 最低可用：anysearch_free（免费无 Key）或浏览器 Provider（零配置） |
+| **搜索结果标准化格式** | AI 模型需要统一结构理解结果 | LOW | `{title, url, content}` 三字段标准化，所有 Provider 统一输出 |
+| **错误处理与用户反馈** | 搜索失败时 AI 需要明确错误信息 | LOW | 复用现有 `ai:events-batch` 错误广播机制 |
 
-## Differentiators
+### Differentiators (Competitive Advantage)
 
-差异化功能。不是预期中的，但有额外价值。
+设置产品 apart 的功能。不是必需但有价值。
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| 窗口位置记忆 | 重启后恢复窗口位置/大小 | Medium | electron-store 持久化 bounds |
-| 窗口标题显示容器名 | 快速识别窗口所属容器 | Low | win.setTitle() + 容器名 |
-| 右键菜单"在新窗口中打开" | 快速打开链接到新窗口 | Low | 复用 context-menu-manager |
-| 窗口间容器颜色标识 | 视觉区分不同容器的窗口 | Low | 标题栏/工具栏颜色 |
-| 窗口状态持久化 | 跨重启保留窗口布局 | High | 需要序列化所有窗口状态 |
+| **Auto 智能 Fallback** | 零配置即可用，用户不需手动选择 Provider | HIGH | 参考 HanaAgent 的 `doAutoSearch()` 三级 fallback 链：付费 API -> 免费 API -> 浏览器 |
+| **浏览器 Provider（Bing/Google/DDG）** | 无 API Key 时的兜底方案，零成本 | HIGH | 需要 DOM 解析脚本、CAPTCHA 检测、URL 重定向清理；可复用 Electron BrowserWindow |
+| **中文搜索质量优化** | 中国市场核心需求，避免字典/百科类垃圾结果 | MEDIUM | HanaAgent 的 `isLikelyLowQualityResults()` 检测逻辑：CJK 字符计数 + 字典关键词匹配 + 命中率计算 |
+| **速率限制器** | 防止 API 被封，保护免费额度 | MEDIUM | 每 Provider 独立策略：minIntervalMs + maxConcurrent + 指数退避 + Retry-After 解析 |
+| **搜索诊断信息** | 调试透明度，便于用户排查搜索失败 | LOW | 返回 `diagnostics.attempts` 数组，记录每个 attempt 的状态/耗时/错误类型 |
+| **多 Provider API Key 管理** | 用户可配置多家搜索服务，互为备份 | LOW | 复用现有 `ai.providers` 配置模式，新增 `search.apiKeys` 节 |
 
-## Anti-Features
+### Anti-Features (Commonly Requested, Often Problematic)
 
-明确不构建的功能。
+看似好但实际有问题的功能。
 
-| Anti-Feature | Why Avoid | What to Do Instead |
-|--------------|-----------|-------------------|
-| macOS 原生 Tab 集成 | 与自定义 Tab 栏冲突，行为不可控 | 使用自定义 Tab 栏 |
-| 窗口合并（多窗口合并为一个） | 复杂度高，非核心需求 | 用户手动拖拽 Tab |
-| 窗口分屏/平铺 | macOS 原生支持，不需要应用层实现 | 让系统处理 |
-| 跨窗口 Tab 搜索 | 功能膨胀，非核心需求 | 用户可通过地址栏快速定位 |
-| 窗口置顶/悬浮 | 非浏览器标准行为 | 不做 |
-| 窗口透明/毛玻璃 | 非浏览器标准行为 | 不做 |
-
-## Chrome Multi-Window Behavior Analysis
-
-### 1. Tab Drag Out (Detach)
-
-**Chrome 行为：**
-- 拖拽 Tab 离开标签栏一定距离后，Tab 从原窗口分离
-- 创建新窗口，包含被拖拽的 Tab
-- 新窗口位置跟随鼠标位置
-- 原窗口的其他 Tab 保持不变
-
-**Realm 实现要点：**
-- 使用 HTML5 Drag and Drop API（项目已有规则拖拽实现参考）
-- `dragstart` 时序列化 Tab 状态（URL, containerId, title, faviconUrl）
-- `dragend` 时检测是否在窗口外释放
-- 主进程创建新 BrowserWindow + 重建 Tab
-
-### 2. Tab Drag Between Windows (Attach)
-
-**Chrome 行为：**
-- 拖拽 Tab 到另一个窗口的标签栏区域
-- Tab 插入到目标位置（高亮指示）
-- 释放后 Tab 从源窗口移除，添加到目标窗口
-- 如果源窗口只剩一个 Tab，源窗口关闭
-
-**Realm 实现要点：**
-- 跨窗口通信需要通过主进程中转（IPC）
-- 源窗口 `dragstart` → 主进程 → 目标窗口 `dragover`/`drop`
-- 使用 `webContents.send` 向目标窗口发送插入指令
-- 目标窗口需要接受外部 Tab 的 dragover 事件
-
-### 3. Tab Reorder Within Window
-
-**Chrome 行为：**
-- 拖拽 Tab 在同一标签栏内移动
-- 实时显示插入位置指示器
-- 释放后 Tab 顺序更新
-- 固定 Tab 不能拖到非固定区域
-
-**Realm 实现要点：**
-- 复用现有的规则拖拽实现模式（`dragstart`/`dragover`/`drop`）
-- DOM 元素重排 + tab-manager 顺序同步
-- 固定 Tab 区域隔离
-
-### 4. New Window from Dock/Taskbar
-
-**Chrome 行为：**
-- macOS: Dock 右击 → "新建窗口"（或 Cmd+N）
-- 创建空白新窗口，带默认 Tab（新标签页）
-- 新窗口独立于现有窗口
-
-**Realm 实现要点：**
-- `app.dock.setMenu()` 设置 Dock 菜单（macOS）
-- `app.on('activate')` 处理 Dock 图标点击
-- `shortcut-manager` 新增 `newWindow` 动作
-
-### 5. Window Close Behavior
-
-**Chrome 行为：**
-- 关闭窗口时，窗口内的所有 Tab 一起关闭
-- 如果是最后一个窗口，应用退出
-- 如果还有其他窗口，只关闭当前窗口
-
-**Realm 实现要点：**
-- 窗口 `closed` 事件清理该窗口的 Tab 数据
-- `window-all-closed` 事件判断是否退出应用
-- 需要维护窗口列表而非单例引用
-
-### 6. Tab State Preservation During Drag
-
-**Chrome 行为：**
-- 拖拽过程中 Tab 保持"半透明"状态
-- 释放后 Tab 恢复完整状态（URL、滚动位置、表单数据）
-- 如果拖拽取消（释放到非有效区域），Tab 恢复原位
-
-**Realm 实现要点：**
-- 序列化 Tab 元数据（URL, containerId, title, faviconUrl, pinned）
-- webview 本身不能移动，只能重建（URL 重新加载）
-- 滚动位置可以通过 `webContents.executeJavaScript` 读取/恢复
-- 表单数据不保留（Chrome 也不保证）
+| Feature | Why Requested | Why Problematic | Alternative |
+|---------|---------------|-----------------|-------------|
+| **实时搜索结果流式返回** | "像 Perplexity 一样边搜边显示" | 搜索 API 本身不支持流式；浏览器 Provider 需要等待页面加载；增加大量复杂度 | 一次性返回完整结果，格式化为 Markdown 编号列表（HanaAgent 方案） |
+| **搜索结果缓存** | "避免重复搜索浪费额度" | 缓存失效策略复杂（搜索结果时效性强）；增加存储和一致性问题 | 不缓存，依赖速率限制器控制调用频率 |
+| **自定义搜索引擎添加** | "我想用百度/搜狗" | 每个搜索引擎 DOM 结构不同，维护成本极高；中文搜索引擎反爬严格 | 专注 API Provider（Tavily/Brave/Serper），浏览器 Provider 仅覆盖国际引擎 |
+| **搜索结果持久化到 SQLite** | "我想保存搜索历史" | 搜索结果是临时数据，与浏览历史语义不同；增加数据库复杂度 | 不持久化，搜索结果仅在对话上下文中存在 |
+| **搜索结果直接渲染为网页** | "我想在标签页中看搜索结果" | 与浏览器核心功能重叠；用户可以直接在地址栏搜索 | 搜索结果以 Markdown 文本返回给 AI，由 AI 总结后回答用户 |
 
 ## Feature Dependencies
 
 ```
-MW-01 (Dock 新建窗口) ──→ MW-08 (Cmd+N 快捷键)
-MW-02 (拖拽创建窗口) ──→ MW-03 (拖拽到另一窗口)
-      │                       │
-      └──→ MW-06 (状态保留)   └──→ MW-05 (自动销毁)
-      │
-      └──→ MW-04 (窗口内排序)
+web_search 工具
+    ├──requires──> 搜索 Provider 体系（至少一个可用）
+    ├──requires──> 结果标准化格式
+    ├──requires──> 错误分类系统
+    │
+    ├──enhanced-by──> Auto 智能 Fallback
+    │                    ├──requires──> 多 Provider 支持
+    │                    ├──requires──> 速率限制器
+    │                    └──requires──> 低质量检测
+    │
+    ├──enhanced-by──> 浏览器 Provider
+    │                    ├──requires──> DOM 解析脚本（bing/google/ddg）
+    │                    ├──requires──> CAPTCHA 检测
+    │                    └──requires──> URL 重定向清理
+    │
+    └──enhanced-by──> 搜索配置 UI（设置页集成）
 
-MW-07 (容器上下文) ←── 所有创建窗口的操作
-MW-09 (Cmd+Shift+W) ←── 窗口管理基础
-MW-10 (焦点切换) ←── 多窗口基础
+web_fetch 工具
+    ├──requires──> SSRF 防护
+    ├──requires──> HTML -> Markdown 转换
+    └──independent-of──> web_search（可独立使用）
 ```
 
-## Architecture Impact Analysis
+### Dependency Notes
 
-### Current Architecture Limitations
+- **web_search requires 搜索 Provider：** 至少需要一个可用的搜索后端，否则工具无意义
+- **Auto Fallback requires 多 Provider：** 单 Provider 无法 fallback
+- **浏览器 Provider requires DOM 解析：** 每个搜索引擎需要独立的页面解析脚本
+- **web_fetch independent of web_search：** web_fetch 可独立用于抓取任意 URL，不依赖搜索功能
+- **速率限制器 enhances Auto Fallback：** 没有速率限制器，频繁调用会被 API 封禁，触发不必要的 fallback
 
-| 组件 | 当前状态 | 多窗口需求 | 改动量 |
-|------|----------|------------|--------|
-| `window-manager.js` | 单例 `mainWindowRef` | 窗口集合 Map | High |
-| `tab-manager.js` | 全局 `tabs` Map | 每窗口独立 Map | High |
-| `shortcut-manager.js` | 单窗口派发 | 焦点窗口派发 | Medium |
-| `renderer.js` | 单实例 | 多实例（每窗口） | Low |
-| `main.js` | 全局 IPC handler | 窗口级 IPC 路由 | Medium |
+## MVP Definition
 
-### Key Architectural Decisions Needed
+### Launch With (v2.5)
 
-1. **Tab 数据归属**：Tab 数据存储在主进程（当前）还是每窗口独立？
-   - 推荐：主进程维护 `Map<windowId, Map<tabId, tab>>`
-   - 原因：跨窗口拖拽需要主进程协调，Tab 持久化需要统一入口
+最小可用产品 -- 验证 AI 搜索能力的核心价值。
 
-2. **窗口标识**：使用 `BrowserWindow.id`（当前）还是自定义 ID？
-   - 推荐：继续使用 `BrowserWindow.id`
-   - 原因：已有 CR-7 约定，保持一致性
+- [ ] **web_search 工具（API Provider）** -- 核心搜索能力，支持 Tavily/Brave/Serper
+- [ ] **web_search 工具（免费 Provider）** -- 零配置可用，anysearch_free 或浏览器 Provider
+- [ ] **web_fetch 工具** -- 抓取搜索结果全文，含 SSRF 防护
+- [ ] **Auto 智能 Fallback** -- 默认策略，自动选择最佳可用 Provider
+- [ ] **速率限制器** -- 防止 API 被封
+- [ ] **搜索配置 UI** -- 设置页面集成，管理 API Key
 
-3. **IPC 路由**：渲染进程如何知道自己的 windowId？
-   - 推荐：preload 启动时通过 `ipcRenderer.invoke('window:get-id')` 获取
-   - 原因：Electron 不直接暴露 windowId 给渲染进程
+### Add After Validation (v2.5.x)
 
-4. **Tab 拖拽通信**：跨窗口拖拽如何协调？
-   - 推荐：主进程中转（源窗口 IPC → 主进程 → 目标窗口 IPC）
-   - 原因：渲染进程间不能直接通信
+核心验证通过后补充。
 
-## MVP Recommendation
+- [ ] **浏览器 Provider（Bing/Google/DDG）** -- 无 API Key 时的高级兜底（需独立 DOM 解析脚本）
+- [ ] **中文搜索质量优化** -- 低质量检测 + 字典/百科过滤
+- [ ] **搜索诊断信息展示** -- 调试面板显示每次搜索的 Provider 尝试链
 
-优先：
-1. MW-01: Dock 右击新建窗口（最简单，验证多窗口基础架构）
-2. MW-08: Cmd+N 快捷键（配合 MW-01）
-3. MW-04: 窗口内 Tab 拖拽排序（验证拖拽基础）
-4. MW-02: 拖拽 Tab 创建新窗口（核心功能）
-5. MW-03: 拖拽 Tab 到另一窗口（核心功能）
-6. MW-05: 窗口关闭自动销毁（核心功能）
+### Future Consideration (v2.6+)
 
-可推迟：
-- MW-06: Tab 状态保留（滚动位置恢复）— 后期增强
-- 窗口位置记忆 — 后期增强
-- 右键菜单"在新窗口中打开" — 后期增强
+产品成熟后再考虑。
 
-## Implementation Complexity Estimate
+- [ ] **搜索结果高亮** -- 在 AI 回复中标注信息来源
+- [ ] **搜索历史建议** -- 基于用户搜索历史提供自动补全
 
-| Phase | Feature | Estimated LOC | Risk |
-|-------|---------|---------------|------|
-| Phase 1 | 多窗口基础架构（window-manager + tab-manager 重构） | ~300 | High |
-| Phase 2 | Dock 新建窗口 + Cmd+N | ~50 | Low |
-| Phase 3 | 窗口内 Tab 拖拽排序 | ~150 | Medium |
-| Phase 4 | 拖拽 Tab 创建新窗口 | ~200 | High |
-| Phase 5 | 拖拽 Tab 到另一窗口 | ~250 | High |
-| Phase 6 | 窗口关闭自动销毁 | ~100 | Medium |
+## Feature Prioritization Matrix
 
-## Known Risks
+| Feature | User Value | Implementation Cost | Priority |
+|---------|------------|---------------------|----------|
+| web_search（API Provider） | HIGH | MEDIUM | P1 |
+| web_search（免费 Provider） | HIGH | LOW | P1 |
+| web_fetch | HIGH | MEDIUM | P1 |
+| Auto 智能 Fallback | HIGH | HIGH | P1 |
+| 速率限制器 | MEDIUM | MEDIUM | P1 |
+| 搜索配置 UI | MEDIUM | LOW | P1 |
+| 浏览器 Provider | MEDIUM | HIGH | P2 |
+| 中文搜索质量优化 | MEDIUM | LOW | P2 |
+| 搜索诊断信息 | LOW | LOW | P2 |
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| webContents 不能跨窗口移动 | Tab 拖拽时需要重建 webview，URL 会重新加载 | 接受此限制，Chrome 也重新加载 |
-| 跨窗口 drag events 不直接工作 | HTML5 DnD 限定在同一页面 | 通过 IPC 中转 drag 状态 |
-| Tab 持久化与多窗口冲突 | electron-store 单文件存储 | 按 windowId 分组存储 |
-| 焦点窗口判断 | 多窗口时快捷键路由 | 使用 BrowserWindow.getFocusedWindow() |
+**Priority key:**
+- P1: Must have for launch (v2.5)
+- P2: Should have, add when possible (v2.5.x)
+- P3: Nice to have, future consideration (v2.6+)
+
+## Competitor Feature Analysis
+
+| Feature | HanaAgent (参考) | Perplexity | Our Approach |
+|---------|------------------|------------|--------------|
+| 搜索 Provider | 8 个（4 API + 1 免费 + 3 浏览器） | 自有搜索索引 | 复用 HanaAgent 体系，适配 Electron 环境 |
+| Auto Fallback | 三级链（付费 -> 免费 -> 浏览器） | 无（自有索引） | 同 HanaAgent 方案 |
+| 速率限制器 | 每 Provider 独立策略 + 指数退避 | 内部 | 同 HanaAgent 方案 |
+| SSRF 防护 | 内网 IP 检测 + 重定向校验 | 不适用（服务端） | 需要，Electron 桌面环境特有风险 |
+| 浏览器 Provider | Bing/Google/DDG DOM 解析 | 不适用 | 同 HanaAgent 方案，需适配 Electron BrowserWindow |
+| 结果格式 | Markdown 编号列表 | 结构化卡片 | Markdown 文本（与现有 AI 工具输出风格一致） |
+
+## 与现有工具的集成点
+
+| 现有能力 | 集成方式 | 复杂度 |
+|----------|----------|--------|
+| `ai-manager.js` `_buildRealmTools()` | 新增 web_search 和 web_fetch 工具定义 | LOW |
+| `ai-manager.js` 系统提示词 | 添加 web_search/web_fetch 使用指南 | LOW |
+| `ai-manager.js` `sanitizeInput()` | web_fetch URL 参数消毒 | LOW |
+| `ai-manager.js` `requestActionConfirmation()` | web_fetch 高风险 URL 确认 | LOW |
+| 设置页 AI 分区 | 新增搜索配置子区域（Provider 选择 + API Key） | MEDIUM |
+| `ipc-handlers.js` | 新增搜索相关 IPC 通道 | LOW |
+| `preload.js` | 暴露搜索配置 API | LOW |
 
 ## Sources
 
-- [Electron BrowserWindow API](https://www.electronjs.org/docs/latest/api/browser-window) — 窗口管理 API
-- [Electron webContents API](https://www.electronjs.org/docs/latest/api/web-contents) — 页面内容管理
-- [MDN HTML Drag and Drop API](https://developer.mozilla.org/en-US/docs/Web/API/HTML_Drag_and_Drop_API) — 拖拽实现参考
-- Chrome 浏览器多窗口行为（实际观察）
-- Realm 现有代码架构分析（window-manager.js, tab-manager.js, shortcut-manager.js）
+- HanaAgent 参考实现：`/Volumes/ZhiTai/Projects/github/openhanako/.docs/web-search-implementation.md`
+- Realm Browser 现有代码：`/Users/wxnacy/Projects/Realm/ai-manager.js`
+- Realm Browser 项目文档：`/Users/wxnacy/Projects/Realm/.planning/PROJECT.md`
+- pi-agent-core SDK 工具定义模式（从 ai-manager.js 现有 12 个工具推断）
 
 ---
-*Feature research for: 多窗口支持 (v2.4)*
-*Researched: 2026-08-14*
-*Confidence: HIGH -- 功能边界清晰，Chrome 行为明确，Electron API 支持完善*
+*Feature research for: Realm Browser AI 网络搜索功能*
+*Researched: 2026-08-26*
