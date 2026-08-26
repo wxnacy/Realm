@@ -1440,10 +1440,45 @@ async function executeAction(webContentsId, action, target, options) {
   try {
     // screenshot 特殊处理：不需要元素定位
     if (action === 'screenshot') {
-      const result = await executeCommand(webContentsId, 'Page.captureScreenshot', {
-        format: options?.format || 'png',
-        quality: options?.quality || 80,
-      });
+      const format = options?.format || 'png';
+      const quality = options?.quality || 80;
+      const fullPage = options?.fullPage || false;
+
+      let screenshotOptions = {
+        format,
+        quality,
+      };
+
+      // 全页面截图：获取页面完整尺寸并使用 captureBeyondViewport
+      if (fullPage) {
+        // 获取页面布局信息
+        const layoutResult = await executeCommand(webContentsId, 'Page.getLayoutMetrics');
+        if (!layoutResult.success) {
+          return { success: false, error: '获取页面尺寸失败' };
+        }
+
+        const contentSize = layoutResult.result?.contentSize;
+        if (!contentSize || !contentSize.width || !contentSize.height) {
+          return { success: false, error: '无法获取页面尺寸' };
+        }
+
+        // 限制最大高度为 10000px，避免生成过大的图片
+        const maxHeight = 10000;
+        const height = Math.min(contentSize.height, maxHeight);
+
+        screenshotOptions.captureBeyondViewport = true;
+        screenshotOptions.clip = {
+          x: 0,
+          y: 0,
+          width: contentSize.width,
+          height: height,
+          scale: 1,
+        };
+
+        console.log(`[Realm CDP] 全页面截图: ${contentSize.width}x${height} (原始高度: ${contentSize.height})`);
+      }
+
+      const result = await executeCommand(webContentsId, 'Page.captureScreenshot', screenshotOptions);
       if (!result.success) {
         return { success: false, error: result.error || '截图失败' };
       }

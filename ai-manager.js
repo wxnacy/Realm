@@ -463,6 +463,7 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - 用户常用口语化字段名（如"邮箱"、"用户名"、"密码"），而页面实际是英文 label（如 "Username or email address"）。调用 fill_form 前应先根据页面语境推断真实字段标识；若 fill_form 返回字段未找到，必须查看返回结果中的 availableFields 列表，挑出语义最接近的字段名立即重试（例如用户说"邮箱"，列表中有 "Username or email address"，就用它重试），不要直接报错放弃
 - 当 fill_form/execute_action 返回 cancelled（用户取消或确认超时）时，确认只能由用户在确认卡片上完成，不要口头二次询问"是否确认"。直接告知用户操作未执行的原因（已取消/确认超时），并按用户指示重新发起操作
 - execute_action 支持的操作类型：click、scroll、type、select、check、uncheck、focus、blur、submit、upload、drag、hover、keydown、keyup、execute_script、screenshot、wait_for_element（其中 screenshot、execute_script 无需 target）
+- screenshot 操作支持 fullPage 参数：当用户要求"完整页面截图"、"整个网页截图"、"滚动截图"、"全页面截图"等类似表述时，设置 options.fullPage 为 true；普通截图（如"截图"、"当前屏幕截图"）不需要设置此参数
 - 当用户描述一个自动化任务（如"每天早上打开新闻网站"、"帮我自动填写这个表单"、"生成一个脚本做 XXX"）时，使用 generate_script
 - generate_script 的步骤格式为 {action, target, options, waitFor}，action 仅支持 navigate/click/type/scroll/wait/select/check/uncheck/focus/blur/submit/keydown/keyup
 - generate_script 返回的脚本会在聊天中渲染为预览卡片，用户可以编辑每个步骤后再执行
@@ -2278,7 +2279,7 @@ ${content}
       {
         name: 'execute_action',
         label: '执行操作',
-        description: '在当前页面执行操作，如点击按钮、滚动页面、填写输入框等。低风险操作自动执行，表单提交、文件上传、脚本执行需要用户确认。',
+        description: '在当前页面执行操作，如点击按钮、滚动页面、填写输入框等。低风险操作自动执行，表单提交、文件上传、脚本执行需要用户确认。screenshot 操作支持 fullPage 参数截取完整页面。',
         parameters: {
           type: 'object',
           properties: {
@@ -2305,6 +2306,7 @@ ${content}
                 keyCode: { type: 'number', description: 'keydown/keyup 操作的虚拟键码' },
                 format: { type: 'string', description: 'screenshot 操作的图片格式' },
                 quality: { type: 'number', description: 'screenshot 操作的图片质量' },
+                fullPage: { type: 'boolean', description: 'screenshot 操作是否截取完整页面（true=截取整个可滚动区域，false=仅截取当前视口，默认 false）' },
                 timeout: { type: 'number', description: 'wait_for_element 操作的超时毫秒数' },
                 clearFirst: { type: 'boolean', description: 'type 操作是否先清空输入框' },
                 filePath: { type: 'string', description: 'upload 操作的文件路径' },
