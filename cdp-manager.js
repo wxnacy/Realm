@@ -323,6 +323,27 @@ async function attachForAI(webContentsId, domains = ['Runtime']) {
     return { success: false, error: '标签页已关闭' };
   }
 
+  // 页面加载状态检查：等待页面加载完成后再连接调试器
+  // 解决程序启动时自动恢复标签页，页面还在加载中就尝试截图的问题
+  if (wc.isLoading()) {
+    console.log(`[Realm CDP] 页面正在加载中，等待加载完成: ${wc.id}`);
+    try {
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('页面加载超时')), 30000);
+        wc.once('did-finish-load', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+        wc.once('did-fail-load', (_, errorCode, errorDesc) => {
+          clearTimeout(timeout);
+          reject(new Error(`页面加载失败: ${errorDesc}`));
+        });
+      });
+    } catch (err) {
+      return { success: false, error: err.message || '页面加载失败，请刷新后重试' };
+    }
+  }
+
   // DevTools 冲突处理（D-04）：调试器已被占用时明确报错
   if (wc.debugger.isAttached()) {
     // 若是常驻 UA Client Hints 覆盖管理器（ua-ch-manager）持有的 debugger，
