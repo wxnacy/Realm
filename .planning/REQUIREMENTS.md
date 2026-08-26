@@ -42,22 +42,22 @@
 
 | Requirement | Phase | Implementation |
 |-------------|-------|----------------|
-| SEARCH-01 | TBD | search-manager.js |
-| SEARCH-02 | TBD | search-manager.js: SearchRateLimiter |
-| SEARCH-03 | TBD | search-manager.js: isPrivateIp + safeFetch |
-| SEARCH-04 | TBD | search-manager.js: normalizeResults |
-| TOOL-01 | TBD | ai-manager.js: web_search tool |
-| TOOL-02 | TBD | search-manager.js: Provider implementations |
-| TOOL-03 | TBD | search-manager.js: doAutoSearch |
-| TOOL-04 | TBD | ai-manager.js: error handling |
-| FETCH-01 | TBD | ai-manager.js: web_fetch tool |
-| FETCH-02 | TBD | search-manager.js: fetchUrl |
-| FETCH-03 | TBD | search-manager.js: htmlToMarkdown (turndown) |
-| FETCH-04 | TBD | search-manager.js: isPrivateIp reuse |
-| CONFIG-01 | TBD | settings-page.js |
-| CONFIG-02 | TBD | settings-page.js + ipc-handlers.js |
-| CONFIG-03 | TBD | settings-page.js + ipc-handlers.js |
-| CONFIG-04 | TBD | ipc-handlers.js + preload.js |
+| SEARCH-01 | Phase 40 | search-manager.js |
+| SEARCH-02 | Phase 40 | search-manager.js: SearchRateLimiter |
+| SEARCH-03 | Phase 40 | search-manager.js: isPrivateIp + safeFetch |
+| SEARCH-04 | Phase 40 | search-manager.js: normalizeResults |
+| TOOL-01 | Phase 40 | ai-manager.js: web_search tool |
+| TOOL-02 | Phase 40 | search-manager.js: Provider implementations |
+| TOOL-03 | Phase 40 | search-manager.js: doAutoSearch |
+| TOOL-04 | Phase 40 | ai-manager.js: error handling |
+| FETCH-01 | Phase 41 | ai-manager.js: web_fetch tool |
+| FETCH-02 | Phase 41 | search-manager.js: fetchUrl |
+| FETCH-03 | Phase 41 | search-manager.js: htmlToMarkdown (turndown) |
+| FETCH-04 | Phase 41 | search-manager.js: isPrivateIp reuse |
+| CONFIG-01 | Phase 41 | settings-page.js |
+| CONFIG-02 | Phase 41 | settings-page.js + ipc-handlers.js |
+| CONFIG-03 | Phase 41 | settings-page.js + ipc-handlers.js |
+| CONFIG-04 | Phase 41 | ipc-handlers.js + preload.js |
 
 ---
 

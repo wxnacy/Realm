@@ -153,6 +153,14 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 **Goal:** 为 AI 助手添加网络搜索能力，使其能够搜索互联网获取实时信息
 
+**参考实现:** OpenHanako 项目 web_search 功能
+- 文档: `/Volumes/ZhiTai/Projects/github/openhanako/.docs/web-search-implementation.md`
+- 源码: `/Volumes/ZhiTai/Projects/github/openhanako/lib/tools/web-search.ts`
+- 速率限制器: `/Volumes/ZhiTai/Projects/github/openhanako/lib/tools/search-rate-limiter.ts`
+- Provider 定义: `/Volumes/ZhiTai/Projects/github/openhanako/shared/search-providers.ts`
+- 浏览器解析: `/Volumes/ZhiTai/Projects/github/openhanako/lib/browser/browser-search-extractors.cjs`
+- web_fetch: `/Volumes/ZhiTai/Projects/github/openhanako/lib/tools/web-fetch.ts`
+
 **Target features:**
 - web_search 工具（API Provider: tavily/brave/serper/anysearch）
 - web_search 工具（免费 Provider: anysearch_free）
