@@ -834,18 +834,6 @@ function providerMeta(provider) {
 
 // ==================== Provider 实现 ====================
 
-/**
- * 获取系统 locale（用于 AnySearch 语言检测）
- * @returns {string} locale 字符串
- */
-function getLocale() {
-  try {
-    return app.getLocale?.() || process.env.LANG || 'en';
-  } catch {
-    return 'en';
-  }
-}
-
 // 延迟获取 app 引用（避免模块加载时序问题）
 let _app = null;
 function getApp() {
