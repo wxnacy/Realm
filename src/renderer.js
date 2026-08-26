@@ -6865,6 +6865,18 @@ function finalizeAIStreamingBubble() {
     wrapper.appendChild(createMessageActions(msg));
   }
 
+  // 为所有历史消息添加操作按钮（流式结束后）
+  state.aiMessages.forEach(m => {
+    if (m.id && m.id !== msg.id) {
+      const msgWrapper = elements.aiMessageList.querySelector(
+        `[data-message-id="${m.id}"]`
+      );
+      if (msgWrapper && !msgWrapper.querySelector('.message-actions')) {
+        msgWrapper.appendChild(createMessageActions(m));
+      }
+    }
+  });
+
   if (state.aiAutoScroll) {
     scrollToBottom();
   }
