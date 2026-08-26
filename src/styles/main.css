@@ -36,6 +36,9 @@
   --danger-color: #EF4444;
   --success-color: #10B981;
   --warning-color: #F59E0B;
+
+  /* AI 工具卡片 */
+  --ai-tool-card-bg: #f0f0f0;
 }
 
 /* 布局尺寸变量（与主题无关，须包在 :root 内——裸露在顶层会导致解析错误并吞掉后续规则） */
@@ -5427,6 +5430,19 @@ textarea::placeholder {
   }
 }
 
+/* 浅色模式：AI 消息内容代码块和表格 */
+[data-theme="light"] .ai-message-content pre {
+  background-color: #e8e8e8;
+}
+
+[data-theme="light"] .ai-message-content :not(pre) > code {
+  background-color: #e0e0e0;
+}
+
+[data-theme="light"] .ai-message-content th {
+  background-color: #e0e0e0;
+}
+
 /* ==================== 工具执行卡片 ==================== */
 
 /* 工具卡片容器（多工具纵向堆叠） */
@@ -5539,7 +5555,7 @@ textarea::placeholder {
   font-size: 12px;
   line-height: 1.4;
   color: var(--text-primary);
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: var(--bg-secondary);
   border-radius: 4px;
   padding: 8px;
   margin: 0;
