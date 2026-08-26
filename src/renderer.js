@@ -6121,7 +6121,15 @@ function setupEventListeners() {
 
   // AI 发送按钮
   if (elements.aiSendBtn) {
-    elements.aiSendBtn.addEventListener('click', handleSendAIMessage);
+    elements.aiSendBtn.addEventListener('click', () => {
+      if (state.aiStreaming) {
+        // AI 正在回复，点击停止
+        handleStopAI();
+      } else {
+        // AI 未在回复，点击发送
+        handleSendAIMessage();
+      }
+    });
   }
 
   // AI 新对话按钮
@@ -6830,6 +6838,9 @@ function finalizeAIStreamingBubble() {
   state.aiStreaming = false;
   state.aiCurrentMessageId = null;
 
+  // 切换回发送按钮
+  updateSendButtonState(false);
+
   if (!msg) {
     renderAIMessages();
     return;
@@ -6883,6 +6894,46 @@ function finalizeAIStreamingBubble() {
 }
 
 /**
+ * 切换发送/停止按钮状态
+ * @param {boolean} isStreaming - 是否正在流式输出
+ */
+function updateSendButtonState(isStreaming) {
+  if (!elements.aiSendBtn) return;
+
+  if (isStreaming) {
+    // 切换为停止按钮
+    elements.aiSendBtn.title = '停止';
+    elements.aiSendBtn.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+        <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+      </svg>
+    `;
+    elements.aiSendBtn.classList.add('stop-mode');
+  } else {
+    // 切换为发送按钮
+    elements.aiSendBtn.title = '发送';
+    elements.aiSendBtn.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"></path>
+      </svg>
+    `;
+    elements.aiSendBtn.classList.remove('stop-mode');
+  }
+}
+
+/**
+ * 停止 AI 回复
+ */
+async function handleStopAI() {
+  try {
+    await window.realmAPI.ai.abort();
+    console.log('[Realm Renderer] AI 回复已停止');
+  } catch (err) {
+    console.error('[Realm Renderer] 停止 AI 回复失败:', err);
+  }
+}
+
+/**
  * 发送 AI 消息
  * 获取输入框内容，添加用户消息到列表，调用 AI API
  * 支持 @ 引用标签页内容注入
@@ -6923,6 +6974,9 @@ async function handleSendAIMessage() {
   state.aiCurrentMessageId = aiMsgId;
   state.aiStreaming = true;
 
+  // 切换到停止按钮
+  updateSendButtonState(true);
+
   renderAIMessages();
 
   // 调用 AI API 发送消息
@@ -6941,6 +6995,8 @@ async function handleSendAIMessage() {
   } catch (err) {
     console.error('[Realm Renderer] AI 发送消息失败:', err);
     state.aiStreaming = false;
+    // 切换回发送按钮
+    updateSendButtonState(false);
     renderAIMessages();
   }
 }

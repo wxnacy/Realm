@@ -5703,6 +5703,15 @@ textarea::placeholder {
   background-color: var(--bg-hover);
 }
 
+/* 停止按钮模式 */
+.ai-send-btn-toolbar.stop-mode {
+  color: var(--danger-color);
+}
+
+.ai-send-btn-toolbar.stop-mode:hover {
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
 /* 模型选择器下拉框 */
 .ai-model-dropdown {
   position: absolute;
