@@ -6905,9 +6905,11 @@ async function handleSendAIMessage() {
   }
 
   // 添加用户消息（附带引用标签页标记，气泡中展示）
+  const userMsgId = 'user-msg-' + Date.now();
   state.aiMessages.push({
     role: 'user',
     content: text,
+    id: userMsgId,
     referencedTabs: referencedTabs.map(t => ({
       tabId: t.tabId,
       title: t.title,
