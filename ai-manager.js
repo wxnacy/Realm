@@ -502,8 +502,8 @@ function resolveToolTargetTab(requestedTabId) {
   if (!activeTab || tab.id !== activeTab.id) {
     throw new Error('暂仅支持当前活跃标签页，非活跃标签页的页面内容无法定位');
   }
-  // 页面未加载（新建 tab url 为空 / realm:// 内部页）：按 22-UI-SPEC 文案报错
-  if (!tab.url || (!tab.url.startsWith('http://') && !tab.url.startsWith('https://') && !tab.url.startsWith('file://'))) {
+  // 页面未加载（新建 tab url 为空）：按 22-UI-SPEC 文案报错
+  if (!tab.url || (!tab.url.startsWith('http://') && !tab.url.startsWith('https://') && !tab.url.startsWith('file://') && !tab.url.startsWith('realm://'))) {
     throw new Error('当前标签页未加载页面，请先打开网页');
   }
   const webContentsId = getActiveWebviewContentsIdLazy();
