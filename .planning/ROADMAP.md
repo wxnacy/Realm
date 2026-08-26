@@ -136,7 +136,8 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
   2. 当首选搜索 Provider 失败时，系统自动降级到免费 Provider（anysearch_free），无需用户手动配置
   3. 连续快速搜索不会触发 API 限流错误，速率限制器自动控制调用间隔
   4. 搜索失败时，AI 返回明确的错误诊断信息而非沉默失败
-**Plans**: TBD
+Plans:
+- [ ] 40-01-PLAN.md — search-manager.js 完整实现（SearchRateLimiter + SSRF 防护 + 5 个 Provider + Auto Fallback）+ web_search AI 工具集成
 
 ### Phase 41: web_fetch 工具 + 搜索配置 UI
 **Goal**: AI 助手能够抓取网页全文内容，用户可以在设置中管理搜索 Provider 和 API Key
@@ -196,5 +197,5 @@ Phases execute in numeric order: 40 → 41
 | 37. 地址栏地址补全功能 | v2.4 | 2/2 | Complete | 2026-08-21 |
 | 38. AI 助手供应商管理 | v2.4 | 3/3 | Complete | 2026-08-23 |
 | 39. Vimium 键盘操作功能 | v2.4 | 4/4 | Complete | 2026-08-24 |
-| 40. 搜索基础设施 + web_search 工具 | v2.5 | 0/? | Not started | - |
+| 40. 搜索基础设施 + web_search 工具 | v2.5 | 0/1 | Not started | - |
 | 41. web_fetch 工具 + 搜索配置 UI | v2.5 | 0/? | Not started | - |
