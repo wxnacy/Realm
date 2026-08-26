@@ -7271,16 +7271,26 @@ function renderToolCard(toolExecution) {
     const imageContainer = document.createElement('div');
     imageContainer.className = 'tool-card-image';
     const img = document.createElement('img');
-    // result 可能是 base64 字符串或包含 data 字段的对象
-    const base64Data = typeof toolExecution.result === 'string'
-      ? toolExecution.result
-      : toolExecution.result?.data || toolExecution.result?.result;
+
+    // 从 result.content 数组中提取图片数据
+    let base64Data = null;
+    if (toolExecution.result.content && Array.isArray(toolExecution.result.content)) {
+      const imageContent = toolExecution.result.content.find(c => c.type === 'image');
+      if (imageContent) {
+        base64Data = imageContent.data;
+      }
+    }
+
+    // 兼容其他格式
+    if (!base64Data) {
+      base64Data = typeof toolExecution.result === 'string'
+        ? toolExecution.result
+        : toolExecution.result?.data || toolExecution.result?.result;
+    }
+
     if (base64Data) {
       img.src = `data:image/png;base64,${base64Data}`;
       img.alt = '截图';
-      img.style.maxWidth = '100%';
-      img.style.borderRadius = '4px';
-      img.style.marginTop = '8px';
       imageContainer.appendChild(img);
       card.appendChild(imageContainer);
     }
