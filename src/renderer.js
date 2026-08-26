@@ -660,9 +660,12 @@ async function createTab(containerId, url = null) {
   await switchTab(tab.id);
 
   // 新建空白标签页时聚焦地址栏并全选，方便直接输入
+  // 延迟聚焦，等待 switchTab 中的 focusWebviewContents IPC 完成，避免焦点被覆盖
   if (!url) {
-    elements.urlInput.focus();
-    elements.urlInput.select();
+    setTimeout(() => {
+      elements.urlInput.focus();
+      elements.urlInput.select();
+    }, 50);
   }
 
   console.log(`[Realm Renderer] Tab 创建: ${tab.id} (容器: ${containerId})`);
