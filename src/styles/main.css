@@ -5565,6 +5565,23 @@ textarea::placeholder {
   word-break: break-word;
 }
 
+/* 工具卡片截图图片 */
+.tool-card-image {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.tool-card-image img {
+  max-width: 100%;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: transform 200ms ease;
+}
+
+.tool-card-image img:hover {
+  transform: scale(1.02);
+}
+
 /* 输入区域 */
 .ai-input-area {
   position: relative;

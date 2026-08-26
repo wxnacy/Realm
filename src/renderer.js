@@ -7188,10 +7188,14 @@ function renderToolCard(toolExecution) {
     statusIcon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>';
   }
 
-  // 工具名称
+  // 工具名称（execute_action 显示具体 action）
   const name = document.createElement('span');
   name.className = 'tool-card-name';
-  name.textContent = toolExecution.name;
+  if (toolExecution.name === 'execute_action' && toolExecution.params?.action) {
+    name.textContent = `execute_action (${toolExecution.params.action})`;
+  } else {
+    name.textContent = toolExecution.name;
+  }
 
   // 状态文字
   const statusText = document.createElement('span');
@@ -7258,6 +7262,29 @@ function renderToolCard(toolExecution) {
 
   card.appendChild(header);
   card.appendChild(content);
+
+  // 截图工具特殊处理：在工具卡片下边渲染图片
+  if (toolExecution.name === 'execute_action' &&
+      toolExecution.params?.action === 'screenshot' &&
+      toolExecution.status === 'completed' &&
+      toolExecution.result) {
+    const imageContainer = document.createElement('div');
+    imageContainer.className = 'tool-card-image';
+    const img = document.createElement('img');
+    // result 可能是 base64 字符串或包含 data 字段的对象
+    const base64Data = typeof toolExecution.result === 'string'
+      ? toolExecution.result
+      : toolExecution.result?.data || toolExecution.result?.result;
+    if (base64Data) {
+      img.src = `data:image/png;base64,${base64Data}`;
+      img.alt = '截图';
+      img.style.maxWidth = '100%';
+      img.style.borderRadius = '4px';
+      img.style.marginTop = '8px';
+      imageContainer.appendChild(img);
+      card.appendChild(imageContainer);
+    }
+  }
 
   return card;
 }
