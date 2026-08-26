@@ -2,9 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.5
 milestone_name: AI 网络搜索功能
+current_phase: 40
+current_phase_name: 搜索基础设施 + web_search 工具
 status: planning
-last_updated: "2026-08-26"
+stopped_at: Phase 40 context gathered
+last_updated: "2026-08-26T13:49:44.734Z"
 last_activity: 2026-08-26
+last_activity_desc: v2.5 roadmap created (2 phases)
+state_head: 2d4dfb2889b217c1b32b322f87f9fea4a8ad6f34
 progress:
   total_phases: 2
   completed_phases: 0
@@ -82,6 +87,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-26
-Stopped at: v2.5 roadmap created — Phase 40 ready to plan
-Resume file: None
+Last session: 2026-08-26T13:49:44.728Z
+Stopped at: Phase 40 context gathered
+Resume file: .planning/phases/40-web-search/40-CONTEXT.md
