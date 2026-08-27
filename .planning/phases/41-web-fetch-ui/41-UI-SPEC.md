@@ -35,13 +35,15 @@ Declared values (must be multiples of 4):
 |-------|-------|-------|
 | xs | 4px | Provider 列表项间距、图标与文字间距 |
 | sm | 8px | 表单组内间距、按钮间距、输入框内边距 |
-| md | 12px | Provider 列表项内边距、卡片内边距 |
-| lg | 16px | 表单组间距、区块标题下方间距 |
-| xl | 24px | 左右分栏间距、区块顶部间距 |
-| 2xl | 32px | 验证结果区域高度 |
-| 3xl | 48px | Provider 列表项高度 |
+| md | 16px | 表单组间距、区块标题下方间距、卡片内边距 |
+| lg | 24px | 左右分栏间距、区块顶部间距 |
+| xl | 32px | 验证结果区域高度 |
+| 2xl | 48px | Provider 列表项高度 |
+| 3xl | 64px | 页面级间距（本阶段未使用） |
 
-Exceptions: Provider 列表项高度 52px（复用 `.ai-provider-item` 已有规范，`main.css:4462`）
+Exceptions:
+- Provider 列表项高度 52px — 复用 `.ai-provider-item` 已有规范（`main.css:4461`），已在生产代码中固定
+- Provider 列表项内边距 12px — 复用 `.ai-provider-item` 的 `padding: 0 12px`（`main.css:4461`），匹配现有 AI 供应商管理面板的视觉节奏，不替换为 16px 避免列表项水平方向过松
 
 ---
 
@@ -83,6 +85,7 @@ Accent reserved for: Provider 列表选中状态左边框、"验证 API Key"按�
 |---------|------|
 | Primary CTA | "验证 API Key" (API Key 验证按钮) |
 | Secondary CTA | "保存配置" (API Key 保存按钮) |
+| Destructive confirmation | 覆盖已配置 API Key 时：弹出 inline 确认条（基于 `.toast` 组件扩展，`main.css:1430`），文案"当前 Provider 已有 API Key，确认覆盖？"，右侧 [确认覆盖] [取消] 两个按钮，5 秒无操作自动消失。不使用 window.confirm |
 | Empty state heading | "选择一个搜索 Provider" |
 | Empty state body | "从左侧列表选择一个 Provider，配置 API Key 后即可使用网络搜索功能" |
 | Error state (验证失败) | "验证失败：{具体原因}"，下方显示 "请检查 API Key 是否正确，或稍后重试" |
@@ -110,7 +113,7 @@ Accent reserved for: Provider 列表选中状态左边框、"验证 API Key"按�
 
 **Focal point:** 搜索配置子区域的主视觉锚点是 **Provider 列表**（左侧 6 项列表）。用户进入子区域后视线首先落在列表上，通过列表项的状态标签（未配置/已配置/免费）快速感知当前配置状态，再点击进入右侧编辑器。
 
-Applicable state considerations resolved: 6 covered, 0 backstop, 0 unresolved
+Applicable state considerations resolved: 10 covered, 0 backstop, 0 unresolved
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
@@ -123,6 +126,7 @@ Applicable state considerations resolved: 6 covered, 0 backstop, 0 unresolved
 | overflow | search-config-provider-list | ✅ covered | 列表固定 6 项，不会溢出。编辑器面板使用 flex 布局自适应高度 |
 | zero-one-many | search-config-provider-list | ✅ covered | 固定 6 项，不适用零/一/多变化 |
 | long-text | search-config-api-key | ✅ covered | API Key 输入框使用 `type="password"` 遮蔽，点击"显示"切换明文。输入框宽度固定，长 Key 水平滚动 |
+| destructive | search-config-save-button | ✅ covered | 覆盖已有 API Key 时弹出 inline 确认条（非模态），5 秒超时自动消失，用户可 [确认覆盖] 或 [取消]（见 Copywriting Contract） |
 
 ---
 
@@ -164,6 +168,7 @@ Applicable state considerations resolved: 6 covered, 0 backstop, 0 unresolved
 | `.btn-secondary` | `main.css:887` | 次按钮（透明背景，accent 边框） |
 | `.ai-switch` | `main.css:4683` | 启用/禁用开关（div-based toggle） |
 | `.ai-modal-overlay` | `main.css:4935` | 模态遮罩 |
+| `.toast` | `main.css:1430`, `main.css:2359` | Toast 通知（成功/错误消息，自动消失），API Key 保存确认复用此模式 |
 
 ---
 
@@ -248,9 +253,11 @@ Applicable state considerations resolved: 6 covered, 0 backstop, 0 unresolved
 
 ### API Key 保存交互
 
-1. 用户输入 Key 后点击"保存配置" → 通过 IPC 保存到 electron-store
-2. 保存成功 → Provider 列表项状态标签更新为"已配置"
-3. 保存失败 → 显示错误提示
+1. 用户输入 Key 后点击"保存配置"
+2. **若该 Provider 已有 API Key（覆盖场景）** → 输入框下方弹出 inline 确认条："当前 Provider 已有 API Key，确认覆盖？" + [确认覆盖] [取消]。5 秒无操作自动消失。用户点击 [确认覆盖] 继续步骤 3，点击 [取消] 或超时则中止
+3. **若该 Provider 无 API Key（首次保存）** → 直接执行步骤 3
+4. 通过 IPC 保存到 electron-store → 保存成功 → Provider 列表项状态标签更新为"已配置"
+5. 保存失败 → 显示错误提示
 
 ### 子区域折叠交互
 
