@@ -136,6 +136,26 @@ async function devModeApi(route, options = {}) {
 }
 
 /**
+ * 调用搜索配置 HTTP API
+ * @param {string} route - API 路由（如 'get'、'set'、'verify-key'）
+ * @param {Object} [options] - fetch 选项
+ * @returns {Promise<*>} 解析后的 JSON 响应
+ */
+async function searchConfigApi(route, options = {}) {
+  const params = new URLSearchParams({ token: apiToken });
+  const res = await fetch(`/api/search-config/${route}?${params.toString()}`, options);
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const data = await res.json();
+      if (data && data.error) detail = data.error;
+    } catch { /* 非 JSON 响应忽略 */ }
+    throw new Error(detail || `搜索配置 API 请求失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+/**
  * 调用凭据管理 HTTP API
  * @param {string} route - API 路由（如 'list'、'search'、'delete'）
  * @param {Object} [options] - fetch 选项
@@ -257,6 +277,7 @@ function switchSettingsPage(pageName) {
     startQueueStatusPolling();
   } else if (pageName === 'ai-assistant') {
     loadAISettings();
+    loadSearchConfig();
   } else if (pageName === 'multimedia') {
     loadMultimediaSettings();
   } else if (pageName === 'autofill') {
@@ -2531,6 +2552,24 @@ let aiSelectedProviderId = null;
 /** AI 激活供应商 ID */
 let aiActiveProviderId = null;
 
+// ==================== 搜索配置 ====================
+
+/** 搜索 Provider 定义（D-10, D-11） */
+const SEARCH_PROVIDERS = [
+  { id: 'auto', name: '自动选择', requiresKey: false },
+  { id: 'tavily', name: 'Tavily', requiresKey: true },
+  { id: 'brave', name: 'Brave Search', requiresKey: true },
+  { id: 'serper', name: 'Serper (Google)', requiresKey: true },
+  { id: 'anysearch', name: 'AnySearch', requiresKey: true },
+  { id: 'anysearch_free', name: 'AnySearch Free', requiresKey: false },
+];
+
+/** 当前选中的搜索 Provider ID */
+let searchSelectedProviderId = null;
+
+/** 搜索配置数据 */
+let searchConfig = { provider: 'auto', apiKeys: {} };
+
 /**
  * 加载 AI 助手设置
  * 获取已配置供应商列表和 AI 状态，渲染供应商列表和状态指示器
@@ -3066,6 +3105,328 @@ async function autoPopulateModels(providerId, creds) {
     // 自动填充失败不阻塞，用户可手动点「获取模型列表」
     console.warn('[Realm] 自动填充模型失败:', e.message);
   }
+}
+
+// ==================== 搜索配置 UI ====================
+
+/**
+ * 加载搜索配置
+ * 获取当前搜索 Provider 和 API Keys 配置，渲染 Provider 列表
+ */
+async function loadSearchConfig() {
+  try {
+    const data = await searchConfigApi('get');
+    searchConfig = {
+      provider: data.provider || 'auto',
+      apiKeys: data.apiKeys || {},
+    };
+    renderSearchProviderList();
+
+    // 预选当前配置的 Provider
+    if (searchConfig.provider) {
+      showSearchEditorForm(searchConfig.provider);
+    }
+  } catch (error) {
+    console.error('[Realm] 加载搜索配置失败:', error);
+  }
+}
+
+/**
+ * 渲染搜索 Provider 列表
+ * 遍历 SEARCH_PROVIDERS 创建列表项，显示名称和状态标签
+ */
+function renderSearchProviderList() {
+  const listEl = document.getElementById('searchProviderList');
+  if (!listEl) return;
+
+  listEl.innerHTML = '';
+  SEARCH_PROVIDERS.forEach(p => {
+    const hasKey = !!searchConfig.apiKeys[p.id];
+    const item = document.createElement('div');
+    item.className = 'ai-provider-item'
+      + (searchSelectedProviderId === p.id ? ' active' : '');
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'provider-name';
+    nameSpan.textContent = p.name;
+    item.appendChild(nameSpan);
+
+    // 状态标签：已配置/未配置/免费
+    const statusSpan = document.createElement('span');
+    if (p.requiresKey) {
+      statusSpan.className = hasKey ? 'provider-status configured' : 'provider-status unconfigured';
+      statusSpan.textContent = hasKey ? '已配置' : '未配置';
+    } else {
+      statusSpan.className = 'provider-status free';
+      statusSpan.textContent = '免费';
+    }
+    item.appendChild(statusSpan);
+
+    item.addEventListener('click', () => showSearchEditorForm(p.id));
+    listEl.appendChild(item);
+  });
+}
+
+/**
+ * 显示搜索 Provider 编辑表单
+ * 切换右侧编辑器，根据 requiresKey 决定是否显示 API Key 输入框
+ * @param {string} providerId - Provider ID
+ */
+function showSearchEditorForm(providerId) {
+  const provider = SEARCH_PROVIDERS.find(p => p.id === providerId);
+  if (!provider) return;
+
+  // 重复点击同一 Provider 不触发额外操作（per FLAGGED-ASSUMPTION: CONFIG-02 equality）
+  if (searchSelectedProviderId === providerId) return;
+
+  searchSelectedProviderId = providerId;
+  renderSearchProviderList();
+
+  const form = document.getElementById('searchEditorForm');
+  const empty = document.getElementById('searchEditorEmpty');
+  if (empty) empty.style.display = 'none';
+  if (form) form.style.display = '';
+
+  const titleEl = document.getElementById('searchEditorTitle');
+  const apiKeyInput = document.getElementById('searchEditorApiKey');
+  const verifyBtn = document.getElementById('searchVerifyBtn');
+  const verifyResult = document.getElementById('searchVerifyResult');
+  const formGroup = apiKeyInput ? apiKeyInput.closest('.ai-form-group') : null;
+
+  if (titleEl) titleEl.textContent = provider.name;
+
+  if (provider.requiresKey) {
+    // 需要 API Key 的 Provider：显示输入框和验证按钮
+    if (formGroup) formGroup.style.display = '';
+    if (apiKeyInput) {
+      apiKeyInput.value = searchConfig.apiKeys[provider.id] || '';
+      apiKeyInput.placeholder = '输入 API Key';
+    }
+    if (verifyBtn) verifyBtn.style.display = '';
+  } else {
+    // 免费 Provider：隐藏 API Key 输入区域
+    if (formGroup) formGroup.style.display = 'none';
+    if (verifyBtn) verifyBtn.style.display = 'none';
+  }
+
+  if (verifyResult) {
+    verifyResult.textContent = '';
+    verifyResult.className = 'verify-result';
+  }
+}
+
+/**
+ * 验证搜索 Provider API Key（D-12: 手动点击验证按钮）
+ * @param {string} providerId - Provider ID
+ * @param {string} apiKey - API Key
+ */
+async function verifySearchKey(providerId, apiKey) {
+  const verifyBtn = document.getElementById('searchVerifyBtn');
+  const verifyResult = document.getElementById('searchVerifyResult');
+
+  // 空 API Key 时前端校验提示（per FLAGGED-ASSUMPTION: CONFIG-03 empty）
+  if (!apiKey || !apiKey.trim()) {
+    if (verifyResult) {
+      verifyResult.className = 'verify-result error';
+      verifyResult.textContent = '请输入 API Key';
+    }
+    return;
+  }
+
+  if (verifyBtn) {
+    verifyBtn.disabled = true;
+    verifyBtn.textContent = '正在验证...';
+  }
+  if (verifyResult) {
+    verifyResult.textContent = '';
+    verifyResult.className = 'verify-result';
+  }
+
+  try {
+    const result = await searchConfigApi('verify-key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: providerId, apiKey }),
+    });
+    if (result.valid) {
+      if (verifyResult) {
+        verifyResult.className = 'verify-result success';
+        verifyResult.textContent = 'Key 有效';
+      }
+    } else {
+      if (verifyResult) {
+        verifyResult.className = 'verify-result error';
+        verifyResult.textContent = '验证失败：' + (result.error || '未知错误');
+      }
+    }
+  } catch (err) {
+    if (verifyResult) {
+      verifyResult.className = 'verify-result error';
+      verifyResult.textContent = '验证失败：' + (err.message || '网络错误');
+    }
+  } finally {
+    if (verifyBtn) {
+      verifyBtn.disabled = false;
+      verifyBtn.textContent = '验证 API Key';
+    }
+  }
+}
+
+/**
+ * 初始化搜索配置 UI 事件监听
+ * 绑定折叠、验证、保存按钮事件
+ */
+function setupSearchConfigListeners() {
+  // 折叠交互（D-08）
+  const toggle = document.getElementById('searchConfigToggle');
+  const content = document.getElementById('searchConfigContent');
+  if (toggle && content) {
+    toggle.addEventListener('click', () => {
+      const isVisible = content.style.display !== 'none';
+      content.style.display = isVisible ? 'none' : 'flex';
+      // 更新箭头方向
+      const chevron = toggle.querySelector('.settings-group-chevron');
+      if (chevron) {
+        chevron.style.transform = isVisible ? '' : 'rotate(180deg)';
+      }
+      // 保存折叠状态
+      settingsApi('update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ searchConfigCollapsed: isVisible }),
+      }).catch(() => {});
+    });
+  }
+
+  // 验证按钮
+  const verifyBtn = document.getElementById('searchVerifyBtn');
+  if (verifyBtn) {
+    verifyBtn.addEventListener('click', () => {
+      if (!searchSelectedProviderId) return;
+      const apiKeyInput = document.getElementById('searchEditorApiKey');
+      const apiKey = apiKeyInput ? apiKeyInput.value : '';
+      verifySearchKey(searchSelectedProviderId, apiKey);
+    });
+  }
+
+  // 保存按钮
+  const saveBtn = document.getElementById('searchSaveBtn');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async () => {
+      if (!searchSelectedProviderId) return;
+      const provider = SEARCH_PROVIDERS.find(p => p.id === searchSelectedProviderId);
+      if (!provider) return;
+
+      const apiKeyInput = document.getElementById('searchEditorApiKey');
+      const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+
+      // 免费 Provider 不需要 Key
+      if (provider.requiresKey && !apiKey) {
+        showToast('请输入 API Key', 'error');
+        return;
+      }
+
+      // 覆盖确认（per UI-SPEC Destructive confirmation）
+      const existingKey = searchConfig.apiKeys[searchSelectedProviderId];
+      if (provider.requiresKey && existingKey && existingKey !== apiKey) {
+        const confirmed = await showConfirmBar(
+          '当前 Provider 已有 API Key，确认覆盖？',
+          '确认覆盖',
+          '取消'
+        );
+        if (!confirmed) return;
+      }
+
+      try {
+        // 更新 apiKeys 对象
+        const newApiKeys = { ...searchConfig.apiKeys };
+        if (provider.requiresKey) {
+          newApiKeys[searchSelectedProviderId] = apiKey;
+        }
+
+        await searchConfigApi('set', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: searchConfig.provider,
+            apiKeys: newApiKeys,
+          }),
+        });
+
+        // 更新本地状态
+        searchConfig.apiKeys = newApiKeys;
+        renderSearchProviderList();
+        showToast('搜索配置已保存');
+      } catch (err) {
+        showToast('保存失败：' + (err.message || '未知错误'), 'error');
+      }
+    });
+  }
+
+  // 恢复折叠状态
+  loadSearchConfigCollapseState();
+}
+
+/**
+ * 加载搜索配置折叠状态
+ */
+async function loadSearchConfigCollapseState() {
+  try {
+    const settings = await settingsApi('get');
+    const collapsed = settings.searchConfigCollapsed;
+    const content = document.getElementById('searchConfigContent');
+    const toggle = document.getElementById('searchConfigToggle');
+    if (content && collapsed) {
+      content.style.display = 'none';
+      const chevron = toggle ? toggle.querySelector('.settings-group-chevron') : null;
+      if (chevron) chevron.style.transform = '';
+    }
+  } catch (e) {
+    // 忽略加载失败
+  }
+}
+
+/**
+ * 显示 inline 确认条（替代 window.confirm）
+ * 5 秒无操作自动消失
+ * @param {string} message - 确认消息
+ * @param {string} confirmText - 确认按钮文字
+ * @param {string} cancelText - 取消按钮文字
+ * @returns {Promise<boolean>} 用户是否确认
+ */
+function showConfirmBar(message, confirmText, cancelText) {
+  return new Promise(resolve => {
+    // 移除已有的确认条
+    const existing = document.querySelector('.search-confirm-bar');
+    if (existing) existing.remove();
+
+    const bar = document.createElement('div');
+    bar.className = 'search-confirm-bar';
+    bar.innerHTML = `
+      <span class="search-confirm-message">${message}</span>
+      <button class="btn btn-primary btn-sm search-confirm-ok">${confirmText}</button>
+      <button class="btn btn-secondary btn-sm search-confirm-cancel">${cancelText}</button>
+    `;
+
+    // 插入到保存按钮附近
+    const saveBtn = document.getElementById('searchSaveBtn');
+    if (saveBtn && saveBtn.parentElement) {
+      saveBtn.parentElement.appendChild(bar);
+    }
+
+    let timeoutId;
+    const cleanup = (result) => {
+      clearTimeout(timeoutId);
+      bar.remove();
+      resolve(result);
+    };
+
+    bar.querySelector('.search-confirm-ok').addEventListener('click', () => cleanup(true));
+    bar.querySelector('.search-confirm-cancel').addEventListener('click', () => cleanup(false));
+
+    // 5 秒超时自动消失
+    timeoutId = setTimeout(() => cleanup(false), 5000);
+  });
 }
 
 // ==================== 获取模型列表弹框 ====================
@@ -3678,6 +4039,9 @@ async function init() {
 
   // 初始化 AI 助手设置事件监听
   setupAISettingsListeners();
+
+  // 初始化搜索配置事件监听
+  setupSearchConfigListeners();
 
   // 检查 URL 参数中的 tab 指示；无参数时显式落在通用页，
   // 避免仅依赖 HTML 内联 display:none 兜底（内联样式失效会导致多个 section 同时显示）

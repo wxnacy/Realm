@@ -4494,6 +4494,57 @@ textarea::placeholder {
   flex-shrink: 0;
 }
 
+/* 搜索配置 Provider 状态标签 */
+.provider-status.configured {
+  color: var(--success-color);
+}
+
+.provider-status.unconfigured {
+  color: var(--text-muted);
+}
+
+.provider-status.free {
+  color: var(--accent-color);
+}
+
+/* 搜索配置内容初始隐藏 */
+.search-config-content {
+  display: none;
+}
+
+/* 验证结果区域 */
+.verify-result {
+  font-size: 13px;
+  margin-top: 8px;
+  min-height: 20px;
+}
+
+.verify-result.success {
+  color: var(--success-color);
+}
+
+.verify-result.error {
+  color: var(--danger-color);
+}
+
+/* 覆盖确认条 */
+.search-confirm-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-top: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.search-confirm-message {
+  flex: 1;
+  color: var(--text-primary);
+}
+
 .ai-provider-item .provider-active-dot {
   width: 8px;
   height: 8px;

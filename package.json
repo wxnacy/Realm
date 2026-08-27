@@ -27,13 +27,13 @@
   "license": "MIT",
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
-    "@mozilla/readability": "^0.6.0",
     "electron": "^43.3.0",
     "electron-builder": "^24.13.0",
     "electron-reloader": "^1.2.3",
     "esbuild": "^0.28.1"
   },
   "dependencies": {
+    "@mozilla/readability": "^0.6.0",
     "@earendil-works/pi-agent-core": "^0.84.3",
     "@earendil-works/pi-ai": "^0.84.3",
     "better-sqlite3": "^13.0.2",
@@ -43,11 +43,10 @@
     "electron-store": "^8.1.0",
     "highlight.js": "^11.11.1",
     "hls.js": "^1.6.17",
-    "jsdom": "^29.1.1",
+    "jsdom": "^30.0.0",
     "marked": "^18.0.7",
     "mpegts.js": "^1.8.1",
     "nodejieba": "^3.5.8",
-    "jsdom": "^30.0.0",
     "turndown": "^7.2.4"
   },
   "build": {
