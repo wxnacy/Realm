@@ -45,7 +45,9 @@
     "hls.js": "^1.6.17",
     "marked": "^18.0.7",
     "mpegts.js": "^1.8.1",
-    "nodejieba": "^3.5.8"
+    "nodejieba": "^3.5.8",
+    "jsdom": "^30.0.0",
+    "turndown": "^7.2.4"
   },
   "build": {
     "appId": "com.realm.browser",
