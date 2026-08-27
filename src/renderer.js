@@ -3802,6 +3802,9 @@ async function init() {
       console.warn('[Realm Renderer] 应用系统主题变化失败:', err.message);
     }
   });
+
+  // 初始化工具栏溢出收起
+  initToolbarOverflow();
 }
 
 /**
@@ -8524,6 +8527,7 @@ function updateMediaPlayerVisibility(enabled) {
   if (!enabled) {
     // 隐藏媒体面板按钮和面板（per D-12）
     if (elements.mediaPanelBtn) {
+      elements.mediaPanelBtn.dataset.featureHidden = '1';
       elements.mediaPanelBtn.style.display = 'none';
     }
     if (elements.mediaPanel) {
@@ -8536,10 +8540,14 @@ function updateMediaPlayerVisibility(enabled) {
   } else {
     // 显示媒体面板按钮
     if (elements.mediaPanelBtn) {
+      delete elements.mediaPanelBtn.dataset.featureHidden;
       elements.mediaPanelBtn.style.display = '';
     }
     // 不自动打开面板，保持用户控制
   }
+
+  // 参与溢出计算的按钮集合变化，重算工具栏收起状态
+  calculateToolbarOverflow();
 }
 
 /**
@@ -11909,6 +11917,188 @@ function hideAddressBanner() {
   setTimeout(() => {
     banner.classList.add('hidden');
   }, 300);
+}
+
+// ==================== 工具栏溢出收起 ====================
+
+let overflowToolbarButtons = [];
+let toolbarOverflowMenu = null;
+let toolbarOverflowBackdrop = null;
+
+const TOOLBAR_URL_MIN_WIDTH = 120; // 地址栏最小保留宽度
+
+/**
+ * 计算工具栏右侧按钮溢出（实测布局驱动，非宽度估算）
+ *
+ * 不根据任何「可用宽度估算」决定显隐——估算与真实 flex 布局的误差会在
+ * 临界宽度处放大成跳变。改为直接观测布局结果，逐步逼近：
+ * - 收起：右侧按钮组被 flex 裁切（scrollWidth > clientWidth）或地址栏
+ *   宽度不足 TOOLBAR_URL_MIN_WIDTH 时，从末尾逐个隐藏，每步重测；
+ * - 展开：地址栏宽度在让出一个按钮位后仍满足最小宽度时，从头逐个恢复；
+ * - 展开阈值比收起阈值高一个按钮位（36px 死区），避免边界抖动。
+ */
+function calculateToolbarOverflow() {
+  const toolbarRight = document.querySelector('.toolbar-right');
+  const overflowBtn = document.getElementById('toolbarOverflowBtn');
+  const urlWrapper = document.querySelector('.url-input-wrapper');
+  if (!toolbarRight || !overflowBtn) return;
+
+  // 功能开关隐藏的按钮（如媒体面板 per D-12）不参与溢出计算，保持隐藏
+  const buttons = Array.from(toolbarRight.children).filter(
+    (child) =>
+      child.classList.contains('btn-icon') &&
+      child.id !== 'toolbarOverflowBtn' &&
+      child.dataset.featureHidden !== '1'
+  );
+  if (buttons.length === 0) {
+    overflowToolbarButtons = [];
+    overflowBtn.classList.remove('visible');
+    return;
+  }
+
+  const urlWidth = () =>
+    urlWrapper ? urlWrapper.getBoundingClientRect().width : Infinity;
+  const rightClipped = () =>
+    toolbarRight.scrollWidth > toolbarRight.clientWidth + 1;
+  const syncOverflowState = () => {
+    overflowToolbarButtons = buttons.filter((b) => b.style.display === 'none');
+    overflowBtn.classList.toggle('visible', overflowToolbarButtons.length > 0);
+  };
+
+  // 收起：逐个隐藏末尾可见按钮，每步强制重排后重测
+  let guard = 0;
+  while (guard++ <= buttons.length) {
+    const visible = buttons.filter((b) => b.style.display !== 'none');
+    if (visible.length === 0) break;
+    if (!rightClipped() && urlWidth() >= TOOLBAR_URL_MIN_WIDTH) break;
+    visible[visible.length - 1].style.display = 'none';
+    syncOverflowState();
+  }
+
+  // 展开：逐个试恢复被收起的按钮——先显示再实测，地址栏跌破最小宽度
+  // 或右侧被裁切则回退。试恢复能自然覆盖「最后一个恢复时 » 同步消失
+  // 释放其占位」的场景，无需估算净成本
+  guard = 0;
+  while (guard++ <= buttons.length) {
+    const hidden = buttons.filter((b) => b.style.display === 'none');
+    if (hidden.length === 0) break;
+    hidden[0].style.display = '';
+    syncOverflowState();
+    if (urlWidth() < TOOLBAR_URL_MIN_WIDTH || rightClipped()) {
+      hidden[0].style.display = 'none';
+      syncOverflowState();
+      break;
+    }
+  }
+
+  syncOverflowState();
+}
+
+/**
+ * 显示工具栏溢出下拉菜单
+ */
+function showToolbarOverflowMenu() {
+  closeToolbarOverflowMenu();
+
+  if (!overflowToolbarButtons || overflowToolbarButtons.length === 0) return;
+
+  const overflowBtn = document.getElementById('toolbarOverflowBtn');
+  if (!overflowBtn) return;
+
+  const menu = document.createElement('div');
+  menu.className = 'toolbar-overflow-menu';
+
+  overflowToolbarButtons.forEach((btn) => {
+    const item = document.createElement('div');
+    item.className = 'toolbar-overflow-menu-item';
+    item.textContent = btn.title || '';
+    item.addEventListener('click', () => {
+      btn.dispatchEvent(new Event('click'));
+      closeToolbarOverflowMenu();
+    });
+    menu.appendChild(item);
+  });
+
+  document.body.appendChild(menu);
+  toolbarOverflowMenu = menu;
+
+  // 创建遮罩层
+  const backdrop = document.createElement('div');
+  backdrop.style.cssText = 'position:fixed;inset:0;z-index:99998;';
+  backdrop.addEventListener('click', closeToolbarOverflowMenu);
+  document.body.appendChild(backdrop);
+  toolbarOverflowBackdrop = backdrop;
+
+  // 定位：右对齐按钮
+  const rect = overflowBtn.getBoundingClientRect();
+  const menuWidth = Math.min(240, Math.max(140, menu.offsetWidth));
+  const menuHeight = menu.offsetHeight;
+
+  let left = rect.right - menuWidth;
+  if (left < 8) left = 8;
+
+  let top = rect.bottom + 4;
+  if (top + menuHeight > window.innerHeight - 8) {
+    top = Math.max(8, rect.top - menuHeight - 4);
+  }
+
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+  menu.style.width = menuWidth + 'px';
+
+  requestAnimationFrame(() => {
+    menu.classList.add('visible');
+  });
+}
+
+/**
+ * 关闭工具栏溢出下拉菜单
+ */
+function closeToolbarOverflowMenu() {
+  if (toolbarOverflowMenu) {
+    toolbarOverflowMenu.remove();
+    toolbarOverflowMenu = null;
+  }
+  if (toolbarOverflowBackdrop) {
+    toolbarOverflowBackdrop.remove();
+    toolbarOverflowBackdrop = null;
+  }
+}
+
+/**
+ * 初始化工具栏溢出收起
+ */
+function initToolbarOverflow() {
+  const overflowBtn = document.getElementById('toolbarOverflowBtn');
+  if (!overflowBtn) return;
+
+  // 绑定 » 按钮点击事件
+  overflowBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (toolbarOverflowMenu) {
+      closeToolbarOverflowMenu();
+    } else {
+      showToolbarOverflowMenu();
+    }
+  });
+
+  // 使用 ResizeObserver 监听工具栏宽度变化
+  const toolbar = document.getElementById('toolbar');
+  if (toolbar && typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(() => {
+      calculateToolbarOverflow();
+    });
+    ro.observe(toolbar);
+  } else if (toolbar) {
+    window.addEventListener('resize', calculateToolbarOverflow);
+  }
+
+  // 首次计算：双重 requestAnimationFrame 确保布局完成
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      calculateToolbarOverflow();
+    });
+  });
 }
 
 // ==================== 初始化应用 ====================

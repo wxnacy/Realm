@@ -138,7 +138,7 @@ function createMainWindow(containerId, container, options = {}) {
   const windowOptions = {
     width: restoredBounds ? restoredBounds.bounds.width : 1400,
     height: restoredBounds ? restoredBounds.bounds.height : 900,
-    minWidth: 800,
+    minWidth: 400,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#1a1a1a',

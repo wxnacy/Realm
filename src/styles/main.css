@@ -345,6 +345,7 @@ button {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
   -webkit-app-region: no-drag;
 }
 
@@ -353,8 +354,22 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   -webkit-app-region: no-drag;
   position: relative;
+}
+
+.toolbar-left {
+  flex-shrink: 0;
+}
+
+.toolbar-right {
+  overflow: hidden;
+  position: relative;
+}
+
+.toolbar-right .btn-icon {
+  flex-shrink: 0;
 }
 
 /* 刷新/停止按钮图标切换 */
@@ -4325,6 +4340,83 @@ textarea::placeholder {
 
 .bookmarks-dropdown::-webkit-scrollbar-thumb,
 .bookmarks-submenu::-webkit-scrollbar-thumb {
+  background-color: var(--bg-hover);
+  border-radius: 2px;
+}
+
+/* ==================== 工具栏溢出按钮与菜单 ==================== */
+
+/* 需比文件后部重复的 .btn-icon 规则（AI 模型分组区）特异性更高，否则 display:none 被覆盖 */
+/* 宽度 20px < 普通按钮 28px：首个收起时 » 出现，净收益须 > 0 才能保证一次只收一个 */
+.toolbar-right .toolbar-overflow-btn {
+  display: none;
+  flex-shrink: 0;
+  width: 20px;
+  min-width: 20px;
+}
+
+.toolbar-right .toolbar-overflow-btn.visible {
+  display: flex;
+}
+
+.toolbar-overflow-btn span {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.toolbar-overflow-menu {
+  position: fixed;
+  min-width: 140px;
+  max-width: 240px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 6px 0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  z-index: 99999;
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: 520px;
+  opacity: 0;
+  transform: scale(0.96);
+  transition: opacity 0.08s ease, transform 0.08s ease;
+  pointer-events: none;
+  transform-origin: top right;
+}
+
+.toolbar-overflow-menu.visible {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+.toolbar-overflow-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  height: 32px;
+  cursor: pointer;
+  transition: background-color 0.06s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0 4px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  color: var(--text-primary);
+}
+
+.toolbar-overflow-menu-item:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.toolbar-overflow-menu::-webkit-scrollbar {
+  width: 3px;
+}
+
+.toolbar-overflow-menu::-webkit-scrollbar-thumb {
   background-color: var(--bg-hover);
   border-radius: 2px;
 }
