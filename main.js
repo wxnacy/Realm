@@ -1500,8 +1500,29 @@ app.whenReady().then(async () => {
       // POST /api/search-config/set
       if (route === 'set' && req.method === 'POST') {
         const updates = await readJsonBody(req);
-        if (updates.provider) configStore.set('search.provider', updates.provider);
-        if (updates.apiKeys) configStore.set('search.apiKeys', updates.apiKeys);
+        // 校验 provider 为已知字符串
+        const VALID_PROVIDERS = ['auto', 'tavily', 'brave', 'serper', 'anysearch', 'anysearch_free'];
+        if (updates.provider) {
+          if (typeof updates.provider !== 'string' || !VALID_PROVIDERS.includes(updates.provider)) {
+            sendJson(res, 400, { error: '无效的搜索 Provider' });
+            return;
+          }
+          configStore.set('search.provider', updates.provider);
+        }
+        // 校验 apiKeys 为对象且值为字符串
+        if (updates.apiKeys) {
+          if (typeof updates.apiKeys !== 'object' || Array.isArray(updates.apiKeys)) {
+            sendJson(res, 400, { error: '无效的 apiKeys 格式' });
+            return;
+          }
+          for (const [k, v] of Object.entries(updates.apiKeys)) {
+            if (typeof k !== 'string' || typeof v !== 'string') {
+              sendJson(res, 400, { error: 'apiKeys 键值必须为字符串' });
+              return;
+            }
+          }
+          configStore.set('search.apiKeys', updates.apiKeys);
+        }
         sendJson(res, 200, { success: true });
         return;
       }

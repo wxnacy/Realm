@@ -2056,8 +2056,26 @@ function registerHandlers() {
    */
   ipcMain.handle('search-config:set', (event, config) => {
     assertTrustedSender(event);
-    if (config.provider) configStore.set('search.provider', config.provider);
-    if (config.apiKeys) configStore.set('search.apiKeys', config.apiKeys);
+    // 校验 provider 为已知字符串
+    const VALID_PROVIDERS = ['auto', 'tavily', 'brave', 'serper', 'anysearch', 'anysearch_free'];
+    if (config.provider) {
+      if (typeof config.provider !== 'string' || !VALID_PROVIDERS.includes(config.provider)) {
+        return { success: false, error: '无效的搜索 Provider' };
+      }
+      configStore.set('search.provider', config.provider);
+    }
+    // 校验 apiKeys 为对象且值为字符串
+    if (config.apiKeys) {
+      if (typeof config.apiKeys !== 'object' || Array.isArray(config.apiKeys)) {
+        return { success: false, error: '无效的 apiKeys 格式' };
+      }
+      for (const [k, v] of Object.entries(config.apiKeys)) {
+        if (typeof k !== 'string' || typeof v !== 'string') {
+          return { success: false, error: 'apiKeys 键值必须为字符串' };
+        }
+      }
+      configStore.set('search.apiKeys', config.apiKeys);
+    }
     return { success: true };
   });
 
