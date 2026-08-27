@@ -2224,8 +2224,9 @@ function injectHintMode(mode) {
       if (MODE === 'current') {
         el.click();
       } else if (MODE === 'newTab') {
-        if (href) {
-          window.open(href, '_blank');
+        if (href && window.__realmBridge) {
+          // 后台新标签打开：焦点保留在当前页，由 renderer 侧 createTab 后切回
+          window.__realmBridge.sendVimCommand('openInBgTab', { url: href });
         } else {
           // 无 href 的可点击元素（如 history 标题 div），回退到 click——
           // 其事件处理函数通常自行 window.open
@@ -3056,6 +3057,26 @@ function initVimFocusListener(webview) {
         }).catch(() => {
           showToast('复制失败', 'error');
         });
+      } else if (command === 'openInBgTab' && data && data.url) {
+        // F 键 hint：后台新标签打开，焦点保留在当前页
+        // 容器取来源 tab 的容器（与 window.open 拦截链路的"来源容器"语义一致）
+        let containerId = state.currentContainer;
+        for (const [tabId, wv] of state.webviews) {
+          if (wv === webview) {
+            const srcTab = state.tabs.get(tabId);
+            if (srcTab) containerId = srcTab.containerId;
+            break;
+          }
+        }
+        if (/^(https?|realm):\/\//i.test(data.url)) {
+          const currentActiveTabId = state.activeTabId;
+          createTab(containerId, data.url).then(() => {
+            // 切回原来的 Tab
+            if (currentActiveTabId && state.tabs.has(currentActiveTabId)) {
+              switchTab(currentActiveTabId);
+            }
+          });
+        }
       } else if (command === 'findInPage' && data && data.text) {
         // 搜索输入阶段的实时预览：只执行查找并暂存搜索词，不进入 n/N 导航阶段
         // 注意必须用 findNext:true —— 实证（Electron webview）：全新 find 会话的
