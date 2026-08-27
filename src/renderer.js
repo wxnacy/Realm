@@ -10386,6 +10386,9 @@ function initTabDragAndDrop() {
 
   const CROSS_DRAG_THRESHOLD = 5; // 激活跨窗口拖拽的最小移动距离（px）
   const POSITION_REPORT_INTERVAL = 50; // 向主进程报告位置的节流间隔（ms）
+  // 拖出 Tab 栏下缘的垂直容差：容差内仍视为在 Tab 栏内（排序模式），
+  // 与主进程 drag-coordinator.js isDraggedOutOfTabBar 的 EXIT_THRESHOLD 保持同步
+  const TAB_BAR_EXIT_TOLERANCE = 4;
   /** 拖拽位置报告请求序列号（用于丢弃过期响应，避免乱序导致 targetWindowId 错误） */
   let dragRequestSeq = 0;
 
@@ -10447,6 +10450,16 @@ function initTabDragAndDrop() {
       dragPreview.remove();
       dragPreview = null;
     }
+  }
+
+  /**
+   * 拖拽结束后恢复 webview 的 pointer-events
+   * 与 showWebview 的语义一致：活动 Tab 的 webview 可交互，其余不可交互
+   */
+  function restoreWebviewPointerEvents() {
+    state.webviews.forEach((wv, id) => {
+      if (wv) wv.style.pointerEvents = id === state.activeTabId ? 'auto' : 'none';
+    });
   }
 
   /**
@@ -10518,12 +10531,19 @@ function initTabDragAndDrop() {
         tabEl.classList.add('dragging');
         tabEl.classList.add('cross-dragging');
       }
+
+      // 拖拽期间禁用所有 webview 的 pointer-events：
+      // 鼠标经过 webview 区域时事件会被 guest 页吞掉，导致 mousemove/mouseup 断流、
+      // 浮动预览卡在页面上（与 initAIPanelResize 的处理相同）
+      document.querySelectorAll('webview').forEach(wv => {
+        wv.style.pointerEvents = 'none';
+      });
     }
 
     // 窗口内排序反馈：鼠标在 Tab 栏内时显示插入指示器并隐藏浮动预览；
     // 拖出 Tab 栏后隐藏指示器、显示浮动预览
     const tabBarRect = elements.tabBar.getBoundingClientRect();
-    const inTabBar = e.clientY >= tabBarRect.top && e.clientY <= tabBarRect.bottom;
+    const inTabBar = e.clientY >= tabBarRect.top && e.clientY <= tabBarRect.bottom + TAB_BAR_EXIT_TOLERANCE;
     if (inTabBar) {
       if (dragPreview) dragPreview.style.display = 'none';
       lastInsertTarget = computeInsertTarget(e.clientX, state.crossDrag.tabId);
@@ -10602,6 +10622,8 @@ function initTabDragAndDrop() {
 
     // 移除浮动预览
     removeDragPreview();
+    // 恢复 webview 鼠标事件（拖拽激活时为防止 guest 吞事件而禁用）
+    restoreWebviewPointerEvents();
 
     // 判断松手位置
     const dx = e.screenX - state.crossDrag.startScreenX;
@@ -10705,6 +10727,8 @@ function initTabDragAndDrop() {
 
       // 移除浮动预览
       removeDragPreview();
+      // 恢复 webview 鼠标事件
+      restoreWebviewPointerEvents();
 
       // 通知主进程取消拖拽
       window.realmAPI.cancelDrag();

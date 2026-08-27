@@ -112,9 +112,10 @@ function detectTargetWindow(screenX, screenY, excludeWindowId) {
  * 检测鼠标是否离开源窗口的 Tab 栏区域（拖出检测）
  *
  * 判断逻辑（per D-27, D-28）：
- * - 垂直方向：鼠标离开 Tab 栏底部 + 30px 阈值
+ * - 垂直方向：鼠标离开 Tab 栏底部（4px 容差内仍算在栏内，防止排序时垂直抖动误脱离）
  * - 水平方向：鼠标离开 Tab 栏左右边缘
  * - 支持向下拖出和向上拖出
+ * - 与 renderer.js 的 TAB_BAR_EXIT_TOLERANCE 保持同步
  *
  * @param {number} screenX - 屏幕坐标 X
  * @param {number} screenY - 屏幕坐标 Y
@@ -129,7 +130,7 @@ function isDraggedOutOfTabBar(screenX, screenY) {
   const bounds = sourceWin.getBounds();
   // 与 CSS .tab-bar height 和 window-manager.js:314 保持同步
   const TAB_BAR_HEIGHT = 38;
-  const EXIT_THRESHOLD = 30; // 垂直方向额外阈值
+  const EXIT_THRESHOLD = 4; // 垂直方向容差：拖出 Tab 栏下缘 4px 内仍视为栏内
 
   // 垂直检测：鼠标离开 Tab 栏底部 + 阈值，或离开窗口顶部
   const belowTabBar = screenY > bounds.y + TAB_BAR_HEIGHT + EXIT_THRESHOLD;
