@@ -2815,6 +2815,9 @@ function initVimShortcuts() {
       } else if (command === 'searchMode') {
         // 主进程派发前已同步置 searchInputActive，丢弃命令时必须回退，否则按键持续被吞
         window.realmAPI.setVimSearchInputActive(false);
+      } else if (command === 'hintMode' || command === 'hintModeNewTab' || command === 'copyLinkUrl') {
+        // 主进程派发前已同步置 hintModeActive，丢弃命令时同样必须回退
+        window.realmAPI.setVimHintActive(false);
       }
       return;
     }
@@ -2959,17 +2962,31 @@ function initVimShortcuts() {
       }
 
       // ==================== Hint Mode ====================
+      // 主进程派发前已同步置 hintModeActive；无活动 webview 注入必然失败，
+      // 必须回退清除，否则后续按键全被当作 hint 字符吞掉
       case 'hintMode':
+        if (!state.webviews.get(state.activeTabId)) {
+          window.realmAPI.setVimHintActive(false);
+          break;
+        }
         state.vimHintActive = true;
         window.realmAPI.setVimHintActive(true);
         injectHintMode('current');
         break;
       case 'hintModeNewTab':
+        if (!state.webviews.get(state.activeTabId)) {
+          window.realmAPI.setVimHintActive(false);
+          break;
+        }
         state.vimHintActive = true;
         window.realmAPI.setVimHintActive(true);
         injectHintMode('newTab');
         break;
       case 'copyLinkUrl':
+        if (!state.webviews.get(state.activeTabId)) {
+          window.realmAPI.setVimHintActive(false);
+          break;
+        }
         state.vimHintActive = true;
         window.realmAPI.setVimHintActive(true);
         injectHintMode('copyUrl');

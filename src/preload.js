@@ -1037,7 +1037,13 @@ contextBridge.exposeInMainWorld('realmAPI', {
    * @param {boolean} isInInput - 焦点是否在输入框中
    */
   setHostVimFocusState: (isInInput) => {
-    ipcRenderer.invoke('vim:set-focus-state', null, isInInput);
+    // 同步直报（sendSync 返回时主进程已更新，消除 before-input-event 竞态）；
+    // 失败时回退异步 invoke
+    try {
+      ipcRenderer.sendSync('vim:set-focus-state-sync', null, isInInput);
+    } catch (err) {
+      ipcRenderer.invoke('vim:set-focus-state', null, isInInput);
+    }
   },
 
   /**

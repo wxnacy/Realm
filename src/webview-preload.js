@@ -492,10 +492,24 @@ const _credentialObserver = new MutationObserver(() => {
     });
   }, 300);
 });
-_credentialObserver.observe(document.body || document.documentElement, {
-  childList: true,
-  subtree: true,
-});
+// preload 在 document start 执行，此时 documentElement 可能尚未解析出来（为 null），
+// observe(null) 会抛 TypeError 导致本文件尾部（Vim 焦点检测等）永不执行——
+// 这是 guest 内输入框焦点状态从不上报、Vim 单键在网页输入框吞键的真正根因。
+// 目标节点为空时延迟到 DOMContentLoaded 再挂观察。
+const _credentialObserveTarget = document.body || document.documentElement;
+if (_credentialObserveTarget) {
+  _credentialObserver.observe(_credentialObserveTarget, {
+    childList: true,
+    subtree: true,
+  });
+} else {
+  window.addEventListener('DOMContentLoaded', () => {
+    _credentialObserver.observe(document.body || document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+  });
+}
 
 // ==================== Vim 快捷键焦点检测 ====================
 
@@ -530,10 +544,20 @@ function _checkAndReportFocusState() {
   const isInInput = _isFocusInInputElement();
   if (isInInput !== _lastFocusInInput) {
     _lastFocusInInput = isInInput;
+    // 同步直报主进程（一跳，event.sender.id 即本 guest 的 webContents id）：
+    // sendSync 返回时主进程 vimFocusStates 已更新，其后的 before-input-event
+    // 读到的一定是最新焦点状态，消除异步 IPC 竞态导致的输入框吞键
+    // （docs/debug/vim-mode-input-field-bug.md）。对应 handler 在 shortcut-manager
+    // 模块加载时即注册，不存在 handler 未就绪的死锁窗口。
     try {
-      window.__realmBridge.sendFocusState(isInInput);
+      ipcRenderer.sendSync('vim:set-focus-state-sync', null, isInInput);
     } catch (err) {
-      // __realmBridge 可能尚未初始化，忽略错误
+      // sendSync 失败（如导航销毁中）时回退原异步链：guest → host renderer → main
+      try {
+        window.__realmBridge.sendFocusState(isInInput);
+      } catch (e) {
+        // __realmBridge 可能尚未初始化，忽略错误
+      }
     }
   }
 }

@@ -331,6 +331,12 @@ function attachInputListener(contents) {
             } else if (command === 'searchModeExit') {
               searchInputActive = false;
               VimStateMachine.searchActive = false;
+            } else if (command === 'hintMode' || command === 'hintModeNewTab' || command === 'copyLinkUrl') {
+              // Hint Mode 进入状态在主进程同步切换（镜像 searchMode 模式）：
+              // 若等 renderer 的 set-hint-active IPC 回传，f 之后立刻输入的 hint 字符
+              // 会被当作 Vim 命令/普通按键处理（进入竞态）。renderer 丢弃命令时
+              // （帮助对话框打开 / 无活动 webview）负责回退清除，见 renderer.js。
+              hintModeActive = true;
             }
             const focusedWindow = BrowserWindow.getFocusedWindow();
             if (focusedWindow && !focusedWindow.isDestroyed() && windowManager.isManagedWindow(focusedWindow.id)) {
@@ -460,6 +466,23 @@ function setVimFocusState(webContentsId, isInInput) {
 }
 
 /**
+ * 读取指定 webContents 的输入框焦点状态（调试/测试用）
+ * @param {number} webContentsId
+ * @returns {boolean}
+ */
+function getVimFocusState(webContentsId) {
+  return vimFocusStates.get(webContentsId) || false;
+}
+
+/**
+ * 读取 Vim 全局状态快照（调试/测试用）
+ * @returns {{hintModeActive: boolean, searchInputActive: boolean}}
+ */
+function getVimDebugState() {
+  return { hintModeActive, searchInputActive };
+}
+
+/**
  * 注册 Vim 相关的 IPC 处理器
  * 在 registerShortcuts 中调用
  */
@@ -499,6 +522,35 @@ function registerVimIpcHandlers() {
   console.log('[Realm] Vim IPC 处理器已注册');
 }
 
+// ==================== 同步焦点状态通道（模块加载即注册） ====================
+
+/**
+ * 注册 vim:set-focus-state-sync 同步处理器（sendSync 专用）
+ *
+ * 背景：before-input-event 是原生同步事件，焦点状态若走异步 IPC（invoke/send）
+ * 上报，点击输入框后立刻打字时主进程读到的仍是旧状态，按键被 Vim 命令吞掉
+ * （详见 docs/debug/vim-mode-input-field-bug.md）。
+ *
+ * 本处理器在模块 require 时即注册（早于任何窗口/webview 创建），handler 体只做
+ * Map 写入且 try/finally 保证 returnValue 一定被设置——这两个条件是 sendSync
+ * 不死锁的前提（此前按方案 4.1 在 registerVimIpcHandlers 中注册 + preload 加载
+ * 时立即调用，handler 未就绪导致渲染进程永久阻塞）。
+ *
+ * guest preload 与 host renderer 均以 event.sender 身份直报（一跳直达），
+ * 不再经过「guest → host renderer → main」两跳异步链。
+ */
+ipcMain.on('vim:set-focus-state-sync', (event, webContentsId, isInInput) => {
+  try {
+    const id = typeof webContentsId === 'number' ? webContentsId : event.sender.id;
+    setVimFocusState(id, isInInput);
+  } catch (err) {
+    console.warn('[Realm] vim:set-focus-state-sync 处理失败:', err.message);
+  } finally {
+    // sendSync 必须设置 returnValue，否则渲染进程永久阻塞
+    event.returnValue = true;
+  }
+});
+
 // ==================== 模块导出 ====================
 
 module.exports = {
@@ -514,4 +566,6 @@ module.exports = {
   setHintModeActive,
   setSearchInputActive,
   registerVimIpcHandlers,
+  getVimFocusState,
+  getVimDebugState,
 };
