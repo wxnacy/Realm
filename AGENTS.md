@@ -382,21 +382,39 @@ fetch `http://localhost:PORT` 是跨域请求会被 CORS 拦截（`TypeError: Fa
 
 ## 环境隔离
 
-开发、测试、正式三个环境使用独立的 `userData` 目录，互不干扰：
+开发、调试、测试、正式四个环境使用独立的 `userData` 目录，互不干扰：
 
-| 命令 | 环境 | userData 路径 |
-|------|------|--------------|
-| `npm run dev` | 开发 | `~/Library/Application Support/realm-dev/` |
-| `npm run test` | 测试 | `~/Library/Application Support/realm-test/` |
-| `npm start` / .app | 正式 | `~/Library/Application Support/realm/` |
+| 命令 | 环境 | userData 路径 | 自动打开 DevTools | 热加载 |
+|------|------|--------------|-------------------|--------|
+| `npm run dev` | 开发 | `~/Library/Application Support/realm-dev/` | ❌ | ✅ |
+| `npm run debug` | 调试 | `~/Library/Application Support/realm-dev/` | ✅ | ✅ |
+| `npm run test` | 测试 | `~/Library/Application Support/realm-test/` | ❌ | ❌ |
+| `npm start` / .app | 正式 | `~/Library/Application Support/realm/` | ❌ | ❌ |
 
 实现在 `main.js` 顶部，通过 `process.env.NODE_ENV` 判断：
 
 ```javascript
-if (process.env.NODE_ENV === 'development') {
+// 环境隔离：开发/调试/测试环境使用独立的 userData 目录
+if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'debug') {
   app.setName('realm-dev');
 } else if (process.env.NODE_ENV === 'test') {
   app.setName('realm-test');
+}
+```
+
+**热重载配置**（仅开发/调试模式）：
+```javascript
+// 热重载配置（仅开发/调试模式，测试模式不启用）
+if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'debug') {
+  try { require('electron-reloader')(module); } catch {}
+}
+```
+
+**自动打开 DevTools**（仅调试模式）：
+```javascript
+// 调试环境启动即打开主窗口 DevTools（停靠右侧，调试 realmAPI/mediaAPI）
+if (mainWindow && process.env.NODE_ENV === 'debug') {
+  mainWindow.webContents.openDevTools();
 }
 ```
 
@@ -416,12 +434,35 @@ if (process.env.NODE_ENV === 'development') {
 
 ## 调试
 
+### 环境配置
+
+项目支持三种运行环境，通过 `NODE_ENV` 环境变量区分：
+
+| 环境 | 命令 | userData 目录 | 自动打开 DevTools | 热加载 | 用途 |
+|------|------|---------------|-------------------|--------|------|
+| **开发** | `npm run dev` | `~/Library/Application Support/realm-dev/` | ❌ | ✅ | 日常开发，快速迭代 |
+| **调试** | `npm run debug` | `~/Library/Application Support/realm-dev/` | ✅ | ✅ | 需要调试时使用，自动打开 DevTools |
+| **测试** | `npm run test` | `~/Library/Application Support/realm-test/` | ❌ | ❌ | 测试验证，数据隔离 |
+
+**环境隔离说明：**
+- `dev` 和 `debug` 共享同一个 userData 目录（`realm-dev`），方便切换时保留数据
+- `test` 使用独立的 userData 目录（`realm-test`），不影响开发数据
+- 只有 `debug` 模式会自动打开 DevTools，`dev` 模式需要手动打开
+- `dev` 和 `debug` 支持热重载，`test` 不支持（更接近生产环境行为）
+
 ### 开发模式
 ```bash
 npm run dev
 ```
 - 主进程日志：终端输出
-- 渲染进程日志：开发者工具 Console
+- 渲染进程日志：开发者工具 Console（需手动打开）
+
+### 调试模式
+```bash
+npm run debug
+```
+- 自动打开开发者工具
+- 适合需要调试渲染进程或 DevTools 的场景
 
 ### 调试案例（docs/debug/）
 
@@ -440,8 +481,14 @@ console.log(cookies);
 ## 构建
 
 ```bash
-# 开发模式
+# 开发模式（热重载，不自动打开 DevTools）
 npm run dev
+
+# 调试模式（热重载，自动打开 DevTools）
+npm run debug
+
+# 测试模式（无热重载，数据隔离）
+npm run test
 
 # macOS 生产构建
 npm run build:mac

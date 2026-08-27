@@ -4,8 +4,10 @@
  * 应用生命周期管理，模块组装
  */
 
-// 热重载配置（仅开发模式）
-try { require('electron-reloader')(module); } catch {}
+// 热重载配置（仅开发/调试模式，测试模式不启用）
+if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'debug') {
+  try { require('electron-reloader')(module); } catch {}
+}
 
 const path = require('path');
 const { app, BrowserWindow, protocol, net, ipcMain, Menu, dialog, nativeTheme, session } = require('electron');
@@ -22,11 +24,11 @@ const { Readable } = require('stream');
  * macOS 打包后的 .app 从 Finder/Launchpad 启动时不会继承 shell 环境变量，
  * 导致 process.env 中读取不到用户在 ~/.zshrc 或 ~/.bash_profile 中设置的变量（如 API KEY）。
  * 此函数通过执行 `env -i bash -l -c env` 获取完整的 login shell 环境，合并到 process.env。
- * 仅在非开发模式下执行（开发模式通过终端启动，已继承环境）。
+ * 仅在非开发模式下执行（开发/调试模式通过终端启动，已继承环境）。
  */
 function loadShellEnv() {
-  // 开发模式通过终端启动，已继承环境变量
-  if (process.env.NODE_ENV === 'development') return;
+  // 开发/调试模式通过终端启动，已继承环境变量
+  if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'debug') return;
 
   try {
     const shell = process.env.SHELL || '/bin/zsh';
@@ -57,8 +59,8 @@ function loadShellEnv() {
   }
 }
 
-// 环境隔离：开发/测试环境使用独立的 userData 目录
-if (process.env.NODE_ENV === 'development') {
+// 环境隔离：开发/调试/测试环境使用独立的 userData 目录
+if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'debug') {
   app.setName('realm-dev');
 } else if (process.env.NODE_ENV === 'test') {
   app.setName('realm-test');
@@ -3115,8 +3117,8 @@ app.whenReady().then(async () => {
     setupWindowBoundsTracking(mainWindow, 'default');
   }
 
-  // 开发环境启动即打开主窗口 DevTools（停靠右侧，调试 realmAPI/mediaAPI）
-  if (mainWindow && process.env.NODE_ENV === 'development') {
+  // 调试环境启动即打开主窗口 DevTools（停靠右侧，调试 realmAPI/mediaAPI）
+  if (mainWindow && process.env.NODE_ENV === 'debug') {
     mainWindow.webContents.openDevTools();
   }
 
