@@ -50,11 +50,13 @@ Exceptions: Provider 列表项高度 52px（复用 `.ai-provider-item` 已有规
 | Role | Size | Weight | Line Height |
 |------|------|--------|-------------|
 | Body | 13px | 400 | 1.5 |
-| Label | 14px | 500 | 1.4 |
+| Label | 14px | 600 | 1.4 |
 | Heading | 16px | 600 | 1.3 |
-| Display | 15px | 600 | 1.3 |
+| List Item | 15px | 400 | 1.3 |
 
 > Source: `main.css` 已有字体规范 — 13px 正文（:404）、14px 标签（:310）、16px 标题（:966）、15px 列表项名称（:4469）。
+> 权重限制为 2 个：400（Body、List Item）和 600（Label、Heading）。
+> "Display" 角色已移除（15px < 16px 违反语义层级），15px 改为 "List Item" 角色（Provider 列表项名称）。
 
 ---
 
@@ -64,12 +66,12 @@ Exceptions: Provider 列表项高度 52px（复用 `.ai-provider-item` 已有规
 |------|-------|-------|
 | Dominant (60%) | `var(--bg-primary)` #1a1a1a (dark) / #ffffff (light) | 页面背景、主容器背景 |
 | Secondary (30%) | `var(--bg-secondary)` #2a2a2a (dark) / #f5f5f5 (light) | 编辑器面板、Provider 列表背景 |
-| Accent (10%) | `var(--accent-color)` #3B82F6 | Provider 列表选中边框、验证成功图标、"验证"按钮 |
+| Accent (10%) | `var(--accent-color)` #3B82F6 | Provider 列表选中边框、验证成功图标、"验证 API Key"按钮 |
 | Destructive | `var(--danger-color)` #EF4444 | 验证失败图标、API Key 无效提示 |
 | Success | `var(--success-color)` #10B981 | 验证成功对勾、Key 有效状态 |
 | Warning | `var(--warning-color)` #F59E0B | Provider 状态警告（速率限制、额度用完） |
 
-Accent reserved for: Provider 列表选中状态左边框、"验证"按钮背景、"保存"按钮背景、验证成功对勾图标。
+Accent reserved for: Provider 列表选中状态左边框、"验证 API Key"按钮背景、"保存配置"按钮背景、验证成功对勾图标。
 
 > Source: `main.css:9-22` — 已有 CSS 变量定义，直接复用。
 
@@ -79,8 +81,8 @@ Accent reserved for: Provider 列表选中状态左边框、"验证"按钮背景
 
 | Element | Copy |
 |---------|------|
-| Primary CTA | "验证" (API Key 验证按钮) |
-| Secondary CTA | "保存" (API Key 保存按钮) |
+| Primary CTA | "验证 API Key" (API Key 验证按钮) |
+| Secondary CTA | "保存配置" (API Key 保存按钮) |
 | Empty state heading | "选择一个搜索 Provider" |
 | Empty state body | "从左侧列表选择一个 Provider，配置 API Key 后即可使用网络搜索功能" |
 | Error state (验证失败) | "验证失败：{具体原因}"，下方显示 "请检查 API Key 是否正确，或稍后重试" |
@@ -105,6 +107,8 @@ Accent reserved for: Provider 列表选中状态左边框、"验证"按钮背景
 > coverage (empty / loading / error / populated / partial / overflow / zero-one-many / long-text).
 > Empty-state and error-state COPY live in `## Copywriting Contract` above — this section covers
 > state coverage and REFERENCES those rows rather than restating the copy (de-dup).
+
+**Focal point:** 搜索配置子区域的主视觉锚点是 **Provider 列表**（左侧 6 项列表）。用户进入子区域后视线首先落在列表上，通过列表项的状态标签（未配置/已配置/免费）快速感知当前配置状态，再点击进入右侧编辑器。
 
 Applicable state considerations resolved: 6 covered, 0 backstop, 0 unresolved
 
@@ -183,11 +187,11 @@ Applicable state considerations resolved: 6 covered, 0 backstop, 0 unresolved
 │ │ ┌──────────┐  ┌──────────────────────────────┐ │ │
 │ │ │ Provider  │  │ API Key 编辑器               │ │ │
 │ │ │ 列表      │  │ ┌────────────────────────┐  │ │ │
-│ │ │ (6 项)    │  │ │ [API Key 输入框] [验证] │  │ │ │
+│ │ │ (6 项)    │  │ │ [API Key 输入框] [验证 API Key] │  │ │ │
 │ │ │           │  │ ├────────────────────────┤  │ │ │
 │ │ │           │  │ │ 验证结果区域            │  │ │ │
 │ │ │           │  │ ├────────────────────────┤  │ │ │
-│ │ │           │  │ │ [保存]                 │  │ │ │
+│ │ │           │  │ │ [保存配置]              │  │ │ │
 │ │ └──────────┘  └──────────────────────────────┘ │ │
 │ └─────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────┘
@@ -197,7 +201,7 @@ Applicable state considerations resolved: 6 covered, 0 backstop, 0 unresolved
 
 ```
 ┌─────────────────────────────────────────────┐
-│ [icon]  Provider 名称        [状态标签]       │ 52px
+│ [icon]  Provider 名称        [状态标签]       │ 52px (List Item 角色: 15px/400)
 │          描述文字（可选）                      │
 └─────────────────────────────────────────────┘
 ```
@@ -236,15 +240,15 @@ Applicable state considerations resolved: 6 covered, 0 backstop, 0 unresolved
 
 ### API Key 验证交互
 
-1. 用户在输入框输入 API Key → 旁边出现"验证"按钮
-2. 点击"验证" → 按钮变为"正在验证..."（disabled），下方显示 loading spinner
+1. 用户在输入框输入 API Key → 旁边出现"验证 API Key"按钮
+2. 点击"验证 API Key" → 按钮变为"正在验证..."（disabled），下方显示 loading spinner
 3. 验证成功 → 绿色对勾 + "Key 有效"
 4. 验证失败 → 红色叉号 + 具体错误信息（不删除已输入的 Key）
 5. 验证不通过标记为"未验证"但不删除，用户可稍后再验证
 
 ### API Key 保存交互
 
-1. 用户输入 Key 后点击"保存" → 通过 IPC 保存到 electron-store
+1. 用户输入 Key 后点击"保存配置" → 通过 IPC 保存到 electron-store
 2. 保存成功 → Provider 列表项状态标签更新为"已配置"
 3. 保存失败 → 显示错误提示
 
