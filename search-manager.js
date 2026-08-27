@@ -23,6 +23,9 @@ const { net, BrowserWindow } = require('electron');
 const { lookup } = require('dns').promises;
 const { isIP } = require('net');
 const { session } = require('electron');
+const { JSDOM } = require('jsdom');
+const { Readability } = require('@mozilla/readability');
+const TurndownService = require('turndown');
 
 // ==================== 常量定义 ====================
 
@@ -64,6 +67,15 @@ const DDG_LOAD_DELAY_MS = 1_500;
 
 /** DDG 浏览器搜索 User-Agent */
 const DDG_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+/** web_fetch 请求超时（毫秒） */
+const FETCH_TIMEOUT_MS = 15_000;
+
+/** web_fetch 最大重定向次数 */
+const MAX_REDIRECTS = 5;
+
+/** web_fetch 默认最大内容长度 */
+const FETCH_DEFAULT_MAX_LENGTH = 12_000;
 
 // ==================== SearchRateLimiter 默认策略 ====================
 
@@ -1443,6 +1455,104 @@ async function doSearch(query, maxResults) {
   }
 }
 
+// ==================== web_fetch 内容抓取 ====================
+
+/**
+ * 将 HTML 转换为可读的 Markdown 文本
+ *
+ * 使用 jsdom 构建 DOM 环境，Readability 提取正文，turndown 转换为 Markdown。
+ * Readability 返回 null（空/不可读页面）时，回退使用原始 html 的 turndown 转换。
+ *
+ * @param {string} html - 原始 HTML 字符串
+ * @param {string} [url] - 来源 URL（Readability 用于相对链接解析）
+ * @returns {string} Markdown 文本
+ */
+function htmlToMarkdown(html, url) {
+  const dom = new JSDOM(html, { url });
+  const reader = new Readability(dom.window.document);
+  const article = reader.parse();
+  const contentHtml = article?.content || html;
+
+  const turndown = new TurndownService({
+    headingStyle: 'atx',
+    bulletListMarker: '-',
+  });
+  // 去除 script/style/nav/footer/aside（Readability 已去噪，turndown 再保险）
+  turndown.remove(['script', 'style', 'nav', 'footer', 'aside']);
+
+  return turndown.turndown(contentHtml);
+}
+
+/**
+ * 抓取指定 URL 的内容并转换为可读文本
+ *
+ * 流程：URL 校验 → 逐跳 SSRF 防护 + 重定向循环 → Content-Type 判断
+ *   → HTML: jsdom + Readability → turndown → Markdown
+ *   → JSON: JSON.stringify 美化
+ *   → Text: 原样返回
+ * → 截断到 maxLength → 追加截断标记
+ *
+ * @param {string} url - 要抓取的 URL
+ * @param {number} [maxLength=FETCH_DEFAULT_MAX_LENGTH] - 最大字符数
+ * @returns {Promise<{markdown: string, finalUrl: string, format: string, truncated: boolean}>}
+ */
+async function fetchUrl(url, maxLength = FETCH_DEFAULT_MAX_LENGTH) {
+  const parsed = new URL(url);
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('仅支持 http/https 协议');
+  }
+
+  let currentUrl = url;
+  let res;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const hopHost = new URL(currentUrl).hostname;
+    if (await isPrivateHost(hopHost)) {
+      throw new Error(`拒绝访问内网地址: ${hopHost}`);
+    }
+    res = await net.fetch(currentUrl, {
+      headers: {
+        'User-Agent': 'RealmBrowser/1.0',
+        'Accept': 'text/html,application/xhtml+xml,application/json,text/plain,*/*',
+      },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if ([301, 302, 307, 308].includes(res.status)) {
+      const loc = res.headers.get('location');
+      if (!loc) break;
+      currentUrl = new URL(loc, currentUrl).href;
+      continue;
+    }
+    break;
+  }
+
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const contentType = res.headers.get('content-type') || '';
+  const raw = await res.text();
+  let text, format;
+
+  if (contentType.includes('application/json')) {
+    try { text = JSON.stringify(JSON.parse(raw), null, 2); } catch { text = raw; }
+    format = 'json';
+  } else if (contentType.includes('text/html')) {
+    text = htmlToMarkdown(raw, currentUrl);
+    format = 'markdown';
+  } else {
+    text = raw;
+    format = 'text';
+  }
+
+  const truncated = text.length > maxLength;
+  if (truncated) {
+    const originalLength = text.length;
+    text = text.slice(0, maxLength)
+      + `\n\n[内容已截断，原始长度: ${originalLength} 字符，已显示: ${maxLength} 字符]`;
+  }
+
+  return { markdown: text, finalUrl: currentUrl, format, truncated };
+}
+
 // ==================== 模块导出 ====================
 
 module.exports = {
@@ -1460,4 +1570,6 @@ module.exports = {
   PROVIDERS,
   DEFAULT_POLICIES,
   PRIVATE_IP_RANGES,
+  fetchUrl,
+  htmlToMarkdown,
 };
