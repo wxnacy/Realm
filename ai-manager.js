@@ -2971,6 +2971,63 @@ ${content}
           }
         },
       },
+
+      // ==================== web_fetch 工具 ====================
+      /**
+       * 网页内容抓取工具
+       *
+       * 抓取指定 URL 的网页全文内容并返回可读的 Markdown 文本。
+       * 用于读取搜索结果中的文章全文、文档页面等。
+       * 委托 search-manager.js 执行抓取，支持 SSRF 防护和内容截断。
+       */
+      {
+        name: 'web_fetch',
+        label: '抓取网页',
+        description: '抓取指定 URL 的网页内容并返回可读的 Markdown 文本。用于读取搜索结果中的文章全文、文档页面等。',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: {
+              type: 'string',
+              description: '要抓取的网页 URL（必须包含 https:// 或 http://）',
+            },
+            maxLength: {
+              type: 'number',
+              description: '返回内容最大字符数（可选，默认 12000）',
+            },
+          },
+          required: ['url'],
+        },
+        execute: async (toolCallId, params) => {
+          const { url, maxLength = 12000 } = params;
+          if (!url) {
+            throw new Error('URL 不能为空');
+          }
+
+          try {
+            const result = await searchManager.fetchUrl(url, maxLength);
+            return {
+              content: [{
+                type: 'text',
+                text: result.markdown,
+              }],
+              details: {
+                url: result.finalUrl,
+                format: result.format,
+                truncated: result.truncated,
+              },
+            };
+          } catch (err) {
+            return {
+              content: [{
+                type: 'text',
+                text: `抓取失败: ${err.message}`,
+              }],
+              details: { error: err.message },
+            };
+          }
+        },
+      },
     ];
   }
 
