@@ -1545,8 +1545,9 @@ async function fetchUrl(url, maxLength = FETCH_DEFAULT_MAX_LENGTH) {
 
   const truncated = text.length > maxLength;
   if (truncated) {
+    const originalLength = text.length;
     text = text.slice(0, maxLength)
-      + `\n\n[内容已截断，原始长度: ${text.length} 字符，已显示: ${maxLength} 字符]`;
+      + `\n\n[内容已截断，原始长度: ${originalLength} 字符，已显示: ${maxLength} 字符]`;
   }
 
   return { markdown: text, finalUrl: currentUrl, format, truncated };
