@@ -110,7 +110,7 @@ const tabManager = require('./tab-manager');
 const cookieManager = require('./cookie-manager');
 const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
-const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager } = require('./ipc-handlers');
+const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager } = require('./ipc-handlers');
 const historyManager = require('./history-manager');
 const downloadManager = require('./download-manager');
 const credentialManager = require('./credential-manager');
@@ -1473,6 +1473,83 @@ app.whenReady().then(async () => {
   }
 
   /**
+   * 处理 /api/search-config/* 搜索配置 API 请求
+   * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} res - 响应对象
+   * @param {URL} reqUrl - 解析后的请求 URL
+   */
+  async function handleSearchConfigApi(req, res, reqUrl) {
+    // token 鉴权（与 handleSettingsApi 一致）
+    if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+      sendJson(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    try {
+      const route = reqUrl.pathname.replace('/api/search-config/', '');
+
+      // GET /api/search-config/get
+      if (route === 'get' && req.method === 'GET') {
+        sendJson(res, 200, {
+          provider: configStore.get('search.provider', 'auto'),
+          apiKeys: maskApiKeys(configStore.get('search.apiKeys', {})),
+        });
+        return;
+      }
+
+      // POST /api/search-config/set
+      if (route === 'set' && req.method === 'POST') {
+        const updates = await readJsonBody(req);
+        if (updates.provider) configStore.set('search.provider', updates.provider);
+        if (updates.apiKeys) configStore.set('search.apiKeys', updates.apiKeys);
+        sendJson(res, 200, { success: true });
+        return;
+      }
+
+      // POST /api/search-config/verify-key
+      if (route === 'verify-key' && req.method === 'POST') {
+        const { provider, apiKey } = await readJsonBody(req);
+        // 临时设置 Key 后验证，验证完恢复（D-15: 验证不删除）
+        const origKeys = configStore.get('search.apiKeys', {});
+        configStore.set(`search.apiKeys.${provider}`, apiKey);
+        try {
+          const result = await searchManager.doSearch('test', 1);
+          sendJson(res, 200, { valid: true, provider: result.provider });
+        } catch (err) {
+          sendJson(res, 200, { valid: false, error: err.message });
+        } finally {
+          // 恢复原始 Key
+          configStore.set('search.apiKeys', origKeys);
+        }
+        return;
+      }
+
+      sendJson(res, 404, { error: 'Not found' });
+    } catch (err) {
+      console.error('[Realm] 搜索配置 API 错误:', err);
+      sendJson(res, 500, { error: err.message });
+    }
+  }
+
+  /**
+   * 遮蔽 API Key 显示（返回时隐藏完整 Key）
+   * Key 长度 > 8 时显示前 4 后 4 中间 ****，否则原样返回
+   * @param {Object} apiKeys - { provider: apiKey }
+   * @returns {Object} 遮蔽后的 API Keys
+   */
+  function maskApiKeys(apiKeys) {
+    const masked = {};
+    for (const [key, value] of Object.entries(apiKeys || {})) {
+      if (value && typeof value === 'string' && value.length > 8) {
+        masked[key] = value.slice(0, 4) + '****' + value.slice(-4);
+      } else {
+        masked[key] = value || '';
+      }
+    }
+    return masked;
+  }
+
+  /**
    * 处理 /api/devrequests/* 开发者模式请求数据 API
    *
    * 提供分页查询、域名列表、统计、删除和清空功能。
@@ -2015,6 +2092,12 @@ app.whenReady().then(async () => {
     // 设置 JSON API（内部页面数据层）
     if (reqPath.startsWith('/api/settings/')) {
       handleSettingsApi(req, res, reqUrl);
+      return;
+    }
+
+    // 搜索配置 JSON API（设置页面数据层）
+    if (reqPath.startsWith('/api/search-config/')) {
+      handleSearchConfigApi(req, res, reqUrl);
       return;
     }
 
@@ -2795,6 +2878,7 @@ app.whenReady().then(async () => {
 
   // 初始化搜索管理器（per Phase 40）
   searchManager.initSearchManager(configStore);
+  setSearchManager(searchManager);
 
   // 初始化 AI Manager（per Phase 19）
   aiManager = new AIManager();

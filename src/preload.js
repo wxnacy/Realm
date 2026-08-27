@@ -971,6 +971,35 @@ contextBridge.exposeInMainWorld('realmAPI', {
     newConversation: () => ipcRenderer.invoke('ai:new-conversation'),
   },
 
+  // ==================== 搜索配置 ====================
+
+  /**
+   * 搜索配置 API
+   * 提供搜索 Provider 和 API Key 的管理功能
+   */
+  searchConfig: {
+    /**
+     * 获取搜索配置
+     * @returns {Promise<{provider: string, apiKeys: Object}>}
+     */
+    getConfig: () => ipcRenderer.invoke('search-config:get'),
+
+    /**
+     * 写入搜索配置
+     * @param {Object} config - { provider?: string, apiKeys?: Object }
+     * @returns {Promise<{success: boolean}>}
+     */
+    setConfig: (config) => ipcRenderer.invoke('search-config:set', config),
+
+    /**
+     * 验证搜索 Provider API Key
+     * @param {string} provider - Provider ID
+     * @param {string} apiKey - API Key
+     * @returns {Promise<{valid: boolean, provider?: string, error?: string}>}
+     */
+    verifyKey: (provider, apiKey) => ipcRenderer.invoke('search-config:verify-key', { provider, apiKey }),
+  },
+
   // ==================== Vim 快捷键 ====================
 
   /**

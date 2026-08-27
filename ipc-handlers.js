@@ -27,6 +27,9 @@ const autocompleteManager = require('./autocomplete-manager');
 // AI Manager 实例（由 main.js 通过 setAIManager 注入）
 let aiManager = null;
 
+// Search Manager 实例（由 main.js 通过 setSearchManager 注入）
+let searchManager = null;
+
 // 与 main.js 共享 realm-config.json（settings:* 命名空间）
 const configStore = new Store({ name: 'realm-config' });
 
@@ -2032,6 +2035,48 @@ function registerHandlers() {
     return { success: true };
   });
 
+  // ==================== 搜索配置 ====================
+
+  /**
+   * 获取搜索配置（主窗口渲染进程用；webview 内设置页走 HTTP /api/search-config/get）
+   * @returns {{provider: string, apiKeys: Object}}
+   */
+  ipcMain.handle('search-config:get', (event) => {
+    assertTrustedSender(event);
+    return {
+      provider: configStore.get('search.provider', 'auto'),
+      apiKeys: configStore.get('search.apiKeys', {}),
+    };
+  });
+
+  /**
+   * 写入搜索配置
+   * @param {Object} config - { provider?: string, apiKeys?: Object }
+   * @returns {{success: boolean}}
+   */
+  ipcMain.handle('search-config:set', (event, config) => {
+    assertTrustedSender(event);
+    if (config.provider) configStore.set('search.provider', config.provider);
+    if (config.apiKeys) configStore.set('search.apiKeys', config.apiKeys);
+    return { success: true };
+  });
+
+  /**
+   * 验证搜索 Provider API Key
+   * 发送测试查询验证 Key 有效性（D-13: 固定查询词 'test'）
+   * @param {Object} params - { provider: string, apiKey: string }
+   * @returns {Promise<{valid: boolean, provider?: string, error?: string}>}
+   */
+  ipcMain.handle('search-config:verify-key', async (event, { provider, apiKey }) => {
+    assertTrustedSender(event);
+    try {
+      const result = await searchManager.doSearch('test', 1);
+      return { valid: true, provider: result.provider };
+    } catch (err) {
+      return { valid: false, error: err.message };
+    }
+  });
+
   console.log('[Realm] IPC 处理器已注册');
 }
 
@@ -2044,4 +2089,13 @@ function setAIManager(manager) {
   aiManager = manager;
 }
 
-module.exports = { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager };
+/**
+ * 设置 Search Manager 实例
+ * 由 main.js 在 searchManager 初始化完成后调用，供 IPC 处理器访问
+ * @param {Object} manager - SearchManager 实例
+ */
+function setSearchManager(manager) {
+  searchManager = manager;
+}
+
+module.exports = { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager };
