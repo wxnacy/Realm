@@ -3402,11 +3402,22 @@ function showConfirmBar(message, confirmText, cancelText) {
 
     const bar = document.createElement('div');
     bar.className = 'search-confirm-bar';
-    bar.innerHTML = `
-      <span class="search-confirm-message">${message}</span>
-      <button class="btn btn-primary btn-sm search-confirm-ok">${confirmText}</button>
-      <button class="btn btn-secondary btn-sm search-confirm-cancel">${cancelText}</button>
-    `;
+
+    const msgSpan = document.createElement('span');
+    msgSpan.className = 'search-confirm-message';
+    msgSpan.textContent = message;
+
+    const okBtn = document.createElement('button');
+    okBtn.className = 'btn btn-primary btn-sm search-confirm-ok';
+    okBtn.textContent = confirmText;
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-secondary btn-sm search-confirm-cancel';
+    cancelBtn.textContent = cancelText;
+
+    bar.appendChild(msgSpan);
+    bar.appendChild(okBtn);
+    bar.appendChild(cancelBtn);
 
     // 插入到保存按钮附近
     const saveBtn = document.getElementById('searchSaveBtn');
