@@ -156,7 +156,7 @@ Plans:
   3. 用户在设置页"网络搜索"子区域可以选择搜索 Provider、添加/删除 API Key，切换即时生效
   4. 用户添加 API Key 后可以发送测试查询验证 Key 是否有效
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans executed
 
 Plans:
 **Wave 1**
@@ -165,7 +165,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 41-02-PLAN.md — 搜索配置 UI（IPC/HTTP/preload 通道 + 设置页网络搜索子区域 + Provider 管理 + 验证交互）
+- [x] 41-02-PLAN.md — 搜索配置 UI（IPC/HTTP/preload 通道 + 设置页网络搜索子区域 + Provider 管理 + 验证交互）
 
 **UI hint**: yes
 
@@ -216,4 +216,4 @@ Phases execute in numeric order: 40 → 41
 | 38. AI 助手供应商管理 | v2.4 | 3/3 | Complete | 2026-08-23 |
 | 39. Vimium 键盘操作功能 | v2.4 | 4/4 | Complete | 2026-08-24 |
 | 40. 搜索基础设施 + web_search 工具 | v2.5 | 1/1 | Complete    | 2026-08-26 |
-| 41. web_fetch 工具 + 搜索配置 UI | v2.5 | 1/2 | In Progress|  |
+| 41. web_fetch 工具 + 搜索配置 UI | v2.5 | 2/2 | In Progress|  |
