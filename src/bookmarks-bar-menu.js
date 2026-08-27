@@ -152,9 +152,19 @@ function _handleMenuBookmarkClick(url, event) {
   const activeTabId = state.activeTabId;
   if (!activeTabId) return;
 
+  const tab = state.tabs.get(activeTabId);
   const webview = state.webviews.get(activeTabId);
   if (webview) {
-    webview.loadURL(url);
+    // m3u8 视频文件在当前 webview tab 内用播放器页面播放（与地址栏导航一致）；
+    // tab 持久化存原始 URL，did-navigate 也会回写该值
+    const targetUrl = typeof maybePlayerUrl === 'function'
+      ? maybePlayerUrl(url, tab && tab.containerId)
+      : url;
+    webview.loadURL(targetUrl);
+    if (tab) {
+      tab.url = url;
+      window.realmAPI.updateTab(activeTabId, { url });
+    }
   }
 }
 

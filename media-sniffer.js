@@ -100,6 +100,11 @@ class MediaSniffer {
     /** @type {Map<number, Set<string>>} webview webContentsId → URL 去重集合（per D-05） */
     this.dedupSets = new Map();
     /**
+     * @type {string} 内部页面服务器源（如 http://localhost:PORT），
+     * 由 main.js 服务器启动后注入；播放器页面自身的 /proxy 代理流量不计入媒体列表
+     */
+    this.internalOrigin = '';
+    /**
      * guest 注册前到达的网络嗅探暂存（webContentsId → 条目数组）
      * 主进程无法从 guest session 反推 partition（Electron 32+ 无此 API），
      * 容器映射只能靠渲染进程 did-attach 后上报，首批响应必然早于注册，先暂存待冲刷
@@ -167,6 +172,10 @@ class MediaSniffer {
 
     // 过滤 HLS 分片（.ts）和 DRM 密钥（.key），不列入媒体列表
     if (FILTERED_URL_RE.test(item.url)) return false;
+
+    // 内部服务器流量（播放器页面的 /proxy 代理请求）不列入媒体列表：
+    // 媒体面板应展示页面真实媒体地址，代理 URL 含鉴权 token 且仅为播放实现细节
+    if (this.internalOrigin && item.url.startsWith(`${this.internalOrigin}/`)) return false;
 
     if (!this.dedupSets.has(webContentsId)) {
       this.dedupSets.set(webContentsId, new Set());
@@ -242,6 +251,9 @@ class MediaSniffer {
    */
   handleNetworkResponse(details) {
     if (!details || !details.url) return;
+    // 无 webContentsId 的请求来自主进程 ses.fetch（如 /proxy 视频代理上游、
+    // favicon 抓取），并非页面媒体，直接忽略（否则堆积进 pendingByWcId 垃圾槽位）
+    if (details.webContentsId == null) return;
     this.responsesSeen = (this.responsesSeen || 0) + 1;
 
     // 图片等静态资源直接排除（封面/预览图可能被标记为 resourceType 'media'）

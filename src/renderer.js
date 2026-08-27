@@ -323,10 +323,38 @@ function httpUrlToRealm(url) {
   const [base, query] = converted.split('?');
   if (!query) return base;
   const params = new URLSearchParams(query);
+  // 播放器页面：地址栏显示与 tab 持久化统一用内嵌的原始视频地址。
+  // 直接存原始 m3u8（恢复时经 maybePlayerUrl 重新包装，不依赖旧端口），
+  // 历史记录/收藏保存的也是真实视频 URL 而非内部播放器地址
+  if (base === 'realm://player/' || base === 'realm://player') {
+    const inner = params.get('url');
+    if (inner) return inner;
+  }
   params.delete('token');
   params.delete('container');
   const remaining = params.toString();
   return remaining ? `${base}?${remaining}` : base;
+}
+
+/**
+ * 若 URL 为 m3u8 视频文件，转换为播放器页面 URL（在当前 webview tab 内播放）
+ * 携带容器与 token：播放器页面 hls.js 经 /proxy 同源代理拉流，
+ * 需 token 鉴权、容器 session 携带 Cookie
+ * @param {string} url - 原始 URL
+ * @param {string} [containerId] - 容器 ID
+ * @returns {string} 播放器页面 URL 或原 URL
+ */
+function maybePlayerUrl(url, containerId) {
+  if (!url || !state.realmPort) return url;
+  // 内部服务器 URL（播放器页面自身）不再二次包装
+  if (url.startsWith(`http://localhost:${state.realmPort}/`)) return url;
+  if (/\.m3u8(\?.*)?$/i.test(url)) {
+    const params = new URLSearchParams({ url });
+    if (containerId) params.set('container', containerId);
+    if (state.realmToken) params.set('token', state.realmToken);
+    return `http://localhost:${state.realmPort}/player/?${params}`;
+  }
+  return url;
 }
 
 /**
@@ -1015,6 +1043,9 @@ function createWebviewForTab(tabId, containerId, url) {
   if (url && url.startsWith('realm://')) {
     url = realmUrlToHttp(url, containerId);
   }
+
+  // m3u8 视频文件在当前 webview tab 内用播放器页面播放
+  url = maybePlayerUrl(url, containerId);
 
   const webview = document.createElement('webview');
 
@@ -5357,7 +5388,10 @@ function selectAutocompleteItem(index) {
     const webview = state.webviews.get(state.activeTabId);
 
     if (tab && webview) {
-      webview.loadURL(suggestion.url);
+      const targetUrl = maybePlayerUrl(suggestion.url, tab.containerId);
+      webview.loadURL(targetUrl);
+      // tab 持久化存原始 URL（m3u8 时 targetUrl 是内部播放器页面地址，
+      // 恢复/收藏/历史应以真实视频地址为准；did-navigate 也会回写该值）
       tab.url = suggestion.url;
       window.realmAPI.updateTab(state.activeTabId, { url: suggestion.url });
     } else if (tab) {
@@ -5990,7 +6024,10 @@ function setupEventListeners() {
 
           if (tab && webview) {
             // 在 webview 中加载 URL
-            webview.loadURL(normalizedUrl);
+            const targetUrl = maybePlayerUrl(normalizedUrl, tab.containerId);
+            webview.loadURL(targetUrl);
+            // tab 持久化存原始 URL（m3u8 时 targetUrl 是内部播放器页面地址，
+            // 恢复/收藏/历史应以真实视频地址为准；did-navigate 也会回写该值）
             tab.url = normalizedUrl;
             // 同步到主进程
             await window.realmAPI.updateTab(state.activeTabId, { url: normalizedUrl });

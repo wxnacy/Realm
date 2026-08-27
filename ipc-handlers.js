@@ -1858,6 +1858,18 @@ function registerHandlers() {
       playerContainerId = null;
     });
 
+    // 全屏状态变化时通知渲染进程（Electron setFullScreen 不会触发 DOM fullscreenchange）
+    playerWindow.on('enter-full-screen', () => {
+      if (!playerWindow.isDestroyed()) {
+        playerWindow.webContents.send('player:fullscreen-changed', true);
+      }
+    });
+    playerWindow.on('leave-full-screen', () => {
+      if (!playerWindow.isDestroyed()) {
+        playerWindow.webContents.send('player:fullscreen-changed', false);
+      }
+    });
+
     return { success: true, reused: false };
   });
 

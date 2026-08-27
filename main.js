@@ -8,12 +8,13 @@
 try { require('electron-reloader')(module); } catch {}
 
 const path = require('path');
-const { app, BrowserWindow, protocol, net, ipcMain, Menu, dialog, nativeTheme } = require('electron');
+const { app, BrowserWindow, protocol, net, ipcMain, Menu, dialog, nativeTheme, session } = require('electron');
 const { pathToFileURL } = require('url');
 const { execSync } = require('child_process');
 const http = require('http');
 const fs = require('fs');
 const crypto = require('crypto');
+const { Readable } = require('stream');
 
 /**
  * 加载 shell 环境变量
@@ -89,6 +90,17 @@ protocol.registerSchemesAsPrivileged([{
     supportFetchAPI: true,
   }
 }]);
+
+// 内部页面 HTTP 服务器端口（will-navigate 中构建播放器页面 URL 需用到）
+let realmPort = 0;
+
+// 内部页面 API token（/api/* 与 /proxy 鉴权；will-navigate 构建播放器 URL 需注入，
+// 故需在模块作用域可用，与 whenReady 内 HTTP 服务器共用同一值）
+const REALM_TOKEN = crypto.randomUUID();
+
+// webview 伪装 UA（web-contents-created setUserAgent 与 /proxy 视频请求头共用）。
+// UA 版本号（Chrome/150）须与 ua-ch-manager / onBeforeSendHeaders 的品牌表同步。
+const CHROME_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36';
 
 
 // 配置存储（whenReady 启动清理与 before-quit 退出清理共用）
@@ -195,6 +207,148 @@ function isAllowedWebUrl(url) {
 }
 
 /**
+ * 重写 m3u8 清单：所有 URI 改写为回指 /proxy 的绝对路径 URL
+ * 覆盖分片/子清单行（非 # 行）与 EXT-X-KEY/MAP/MEDIA/I-FRAME-STREAM-INF 等的
+ * URI="..." 属性；相对地址以清单最终 URL（重定向后）为 base 解析。
+ * 重写后 hls.js 按绝对 URL 直接请求，无需自定义 loader。
+ * @param {string} text - 原始清单文本
+ * @param {string} baseUrl - 清单最终 URL（重定向后）
+ * @param {URLSearchParams} params - 代理请求参数（token/container/referer 透传给改写后的 URL）
+ * @returns {string} 重写后的清单文本
+ */
+function rewriteM3u8ForProxy(text, baseUrl, params) {
+  const toProxyUrl = (uri) => {
+    const abs = new URL(uri, baseUrl);
+    // data:/blob:/skd:（FairPlay DRM）等非 http(s) URI 保持原样，代理只转发 http(s)
+    if (!/^https?:$/i.test(abs.protocol)) return uri;
+    const q = new URLSearchParams();
+    q.set('url', abs.toString());
+    for (const key of ['token', 'container', 'referer']) {
+      const v = params.get(key);
+      if (v) q.set(key, v);
+    }
+    return `/proxy?${q.toString()}`;
+  };
+  return text.split('\n').map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return line;
+    if (trimmed.startsWith('#')) {
+      return line.replace(/URI="([^"]+)"/g, (match, uri) => {
+        try {
+          return `URI="${toProxyUrl(uri)}"`;
+        } catch {
+          return match;
+        }
+      });
+    }
+    try {
+      return toProxyUrl(trimmed);
+    } catch {
+      return line;
+    }
+  }).join('\n');
+}
+
+/**
+ * 处理 /proxy 视频流代理请求（hls.js 跨域请求同源化）
+ * 播放器页面（localhost 源）对外部视频源的 XHR 会被 CORS 拦截，且部分站点
+ * 校验 Referer 防盗链。经主进程 ses.fetch 代理后：请求同源（无 CORS）、
+ * Referer 可控、容器 session 携带 Cookie。
+ * m3u8 响应经 rewriteM3u8ForProxy 重写，分片/密钥/子清单请求同样走代理。
+ * @param {http.IncomingMessage} req - 请求对象
+ * @param {http.ServerResponse} res - 响应对象
+ * @param {URL} reqUrl - 解析后的请求 URL
+ */
+async function handleProxyRequest(req, res, reqUrl) {
+  // token 鉴权：与 /api/* 一致，防 localhost 端口扫描把应用当开放代理
+  if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+    res.writeHead(403);
+    res.end('Forbidden');
+    return;
+  }
+  const target = reqUrl.searchParams.get('url') || '';
+  let targetOrigin;
+  try {
+    targetOrigin = new URL(target).origin;
+  } catch {
+    targetOrigin = null;
+  }
+  if (!/^https?:\/\//i.test(target) || !targetOrigin) {
+    res.writeHead(400);
+    res.end('Bad Request');
+    return;
+  }
+
+  // Referer：优先来源页面（播放器 URL 的 referer 参数），按浏览器默认
+  // strict-origin-when-cross-origin 策略净化——https 来源降级到 http 目标时
+  // Chromium 网络层会以 "invalid referrer" 直接取消请求（ERR_BLOCKED_BY_CLIENT），
+  // 此时回退目标站源 Referer（多数防盗链仅校验 Referer 是否本站）
+  const refererParam = reqUrl.searchParams.get('referer') || '';
+  let referer = '';
+  if (refererParam) {
+    try {
+      const r = new URL(refererParam);
+      const t = new URL(target);
+      if (/^https?:$/i.test(r.protocol) && !(r.protocol === 'https:' && t.protocol === 'http:')) {
+        referer = r.origin === t.origin ? refererParam : `${r.origin}/`;
+      }
+    } catch { /* 非法 referer 忽略 */ }
+  }
+  if (!referer) referer = `${targetOrigin}/`;
+  const containerId = reqUrl.searchParams.get('container') || '';
+
+  const headers = {
+    'User-Agent': CHROME_UA,
+    'Referer': referer,
+  };
+  // fMP4 等按字节范围请求的分片需要透传 Range
+  if (req.headers.range) headers['Range'] = req.headers.range;
+
+  try {
+    const ses = containerId
+      ? session.fromPartition(`persist:container-${containerId}`)
+      : session.defaultSession;
+    const resp = await ses.fetch(target, { headers });
+
+    const contentType = resp.headers.get('content-type') || '';
+    const finalUrl = resp.url || target;
+    const isM3u8 = /mpegurl|m3u8/i.test(contentType) || /\.m3u8(\?.*)?$/i.test(finalUrl);
+
+    if (resp.ok && isM3u8) {
+      const text = await resp.text();
+      const rewritten = rewriteM3u8ForProxy(text, finalUrl, reqUrl.searchParams);
+      res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl' });
+      res.end(rewritten);
+      return;
+    }
+
+    // 分片/密钥等非清单响应：流式透传
+    const outHeaders = { 'Content-Type': contentType || 'application/octet-stream' };
+    for (const h of ['content-range', 'accept-ranges']) {
+      const v = resp.headers.get(h);
+      if (v) outHeaders[h] = v;
+    }
+    // ses.fetch 透明解压后 content-length 会失真，仅在未压缩时转发
+    if (!resp.headers.get('content-encoding')) {
+      const len = resp.headers.get('content-length');
+      if (len) outHeaders['Content-Length'] = len;
+    }
+    res.writeHead(resp.status, outHeaders);
+    if (resp.body) {
+      Readable.fromWeb(resp.body).pipe(res);
+    } else {
+      res.end();
+    }
+  } catch (err) {
+    console.warn(`[Realm] 视频代理请求失败: ${target} — ${err.message}`);
+    if (!res.headersSent) {
+      res.writeHead(502);
+    }
+    res.end();
+  }
+}
+
+/**
  * 从 webview guest 的 webContents 反推其所在容器 ID
  * 优先查渲染进程上报的 guest→容器 映射（Electron 32 下 guest 的
  * session.partition 为空串，无法从 session 可靠反推），映射未命中时
@@ -254,10 +408,7 @@ app.on('web-contents-created', (event, contents) => {
   // 仅覆盖 UA 字符串即可：navigator.userAgentData.brands / Sec-CH-UA 请求头
   // 默认只有 GREASE 和 Chromium，本就不含 Electron 品牌（已实证，
   // 见 docs/debug/github-login-404-two-factor-app.md 第 5 节）。
-  // UA 版本号（Chrome/150）须与 ua-ch-manager / onBeforeSendHeaders 的品牌表同步。
-  contents.setUserAgent(
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'
-  );
+  contents.setUserAgent(CHROME_UA);
 
   // 注意：不要在此处用 CDP 覆盖 User-Agent Client Hints 品牌列表。
   // 历史原因：早期方案在 web-contents-created（webview 尚未首次导航）时
@@ -293,6 +444,14 @@ app.on('web-contents-created', (event, contents) => {
   contents.on('did-navigate', (event, url) => {
     console.log(`[Realm] webview 导航完成: ${url}`);
     uaChManager.attach(contents);
+
+    // 视频文件 URL 原生播放时，Chromium 原生视频文档默认按原始尺寸居中显示
+    // （画面过小）。注入 CSS 强制 video 元素铺满视口，object-fit: contain 保持宽高比。
+    if (/\.(mp4|webm|flv|mov|mkv|avi|m4v|ogv)(\?.*)?$/i.test(url)) {
+      contents.insertCSS(
+        'video { width: 100vw !important; height: 100vh !important; object-fit: contain !important; }'
+      ).catch(err => console.warn(`[Realm] 视频铺满 CSS 注入失败: ${err.message}`));
+    }
   });
   contents.on('dom-ready', () => {
     console.log(`[Realm UA-CH] dom-ready 触发, webContents: ${contents.id}, url: ${contents.getURL()}`);
@@ -371,6 +530,35 @@ app.on('web-contents-created', (event, contents) => {
     if (!isAllowedWebUrl(url) && url !== 'about:blank') {
       console.log(`[Realm] 导航被拦截（非 http）: ${url}`);
       event.preventDefault();
+      return;
+    }
+
+    // m3u8 视频文件导航时，在当前 webview 加载播放器页面（hls.js 转码播放）。
+    // 排除内部服务器 URL：播放器页面 URL 内嵌的 m3u8 ?url= 参数在
+    // 无查询串时会以 .m3u8 结尾，不排除会导致重复包装
+    if (/\.m3u8(\?.*)?$/i.test(url) && !(realmPort && url.startsWith(`http://localhost:${realmPort}/`))) {
+      event.preventDefault();
+      console.log(`[Realm] m3u8 导航拦截，转播放器页面: ${url}`);
+      if (realmPort) {
+        // 携带容器与 token（播放器页面 hls.js 经 /proxy 同源代理拉流需鉴权、
+        // 容器 session 携带 Cookie）及来源页面 referer（防盗链站点校验）
+        const params = new URLSearchParams({ url });
+        const guestContainer = getGuestContainerId(contents);
+        if (guestContainer) params.set('container', guestContainer);
+        params.set('token', REALM_TOKEN);
+        const fromUrl = contents.getURL();
+        if (/^https?:\/\//i.test(fromUrl)) params.set('referer', fromUrl);
+        const playerUrl = `http://localhost:${realmPort}/player/?${params}`;
+        // will-navigate 中 preventDefault 后立即 loadURL 会触发 ERR_FAILED
+        // 延迟到下一个 tick 让 Electron 完成导航取消后再发起新加载
+        setImmediate(() => {
+          contents.loadURL(playerUrl).catch((err) => {
+            console.warn(`[Realm] 播放器页面加载失败: ${err.message}`);
+          });
+        });
+      } else {
+        console.warn('[Realm] 内部页面服务器尚未启动，无法加载播放器');
+      }
       return;
     }
 
@@ -519,7 +707,6 @@ app.whenReady().then(async () => {
   // 给 guest 挂载 preload 又会在导航到外部站点时泄露 realmAPI。
   // API 使用随机 token 鉴权（防 CSRF/端口扫描），token 仅经
   // get-realm-port IPC 传递给受信主窗口，再注入内部页面 URL。
-  const REALM_TOKEN = crypto.randomUUID();
   const REALM_MIME_TYPES = {
     '.html': 'text/html; charset=utf-8',
     '.js': 'application/javascript; charset=utf-8',
@@ -1918,6 +2105,12 @@ app.whenReady().then(async () => {
       return;
     }
 
+    // 视频流代理（播放器页面 hls.js 跨域请求同源化 + 防盗链 Referer 控制）
+    if (reqPath === '/proxy') {
+      await handleProxyRequest(req, res, reqUrl);
+      return;
+    }
+
     // 路由映射：/history → src/history.html，/history/xxx.js → src/xxx.js
     let filePath;
     if (reqPath === '/history' || reqPath === '/history/') {
@@ -1959,6 +2152,14 @@ app.whenReady().then(async () => {
     } else if (reqPath.startsWith('/viewsource/')) {
       const subPath = reqPath.replace('/viewsource/', '');
       filePath = path.join(__dirname, 'src', subPath);
+    } else if (reqPath === '/player' || reqPath === '/player/') {
+      filePath = path.join(__dirname, 'src', 'player.html');
+    } else if (reqPath.startsWith('/player/')) {
+      const subPath = reqPath.replace('/player/', '');
+      filePath = path.join(__dirname, 'src', subPath);
+    } else if (reqPath.startsWith('/node_modules/')) {
+      const subPath = reqPath.replace('/node_modules/', '');
+      filePath = path.join(__dirname, 'node_modules', subPath);
     } else {
       res.writeHead(404);
       res.end('Not Found');
@@ -1966,7 +2167,9 @@ app.whenReady().then(async () => {
     }
 
     // 安全检查：防止路径遍历
-    if (!filePath.startsWith(path.join(__dirname, 'src'))) {
+    const srcRoot = path.join(__dirname, 'src');
+    const nodeModulesRoot = path.join(__dirname, 'node_modules');
+    if (!filePath.startsWith(srcRoot) && !filePath.startsWith(nodeModulesRoot)) {
       res.writeHead(403);
       res.end('Forbidden');
       return;
@@ -1988,8 +2191,10 @@ app.whenReady().then(async () => {
 
   // 在随机可用端口启动服务器
   realmServer.listen(0, '127.0.0.1', () => {
-    const realmPort = realmServer.address().port;
+    realmPort = realmServer.address().port;
     console.log(`[Realm] 内部页面服务器已启动: http://localhost:${realmPort}`);
+    // 媒体嗅探忽略内部服务器流量（播放器页面 /proxy 代理请求不计入媒体列表）
+    mediaSniffer.internalOrigin = `http://localhost:${realmPort}`;
 
     // 暴露端口和 API token 给渲染进程（token 用于内部页面调用 /api/history/*）
     ipcMain.handle('get-realm-port', (event) => {

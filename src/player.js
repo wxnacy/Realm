@@ -144,7 +144,7 @@ async function initPlayer(url) {
         const Hls = window.Hls || (await import('hls.js')).default;
         if (Hls.isSupported()) {
           const hls = new Hls({ enableWorker: true });
-          hls.loadSource(url);
+          hls.loadSource(proxiedUrl(url));
           hls.attachMedia(video);
           // 清单解析完成后自动播放（D-14 打开即播；切换上一个/下一个时也靠它续播，
           // 否则新视频停在暂停态，播放按钮图标/覆盖层与实际状态不一致）
@@ -238,13 +238,48 @@ function showError(message) {
   errorHint.style.display = 'block';
 }
 
-// ==================== IPC 数据接收 ====================
+// ==================== IPC 数据接收 / URL 参数模式 ====================
 
 /**
- * 监听主进程发送的媒体播放数据
- * playerAPI.onPlayUrl 由 Plan 1 在 preload.js 中创建
+ * 检测当前运行环境：独立窗口（playerAPI）或 webview tab（URL 参数）
  */
-if (window.playerAPI && window.playerAPI.onPlayUrl) {
+const urlParams = new URLSearchParams(window.location.search);
+const paramUrl = urlParams.get('url');
+
+// webview tab 模式（http 协议加载；独立窗口为 file://）下，hls.js 请求经
+// /proxy 同源代理：播放器页面源是 localhost，直接 XHR 外部视频源会被 CORS 拦截，
+// 且防盗链站点校验 Referer——代理由主进程 ses.fetch 发出，Referer 可控、
+// 容器 session 携带 Cookie。m3u8 清单由代理重写，分片/密钥请求同样走代理
+const isWebviewMode = location.protocol === 'http:' || location.protocol === 'https:';
+
+/**
+ * 将视频源 URL 转换为 /proxy 代理 URL（仅 webview tab 模式）
+ * token/container/referer 从播放器页面 URL 透传
+ * @param {string} url - 原始视频 URL
+ * @returns {string} 代理 URL 或原 URL
+ */
+function proxiedUrl(url) {
+  if (!isWebviewMode || !/^https?:\/\//i.test(url)) return url;
+  const proxyUrl = new URL('/proxy', location.origin);
+  proxyUrl.searchParams.set('url', url);
+  for (const key of ['token', 'container', 'referer']) {
+    const v = urlParams.get(key);
+    if (v) proxyUrl.searchParams.set(key, v);
+  }
+  return proxyUrl.toString();
+}
+
+if (paramUrl) {
+  // webview tab 模式：从 URL 参数读取播放地址，隐藏标题栏
+  console.log('[Realm Player] webview tab 模式，URL 参数:', paramUrl);
+  document.body.classList.add('webview-player');
+  state.mediaList = [];
+  state.containerId = '';
+  state.containerName = '';
+  state.currentIndex = 0;
+  initPlayer(paramUrl);
+} else if (window.playerAPI && window.playerAPI.onPlayUrl) {
+  // 独立窗口模式：通过 IPC 接收播放数据
   window.playerAPI.onPlayUrl((data) => {
     console.log('[Realm Player] 收到播放数据:', data.url);
 
@@ -487,23 +522,38 @@ document.addEventListener('click', (e) => {
 // ==================== 全屏控制 ====================
 
 /**
+ * 更新全屏按钮图标和 body 全屏类
+ * @param {boolean} isFullscreen
+ */
+function updateFullscreenUI(isFullscreen) {
+  iconFullscreenEnter.style.display = isFullscreen ? 'none' : 'block';
+  iconFullscreenExit.style.display = isFullscreen ? 'block' : 'none';
+  document.body.classList.toggle('fullscreen', isFullscreen);
+}
+
+/**
  * 切换全屏状态
  * 使用 playerAPI 调用主进程 BrowserWindow.setFullScreen()
  */
-function toggleFullscreen() {
+async function toggleFullscreen() {
   if (window.playerAPI && window.playerAPI.toggleFullscreen) {
-    window.playerAPI.toggleFullscreen();
+    const result = await window.playerAPI.toggleFullscreen();
+    updateFullscreenUI(result.fullscreen);
   }
 }
 
 btnFullscreen.addEventListener('click', toggleFullscreen);
 
-// 全屏状态变化：更新按钮图标
+// 监听主进程广播的全屏状态变化（覆盖系统 fullscreenchange 事件在 Electron setFullScreen 下不触发的问题）
+if (window.playerAPI && window.playerAPI.onFullscreenChanged) {
+  window.playerAPI.onFullscreenChanged((isFullscreen) => {
+    updateFullscreenUI(isFullscreen);
+  });
+}
+
+// 保留系统 fullscreenchange 作为兜底（如将来改用 DOM Fullscreen API）
 document.addEventListener('fullscreenchange', () => {
-  const isFullscreen = !!document.fullscreenElement;
-  iconFullscreenEnter.style.display = isFullscreen ? 'none' : 'block';
-  iconFullscreenExit.style.display = isFullscreen ? 'block' : 'none';
-  document.body.classList.toggle('fullscreen', isFullscreen);
+  updateFullscreenUI(!!document.fullscreenElement);
 });
 
 // ==================== 画中画控制 ====================

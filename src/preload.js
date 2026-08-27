@@ -1378,6 +1378,17 @@ contextBridge.exposeInMainWorld('playerAPI', {
   toggleFullscreen: () => ipcRenderer.invoke('player:toggle-fullscreen'),
 
   /**
+   * 监听播放器窗口全屏状态变化（由主进程 enter-full-screen / leave-full-screen 广播）
+   * @param {Function} callback - 回调函数，参数为 boolean（true=进入全屏）
+   * @returns {Function} 取消监听的清理函数
+   */
+  onFullscreenChanged: (callback) => {
+    const handler = (event, isFullscreen) => callback(isFullscreen);
+    ipcRenderer.on('player:fullscreen-changed', handler);
+    return () => ipcRenderer.removeListener('player:fullscreen-changed', handler);
+  },
+
+  /**
    * 获取指定容器的媒体列表
    * @param {string} containerId - 容器 ID
    * @returns {Promise<Array>}
