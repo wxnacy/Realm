@@ -3119,8 +3119,21 @@ textarea::placeholder {
 }
 
 .settings-section {
-  /* display 由 JS 控制 */
+  /* CSP: 初始隐藏走 CSS class，JS 用 style.display='block' 覆盖 */
+  display: none;
   max-width: 680px;
+}
+
+/* CSP: 初始隐藏元素（替代 markup 内联 style="display:none"） */
+#setDefaultBrowserBtn,
+#rulesAddForm,
+#rulesFileInput,
+#aiEditorForm,
+#aiEnvVarHint,
+#aiModelEmpty,
+#aiModelError,
+#searchEditorForm {
+  display: none;
 }
 
 .settings-page-title {
