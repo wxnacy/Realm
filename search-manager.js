@@ -1521,6 +1521,10 @@ async function fetchUrl(url, maxLength = FETCH_DEFAULT_MAX_LENGTH) {
       const loc = res.headers.get('location');
       if (!loc) break;
       currentUrl = new URL(loc, currentUrl).href;
+      // 校验重定向目标协议，拒绝 javascript: / data: 等非 HTTP 协议
+      if (!currentUrl.startsWith('http://') && !currentUrl.startsWith('https://')) {
+        throw new Error(`重定向到非 HTTP 协议: ${currentUrl}`);
+      }
       continue;
     }
     break;
