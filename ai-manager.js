@@ -3018,13 +3018,7 @@ ${content}
               },
             };
           } catch (err) {
-            return {
-              content: [{
-                type: 'text',
-                text: `抓取失败: ${err.message}`,
-              }],
-              details: { error: err.message },
-            };
+            throw new Error(`抓取失败: ${err.message}`);
           }
         },
       },
