@@ -2718,7 +2718,7 @@ async function showEditorForm(providerId) {
   const empty = document.getElementById('aiEditorEmpty');
   const form = document.getElementById('aiEditorForm');
   if (empty) empty.style.display = 'none';
-  if (form) form.style.display = '';
+  if (form) form.style.display = 'flex';
 
   // 更新列表高亮
   renderProviderList();
@@ -2796,7 +2796,7 @@ async function showEditorForm(providerId) {
         `ai/providers/${providerId}/env-var`, {}, customName ? { customName } : {}
       );
       if (envResult && envResult.found) {
-        envVarHint.style.display = '';
+        envVarHint.style.display = 'block';
         envVarHint.className = 'ai-env-var-hint env-found';
         envVarHint.textContent = provider.configured
           ? `检测到环境变量 ${envResult.name}，保存时将使用它覆盖已保存的 Key`
@@ -2805,7 +2805,7 @@ async function showEditorForm(providerId) {
           apiKeyInput.placeholder = `环境变量 ${envResult.name} 已配置`;
         }
       } else if (envResult && envResult.name) {
-        envVarHint.style.display = '';
+        envVarHint.style.display = 'block';
         envVarHint.className = 'ai-env-var-hint env-not-found';
         envVarHint.textContent = `未检测到环境变量 ${envResult.name}，将使用手动输入的 API Key`;
       }
@@ -3185,7 +3185,7 @@ function showSearchEditorForm(providerId) {
   const form = document.getElementById('searchEditorForm');
   const empty = document.getElementById('searchEditorEmpty');
   if (empty) empty.style.display = 'none';
-  if (form) form.style.display = '';
+  if (form) form.style.display = 'flex';
 
   const titleEl = document.getElementById('searchEditorTitle');
   const apiKeyInput = document.getElementById('searchEditorApiKey');
@@ -4010,11 +4010,11 @@ function setupAISettingsListeners() {
             `ai/providers/${aiSelectedProviderId}/env-var`, {}, customName ? { customName } : {}
           );
           if (envResult && envResult.found) {
-            envVarHint.style.display = '';
+            envVarHint.style.display = 'block';
             envVarHint.className = 'ai-env-var-hint env-found';
             envVarHint.textContent = `检测到环境变量 ${envResult.name}，已自动使用`;
           } else if (envResult && envResult.name) {
-            envVarHint.style.display = '';
+            envVarHint.style.display = 'block';
             envVarHint.className = 'ai-env-var-hint env-not-found';
             envVarHint.textContent = `未检测到环境变量 ${envResult.name}，将使用手动输入的 API Key`;
           } else {
