@@ -156,7 +156,17 @@ Plans:
   3. 用户在设置页"网络搜索"子区域可以选择搜索 Provider、添加/删除 API Key，切换即时生效
   4. 用户添加 API Key 后可以发送测试查询验证 Key 是否有效
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 41-01-PLAN.md — web_fetch 工具后端管线（search-manager.js fetchUrl + htmlToMarkdown + ai-manager.js web_fetch 工具注册）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 41-02-PLAN.md — 搜索配置 UI（IPC/HTTP/preload 通道 + 设置页网络搜索子区域 + Provider 管理 + 验证交互）
+
 **UI hint**: yes
 
 ## Progress
