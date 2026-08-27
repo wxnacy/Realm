@@ -2069,11 +2069,23 @@ function registerHandlers() {
    */
   ipcMain.handle('search-config:verify-key', async (event, { provider, apiKey }) => {
     assertTrustedSender(event);
+    // 临时写入单个 provider key（不影响其他 provider）
+    const origKey = configStore.get(`search.apiKeys.${provider}`);
+    configStore.set(`search.apiKeys.${provider}`, apiKey);
     try {
       const result = await searchManager.doSearch('test', 1);
       return { valid: true, provider: result.provider };
     } catch (err) {
       return { valid: false, error: err.message };
+    } finally {
+      // 只恢复单个 provider key，而非整个 apiKeys 对象
+      if (origKey !== undefined) {
+        configStore.set(`search.apiKeys.${provider}`, origKey);
+      } else {
+        const keys = configStore.get('search.apiKeys', {});
+        delete keys[provider];
+        configStore.set('search.apiKeys', keys);
+      }
     }
   });
 

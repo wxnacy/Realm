@@ -1509,8 +1509,8 @@ app.whenReady().then(async () => {
       // POST /api/search-config/verify-key
       if (route === 'verify-key' && req.method === 'POST') {
         const { provider, apiKey } = await readJsonBody(req);
-        // 临时设置 Key 后验证，验证完恢复（D-15: 验证不删除）
-        const origKeys = configStore.get('search.apiKeys', {});
+        // 临时写入单个 provider key（不影响其他 provider），验证完恢复（D-15: 验证不删除）
+        const origKey = configStore.get(`search.apiKeys.${provider}`);
         configStore.set(`search.apiKeys.${provider}`, apiKey);
         try {
           const result = await searchManager.doSearch('test', 1);
@@ -1518,8 +1518,14 @@ app.whenReady().then(async () => {
         } catch (err) {
           sendJson(res, 200, { valid: false, error: err.message });
         } finally {
-          // 恢复原始 Key
-          configStore.set('search.apiKeys', origKeys);
+          // 只恢复单个 provider key，而非整个 apiKeys 对象
+          if (origKey !== undefined) {
+            configStore.set(`search.apiKeys.${provider}`, origKey);
+          } else {
+            const keys = configStore.get('search.apiKeys', {});
+            delete keys[provider];
+            configStore.set('search.apiKeys', keys);
+          }
         }
         return;
       }
