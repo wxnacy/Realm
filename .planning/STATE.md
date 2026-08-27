@@ -88,6 +88,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-26T13:49:44.728Z
-Stopped at: Phase 40 complete, ready to plan Phase 41
-Resume file: .planning/phases/40-web-search/40-CONTEXT.md
+Last session: 2026-08-26
+Stopped at: Phase 41 context gathered
+Resume file: .planning/phases/41-web-fetch-ui/41-CONTEXT.md
