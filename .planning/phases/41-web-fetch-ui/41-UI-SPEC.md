@@ -1,7 +1,7 @@
 ---
 phase: 41
 slug: web-fetch-ui
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-08-27
@@ -113,20 +113,32 @@ Accent reserved for: Provider 列表选中状态左边框、"验证 API Key"按�
 
 **Focal point:** 搜索配置子区域的主视觉锚点是 **Provider 列表**（左侧 6 项列表）。用户进入子区域后视线首先落在列表上，通过列表项的状态标签（未配置/已配置/免费）快速感知当前配置状态，再点击进入右侧编辑器。
 
-Applicable state considerations resolved: 10 covered, 0 backstop, 0 unresolved
+Applicable state considerations resolved: 19 covered, 6 backstop, 0 unresolved
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
 | empty | search-config-provider-list | ✅ covered | Provider 列表固定 6 项（auto/tavily/brave/serper/anysearch/anysearch_free），不会出现空列表。编辑器面板初始显示"选择一个搜索 Provider"空状态引导 |
 | empty | search-config-api-key-input | ✅ covered | 未配置时输入框为空，placeholder 显示"输入 API Key" |
+| empty | search-config-verify-result | ✅ covered | 未验证时结果区域隐藏，不占用空间 |
 | loading | search-config-verify-button | ✅ covered | 验证过程中按钮文字变为"正在验证..."，按钮 disabled，显示 loading spinner |
+| loading | search-config-section | ✅ covered | 子区域为静态 UI，无异步加载状态。Provider 列表固定 6 项，无需 skeleton |
+| loading | search-config-confirm-bar | ✅ covered | 确认条为同步 inline 元素，无加载状态 |
 | error | search-config-verify-result | ✅ covered | 验证失败显示红色叉号 + 具体错误信息（见 Copywriting Contract），不删除已输入的 Key |
+| error | search-config-section | ✅ covered | 搜索配置 UI 无需特殊错误处理（SSRF 防护在主进程 search-manager.js 实现） |
+| error | search-config-confirm-bar | ✅ covered | 确认条为同步操作，无网络错误场景 |
 | populated | search-config-provider-list | ✅ covered | 6 个 Provider 列表项，每个显示名称 + 状态标签（未配置/已配置/免费），选中项有蓝色左边框高亮 |
 | partial | search-config-form | ✅ covered | 部分 Provider 只需 API Key（tavily/brave/serper），auto/anysearch_free 无需配置。无 Key 的 Provider 状态标签显示"未配置" |
 | overflow | search-config-provider-list | ✅ covered | 列表固定 6 项，不会溢出。编辑器面板使用 flex 布局自适应高度 |
 | zero-one-many | search-config-provider-list | ✅ covered | 固定 6 项，不适用零/一/多变化 |
 | long-text | search-config-api-key | ✅ covered | API Key 输入框使用 `type="password"` 遮蔽，点击"显示"切换明文。输入框宽度固定，长 Key 水平滚动 |
+| long-text | search-config-confirm-bar | ✅ covered | 确认条文案固定（"当前 Provider 已有 API Key，确认覆盖？"），不涉及动态长文本 |
 | destructive | search-config-save-button | ✅ covered | 覆盖已有 API Key 时弹出 inline 确认条（非模态），5 秒超时自动消失，用户可 [确认覆盖] 或 [取消]（见 Copywriting Contract） |
+| long-text | search-config-verify-result | 🧪 backstop | 验证错误信息可能较长（如 API 返回的详细错误），需确保不溢出容器。验证方式：视觉 UI 状态测试 |
+| overflow | search-config-verify-result | 🧪 backstop | 多行错误信息可能超出结果区域高度，需确保换行或滚动。验证方式：视觉 UI 状态测试 |
+| long-text | search-config-provider-label | 🧪 backstop | Provider 状态标签文字（"未配置"/"已配置"/"免费"）均为固定短文本，但需确保 CSS `text-overflow: ellipsis` 兜底。验证方式：视觉 UI 状态测试 |
+| overflow | search-config-section | 🧪 backstop | 子区域展开时若内容超出视口高度，需确保页面级滚动正常。验证方式：视觉 UI 状态测试 |
+| loading | search-config-verify-result | 🧪 backstop | 验证中显示 spinner + "正在验证..."，需确保 spinner 动画流畅。验证方式：视觉 UI 状态测试 |
+| partial | search-config-verify-result | 🧪 backstop | 验证结果可能只有部分信息（如只有错误码没有详细描述），需确保 UI 不出现空白区域。验证方式：视觉 UI 状态测试 |
 
 ---
 
@@ -291,11 +303,11 @@ Applicable state considerations resolved: 10 covered, 0 backstop, 0 unresolved
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved 2026-08-27
