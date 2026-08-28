@@ -1,9 +1,9 @@
 ---
-status: complete
+status: testing
 phase: 40-web-search
 source: [40-01-SUMMARY.md, 40-02-SUMMARY.md]
 started: 2026-08-26T23:20:00Z
-updated: 2026-08-28T18:15:00Z
+updated: 2026-08-28T18:20:00Z
 ---
 
 ## Current Test
@@ -42,16 +42,22 @@ result: pass
 ### 6. 搜索失败错误反馈
 expected: |
   当所有搜索 Provider 都失败时，AI 返回明确的错误诊断信息，包括失败原因和尝试次数，而不是沉默失败。
-result: skipped
-reason: 用户跳过
+result: issue
+reported: "doAutoSearch 返回 all_failed 时，web_search 的 results.length===0 分支返回通用消息，未展示 diagnostics.attempts 详情"
+severity: major
+diagnosis: |
+  根因：doAutoSearch 在 all_failed 时返回 {results:[], diagnostics:{status:'all_failed', attempts:[...]}}（非异常），
+  web_search 检查 results.length===0 后返回通用消息，未读取 searchPayload.diagnostics。
+  catch 块有完善的错误处理，但 all_failed 不触发 catch。
+  修复：在 results.length===0 分支检查 diagnostics.status==='all_failed'，展示 attempts 详情。
 
 ## Summary
 
 total: 6
 passed: 5
-issues: 0
+issues: 1
 pending: 0
-skipped: 1
+skipped: 0
 
 ## Gaps
 
@@ -62,3 +68,21 @@ skipped: 1
   resolved_at: 2026-08-28
   severity: minor
   test: 3
+
+- gap_id: G-40-6
+  truth: "当所有搜索 Provider 都失败时，AI 返回明确的错误诊断信息，包括失败原因和尝试次数"
+  status: failed
+  reason: "User reported: doAutoSearch 返回 all_failed 时，web_search 的 results.length===0 分支返回通用消息，未展示 diagnostics.attempts 详情"
+  severity: major
+  test: 6
+  root_cause: "doAutoSearch 在 all_failed 时返回 {results:[], diagnostics:{status:'all_failed', attempts:[...]}}（非异常），web_search 检查 results.length===0 后返回通用消息，未读取 searchPayload.diagnostics"
+  artifacts:
+    - file: ai-manager.js
+      lines: [2932, 2940]
+      description: "results.length===0 分支未检查 diagnostics"
+    - file: search-manager.js
+      lines: [1332, 1343]
+      description: "doAutoSearch all_failed 返回结构"
+  missing:
+    - "web_search 在 results.length===0 时应检查 diagnostics.status==='all_failed'"
+    - "展示 attempts 数组中的 provider 名称、错误类型、错误消息"
