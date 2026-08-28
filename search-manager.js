@@ -1278,12 +1278,20 @@ function buildDDGExtractionScript(maxResults) {
  * @param {number} maxResults - 最大结果数量
  * @param {Object} options - 选项
  * @param {Object} options.apiKeys - API Key 映射
+ * @param {Object} options.envVarNames - 环境变量名映射（可选）
  * @param {SearchRateLimiter} options.rateLimiter - 速率限制器（可选）
  * @returns {Promise<Object>} 搜索结果 payload
  */
-async function doAutoSearch(query, maxResults, { apiKeys, rateLimiter }) {
+async function doAutoSearch(query, maxResults, { apiKeys, envVarNames = {}, rateLimiter }) {
+  // 检查哪些 Provider 有可用的 API Key（手动输入或环境变量）
+  const hasApiKey = (p) => {
+    if (apiKeys[p]) return true;
+    const envName = envVarNames[p] || SEARCH_PROVIDER_ENV_VARS[p];
+    return envName && !!process.env[envName];
+  };
+
   // Auto Fallback 链顺序：已配置 API Key 的付费 Provider → anysearch_free → duckduckgo_browser
-  const configuredApiProviders = ['tavily', 'brave', 'serper', 'anysearch'].filter((p) => !!apiKeys[p]);
+  const configuredApiProviders = ['tavily', 'brave', 'serper', 'anysearch'].filter(hasApiKey);
   const chain = [...configuredApiProviders, ANYSEARCH_FREE_PROVIDER, 'duckduckgo_browser'];
   const attempts = [];
   const invalidKeyProviders = []; // 记录 API Key 无效的 Provider
@@ -1306,11 +1314,22 @@ async function doAutoSearch(query, maxResults, { apiKeys, rateLimiter }) {
     console.log(`[Realm Search] 尝试 provider: ${provider}`);
 
     try {
+      // 优先级：环境变量 > 已保存的 Key
+      let apiKey = apiKeys[provider] || '';
+      const envName = envVarNames[provider] || SEARCH_PROVIDER_ENV_VARS[provider];
+      if (envName) {
+        const envValue = process.env[envName];
+        if (envValue) {
+          apiKey = envValue;
+          console.log(`[Realm Search] provider ${provider} 使用环境变量 ${envName}`);
+        }
+      }
+
       const payload = await runProviderSearch({
         provider,
         query,
         maxResults,
-        apiKey: apiKeys[provider] || '',
+        apiKey,
         rateLimiter,
       });
       attempt.result_count = payload.results.length;
@@ -1478,12 +1497,13 @@ async function doSearch(query, maxResults) {
   const trimmedQuery = query.trim();
   const provider = _configStore?.get('search.provider', 'auto') || 'auto';
   const apiKeys = _configStore?.get('search.apiKeys', {}) || {};
+  const envVarNames = _configStore?.get('search.envVarNames', {}) || {};
 
   // 记录搜索请求
   console.log(`[Realm Search] 搜索请求: query="${trimmedQuery}", provider="${provider}", maxResults=${maxResults}`);
 
   if (provider === 'auto') {
-    return doAutoSearch(trimmedQuery, maxResults, { apiKeys, rateLimiter: _rateLimiter });
+    return doAutoSearch(trimmedQuery, maxResults, { apiKeys, envVarNames, rateLimiter: _rateLimiter });
   }
 
   // 指定 Provider
@@ -1494,7 +1514,17 @@ async function doSearch(query, maxResults) {
     throw new Error(`未知的搜索 Provider: ${provider}`);
   }
 
-  const apiKey = apiKeys[provider] || '';
+  // 优先级：环境变量 > 已保存的 Key
+  let apiKey = apiKeys[provider] || '';
+  const envVarName = envVarNames[provider] || SEARCH_PROVIDER_ENV_VARS[provider];
+  if (envVarName) {
+    const envValue = process.env[envVarName];
+    if (envValue) {
+      apiKey = envValue;
+      console.log(`[Realm Search] 使用环境变量 ${envVarName} 的 API Key`);
+    }
+  }
+
   if (meta.requiresApiKey && !apiKey) {
     throw new Error(`搜索 Provider ${provider} 需要 API Key，请在设置中配置`);
   }
