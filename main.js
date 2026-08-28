@@ -1535,12 +1535,17 @@ app.whenReady().then(async () => {
         // 临时写入单个 provider key（不影响其他 provider），验证完恢复（D-15: 验证不删除）
         const origKey = configStore.get(`search.apiKeys.${provider}`);
         configStore.set(`search.apiKeys.${provider}`, apiKey);
+        // 临时切换到指定 Provider（避免 auto 模式回退到免费 Provider）
+        const origProvider = configStore.get('search.provider');
+        configStore.set('search.provider', provider);
         try {
           const result = await searchManager.doSearch('test', 1);
           sendJson(res, 200, { valid: true, provider: result.provider });
         } catch (err) {
           sendJson(res, 200, { valid: false, error: err.message });
         } finally {
+          // 恢复原始 provider 设置
+          configStore.set('search.provider', origProvider);
           // 只恢复单个 provider key，而非整个 apiKeys 对象
           if (origKey !== undefined) {
             configStore.set(`search.apiKeys.${provider}`, origKey);
