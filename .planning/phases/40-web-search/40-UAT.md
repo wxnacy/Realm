@@ -82,3 +82,17 @@ skipped: 0
   reason: "User reported: 随便输入一个无效的 API Key 也显示搜索成功，没有验证 API Key 的有效性"
   severity: major
   test: 1
+  root_cause: |
+    doAutoSearch 的自动回退机制：当配置的付费 Provider（如 Tavily）因无效 API Key 失败时，
+    系统自动回退到免费 Provider（anysearch_free / duckduckgo_browser），这些不需要 API Key，
+    所以搜索仍然成功。用户期望的是明确告知 API Key 无效，而不是静默回退。
+  artifacts:
+    - file: search-manager.js
+      lines: [1276, 1320]
+      description: "doAutoSearch 自动回退链逻辑"
+    - file: search-manager.js
+      lines: [886, 910]
+      description: "searchTavily 使用 API Key 调用"
+  missing:
+    - "无效 API Key 的 Provider 失败时应提示用户 API Key 可能无效"
+    - "或在搜索结果中注明使用了免费 Provider 回退"
