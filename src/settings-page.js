@@ -3383,17 +3383,28 @@ function setupSearchConfigListeners() {
       const envVarName = envVarNameInput ? envVarNameInput.value.trim() : '';
 
       // 免费 Provider 不需要 Key
-      if (provider.requiresKey && !apiKey && !envVarName) {
+      // 付费 Provider：必须有 Key 或环境变量名，或者允许清空（已配置过 Key）
+      const existingKey = searchConfig.apiKeys[searchSelectedProviderId];
+      if (provider.requiresKey && !apiKey && !envVarName && !existingKey) {
         showToast('请输入 API Key 或环境变量名', 'error');
         return;
       }
 
-      // 覆盖确认（per UI-SPEC Destructive confirmation）
-      const existingKey = searchConfig.apiKeys[searchSelectedProviderId];
-      if (provider.requiresKey && existingKey && existingKey !== apiKey) {
+      // 覆盖确认（per UI-SPEC Destructive confirmation）- 仅在有新值且与旧值不同时确认
+      if (provider.requiresKey && existingKey && apiKey && existingKey !== apiKey) {
         const confirmed = await showConfirmBar(
           '当前 Provider 已有 API Key，确认覆盖？',
           '确认覆盖',
+          '取消'
+        );
+        if (!confirmed) return;
+      }
+
+      // 清空确认
+      if (provider.requiresKey && existingKey && !apiKey && !envVarName) {
+        const confirmed = await showConfirmBar(
+          '确认清空当前 Provider 的 API Key？',
+          '确认清空',
           '取消'
         );
         if (!confirmed) return;
@@ -3403,7 +3414,11 @@ function setupSearchConfigListeners() {
         // 更新 apiKeys 对象
         const newApiKeys = { ...searchConfig.apiKeys };
         if (provider.requiresKey) {
-          newApiKeys[searchSelectedProviderId] = apiKey;
+          if (apiKey) {
+            newApiKeys[searchSelectedProviderId] = apiKey;
+          } else {
+            delete newApiKeys[searchSelectedProviderId];
+          }
         }
 
         // 更新 envVarNames 对象
