@@ -129,10 +129,11 @@ Accent reserved for: no new accent usage in this phase.
 
 > Phase 40 引入的唯一视觉输出是 AI 聊天中的搜索结果文本。状态覆盖由现有 AI 聊天 UI 的 Markdown 渲染管线处理。
 
-Applicable state considerations resolved: 0 new, 3 inherited from existing AI chat UI
+Applicable state considerations resolved: 1 new, 3 inherited from existing AI chat UI
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
+| copy | error state message (E1) | ✅ resolved (explicit) | 错误消息必须包含三个要素：(1) `error.message` 原始错误描述，(2) `attempts.length` 尝试的 Provider 数量，(3) 解决方案路径（"检查网络连接或在设置中配置搜索 API Key"）。验收标准：web_search 返回错误时，AI 输出必须同时包含这三个信息，缺少任何一个视为失败。 |
 | {empty} | search results | ✅ covered | 当 web_search 返回空结果时，AI 收到空数组后会生成自然语言回复告知用户未找到结果（pi-agent-core SDK 行为） |
 | {error} | search failure | ✅ covered | TOOL-04 定义了结构化错误返回（attempts 数组），AI 会将其转述为用户可理解的错误消息 |
 | {loading} | search execution | ✅ covered | 搜索是同步的 AI 工具调用，用户看到的是 AI "正在思考" 的加载状态（现有 AI 聊天 UI 已有） |
