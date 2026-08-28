@@ -1277,6 +1277,9 @@ async function doAutoSearch(query, maxResults, { apiKeys, rateLimiter }) {
   const attempts = [];
   let firstLowQualityPayload = null;
 
+  // 记录自动搜索链
+  console.log(`[Realm Search] 自动搜索链: ${chain.join(' → ')}`);
+
   for (const provider of chain) {
     let meta;
     try {
@@ -1286,6 +1289,10 @@ async function doAutoSearch(query, maxResults, { apiKeys, rateLimiter }) {
       continue;
     }
     const attempt = { provider, source_type: meta.sourceType };
+
+    // 记录尝试的 provider
+    console.log(`[Realm Search] 尝试 provider: ${provider}`);
+
     try {
       const payload = await runProviderSearch({
         provider,
@@ -1295,6 +1302,9 @@ async function doAutoSearch(query, maxResults, { apiKeys, rateLimiter }) {
         rateLimiter,
       });
       attempt.result_count = payload.results.length;
+
+      // 记录搜索结果
+      console.log(`[Realm Search] provider ${provider} 返回 ${payload.results.length} 条结果`);
 
       if (payload.results.length === 0) {
         attempt.status = 'empty';
@@ -1306,11 +1316,18 @@ async function doAutoSearch(query, maxResults, { apiKeys, rateLimiter }) {
         attempt.status = 'low_quality';
         attempts.push(attempt);
         if (!firstLowQualityPayload) firstLowQualityPayload = payload;
+
+        // 记录低质量结果
+        console.log(`[Realm Search] provider ${provider} 结果质量低，继续下一个`);
         continue;
       }
 
       attempt.status = 'ok';
       attempts.push(attempt);
+
+      // 记录成功
+      console.log(`[Realm Search] 搜索成功: provider=${provider}, results=${payload.results.length}`);
+
       return attachAutoDiagnostics(payload, attempts);
     } catch (err) {
       attempt.status = 'error';
@@ -1320,15 +1337,20 @@ async function doAutoSearch(query, maxResults, { apiKeys, rateLimiter }) {
         attempt.retry_after_ms = err.retryAfterMs;
       }
       attempts.push(attempt);
+
+      // 记录错误
+      console.warn(`[Realm Search] provider ${provider} 失败: ${attempt.error_type} - ${attempt.message}`);
     }
   }
 
   // 所有 Provider 都返回低质量结果时，兜底返回第一个低质量结果
   if (firstLowQualityPayload) {
+    console.log(`[Realm Search] 所有 provider 结果质量低，返回第一个低质量结果`);
     return attachAutoDiagnostics(firstLowQualityPayload, attempts, { selected_status: 'low_quality' });
   }
 
   // 全部失败
+  console.error(`[Realm Search] 所有 provider 都失败，共尝试 ${attempts.length} 次`);
   return {
     query,
     results: [],
