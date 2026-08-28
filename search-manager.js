@@ -823,6 +823,17 @@ function formatSearchResults(results, displayLimit) {
  */
 const PROVIDERS = {};
 
+/**
+ * 搜索 Provider 默认环境变量名映射
+ * 用于自动检测环境变量中的 API Key
+ */
+const SEARCH_PROVIDER_ENV_VARS = {
+  tavily: 'TAVILY_API_KEY',
+  brave: 'BRAVE_API_KEY',
+  serper: 'SERPER_API_KEY',
+  anysearch: 'ANYSEARCH_API_KEY',
+};
+
 // 延迟注册 Provider（函数定义后）
 // endpoint: API 端点 URL（用于 SSRF 防护检查，仅 API 类型 Provider 需要）
 function registerProviders() {
@@ -1603,6 +1614,21 @@ async function fetchUrl(url, maxLength = FETCH_DEFAULT_MAX_LENGTH) {
   return { markdown: text, finalUrl: currentUrl, format, truncated };
 }
 
+// ==================== 环境变量检测 ====================
+
+/**
+ * 检测搜索 Provider 的环境变量
+ * @param {string} providerId - Provider ID
+ * @param {string} [customName] - 自定义环境变量名
+ * @returns {{ found: boolean, name: string|null }}
+ */
+function detectEnvVar(providerId, customName) {
+  const envName = customName || SEARCH_PROVIDER_ENV_VARS[providerId];
+  if (!envName) return { found: false, name: null };
+  const value = process.env[envName];
+  return { found: !!value, name: envName };
+}
+
 // ==================== 模块导出 ====================
 
 module.exports = {
@@ -1622,4 +1648,6 @@ module.exports = {
   PRIVATE_IP_RANGES,
   fetchUrl,
   htmlToMarkdown,
+  detectEnvVar,
+  SEARCH_PROVIDER_ENV_VARS,
 };

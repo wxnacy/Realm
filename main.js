@@ -1495,6 +1495,7 @@ app.whenReady().then(async () => {
         sendJson(res, 200, {
           provider: configStore.get('search.provider', 'auto'),
           apiKeys: maskApiKeys(configStore.get('search.apiKeys', {})),
+          envVarNames: configStore.get('search.envVarNames', {}),
         });
         return;
       }
@@ -1524,6 +1525,20 @@ app.whenReady().then(async () => {
             }
           }
           configStore.set('search.apiKeys', updates.apiKeys);
+        }
+        // 校验 envVarNames 为对象且值为字符串
+        if (updates.envVarNames) {
+          if (typeof updates.envVarNames !== 'object' || Array.isArray(updates.envVarNames)) {
+            sendJson(res, 400, { error: '无效的 envVarNames 格式' });
+            return;
+          }
+          for (const [k, v] of Object.entries(updates.envVarNames)) {
+            if (typeof k !== 'string' || typeof v !== 'string') {
+              sendJson(res, 400, { error: 'envVarNames 键值必须为字符串' });
+              return;
+            }
+          }
+          configStore.set('search.envVarNames', updates.envVarNames);
         }
         sendJson(res, 200, { success: true });
         return;
@@ -1555,6 +1570,19 @@ app.whenReady().then(async () => {
             configStore.set('search.apiKeys', keys);
           }
         }
+        return;
+      }
+
+      // GET /api/search-config/env-var — 检测环境变量
+      if (route === 'env-var' && req.method === 'GET') {
+        const provider = reqUrl.searchParams.get('provider');
+        const customName = reqUrl.searchParams.get('customName');
+        if (!provider) {
+          sendJson(res, 400, { error: '缺少 provider 参数' });
+          return;
+        }
+        const result = searchManager.detectEnvVar(provider, customName);
+        sendJson(res, 200, { found: result.found, name: result.name });
         return;
       }
 

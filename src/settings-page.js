@@ -139,10 +139,11 @@ async function devModeApi(route, options = {}) {
  * 调用搜索配置 HTTP API
  * @param {string} route - API 路由（如 'get'、'set'、'verify-key'）
  * @param {Object} [options] - fetch 选项
+ * @param {Object} [query] - 额外查询参数
  * @returns {Promise<*>} 解析后的 JSON 响应
  */
-async function searchConfigApi(route, options = {}) {
-  const params = new URLSearchParams({ token: apiToken });
+async function searchConfigApi(route, options = {}, query = {}) {
+  const params = new URLSearchParams({ token: apiToken, ...query });
   const res = await fetch(`/api/search-config/${route}?${params.toString()}`, options);
   if (!res.ok) {
     let detail = '';
@@ -2568,7 +2569,7 @@ const SEARCH_PROVIDERS = [
 let searchSelectedProviderId = null;
 
 /** 搜索配置数据 */
-let searchConfig = { provider: 'auto', apiKeys: {} };
+let searchConfig = { provider: 'auto', apiKeys: {}, envVarNames: {} };
 
 /**
  * 加载 AI 助手设置
@@ -3119,6 +3120,7 @@ async function loadSearchConfig() {
     searchConfig = {
       provider: data.provider || 'auto',
       apiKeys: data.apiKeys || {},
+      envVarNames: data.envVarNames || {},
     };
     renderSearchProviderList();
 
@@ -3192,7 +3194,10 @@ function showSearchEditorForm(providerId) {
   const verifyBtn = document.getElementById('searchVerifyBtn');
   const verifyResult = document.getElementById('searchVerifyResult');
   const toggleKeyBtn = document.getElementById('searchToggleKeyBtn');
-  const formGroup = apiKeyInput ? apiKeyInput.closest('.ai-form-group') : null;
+  const envVarNameInput = document.getElementById('searchEditorEnvVarName');
+  const envVarHint = document.getElementById('searchEnvVarHint');
+  const apiKeyGroup = apiKeyInput ? apiKeyInput.closest('.ai-form-group') : null;
+  const envVarGroup = envVarNameInput ? envVarNameInput.closest('.ai-form-group') : null;
 
   if (titleEl) titleEl.textContent = provider.name;
 
@@ -3204,17 +3209,25 @@ function showSearchEditorForm(providerId) {
   }
 
   if (provider.requiresKey) {
-    // 需要 API Key 的 Provider：显示输入框和验证按钮
-    if (formGroup) formGroup.style.display = '';
+    // 需要 API Key 的 Provider：显示输入框、验证按钮和环境变量
+    if (apiKeyGroup) apiKeyGroup.style.display = '';
+    if (envVarGroup) envVarGroup.style.display = '';
     if (apiKeyInput) {
       apiKeyInput.value = searchConfig.apiKeys[provider.id] || '';
       apiKeyInput.placeholder = '输入 API Key';
     }
+    if (envVarNameInput) {
+      envVarNameInput.value = searchConfig.envVarNames[provider.id] || '';
+    }
     if (verifyBtn) verifyBtn.style.display = '';
     if (toggleKeyBtn) toggleKeyBtn.style.display = '';
+
+    // 检测环境变量
+    detectSearchEnvVar(providerId);
   } else {
     // 免费 Provider：隐藏 API Key 输入区域
-    if (formGroup) formGroup.style.display = 'none';
+    if (apiKeyGroup) apiKeyGroup.style.display = 'none';
+    if (envVarGroup) envVarGroup.style.display = 'none';
     if (verifyBtn) verifyBtn.style.display = 'none';
     if (toggleKeyBtn) toggleKeyBtn.style.display = 'none';
   }
@@ -3222,6 +3235,44 @@ function showSearchEditorForm(providerId) {
   if (verifyResult) {
     verifyResult.textContent = '';
     verifyResult.className = 'verify-result';
+  }
+}
+
+/**
+ * 检测搜索 Provider 环境变量
+ * @param {string} providerId - Provider ID
+ */
+async function detectSearchEnvVar(providerId) {
+  const envVarHint = document.getElementById('searchEnvVarHint');
+  const envVarNameInput = document.getElementById('searchEditorEnvVarName');
+  const apiKeyInput = document.getElementById('searchEditorApiKey');
+
+  if (!envVarHint) return;
+
+  envVarHint.style.display = 'none';
+  try {
+    const customName = envVarNameInput ? envVarNameInput.value : '';
+    const params = { provider: providerId };
+    if (customName) params.customName = customName;
+
+    const envResult = await searchConfigApi('env-var', {}, params);
+    if (envResult && envResult.found) {
+      envVarHint.style.display = 'block';
+      envVarHint.className = 'ai-env-var-hint env-found';
+      const hasKey = !!searchConfig.apiKeys[providerId];
+      envVarHint.textContent = hasKey
+        ? `检测到环境变量 ${envResult.name}，保存时将使用它覆盖已保存的 Key`
+        : `检测到环境变量 ${envResult.name}，已自动使用`;
+      if (apiKeyInput && !apiKeyInput.value && !hasKey) {
+        apiKeyInput.placeholder = `环境变量 ${envResult.name} 已配置`;
+      }
+    } else if (envResult && envResult.name) {
+      envVarHint.style.display = 'block';
+      envVarHint.className = 'ai-env-var-hint env-not-found';
+      envVarHint.textContent = `未检测到环境变量 ${envResult.name}，将使用手动输入的 API Key`;
+    }
+  } catch {
+    // 环境变量检测失败不阻塞
   }
 }
 
@@ -3328,10 +3379,12 @@ function setupSearchConfigListeners() {
 
       const apiKeyInput = document.getElementById('searchEditorApiKey');
       const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+      const envVarNameInput = document.getElementById('searchEditorEnvVarName');
+      const envVarName = envVarNameInput ? envVarNameInput.value.trim() : '';
 
       // 免费 Provider 不需要 Key
-      if (provider.requiresKey && !apiKey) {
-        showToast('请输入 API Key', 'error');
+      if (provider.requiresKey && !apiKey && !envVarName) {
+        showToast('请输入 API Key 或环境变量名', 'error');
         return;
       }
 
@@ -3353,22 +3406,46 @@ function setupSearchConfigListeners() {
           newApiKeys[searchSelectedProviderId] = apiKey;
         }
 
+        // 更新 envVarNames 对象
+        const newEnvVarNames = { ...searchConfig.envVarNames };
+        if (envVarName) {
+          newEnvVarNames[searchSelectedProviderId] = envVarName;
+        } else {
+          delete newEnvVarNames[searchSelectedProviderId];
+        }
+
         await searchConfigApi('set', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             provider: searchConfig.provider,
             apiKeys: newApiKeys,
+            envVarNames: newEnvVarNames,
           }),
         });
 
         // 更新本地状态
         searchConfig.apiKeys = newApiKeys;
+        searchConfig.envVarNames = newEnvVarNames;
         renderSearchProviderList();
         showToast('搜索配置已保存');
       } catch (err) {
         showToast('保存失败：' + (err.message || '未知错误'), 'error');
       }
+    });
+  }
+
+  // 环境变量名输入框变化时重新检测
+  const envVarNameInput = document.getElementById('searchEditorEnvVarName');
+  if (envVarNameInput) {
+    let debounceTimer;
+    envVarNameInput.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (searchSelectedProviderId) {
+          detectSearchEnvVar(searchSelectedProviderId);
+        }
+      }, 500);
     });
   }
 }
