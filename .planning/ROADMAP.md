@@ -143,6 +143,9 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 Plans:
 
 - [x] 40-02-PLAN.md
+- [x] 40-03-PLAN.md
+
+3/3 plans complete
 
 - [x] 40-01-PLAN.md — search-manager.js 完整实现（SearchRateLimiter + SSRF 防护 + 5 个 Provider + Auto Fallback）+ web_search AI 工具集成
 
@@ -217,5 +220,5 @@ Phases execute in numeric order: 40 → 41
 | 37. 地址栏地址补全功能 | v2.4 | 2/2 | Complete | 2026-08-21 |
 | 38. AI 助手供应商管理 | v2.4 | 3/3 | Complete | 2026-08-23 |
 | 39. Vimium 键盘操作功能 | v2.4 | 4/4 | Complete | 2026-08-24 |
-| 40. 搜索基础设施 + web_search 工具 | v2.5 | 2/2 | Complete    | 2026-08-28 |
+| 40. 搜索基础设施 + web_search 工具 | v2.5 | 3/3 | Complete   | 2026-08-28 |
 | 41. web_fetch 工具 + 搜索配置 UI | v2.5 | 2/2 | Complete    | 2026-08-27 |
