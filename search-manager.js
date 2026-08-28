@@ -1391,12 +1391,20 @@ async function runProviderSearch({ provider, query, maxResults, apiKey, rateLimi
 
   const providerMaxResults = maxResultsForProvider(provider, maxResults);
   const limiter = rateLimiter || _rateLimiter;
+
+  // 记录搜索开始
+  console.log(`[Realm Search] 执行搜索: provider=${provider}, query="${query}", maxResults=${providerMaxResults}`);
+
   const payload = await limiter.run(provider, meta.sourceType, () => {
     if (meta.requiresApiKey) {
       return meta.search(query, providerMaxResults, apiKey, provider);
     }
     return meta.search(query, providerMaxResults);
   });
+
+  // 记录搜索完成
+  console.log(`[Realm Search] 搜索完成: provider=${provider}, results=${payload.results?.length || 0}`);
+
   return normalizeProviderPayload(query, provider, meta, payload);
 }
 
