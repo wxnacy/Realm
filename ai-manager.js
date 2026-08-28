@@ -2930,6 +2930,22 @@ ${content}
             const { results, provider } = searchPayload;
 
             if (results.length === 0) {
+              // 检查是否为 all_failed 场景（所有 Provider 都失败）
+              const diagnostics = searchPayload.diagnostics;
+              if (diagnostics?.status === 'all_failed' && diagnostics.attempts?.length > 0) {
+                const attemptsDetail = diagnostics.attempts.map((a, i) =>
+                  `  ${i + 1}. ${a.provider || '未知'}: ${a.error_type || 'error'} - ${a.message || '无详情'}`
+                ).join('\n');
+                return {
+                  content: [{
+                    type: 'text',
+                    text: `搜索「${query}」失败：所有 Provider 均不可用（共尝试 ${diagnostics.attempts.length} 个）。\n\n失败详情：\n${attemptsDetail}\n\n请检查网络连接或在设置中配置搜索 API Key。`,
+                  }],
+                  details: searchPayload,
+                };
+              }
+
+              // 通用空结果消息（Provider 返回了0条结果，但不是全部失败）
               return {
                 content: [{
                   type: 'text',
