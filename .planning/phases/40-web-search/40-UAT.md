@@ -1,9 +1,9 @@
 ---
-status: partial
+status: complete
 phase: 40-web-search
-source: [40-01-SUMMARY.md]
+source: [40-01-SUMMARY.md, 40-02-SUMMARY.md]
 started: 2026-08-26T23:20:00Z
-updated: 2026-08-26T23:25:00Z
+updated: 2026-08-28T18:15:00Z
 ---
 
 ## Current Test
@@ -25,9 +25,8 @@ result: pass
 ### 3. 多 Provider 自动回退
 expected: |
   当配置的搜索 Provider（如 Tavily）失败时，系统自动降级到免费 Provider（anysearch_free），无需用户手动干预。搜索仍能返回结果。
-result: issue
-reported: "加一些info日志把搜索的provider，参数和结果"
-severity: minor
+result: pass
+note: Gap G-40-3 已由40-02 计划修复 - 添加了12条 [Realm Search] 日志覆盖 doSearch/doAutoSearch/runProviderSearch
 
 ### 4. 速率限制保护
 expected: |
@@ -49,8 +48,8 @@ reason: 用户跳过
 ## Summary
 
 total: 6
-passed: 4
-issues: 1
+passed: 5
+issues: 0
 pending: 0
 skipped: 1
 
@@ -58,9 +57,8 @@ skipped: 1
 
 - gap_id: G-40-3
   truth: "搜索过程应记录 info 级别日志，包含使用的 provider、查询参数和返回结果"
-  status: failed
-  reason: "User reported: 加一些info日志把搜索的provider，参数和结果"
+  status: resolved
+  resolved_by: 40-02-PLAN.md
+  resolved_at: 2026-08-28
   severity: minor
   test: 3
-  artifacts: []
-  missing: []
