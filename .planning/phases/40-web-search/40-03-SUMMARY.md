@@ -70,3 +70,10 @@ Phase 40 所有计划已完成。Ready for Phase 41.
 ---
 *Phase: 40-web-search*
 *Completed: 2026-08-28*
+
+## Self-Check: PASSED
+
+- [x] SUMMARY.md exists at `.planning/phases/40-web-search/40-03-SUMMARY.md`
+- [x] Task commit `cf50074` exists
+- [x] Docs commit `8a06ee0` exists
+- [x] `ai-manager.js` contains `all_failed` check
