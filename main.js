@@ -1547,9 +1547,25 @@ app.whenReady().then(async () => {
       // POST /api/search-config/verify-key
       if (route === 'verify-key' && req.method === 'POST') {
         const { provider, apiKey } = await readJsonBody(req);
+
+        // 如果 apiKey 为空，检查环境变量
+        let keyToVerify = apiKey;
+        if (!keyToVerify || !keyToVerify.trim()) {
+          const envVarNames = configStore.get('search.envVarNames', {});
+          const envName = envVarNames[provider] || searchManager.SEARCH_PROVIDER_ENV_VARS[provider];
+          if (envName) {
+            keyToVerify = process.env[envName] || '';
+          }
+        }
+
+        if (!keyToVerify) {
+          sendJson(res, 200, { valid: false, error: '请输入 API Key 或配置环境变量' });
+          return;
+        }
+
         // 临时写入单个 provider key（不影响其他 provider），验证完恢复（D-15: 验证不删除）
         const origKey = configStore.get(`search.apiKeys.${provider}`);
-        configStore.set(`search.apiKeys.${provider}`, apiKey);
+        configStore.set(`search.apiKeys.${provider}`, keyToVerify);
         // 临时切换到指定 Provider（避免 auto 模式回退到免费 Provider）
         const origProvider = configStore.get('search.provider');
         configStore.set('search.provider', provider);

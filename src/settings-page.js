@@ -3279,20 +3279,11 @@ async function detectSearchEnvVar(providerId) {
 /**
  * 验证搜索 Provider API Key（D-12: 手动点击验证按钮）
  * @param {string} providerId - Provider ID
- * @param {string} apiKey - API Key
+ * @param {string} apiKey - API Key（可为空，后端会检查环境变量）
  */
 async function verifySearchKey(providerId, apiKey) {
   const verifyBtn = document.getElementById('searchVerifyBtn');
   const verifyResult = document.getElementById('searchVerifyResult');
-
-  // 空 API Key 时前端校验提示（per FLAGGED-ASSUMPTION: CONFIG-03 empty）
-  if (!apiKey || !apiKey.trim()) {
-    if (verifyResult) {
-      verifyResult.className = 'verify-result error';
-      verifyResult.textContent = '请输入 API Key';
-    }
-    return;
-  }
 
   if (verifyBtn) {
     verifyBtn.disabled = true;
