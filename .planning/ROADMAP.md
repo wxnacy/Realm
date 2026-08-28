@@ -143,6 +143,9 @@ Realm Browser 是一个多容器隔离浏览器，支持独立的 Cookie 管理�
 Plans:
 
 - [x] 40-02-PLAN.md
+
+3/3 plans complete
+
 - [x] 40-03-PLAN.md
 
 3/3 plans complete
