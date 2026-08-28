@@ -1425,6 +1425,9 @@ async function doSearch(query, maxResults) {
   const provider = _configStore?.get('search.provider', 'auto') || 'auto';
   const apiKeys = _configStore?.get('search.apiKeys', {}) || {};
 
+  // 记录搜索请求
+  console.log(`[Realm Search] 搜索请求: query="${trimmedQuery}", provider="${provider}", maxResults=${maxResults}`);
+
   if (provider === 'auto') {
     return doAutoSearch(trimmedQuery, maxResults, { apiKeys, rateLimiter: _rateLimiter });
   }
