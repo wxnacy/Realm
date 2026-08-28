@@ -2961,14 +2961,23 @@ ${content}
             });
             const formatted = searchManager.formatSearchResults(results, displayLimit);
 
+            // 检查是否有 API Key 无效的 Provider
+            const diagnostics = searchPayload.diagnostics;
+            const invalidKeyProviders = diagnostics?.api_key_invalid_providers || [];
+            let warning = '';
+            if (invalidKeyProviders.length > 0) {
+              warning = `\n\n⚠️ 注意：以下搜索 Provider 的 API Key 可能无效：${invalidKeyProviders.join('、')}。已自动切换到免费 Provider。请在设置中检查并更新 API Key。`;
+            }
+
             return {
               content: [{
                 type: 'text',
-                text: formatted,
+                text: formatted + warning,
               }],
               details: {
                 provider,
                 resultCount: results.length,
+                api_key_invalid_providers: invalidKeyProviders.length > 0 ? invalidKeyProviders : undefined,
               },
             };
           } catch (err) {

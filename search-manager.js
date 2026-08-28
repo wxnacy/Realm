@@ -1275,6 +1275,7 @@ async function doAutoSearch(query, maxResults, { apiKeys, rateLimiter }) {
   const configuredApiProviders = ['tavily', 'brave', 'serper', 'anysearch'].filter((p) => !!apiKeys[p]);
   const chain = [...configuredApiProviders, ANYSEARCH_FREE_PROVIDER, 'duckduckgo_browser'];
   const attempts = [];
+  const invalidKeyProviders = []; // 记录 API Key 无效的 Provider
   let firstLowQualityPayload = null;
 
   // 记录自动搜索链
@@ -1328,7 +1329,13 @@ async function doAutoSearch(query, maxResults, { apiKeys, rateLimiter }) {
       // 记录成功
       console.log(`[Realm Search] 搜索成功: provider=${provider}, results=${payload.results.length}`);
 
-      return attachAutoDiagnostics(payload, attempts);
+      // 如果有配置的 Provider API Key 无效，在诊断信息中标记
+      const extra = {};
+      if (invalidKeyProviders.length > 0) {
+        extra.api_key_invalid_providers = invalidKeyProviders;
+        console.warn(`[Realm Search] 以下 Provider 的 API Key 可能无效: ${invalidKeyProviders.join(', ')}`);
+      }
+      return attachAutoDiagnostics(payload, attempts, extra);
     } catch (err) {
       attempt.status = 'error';
       attempt.error_type = classifySearchError(err);
@@ -1338,8 +1345,14 @@ async function doAutoSearch(query, maxResults, { apiKeys, rateLimiter }) {
       }
       attempts.push(attempt);
 
-      // 记录错误
-      console.warn(`[Realm Search] provider ${provider} 失败: ${attempt.error_type} - ${attempt.message}`);
+      // 检测认证错误（API Key 无效）
+      if (attempt.error_type === 'auth' && configuredApiProviders.includes(provider)) {
+        invalidKeyProviders.push(provider);
+        console.warn(`[Realm Search] provider ${provider} API Key 可能无效: ${attempt.message}`);
+      } else {
+        // 记录错误
+        console.warn(`[Realm Search] provider ${provider} 失败: ${attempt.error_type} - ${attempt.message}`);
+      }
     }
   }
 
