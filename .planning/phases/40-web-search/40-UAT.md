@@ -1,21 +1,26 @@
 ---
-status: complete
+status: testing
 phase: 40-web-search
 source: [40-01-SUMMARY.md, 40-02-SUMMARY.md, 40-03-SUMMARY.md]
 started: 2026-08-26T23:20:00Z
-updated: 2026-08-28T20:30:00Z
+updated: 2026-08-28T20:35:00Z
 ---
 
 ## Current Test
 
-[testing complete]
+[number: 1]
+[name: AI 助手搜索功能]
+[status: issue]
+[reported: 随便输入一个无效的 API Key 也显示搜索成功，没有验证 API Key 的有效性]
 
 ## Tests
 
 ### 1. AI 助手搜索功能
 expected: |
   在 AI 聊天中询问实时信息（如"今天北京天气如何"），AI 能够调用 web_search 工具搜索互联网，返回包含标题、链接和摘要的搜索结果列表。
-result: pass
+result: issue
+reported: "随便输入一个无效的 API Key 也显示搜索成功，没有验证 API Key 的有效性"
+severity: major
 
 ### 2. 搜索结果格式化
 expected: |
@@ -48,8 +53,8 @@ note: Gap G-40-6 已由 40-03 计划修复 - 自动化验证通过：all_failed 
 ## Summary
 
 total: 6
-passed: 6
-issues: 0
+passed: 5
+issues: 1
 pending: 0
 skipped: 0
 
@@ -70,3 +75,10 @@ skipped: 0
   resolved_at: 2026-08-28
   severity: major
   test: 6
+
+- gap_id: G-40-7
+  truth: "无效的 API Key 应导致搜索失败并返回明确错误，而不是显示成功"
+  status: failed
+  reason: "User reported: 随便输入一个无效的 API Key 也显示搜索成功，没有验证 API Key 的有效性"
+  severity: major
+  test: 1
