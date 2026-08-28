@@ -1,26 +1,22 @@
 ---
-status: testing
+status: complete
 phase: 40-web-search
 source: [40-01-SUMMARY.md, 40-02-SUMMARY.md, 40-03-SUMMARY.md]
 started: 2026-08-26T23:20:00Z
-updated: 2026-08-28T20:35:00Z
+updated: 2026-08-28T20:40:00Z
 ---
 
 ## Current Test
 
-[number: 1]
-[name: AI 助手搜索功能]
-[status: issue]
-[reported: 随便输入一个无效的 API Key 也显示搜索成功，没有验证 API Key 的有效性]
+[testing complete]
 
 ## Tests
 
 ### 1. AI 助手搜索功能
 expected: |
   在 AI 聊天中询问实时信息（如"今天北京天气如何"），AI 能够调用 web_search 工具搜索互联网，返回包含标题、链接和摘要的搜索结果列表。
-result: issue
-reported: "随便输入一个无效的 API Key 也显示搜索成功，没有验证 API Key 的有效性"
-severity: major
+result: pass
+note: Gap G-40-7 已修复 - 无效 API Key 时会显示警告提示
 
 ### 2. 搜索结果格式化
 expected: |
@@ -53,8 +49,8 @@ note: Gap G-40-6 已由 40-03 计划修复 - 自动化验证通过：all_failed 
 ## Summary
 
 total: 6
-passed: 5
-issues: 1
+passed: 6
+issues: 0
 pending: 0
 skipped: 0
 
@@ -78,21 +74,8 @@ skipped: 0
 
 - gap_id: G-40-7
   truth: "无效的 API Key 应导致搜索失败并返回明确错误，而不是显示成功"
-  status: failed
-  reason: "User reported: 随便输入一个无效的 API Key 也显示搜索成功，没有验证 API Key 的有效性"
+  status: resolved
+  resolved_by: direct fix
+  resolved_at: 2026-08-28
   severity: major
   test: 1
-  root_cause: |
-    doAutoSearch 的自动回退机制：当配置的付费 Provider（如 Tavily）因无效 API Key 失败时，
-    系统自动回退到免费 Provider（anysearch_free / duckduckgo_browser），这些不需要 API Key，
-    所以搜索仍然成功。用户期望的是明确告知 API Key 无效，而不是静默回退。
-  artifacts:
-    - file: search-manager.js
-      lines: [1276, 1320]
-      description: "doAutoSearch 自动回退链逻辑"
-    - file: search-manager.js
-      lines: [886, 910]
-      description: "searchTavily 使用 API Key 调用"
-  missing:
-    - "无效 API Key 的 Provider 失败时应提示用户 API Key 可能无效"
-    - "或在搜索结果中注明使用了免费 Provider 回退"
