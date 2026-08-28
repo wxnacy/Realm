@@ -217,5 +217,5 @@ Phases execute in numeric order: 40 → 41
 | 37. 地址栏地址补全功能 | v2.4 | 2/2 | Complete | 2026-08-21 |
 | 38. AI 助手供应商管理 | v2.4 | 3/3 | Complete | 2026-08-23 |
 | 39. Vimium 键盘操作功能 | v2.4 | 4/4 | Complete | 2026-08-24 |
-| 40. 搜索基础设施 + web_search 工具 | v2.5 | 2/2 | In Progress|  |
+| 40. 搜索基础设施 + web_search 工具 | v2.5 | 2/2 | Complete    | 2026-08-28 |
 | 41. web_fetch 工具 + 搜索配置 UI | v2.5 | 2/2 | Complete    | 2026-08-27 |

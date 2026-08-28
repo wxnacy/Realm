@@ -24,17 +24,17 @@
 
 ### web_fetch 工具
 
-- [ ] **FETCH-01**: web_fetch 工具定义 — 参数：url（必填）、maxLength（可选，默认 12000）
-- [ ] **FETCH-02**: URL 内容抓取 — 支持 HTML、JSON、纯文本，15 秒超时，最大 5 次重定向
-- [ ] **FETCH-03**: HTML 转 Markdown — 使用 turndown 库，提取正文内容（去除 script/style/nav/footer）
-- [ ] **FETCH-04**: SSRF 防护 — 复用 search-manager 的 isPrivateIp，重定向后再次校验
+- [x] **FETCH-01**: web_fetch 工具定义 — 参数：url（必填）、maxLength（可选，默认 12000）
+- [x] **FETCH-02**: URL 内容抓取 — 支持 HTML、JSON、纯文本，15 秒超时，最大 5 次重定向
+- [x] **FETCH-03**: HTML 转 Markdown — 使用 turndown 库，提取正文内容（去除 script/style/nav/footer）
+- [x] **FETCH-04**: SSRF 防护 — 复用 search-manager 的 isPrivateIp，重定向后再次校验
 
 ### 搜索配置 UI
 
-- [ ] **CONFIG-01**: 设置页搜索配置子区域 — 在 AI 助手分区下新增"网络搜索"子区域
-- [ ] **CONFIG-02**: Provider 选择下拉 — auto/tavily/brave/serper/anysearch/anysearch_free，切换即时生效
-- [ ] **CONFIG-03**: API Key 管理 — 每个 Provider 独立输入框，添加/删除/验证（发送测试查询）
-- [ ] **CONFIG-04**: IPC 通道 + preload 暴露 — get-search-config / set-search-config / verify-search-key
+- [x] **CONFIG-01**: 设置页搜索配置子区域 — 在 AI 助手分区下新增"网络搜索"子区域
+- [x] **CONFIG-02**: Provider 选择下拉 — auto/tavily/brave/serper/anysearch/anysearch_free，切换即时生效
+- [x] **CONFIG-03**: API Key 管理 — 每个 Provider 独立输入框，添加/删除/验证（发送测试查询）
+- [x] **CONFIG-04**: IPC 通道 + preload 暴露 — get-search-config / set-search-config / verify-search-key
 
 ---
 
