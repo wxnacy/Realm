@@ -3191,9 +3191,17 @@ function showSearchEditorForm(providerId) {
   const apiKeyInput = document.getElementById('searchEditorApiKey');
   const verifyBtn = document.getElementById('searchVerifyBtn');
   const verifyResult = document.getElementById('searchVerifyResult');
+  const toggleKeyBtn = document.getElementById('searchToggleKeyBtn');
   const formGroup = apiKeyInput ? apiKeyInput.closest('.ai-form-group') : null;
 
   if (titleEl) titleEl.textContent = provider.name;
+
+  // 重置显示/隐藏按钮状态
+  if (toggleKeyBtn && apiKeyInput) {
+    apiKeyInput.type = 'password';
+    toggleKeyBtn.classList.remove('active');
+    toggleKeyBtn.title = '显示 API Key';
+  }
 
   if (provider.requiresKey) {
     // 需要 API Key 的 Provider：显示输入框和验证按钮
@@ -3203,10 +3211,12 @@ function showSearchEditorForm(providerId) {
       apiKeyInput.placeholder = '输入 API Key';
     }
     if (verifyBtn) verifyBtn.style.display = '';
+    if (toggleKeyBtn) toggleKeyBtn.style.display = '';
   } else {
     // 免费 Provider：隐藏 API Key 输入区域
     if (formGroup) formGroup.style.display = 'none';
     if (verifyBtn) verifyBtn.style.display = 'none';
+    if (toggleKeyBtn) toggleKeyBtn.style.display = 'none';
   }
 
   if (verifyResult) {
@@ -3277,25 +3287,24 @@ async function verifySearchKey(providerId, apiKey) {
  * 绑定折叠、验证、保存按钮事件
  */
 function setupSearchConfigListeners() {
-  // 折叠交互（D-08）
-  const toggle = document.getElementById('searchConfigToggle');
-  const content = document.getElementById('searchConfigContent');
-  if (toggle && content) {
-    toggle.addEventListener('click', () => {
-      const isVisible = content.style.display !== 'none';
-      content.style.display = isVisible ? 'none' : 'flex';
-      // 更新箭头方向
-      const chevron = toggle.querySelector('.settings-group-chevron');
-      if (chevron) {
-        chevron.style.transform = isVisible ? '' : 'rotate(180deg)';
-      }
-      // 保存折叠状态
-      settingsApi('update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ searchConfigCollapsed: isVisible }),
-      }).catch(() => {});
+  // 显示/隐藏 API Key 按钮
+  const toggleKeyBtn = document.getElementById('searchToggleKeyBtn');
+  if (toggleKeyBtn) {
+    toggleKeyBtn.addEventListener('click', () => {
+      const apiKeyInput = document.getElementById('searchEditorApiKey');
+      if (!apiKeyInput) return;
+      const isPassword = apiKeyInput.type === 'password';
+      apiKeyInput.type = isPassword ? 'text' : 'password';
+      toggleKeyBtn.classList.toggle('active', isPassword);
+      toggleKeyBtn.title = isPassword ? '隐藏 API Key' : '显示 API Key';
     });
+    // 重置状态：切换 Provider 时恢复为密码模式
+    const apiKeyInput = document.getElementById('searchEditorApiKey');
+    if (apiKeyInput) {
+      apiKeyInput.type = 'password';
+      toggleKeyBtn.classList.remove('active');
+      toggleKeyBtn.title = '显示 API Key';
+    }
   }
 
   // 验证按钮
@@ -3361,28 +3370,6 @@ function setupSearchConfigListeners() {
         showToast('保存失败：' + (err.message || '未知错误'), 'error');
       }
     });
-  }
-
-  // 恢复折叠状态
-  loadSearchConfigCollapseState();
-}
-
-/**
- * 加载搜索配置折叠状态
- */
-async function loadSearchConfigCollapseState() {
-  try {
-    const settings = await settingsApi('get');
-    const collapsed = settings.searchConfigCollapsed;
-    const content = document.getElementById('searchConfigContent');
-    const toggle = document.getElementById('searchConfigToggle');
-    if (content && collapsed) {
-      content.style.display = 'none';
-      const chevron = toggle ? toggle.querySelector('.settings-group-chevron') : null;
-      if (chevron) chevron.style.transform = '';
-    }
-  } catch (e) {
-    // 忽略加载失败
   }
 }
 

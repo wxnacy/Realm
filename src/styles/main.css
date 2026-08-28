@@ -4612,11 +4612,6 @@ textarea::placeholder {
   color: var(--accent-color);
 }
 
-/* 搜索配置内容初始隐藏 */
-.search-config-content {
-  display: none;
-}
-
 /* 验证结果区域 */
 .verify-result {
   font-size: 13px;
@@ -5325,6 +5320,39 @@ textarea::placeholder {
 
 .settings-input-wrapper .text-input {
   flex: 1;
+}
+
+.btn-toggle-key {
+  padding: 6px;
+  min-width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary, #999);
+  background: transparent;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.btn-toggle-key:hover {
+  color: var(--text-primary, #fff);
+  border-color: var(--text-secondary, #666);
+}
+
+.btn-toggle-key.active {
+  color: var(--accent-color, #4a9eff);
+  border-color: var(--accent-color, #4a9eff);
+}
+
+.btn-toggle-key.active .icon-eye {
+  display: none;
+}
+
+.btn-toggle-key.active .icon-eye-off {
+  display: block !important;
 }
 
 .btn-sm {
