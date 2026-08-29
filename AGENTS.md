@@ -179,7 +179,7 @@ await window.realmAPI.switchContainer('work');
 以"打开设置" `CmdOrCtrl+,` 为例：
 
 1. **`shortcut-manager.js`** — `DEFAULT_SHORTCUTS` 加 `'openSettings': 'CmdOrCtrl+,'`（默认值的唯一来源）
-2. **`src/renderer.js`** — `SHORTCUT_NAMES` 加中文名 `'openSettings': '打开设置页面'`（设置页显示用）
+2. **`src/settings-page.js`** — `SHORTCUT_NAMES` 加中文名 `'openSettings': '打开设置页面'`，同时 `SHORTCUT_GROUPS` 对应分组加 action id（否则设置页不渲染该快捷键）
 3. **`src/renderer.js`** — `initShortcuts` 的 switch 加 `case 'openSettings': openSettingsTab(); break;`
 4. 行为函数（如 `openSettingsTab`）在 renderer 中定义；设置按钮等 UI 入口共用此函数
 
