@@ -1266,10 +1266,13 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'set-default-browser' && req.method === 'POST') {
-        // 注册 http/https 会触发 macOS 系统确认弹框（用户确认后才真正生效）
+        // 注册 http/https 会触发 macOS 系统确认弹框（用户确认后才真正生效）；
+        // 确认前 setAsDefaultProtocolClient 的同步返回值为 false，不能作为失败依据，
+        // 真实结果由前端稍后查询 is-default-browser 判定
         const httpOk = app.setAsDefaultProtocolClient('http');
         const httpsOk = app.setAsDefaultProtocolClient('https');
-        sendJson(res, 200, { success: httpOk && httpsOk });
+        console.log('[Realm] setAsDefaultProtocolClient:', { httpOk, httpsOk });
+        sendJson(res, 200, { success: true });
         return;
       }
 

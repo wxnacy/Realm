@@ -806,6 +806,7 @@ const SHORTCUT_NAMES = {
   'openFavorites': '打开收藏夹',
   'toggleSidebar': '切换容器侧边栏',
   'focusPage': '聚焦页面',
+  'setDefaultBrowser': '设为默认浏览器',
 };
 
 /**
@@ -816,7 +817,7 @@ const SHORTCUT_GROUPS = {
   '导航操作': ['reload', 'back', 'forward'],
   '收藏': ['bookmark', 'openFavorites'],
   '浏览': ['openHistory'],
-  '其他': ['openSettings', 'toggleSidebar', 'focusPage'],
+  '其他': ['openSettings', 'toggleSidebar', 'focusPage', 'setDefaultBrowser'],
 };
 
 /**

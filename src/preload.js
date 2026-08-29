@@ -1316,6 +1316,14 @@ contextBridge.exposeInMainWorld('realmAPI', {
     ipcRenderer.on('drag:state-changed', handler);
     return () => ipcRenderer.removeListener('drag:state-changed', handler);
   },
+
+  // ==================== 应用级操作 ====================
+
+  /** 查询当前应用是否为系统默认浏览器 */
+  isDefaultBrowser: () => ipcRenderer.invoke('app:is-default-browser'),
+
+  /** 将当前应用注册为系统默认浏览器（macOS 会弹出系统确认框） */
+  setDefaultBrowser: () => ipcRenderer.invoke('app:set-default-browser'),
 });
 
 // ==================== 媒体检测 API ====================

@@ -2112,6 +2112,33 @@ function registerHandlers() {
     }
   });
 
+  // ==================== 应用级操作 ====================
+
+  /**
+   * 查询当前应用是否为系统默认浏览器
+   * @returns {{ isDefault: boolean }}
+   */
+  ipcMain.handle('app:is-default-browser', () => {
+    const { app } = require('electron');
+    const isDefault = app.isDefaultProtocolClient('http') && app.isDefaultProtocolClient('https');
+    return { isDefault };
+  });
+
+  /**
+   * 将当前应用注册为系统默认浏览器
+   * macOS 12+ 会弹出系统确认框，用户确认后才真正生效；
+   * 确认前 setAsDefaultProtocolClient 的同步返回值为 false，不能作为失败依据，
+   * 真实结果由调用方随后查询 app:is-default-browser 判定
+   * @returns {{ success: boolean }}
+   */
+  ipcMain.handle('app:set-default-browser', () => {
+    const { app } = require('electron');
+    const httpOk = app.setAsDefaultProtocolClient('http');
+    const httpsOk = app.setAsDefaultProtocolClient('https');
+    console.log('[Realm] setAsDefaultProtocolClient:', { httpOk, httpsOk });
+    return { success: true };
+  });
+
   console.log('[Realm] IPC 处理器已注册');
 }
 

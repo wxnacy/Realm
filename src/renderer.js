@@ -1981,6 +1981,10 @@ function initShortcuts() {
         }
         break;
       }
+      case 'setDefaultBrowser': {
+        setDefaultBrowser();
+        break;
+      }
       case 'escape':
         // Escape 键：关闭 Vim 帮助对话框（如果打开）
         if (state.vimHelpOpen) {
@@ -3162,6 +3166,63 @@ function openSettingsTab(tabName) {
     }
   } else {
     createTab(containerId, `realm://settings${suffix}`);
+  }
+}
+
+/** 默认浏览器状态轮询定时器（重复触发时先清旧轮询） */
+let defaultBrowserPollTimer = null;
+
+/**
+ * 轮询默认浏览器状态
+ * macOS 系统确认框停留时长不定，用户确认后 isDefaultProtocolClient 才会翻转；
+ * 生效则提示成功，超时未生效提示失败
+ */
+function pollDefaultBrowserStatus() {
+  if (defaultBrowserPollTimer) clearInterval(defaultBrowserPollTimer);
+  let attempts = 0;
+  defaultBrowserPollTimer = setInterval(async () => {
+    attempts += 1;
+    try {
+      const res = await window.realmAPI.isDefaultBrowser();
+      if (res.isDefault) {
+        clearInterval(defaultBrowserPollTimer);
+        defaultBrowserPollTimer = null;
+        showToast('已设为默认浏览器', 'success');
+      } else if (attempts >= 15) {
+        clearInterval(defaultBrowserPollTimer);
+        defaultBrowserPollTimer = null;
+        showToast('设置未生效，可重试', 'error');
+      }
+    } catch (err) {
+      console.error('[Realm Renderer] 查询默认浏览器状态失败:', err);
+      clearInterval(defaultBrowserPollTimer);
+      defaultBrowserPollTimer = null;
+    }
+  }, 1000);
+}
+
+/**
+ * 设置当前应用为系统默认浏览器
+ * 快捷键 Cmd+Shift+D 触发，可在任何界面调用。
+ * 主进程发出注册请求后 macOS 弹系统确认框，真实结果由轮询判定，
+ * 不使用 setAsDefaultProtocolClient 的同步返回值（确认框期间为 false）。
+ */
+async function setDefaultBrowser() {
+  try {
+    // 先查询当前状态
+    const status = await window.realmAPI.isDefaultBrowser();
+    if (status.isDefault) {
+      showToast('Realm 已是默认浏览器', 'info');
+      return;
+    }
+
+    // 调用系统注册（macOS 弹框确认），随后轮询真实状态
+    await window.realmAPI.setDefaultBrowser();
+    showToast('请在系统弹窗中确认');
+    pollDefaultBrowserStatus();
+  } catch (error) {
+    console.error('[Realm Renderer] 设置默认浏览器失败:', error);
+    showToast('设置失败，请重试', 'error');
   }
 }
 
