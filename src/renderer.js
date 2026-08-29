@@ -500,6 +500,8 @@ function showBookmarkEditPanel(title, url, isEdit = false) {
   if (!elements.bookmarkEditPanel.open) {
     elements.bookmarkEditPanel.showModal();
   }
+  // 锚定到星标按钮下方（AI 面板打开时按钮位置会左移）
+  positionPanelBelowButton(elements.bookmarkEditPanel, elements.bookmarkStarBtn);
 
   elements.bookmarkTitleInput.focus();
   elements.bookmarkTitleInput.select();
@@ -8660,8 +8662,9 @@ function toggleMediaPanel() {
   elements.mediaPanel.classList.toggle('hidden', !state.mediaPanelOpen);
   elements.mediaPanelBtn.classList.toggle('active', state.mediaPanelOpen);
 
-  // 打开时刷新列表
+  // 打开时锚定按钮下方并刷新列表
   if (state.mediaPanelOpen) {
+    positionPanelBelowButton(elements.mediaPanel, elements.mediaPanelBtn);
     loadMediaList();
   }
 }
@@ -11083,6 +11086,8 @@ function openDownloadPanel() {
   const btn = document.getElementById('downloadBtn');
   if (panel) panel.classList.remove('hidden');
   if (btn) btn.classList.add('active');
+  // 锚定到下载按钮下方（AI 面板打开时按钮位置会左移）
+  positionPanelBelowButton(panel, btn);
   hideDownloadTooltip();
   // 始终在打开时刷新列表（dirty 标记或首次打开）
   loadDownloadPanelList();
@@ -11599,6 +11604,7 @@ function updateBatchBar() {
   if (downloadSelectedIds.size >= 1) {
     bar.classList.remove('hidden');
     count.textContent = `已选择 ${downloadSelectedIds.size} 项`;
+    syncBatchBarPosition();
   } else {
     bar.classList.add('hidden');
   }
@@ -12118,6 +12124,63 @@ function calculateToolbarOverflow() {
 }
 
 /**
+ * 将浮动弹框定位到触发按钮下方（跟随按钮位置，而非固定窗口右侧）
+ * 右缘对齐按钮右缘，超出视口时收进边界；按钮被溢出收起（display:none，
+ * rect 为全 0）时退回锚定 » 按钮，两者都不可见则保持 CSS 默认位置
+ * @param {HTMLElement} panel - position: fixed 的弹框元素
+ * @param {HTMLElement|null} btn - 触发按钮
+ */
+function positionPanelBelowButton(panel, btn) {
+  if (!panel) return;
+  let anchor = btn;
+  if (!anchor || anchor.getBoundingClientRect().width === 0) {
+    anchor = document.getElementById('toolbarOverflowBtn');
+  }
+  if (!anchor) return;
+  const rect = anchor.getBoundingClientRect();
+  if (rect.width === 0) return;
+  const panelWidth = panel.offsetWidth;
+  if (!panelWidth) return;
+  const margin = 8;
+  const maxLeft = document.documentElement.clientWidth - panelWidth - margin;
+  const left = Math.max(margin, Math.min(rect.right - panelWidth, maxLeft));
+  panel.style.right = 'auto';
+  panel.style.left = `${Math.round(left)}px`;
+  panel.style.top = `${Math.round(rect.bottom + 4)}px`;
+}
+
+/**
+ * 重定位当前打开的工具栏弹框
+ * AI 面板开合/拖宽、窗口缩放都会改变按钮位置，由 #toolbar 的
+ * ResizeObserver 驱动，让已打开的弹框实时跟住按钮
+ */
+function repositionOpenToolbarPanels() {
+  if (state.mediaPanelOpen) {
+    positionPanelBelowButton(elements.mediaPanel, elements.mediaPanelBtn);
+  }
+  if (state.downloadPanelOpen) {
+    const panel = document.getElementById('downloadPanel');
+    positionPanelBelowButton(panel, document.getElementById('downloadBtn'));
+    syncBatchBarPosition();
+  }
+  if (elements.bookmarkEditPanel && elements.bookmarkEditPanel.open) {
+    positionPanelBelowButton(elements.bookmarkEditPanel, elements.bookmarkStarBtn);
+  }
+}
+
+/**
+ * 批量操作栏与下载面板对齐（同宽同顶，覆盖面板头部）
+ * 面板被 JS 定位后 CSS 的 right: 16px 不再成立，需复制面板内联位置
+ */
+function syncBatchBarPosition() {
+  const bar = document.getElementById('downloadBatchBar');
+  const panel = document.getElementById('downloadPanel');
+  if (!bar || !panel || bar.classList.contains('hidden')) return;
+  bar.style.left = panel.style.left;
+  bar.style.top = panel.style.top;
+}
+
+/**
  * 显示工具栏溢出下拉菜单
  */
 function showToolbarOverflowMenu() {
@@ -12210,10 +12273,15 @@ function initToolbarOverflow() {
   if (toolbar && typeof ResizeObserver !== 'undefined') {
     const ro = new ResizeObserver(() => {
       calculateToolbarOverflow();
+      // AI 面板开合/拖宽、窗口缩放都会移动按钮，已打开的弹框跟着走
+      repositionOpenToolbarPanels();
     });
     ro.observe(toolbar);
   } else if (toolbar) {
-    window.addEventListener('resize', calculateToolbarOverflow);
+    window.addEventListener('resize', () => {
+      calculateToolbarOverflow();
+      repositionOpenToolbarPanels();
+    });
   }
 
   // 首次计算：双重 requestAnimationFrame 确保布局完成
