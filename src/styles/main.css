@@ -54,7 +54,7 @@
   --tab-bar-height: 36px;
   --tab-min-width: 120px;
   --tab-max-width: 240px;
-  --tab-close-size: 16px;
+  --tab-close-size: 20px;
   --tab-color-line-height: 3px;
 
   /* 新标签页 */
@@ -1507,7 +1507,6 @@ textarea::placeholder {
 
 .tab-list {
   display: flex;
-  gap: 2px;
   flex: 0 1 auto;
   min-width: 0;
   overflow-x: auto;
@@ -1566,18 +1565,21 @@ textarea::placeholder {
   color: var(--text-primary);
 }
 
+/* Firefox 风格标签：无间隙融为一体，悬浮/选中以圆角胶囊区分。
+   常态即带 1px 透明边框，选中时染容器色，避免选中切换产生 1px 布局抖动 */
 .tab {
   position: relative;
   display: flex;
   flex-direction: column;
   min-width: var(--tab-min-width);
   max-width: var(--tab-max-width);
-  height: 33px;
+  height: 30px;
   background-color: transparent;
-  border-radius: 8px 8px 0 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
   cursor: pointer;
   -webkit-app-region: no-drag;
-  transition: background-color 0.2s;
+  transition: background-color 0.15s, border-color 0.15s;
 }
 
 .tab:hover:not(.active) {
@@ -1586,6 +1588,8 @@ textarea::placeholder {
 
 .tab.active {
   background-color: var(--bg-primary);
+  border-color: var(--tab-container-color, var(--border-color));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .tab-pinned {
@@ -1604,7 +1608,7 @@ textarea::placeholder {
 .tab-color-line {
   height: var(--tab-color-line-height);
   width: 100%;
-  border-radius: 8px 8px 0 0;
+  border-radius: 6px 6px 0 0;
   flex-shrink: 0;
 }
 
@@ -1644,30 +1648,35 @@ textarea::placeholder {
   color: var(--text-primary);
 }
 
+/* 关闭按钮常驻（Firefox 式），随 .tab-content 排布在标题右侧，
+   标题 flex:1 自动先于按钮截断，不再被绝对定位覆盖 */
 .tab-close {
-  position: absolute;
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
   width: var(--tab-close-size);
   height: var(--tab-close-size);
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  margin-left: 4px;
   background-color: transparent;
-  color: var(--text-muted);
-  border-radius: 4px;
-  opacity: 0;
-  transition: opacity 0.2s, background-color 0.2s, color 0.2s;
+  color: var(--text-secondary);
+  border-radius: 50%;
+  transition: background-color 0.15s, color 0.15s;
 }
 
-.tab:hover .tab-close {
-  opacity: 1;
+.tab:hover .tab-close,
+.tab.active .tab-close {
+  color: var(--text-primary);
 }
 
 .tab-close:hover {
   background-color: var(--bg-tertiary);
   color: var(--text-primary);
+}
+
+/* 固定标签不显示关闭按钮（Firefox 同款行为），右键菜单关闭 */
+.tab-pinned .tab-close {
+  display: none;
 }
 
 /* ==================== Tab 拖拽排序 ==================== */

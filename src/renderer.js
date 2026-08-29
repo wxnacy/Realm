@@ -627,6 +627,8 @@ function createTabElement(tab) {
   tabElement.setAttribute('role', 'tab');
 
   const color = getContainerColor(tab.containerId);
+  // 容器色写入 CSS 变量：选中态边框（.tab.active）由此取色，切换 active 类无需回写内联样式
+  tabElement.style.setProperty('--tab-container-color', color);
   const colorLine = document.createElement('div');
   colorLine.className = 'tab-color-line';
   colorLine.style.backgroundColor = color;
@@ -646,7 +648,8 @@ function createTabElement(tab) {
 
   const closeBtn = document.createElement('button');
   closeBtn.className = 'tab-close';
-  closeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>';
+  closeBtn.title = '关闭标签页';
+  closeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"></path></svg>';
   closeBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     closeTab(tab.id);
@@ -654,9 +657,9 @@ function createTabElement(tab) {
 
   content.appendChild(favicon);
   content.appendChild(title);
+  content.appendChild(closeBtn);
   tabElement.appendChild(colorLine);
   tabElement.appendChild(content);
-  tabElement.appendChild(closeBtn);
 
   return tabElement;
 }
