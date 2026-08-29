@@ -96,6 +96,9 @@ let _barHoverRafId = 0;
 let _barHoverX = 0;
 let _barHoverY = 0;
 
+/** 菜单打开态高亮的触发项元素（收藏栏文件夹或 » 按钮），无则为 null */
+let _menuOpenTriggerEl = null;
+
 // ==================== 拖拽放置支持 ====================
 
 // HTML5 拖拽期间 mouse 事件（mouseenter/mouseleave）停发，
@@ -324,6 +327,22 @@ async function refreshOpenMenus() {
       console.error('[Realm Renderer] 刷新收藏栏菜单失败:', err);
     }
   }
+
+  // drop 后收藏栏经 bookmarks-bar:refresh 广播重载，文件夹元素被重建，
+  // 高亮锚点失效时按顶层菜单 folderId 重新挂到新元素上
+  if (_menuOpenTriggerEl && !_menuOpenTriggerEl.isConnected) {
+    const topLevel = _pinnedDragMenu ||
+      _activeMenus.find((m) => !m.classList.contains('bookmarks-submenu'));
+    const fid = topLevel ? topLevel.dataset.folderId : null;
+    const barEl = (fid !== null && fid !== undefined)
+      ? document.querySelector('#bookmarksBarList .bookmark-folder[data-folder-id="' + fid + '"]')
+      : null;
+    if (barEl) {
+      _setMenuOpenTriggerHighlight(barEl);
+    } else {
+      _menuOpenTriggerEl = null;
+    }
+  }
 }
 
 /**
@@ -513,6 +532,29 @@ document.addEventListener('mousemove', _onBarHoverMouseMove);
 // ==================== 菜单容器管理 ====================
 
 /**
+ * 设置菜单打开态高亮的触发项（Chrome 式选中效果）
+ * 同一时刻只有一个触发项高亮，悬浮切换时随打开菜单移动
+ * @param {HTMLElement} el - 收藏栏文件夹或 » 按钮元素
+ */
+function _setMenuOpenTriggerHighlight(el) {
+  _clearMenuOpenTriggerHighlight();
+  if (el && el.isConnected) {
+    el.classList.add('menu-open');
+    _menuOpenTriggerEl = el;
+  }
+}
+
+/**
+ * 清除菜单打开态高亮
+ */
+function _clearMenuOpenTriggerHighlight() {
+  if (_menuOpenTriggerEl) {
+    _menuOpenTriggerEl.classList.remove('menu-open');
+    _menuOpenTriggerEl = null;
+  }
+}
+
+/**
  * 关闭所有活动菜单
  */
 function closeAllMenus() {
@@ -522,6 +564,9 @@ function closeAllMenus() {
 
   // 清除悬浮切换定时器
   _cancelBarSwitchTimer();
+
+  // 清除菜单打开态高亮
+  _clearMenuOpenTriggerHighlight();
 
   // 移除所有活动菜单 DOM，并清理 _submenu 引用
   _activeMenus.forEach((menu) => {
@@ -852,6 +897,12 @@ async function showFolderMenu(folderEl, folderId, options = {}) {
     });
 
     _currentDropdownFolderId = folderIdStr;
+
+    // Chrome 式选中高亮：菜单打开期间触发项保持高亮
+    // （拖拽模式除外，拖拽有独立的 drag-over 高亮）
+    if (!forDrag) {
+      _setMenuOpenTriggerHighlight(folderEl);
+    }
   } catch (err) {
     console.error('[Realm Renderer] 显示文件夹菜单失败:', err);
   }
@@ -1404,6 +1455,8 @@ async function showOverflowMenu(overflowBtn, overflowItems) {
   menu.style.left = left + 'px';
   menu.style.top = top + 'px';
   menu.style.width = menuWidth + 'px';
+
+  _setMenuOpenTriggerHighlight(overflowBtn);
 
   requestAnimationFrame(() => {
     menu.classList.add('visible');

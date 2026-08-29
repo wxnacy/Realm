@@ -66,6 +66,15 @@
   background-color: rgba(255, 255, 255, 0.12);
 }
 
+/* ==================== 菜单打开态（Chrome 式选中高亮） ==================== */
+
+/* 菜单打开期间触发项保持高亮，悬浮切换时随打开菜单移动 */
+.bookmark-folder.menu-open,
+.bookmarks-overflow-btn.menu-open {
+  background-color: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
 /* ==================== 收藏项 ==================== */
 
 .bookmark-item .bookmark-favicon {
