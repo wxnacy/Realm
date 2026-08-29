@@ -53,6 +53,9 @@ const SUBMENU_OFFSET_X = 2;
 /** 子菜单垂直偏移（px） */
 const SUBMENU_OFFSET_Y = -4;
 
+/** 拖拽数据 MIME（与 bookmarks-bar.js 保持一致） */
+const BOOKMARK_DRAG_MIME_MENU = 'application/x-realm-bookmark';
+
 // ==================== 状态 ====================
 
 /** 当前打开的菜单列表 */
@@ -64,8 +67,195 @@ let _hoverTimers = new Map();
 /** 当前打开的第一级下拉菜单对应的文件夹 ID（用于 toggle 逻辑） */
 let _currentDropdownFolderId = null;
 
+/** 拖拽期间固定的源菜单（拖出期间保持展开），null 表示无 */
+let _pinnedDragMenu = null;
+
+/** 固定源菜单对应的文件夹 ID（收藏栏上的源文件夹） */
+let _pinnedDragMenuFolderId = null;
+
 /** 全屏遮罩层元素 */
 let _menuBackdrop = null;
+
+// ==================== 拖拽放置支持 ====================
+
+// HTML5 拖拽期间 mouse 事件（mouseenter/mouseleave）停发，
+// 菜单的拖拽悬停展开、放置高亮改由 dragenter/dragover/dragleave/drop 驱动；
+// 点击流程的 mouse 逻辑保持不变，两者互不干扰。
+
+/**
+ * 判断事件是否携带收藏栏拖拽数据类型
+ * @param {DragEvent} e - 拖拽事件
+ * @returns {boolean}
+ */
+function _isRealmDragMenu(e) {
+  return !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).includes(BOOKMARK_DRAG_MIME_MENU));
+}
+
+/**
+ * 读取当前拖拽源状态（由 bookmarks-bar.js 维护）
+ * @returns {{type: string, id: number}|null}
+ */
+function _getDragState() {
+  return window.bookmarksBar && window.bookmarksBar.getDragState
+    ? window.bookmarksBar.getDragState()
+    : null;
+}
+
+/**
+ * 清除菜单项上的拖拽高亮
+ */
+function _clearMenuDragIndicators() {
+  document.querySelectorAll(
+    '.bookmarks-dropdown-item.drag-over-folder, .bookmarks-dropdown-item.drag-over-top, .bookmarks-dropdown-item.drag-over-bottom'
+  ).forEach((el) => {
+    el.classList.remove('drag-over-folder', 'drag-over-top', 'drag-over-bottom');
+  });
+}
+
+/**
+ * 清除与菜单项相关的拖拽关闭定时器
+ * 包括：自身及祖先菜单的延迟关闭定时器、自身子菜单的关闭定时器
+ * @param {HTMLElement} item - 菜单项元素
+ */
+function _clearDragCloseTimers(item) {
+  let menuEl = item.closest('.bookmarks-dropdown, .bookmarks-submenu');
+  while (menuEl) {
+    if (menuEl._dragCloseTimer) {
+      clearTimeout(menuEl._dragCloseTimer);
+      menuEl._dragCloseTimer = null;
+    }
+    menuEl = menuEl._parentItem
+      ? menuEl._parentItem.closest('.bookmarks-dropdown, .bookmarks-submenu')
+      : null;
+  }
+  if (item._submenu) {
+    if (item._submenu._dragCloseTimer) {
+      clearTimeout(item._submenu._dragCloseTimer);
+      item._submenu._dragCloseTimer = null;
+    }
+    if (item._submenu._closeTimer) {
+      clearTimeout(item._submenu._closeTimer);
+      item._submenu._closeTimer = null;
+    }
+  }
+}
+
+/**
+ * 判断目标元素是否位于收藏栏下拉菜单内
+ * @param {Element} target - 目标元素
+ * @returns {boolean}
+ */
+function isOverMenu(target) {
+  if (!target || !target.closest) return false;
+  return !!target.closest('.bookmarks-dropdown, .bookmarks-submenu');
+}
+
+/**
+ * 当前是否有打开的菜单
+ * @returns {boolean}
+ */
+function hasOpenMenus() {
+  return _activeMenus.length > 0;
+}
+
+/**
+ * 当前打开的第一级下拉菜单对应的文件夹 ID（无打开菜单时为 null）
+ * 拖拽模块用于判断光标是否仍停在打开菜单的源文件夹上（豁免关闭，防闪烁）
+ * @returns {string|null}
+ */
+function getOpenMenuFolderId() {
+  return _currentDropdownFolderId;
+}
+
+/**
+ * 拖拽期间固定的源菜单对应的文件夹 ID（无固定菜单时为 null）
+ * @returns {string|null}
+ */
+function getPinnedDragMenuFolderId() {
+  return _pinnedDragMenuFolderId;
+}
+
+/**
+ * 标记源菜单链为固定（拖出期间保持展开）
+ * 从源菜单项所在的菜单沿 _parentItem 链向上，逐级标记 _pinnedDrag，
+ * 顶层菜单记为 _pinnedDragMenu（拖拽中不参与任何关闭逻辑）
+ * @param {HTMLElement} itemEl - 源菜单项元素
+ */
+function _pinMenuChainForDrag(itemEl) {
+  let menuEl = itemEl.closest('.bookmarks-dropdown, .bookmarks-submenu');
+  let topLevel = null;
+  while (menuEl) {
+    menuEl._pinnedDrag = true;
+    topLevel = menuEl;
+    menuEl = menuEl._parentItem
+      ? menuEl._parentItem.closest('.bookmarks-dropdown, .bookmarks-submenu')
+      : null;
+  }
+  _pinnedDragMenu = topLevel;
+  _pinnedDragMenuFolderId = topLevel ? topLevel.dataset.folderId : null;
+}
+
+/**
+ * 关闭所有非固定的顶层菜单（含其子菜单链），固定源菜单保持展开
+ * 用于菜单来源拖拽中切换悬停目标文件夹时收起上一个临时菜单
+ */
+function closeTransientMenus() {
+  const transientTop = _activeMenus.filter(
+    (m) => !m.classList.contains('bookmarks-submenu') && !m._pinnedDrag
+  );
+  transientTop.forEach((m) => _closeMenuAndDescendants(m));
+  _currentDropdownFolderId = _pinnedDragMenu ? _pinnedDragMenuFolderId : null;
+}
+
+/**
+ * 解除拖拽固定标记但不关闭菜单
+ * 用于菜单来源拖拽取消且未放置时：菜单保持展开（Chrome 式）
+ */
+function endDragPin() {
+  _activeMenus.forEach((m) => {
+    m._pinnedDrag = false;
+  });
+  _pinnedDragMenu = null;
+  _pinnedDragMenuFolderId = null;
+  // 拖拽起拖时移除了遮罩（暴露收藏栏放置目标）；菜单保持展开，
+  // 补回遮罩恢复「点击外部区域关闭」
+  if (_activeMenus.length > 0) {
+    _createBackdrop();
+  }
+}
+
+/**
+ * 菜单容器 dragstart：菜单项作为拖拽源（拖出/菜单内排序）
+ * 溢出菜单（无 dataset.folderId）不参与
+ * @param {DragEvent} e - 拖拽事件
+ */
+function _onMenuDragStart(e) {
+  const menuEl = e.currentTarget;
+  if (!menuEl || menuEl.dataset.folderId === undefined) return;
+
+  const itemEl = e.target.closest('.bookmarks-dropdown-item');
+  if (!itemEl) return;
+
+  const isFolder = itemEl.classList.contains('bookmarks-folder-item');
+  const id = parseInt(isFolder ? itemEl.dataset.folderId : itemEl.dataset.bookmarkId, 10);
+  if (!Number.isFinite(id)) return;
+  const folderId = parseInt(menuEl.dataset.folderId, 10);
+  if (!Number.isFinite(folderId)) return;
+
+  const type = isFolder ? 'folder' : 'bookmark';
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData(BOOKMARK_DRAG_MIME_MENU, JSON.stringify({ type, id }));
+
+  // 移除全屏遮罩：点击打开的源菜单自带遮罩（z-index 高于收藏栏），
+  // 会挡住收藏栏的 dragover/drop，导致拖到收藏栏无法放置。
+  // 拖拽期间没有点击场景，遮罩无用；取消拖拽保持菜单展开时由 endDragPin 补回
+  _removeBackdrop();
+
+  // 标记源菜单链固定：拖出期间保持展开（Chrome 式）
+  _pinMenuChainForDrag(itemEl);
+  // 交给收藏栏模块维护拖拽状态（不关闭菜单）
+  window.bookmarksBar.beginMenuDrag({ type, id, folderId }, itemEl);
+}
 
 // ==================== 菜单容器管理 ====================
 
@@ -89,6 +279,8 @@ function closeAllMenus() {
   });
   _activeMenus = [];
   _currentDropdownFolderId = null;
+  _pinnedDragMenu = null;
+  _pinnedDragMenuFolderId = null;
 
   // 移除遮罩层
   _removeBackdrop();
@@ -313,17 +505,37 @@ function _closeSiblingSubmenus(currentItem) {
  * 显示文件夹下拉菜单（支持 toggle：同一文件夹再次点击则关闭）
  * @param {HTMLElement} folderEl - 文件夹 DOM 元素（用于定位）
  * @param {number|string} folderId - 文件夹 ID
+ * @param {Object} [options] - 选项
+ * @param {boolean} [options.forDrag=false] - 拖拽模式：
+ *   由拖拽悬停定时器触发。跳过遮罩层（遮罩会挡住收藏栏的 dragover，
+ *   导致拖拽期间无法从菜单移回收藏栏），且已打开时不重复创建
  */
-async function showFolderMenu(folderEl, folderId) {
+async function showFolderMenu(folderEl, folderId, options = {}) {
   const folderIdStr = String(folderId);
+  const forDrag = !!(options && options.forDrag);
 
-  // Toggle：如果当前已打开同一文件夹的菜单，则关闭
-  if (_currentDropdownFolderId === folderIdStr) {
+  // 触发元素已被移除（如拖拽 drop 后收藏栏重载）：放弃打开
+  if (!folderEl.isConnected) return;
+
+  // 拖拽模式：该文件夹菜单已打开（临时或固定源菜单）则不重复创建
+  if (forDrag && _activeMenus.length > 0 &&
+      (_currentDropdownFolderId === folderIdStr || _pinnedDragMenuFolderId === folderIdStr)) {
+    return;
+  }
+
+  // Toggle：如果当前已打开同一文件夹的菜单，则关闭（点击模式）
+  if (!forDrag && _currentDropdownFolderId === folderIdStr) {
     closeAllMenus();
     return;
   }
 
-  closeAllMenus();
+  // 菜单来源拖拽期间（有固定源菜单）：只关闭临时菜单，源菜单保持展开；
+  // 其余情况全关（单菜单排他）
+  if (_pinnedDragMenu) {
+    closeTransientMenus();
+  } else {
+    closeAllMenus();
+  }
 
   try {
     const [favorites, subFolders] = await Promise.all([
@@ -335,12 +547,14 @@ async function showFolderMenu(folderEl, folderId) {
       return;
     }
 
-    const menu = _buildMenuContent(subFolders || [], favorites || []);
+    const menu = _buildMenuContent(subFolders || [], favorites || [], false, folderId);
     document.body.appendChild(menu);
     _registerMenu(menu);
 
-    // 创建遮罩层
-    _createBackdrop();
+    // 创建遮罩层（拖拽模式跳过）
+    if (!forDrag) {
+      _createBackdrop();
+    }
 
     // 定位
     const rect = folderEl.getBoundingClientRect();
@@ -388,7 +602,7 @@ async function _showSubmenu(folderItemEl, subfolderId) {
       return;
     }
 
-    const submenu = _buildMenuContent(subFolders || [], favorites || [], true);
+    const submenu = _buildMenuContent(subFolders || [], favorites || [], true, subfolderId);
     // 挂载到 body，避免被父元素的 overflow/transform 裁剪
     document.body.appendChild(submenu);
     _registerMenu(submenu);
@@ -435,16 +649,77 @@ async function _showSubmenu(folderItemEl, subfolderId) {
  * @param {Array} subFolders - 子文件夹列表
  * @param {Array} favorites - 收藏项列表
  * @param {boolean} [isSubmenu=false] - 是否为子菜单
+ * @param {number|string} [folderId] - 菜单归属的文件夹 ID。
+ *   传入时启用拖拽放置：菜单空白处松手 = 移入该文件夹；
+ *   溢出菜单不传入，不参与拖拽放置
  * @returns {HTMLElement} 菜单 DOM 元素
  */
-function _buildMenuContent(subFolders, favorites, isSubmenu = false) {
+function _buildMenuContent(subFolders, favorites, isSubmenu = false, folderId) {
   const menu = document.createElement('div');
   menu.className = isSubmenu ? 'bookmarks-submenu' : 'bookmarks-dropdown';
 
+  // ==================== 拖拽放置（容器级） ====================
+  if (folderId !== undefined) {
+    menu.dataset.folderId = String(folderId);
+    // 文件夹边缘排序的兄弟上下文（含 sort_order），drop 时随 target 传给 executeDrop
+    menu._subFolders = subFolders || [];
+
+    // 菜单项作为拖拽源（拖出菜单/菜单内排序）
+    menu.addEventListener('dragstart', _onMenuDragStart);
+
+    menu.addEventListener('dragover', (e) => {
+      if (!_isRealmDragMenu(e)) return;
+      e.preventDefault();
+      // 光标仍在菜单内：取消延迟关闭
+      if (menu._dragCloseTimer) {
+        clearTimeout(menu._dragCloseTimer);
+        menu._dragCloseTimer = null;
+      }
+      // 光标在菜单空白处（非菜单项）时清除项高亮
+      if (!e.target.closest('.bookmarks-dropdown-item')) {
+        _clearMenuDragIndicators();
+      }
+    });
+
+    menu.addEventListener('dragleave', (e) => {
+      if (!_isRealmDragMenu(e)) return;
+      // 固定源菜单拖出期间保持展开，不参与延迟关闭
+      if (menu._pinnedDrag) return;
+      const related = e.relatedTarget;
+      if (related && menu.contains(related)) return;
+      // 移入本菜单项的子菜单：不关闭
+      const relatedSub = related && related.closest ? related.closest('.bookmarks-submenu') : null;
+      if (relatedSub && relatedSub._parentItem && relatedSub._parentItem.parentNode === menu) return;
+      // 光标离开菜单：延迟关闭（顶层菜单全关，子菜单只关自己）
+      menu._dragCloseTimer = setTimeout(() => {
+        menu._dragCloseTimer = null;
+        if (menu.classList.contains('bookmarks-submenu')) {
+          _closeMenuAndDescendants(menu);
+          if (menu._parentItem && menu._parentItem._submenu === menu) {
+            menu._parentItem._submenu = null;
+          }
+        } else {
+          closeAllMenus();
+        }
+      }, SUBMENU_CLOSE_DELAY);
+    });
+
+    menu.addEventListener('drop', (e) => {
+      if (!_isRealmDragMenu(e)) return;
+      e.preventDefault();
+      const drag = _getDragState();
+      if (!drag) return;
+      drag.dropped = true;
+      // 菜单空白处松手：移入该文件夹末尾（循环引用由 executeDrop 兜底）
+      window.bookmarksBar.executeDrop(drag, { type: 'folder', id: folderId, position: 'on' });
+    });
+  }
+
   // 渲染子文件夹
+  const itemsDraggable = folderId !== undefined;
   if (subFolders && subFolders.length > 0) {
     subFolders.forEach((folder) => {
-      const item = _createFolderMenuItem(folder);
+      const item = _createFolderMenuItem(folder, itemsDraggable);
       menu.appendChild(item);
     });
   }
@@ -459,7 +734,7 @@ function _buildMenuContent(subFolders, favorites, isSubmenu = false) {
   // 渲染子收藏项
   if (favorites && favorites.length > 0) {
     favorites.forEach((record) => {
-      const item = _createBookmarkMenuItem(record);
+      const item = _createBookmarkMenuItem(record, itemsDraggable);
       menu.appendChild(item);
     });
   }
@@ -470,11 +745,14 @@ function _buildMenuContent(subFolders, favorites, isSubmenu = false) {
 /**
  * 创建收藏项菜单项 DOM
  * @param {Object} record - 收藏记录
+ * @param {boolean} [draggable=false] - 是否可作为拖拽源（有归属文件夹的菜单才启用）
  * @returns {HTMLElement} 菜单项 DOM 元素
  */
-function _createBookmarkMenuItem(record) {
+function _createBookmarkMenuItem(record, draggable = false) {
   const item = document.createElement('div');
   item.className = 'bookmarks-dropdown-item';
+  item.dataset.bookmarkId = record.id;
+  if (draggable) item.draggable = true;
 
   // favicon 图片（兼容 favicon_url / faviconUrl）
   const faviconUrl = record.favicon_url || record.faviconUrl || '';
@@ -486,6 +764,7 @@ function _createBookmarkMenuItem(record) {
   favicon.className = 'bookmark-favicon';
   favicon.src = faviconUrl;
   favicon.alt = '';
+  favicon.draggable = false; // 防止图片原生拖拽劫持菜单项拖拽
   favicon.onerror = function () {
     this.onerror = null;
     this.src = REALM_ICON_PATH_MENU;
@@ -508,17 +787,72 @@ function _createBookmarkMenuItem(record) {
     _handleMenuBookmarkClick(record.url, e);
   });
 
+  // ==================== 拖拽放置 ====================
+  // 拖到菜单内收藏项上：显示插入线，松手插入到该文件夹内的此位置
+
+  item.addEventListener('dragover', (e) => {
+    if (!_isRealmDragMenu(e)) return;
+    const menuEl = item.closest('.bookmarks-dropdown, .bookmarks-submenu');
+    if (!menuEl || menuEl.dataset.folderId === undefined) return;
+    e.preventDefault();
+
+    const drag = _getDragState();
+    if (!drag) return;
+
+    // 文件夹拖到书签旁：无排序语义；拖到自身：不可放置
+    if (drag.type === 'folder' || String(drag.id) === String(record.id)) {
+      e.dataTransfer.dropEffect = 'none';
+      _clearMenuDragIndicators();
+      return;
+    }
+
+    e.dataTransfer.dropEffect = 'move';
+    const rect = item.getBoundingClientRect();
+    const position = (e.clientY - rect.top) < rect.height / 2 ? 'before' : 'after';
+    _clearMenuDragIndicators();
+    item.classList.add(position === 'before' ? 'drag-over-top' : 'drag-over-bottom');
+    item._dragDropPosition = position;
+  });
+
+  item.addEventListener('dragleave', (e) => {
+    if (!_isRealmDragMenu(e)) return;
+    const related = e.relatedTarget;
+    if (related && item.contains(related)) return;
+    item.classList.remove('drag-over-top', 'drag-over-bottom');
+  });
+
+  item.addEventListener('drop', (e) => {
+    if (!_isRealmDragMenu(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const drag = _getDragState();
+    if (!drag || drag.type !== 'bookmark') return;
+    if (String(drag.id) === String(record.id)) return;
+    drag.dropped = true;
+    const menuEl = item.closest('.bookmarks-dropdown, .bookmarks-submenu');
+    const folderId = parseInt(menuEl.dataset.folderId, 10);
+    window.bookmarksBar.executeDrop(drag, {
+      type: 'favorite',
+      id: record.id,
+      folderId: Number.isFinite(folderId) ? folderId : 0,
+      position: item._dragDropPosition || 'after',
+    });
+  });
+
   return item;
 }
 
 /**
  * 创建文件夹菜单项 DOM
  * @param {Object} folder - 文件夹数据
+ * @param {boolean} [draggable=false] - 是否可作为拖拽源（有归属文件夹的菜单才启用）
  * @returns {HTMLElement} 菜单项 DOM 元素
  */
-function _createFolderMenuItem(folder) {
+function _createFolderMenuItem(folder, draggable = false) {
   const item = document.createElement('div');
   item.className = 'bookmarks-dropdown-item bookmarks-folder-item';
+  item.dataset.folderId = folder.id;
+  if (draggable) item.draggable = true;
 
   // 文件夹图标
   const icon = document.createElement('div');
@@ -593,6 +927,134 @@ function _createFolderMenuItem(folder) {
     // 展开前先关闭同级其他子菜单
     _closeSiblingSubmenus(item);
     _showSubmenu(item, folder.id);
+  });
+
+  // ==================== 拖拽放置 ====================
+  // 书签拖到文件夹项：整项为移入目标；文件夹拖到文件夹项：纵向三段式
+  // （上 25% 排到前面 / 下 25% 排到后面 / 中间 50% 移入），与收藏夹页文件夹树同规则
+
+  item.addEventListener('dragover', (e) => {
+    if (!_isRealmDragMenu(e)) return;
+    const menuEl = item.closest('.bookmarks-dropdown, .bookmarks-submenu');
+    if (!menuEl || menuEl.dataset.folderId === undefined) return;
+    e.preventDefault();
+
+    const drag = _getDragState();
+    if (!drag) return;
+
+    // 放置位置：书签拖文件夹整项移入；文件夹拖文件夹三段式
+    let position = 'on';
+    if (drag.type === 'folder') {
+      const rect = item.getBoundingClientRect();
+      const ratio = rect.height > 0 ? (e.clientY - rect.top) / rect.height : 0.5;
+      position = ratio < 0.25 ? 'before' : (ratio > 0.75 ? 'after' : 'on');
+    }
+
+    // 有效性（书签 id 与文件夹 id 分属两表，数值可能相同，判定必须按类型区分）：
+    // 移入需环检测；边缘排序的目标父级不能是拖拽源自身或位于其子树内；
+    // 书签已在目标文件夹中时移入无意义
+    const ownerFolderId = parseInt(menuEl.dataset.folderId, 10);
+    let valid;
+    if (drag.type === 'folder') {
+      if (position === 'on') {
+        valid = !(drag.id === folder.id ||
+          window.bookmarksBar.isDescendantFolder(drag.id, folder.id));
+      } else {
+        valid = !(drag.id === folder.id ||
+          drag.id === ownerFolderId ||
+          window.bookmarksBar.isDescendantFolder(drag.id, ownerFolderId));
+      }
+    } else {
+      valid = (drag.folderId || 0) !== folder.id;
+    }
+    if (!valid) {
+      e.dataTransfer.dropEffect = 'none';
+      _clearMenuDragIndicators();
+      return;
+    }
+
+    e.dataTransfer.dropEffect = 'move';
+    _clearDragCloseTimers(item);
+    _clearMenuDragIndicators();
+    item.classList.add(
+      position === 'on' ? 'drag-over-folder'
+        : (position === 'before' ? 'drag-over-top' : 'drag-over-bottom')
+    );
+
+    // 悬停展开子菜单（仅移入位置展开，边缘排序语义是排序不展开；
+    // 拖拽版定时器，与 mouseenter 的 _hoverTimers 独立）
+    if (position === 'on' &&
+        (!item._submenu || !item._submenu.parentNode) && !item._dragOpenTimer) {
+      _closeSiblingSubmenus(item);
+      item._dragOpenTimer = setTimeout(() => {
+        item._dragOpenTimer = null;
+        _showSubmenu(item, folder.id);
+      }, SUBMENU_HOVER_DELAY);
+    }
+  });
+
+  item.addEventListener('dragleave', (e) => {
+    if (!_isRealmDragMenu(e)) return;
+    const related = e.relatedTarget;
+    const submenu = item._submenu;
+    const inSubmenu = submenu && related && submenu.contains(related);
+    if (related && (item.contains(related) || inSubmenu)) return;
+    item.classList.remove('drag-over-folder', 'drag-over-top', 'drag-over-bottom');
+    if (item._dragOpenTimer) {
+      clearTimeout(item._dragOpenTimer);
+      item._dragOpenTimer = null;
+    }
+    // 光标彻底离开（且不在子菜单内）时宽限关闭子菜单，与 mouseleave 行为一致
+    if (submenu && submenu.parentNode && !inSubmenu) {
+      submenu._closeTimer = setTimeout(() => {
+        _closeMenuAndDescendants(submenu);
+        if (item._submenu === submenu) item._submenu = null;
+      }, SUBMENU_CLOSE_DELAY);
+    }
+  });
+
+  item.addEventListener('drop', (e) => {
+    if (!_isRealmDragMenu(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (item._dragOpenTimer) {
+      clearTimeout(item._dragOpenTimer);
+      item._dragOpenTimer = null;
+    }
+    const drag = _getDragState();
+    if (!drag) return;
+
+    // 与 dragover 同规则重算放置位置
+    const menuEl = item.closest('.bookmarks-dropdown, .bookmarks-submenu');
+    const ownerFolderId = menuEl ? parseInt(menuEl.dataset.folderId, 10) : 0;
+    let position = 'on';
+    if (drag.type === 'folder') {
+      const rect = item.getBoundingClientRect();
+      const ratio = rect.height > 0 ? (e.clientY - rect.top) / rect.height : 0.5;
+      position = ratio < 0.25 ? 'before' : (ratio > 0.75 ? 'after' : 'on');
+    }
+
+    if (position === 'on') {
+      // 已在该文件夹中：无意义
+      if ((drag.folderId || 0) === folder.id) return;
+      if (drag.type === 'folder' &&
+          (drag.id === folder.id || window.bookmarksBar.isDescendantFolder(drag.id, folder.id))) return;
+      drag.dropped = true;
+      window.bookmarksBar.executeDrop(drag, { type: 'folder', id: folder.id, position: 'on' });
+    } else {
+      // 同父级内排序（跨父级移动由 executeDrop 处理）
+      if (drag.id === folder.id) return;
+      if (drag.id === ownerFolderId ||
+          window.bookmarksBar.isDescendantFolder(drag.id, ownerFolderId)) return;
+      drag.dropped = true;
+      window.bookmarksBar.executeDrop(drag, {
+        type: 'folder',
+        id: folder.id,
+        position,
+        parentId: ownerFolderId,
+        siblings: (menuEl && menuEl._subFolders) || [],
+      });
+    }
   });
 
   return item;
@@ -705,4 +1167,10 @@ window.bookmarksBarMenu = {
   showFolderMenu,
   showOverflowMenu,
   closeAllMenus,
+  isOverMenu,
+  hasOpenMenus,
+  getOpenMenuFolderId,
+  getPinnedDragMenuFolderId,
+  closeTransientMenus,
+  endDragPin,
 };

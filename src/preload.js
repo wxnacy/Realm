@@ -775,6 +775,28 @@ contextBridge.exposeInMainWorld('realmAPI', {
    */
   updateFavoriteSort: (id, sortOrder) => ipcRenderer.invoke('favorites:update-favorite-sort', { id, sortOrder }),
 
+  /**
+   * 将收藏项移动到指定文件夹并追加到末尾（原子写入 folder_id + 末尾排序键）
+   * @param {number} id - 收藏项 ID
+   * @param {number} folderId - 目标文件夹 ID（0 表示根目录）
+   * @returns {Promise<boolean>}
+   */
+  moveFavoriteInto: (id, folderId) => ipcRenderer.invoke('favorites:move-favorite-into', { id, folderId }),
+
+  /**
+   * 计算 fractional-indexing 排序键
+   * 主窗口从 file:// 无法访问 HTTP 端点，排序键计算走 IPC（与 /api/favorites/compute-sort-keys 同逻辑）
+   * @param {string|null} beforeKey - 前邻排序键（null 表示插到最前）
+   * @param {string|null} afterKey - 后邻排序键（null 表示追加到末尾）
+   * @param {number} [count=1] - 需要的键数量
+   * @returns {Promise<string[]>}
+   */
+  computeFavoriteSortKeys: (beforeKey, afterKey, count) => ipcRenderer.invoke('favorites:compute-sort-keys', {
+    beforeKey: beforeKey || null,
+    afterKey: afterKey || null,
+    count: count || 1,
+  }),
+
   // ==================== 书签导入 ====================
 
   /**

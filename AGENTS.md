@@ -249,6 +249,23 @@ renderContainerList();  // 必跟
 
 参考 `switchTab`（容器跟随活动 tab）和 `switchContainer`（用户主动切换）的现有写法。
 
+### 收藏栏拖拽（移入文件夹 / 栏内排序）
+
+`src/bookmarks-bar.js`（拖拽主体）+ `src/bookmarks-bar-menu.js`（菜单拖拽放置）实现，Chrome 风格交互：拖到文件夹立即松手 = 移入末尾；悬停 600ms（`DRAG_FOLDER_OPEN_DELAY`）弹出下拉，可继续放入子文件夹（递归）或插入到菜单内收藏项之间。改动时的关键约束：
+
+- **HTML5 DnD + 自定义 MIME** `application/x-realm-bookmark`，**不要加 text/plain**——否则误拖进 webview 松手会触发网页导航
+- **拖拽期间 mouse 事件全部停发**：菜单悬停展开在拖拽下由 `dragenter/dragover` 驱动（`_dragOpenTimer`），与点击流程的 `mouseenter/_hoverTimers` 并存，两套定时器不要混用
+- 拖拽模式打开下拉必须 `showFolderMenu(el, id, { forDrag: true })`：跳过遮罩层，否则遮罩挡住收藏栏的 dragover，光标无法从菜单移回收藏栏。**菜单项 dragstart 同理必须 `_removeBackdrop()`**——点击打开的源菜单自带全屏遮罩（z-index 99990 高于收藏栏），不移除则拖到收藏栏完全无法放置（dragover/drop 都到不了栏）；取消拖拽菜单保持展开时由 `endDragPin()` 补回遮罩恢复「点击外部关闭」
+- 菜单关闭时机（防弹窗闪烁）：只有光标移到「其他收藏项」上才 `closeAllMenus()`。源文件夹本身必须豁免——菜单弹出时光标仍停在它上面，立即关会被悬停定时器重开；列表空白区也要豁免——「源文件夹 → 菜单」之间有几像素缝隙会落到 blank，穿越时立即关会打断移入菜单
+- **移入文件夹末尾一律走 `moveFavoriteInto`**（folder_id + 末尾 fractional 键事务写入）；`moveFavorite` 只改 folder_id 不动 sort_order，落位不可预期。`moveFolder` 的追加排序已从 `MAX+1` 修复为 fractional 键（整数键与文本键混排会排到最前）
+- **主窗口排序键计算走 IPC** `favorites:compute-sort-keys`（`realmAPI.computeFavoriteSortKeys`）——`file://` fetch 不了 HTTP 端点 `/api/favorites/compute-sort-keys`，realm:// 页面才走 HTTP
+- drop 成功后**不要**在 renderer 直接 `bookmarksBar.load()`：主进程 move/sort IPC 已统一广播 `bookmarks-bar:refresh`，各窗口（含发起者）经既有监听重载，直接调会双刷
+- dragend 绑在拖拽源元素上（`{ once: true }`）而非委托在列表：drop 后广播重载会移除源元素，detached 元素收不到列表委托的事件
+- **菜单项也是拖拽源**（`draggable` 仅在 `dataset.folderId` 菜单启用，溢出菜单除外）：dragstart 由菜单容器委托 `_onMenuDragStart` 处理，经 `window.bookmarksBar.beginMenuDrag` 建立拖拽状态——它**不关菜单**（区别于栏内 dragstart）
+- **pinned 源菜单**（Chrome 式拖出保持展开）：拖拽起始于菜单项时 `_pinMenuChainForDrag` 给源菜单链打 `_pinnedDrag` 标记，拖出期间豁免一切关闭逻辑（菜单 dragleave、收藏栏 close-check）；目标文件夹展开的菜单是「临时菜单」，用 `closeTransientMenus()` 单独收起（勿用 `closeAllMenus`，会连源菜单一起关）。取消拖拽且未放置 → `endDragPin()`（菜单保持展开）；已放置或栏内拖拽 → `closeAllMenus()`
+- `_dragState.folderId` 是**来源文件夹**（栏内拖拽为 0）：executeDrop 据此判断跨层移动（菜单项拖出到栏/其他文件夹要先改 folder_id）、同文件夹移入 no-op；文件夹边缘排序的兄弟上下文经 `target.siblings`（`menu._subFolders`）+ `target.parentId` 传入
+- 书签 id 与文件夹 id 分属两表**数值可能相同**：drag.id 与 folder.id 的同体判定必须先分类型再比较，否则书签拖到同数值 id 的文件夹会被误判为拖到自身
+
 ## 多窗口支持
 
 ### 窗口管理架构

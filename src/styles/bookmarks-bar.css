@@ -270,6 +270,36 @@
   text-align: center;
 }
 
+/* ==================== 拖拽状态 ==================== */
+
+/* 拖拽源半透明 */
+.bookmark-item.dragging,
+.bookmark-folder.dragging,
+.bookmarks-dropdown-item.dragging {
+  opacity: 0.4;
+}
+
+/* 悬停文件夹：整项高亮（即将移入） */
+.bookmark-folder.drag-over-folder,
+.bookmarks-dropdown-item.drag-over-folder {
+  background-color: rgba(59, 130, 246, 0.25);
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.6);
+}
+
+/* 插入指示线：前/上 */
+.bookmark-item.drag-over-top,
+.bookmark-folder.drag-over-top,
+.bookmarks-dropdown-item.drag-over-top {
+  box-shadow: inset 0 2px 0 0 #3b82f6;
+}
+
+/* 插入指示线：后/下 */
+.bookmark-item.drag-over-bottom,
+.bookmark-folder.drag-over-bottom,
+.bookmarks-dropdown-item.drag-over-bottom {
+  box-shadow: inset 0 -2px 0 0 #3b82f6;
+}
+
 /* ==================== 滚动条美化 ==================== */
 
 .bookmarks-dropdown::-webkit-scrollbar,

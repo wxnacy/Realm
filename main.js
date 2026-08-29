@@ -2598,31 +2598,55 @@ app.whenReady().then(async () => {
   // 移动文件夹
   ipcMain.handle('favorites:move-folder', async (event, { id, parentId }) => {
     assertTrustedSender(event);
-    return favoritesManager.moveFolder(id, { parentId });
+    const result = favoritesManager.moveFolder(id, { parentId });
+    windowManager.broadcast('bookmarks-bar:refresh');
+    return result;
   });
 
   // 移动收藏项到文件夹
   ipcMain.handle('favorites:move-favorite', async (event, { id, folderId }) => {
     assertTrustedSender(event);
-    return favoritesManager.moveFavorite(id, { folderId });
+    const result = favoritesManager.moveFavorite(id, { folderId });
+    windowManager.broadcast('bookmarks-bar:refresh');
+    return result;
+  });
+
+  // 移动收藏项到文件夹末尾（folder_id + 末尾排序键原子写入）
+  ipcMain.handle('favorites:move-favorite-into', async (event, { id, folderId }) => {
+    assertTrustedSender(event);
+    const result = favoritesManager.moveFavoriteInto(id, { folderId });
+    windowManager.broadcast('bookmarks-bar:refresh');
+    return result;
+  });
+
+  // 计算 fractional 排序键（主窗口 file:// 无法 fetch HTTP 端点，走 IPC）
+  ipcMain.handle('favorites:compute-sort-keys', async (event, { beforeKey, afterKey, count }) => {
+    assertTrustedSender(event);
+    return favoritesManager.computeSortKeys(beforeKey, afterKey, count);
   });
 
   // 批量移动收藏项
   ipcMain.handle('favorites:move-favorites', async (event, { ids, folderId }) => {
     assertTrustedSender(event);
-    return favoritesManager.moveFavorites(ids, { folderId });
+    const result = favoritesManager.moveFavorites(ids, { folderId });
+    windowManager.broadcast('bookmarks-bar:refresh');
+    return result;
   });
 
   // 更新文件夹排序
   ipcMain.handle('favorites:update-folder-sort', async (event, { id, sortOrder }) => {
     assertTrustedSender(event);
-    return favoritesManager.updateFolderSort(id, { sortOrder });
+    const result = favoritesManager.updateFolderSort(id, { sortOrder });
+    windowManager.broadcast('bookmarks-bar:refresh');
+    return result;
   });
 
   // 更新收藏项排序
   ipcMain.handle('favorites:update-favorite-sort', async (event, { id, sortOrder }) => {
     assertTrustedSender(event);
-    return favoritesManager.updateFavoriteSort(id, { sortOrder });
+    const result = favoritesManager.updateFavoriteSort(id, { sortOrder });
+    windowManager.broadcast('bookmarks-bar:refresh');
+    return result;
   });
 
   // ==================== 书签导入 IPC ====================

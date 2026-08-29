@@ -841,13 +841,18 @@ function moveFolder(id, { parentId }) {
     return { success: false, message: '不能将文件夹移动到自己的子文件夹中（循环引用）' };
   }
 
-  // 计算排序值：取目标位置最大 sort_order + 1
-  const maxSort = db.prepare(
-    'SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_sort FROM favorite_folders WHERE parent_id = ?'
+  // 计算排序值：追加到目标父文件夹末尾（fractional indexing）。
+  // 旧逻辑 MAX(sort_order)+1 对字符串键失效（'a0'+1 得整数 1），
+  // 会导致移动后的文件夹排到目标文件夹最前面
+  const lastSibling = db.prepare(
+    `SELECT sort_order FROM favorite_folders
+     WHERE parent_id = ? AND typeof(sort_order) = 'text' AND sort_order != '0'
+     ORDER BY sort_order DESC LIMIT 1`
   ).get(parentId);
+  const nextSort = generateKeyBetween(lastSibling ? lastSibling.sort_order : null, null);
 
   const result = db.prepare('UPDATE favorite_folders SET parent_id = ?, sort_order = ? WHERE id = ?')
-    .run(parentId, maxSort.next_sort, id);
+    .run(parentId, nextSort, id);
 
   return { success: result.changes > 0 };
 }
@@ -885,6 +890,51 @@ function moveFavorites(ids, { folderId }) {
     .run(folderId, ...ids);
 
   return result.changes;
+}
+
+/**
+ * 将收藏项移动到指定文件夹并追加到末尾
+ *
+ * moveFavorite 仅更新 folder_id，sort_order 保持原值，在新文件夹中的落位不可预期；
+ * 此函数在事务内同时写入 folder_id 与目标文件夹末尾的 fractional 排序键。
+ *
+ * @param {number} id - 收藏项 ID
+ * @param {Object} options
+ * @param {number} options.folderId - 目标文件夹 ID（0 表示根目录）
+ * @returns {boolean} 是否成功
+ */
+function moveFavoriteInto(id, { folderId }) {
+  ensureTable();
+
+  const tx = db.transaction(() => {
+    const last = db.prepare(
+      `SELECT sort_order FROM favorites
+       WHERE folder_id = ? AND typeof(sort_order) = 'text' AND sort_order != '0'
+       ORDER BY sort_order DESC LIMIT 1`
+    ).get(folderId);
+    const sortKey = generateKeyBetween(last ? last.sort_order : null, null);
+    db.prepare('UPDATE favorites SET folder_id = ?, sort_order = ? WHERE id = ?')
+      .run(folderId, sortKey, id);
+  });
+  tx();
+
+  return true;
+}
+
+/**
+ * 计算 fractional-indexing 排序键
+ *
+ * fractional-indexing 库仅在主进程可用：realm:// 页面走 HTTP 端点
+ * （/api/favorites/compute-sort-keys），主窗口从 file:// 跨域不可 fetch，
+ * 经 IPC 调用此函数。
+ *
+ * @param {string|null} beforeKey - 前邻排序键（null 表示插到最前）
+ * @param {string|null} afterKey - 后邻排序键（null 表示追加到末尾）
+ * @param {number} [count=1] - 需要的键数量
+ * @returns {string[]} 排序键数组
+ */
+function computeSortKeys(beforeKey, afterKey, count = 1) {
+  return generateNKeysBetween(beforeKey || null, afterKey || null, count);
 }
 
 /**
@@ -1498,6 +1548,8 @@ module.exports = {
   // 收藏项移动与排序
   moveFavorite,
   moveFavorites,
+  moveFavoriteInto,
+  computeSortKeys,
   updateFolderSort,
   updateFavoriteSort,
   batchUpdateSort,
