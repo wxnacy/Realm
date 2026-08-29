@@ -263,7 +263,9 @@ renderContainerList();  // 必跟
 - dragend 绑在拖拽源元素上（`{ once: true }`）而非委托在列表：drop 后广播重载会移除源元素，detached 元素收不到列表委托的事件
 - **菜单项也是拖拽源**（`draggable` 仅在 `dataset.folderId` 菜单启用，溢出菜单除外）：dragstart 由菜单容器委托 `_onMenuDragStart` 处理，经 `window.bookmarksBar.beginMenuDrag` 建立拖拽状态——它**不关菜单**（区别于栏内 dragstart）
 - **pinned 源菜单**（Chrome 式拖出保持展开）：拖拽起始于菜单项时 `_pinMenuChainForDrag` 给源菜单链打 `_pinnedDrag` 标记，拖出期间豁免一切关闭逻辑（菜单 dragleave、收藏栏 close-check）；目标文件夹展开的菜单是「临时菜单」，用 `closeTransientMenus()` 单独收起（勿用 `closeAllMenus`，会连源菜单一起关）。取消拖拽且未放置 → `endDragPin()`（菜单保持展开）；已放置或栏内拖拽 → `closeAllMenus()`
-- `_dragState.folderId` 是**来源文件夹**（栏内拖拽为 0）：executeDrop 据此判断跨层移动（菜单项拖出到栏/其他文件夹要先改 folder_id）、同文件夹移入 no-op；文件夹边缘排序的兄弟上下文经 `target.siblings`（`menu._subFolders`）+ `target.parentId` 传入
+- `_dragState.folderId` 是**来源文件夹**（栏内拖拽为 0）：executeDrop 据此判断跨层移动（菜单项拖出到栏/其他文件夹要先改 folder_id）、文件夹边缘排序的兄弟上下文经 `target.siblings`（`menu._subFolders`）+ `target.parentId` 传入
+- **拖到文件夹项 = 移入该文件夹末尾，来源即目标文件夹 = 重排到末尾**。不要恢复「同文件夹 no-op」短路——会让「只含文件夹的子文件夹」失去可命中的移入放置区（其子菜单里全是文件夹项，孙文件夹项显示禁止、其余项是移入别的文件夹）
+- **菜单来源拖拽放置后菜单保持展开并实时刷新**：`executeDrop` 末尾对 `drag.fromMenu` 调 `bookmarksBarMenu.refreshOpenMenus()`（按最新数据对每个打开菜单原地重建内容、按 folderId 重新锚定打开着的子菜单，无闪烁）；`_onBarDragEnd` 对 fromMenu 一律 `endDragPin()` 保持展开，**不要 closeAllMenus**（会退回「操作后菜单消失需重开」）。栏内来源拖拽维持 dragend 关菜单
 - 书签 id 与文件夹 id 分属两表**数值可能相同**：drag.id 与 folder.id 的同体判定必须先分类型再比较，否则书签拖到同数值 id 的文件夹会被误判为拖到自身
 
 ## 多窗口支持

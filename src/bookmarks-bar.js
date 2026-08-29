@@ -670,7 +670,6 @@ function _onBarDrop(e) {
   _clearDragOpenTimer();
   _lastHoverKey = null;
   if (!drag) return;
-  drag.dropped = true;
 
   const itemEl = e.target.closest('.bookmark-item, .bookmark-folder');
   if (!itemEl) {
@@ -702,14 +701,14 @@ function _onBarDrop(e) {
 }
 
 /**
- * 拖拽结束（含取消）：清理全部拖拽状态与菜单
+ * 拖拽结束（含取消）：清理拖拽状态
  *
- * 菜单来源的拖拽未放置（取消/拖回）时保持源菜单展开（Chrome 式）；
- * 已放置则全部收起，由刷新广播重建。
+ * 菜单来源的拖拽菜单保持展开：未放置 = 原样保留（Chrome 式）；
+ * 已放置 = 由 executeDrop 触发 refreshOpenMenus 原地刷新内容。
+ * 栏内来源维持原行为（dragstart 时已关菜单，dragend 兜底清理）。
  */
 function _onBarDragEnd() {
   const fromMenu = !!(_dragState && _dragState.fromMenu);
-  const dropped = !!(_dragState && _dragState.dropped);
   if (_dragState && _dragState.sourceEl) {
     _dragState.sourceEl.classList.remove('dragging');
   }
@@ -718,7 +717,7 @@ function _onBarDragEnd() {
   _clearDragHighlights();
   _clearDragOpenTimer();
   if (window.bookmarksBarMenu) {
-    if (fromMenu && !dropped) {
+    if (fromMenu) {
       window.bookmarksBarMenu.endDragPin();
     } else {
       window.bookmarksBarMenu.closeAllMenus();
@@ -727,20 +726,45 @@ function _onBarDragEnd() {
 }
 
 /**
- * 执行收藏栏拖放（栏内目标与菜单内目标共用入口）
+ * 执行收藏栏拖放（对外入口）
+ *
+ * 菜单来源的拖拽放置后，打开的菜单保持展开并原地刷新内容（Chrome 式实时反馈）。
+ *
+ * @param {{type: string, id: number, folderId: number, fromMenu?: boolean}} drag - 拖拽源
+ * @param {Object} target - 放置目标（格式见 applyDrop）
+ */
+async function executeDrop(drag, target) {
+  if (!drag) return;
+  try {
+    await applyDrop(drag, target);
+  } catch (err) {
+    console.error('[BookmarksBar] 拖放操作失败:', err);
+  }
+  if (drag.fromMenu && window.bookmarksBarMenu && window.bookmarksBarMenu.refreshOpenMenus) {
+    try {
+      await window.bookmarksBarMenu.refreshOpenMenus();
+    } catch (err) {
+      console.error('[BookmarksBar] 刷新打开的菜单失败:', err);
+    }
+  }
+}
+
+/**
+ * 执行收藏栏拖放的数据操作（栏内目标与菜单内目标共用）
  *
  * 目标格式：
  * - { type: 'append-bar' }                                        追加到栏尾（书签→收藏段末尾，文件夹→文件夹段末尾）
- * - { type: 'folder', id, position: 'on' }                        移入该文件夹末尾
- * - { type: 'folder', id, position: 'before'|'after' }            根级文件夹段内排序
+ * - { type: 'folder', id, position: 'on' }                        移入该文件夹末尾（含来源即目标 = 重排到末尾）
+ * - { type: 'folder', id, position: 'before'|'after',             文件夹段内排序（siblings/parentId 未传时为收藏栏根级）
+ *     parentId?, siblings? }
  * - { type: 'favorite', id, folderId, position: 'before'|'after' } 插入到 folderId 内目标收藏项前/后
  *
  * 移动/排序成功后由主进程广播 bookmarks-bar:refresh 触发各窗口收藏栏重载。
  *
- * @param {{type: string, id: number}} drag - 拖拽源
+ * @param {{type: string, id: number, folderId: number}} drag - 拖拽源
  * @param {Object} target - 放置目标
  */
-async function executeDrop(drag, target) {
+async function applyDrop(drag, target) {
   if (!drag) return;
   try {
     if (target.type === 'append-bar') {
@@ -753,8 +777,8 @@ async function executeDrop(drag, target) {
     }
 
     if (target.type === 'folder' && target.position === 'on') {
-      // 来源就是目标文件夹（栏内项已在根级/菜单项已在该文件夹）：已在其中，重放无意义
-      if ((drag.folderId || 0) === target.id) return;
+      // 拖到文件夹项 = 移入该文件夹末尾；来源即目标文件夹 = 重排到末尾
+      // （此前按 no-op 短路，导致「只有文件夹的子文件夹」没有可命中的移入放置区）
       if (drag.type === 'folder') {
         if (drag.id === target.id || isDescendantFolder(drag.id, target.id)) return;
         await window.realmAPI.moveFavoriteFolder(drag.id, target.id);

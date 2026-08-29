@@ -225,6 +225,88 @@ function endDragPin() {
 }
 
 /**
+ * 在当前打开的菜单中查找文件夹菜单项元素
+ * @param {number|string} folderId - 文件夹 ID
+ * @returns {HTMLElement|null}
+ */
+function _findFolderItemInOpenMenus(folderId) {
+  for (const menuEl of _activeMenus) {
+    const items = menuEl.querySelectorAll('.bookmarks-folder-item');
+    for (const it of items) {
+      if (String(it.dataset.folderId) === String(folderId)) return it;
+    }
+  }
+  return null;
+}
+
+/**
+ * 刷新当前打开的菜单（拖拽放置成功后保持展开并实时更新内容，Chrome 式）
+ *
+ * 对每个打开的菜单按最新数据原地重建内容（菜单元素本身不替换，
+ * 位置/层级/固定标记均保留，无闪烁）；重建会让打开着的子菜单失去
+ * 锚点（旧文件夹项被销毁），随后按 folderId 重新锚定并重算位置，
+ * 锚点已不存在的子菜单（文件夹被移走）级联关闭。
+ *
+ * @returns {Promise<void>}
+ */
+async function refreshOpenMenus() {
+  const menus = [..._activeMenus];
+  for (const menuEl of menus) {
+    if (!menuEl.parentNode) continue;
+    const folderId = parseInt(menuEl.dataset.folderId, 10);
+    if (!Number.isFinite(folderId)) continue;
+
+    try {
+      const [favorites, subFolders] = await Promise.all([
+        window.realmAPI.bookmarksBar.listFavorites(folderId),
+        window.realmAPI.bookmarksBar.listFolders(folderId),
+      ]);
+      // 异步期间菜单可能被关闭
+      if (!menuEl.parentNode) continue;
+
+      // 本菜单当前打开着的子菜单，重建内容后需重新锚定
+      const openSubmenus = _activeMenus.filter((m) =>
+        m.classList.contains('bookmarks-submenu') && m._parentItem &&
+        m._parentItem.parentNode === menuEl);
+
+      menuEl._subFolders = subFolders || [];
+      while (menuEl.firstChild) menuEl.removeChild(menuEl.firstChild);
+      (subFolders || []).forEach((folder) => {
+        menuEl.appendChild(_createFolderMenuItem(folder, true));
+      });
+      if ((subFolders || []).length > 0 && (favorites || []).length > 0) {
+        const separator = document.createElement('div');
+        separator.className = 'bookmarks-dropdown-separator';
+        menuEl.appendChild(separator);
+      }
+      (favorites || []).forEach((record) => {
+        menuEl.appendChild(_createBookmarkMenuItem(record, true));
+      });
+
+      // 重新锚定子菜单：按 folderId 找到重建后的新文件夹项并重算位置
+      for (const submenu of openSubmenus) {
+        if (!submenu.parentNode) continue;
+        const anchorId = submenu._parentItem ? submenu._parentItem.dataset.folderId : null;
+        const newAnchor = anchorId !== null ? _findFolderItemInOpenMenus(anchorId) : null;
+        if (newAnchor) {
+          submenu._parentItem = newAnchor;
+          newAnchor._submenu = submenu;
+          const width = parseFloat(submenu.style.width) || submenu.offsetWidth;
+          const pos = _calculateSubmenuPosition(newAnchor, width);
+          submenu.style.left = pos.left + 'px';
+          submenu.style.top = pos.top + 'px';
+        } else {
+          // 锚点文件夹已不在此菜单中（被移走/删除）：级联关闭
+          _closeMenuAndDescendants(submenu);
+        }
+      }
+    } catch (err) {
+      console.error('[Realm Renderer] 刷新收藏栏菜单失败:', err);
+    }
+  }
+}
+
+/**
  * 菜单容器 dragstart：菜单项作为拖拽源（拖出/菜单内排序）
  * 溢出菜单（无 dataset.folderId）不参与
  * @param {DragEvent} e - 拖拽事件
@@ -709,7 +791,6 @@ function _buildMenuContent(subFolders, favorites, isSubmenu = false, folderId) {
       e.preventDefault();
       const drag = _getDragState();
       if (!drag) return;
-      drag.dropped = true;
       // 菜单空白处松手：移入该文件夹末尾（循环引用由 executeDrop 兜底）
       window.bookmarksBar.executeDrop(drag, { type: 'folder', id: folderId, position: 'on' });
     });
@@ -828,7 +909,6 @@ function _createBookmarkMenuItem(record, draggable = false) {
     const drag = _getDragState();
     if (!drag || drag.type !== 'bookmark') return;
     if (String(drag.id) === String(record.id)) return;
-    drag.dropped = true;
     const menuEl = item.closest('.bookmarks-dropdown, .bookmarks-submenu');
     const folderId = parseInt(menuEl.dataset.folderId, 10);
     window.bookmarksBar.executeDrop(drag, {
@@ -951,8 +1031,8 @@ function _createFolderMenuItem(folder, draggable = false) {
     }
 
     // 有效性（书签 id 与文件夹 id 分属两表，数值可能相同，判定必须按类型区分）：
-    // 移入需环检测；边缘排序的目标父级不能是拖拽源自身或位于其子树内；
-    // 书签已在目标文件夹中时移入无意义
+    // 文件夹移入需环检测，边缘排序的目标父级不能是拖拽源自身或位于其子树内；
+    // 书签移入任何文件夹项均有效（来源即目标 = 重排到末尾）
     const ownerFolderId = parseInt(menuEl.dataset.folderId, 10);
     let valid;
     if (drag.type === 'folder') {
@@ -965,7 +1045,7 @@ function _createFolderMenuItem(folder, draggable = false) {
           window.bookmarksBar.isDescendantFolder(drag.id, ownerFolderId));
       }
     } else {
-      valid = (drag.folderId || 0) !== folder.id;
+      valid = true;
     }
     if (!valid) {
       e.dataTransfer.dropEffect = 'none';
@@ -1035,18 +1115,14 @@ function _createFolderMenuItem(folder, draggable = false) {
     }
 
     if (position === 'on') {
-      // 已在该文件夹中：无意义
-      if ((drag.folderId || 0) === folder.id) return;
       if (drag.type === 'folder' &&
           (drag.id === folder.id || window.bookmarksBar.isDescendantFolder(drag.id, folder.id))) return;
-      drag.dropped = true;
       window.bookmarksBar.executeDrop(drag, { type: 'folder', id: folder.id, position: 'on' });
     } else {
       // 同父级内排序（跨父级移动由 executeDrop 处理）
       if (drag.id === folder.id) return;
       if (drag.id === ownerFolderId ||
           window.bookmarksBar.isDescendantFolder(drag.id, ownerFolderId)) return;
-      drag.dropped = true;
       window.bookmarksBar.executeDrop(drag, {
         type: 'folder',
         id: folder.id,
@@ -1173,4 +1249,5 @@ window.bookmarksBarMenu = {
   getPinnedDragMenuFolderId,
   closeTransientMenus,
   endDragPin,
+  refreshOpenMenus,
 };
