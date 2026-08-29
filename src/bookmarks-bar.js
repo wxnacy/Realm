@@ -895,5 +895,7 @@ window.bookmarksBar = {
   beginMenuDrag,
   /** 供菜单模块读取当前拖拽源（环检测/类型判断用） */
   getDragState: () => _dragState,
+  /** 供菜单模块悬浮切换溢出菜单时读取当前溢出项 */
+  getOverflowItems: () => overflowItems,
   isDescendantFolder,
 };

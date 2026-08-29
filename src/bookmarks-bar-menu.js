@@ -5,6 +5,7 @@
  * - 文件夹下拉菜单（显示子收藏项和子文件夹）
  * - 子菜单悬停展开（300ms 延迟，右侧弹出）
  * - 溢出菜单（» 按钮，显示溢出的收藏项）
+ * - 文件夹悬浮切换（Chrome 式：已有菜单打开时，悬浮其他文件夹/»按钮自动切换）
  * - 点击外部区域和 ESC 关闭菜单
  *
  * 使用方式：
@@ -56,6 +57,12 @@ const SUBMENU_OFFSET_Y = -4;
 /** 拖拽数据 MIME（与 bookmarks-bar.js 保持一致） */
 const BOOKMARK_DRAG_MIME_MENU = 'application/x-realm-bookmark';
 
+/** 悬浮切换下拉菜单的停留延迟（ms）：仅在一个菜单已打开时生效，防扫过中间项闪烁 */
+const BAR_MENU_SWITCH_DELAY = 150;
+
+/** 菜单命中区域外扩（px）：桥接菜单与收藏栏之间 4px 定位缝隙，防穿越误判 */
+const MENU_REGION_MARGIN = 8;
+
 // ==================== 状态 ====================
 
 /** 当前打开的菜单列表 */
@@ -75,6 +82,19 @@ let _pinnedDragMenuFolderId = null;
 
 /** 全屏遮罩层元素 */
 let _menuBackdrop = null;
+
+/** 悬浮切换定时器（仅已有菜单打开时启动） */
+let _barSwitchTimer = null;
+
+/** 悬浮切换待处理目标：{type:'folder', el, id} 或 {type:'overflow', el} */
+let _barSwitchPending = null;
+
+/** 悬浮跟踪 mousemove 的 rAF 节流 id */
+let _barHoverRafId = 0;
+
+/** rAF 节流期间最新指针位置（后续 move 更新，避免用到该帧首次事件坐标） */
+let _barHoverX = 0;
+let _barHoverY = 0;
 
 // ==================== 拖拽放置支持 ====================
 
@@ -339,6 +359,157 @@ function _onMenuDragStart(e) {
   window.bookmarksBar.beginMenuDrag({ type, id, folderId }, itemEl);
 }
 
+// ==================== 悬浮切换（Chrome 式） ====================
+
+// 菜单打开期间全屏遮罩（z-index 99990）盖住收藏栏（菜单 99999/子菜单 100000
+// 在遮罩之上），文件夹上的 mouseenter/mouseover 全部落在遮罩上收不到，
+// 悬浮切换只能用 document mousemove + 矩形命中分区实现。
+// 语义：悬浮只负责「中间切换」——一个菜单已打开时悬浮其他文件夹/»按钮
+// 自动切换；打开第一个和关闭最后一个仍靠点击/键盘，鼠标离开不自动关。
+
+/**
+ * 判断点是否位于矩形内（可四边外扩）
+ * @param {number} x
+ * @param {number} y
+ * @param {DOMRect} rect
+ * @param {number} [margin=0] - 外扩像素
+ * @returns {boolean}
+ */
+function _pointInRect(x, y, rect, margin = 0) {
+  return x >= rect.left - margin && x <= rect.right + margin &&
+    y >= rect.top - margin && y <= rect.bottom + margin;
+}
+
+/**
+ * 命中测试收藏栏上的悬浮切换目标
+ * @param {number} x
+ * @param {number} y
+ * @returns {{type:'folder', el: HTMLElement, id: string}|{type:'overflow', el: HTMLElement}|{type:'other'}|null}
+ *   null 表示收藏栏空白区
+ */
+function _findBarHitTarget(x, y) {
+  const list = document.getElementById('bookmarksBarList');
+  const children = list ? Array.from(list.children) : [];
+  for (const el of children) {
+    if (el.style.display === 'none') continue; // 溢出隐藏项不可命中
+    if (!_pointInRect(x, y, el.getBoundingClientRect())) continue;
+    if (el.dataset.type === 'folder') {
+      return { type: 'folder', el, id: el.dataset.folderId };
+    }
+    return { type: 'other' }; // 收藏项：不参与切换
+  }
+  const overflowBtn = document.getElementById('bookmarksOverflowBtn');
+  if (overflowBtn && _pointInRect(x, y, overflowBtn.getBoundingClientRect())) {
+    return { type: 'overflow', el: overflowBtn };
+  }
+  return null;
+}
+
+/**
+ * 取消待执行的悬浮切换
+ */
+function _cancelBarSwitchTimer() {
+  if (_barSwitchTimer) {
+    clearTimeout(_barSwitchTimer);
+    _barSwitchTimer = null;
+  }
+  _barSwitchPending = null;
+}
+
+/**
+ * 启动悬浮切换定时器
+ * 同一目标重复命中不重置定时器：mousemove 高频触发，重复 schedule 会把
+ * 延迟永远重置导致永不切换；换目标才重置
+ * @param {{type:'folder', el: HTMLElement, id: string}|{type:'overflow', el: HTMLElement}} target
+ */
+function _scheduleBarSwitch(target) {
+  if (_barSwitchPending &&
+      _barSwitchPending.type === target.type &&
+      (target.type !== 'folder' || String(_barSwitchPending.id) === String(target.id))) {
+    return;
+  }
+  _cancelBarSwitchTimer();
+  _barSwitchPending = target;
+  _barSwitchTimer = setTimeout(() => {
+    _barSwitchTimer = null;
+    const pending = _barSwitchPending;
+    _barSwitchPending = null;
+    if (!pending || _activeMenus.length === 0) return;
+    // 等待期间又起了拖拽（如菜单来源拖拽）：不切换
+    if (window.bookmarksBar && window.bookmarksBar.getDragState &&
+        window.bookmarksBar.getDragState()) return;
+    if (pending.type === 'folder') {
+      showFolderMenu(pending.el, pending.id, { forHover: true });
+    } else if (window.bookmarksBar && window.bookmarksBar.getOverflowItems) {
+      const items = window.bookmarksBar.getOverflowItems();
+      const btn = pending.el || document.getElementById('bookmarksOverflowBtn');
+      if (items.length > 0 && btn) showOverflowMenu(btn, items);
+    }
+  }, BAR_MENU_SWITCH_DELAY);
+}
+
+/**
+ * 处理悬浮跟踪命中分区（rAF 节流后调用）
+ * 分区优先级：打开菜单（外扩桥接缝隙）→ 收藏栏（文件夹/»按钮/其他）→ 区域外
+ * @param {number} x
+ * @param {number} y
+ */
+function _handleBarHoverTracking(x, y) {
+  for (const menu of _activeMenus) {
+    if (menu.parentNode &&
+        _pointInRect(x, y, menu.getBoundingClientRect(), MENU_REGION_MARGIN)) {
+      _cancelBarSwitchTimer();
+      return;
+    }
+  }
+
+  const bar = document.getElementById('bookmarksBar');
+  if (!bar || !_pointInRect(x, y, bar.getBoundingClientRect())) {
+    // 离开收藏栏与菜单区域：只取消待切换，不关闭菜单（关闭归点击/键盘）
+    _cancelBarSwitchTimer();
+    return;
+  }
+
+  const hit = _findBarHitTarget(x, y);
+  if (hit && hit.type === 'folder') {
+    if (_currentDropdownFolderId === String(hit.id)) {
+      _cancelBarSwitchTimer(); // 已打开的就是它
+    } else {
+      _scheduleBarSwitch(hit);
+    }
+  } else if (hit && hit.type === 'overflow') {
+    const overflowOpen = _activeMenus.length > 0 && _currentDropdownFolderId === null;
+    if (overflowOpen) {
+      _cancelBarSwitchTimer();
+    } else {
+      _scheduleBarSwitch(hit);
+    }
+  } else {
+    _cancelBarSwitchTimer(); // 书签项/空白区
+  }
+}
+
+/**
+ * document mousemove：悬浮切换入口（rAF 节流，无打开菜单时零开销早退）
+ * @param {MouseEvent} e
+ */
+function _onBarHoverMouseMove(e) {
+  if (_activeMenus.length === 0) return;
+  // 拖拽期间 mousemove 本就停发（HTML5 DnD），此守卫兜底拖拽状态残留
+  if (window.bookmarksBar && window.bookmarksBar.getDragState &&
+      window.bookmarksBar.getDragState()) return;
+  _barHoverX = e.clientX;
+  _barHoverY = e.clientY;
+  if (_barHoverRafId) return;
+  _barHoverRafId = requestAnimationFrame(() => {
+    _barHoverRafId = 0;
+    if (_activeMenus.length === 0) return;
+    _handleBarHoverTracking(_barHoverX, _barHoverY);
+  });
+}
+
+document.addEventListener('mousemove', _onBarHoverMouseMove);
+
 // ==================== 菜单容器管理 ====================
 
 /**
@@ -348,6 +519,9 @@ function closeAllMenus() {
   // 清除所有悬停定时器
   _hoverTimers.forEach((timer) => clearTimeout(timer));
   _hoverTimers.clear();
+
+  // 清除悬浮切换定时器
+  _cancelBarSwitchTimer();
 
   // 移除所有活动菜单 DOM，并清理 _submenu 引用
   _activeMenus.forEach((menu) => {
@@ -390,7 +564,23 @@ function _createBackdrop() {
   backdrop.addEventListener('mousedown', (e) => {
     e.preventDefault();
     e.stopPropagation();
+    // 点击落点命中收藏栏文件夹/»按钮时直接切换到对应菜单（Chrome 式，
+    // 省掉先关再开的第二次点击）；命中的就是当前打开者则维持 toggle 只关
+    const hit = _findBarHitTarget(e.clientX, e.clientY);
+    const hitIsCurrent = !!hit && (
+      (hit.type === 'folder' && _currentDropdownFolderId === String(hit.id)) ||
+      (hit.type === 'overflow' && _currentDropdownFolderId === null && _activeMenus.length > 0)
+    );
     closeAllMenus();
+    if (hit && !hitIsCurrent) {
+      if (hit.type === 'folder') {
+        showFolderMenu(hit.el, hit.id);
+      } else if (hit.type === 'overflow' &&
+          window.bookmarksBar && window.bookmarksBar.getOverflowItems) {
+        const items = window.bookmarksBar.getOverflowItems();
+        if (items.length > 0) showOverflowMenu(hit.el, items);
+      }
+    }
   });
   document.body.appendChild(backdrop);
   _menuBackdrop = backdrop;
@@ -591,10 +781,14 @@ function _closeSiblingSubmenus(currentItem) {
  * @param {boolean} [options.forDrag=false] - 拖拽模式：
  *   由拖拽悬停定时器触发。跳过遮罩层（遮罩会挡住收藏栏的 dragover，
  *   导致拖拽期间无法从菜单移回收藏栏），且已打开时不重复创建
+ * @param {boolean} [options.forHover=false] - 悬浮切换模式：
+ *   由悬浮切换定时器触发（仅已有菜单打开时）。目标菜单已打开则不动作
+ *   （toggle 关闭仅归点击触发），其余与点击模式一致
  */
 async function showFolderMenu(folderEl, folderId, options = {}) {
   const folderIdStr = String(folderId);
   const forDrag = !!(options && options.forDrag);
+  const forHover = !!(options && options.forHover);
 
   // 触发元素已被移除（如拖拽 drop 后收藏栏重载）：放弃打开
   if (!folderEl.isConnected) return;
@@ -602,6 +796,11 @@ async function showFolderMenu(folderEl, folderId, options = {}) {
   // 拖拽模式：该文件夹菜单已打开（临时或固定源菜单）则不重复创建
   if (forDrag && _activeMenus.length > 0 &&
       (_currentDropdownFolderId === folderIdStr || _pinnedDragMenuFolderId === folderIdStr)) {
+    return;
+  }
+
+  // 悬浮切换模式：目标菜单已打开则不动作
+  if (forHover && _currentDropdownFolderId === folderIdStr) {
     return;
   }
 

@@ -268,6 +268,16 @@ renderContainerList();  // 必跟
 - **菜单来源拖拽放置后菜单保持展开并实时刷新**：`executeDrop` 末尾对 `drag.fromMenu` 调 `bookmarksBarMenu.refreshOpenMenus()`（按最新数据对每个打开菜单原地重建内容、按 folderId 重新锚定打开着的子菜单，无闪烁）；`_onBarDragEnd` 对 fromMenu 一律 `endDragPin()` 保持展开，**不要 closeAllMenus**（会退回「操作后菜单消失需重开」）。栏内来源拖拽维持 dragend 关菜单
 - 书签 id 与文件夹 id 分属两表**数值可能相同**：drag.id 与 folder.id 的同体判定必须先分类型再比较，否则书签拖到同数值 id 的文件夹会被误判为拖到自身
 
+### 收藏栏菜单悬浮切换（Chrome 式）
+
+一个菜单已打开时，悬浮其他文件夹/»按钮自动收旧开新（`bookmarks-bar-menu.js` 悬浮切换区块）：
+
+- **为什么不能用 mouseenter/mouseover**：菜单打开时全屏遮罩（z-index 99990）盖住收藏栏（菜单 99999/子菜单 100000 在遮罩之上），文件夹上的 hover 事件全部落在遮罩上收不到。悬浮切换只能用 document `mousemove` + 矩形命中分区实现（`_findBarHitTarget`，rAF 节流，仅 `_activeMenus` 非空时生效，`getDragState()` 非空早退）
+- **语义边界**：悬浮只负责「中间切换」，打开第一个和关闭最后一个仍靠点击/键盘（点外部、Esc、再点同文件夹 toggle），鼠标离开收藏栏+菜单区域**不**自动关。切换停留 `BAR_MENU_SWITCH_DELAY`（150ms）防扫过中间项闪烁
+- **同一目标重复命中不重置定时器**：mousemove 高频触发，重复 schedule 会把延迟永远重置导致永不切换；换目标才重置，落点进菜单/书签项/空白/栏外一律取消（`_cancelBarSwitchTimer`）
+- **遮罩 mousedown 命中增强**：点击落点在收藏栏文件夹/»按钮矩形上时直接切换（省掉先关再开的第二次点击）；命中的是当前打开者则维持 toggle 只关不重开。溢出项数据经 `window.bookmarksBar.getOverflowItems()` 读取
+- 定时器纪律（三套互不复用）：点击子菜单展开 `_hoverTimers`、拖拽展开 `_dragOpenTimer`（栏）/`item._dragOpenTimer`（菜单项）、悬浮切换 `_barSwitchTimer`
+
 ## 多窗口支持
 
 ### 窗口管理架构
