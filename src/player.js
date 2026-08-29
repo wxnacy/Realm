@@ -26,6 +26,8 @@ const state = {
   isDragging: false,
   /** @type {boolean} 控制栏是否应该隐藏 */
   controlsHidden: false,
+  /** @type {boolean} 当前流是否为直播（HLS LEVEL_LOADED 更新，直播刷新不恢复进度） */
+  isLive: false,
 };
 
 /**
@@ -79,6 +81,7 @@ const btnFullscreen = document.getElementById('btn-fullscreen');
 const iconFullscreenEnter = document.getElementById('icon-fullscreen-enter');
 const iconFullscreenExit = document.getElementById('icon-fullscreen-exit');
 const btnCopyUrl = document.getElementById('btn-copy-url');
+const btnRefresh = document.getElementById('btn-refresh');
 const errorHint = document.getElementById('error-hint');
 const errorText = document.getElementById('error-text');
 const btnClose = document.getElementById('btn-close');
@@ -129,6 +132,8 @@ async function initPlayer(url) {
 
   const format = detectFormat(url);
   state.currentUrl = url;
+  // 直播属性随新加载的流重新判定，旧值不能带到下一次播放
+  state.isLive = false;
 
   // 更新窗口标题为 {容器名} - {文件名}（肉眼可验证 D-22 容器隔离）
   const fileName = decodeURIComponent(url.split('/').pop().split('?')[0]);
@@ -156,6 +161,11 @@ async function initPlayer(url) {
               console.error('[Realm Player] hls.js 致命错误:', data);
               showError('HLS 播放失败');
             }
+          });
+          // 记录直播/点播属性：默认配置（liveDurationInfinity:false）下直播流的
+          // video.duration 可能是持续增长的有限值，不能只靠 isFinite 判断
+          hls.on(Hls.Events.LEVEL_LOADED, (event, data) => {
+            state.isLive = data.details.live;
           });
           currentEngine = { engine: hls, destroy: () => hls.destroy() };
         } else {
@@ -607,6 +617,25 @@ btnCopyUrl.addEventListener('click', async () => {
     console.error('[Realm Player] 复制 URL 失败:', e);
   }
 });
+
+// ==================== 刷新当前流 ====================
+
+/**
+ * 刷新当前播放地址：按原 URL 重新走一遍 initPlayer 加载管线（销毁旧引擎重建）。
+ * 点播（有限时长）恢复到刷新前的播放位置；直播流不恢复进度，回到直播边缘。
+ */
+function refreshCurrent() {
+  if (!state.currentUrl) return;
+  const resumeTime = (!state.isLive && isFinite(video.duration)) ? video.currentTime : 0;
+  initPlayer(state.currentUrl);
+  if (resumeTime > 0) {
+    video.addEventListener('loadedmetadata', () => {
+      video.currentTime = resumeTime;
+    }, { once: true });
+  }
+}
+
+btnRefresh.addEventListener('click', refreshCurrent);
 
 // ==================== 双击全屏（D-13） ====================
 
