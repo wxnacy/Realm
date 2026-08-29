@@ -272,7 +272,10 @@ renderContainerList();  // 必跟
 
 一个菜单已打开时，悬浮其他文件夹/»按钮自动收旧开新（`bookmarks-bar-menu.js` 悬浮切换区块）：
 
+- **收藏栏样式改错文件等于白改**：index.html 只引用 `main.css?v=2`，`src/styles/bookmarks-bar.css` 当前**未被任何页面加载**（内容是拆分出去的死副本）。收藏栏的运行时样式全部在 `main.css` 的收藏栏段（搜 `.bookmark-item,` / `.bookmarks-dropdown`），改完记得同步死副本防以后误判
 - **为什么不能用 mouseenter/mouseover**：菜单打开时全屏遮罩（z-index 99990）盖住收藏栏（菜单 99999/子菜单 100000 在遮罩之上），文件夹上的 hover 事件全部落在遮罩上收不到。悬浮切换只能用 document `mousemove` + 矩形命中分区实现（`_findBarHitTarget`，rAF 节流，仅 `_activeMenus` 非空时生效，`getDragState()` 非空早退）
+- **遮罩同样拦掉原生 `:hover`**：菜单打开期间收藏栏项失去 CSS 悬浮反馈，由命中跟踪手动维护 `bar-hover` 类补齐（`_setSyntheticBarHover`，菜单关闭/拖拽开始时清除）
+- **选中高亮（menu-open）**：菜单打开期间触发项（文件夹/»按钮）加 `menu-open` 类保持高亮，随悬浮切换移动；drop 后收藏栏广播重载会重建文件夹元素，`refreshOpenMenus` 末尾检测锚点失效按顶层菜单 folderId 重挂。**测试必须断言 getComputedStyle 而非类名**——类名在但规则没加载/没匹配时计算样式仍是透明，类名断言检不出这种失效
 - **语义边界**：悬浮只负责「中间切换」，打开第一个和关闭最后一个仍靠点击/键盘（点外部、Esc、再点同文件夹 toggle），鼠标离开收藏栏+菜单区域**不**自动关。切换停留 `BAR_MENU_SWITCH_DELAY`（150ms）防扫过中间项闪烁
 - **同一目标重复命中不重置定时器**：mousemove 高频触发，重复 schedule 会把延迟永远重置导致永不切换；换目标才重置，落点进菜单/书签项/空白/栏外一律取消（`_cancelBarSwitchTimer`）
 - **遮罩 mousedown 命中增强**：点击落点在收藏栏文件夹/»按钮矩形上时直接切换（省掉先关再开的第二次点击）；命中的是当前打开者则维持 toggle 只关不重开。溢出项数据经 `window.bookmarksBar.getOverflowItems()` 读取

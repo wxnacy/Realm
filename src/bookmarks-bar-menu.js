@@ -99,6 +99,9 @@ let _barHoverY = 0;
 /** 菜单打开态高亮的触发项元素（收藏栏文件夹或 » 按钮），无则为 null */
 let _menuOpenTriggerEl = null;
 
+/** 合成悬浮高亮元素（菜单打开期间遮罩拦截原生 :hover，由命中跟踪维护） */
+let _syntheticHoverEl = null;
+
 // ==================== 拖拽放置支持 ====================
 
 // HTML5 拖拽期间 mouse 事件（mouseenter/mouseleave）停发，
@@ -371,6 +374,8 @@ function _onMenuDragStart(e) {
   // 会挡住收藏栏的 dragover/drop，导致拖到收藏栏无法放置。
   // 拖拽期间没有点击场景，遮罩无用；取消拖拽保持菜单展开时由 endDragPin 补回
   _removeBackdrop();
+  // 拖拽期间 mousemove 停发，合成悬浮高亮无法维护，清掉避免残留
+  _setSyntheticBarHover(null);
 
   // 标记源菜单链固定：拖出期间保持展开（Chrome 式）
   _pinMenuChainForDrag(itemEl);
@@ -403,7 +408,7 @@ function _pointInRect(x, y, rect, margin = 0) {
  * 命中测试收藏栏上的悬浮切换目标
  * @param {number} x
  * @param {number} y
- * @returns {{type:'folder', el: HTMLElement, id: string}|{type:'overflow', el: HTMLElement}|{type:'other'}|null}
+ * @returns {{type:'folder', el: HTMLElement, id: string}|{type:'overflow', el: HTMLElement}|{type:'other', el: HTMLElement}|null}
  *   null 表示收藏栏空白区
  */
 function _findBarHitTarget(x, y) {
@@ -415,7 +420,7 @@ function _findBarHitTarget(x, y) {
     if (el.dataset.type === 'folder') {
       return { type: 'folder', el, id: el.dataset.folderId };
     }
-    return { type: 'other' }; // 收藏项：不参与切换
+    return { type: 'other', el }; // 收藏项：不参与切换，但合成悬浮高亮
   }
   const overflowBtn = document.getElementById('bookmarksOverflowBtn');
   if (overflowBtn && _pointInRect(x, y, overflowBtn.getBoundingClientRect())) {
@@ -478,6 +483,7 @@ function _handleBarHoverTracking(x, y) {
     if (menu.parentNode &&
         _pointInRect(x, y, menu.getBoundingClientRect(), MENU_REGION_MARGIN)) {
       _cancelBarSwitchTimer();
+      _setSyntheticBarHover(null);
       return;
     }
   }
@@ -486,17 +492,20 @@ function _handleBarHoverTracking(x, y) {
   if (!bar || !_pointInRect(x, y, bar.getBoundingClientRect())) {
     // 离开收藏栏与菜单区域：只取消待切换，不关闭菜单（关闭归点击/键盘）
     _cancelBarSwitchTimer();
+    _setSyntheticBarHover(null);
     return;
   }
 
   const hit = _findBarHitTarget(x, y);
   if (hit && hit.type === 'folder') {
+    _setSyntheticBarHover(hit.el);
     if (_currentDropdownFolderId === String(hit.id)) {
       _cancelBarSwitchTimer(); // 已打开的就是它
     } else {
       _scheduleBarSwitch(hit);
     }
   } else if (hit && hit.type === 'overflow') {
+    _setSyntheticBarHover(hit.el);
     const overflowOpen = _activeMenus.length > 0 && _currentDropdownFolderId === null;
     if (overflowOpen) {
       _cancelBarSwitchTimer();
@@ -504,7 +513,9 @@ function _handleBarHoverTracking(x, y) {
       _scheduleBarSwitch(hit);
     }
   } else {
-    _cancelBarSwitchTimer(); // 书签项/空白区
+    // 书签项合成悬浮高亮；空白区清除
+    _setSyntheticBarHover(hit && hit.el ? hit.el : null);
+    _cancelBarSwitchTimer();
   }
 }
 
@@ -555,6 +566,23 @@ function _clearMenuOpenTriggerHighlight() {
 }
 
 /**
+ * 维护合成悬浮高亮（仅菜单打开期间生效）
+ * 全屏遮罩盖住收藏栏后 CSS :hover 落在遮罩上，收藏栏项失去悬浮反馈，
+ * 由 mousemove 命中跟踪结果手动加/去 bar-hover 类补齐（Chrome 式）
+ * @param {HTMLElement|null} el - 当前悬浮的收藏栏项，null 表示清除
+ */
+function _setSyntheticBarHover(el) {
+  if (_syntheticHoverEl === el) return;
+  if (_syntheticHoverEl) {
+    _syntheticHoverEl.classList.remove('bar-hover');
+  }
+  _syntheticHoverEl = el || null;
+  if (_syntheticHoverEl) {
+    _syntheticHoverEl.classList.add('bar-hover');
+  }
+}
+
+/**
  * 关闭所有活动菜单
  */
 function closeAllMenus() {
@@ -565,8 +593,9 @@ function closeAllMenus() {
   // 清除悬浮切换定时器
   _cancelBarSwitchTimer();
 
-  // 清除菜单打开态高亮
+  // 清除菜单打开态高亮与合成悬浮高亮
   _clearMenuOpenTriggerHighlight();
+  _setSyntheticBarHover(null);
 
   // 移除所有活动菜单 DOM，并清理 _submenu 引用
   _activeMenus.forEach((menu) => {
