@@ -807,6 +807,7 @@ const SHORTCUT_NAMES = {
   'toggleSidebar': '切换容器侧边栏',
   'focusPage': '聚焦页面',
   'setDefaultBrowser': '设为默认浏览器',
+  'quickSaveCookies': '快速保存 Cookie',
 };
 
 /**
@@ -817,7 +818,7 @@ const SHORTCUT_GROUPS = {
   '导航操作': ['reload', 'back', 'forward'],
   '收藏': ['bookmark', 'openFavorites'],
   '浏览': ['openHistory'],
-  '其他': ['openSettings', 'toggleSidebar', 'focusPage', 'setDefaultBrowser'],
+  '其他': ['openSettings', 'toggleSidebar', 'focusPage', 'setDefaultBrowser', 'quickSaveCookies'],
 };
 
 /**

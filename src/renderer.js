@@ -1995,6 +1995,9 @@ function initShortcuts() {
         setDefaultBrowser();
         break;
       }
+      case 'quickSaveCookies':
+        handleQuickSaveCookies();
+        break;
       case 'escape':
         // Escape 键：关闭 Vim 帮助对话框（如果打开）
         if (state.vimHelpOpen) {

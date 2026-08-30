@@ -97,6 +97,7 @@ const DEFAULT_SHORTCUTS = {
   'focusUrl': 'CmdOrCtrl+L',
   'focusPage': 'CmdOrCtrl+;',
   'setDefaultBrowser': 'CmdOrCtrl+Shift+D',
+  'quickSaveCookies': 'CmdOrCtrl+Shift+S',
 };
 
 // ==================== 读写函数 ====================
