@@ -805,6 +805,8 @@ async function switchTab(tabId) {
   if (tab.element) {
     tab.element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
   }
+  // 刷新滚动按钮显隐（切换后溢出状态可能变化，如滚回最左后左按钮应隐藏）
+  updateTabScrollState();
 
   // 切换 Tab 时刷新媒体列表（按 webview 级别隔离）
   loadMediaList();
@@ -872,6 +874,9 @@ async function closeTab(tabId) {
 
   // 从 state 删除
   state.tabs.delete(tabId);
+
+  // 刷新滚动按钮显隐：关闭后内容缩短可能消除溢出，此时无 scroll 事件需要显式刷新
+  updateTabScrollState();
 
   // 关闭 Tab 时清空该 tab 对应 webview 的媒体列表（per D-16）
   const tabWebview = state.webviews.get(tabId);
@@ -3523,6 +3528,121 @@ function handleContextMenuAction(channel, data) {
   }
 }
 
+// ==================== 标签栏溢出滚动（Firefox 风格） ====================
+
+/**
+ * 更新标签栏左右滚动按钮的显隐状态
+ * 左按钮：有溢出且未滚到最左；右按钮：有溢出且未滚到最右；无溢出时都隐藏
+ */
+function updateTabScrollState() {
+  const tabList = elements.tabList;
+  if (!tabList || !elements.tabScrollLeft || !elements.tabScrollRight) return;
+  const maxScroll = tabList.scrollWidth - tabList.clientWidth;
+  const hasOverflow = maxScroll > 1; // 1px 容差，避免亚像素溢出误判
+  elements.tabScrollLeft.classList.toggle('visible', hasOverflow && tabList.scrollLeft > 1);
+  elements.tabScrollRight.classList.toggle('visible', hasOverflow && tabList.scrollLeft < maxScroll - 1);
+}
+
+/**
+ * 将当前活动标签滚动到标签栏可视区域
+ * 手动计算目标 scrollLeft 而非 scrollIntoView：避免影响页面级滚动，且可精确控制平滑/立即时机
+ * @param {string} behavior - 滚动行为：'auto' 立即定位 / 'smooth' 平滑滚动
+ */
+function scrollActiveTabIntoView(behavior = 'auto') {
+  const tabList = elements.tabList;
+  if (!tabList) return;
+  const activeEl = tabList.querySelector('.tab.active');
+  if (!activeEl) return;
+
+  const maxScroll = tabList.scrollWidth - tabList.clientWidth;
+  if (maxScroll <= 0) return;
+
+  // 用 getBoundingClientRect 计算标签相对滚动内容的偏移（offsetLeft 会受 offsetParent 影响）
+  const listRect = tabList.getBoundingClientRect();
+  const tabRect = activeEl.getBoundingClientRect();
+  const left = tabRect.left - listRect.left + tabList.scrollLeft;
+  const right = left + tabRect.width;
+  const viewLeft = tabList.scrollLeft;
+  const viewRight = viewLeft + tabList.clientWidth;
+
+  let target;
+  if (left < viewLeft) {
+    target = left; // 活动标签在视口左侧之外
+  } else if (right > viewRight) {
+    target = right - tabList.clientWidth; // 活动标签在视口右侧之外
+  } else {
+    return; // 已完全可见
+  }
+  target = Math.max(0, Math.min(target, maxScroll));
+  tabList.scrollTo({ left: target, behavior });
+}
+
+/**
+ * 绑定标签栏滚动按钮的长按连续滚动
+ * mousedown 立即滚一步，按住 350ms 后进入连续步进；松开/移出/滚到边缘停止，移回恢复
+ * @param {HTMLButtonElement} btn - 滚动按钮元素
+ * @param {number} direction - 滚动方向：-1 向左 / 1 向右
+ */
+function bindTabScrollButton(btn, direction) {
+  if (!btn) return;
+  let pressTimer = null;
+  let scrollTimer = null;
+  let pressing = false;
+
+  /** 清理全部定时器 */
+  const stopTimers = () => {
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+    if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
+  };
+
+  /** 该方向是否还有可滚动余量（到边缘自动停） */
+  const canScroll = () => {
+    const tabList = elements.tabList;
+    const maxScroll = tabList.scrollWidth - tabList.clientWidth;
+    return direction < 0 ? tabList.scrollLeft > 1 : tabList.scrollLeft < maxScroll - 1;
+  };
+
+  /** 启动连续滚动步进 */
+  const startRepeat = () => {
+    stopTimers();
+    if (!canScroll()) return;
+    scrollTimer = setInterval(() => {
+      if (!canScroll()) { stopTimers(); return; }
+      elements.tabList.scrollBy({ left: direction * 120, behavior: 'auto' });
+    }, 80);
+  };
+
+  btn.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault(); // 阻止按住拖动触发文本选中/焦点迁移
+    pressing = true;
+    elements.tabList.scrollBy({ left: direction * 200, behavior: 'smooth' });
+    pressTimer = setTimeout(startRepeat, 350);
+  });
+
+  // 移出按钮暂停连续滚动，按住状态保留，移回后恢复
+  btn.addEventListener('mouseleave', () => {
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+    if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
+  });
+
+  btn.addEventListener('mouseenter', () => {
+    if (pressing && !scrollTimer && !pressTimer) startRepeat();
+  });
+
+  // mouseup 绑在 window：指针移出按钮后松开也能收到
+  window.addEventListener('mouseup', () => {
+    pressing = false;
+    stopTimers();
+  });
+
+  // 窗口失焦兜底清理，避免定时器在后台持续滚动
+  window.addEventListener('blur', () => {
+    pressing = false;
+    stopTimers();
+  });
+}
+
 /**
  * 重新渲染整个 Tab 栏
  * 用于固定/取消固定标签页后更新排序和样式
@@ -3530,6 +3650,8 @@ function handleContextMenuAction(channel, data) {
  */
 function renderTabs() {
   const tabList = elements.tabList;
+  // 全量重建会清空 innerHTML 使 scrollLeft 归零，先捕获后恢复
+  const prevScrollLeft = tabList.scrollLeft;
   tabList.innerHTML = '';
 
   // 将 Tabs 分为固定和未固定两组，固定在前
@@ -3560,6 +3682,11 @@ function renderTabs() {
     tabElement.setAttribute('aria-selected', tabId === state.activeTabId ? 'true' : 'false');
     tabList.appendChild(tabElement);
   });
+
+  // 恢复滚动位置；pin/unpin 重排可能使活动标签移出视口，立即定位回可见区
+  tabList.scrollLeft = prevScrollLeft;
+  updateTabScrollState();
+  scrollActiveTabIntoView('auto');
 }
 
 /**
@@ -5647,14 +5774,34 @@ function setupEventListeners() {
     }
   });
 
-  // Tab 滚动按钮
-  elements.tabScrollLeft.addEventListener('click', () => {
-    elements.tabList.scrollBy({ left: -200, behavior: 'smooth' });
+  // Tab 滚动按钮：单击滚一步，长按连续滚动
+  bindTabScrollButton(elements.tabScrollLeft, -1);
+  bindTabScrollButton(elements.tabScrollRight, 1);
+
+  // 标签栏滚动时刷新按钮显隐（rAF 节流，滚动事件高频触发）
+  let tabScrollRafId = null;
+  elements.tabList.addEventListener('scroll', () => {
+    if (tabScrollRafId !== null) return;
+    tabScrollRafId = requestAnimationFrame(() => {
+      tabScrollRafId = null;
+      updateTabScrollState();
+    });
   });
 
-  elements.tabScrollRight.addEventListener('click', () => {
-    elements.tabList.scrollBy({ left: 200, behavior: 'smooth' });
-  });
+  // 标签栏宽度变化（窗口缩放、侧边栏开合等）时刷新按钮显隐，
+  // 并保证活动标签始终可见（Firefox 行为：缩窄窗口时活动标签自动滚回视口）
+  if (typeof ResizeObserver !== 'undefined') {
+    const tabListRO = new ResizeObserver(() => {
+      updateTabScrollState();
+      scrollActiveTabIntoView('auto');
+    });
+    tabListRO.observe(elements.tabList);
+  } else {
+    window.addEventListener('resize', () => {
+      updateTabScrollState();
+      scrollActiveTabIntoView('auto');
+    });
+  }
 
   // 导航按钮事件
   // 后退按钮

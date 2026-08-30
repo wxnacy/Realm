@@ -1546,6 +1546,11 @@ textarea::placeholder {
   opacity: 1;
 }
 
+/* 隐形状态禁用交互，避免误触不可见按钮产生意外滚动 */
+.tab-scroll-btn:not(.visible) {
+  pointer-events: none;
+}
+
 .tab-new-btn {
   width: 28px;
   height: 28px;
