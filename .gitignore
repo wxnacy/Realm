@@ -33,7 +33,9 @@ Thumbs.db
 # Electron-Store 数据
 realm-config.json
 
+# AI
 .claude/
+.zcode/
 .wzsh/
 CLAUDE.md
 CODEBUDDY.md
