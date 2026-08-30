@@ -1521,6 +1521,12 @@ textarea::placeholder {
   -webkit-app-region: drag;
 }
 
+/* 标签溢出时收起保留区：标签铺满整个标签栏（Firefox 行为），
+   右侧滚动按钮紧贴最后一个标签。显隐由 renderer 的 updateTabOverflowLayout 切换 */
+.tab-bar.tab-overflow .tab-drag-spacer {
+  display: none;
+}
+
 .tab-list::-webkit-scrollbar {
   display: none;
 }

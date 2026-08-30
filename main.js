@@ -2405,6 +2405,17 @@ app.whenReady().then(async () => {
   });
 
   /**
+   * 标签栏空白区右键菜单请求
+   * 渲染进程 Tab 栏空白处（非标签项）右键时发送，主进程构建并弹出原生菜单
+   */
+  ipcMain.on('show-tab-bar-context-menu', (event) => {
+    const mainWindow = BrowserWindow.fromWebContents(event.sender);
+    if (mainWindow) {
+      contextMenuManager.buildTabBarMenu(mainWindow);
+    }
+  });
+
+  /**
    * 网页右键菜单请求
    * 渲染进程 webview context-menu 事件时发送，主进程注入容器列表和 guestContentsId
    * @param {Object} contextInfo - 上下文 { type, linkURL, srcURL, mediaType, selectionText, ... }

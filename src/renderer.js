@@ -3420,6 +3420,11 @@ function handleContextMenuAction(channel, data) {
       break;
     }
 
+    case 'context-menu:new-tab':
+      // 标签栏空白区菜单：新建标签页
+      createTab(state.currentContainer);
+      break;
+
     case 'context-menu:toggle-pin': {
       if (!data || !data.tabId) break;
       const tab = state.tabs.get(data.tabId);
@@ -3541,6 +3546,31 @@ function updateTabScrollState() {
   const hasOverflow = maxScroll > 1; // 1px 容差，避免亚像素溢出误判
   elements.tabScrollLeft.classList.toggle('visible', hasOverflow && tabList.scrollLeft > 1);
   elements.tabScrollRight.classList.toggle('visible', hasOverflow && tabList.scrollLeft < maxScroll - 1);
+  updateTabOverflowLayout();
+}
+
+/**
+ * 根据标签内容宽度切换标签栏溢出布局（tabBar 上的 tab-overflow 类）
+ * 溢出时收起窗口拖拽保留区（.tab-drag-spacer），让标签铺满整个标签栏（Firefox 行为）。
+ * 判定必须与当前是否已收起解耦（用 tab-bar 内宽减按钮区/保留区声明宽，而非 tab-list 当前宽）：
+ * 否则收起会让 tab-list 变宽、浅溢出（≤保留区宽）时陷入「收起→放得下→展开→又溢出」的振荡
+ */
+function updateTabOverflowLayout() {
+  const tabBar = elements.tabBar;
+  const tabList = elements.tabList;
+  if (!tabBar || !tabList) return;
+  const spacer = tabBar.querySelector('.tab-drag-spacer');
+  const spacerBasis = spacer ? (parseFloat(getComputedStyle(spacer).flexBasis) || 0) : 0;
+  // 展开态固定开销 = 保留区声明宽 + 其余子元素（滚动按钮×2/新建按钮）+ tab-bar 内边距
+  const tabBarStyle = getComputedStyle(tabBar);
+  let chromeWidth = spacerBasis
+    + parseFloat(tabBarStyle.paddingLeft) + parseFloat(tabBarStyle.paddingRight);
+  for (const el of tabBar.children) {
+    if (el !== tabList && el !== spacer) chromeWidth += el.offsetWidth;
+  }
+  const expandedAvail = tabBar.clientWidth - chromeWidth;
+  const contentWidth = Array.from(tabList.children).reduce((w, el) => w + el.offsetWidth, 0);
+  tabBar.classList.toggle('tab-overflow', contentWidth > expandedAvail + 1);
 }
 
 /**
@@ -5761,6 +5791,16 @@ function setupEventListeners() {
       isPinned: !!tab.pinned,
       hasClosedTabs: closedTabsStack.length > 0,
     });
+  });
+
+  // Tab 栏空白区右键菜单（tab-list 空白、拖拽保留区、滚动按钮/新建按钮等非标签区域）
+  elements.tabBar.addEventListener('contextmenu', (e) => {
+    // 拖拽过程中禁用右键菜单
+    if (state.isDragging) { e.preventDefault(); return; }
+    // 标签项由上方 tabList 委托处理，此处跳过避免同一事件弹两种菜单
+    if (e.target.closest('.tab')) return;
+    e.preventDefault();
+    window.realmAPI.showTabBarContextMenu();
   });
 
   // 新标签页搜索框

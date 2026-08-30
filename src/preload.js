@@ -613,6 +613,12 @@ contextBridge.exposeInMainWorld('realmAPI', {
   showTabContextMenu: (tabInfo) => ipcRenderer.send('show-tab-context-menu', tabInfo),
 
   /**
+   * 发送标签栏空白区右键菜单请求
+   * 渲染进程 Tab 栏空白处（非标签项）右键时调用，主进程构建标签栏菜单（新建标签页等）
+   */
+  showTabBarContextMenu: () => ipcRenderer.send('show-tab-bar-context-menu'),
+
+  /**
    * 发送网页右键菜单请求
    * 渲染进程检测到 webview 内右键点击后调用，主进程根据元素类型构建对应菜单
    * @param {Object} contextInfo - 网页右键上下文信息

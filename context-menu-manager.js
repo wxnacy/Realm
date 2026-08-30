@@ -472,6 +472,50 @@ function buildTabMenu(tabInfo, mainWindow) {
   return menu;
 }
 
+/**
+ * 构建标签栏空白区右键菜单
+ *
+ * 右键点击标签栏空白处（tab-list 空白、拖拽保留区、滚动按钮区）时弹出，
+ * 与 buildTabMenu（右键标签项）区分：
+ * 1. 新建标签页
+ * 2. 重新打开已关闭标签页（hasClosedTabs() 时启用，复用标签页菜单的恢复逻辑）
+ *
+ * @param {Electron.BrowserWindow} mainWindow - 主窗口
+ * @returns {Electron.Menu} 构建好的菜单对象
+ */
+function buildTabBarMenu(mainWindow) {
+  if (!mainWindow) return null;
+  const hostWebContents = mainWindow.webContents;
+
+  const template = [
+    {
+      label: '新建标签页',
+      accelerator: 'CmdOrCtrl+T',
+      click: () => {
+        if (!hostWebContents.isDestroyed()) {
+          hostWebContents.send('context-menu:new-tab');
+        }
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '重新打开已关闭标签页',
+      accelerator: 'CmdOrCtrl+Shift+T',
+      enabled: hasClosedTabs(),
+      click: () => {
+        const closedTab = popClosedTab();
+        if (closedTab && !hostWebContents.isDestroyed()) {
+          hostWebContents.send('context-menu:reopen-tab', closedTab);
+        }
+      },
+    },
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  menu.popup({ window: mainWindow });
+  return menu;
+}
+
 // ==================== 网页右键菜单 ====================
 
 /**
@@ -625,6 +669,7 @@ function buildWebMenu(contextInfo, mainWindow) {
 
 module.exports = {
   buildTabMenu,
+  buildTabBarMenu,
   buildWebMenu,
   pushClosedTab,
   hasClosedTabs,
