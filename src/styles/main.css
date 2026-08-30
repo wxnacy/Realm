@@ -8675,6 +8675,10 @@ textarea::placeholder {
   border-bottom: 1px solid var(--border-color);
 }
 
+[data-theme="light"] .credential-table-header {
+  background: var(--bg-tertiary);
+}
+
 .credential-table-body {
   /* JS 动态渲染 */
 }
@@ -8890,6 +8894,10 @@ textarea::placeholder {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 16px;
+}
+
+[data-theme="light"] .address-card {
+  background: var(--bg-primary);
 }
 
 .address-view,
