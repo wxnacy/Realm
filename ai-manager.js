@@ -435,7 +435,9 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 
 你的能力：
 - get_tabs: 获取当前所有标签页列表
-- search_history: 搜索浏览历史记录
+- search_history: 搜索浏览历史记录，支持按 URL 和标题模糊匹配，支持时间范围筛选
+- list_history: 列出浏览历史记录，支持分页和时间范围筛选。当用户说"查看历史记录"、"列出今天的历史"、"查看昨天的浏览记录"时使用此工具。支持按页码和每页条数分页，也支持按日期筛选（date 参数格式 YYYY-MM-DD）。
+- delete_history: 删除历史记录，支持删除单条或批量删除。当用户说"删除这条历史记录"、"删除选中的历史记录"、"清空今天的浏览记录"时使用此工具。
 - manage_favorites: 管理收藏夹（添加、查看、删除）
 - search_favorites_fulltext: 使用全文检索搜索收藏夹中的页面，支持中文分词。当用户说"搜索收藏 XXX"或"找收藏 XXX"时使用此工具。
 - switch_container: 切换当前容器
@@ -453,6 +455,10 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - 当用户询问"页面有哪些链接"、"提取链接"等，使用 extract_links
 - 当用户要求打开链接或网址时，一律使用 open_link：默认新标签页打开（newTab 省略或为 true）；用户明确要求"在当前标签页打开"时设 newTab 为 false；containerId 省略时使用当前活跃容器
 - 当用户要求搜索收藏时，使用 search_favorites_fulltext 进行全文检索
+- 当用户要求查看历史记录时，使用 list_history。如果用户没有指定某个容器，先调用 get_tabs 获取当前正在使用的容器 ID，然后传入 containerId 参数
+- 当用户要求搜索历史记录时，使用 search_history。如果用户没有指定某个容器，先调用 get_tabs 获取当前正在使用的容器 ID，然后传入 containerId 参数
+- 当用户要求删除历史记录时，使用 delete_history。如果用户没有指定某个容器，先调用 get_tabs 获取当前正在使用的容器 ID，然后传入 containerId 参数
+- 历史记录相关工具（search_history、list_history、delete_history）的 containerId 参数是必填的。如果用户没有明确指定容器，必须先调用 get_tabs，从返回结果中取 activeContainerId 字段作为 containerId 参数传入
 - 当用户要求填写表单（如"帮我填邮箱"、"填写注册表单"）时，使用 fill_form
 - 当用户要求执行页面操作（如"点击提交按钮"、"滚动到底部"）时，使用 execute_action
 - 用户消息中可能附带 <referenced-tab> 块：这是用户通过 @ 显式引用的标签页内容（含标题、URL、正文）。请直接基于这些已提供的内容回答，不要再调用 read_page_content 读取当前页面
@@ -1569,7 +1575,7 @@ ${content}
       {
         name: 'get_tabs',
         label: '获取标签页',
-        description: '获取当前所有标签页列表，返回每个标签页的 ID、标题、URL 和所属容器',
+        description: '获取当前所有标签页列表，返回每个标签页的 ID、标题、URL 和所属容器，以及当前活跃标签页 ID',
         parameters: {
           type: 'object',
           properties: {},
@@ -1577,25 +1583,34 @@ ${content}
         },
         execute: async () => {
           const tabs = tabManager.getTabs();
+          const activeTab = tabManager.getActiveTab();
+          const activeTabId = activeTab ? activeTab.id : null;
+          const activeContainerId = activeTab ? activeTab.containerId : null;
           const tabList = tabs.map(tab => ({
             id: tab.id,
             url: tab.url,
             title: tab.title,
             containerId: tab.containerId,
+            active: tab.id === activeTabId,
           }));
           return {
             content: [{
               type: 'text',
-              text: JSON.stringify(tabList, null, 2),
+              text: JSON.stringify({
+                tabs: tabList,
+                activeTabId,
+                activeContainerId,
+                count: tabList.length,
+              }, null, 2),
             }],
-            details: { count: tabList.length },
+            details: { count: tabList.length, activeTabId, activeContainerId },
           };
         },
       },
       {
         name: 'search_history',
         label: '搜索历史记录',
-        description: '在指定容器的浏览历史中搜索记录，支持按 URL 和标题模糊匹配',
+        description: '在指定容器的浏览历史中搜索记录，支持按 URL 和标题模糊匹配，支持时间范围筛选',
         parameters: {
           type: 'object',
           properties: {
@@ -1605,23 +1620,49 @@ ${content}
             },
             containerId: {
               type: 'string',
-              description: '容器 ID（可选，默认使用 default 容器）',
+              description: '容器 ID（必填，如果用户没有指定，先调用 get_tabs 获取 activeContainerId）',
             },
             limit: {
               type: 'number',
               description: '返回结果数量上限（可选，默认 10）',
             },
+            startDate: {
+              type: 'number',
+              description: '开始时间戳（毫秒，可选）',
+            },
+            endDate: {
+              type: 'number',
+              description: '结束时间戳（毫秒，可选）',
+            },
+            date: {
+              type: 'string',
+              description: '筛选某一天（格式：YYYY-MM-DD，可选）',
+            },
           },
-          required: ['query'],
+          required: ['query', 'containerId'],
         },
         execute: async (toolCallId, params) => {
-          const { query, containerId = 'default', limit = 10 } = params;
+          const { query, containerId, limit = 10, date } = params;
+          let { startDate, endDate } = params;
+
+          // 处理某一天筛选
+          if (date) {
+            const dayStart = new Date(date);
+            dayStart.setHours(0, 0, 0, 0);
+            const dayEnd = new Date(date);
+            dayEnd.setHours(23, 59, 59, 999);
+            startDate = dayStart.getTime();
+            endDate = dayEnd.getTime();
+          }
+
           if (!query) {
             throw new Error('搜索关键词不能为空');
           }
           const results = historyManager.searchRecords(containerId, {
             keyword: query,
             limit,
+            startDate,
+            endDate,
           });
           return {
             content: [{
@@ -1634,12 +1675,162 @@ ${content}
                   visitedAt: r.visited_at,
                 })),
                 count: results.length,
+                containerId,
               }, null, 2),
             }],
-            details: { count: results.length },
+            details: { count: results.length, containerId },
           };
         },
       },
+
+      // ==================== list_history 工具 ====================
+      {
+        name: 'list_history',
+        label: '列出历史记录',
+        description: '列出指定容器的浏览历史记录，支持分页和时间范围筛选',
+        parameters: {
+          type: 'object',
+          properties: {
+            containerId: {
+              type: 'string',
+              description: '容器 ID（必填，如果用户没有指定，先调用 get_tabs 获取 activeContainerId）',
+            },
+            page: {
+              type: 'number',
+              description: '页码（从 1 开始，可选，默认 1）',
+            },
+            pageSize: {
+              type: 'number',
+              description: '每页条数（可选，默认 20）',
+            },
+            startDate: {
+              type: 'number',
+              description: '开始时间戳（毫秒，可选）',
+            },
+            endDate: {
+              type: 'number',
+              description: '结束时间戳（毫秒，可选）',
+            },
+            date: {
+              type: 'string',
+              description: '筛选某一天（格式：YYYY-MM-DD，可选）',
+            },
+          },
+          required: ['containerId'],
+        },
+        execute: async (toolCallId, params) => {
+          const { containerId, page = 1, pageSize = 20, date } = params;
+          let { startDate, endDate } = params;
+
+          // 处理某一天筛选
+          if (date) {
+            const dayStart = new Date(date);
+            dayStart.setHours(0, 0, 0, 0);
+            const dayEnd = new Date(date);
+            dayEnd.setHours(23, 59, 59, 999);
+            startDate = dayStart.getTime();
+            endDate = dayEnd.getTime();
+          }
+
+          const offset = (page - 1) * pageSize;
+          const results = historyManager.listRecords(containerId, {
+            offset,
+            limit: pageSize,
+            startDate,
+            endDate,
+          });
+
+          const totalCount = historyManager.getCount(containerId);
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                results: results.map(r => ({
+                  id: r.id,
+                  url: r.url,
+                  title: r.title,
+                  visitedAt: r.visited_at,
+                })),
+                pagination: {
+                  page,
+                  pageSize,
+                  totalCount,
+                  totalPages: Math.ceil(totalCount / pageSize),
+                },
+                containerId,
+              }, null, 2),
+            }],
+            details: { count: results.length, page, pageSize, containerId },
+          };
+        },
+      },
+
+      // ==================== delete_history 工具 ====================
+      {
+        name: 'delete_history',
+        label: '删除历史记录',
+        description: '删除单个或批量删除历史记录',
+        parameters: {
+          type: 'object',
+          properties: {
+            containerId: {
+              type: 'string',
+              description: '容器 ID（必填，如果用户没有指定，先调用 get_tabs 获取 activeContainerId）',
+            },
+            id: {
+              type: 'number',
+              description: '单条记录 ID（删除单条时使用）',
+            },
+            ids: {
+              type: 'array',
+              items: { type: 'number' },
+              description: '批量删除的记录 ID 数组（批量删除时使用）',
+            },
+          },
+          required: ['containerId'],
+        },
+        execute: async (toolCallId, params) => {
+          const { containerId, id, ids } = params;
+
+          // 单条删除
+          if (id) {
+            const success = historyManager.deleteRecord(containerId, id);
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  success,
+                  deletedCount: success ? 1 : 0,
+                  message: success ? '删除成功' : '记录不存在',
+                  containerId,
+                }, null, 2),
+              }],
+              details: { deletedCount: success ? 1 : 0, containerId },
+            };
+          }
+
+          // 批量删除
+          if (Array.isArray(ids) && ids.length > 0) {
+            const deletedCount = historyManager.deleteRecords(containerId, ids);
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  success: true,
+                  deletedCount,
+                  message: `成功删除 ${deletedCount} 条记录`,
+                  containerId,
+                }, null, 2),
+              }],
+              details: { deletedCount, containerId },
+            };
+          }
+
+          throw new Error('请提供要删除的记录 ID（单条删除使用 id，批量删除使用 ids 数组）');
+        },
+      },
+
       {
         name: 'manage_favorites',
         label: '管理收藏夹',

@@ -168,46 +168,80 @@ function updateLastTitle(containerId, url, title) {
 }
 
 /**
- * 搜索历史记录（按 URL 或标题模糊匹配）
+ * 搜索历史记录（按 URL 或标题模糊匹配，支持时间范围筛选）
  * @param {string} containerId - 容器 ID
  * @param {Object} options - 搜索选项
  * @param {string} options.keyword - 搜索关键词
  * @param {number} [options.offset=0] - 分页偏移
  * @param {number} [options.limit=50] - 每页数量
+ * @param {number} [options.startDate] - 开始时间戳（毫秒，可选）
+ * @param {number} [options.endDate] - 结束时间戳（毫秒，可选）
  * @returns {Array} 匹配的记录列表
  */
-function searchRecords(containerId, { keyword, offset = 0, limit = 50 }) {
+function searchRecords(containerId, { keyword, offset = 0, limit = 50, startDate, endDate }) {
   const id = sanitizeContainerId(containerId);
   ensureTable(id);
   const tableName = `history_${id}`;
 
   const pattern = `%${keyword}%`;
-  return db.prepare(`
-    SELECT * FROM ${tableName}
-    WHERE url LIKE ? OR title LIKE ?
-    ORDER BY visited_at DESC
-    LIMIT ? OFFSET ?
-  `).all(pattern, pattern, limit, offset);
+  let query = `SELECT * FROM ${tableName}`;
+  const conditions = ['(url LIKE ? OR title LIKE ?)'];
+  const params = [pattern, pattern];
+
+  // 时间范围筛选
+  if (startDate) {
+    conditions.push('visited_at >= ?');
+    params.push(startDate);
+  }
+  if (endDate) {
+    conditions.push('visited_at <= ?');
+    params.push(endDate);
+  }
+
+  query += ' WHERE ' + conditions.join(' AND ');
+  query += ' ORDER BY visited_at DESC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
+
+  return db.prepare(query).all(...params);
 }
 
 /**
- * 列出历史记录（按时间倒序）
+ * 列出历史记录（按时间倒序，支持时间范围筛选）
  * @param {string} containerId - 容器 ID
- * @param {Object} options - 分页选项
+ * @param {Object} options - 分页和筛选选项
  * @param {number} [options.offset=0] - 分页偏移
  * @param {number} [options.limit=50] - 每页数量
+ * @param {number} [options.startDate] - 开始时间戳（毫秒，可选）
+ * @param {number} [options.endDate] - 结束时间戳（毫秒，可选）
  * @returns {Array} 记录列表
  */
-function listRecords(containerId, { offset = 0, limit = 50 }) {
+function listRecords(containerId, { offset = 0, limit = 50, startDate, endDate }) {
   const id = sanitizeContainerId(containerId);
   ensureTable(id);
   const tableName = `history_${id}`;
 
-  return db.prepare(`
-    SELECT * FROM ${tableName}
-    ORDER BY visited_at DESC
-    LIMIT ? OFFSET ?
-  `).all(limit, offset);
+  let query = `SELECT * FROM ${tableName}`;
+  const conditions = [];
+  const params = [];
+
+  // 时间范围筛选
+  if (startDate) {
+    conditions.push('visited_at >= ?');
+    params.push(startDate);
+  }
+  if (endDate) {
+    conditions.push('visited_at <= ?');
+    params.push(endDate);
+  }
+
+  if (conditions.length > 0) {
+    query += ' WHERE ' + conditions.join(' AND ');
+  }
+
+  query += ' ORDER BY visited_at DESC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
+
+  return db.prepare(query).all(...params);
 }
 
 /**
