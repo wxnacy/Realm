@@ -435,9 +435,9 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 
 你的能力：
 - get_tabs: 获取当前所有标签页列表
-- search_history: 搜索浏览历史记录，支持按 URL 和标题模糊匹配，支持时间范围筛选
-- list_history: 列出浏览历史记录，支持分页和时间范围筛选。当用户说"查看历史记录"、"列出今天的历史"、"查看昨天的浏览记录"时使用此工具。支持按页码和每页条数分页，也支持按日期筛选（date 参数格式 YYYY-MM-DD）。
-- delete_history: 删除历史记录，支持删除单条或批量删除。当用户说"删除这条历史记录"、"删除选中的历史记录"、"清空今天的浏览记录"时使用此工具。
+- search_history: 搜索浏览历史记录，支持按 URL 和标题模糊匹配，支持时间范围筛选。默认使用当前活跃容器，也可通过 containerId 参数指定特定容器。
+- list_history: 列出浏览历史记录，支持分页和时间范围筛选。当用户说"查看历史记录"、"列出今天的历史"、"查看昨天的浏览记录"时使用此工具。支持按页码和每页条数分页，也支持按日期筛选（date 参数格式 YYYY-MM-DD）。默认使用当前活跃容器，也可通过 containerId 参数指定特定容器。
+- delete_history: 删除历史记录，支持删除单条或批量删除。当用户说"删除这条历史记录"、"删除选中的历史记录"、"清空今天的浏览记录"时使用此工具。默认使用当前活跃容器，也可通过 containerId 参数指定特定容器。
 - manage_favorites: 管理收藏夹（添加、查看、删除）
 - search_favorites_fulltext: 使用全文检索搜索收藏夹中的页面，支持中文分词。当用户说"搜索收藏 XXX"或"找收藏 XXX"时使用此工具。
 - switch_container: 切换当前容器
@@ -455,10 +455,10 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - 当用户询问"页面有哪些链接"、"提取链接"等，使用 extract_links
 - 当用户要求打开链接或网址时，一律使用 open_link：默认新标签页打开（newTab 省略或为 true）；用户明确要求"在当前标签页打开"时设 newTab 为 false；containerId 省略时使用当前活跃容器
 - 当用户要求搜索收藏时，使用 search_favorites_fulltext 进行全文检索
-- 当用户要求查看历史记录时，使用 list_history。如果用户没有指定某个容器，先调用 get_tabs 获取当前正在使用的容器 ID，然后传入 containerId 参数
-- 当用户要求搜索历史记录时，使用 search_history。如果用户没有指定某个容器，先调用 get_tabs 获取当前正在使用的容器 ID，然后传入 containerId 参数
-- 当用户要求删除历史记录时，使用 delete_history。如果用户没有指定某个容器，先调用 get_tabs 获取当前正在使用的容器 ID，然后传入 containerId 参数
-- 历史记录相关工具（search_history、list_history、delete_history）的 containerId 参数是必填的。如果用户没有明确指定容器，必须先调用 get_tabs，从返回结果中取 activeContainerId 字段作为 containerId 参数传入
+- 当用户要求查看历史记录时，使用 list_history。默认使用当前活跃容器；如果用户指定了特定容器，通过 containerId 参数传入
+- 当用户要求搜索历史记录时，使用 search_history。默认使用当前活跃容器；如果用户指定了特定容器，通过 containerId 参数传入
+- 当用户要求删除历史记录时，使用 delete_history。默认使用当前活跃容器；如果用户指定了特定容器，通过 containerId 参数传入
+- 历史记录相关工具（search_history、list_history、delete_history）的 containerId 参数是可选的：省略时自动使用当前活跃容器，用户明确指定容器时传入该参数
 - 当用户要求填写表单（如"帮我填邮箱"、"填写注册表单"）时，使用 fill_form
 - 当用户要求执行页面操作（如"点击提交按钮"、"滚动到底部"）时，使用 execute_action
 - 用户消息中可能附带 <referenced-tab> 块：这是用户通过 @ 显式引用的标签页内容（含标题、URL、正文）。请直接基于这些已提供的内容回答，不要再调用 read_page_content 读取当前页面
@@ -1610,7 +1610,7 @@ ${content}
       {
         name: 'search_history',
         label: '搜索历史记录',
-        description: '在指定容器的浏览历史中搜索记录，支持按 URL 和标题模糊匹配，支持时间范围筛选',
+        description: '搜索浏览历史记录，支持按 URL 和标题模糊匹配，支持时间范围筛选。默认使用当前活跃容器，也可指定特定容器。',
         parameters: {
           type: 'object',
           properties: {
@@ -1620,7 +1620,7 @@ ${content}
             },
             containerId: {
               type: 'string',
-              description: '容器 ID（必填，如果用户没有指定，先调用 get_tabs 获取 activeContainerId）',
+              description: '容器 ID（可选，默认使用当前活跃容器）',
             },
             limit: {
               type: 'number',
@@ -1639,11 +1639,20 @@ ${content}
               description: '筛选某一天（格式：YYYY-MM-DD，可选）',
             },
           },
-          required: ['query', 'containerId'],
+          required: ['query'],
         },
         execute: async (toolCallId, params) => {
-          const { query, containerId, limit = 10, date } = params;
-          let { startDate, endDate } = params;
+          const { query, limit = 10, date } = params;
+          let { containerId, startDate, endDate } = params;
+
+          // 如果未指定容器，自动获取当前活跃容器
+          if (!containerId) {
+            const activeTab = tabManager.getActiveTab();
+            if (!activeTab || !activeTab.containerId) {
+              throw new Error('无法获取当前容器，请先打开一个标签页');
+            }
+            containerId = activeTab.containerId;
+          }
 
           // 处理某一天筛选
           if (date) {
@@ -1687,13 +1696,13 @@ ${content}
       {
         name: 'list_history',
         label: '列出历史记录',
-        description: '列出指定容器的浏览历史记录，支持分页和时间范围筛选',
+        description: '列出浏览历史记录，支持分页和时间范围筛选。默认使用当前活跃容器，也可指定特定容器。',
         parameters: {
           type: 'object',
           properties: {
             containerId: {
               type: 'string',
-              description: '容器 ID（必填，如果用户没有指定，先调用 get_tabs 获取 activeContainerId）',
+              description: '容器 ID（可选，默认使用当前活跃容器）',
             },
             page: {
               type: 'number',
@@ -1716,11 +1725,19 @@ ${content}
               description: '筛选某一天（格式：YYYY-MM-DD，可选）',
             },
           },
-          required: ['containerId'],
         },
         execute: async (toolCallId, params) => {
-          const { containerId, page = 1, pageSize = 20, date } = params;
-          let { startDate, endDate } = params;
+          const { page = 1, pageSize = 20, date } = params;
+          let { containerId, startDate, endDate } = params;
+
+          // 如果未指定容器，自动获取当前活跃容器
+          if (!containerId) {
+            const activeTab = tabManager.getActiveTab();
+            if (!activeTab || !activeTab.containerId) {
+              throw new Error('无法获取当前容器，请先打开一个标签页');
+            }
+            containerId = activeTab.containerId;
+          }
 
           // 处理某一天筛选
           if (date) {
@@ -1770,13 +1787,13 @@ ${content}
       {
         name: 'delete_history',
         label: '删除历史记录',
-        description: '删除单个或批量删除历史记录',
+        description: '删除单个或批量删除历史记录。默认使用当前活跃容器，也可指定特定容器。',
         parameters: {
           type: 'object',
           properties: {
             containerId: {
               type: 'string',
-              description: '容器 ID（必填，如果用户没有指定，先调用 get_tabs 获取 activeContainerId）',
+              description: '容器 ID（可选，默认使用当前活跃容器）',
             },
             id: {
               type: 'number',
@@ -1788,10 +1805,19 @@ ${content}
               description: '批量删除的记录 ID 数组（批量删除时使用）',
             },
           },
-          required: ['containerId'],
         },
         execute: async (toolCallId, params) => {
-          const { containerId, id, ids } = params;
+          const { id, ids } = params;
+          let { containerId } = params;
+
+          // 如果未指定容器，自动获取当前活跃容器
+          if (!containerId) {
+            const activeTab = tabManager.getActiveTab();
+            if (!activeTab || !activeTab.containerId) {
+              throw new Error('无法获取当前容器，请先打开一个标签页');
+            }
+            containerId = activeTab.containerId;
+          }
 
           // 单条删除
           if (id) {
