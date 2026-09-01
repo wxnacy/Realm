@@ -135,6 +135,171 @@ function serializePageSnapshots(snapshots) {
   return serializeToolData(snapshots);
 }
 
+/**
+ * 安全解析 JSON 字符串（per T-42-08：损坏行降级不抛异常）
+ * @param {string|null} str - JSON 字符串
+ * @param {*} [fallback] - 解析失败/非字符串时的回退值
+ * @returns {*} 解析结果或回退值
+ */
+function safeJsonParse(str, fallback = null) {
+  if (typeof str !== 'string' || str.length === 0) return fallback;
+  try {
+    return JSON.parse(str);
+  } catch (err) {
+    return fallback;
+  }
+}
+
+/**
+ * 从内容块数组中提取 type:'text' 块的文本并拼接
+ * 字符串输入原样返回（UserMessage.content 允许为 string）
+ * @param {*} content - 内容块数组或字符串
+ * @returns {string} 拼接后的文本
+ */
+function extractTextFromBlocks(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter(block => block && block.type === 'text')
+    .map(block => block.text || '')
+    .join('');
+}
+
+/**
+ * 将 AgentMessage 归一化为存储列值（per G-42-3 写入侧）
+ *
+ * pi-ai 消息 content 为内容块数组（AssistantMessage.content 恒为数组），
+ * 不能直接 JSON.stringify 落库——按角色提取：
+ * - user：content 为 string 原样存；为数组则提取 text 块拼接
+ * - assistant：text 块拼接为显示文本；toolCall 块取 {id,name,arguments}
+ *   序列化存 tool_calls 列；thinking 块不落盘（实时链路 _extractText
+ *   也不展示 thinking，保持一致）
+ * - toolResult：content 块数组 text 拼接存 content 列；
+ *   {toolCallId, toolName, isError, details} 存 tool_results 列
+ *
+ * @param {Object} msg - pi-agent-core AgentMessage
+ * @returns {{role: string, content: string, toolCalls: *, toolResults: *, pageSnapshots: *}} 存储列值
+ * @private
+ */
+function normalizeMessageColumns(msg) {
+  const role = msg.role || 'user';
+  const content = msg.content;
+
+  if (role === 'toolResult') {
+    // 工具结果消息：元数据写入 tool_results 列（供读取侧回填/重建上下文）
+    const meta = {
+      toolCallId: msg.toolCallId,
+      toolName: msg.toolName,
+      isError: !!msg.isError,
+    };
+    if (msg.details !== undefined) meta.details = msg.details;
+    return {
+      role,
+      content: extractTextFromBlocks(content),
+      toolCalls: msg.toolCalls || msg.tool_calls || null,
+      toolResults: meta,
+      pageSnapshots: msg.pageSnapshots || msg.page_snapshots || null,
+    };
+  }
+
+  if (role === 'assistant') {
+    // 助手消息：content 恒为 (TextContent | ThinkingContent | ToolCall)[] 块数组
+    const textParts = [];
+    const calls = [];
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (!block || typeof block !== 'object') continue;
+        if (block.type === 'text') {
+          textParts.push(block.text || '');
+        } else if (block.type === 'toolCall') {
+          calls.push({ id: block.id, name: block.name, arguments: block.arguments });
+        }
+        // thinking 块不落盘
+      }
+    } else if (typeof content === 'string') {
+      textParts.push(content);
+    }
+    return {
+      role,
+      content: textParts.join(''),
+      // 提取到 toolCall 块优先；顶层 toolCalls 兜底保留（SDK 消息无该字段，恒走提取值）
+      toolCalls: calls.length > 0 ? calls : (msg.toolCalls || msg.tool_calls || null),
+      toolResults: msg.toolResults || msg.tool_results || null,
+      pageSnapshots: msg.pageSnapshots || msg.page_snapshots || null,
+    };
+  }
+
+  // user 及其他角色：content 为 string 原样存；为数组则提取 text 块拼接
+  return {
+    role,
+    content: extractTextFromBlocks(content),
+    toolCalls: msg.toolCalls || msg.tool_calls || null,
+    toolResults: msg.toolResults || msg.tool_results || null,
+    pageSnapshots: msg.pageSnapshots || msg.page_snapshots || null,
+  };
+}
+
+/**
+ * 统一解析存储的 content 列，得到「显示文本 + 工具调用列表」（per G-42-3 读取侧）
+ *
+ * 兼容两种落库格式：
+ * - 旧格式（G-42-3 根因落库的原始块数组）：content 为 pi-agent-core 内容块数组
+ *   序列化的 JSON 字符串——text 块拼显示文本，toolCall 块并入工具调用列表
+ * - 新格式：content 即显示文本；工具调用列表来自 tool_calls 列反序列化结果
+ *   （JSON.parse 失败容错返回空数组）
+ *
+ * @param {string|null} contentStr - messages.content 列原始值
+ * @param {*} toolCallsFallback - tool_calls 列反序列化结果
+ * @returns {{text: string, toolCalls: Array}} 显示文本与工具调用列表
+ */
+function parseStoredContent(contentStr, toolCallsFallback) {
+  const fallbackList = Array.isArray(toolCallsFallback) ? toolCallsFallback : [];
+
+  if (typeof contentStr === 'string' && contentStr.length > 0) {
+    const parsed = safeJsonParse(contentStr, undefined);
+    if (Array.isArray(parsed)) {
+      // 旧格式行：JSON 块数组字符串
+      const textParts = [];
+      const blockCalls = [];
+      for (const block of parsed) {
+        if (!block || typeof block !== 'object') continue;
+        if (block.type === 'text') {
+          textParts.push(block.text || '');
+        } else if (block.type === 'toolCall') {
+          blockCalls.push(block);
+        }
+        // thinking 块不参与显示/注入
+      }
+      return { text: textParts.join(''), toolCalls: [...fallbackList, ...blockCalls] };
+    }
+  }
+
+  // 新格式行（content 即显示文本）或空 content
+  return {
+    text: typeof contentStr === 'string' ? contentStr : '',
+    toolCalls: fallbackList,
+  };
+}
+
+/**
+ * 读取对话的全部消息行（按 created_at 升序，rowid 稳定 tiebreak）
+ * 同一毫秒产生的多条消息按插入顺序（rowid）稳定排序：全量替换后
+ * rowid 即 transcript 顺序（per G-42-2），保证 assistant toolCall
+ * 与其后 toolResult 相邻，满足 provider API 的配对约束
+ * @param {string} conversationId - 对话 ID
+ * @returns {Array} 原始消息行
+ * @private
+ */
+function readMessageRows(conversationId) {
+  if (!conversationId || typeof conversationId !== 'string') return [];
+  return db.prepare(`
+    SELECT id, conversation_id, role, content, tool_calls, tool_results, page_snapshots, created_at
+    FROM messages
+    WHERE conversation_id = ?
+    ORDER BY created_at ASC, rowid ASC
+  `).all(conversationId);
+}
+
 // ==================== 对话 CRUD ====================
 
 /**
@@ -273,8 +438,14 @@ function deleteConversation(id) {
  * - 全量替换语义天然反映消息删减
  * - 替换后 rowid 即 transcript 顺序，为 getMessages 提供稳定 tiebreak
  *
+ * 内容归一化（per G-42-3 写入侧）：每条消息经 normalizeMessageColumns
+ * 按角色提取——assistant 行 content 列为纯文本、tool_calls 列为
+ * [{id,name,arguments}]；toolResult 行 tool_results 列含
+ * toolCallId/toolName/isError/details。100KB 截断逻辑继续作用于
+ * tool_calls/tool_results 列。
+ *
  * @param {string} conversationId - 对话 ID
- * @param {Array} messages - 消息数组（完整 transcript）
+ * @param {Array} messages - 消息数组（完整 transcript，pi-agent-core AgentMessage）
  * @returns {number} 成功保存的消息数量
  */
 function saveMessages(conversationId, messages) {
@@ -301,15 +472,20 @@ function saveMessages(conversationId, messages) {
     let count = 0;
     for (const msg of msgs) {
       const id = generateId();
-      const role = msg.role || 'user';
-      const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content || '');
-      const toolCalls = serializeToolData(msg.toolCalls || msg.tool_calls);
-      const toolResults = serializeToolData(msg.toolResults || msg.tool_results);
-      const pageSnapshots = serializePageSnapshots(msg.pageSnapshots || msg.page_snapshots);
+      const cols = normalizeMessageColumns(msg);
       // AgentMessage 有 timestamp 字段（毫秒），兼容 createdAt/created_at 两种命名
       const createdAt = msg.createdAt || msg.created_at || msg.timestamp || Date.now();
 
-      insertStmt.run(id, conversationId, role, content, toolCalls, toolResults, pageSnapshots, createdAt);
+      insertStmt.run(
+        id,
+        conversationId,
+        cols.role,
+        cols.content,
+        serializeToolData(cols.toolCalls),
+        serializeToolData(cols.toolResults),
+        serializePageSnapshots(cols.pageSnapshots),
+        createdAt
+      );
       count++;
     }
     return count;
@@ -322,31 +498,166 @@ function saveMessages(conversationId, messages) {
 }
 
 /**
- * 获取对话的所有消息（按 created_at 升序，rowid 稳定 tiebreak）
+ * 获取对话的所有消息 — renderer 显示形状（per G-42-3 读取侧）
  *
- * 同一毫秒产生的多条消息按插入顺序（rowid）稳定排序：
- * 全量替换后 rowid 即 transcript 顺序（per G-42-2）。
+ * 与 getAgentMessages（上下文注入形状）共用 parseStoredContent 与行读取，
+ * 但输出面向 renderer renderAIMessages：
+ * - user 行 → { id, role:'user', content, timestamp }
+ * - assistant 行 → { id, role:'assistant', content, toolExecutions, timestamp }，
+ *   toolExecutions 元素形状对齐 renderToolCard 入参 { id, name, status, params, result, error }
+ * - toolResult 行不单独输出：按 toolCallId 回填前面最近 assistant 行的
+ *   toolExecutions 元素（result/status/error），找不到归属时丢弃——
+ *   恢复视图中工具调用呈现为父 AI 消息内的工具卡片，与实时链路一致
+ * - 旧格式行（content 为 JSON 块数组字符串）经 parseStoredContent 兼容读出
  *
  * @param {string} conversationId - 对话 ID
- * @returns {Array} 消息列表
+ * @returns {Array} 显示形状消息列表（直接可赋 renderer state.aiMessages）
  */
 function getMessages(conversationId) {
-  if (!conversationId || typeof conversationId !== 'string') return [];
+  const rows = readMessageRows(conversationId);
 
-  const rows = db.prepare(`
-    SELECT id, conversation_id, role, content, tool_calls, tool_results, page_snapshots, created_at
-    FROM messages
-    WHERE conversation_id = ?
-    ORDER BY created_at ASC, rowid ASC
-  `).all(conversationId);
+  /** @type {Array} 显示形状消息 */
+  const display = [];
 
-  // 反序列化 JSON 字段
-  return rows.map(row => ({
-    ...row,
-    tool_calls: row.tool_calls ? JSON.parse(row.tool_calls) : null,
-    tool_results: row.tool_results ? JSON.parse(row.tool_results) : null,
-    page_snapshots: row.page_snapshots ? JSON.parse(row.page_snapshots) : null,
-  }));
+  for (const row of rows) {
+    const fallbackCalls = safeJsonParse(row.tool_calls, []);
+    const { text, toolCalls } = parseStoredContent(row.content, fallbackCalls);
+
+    if (row.role === 'assistant') {
+      display.push({
+        id: row.id,
+        role: 'assistant',
+        content: text,
+        toolExecutions: toolCalls.map(call => ({
+          id: call.id,
+          name: call.name,
+          status: 'completed',
+          params: call.arguments,
+        })),
+        timestamp: row.created_at,
+      });
+      continue;
+    }
+
+    if (row.role === 'toolResult') {
+      const meta = safeJsonParse(row.tool_results, null);
+      const toolCallId = meta && meta.toolCallId;
+      if (!toolCallId) continue;
+
+      // 回填前面最近的 assistant 行中匹配的工具卡片（rowid 序保证相邻）
+      let target = null;
+      for (let i = display.length - 1; i >= 0; i--) {
+        const m = display[i];
+        if (m.role !== 'assistant' || !Array.isArray(m.toolExecutions)) continue;
+        const exec = m.toolExecutions.find(t => t.id === toolCallId);
+        if (exec) {
+          target = exec;
+          break;
+        }
+      }
+      if (!target) continue; // 找不到归属 assistant 行，丢弃该行
+
+      target.result = text;
+      target.status = meta.isError ? 'failed' : 'completed';
+      if (meta.isError) target.error = text;
+      continue;
+    }
+
+    // user 及其他角色 → 用户气泡
+    display.push({
+      id: row.id,
+      role: 'user',
+      content: text,
+      timestamp: row.created_at,
+    });
+  }
+
+  return display;
+}
+
+/**
+ * 获取对话的所有消息 — pi-agent-core AgentMessage 注入形状（per G-42-4）
+ *
+ * 供 ai-manager.switchConversation 在 Agent 重建完成后注入
+ * agent.state.messages，使历史消息真正进入 LLM 上下文：
+ * - user 行 → { role:'user', content, timestamp }
+ * - assistant 行 → { role:'assistant', content: [text 块 + toolCall 块原样],
+ *   api:'unknown', usage/stopReason 占位, timestamp }——provenance 占位安全：
+ *   pi-ai 各 API 适配器构建请求只读 message.role 与 content 块，
+ *   不读 usage/stopReason/api 等 provenance 字段
+ * - toolResult 行 → { role:'toolResult', toolCallId, toolName,
+ *   content:[text 块], isError/details（有则带）, timestamp }；
+ *   tool_results 列缺失或无 toolCallId 的行跳过（无法与 toolCall 配对，
+ *   注入会破坏 provider API 的消息配对约束）
+ * - assistant 行 content 全空（无文本无工具调用）时跳过——空 content 块
+ *   数组可能被 provider API 拒绝
+ * - 旧格式 JSON 块数组行同样经 parseStoredContent 兼容；thinking 块
+ *   在解析层已过滤，不会注入
+ *
+ * @param {string} conversationId - 对话 ID
+ * @returns {Array} AgentMessage 形状消息列表（顺序即行序，配对相邻）
+ */
+function getAgentMessages(conversationId) {
+  const rows = readMessageRows(conversationId);
+
+  /** @type {Array} AgentMessage 形状消息 */
+  const agentMessages = [];
+
+  for (const row of rows) {
+    const fallbackCalls = safeJsonParse(row.tool_calls, []);
+    const parsed = parseStoredContent(row.content, fallbackCalls);
+
+    if (row.role === 'assistant') {
+      const content = [];
+      if (parsed.text) {
+        content.push({ type: 'text', text: parsed.text });
+      }
+      for (const call of parsed.toolCalls) {
+        const { id, name, arguments: args, ...rest } = call;
+        // 原样保留 id/name/arguments 及其余块字段（如 thoughtSignature）
+        content.push({ type: 'toolCall', id, name, arguments: args != null ? args : {}, ...rest });
+      }
+      if (content.length === 0) continue;
+
+      agentMessages.push({
+        role: 'assistant',
+        content,
+        api: 'unknown',
+        provider: row.provider || '',
+        model: '',
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        stopReason: 'stop',
+        timestamp: row.created_at,
+      });
+      continue;
+    }
+
+    if (row.role === 'toolResult') {
+      const meta = safeJsonParse(row.tool_results, null);
+      if (!meta || !meta.toolCallId) continue;
+
+      const msg = {
+        role: 'toolResult',
+        toolCallId: meta.toolCallId,
+        toolName: meta.toolName || '',
+        content: [{ type: 'text', text: parsed.text }],
+        timestamp: row.created_at,
+      };
+      if (meta.isError !== undefined) msg.isError = !!meta.isError;
+      if (meta.details !== undefined) msg.details = meta.details;
+      agentMessages.push(msg);
+      continue;
+    }
+
+    // user 及其他角色
+    agentMessages.push({
+      role: 'user',
+      content: parsed.text,
+      timestamp: row.created_at,
+    });
+  }
+
+  return agentMessages;
 }
 
 /**
@@ -375,5 +686,6 @@ module.exports = {
   deleteConversation,
   saveMessages,
   getMessages,
+  getAgentMessages,
   getMessageCount,
 };
