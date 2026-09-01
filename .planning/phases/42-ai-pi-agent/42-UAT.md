@@ -3,7 +3,7 @@ status: testing
 phase: 42-ai-pi-agent
 source: [42-01-SUMMARY.md, 42-02-SUMMARY.md]
 started: 2026-09-01T06:56:16Z
-updated: 2026-09-01T07:44:07Z
+updated: 2026-09-01T07:59:42Z
 ---
 
 ## Current Test
@@ -105,3 +105,18 @@ blocked: 0
     - "实现 D-04 首条用户消息自动命名，使真实对话与启动垃圾行可区分"
     - "修复 saveMessages id 不稳定：重复保存应 REPLACE 而非重复插入"
   debug_session: ".planning/debug/conversation-list-not-refreshed.md"
+
+## Session Notes
+
+### 2026-09-01 15:59（UAT 中途状态总结）
+
+**进度**：8 项测试，0 通过 / 2 问题（均已诊断根因）/ 6 待测。当前停在 Test 3（消息持久化）。
+
+**已诊断缺口（修复计划待全部测试完成后统一生成，走 `/gsd-execute-phase 42 --gaps-only`）**：
+
+- **G-42-1 启动自动建空对话**（major）：`ai-manager.js init()`（739-748 行）每次启动主动 INSERT「新对话」，守卫恒真（currentConversationId 仅内存）；叠加 `deleteConversation`（1678-1681）删除当前对话自动补建 + renderer 删除流程重复创建（renderer.js:7032-7034），空状态永远不可达。修复方向：对话创建惰性化 + 删除不补建 + 移除重复创建 + 修订 D-06 决策。
+- **G-42-2 新记录要点「新对话」才出现**（major）：发送消息链路完全不创建/认领对话（消息静默写入 init() 预建行），「发送消息自动创建对话」未实现；且 getConversations 缺 message_count、D-04 首条消息自动命名未实现、对话 id 不回传 renderer，列表聊天前后逐字节相同。附带缺陷：saveMessages 每次保存用新 id 重复 INSERT（6 条消息 14 行）。修复方向：发送路径惰性建行/认领 + id 回传 + message_count + 自动命名 + 修 saveMessages。
+
+**环境操作**：2026-09-01 15:51 应用户要求清空测试环境（realm-dev）AI 聊天记录——dev 实例已退出，`ai-conversations.db`（含 wal/shm）已删除，原库备份在 `/tmp/realm-dev-ai-conv-backup-20260901-155158/`。正式版 Realm.app（realm/）未动。**注意**：G-42-1 未修复前，重启后仍会自动出现一条 0 消息的「新对话」，属预期行为，不是清空失败。
+
+**下一步**：用户重新 `npm run dev`，从干净数据执行 Test 3（发消息 → AI 回复 → 完全退出重启 → 验证对话和消息仍在）。
