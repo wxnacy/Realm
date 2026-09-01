@@ -225,14 +225,14 @@ Phases execute in numeric order: 40 → 41
 | 39. Vimium 键盘操作功能 | v2.4 | 4/4 | Complete | 2026-08-24 |
 | 40. 搜索基础设施 + web_search 工具 | v2.5 | 3/3 | Complete    | 2026-08-28 |
 | 41. web_fetch 工具 + 搜索配置 UI | v2.5 | 2/2 | Complete    | 2026-08-27 |
-| 42. AI 历史对话管理功能 | v2.5 | 2/2 | In Progress|  |
+| 42. AI 历史对话管理功能 | v2.5 | 2/2 | Complete    | 2026-09-01 |
 
 ### Phase 42: AI 历史对话管理功能
 
 **Goal:** 为 AI 助手添加历史对话管理功能，用户可以查看、新建、恢复和删除历史对话
 **Requirements**: CONV-01, CONV-02, CONV-03, CONV-04
 **Depends on:** Phase 41
-**Plans:** 2/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 **Wave 1**
