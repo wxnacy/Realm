@@ -525,6 +525,20 @@ function saveMessages(conversationId, messages) {
  * - user 行 → { id, role:'user', content, timestamp }
  * - assistant 行 → { id, role:'assistant', content, toolExecutions, timestamp }，
  *   toolExecutions 元素形状对齐 renderToolCard 入参 { id, name, status, params, result, error }
+ * - 同回合相邻 assistant 行合并为一条显示消息（per G-42-8，仅显示形状）：
+ *   pi-agent-core 每次供应商响应落一条 assistant 行，工具回合为三行
+ *   assistant(''+tool_calls) → toolResult → assistant(最终文本)。行级 1:1
+ *   映射会产出 content:'' 的显示消息（工具卡片回填其上）+ 其后的最终文本
+ *   消息，历史恢复渲染出「空气泡 + 工具卡片 + 下方文本」。合并规则
+ *   （仅当上一条显示消息存在且为 assistant，天然不跨 user 行）：
+ *   1. 纯工具行（无文本有 toolCalls）→ 卡片追加进上一条，不 push
+ *   2. 有文本且上一条 content 为空 → 文本采纳进上一条（toolResult 按
+ *      toolCallId 反向扫描回填不受影响），不 push；当前行若带 toolCalls
+ *      一并追加，避免丢卡片
+ *   3. 两条都含文本 → 维持独立 push（保守不合并，保持既有显示语义）
+ *   合并时保持上一条的 id 与 timestamp 不变（回合首行锚点，工具卡片与
+ *   消息操作按钮依赖该 id 定位）。getAgentMessages 注入形状不受影响
+ *   （CR-01 配对 / D-14 工具结果上下文语义保持行级结构）
  * - toolResult 行不单独输出：按 toolCallId 回填前面最近 assistant 行的
  *   toolExecutions 元素（result/status/error），找不到归属时丢弃——
  *   恢复视图中工具调用呈现为父 AI 消息内的工具卡片，与实时链路一致
@@ -544,16 +558,35 @@ function getMessages(conversationId) {
     const { text, toolCalls } = parseStoredContent(row.content, fallbackCalls);
 
     if (row.role === 'assistant') {
+      const executions = toolCalls.map(call => ({
+        id: call.id,
+        name: call.name,
+        status: 'completed',
+        params: call.arguments,
+      }));
+
+      // 同回合相邻 assistant 行合并（per G-42-8，仅显示形状）
+      const last = display[display.length - 1];
+      if (last && last.role === 'assistant') {
+        if (!text && executions.length > 0) {
+          // 规则 1：纯工具行 → 卡片追加进上一条
+          last.toolExecutions.push(...executions);
+          continue;
+        }
+        if (text && !last.content) {
+          // 规则 2：采纳文本进上一条（最终文本并入工具卡片所在消息）
+          last.content = text;
+          if (executions.length > 0) last.toolExecutions.push(...executions);
+          continue;
+        }
+        // 规则 3：两条都含文本 → 不合并，走下方独立 push
+      }
+
       display.push({
         id: row.id,
         role: 'assistant',
         content: text,
-        toolExecutions: toolCalls.map(call => ({
-          id: call.id,
-          name: call.name,
-          status: 'completed',
-          params: call.arguments,
-        })),
+        toolExecutions: executions,
         timestamp: row.created_at,
       });
       continue;
