@@ -1639,15 +1639,17 @@ ${content}
    * 核心逻辑：
    * a. 保存当前消息到数据库
    * b. 销毁旧 Agent 实例
-   * c. 从数据库加载目标对话消息
-   * d. 创建新 Agent 实例
+   * c. 从数据库加载目标对话消息（AgentMessage 注入形状，getAgentMessages）
+   * d. await 创建新 Agent 实例（_recreateAgent 为异步——动态 import 后
+   *    才赋值 this.agent，必须等待完成再注入，否则注入守卫恒 false，
+   *    历史消息从不进入上下文，per G-42-4 根因）
    * e. 通过 agent.state.messages 直接注入历史消息
    * f. 设置 currentConversationId
    *
    * @param {string} conversationId - 目标对话 ID
-   * @returns {Object} 切换后的对话对象
+   * @returns {Promise<Object>} 切换后的对话对象
    */
-  switchConversation(conversationId) {
+  async switchConversation(conversationId) {
     if (!conversationId || typeof conversationId !== 'string') {
       throw new Error('对话 ID 不能为空');
     }
@@ -1670,15 +1672,18 @@ ${content}
     // 清理旧 Agent 实例
     this._cleanupCurrentAgent();
 
-    // 从数据库加载目标对话消息
-    const messages = conversationStore.getMessages(conversationId);
+    // 从数据库加载目标对话消息（AgentMessage 形状，供上下文注入）
+    const agentMessages = conversationStore.getAgentMessages(conversationId);
 
-    // 创建新 Agent 实例
-    this._recreateAgent();
+    // 创建新 Agent 实例（必须 await：this.agent 在动态 import 之后的
+    // 微任务中才赋值，同步帧内恒为 null——per G-42-4）
+    await this._recreateAgent();
 
-    // 注入历史消息（per RESEARCH Pitfall 2，直接赋值不触发 LLM）
-    if (this.agent && messages.length > 0) {
-      this.agent.state.messages = messages;
+    // 注入历史消息（per RESEARCH Pitfall 2，直接赋值不触发 LLM；
+    // 守卫覆盖模型缺失等重建失败分支，此时保持空上下文而非报错）
+    if (this.agent && agentMessages.length > 0) {
+      this.agent.state.messages = agentMessages;
+      console.log(`[Realm AI] 已注入 ${agentMessages.length} 条历史消息到 Agent 上下文`);
     }
 
     // 更新状态
@@ -1831,10 +1836,14 @@ ${content}
   }
 
   /**
-   * 获取指定对话的消息列表
+   * 获取指定对话的消息列表（renderer 显示形状）
+   *
+   * 透传 conversationStore.getMessages：assistant 行带 toolExecutions
+   * 工具卡片结构，无独立 toolResult 行，可直接赋 renderer state.aiMessages。
+   * 上下文注入请用 conversationStore.getAgentMessages（switchConversation 内部使用）。
    *
    * @param {string} conversationId - 对话 ID
-   * @returns {Array} 消息列表
+   * @returns {Array} 显示形状消息列表
    */
   getConversationMessages(conversationId) {
     return conversationStore.getMessages(conversationId);

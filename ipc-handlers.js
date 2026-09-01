@@ -1775,7 +1775,7 @@ function registerHandlers() {
   /**
    * 切换对话
    * @param {string} conversationId - 目标对话 ID
-   * @returns {Promise<{conversation: Object}>}
+   * @returns {Promise<{conversation: Object, messages: Array}>}
    */
   ipcMain.handle('ai:switch-conversation', async (event, conversationId) => {
     assertTrustedSender(event);
@@ -1785,8 +1785,9 @@ function registerHandlers() {
     if (!aiManager) {
       throw new Error('AI Manager 未初始化');
     }
-    const conversation = aiManager.switchConversation(conversationId);
-    // 从数据库加载该对话的历史消息，一并返回给渲染进程
+    // switchConversation 为异步（await _recreateAgent 后注入历史上下文，per G-42-4）
+    const conversation = await aiManager.switchConversation(conversationId);
+    // 从数据库加载该对话的历史消息（renderer 显示形状），一并返回给渲染进程
     const messages = aiManager.getConversationMessages(conversationId);
     return { conversation, messages };
   });
