@@ -240,11 +240,31 @@ function normalizeMessageColumns(msg) {
 }
 
 /**
+ * 判断解析结果是否为「旧格式内容块数组」（per WR-04）
+ *
+ * 旧格式行的 content 是 pi-agent-core 内容块数组序列化的 JSON——每个元素
+ * 都是带已知 type 字段的非空对象。用户正文恰为普通 JSON 数组文本（如
+ * '[1, 2, 3]'）时同样能 JSON.parse 成数组，但元素没有内容块形状，
+ * 不能走旧格式分支（否则 text 拼接为空串，显示与 LLM 上下文双双丢失）。
+ *
+ * @param {*} parsed - safeJsonParse 的解析结果
+ * @returns {boolean} 是否为旧格式内容块数组
+ */
+function isLegacyBlockArray(parsed) {
+  if (!Array.isArray(parsed) || parsed.length === 0) return false;
+  const KNOWN_TYPES = ['text', 'thinking', 'toolCall', 'image', 'audio'];
+  return parsed.every(block =>
+    block && typeof block === 'object' && KNOWN_TYPES.includes(block.type)
+  );
+}
+
+/**
  * 统一解析存储的 content 列，得到「显示文本 + 工具调用列表」（per G-42-3 读取侧）
  *
  * 兼容两种落库格式：
  * - 旧格式（G-42-3 根因落库的原始块数组）：content 为 pi-agent-core 内容块数组
- *   序列化的 JSON 字符串——text 块拼显示文本，toolCall 块并入工具调用列表
+ *   序列化的 JSON 字符串——text 块拼显示文本，toolCall 块并入工具调用列表；
+ *   判别要求元素全部带已知 type 字段（per WR-04），普通 JSON 数组文本按原文处理
  * - 新格式：content 即显示文本；工具调用列表来自 tool_calls 列反序列化结果
  *   （JSON.parse 失败容错返回空数组）
  *
@@ -257,7 +277,7 @@ function parseStoredContent(contentStr, toolCallsFallback) {
 
   if (typeof contentStr === 'string' && contentStr.length > 0) {
     const parsed = safeJsonParse(contentStr, undefined);
-    if (Array.isArray(parsed)) {
+    if (isLegacyBlockArray(parsed)) {
       // 旧格式行：JSON 块数组字符串
       const textParts = [];
       const blockCalls = [];
