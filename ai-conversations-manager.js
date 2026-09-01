@@ -169,15 +169,22 @@ function createConversation({ title, model, provider } = {}) {
 }
 
 /**
- * 获取对话列表（按 updated_at 降序）
+ * 获取对话列表（按 updated_at 降序，附带真实消息数）
+ *
+ * LEFT JOIN messages + COUNT 聚合计算 message_count（per G-42-2）：
+ * 对话列表元信息显示真实消息条数，不再恒为 0 条。
+ *
  * @param {number} [limit=50] - 返回数量上限
- * @returns {Array} 对话列表
+ * @returns {Array} 对话列表，每行含 message_count 字段
  */
 function getConversations(limit = 50) {
   return db.prepare(`
-    SELECT id, title, model, provider, token_total, created_at, updated_at
-    FROM conversations
-    ORDER BY updated_at DESC
+    SELECT c.id, c.title, c.model, c.provider, c.token_total, c.created_at, c.updated_at,
+           COUNT(m.id) AS message_count
+    FROM conversations c
+    LEFT JOIN messages m ON m.conversation_id = c.id
+    GROUP BY c.id
+    ORDER BY c.updated_at DESC
     LIMIT ?
   `).all(limit);
 }
@@ -256,9 +263,18 @@ function deleteConversation(id) {
 // ==================== 消息 CRUD ====================
 
 /**
- * 批量保存消息（事务写入）
+ * 全量替换保存消息（事务写入，per G-42-2）
+ *
+ * saveCurrentConversation 每次传入完整 transcript，因此在同一事务内
+ * 先 DELETE 该对话的全部旧消息，再按数组顺序插入全部消息：
+ * - 重复保存同一 transcript 不再产生重复行（旧实现 msg.id || generateId()
+ *   每次保存生成新随机 id，INSERT OR REPLACE 退化为纯 INSERT，
+ *   6 条消息曾存出 14 行）
+ * - 全量替换语义天然反映消息删减
+ * - 替换后 rowid 即 transcript 顺序，为 getMessages 提供稳定 tiebreak
+ *
  * @param {string} conversationId - 对话 ID
- * @param {Array} messages - 消息数组
+ * @param {Array} messages - 消息数组（完整 transcript）
  * @returns {number} 成功保存的消息数量
  */
 function saveMessages(conversationId, messages) {
@@ -273,23 +289,25 @@ function saveMessages(conversationId, messages) {
     return 0;
   }
 
-  const now = Date.now();
+  const deleteStmt = db.prepare('DELETE FROM messages WHERE conversation_id = ?');
   const insertStmt = db.prepare(`
-    INSERT OR REPLACE INTO messages (id, conversation_id, role, content, tool_calls, tool_results, page_snapshots, created_at)
+    INSERT INTO messages (id, conversation_id, role, content, tool_calls, tool_results, page_snapshots, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  // 事务写入（per history-manager.js 模式）
-  const insertMany = db.transaction((msgs) => {
+  // 全量替换事务（先 DELETE 后 INSERT，原子生效）
+  const replaceAll = db.transaction((msgs) => {
+    deleteStmt.run(conversationId);
     let count = 0;
     for (const msg of msgs) {
-      const id = msg.id || generateId();
+      const id = generateId();
       const role = msg.role || 'user';
       const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content || '');
       const toolCalls = serializeToolData(msg.toolCalls || msg.tool_calls);
       const toolResults = serializeToolData(msg.toolResults || msg.tool_results);
       const pageSnapshots = serializePageSnapshots(msg.pageSnapshots || msg.page_snapshots);
-      const createdAt = msg.createdAt || msg.created_at || now;
+      // AgentMessage 有 timestamp 字段（毫秒），兼容 createdAt/created_at 两种命名
+      const createdAt = msg.createdAt || msg.created_at || msg.timestamp || Date.now();
 
       insertStmt.run(id, conversationId, role, content, toolCalls, toolResults, pageSnapshots, createdAt);
       count++;
@@ -297,14 +315,18 @@ function saveMessages(conversationId, messages) {
     return count;
   });
 
-  const count = insertMany(messages);
-  console.log('[Realm AI Conv] 保存 ' + count + ' 条消息到对话 ' + conversationId);
+  const count = replaceAll(messages);
+  console.log('[Realm AI Conv] 全量替换保存 ' + count + ' 条消息到对话 ' + conversationId);
 
   return count;
 }
 
 /**
- * 获取对话的所有消息（按 created_at 升序）
+ * 获取对话的所有消息（按 created_at 升序，rowid 稳定 tiebreak）
+ *
+ * 同一毫秒产生的多条消息按插入顺序（rowid）稳定排序：
+ * 全量替换后 rowid 即 transcript 顺序（per G-42-2）。
+ *
  * @param {string} conversationId - 对话 ID
  * @returns {Array} 消息列表
  */
@@ -315,7 +337,7 @@ function getMessages(conversationId) {
     SELECT id, conversation_id, role, content, tool_calls, tool_results, page_snapshots, created_at
     FROM messages
     WHERE conversation_id = ?
-    ORDER BY created_at ASC
+    ORDER BY created_at ASC, rowid ASC
   `).all(conversationId);
 
   // 反序列化 JSON 字段
