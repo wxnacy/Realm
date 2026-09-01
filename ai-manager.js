@@ -986,11 +986,11 @@ ${content}
    */
   _escapeXml(str) {
     return str
-      .replace(/&/g, '&')
-      .replace(/</g, '<')
-      .replace(/>/g, '>')
-      .replace(/"/g, '"')
-      .replace(/'/g, '\'');
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
   }
 
   /**
@@ -1599,6 +1599,8 @@ ${content}
       conversationStore.saveMessages(this.currentConversationId, messages);
 
       // 更新对话元数据（per D-12）
+      // 注意：updated_at 由 conversationStore.updateConversation 自动设置为当前时间，
+      // 此处传入的值会被忽略，仅作为语义标记
       const updates = {
         updated_at: Date.now(),
       };
@@ -1711,6 +1713,16 @@ ${content}
    */
   getConversations(limit = 50) {
     return conversationStore.getConversations(limit);
+  }
+
+  /**
+   * 获取指定对话的消息列表
+   *
+   * @param {string} conversationId - 对话 ID
+   * @returns {Array} 消息列表
+   */
+  getConversationMessages(conversationId) {
+    return conversationStore.getMessages(conversationId);
   }
 
   /**

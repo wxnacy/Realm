@@ -1700,7 +1700,7 @@ function registerHandlers() {
    */
   ipcMain.handle('ai:configure', async (event, config) => {
     assertTrustedSender(event);
-    if (!config || !config.apiKey) {
+    if (!config || !config.provider) {
       throw new Error('无效的配置');
     }
     if (aiManager) {
@@ -1785,7 +1785,10 @@ function registerHandlers() {
     if (!aiManager) {
       throw new Error('AI Manager 未初始化');
     }
-    return { conversation: aiManager.switchConversation(conversationId) };
+    const conversation = aiManager.switchConversation(conversationId);
+    // 从数据库加载该对话的历史消息，一并返回给渲染进程
+    const messages = aiManager.getConversationMessages(conversationId);
+    return { conversation, messages };
   });
 
   /**

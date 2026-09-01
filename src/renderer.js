@@ -6820,8 +6820,9 @@ async function switchConversation(conversationId) {
 async function createNewConversation() {
   try {
     const result = await window.realmAPI.conversationAPI.createConversation();
-    if (result && result.success !== false) {
-      state.currentConversationId = result.conversationId || result.id;
+    // IPC 返回 { conversation: { id, title, ... } }，id 嵌套在 conversation 中
+    if (result && result.conversation) {
+      state.currentConversationId = result.conversation.id;
     }
 
     // 清空当前消息
@@ -6837,12 +6838,8 @@ async function createNewConversation() {
       elements.aiContextPills.innerHTML = '';
     }
 
-    // 重置主进程 Agent 状态
-    try {
-      await window.realmAPI.ai.newConversation();
-    } catch (err) {
-      console.error('[Realm] 重置 AI 对话状态失败:', err);
-    }
+    // 注意：主进程 createNewConversation() 已完成 Agent 重建（_cleanupCurrentAgent + _recreateAgent），
+    // 无需再调用 ai.newConversation()，否则会产生重复对话记录
 
     // 刷新对话列表
     await loadConversations();
