@@ -439,17 +439,17 @@ function saveMessages(conversationId, messages) {
 | A1 | Agent.prompt() 接收数组参数时会逐条处理消息 | Pattern 2 | 可能需要逐条调用 prompt() |
 | A2 | agent.state.messages 直接赋值不会触发 LLM 调用 | Pitfall 2 | 可能需要使用其他方式注入历史 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Agent.prompt() 批量注入行为**
-   - What we know: prompt() 接收 AgentMessage[] 参数
-   - What's unclear: 批量注入时是否会为每条消息调用 LLM
-   - Recommendation: 测试 prompt() 批量注入行为，或使用 state.messages 直接赋值
+1. **Agent.prompt() 批量注入行为** — RESOLVED
+   - Conclusion: `agent.prompt(AgentMessage[])` 会触发 LLM 调用，不适合用于恢复历史消息
+   - Decision: 采用 `agent.state.messages = [...]` 直接赋值方式注入历史消息，不触发 LLM 调用
+   - Rationale: RESEARCH Pitfall 2 确认 state.messages 直接赋值不会触发 LLM；Plan 01 Task 2 按此实现
 
-2. **工具调用结果的恢复时机**
-   - What we know: 工具结果保存在 messages 的 tool_results 字段
-   - What's unclear: 恢复对话时工具结果是否需要重新执行工具
-   - Recommendation: 仅保存工具结果作为上下文，不重新执行
+2. **工具调用结果的恢复时机** — RESOLVED
+   - Conclusion: 恢复对话时仅将工具调用结果作为上下文保存，不重新执行工具
+   - Decision: tool_results 字段序列化保存到 SQLite，恢复时直接注入到 agent.state.messages
+   - Rationale: 工具结果是历史快照（如页面内容），重新执行可能返回不同结果；D-14 明确要求"保存并恢复"而非重新执行
 
 ## Environment Availability
 
