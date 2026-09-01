@@ -244,7 +244,6 @@ const state = {
   conversations: [],
   currentConversationId: null,
   convDropdownOpen: false,
-  convContextTarget: null,
 
   // @ 引用标签页状态
   contextPickerOpen: false,
@@ -6507,8 +6506,11 @@ function setupEventListeners() {
   }
   if (elements.aiConvDeleteConfirm) {
     elements.aiConvDeleteConfirm.addEventListener('click', async () => {
-      if (state.convContextTarget && state.convContextTarget.id) {
-        await deleteConversation(state.convContextTarget.id);
+      // 删除目标从 dialog dataset 读取（G-42-6）：不再依赖会被全局 closer
+      // 清空的共享状态，确认后 ai:delete-conversation IPC 必达
+      const conversationId = elements.aiConvDeleteDialog.dataset.conversationId;
+      if (conversationId) {
+        await deleteConversation(conversationId);
       }
       closeDeleteConfirm();
     });
@@ -6860,8 +6862,6 @@ function showConvContextMenu(e, conversationId, title) {
   // 移除已有菜单
   closeConvContextMenu();
 
-  state.convContextTarget = { id: conversationId, title };
-
   const menu = document.createElement('div');
   menu.className = 'context-menu ai-conv-context-menu';
   menu.id = 'aiConvContextMenuActive';
@@ -6872,7 +6872,11 @@ function showConvContextMenu(e, conversationId, title) {
   const renameItem = document.createElement('div');
   renameItem.className = 'context-menu-item';
   renameItem.textContent = '重命名';
-  renameItem.addEventListener('click', () => {
+  renameItem.addEventListener('click', (e) => {
+    // 阻断同一次点击冒泡到 document 级关闭器（G-42-5/G-42-6）：菜单挂在
+    // document.body，冒泡会被外部点击关闭器判为「面板外」关掉下拉面板
+    // （行内编辑框随之隐藏），并被 handleConvContextMenuClose 二次重入
+    e.stopPropagation();
     closeConvContextMenu();
     renameConversation(conversationId);
   });
@@ -6886,7 +6890,9 @@ function showConvContextMenu(e, conversationId, title) {
   deleteItem.className = 'context-menu-item';
   deleteItem.style.color = 'var(--danger-color)';
   deleteItem.textContent = '删除';
-  deleteItem.addEventListener('click', () => {
+  deleteItem.addEventListener('click', (e) => {
+    // 同上（G-42-5/G-42-6）：阻断冒泡，防止删除确认目标在弹框打开前被 closer 清空
+    e.stopPropagation();
     closeConvContextMenu();
     showDeleteConfirm(conversationId, title);
   });
@@ -6919,7 +6925,6 @@ function closeConvContextMenu() {
   if (existing) {
     existing.remove();
   }
-  state.convContextTarget = null;
 }
 
 /**
@@ -6995,7 +7000,9 @@ function renameConversation(conversationId) {
 function showDeleteConfirm(conversationId, title) {
   if (!elements.aiConvDeleteDialog) return;
 
-  state.convContextTarget = { id: conversationId, title };
+  // 删除目标挂在 dialog dataset（G-42-6）：确认处理器从 dataset 读取，
+  // 不再依赖会被 closeConvContextMenu 无条件清空的共享状态
+  elements.aiConvDeleteDialog.dataset.conversationId = String(conversationId);
 
   // 更新确认文案
   if (elements.aiConvDeleteMsg) {
@@ -7018,7 +7025,8 @@ function closeDeleteConfirm() {
   if (elements.aiConvDeleteDialog.close) {
     elements.aiConvDeleteDialog.close();
   }
-  state.convContextTarget = null;
+  // 清理 dataset 中的删除目标（G-42-6）
+  elements.aiConvDeleteDialog.removeAttribute('data-conversation-id');
 }
 
 /**
