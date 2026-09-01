@@ -1769,7 +1769,9 @@ function registerHandlers() {
     if (!aiManager) {
       throw new Error('AI Manager 未初始化');
     }
-    return { conversation: aiManager.createNewConversation() };
+    // createNewConversation 现为 async（per WR-05）：必须 await 拿到对话对象，
+    // 否则返回值里嵌 Promise 无法经 IPC 结构化克隆序列化
+    return { conversation: await aiManager.createNewConversation() };
   });
 
   /**

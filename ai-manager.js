@@ -1736,12 +1736,14 @@ ${content}
    *
    * a. 调用 conversationStore.createConversation()
    * b. 清理旧 Agent 实例
-   * c. 创建新 Agent 实例
+   * c. await 创建新 Agent 实例（与 switchConversation 一致——_recreateAgent
+   *    为异步，不等待则同步帧内 this.agent 恒为 null，创建后快速发送消息
+   *    会触发 prompt 守卫二次重建，产生双 Agent/双重订阅竞态，per WR-05）
    * d. 设置 currentConversationId
    *
-   * @returns {Object} 创建的对话对象
+   * @returns {Promise<Object>} 创建的对话对象
    */
-  createNewConversation() {
+  async createNewConversation() {
     // 保存当前对话
     if (this.currentConversationId && this.agent) {
       try {
@@ -1765,8 +1767,8 @@ ${content}
     // 清理旧 Agent 实例
     this._cleanupCurrentAgent();
 
-    // 创建新 Agent 实例
-    this._recreateAgent();
+    // 创建新 Agent 实例（必须 await：理由同 switchConversation，per WR-05）
+    await this._recreateAgent();
 
     // 更新状态
     this.currentConversationId = conversation.id;
