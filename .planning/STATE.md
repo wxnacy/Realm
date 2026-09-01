@@ -67,6 +67,10 @@ Recent decisions affecting current work:
 - [Research]: SSRF 防护贯穿 search-manager + web_fetch（isPrivateIp + safeFetch）
 - [Research]: turndown 唯一新增 npm 依赖（HTML 转 Markdown）
 
+### Roadmap Evolution
+
+- Phase 42 added: AI 历史对话功能调研与 pi-agent 集成方案
+
 ### Pending Todos
 
 None yet.
@@ -88,6 +92,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-27T03:33:47.803Z
-Stopped at: Phase 40 complete, ready to plan Phase 41
-Resume file: /Users/wxnacy/Projects/Realm/.planning/phases/41-web-fetch-ui/41-UI-SPEC.md
+Last session: 2026-08-28
+Stopped at: Phase 42 context gathered
+Resume file: /Users/wxnacy/Projects/Realm/.planning/phases/42-ai-pi-agent/42-CONTEXT.md
