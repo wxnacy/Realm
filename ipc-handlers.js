@@ -1745,6 +1745,85 @@ function registerHandlers() {
     return { success: true };
   });
 
+  // ==================== AI 对话管理 IPC 通道 ====================
+
+  /**
+   * 获取对话列表
+   * @param {number} [limit=50] - 返回数量上限
+   * @returns {Promise<{conversations: Array}>}
+   */
+  ipcMain.handle('ai:get-conversations', async (event, limit) => {
+    assertTrustedSender(event);
+    if (!aiManager) {
+      return { conversations: [] };
+    }
+    return { conversations: aiManager.getConversations(limit) };
+  });
+
+  /**
+   * 创建新对话
+   * @returns {Promise<{conversation: Object}>}
+   */
+  ipcMain.handle('ai:create-conversation', async (event) => {
+    assertTrustedSender(event);
+    if (!aiManager) {
+      throw new Error('AI Manager 未初始化');
+    }
+    return { conversation: aiManager.createNewConversation() };
+  });
+
+  /**
+   * 切换对话
+   * @param {string} conversationId - 目标对话 ID
+   * @returns {Promise<{conversation: Object}>}
+   */
+  ipcMain.handle('ai:switch-conversation', async (event, conversationId) => {
+    assertTrustedSender(event);
+    if (!conversationId || typeof conversationId !== 'string') {
+      throw new Error('对话 ID 不能为空');
+    }
+    if (!aiManager) {
+      throw new Error('AI Manager 未初始化');
+    }
+    return { conversation: aiManager.switchConversation(conversationId) };
+  });
+
+  /**
+   * 删除对话
+   * @param {string} conversationId - 要删除的对话 ID
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('ai:delete-conversation', async (event, conversationId) => {
+    assertTrustedSender(event);
+    if (!conversationId || typeof conversationId !== 'string') {
+      throw new Error('对话 ID 不能为空');
+    }
+    if (!aiManager) {
+      throw new Error('AI Manager 未初始化');
+    }
+    return { success: aiManager.deleteConversation(conversationId) };
+  });
+
+  /**
+   * 重命名对话
+   * @param {string} conversationId - 对话 ID
+   * @param {string} newTitle - 新标题
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('ai:rename-conversation', async (event, conversationId, newTitle) => {
+    assertTrustedSender(event);
+    if (!conversationId || typeof conversationId !== 'string') {
+      throw new Error('对话 ID 不能为空');
+    }
+    if (!newTitle || typeof newTitle !== 'string') {
+      throw new Error('标题不能为空');
+    }
+    if (!aiManager) {
+      throw new Error('AI Manager 未初始化');
+    }
+    return { success: aiManager.renameConversation(conversationId, newTitle) };
+  });
+
   // ==================== 播放器窗口状态 ====================
 
   /** @type {BrowserWindow|null} 播放器窗口引用（D-20 窗口复用） */
