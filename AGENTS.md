@@ -204,6 +204,15 @@ window.open(url, '_blank');
 - 显隐切换用具体的 `'flex'/'block'/'none'` 值，不要依赖 `''` 回落到 markup 状态
 - 同理不要在内联 style 里写 `mask-image`（单色品牌图标因此改用 `<img>` + 白色圆角底板，见 `model-family.js iconHtml`；白字形图标如 kimi 用 `.ai-icon-dark-tile` 深色底板，dark 标记在词典数据里）
 
+### 弹框居中约定（所有弹框必须显示在屏幕中央）
+
+全局约定：**以后所有弹框都必须显示在屏幕中央**（源自删除确认框三次钉在左上角的事故）。主窗口（`file://` 加载，无 CSP）统一用原生 `<dialog>` 元素 + `showModal()`/`close()` 控制显隐：
+
+- dialog 的类规则必须**显式声明 `margin: auto`**——`main.css` 的全局 `* { margin: 0 }` 重置会清掉 UA stylesheet 的 `dialog { margin: auto }` 居中。既有正确参照：`.modal`、`.download-delete-modal`、`.download-clear-modal`、`.ai-conv-delete-dialog`（均显式 margin: auto）
+- **绝不要把全屏 div 遮罩类（如 `.ai-modal-overlay`：position:fixed; inset:0; flex 居中）用到 `<dialog>` 元素上**——UA 的 fit-content 尺寸 + inset 全 0 过约束解析会把盒子钉在 `top:0; left:0`；dialog 的遮罩压暗用 `::backdrop` 承接
+- 不要用 `width/height: 100%` 撑满视口的「补全 overlay」方案——UA `dialog:modal` 的 max-width/max-height（`calc(100% - 6px - 2em)`）会截断盒子导致偏心（Electron 43 实测偏移 19px，已否决）
+- `realm://` 内部页面（CSP `style-src 'self'`）不适用本条：继续用 div 遮罩 + JS CSSOM `display` 切换，初始隐藏走 CSS 类（与上方「内部页面 CSP」小节衔接）
+
 ### AI 供应商模型分组与品牌图标
 
 设置页 AI 分区的模型列表按「品牌家族」分组（如 Qwen 3 / Qwen Max / GLM 4.6）：
