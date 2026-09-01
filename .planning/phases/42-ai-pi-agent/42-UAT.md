@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 42-ai-pi-agent
 source: [42-VERIFICATION.md]
 started: 2026-09-01T15:20:00Z
-updated: 2026-09-01T15:37:30Z
+updated: 2026-09-01T15:44:02Z
 note: 第 2 轮 UAT — G-42-1..7 缺口修复（42-03/04/05）+ 代码评审修复（CR-01/WR-04/WR-05）后的复测；第 1 轮记录见 git 历史（commit b950211）
 ---
 
@@ -82,5 +82,16 @@ blocked: 0
   reason: "User reported: 如果有工具调用，AI回复内容跑到了工具标签下边，然后工具标签上边出现一个空的消息气泡"
   severity: major
   test: 3
-  artifacts: []
-  missing: []
+  root_cause: "历史恢复路径消息分组与实时路径不一致：pi-agent-core 每次供应商响应落一条 assistant 行，含工具调用回合为三行（assistant content='' + tool_calls → toolResult → assistant content=最终文本）。getMessages（ai-conversations-manager.js:536-596）按行 1:1 映射不合并同回合相邻 assistant 行，纯工具行产出 content:'' 显示消息；renderAIMessages（src/renderer.js:7394）无条件创建气泡且无空内容守卫，main.css 给 AI 气泡背景+padding 使空 div 可见。恢复渲染即：空气泡 → 工具卡片 → 第二气泡（最终文本）。存储行序正确，仅历史恢复路径受影响。"
+  artifacts:
+    - path: "ai-conversations-manager.js"
+      issue: "getMessages（536-596）行级 1:1 映射、无同回合 assistant 行合并，产出空 content 显示消息（根因）"
+    - path: "src/renderer.js"
+      issue: "renderAIMessages（7394-7492）无空 content 气泡守卫，空气泡因此可见（叠加因素）"
+    - path: "src/styles/main.css"
+      issue: "5531-5557 AI 气泡背景+padding 使空 div 可见（呈现因素，不必改）"
+  missing:
+    - "getMessages 读出侧合并同一 AI 回合：纯工具 assistant 行 + 其后最终文本 assistant 行合并为一条显示消息（content=最终文本、toolExecutions=卡片）；或在渲染层对连续 assistant 显示消息按回合分组"
+    - "renderAIMessages 加空 content 气泡守卫（assistant 且 content 为空时跳过气泡 div，仅渲染工具卡片容器）"
+    - "约束：getAgentMessages 的注入形状不得随动（上下文注入依赖行级结构，CR-01 形状）"
+  debug_session: ".planning/debug/tool-card-empty-bubble.md"
