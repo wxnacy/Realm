@@ -7023,19 +7023,25 @@ function closeDeleteConfirm() {
 
 /**
  * 删除对话
+ * 删除当前对话不再自动补建（per D-06 修订 / G-42-1）：
+ * 与主进程置空语义对齐，允许到达「暂无对话」空状态
  * @param {string} conversationId - 要删除的对话 ID
  */
 async function deleteConversation(conversationId) {
   try {
     await window.realmAPI.conversationAPI.deleteConversation(conversationId);
 
-    // 如果删除的是当前对话，自动创建新对话
+    // 删除的是当前对话：置空当前对话引用并清空消息列表（对齐主进程语义）
     if (conversationId === state.currentConversationId) {
-      await createNewConversation();
-    } else {
-      // 仅刷新列表
-      await loadConversations();
+      state.currentConversationId = null;
+      state.aiMessages = [];
+      if (elements.aiMessageList) {
+        elements.aiMessageList.innerHTML = '';
+      }
     }
+
+    // 无条件刷新列表：空库时 renderConvList 渲染「暂无对话」空状态
+    await loadConversations();
 
     console.log('[Realm Renderer] 对话已删除:', conversationId);
   } catch (err) {
@@ -7755,17 +7761,28 @@ async function handleSendAIMessage() {
 
   // 调用 AI API 发送消息
   try {
+    let result = null;
     if (referencedTabs.length > 0 && window.realmAPI.ai && window.realmAPI.ai.promptWithContext) {
       // 有 @ 引用：提取 webview 内容并通过新 IPC 发送
       const tabsWithContent = await extractReferencedTabsContent(referencedTabs);
-      await window.realmAPI.ai.promptWithContext({
+      result = await window.realmAPI.ai.promptWithContext({
         message: text,
         referencedTabs: tabsWithContent
       });
     } else {
       // 无 @ 引用：走原有通道
-      await window.realmAPI.ai.prompt(text);
+      result = await window.realmAPI.ai.prompt(text);
     }
+
+    // 采纳主进程回传的对话 id（per G-42-2）：首条消息惰性建行后
+    // renderer 才能高亮正确的当前对话
+    if (result && result.conversationId) {
+      state.currentConversationId = result.conversationId;
+    }
+
+    // 本轮 run 结束后刷新对话列表（per G-42-2）：下拉打开时记录/标题/
+    // 消息数立即可见；关闭时下次打开由 toggleConvDropdown 既有刷新兜底
+    await loadConversations();
   } catch (err) {
     console.error('[Realm Renderer] AI 发送消息失败:', err);
     state.aiStreaming = false;

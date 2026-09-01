@@ -1635,7 +1635,7 @@ function registerHandlers() {
   /**
    * 发送用户消息给 AI Agent
    * @param {string} message - 用户输入的消息
-   * @returns {Promise<{success: boolean}>}
+   * @returns {Promise<{success: boolean, conversationId: string|null}>} conversationId 为本轮对话 id（首条消息惰性建行后回传 renderer，per G-42-2），失败时为 null
    */
   ipcMain.handle('ai:prompt', async (event, message) => {
     assertTrustedSender(event);
@@ -1645,8 +1645,8 @@ function registerHandlers() {
     if (!aiManager) {
       throw new Error('AI Manager 未初始化');
     }
-    await aiManager.prompt(message);
-    return { success: true };
+    const conversationId = await aiManager.prompt(message);
+    return { success: true, conversationId };
   });
 
   /**
@@ -1654,7 +1654,7 @@ function registerHandlers() {
    * @param {Object} data - 消息数据
    * @param {string} data.message - 用户消息
    * @param {Array} data.referencedTabs - 引用的标签页列表
-   * @returns {Promise<{success: boolean}>}
+   * @returns {Promise<{success: boolean, conversationId: string|null}>} conversationId 为本轮对话 id（per G-42-2），失败时为 null
    */
   ipcMain.handle('ai:prompt-with-context', async (event, data) => {
     assertTrustedSender(event);
@@ -1664,8 +1664,8 @@ function registerHandlers() {
     if (!aiManager) {
       throw new Error('AI Manager 未初始化');
     }
-    await aiManager.promptWithContext(data.message, data.referencedTabs || []);
-    return { success: true };
+    const conversationId = await aiManager.promptWithContext(data.message, data.referencedTabs || []);
+    return { success: true, conversationId };
   });
 
   /**
