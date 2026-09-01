@@ -587,8 +587,14 @@ function getMessages(conversationId) {
  *   不读 usage/stopReason/api 等 provenance 字段
  * - toolResult 行 → { role:'toolResult', toolCallId, toolName,
  *   content:[text 块], isError/details（有则带）, timestamp }；
- *   tool_results 列缺失或无 toolCallId 的行跳过（无法与 toolCall 配对，
- *   注入会破坏 provider API 的消息配对约束）
+ *   tool_results 列缺失或无 toolCallId 的行跳过（元数据无从重建）
+ * - 配对完整性（per CR-01）：provider API 要求 toolCall 与其 toolResult
+ *   严格配对，任一侧缺失请求即被拒绝。第一遍扫描收集两侧配对键后：
+ *   - assistant 行中无 toolResult 配对的孤儿 toolCall，紧随该行合成占位
+ *     toolResult 补齐配对（保留「工具运行过」的历史语义；旧格式行
+ *     tool_results 列恒为 NULL、超限截断/行损坏均落入此分支）
+ *   - 反向孤儿（toolCallId 无任何 assistant toolCall 引用）的 toolResult
+ *     行跳过，配对在两个方向上都闭合
  * - assistant 行 content 全空（无文本无工具调用）时跳过——空 content 块
  *   数组可能被 provider API 拒绝
  * - 旧格式 JSON 块数组行同样经 parseStoredContent 兼容；thinking 块
@@ -603,6 +609,23 @@ function getAgentMessages(conversationId) {
   /** @type {Array} AgentMessage 形状消息 */
   const agentMessages = [];
 
+  // 第一遍扫描：收集两侧配对键（per CR-01）
+  // - resultCallIds：toolResult 行能读出的 toolCallId 集合
+  // - assistantCallIds：assistant 行 toolCall 块引用的 id 集合
+  const resultCallIds = new Set();
+  const assistantCallIds = new Set();
+  for (const row of rows) {
+    if (row.role === 'toolResult') {
+      const meta = safeJsonParse(row.tool_results, null);
+      if (meta && meta.toolCallId) resultCallIds.add(meta.toolCallId);
+    } else if (row.role === 'assistant') {
+      const rowCalls = parseStoredContent(row.content, safeJsonParse(row.tool_calls, [])).toolCalls;
+      for (const call of rowCalls) {
+        if (call && call.id) assistantCallIds.add(call.id);
+      }
+    }
+  }
+
   for (const row of rows) {
     const fallbackCalls = safeJsonParse(row.tool_calls, []);
     const parsed = parseStoredContent(row.content, fallbackCalls);
@@ -612,8 +635,13 @@ function getAgentMessages(conversationId) {
       if (parsed.text) {
         content.push({ type: 'text', text: parsed.text });
       }
+      /** @type {Array} 无 toolResult 配对的孤儿 toolCall（按块序） */
+      const orphanCalls = [];
       for (const call of parsed.toolCalls) {
+        // 无 id 的坏块永远无法配对，直接跳过（注入同样会被 provider 拒绝）
+        if (!call || !call.id) continue;
         const { id, name, arguments: args, ...rest } = call;
+        if (!resultCallIds.has(id)) orphanCalls.push({ id, name });
         // 原样保留 id/name/arguments 及其余块字段（如 thoughtSignature）
         content.push({ type: 'toolCall', id, name, arguments: args != null ? args : {}, ...rest });
       }
@@ -629,12 +657,26 @@ function getAgentMessages(conversationId) {
         stopReason: 'stop',
         timestamp: row.created_at,
       });
+
+      // 孤儿 toolCall 紧随其后合成占位 toolResult，维持 provider 配对约束
+      //（旧格式行 tool_results 列恒为 NULL、超限截断/行损坏时无配对元数据）
+      for (const orphan of orphanCalls) {
+        agentMessages.push({
+          role: 'toolResult',
+          toolCallId: orphan.id,
+          toolName: orphan.name || '',
+          content: [{ type: 'text', text: '（历史工具结果未记录）' }],
+          timestamp: row.created_at,
+        });
+      }
       continue;
     }
 
     if (row.role === 'toolResult') {
       const meta = safeJsonParse(row.tool_results, null);
       if (!meta || !meta.toolCallId) continue;
+      // 反向孤儿（无任何 assistant toolCall 引用该 id）同样跳过
+      if (!assistantCallIds.has(meta.toolCallId)) continue;
 
       const msg = {
         role: 'toolResult',
