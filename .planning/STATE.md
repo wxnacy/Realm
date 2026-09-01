@@ -5,16 +5,16 @@ milestone_name: AI 网络搜索功能
 current_phase: 42
 current_phase_name: AI 历史对话管理功能
 status: executing
-stopped_at: Completed 42-03-PLAN.md（对话生命周期缺陷修复 G-42-1/G-42-2）
-last_updated: "2026-09-01T13:40:26.789Z"
+stopped_at: Completed 42-04-PLAN.md（消息格式与上下文恢复修复 G-42-3/G-42-4）
+last_updated: "2026-09-01T13:55:05.923Z"
 last_activity: 2026-09-01
 last_activity_desc: Phase 42 execution started
-state_head: 375f3a4929bd9790d2d4b4c6af333ff546f3288b
+state_head: 0ce2e870f184cc49792312d80e4db9feb27e2195
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 10
-  completed_plans: 8
+  completed_plans: 9
   percent: 67
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 42 (AI 历史对话管理功能) — EXECUTING
-Plan: 4 of 5（42-01/02/03 已完成并产出 SUMMARY，下一个待执行 42-04）
+Plan: 5 of 5（42-01/02/03/04 已完成并产出 SUMMARY，下一个待执行 42-05）
 Status: Ready to execute
-Last activity: 2026-09-01 — Completed 42-03-PLAN.md（对话生命周期缺陷修复 G-42-1/G-42-2）
+Last activity: 2026-09-01 — Completed 42-04-PLAN.md（消息格式与上下文恢复修复 G-42-3/G-42-4）
 
 Progress: [███████░░░] 67%
 
@@ -52,7 +52,7 @@ Progress: [███████░░░] 67%
 | 39. Vimium 键盘操作 | 4 | — | — |
 | 40 | 3 | - | - |
 | 41 | 2 | - | - |
-| 42 | 3 | 18min | 6min |
+| 42 | 4 | 24min | 6min |
 
 *Updated after each plan completion*
 **Per-Plan Metrics:**
@@ -60,6 +60,7 @@ Progress: [███████░░░] 67%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 42 P03 | 5min | 3 tasks | 5 files |
+| Phase 42 P04 | 6min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Recent decisions affecting current work:
 - [Research]: turndown 唯一新增 npm 依赖（HTML 转 Markdown）
 - [Phase 42]: 对话创建惰性化：启动/打开面板不建行，首条消息或显式「新对话」才产生对话行，删除不补建（D-06 修订，G-42-1） — UAT G-42-1：启动自动产生的 0 消息「新对话」垃圾行违反用户预期，空状态「暂无对话」必须可达
 - [Phase 42]: saveMessages 全量替换事务 + getConversations LEFT JOIN COUNT message_count + prompt 响应回传 conversationId（G-42-2） — pi-ai AgentMessage 无顶层稳定 id，INSERT OR REPLACE 每次保存重复插入（6 条消息 14 行）；列表需真实消息数与对话 id 高亮
+- [Phase 42]: 消息存储管线归一化：写入侧按角色提取（assistant 纯文本+tool_calls 结构化，thinking 不落盘）+ 显示/注入双形状读出 + 旧 JSON 行读时兼容不迁移（G-42-3） — 库数据自解释，读取端无需猜测格式；历史脏数据零迁移成本
+- [Phase 42]: switchConversation 改 async 并 await _recreateAgent 后注入 getAgentMessages 历史（AgentMessage 形状，toolResult 按 D-14 参与上下文），IPC 对应 await（G-42-4） — 同步帧内 agent 恒 null 致注入守卫恒 false，是上下文丢失根因
 
 ### Roadmap Evolution
 
@@ -101,6 +104,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-01T13:40:26.701Z
-Stopped at: Completed 42-03-PLAN.md（对话生命周期缺陷修复 G-42-1/G-42-2）
+Last session: 2026-09-01T13:55:05.838Z
+Stopped at: Completed 42-04-PLAN.md（消息格式与上下文恢复修复 G-42-3/G-42-4）
 Resume file: None

@@ -225,14 +225,14 @@ Phases execute in numeric order: 40 → 41
 | 39. Vimium 键盘操作功能 | v2.4 | 4/4 | Complete | 2026-08-24 |
 | 40. 搜索基础设施 + web_search 工具 | v2.5 | 3/3 | Complete    | 2026-08-28 |
 | 41. web_fetch 工具 + 搜索配置 UI | v2.5 | 2/2 | Complete    | 2026-08-27 |
-| 42. AI 历史对话管理功能 | v2.5 | 3/5 | In Progress|  |
+| 42. AI 历史对话管理功能 | v2.5 | 4/5 | In Progress|  |
 
 ### Phase 42: AI 历史对话管理功能
 
 **Goal:** 为 AI 助手添加历史对话管理功能，用户可以查看、新建、恢复和删除历史对话
 **Requirements**: CONV-01, CONV-02, CONV-03, CONV-04
 **Depends on:** Phase 41
-**Plans:** 3/5 plans executed (2 complete + 3 gap closure)
+**Plans:** 4/5 plans executed (2 complete + 3 gap closure)
 
 Plans:
 **Wave 1**
@@ -249,7 +249,7 @@ Plans:
 
 **Gap Closure Wave 2** *(blocked on Gap Closure Wave 1)*
 
-- [ ] 42-04-PLAN.md — 消息格式归一化 + 上下文恢复（G-42-3 AI 回复渲染原始 JSON + G-42-4 切换对话后上下文丢失：存储归一化 + 双形状读取 + switchConversation await 注入）
+- [x] 42-04-PLAN.md — 消息格式归一化 + 上下文恢复（G-42-3 AI 回复渲染原始 JSON + G-42-4 切换对话后上下文丢失：存储归一化 + 双形状读取 + switchConversation await 注入）
 
 **Gap Closure Wave 3** *(blocked on Gap Closure Wave 2)*
 
