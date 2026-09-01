@@ -25,6 +25,7 @@ const favoritesManager = require('./favorites-manager');
 const windowManager = require('./window-manager');
 const cdpManager = require('./cdp-manager');
 const searchManager = require('./search-manager');
+const conversationStore = require('./ai-conversations-manager');
 
 // ==================== Readability 库缓存 ====================
 
@@ -565,6 +566,10 @@ class AIManager {
     this.activeProvider = null;
     /** @type {string|null} 当前激活模型 ID */
     this.activeModelId = null;
+    /** @type {string|null} 当前对话 ID */
+    this.currentConversationId = null;
+    /** @type {Object} 当前对话元数据 */
+    this.conversationMeta = {};
   }
 
   /**
@@ -723,6 +728,24 @@ class AIManager {
 
       // 设置事件广播（per D-05~D-08）
       this._setupEventBroadcasting();
+
+      // 初始化对话存储（per D-01）
+      try {
+        conversationStore.initDatabase();
+      } catch (err) {
+        console.error('[Realm AI] 对话存储初始化失败:', err.message);
+      }
+
+      // 创建默认对话
+      if (!this.currentConversationId) {
+        const conv = conversationStore.createConversation({
+          title: '新对话',
+          model: model.id,
+          provider: activeProvider,
+        });
+        this.currentConversationId = conv.id;
+        this.conversationMeta = { model: model.id, provider: activeProvider };
+      }
 
       console.log(`[Realm AI] AI Manager 初始化完成: ${activeProvider}/${model.id}`);
     } catch (err) {
@@ -1095,6 +1118,13 @@ ${content}
             sendNow({ type: 'message_update', content: finalText });
           }
           sendNow({ type: 'turn_end' });
+
+          // 保存当前对话消息到数据库（per D-11）
+          try {
+            this.saveCurrentConversation();
+          } catch (err) {
+            console.error('[Realm AI] 保存对话消息失败:', err.message);
+          }
           break;
         }
 
@@ -1484,13 +1514,267 @@ ${content}
   /**
    * 开始新对话
    *
-   * 重置 Agent 的对话状态：清空消息 transcript、流式状态和排队消息，
-   * 保留 systemPrompt/模型/工具配置。用户在聊天面板点击「新对话」时调用。
+   * 创建新的对话记录并重置 Agent 的对话状态。
+   * 用户在聊天面板点击「新对话」时调用。
    */
   newConversation() {
+    this.createNewConversation();
+  }
+
+  // ==================== 对话管理方法 ====================
+
+  /**
+   * 切换对话（per D-09 一对话一实例模式）
+   *
+   * 核心逻辑：
+   * a. 保存当前消息到数据库
+   * b. 销毁旧 Agent 实例
+   * c. 从数据库加载目标对话消息
+   * d. 创建新 Agent 实例
+   * e. 通过 agent.state.messages 直接注入历史消息
+   * f. 设置 currentConversationId
+   *
+   * @param {string} conversationId - 目标对话 ID
+   * @returns {Object} 切换后的对话对象
+   */
+  switchConversation(conversationId) {
+    if (!conversationId || typeof conversationId !== 'string') {
+      throw new Error('对话 ID 不能为空');
+    }
+
+    // 获取目标对话
+    const targetConversation = conversationStore.getConversation(conversationId);
+    if (!targetConversation) {
+      throw new Error('对话不存在: ' + conversationId);
+    }
+
+    // 保存当前对话消息
+    if (this.currentConversationId && this.agent) {
+      try {
+        this.saveCurrentConversation();
+      } catch (err) {
+        console.warn('[Realm AI] 保存当前对话失败:', err.message);
+      }
+    }
+
+    // 清理旧 Agent 实例
+    this._cleanupCurrentAgent();
+
+    // 从数据库加载目标对话消息
+    const messages = conversationStore.getMessages(conversationId);
+
+    // 创建新 Agent 实例
+    this._recreateAgent();
+
+    // 注入历史消息（per RESEARCH Pitfall 2，直接赋值不触发 LLM）
+    if (this.agent && messages.length > 0) {
+      this.agent.state.messages = messages;
+    }
+
+    // 更新状态
+    this.currentConversationId = conversationId;
+    this.conversationMeta = {
+      model: targetConversation.model,
+      provider: targetConversation.provider,
+    };
+
+    console.log('[Realm AI] 已切换对话: ' + conversationId + ' (' + targetConversation.title + ')');
+
+    return targetConversation;
+  }
+
+  /**
+   * 保存当前对话消息到数据库（per D-11）
+   *
+   * 获取 agent.state.messages，提取元数据，调用 conversationStore.saveMessages()
+   */
+  saveCurrentConversation() {
+    if (!this.currentConversationId || !this.agent) return;
+
+    try {
+      const messages = this.agent.state.messages || [];
+      if (messages.length === 0) return;
+
+      // 保存消息到数据库
+      conversationStore.saveMessages(this.currentConversationId, messages);
+
+      // 更新对话元数据（per D-12）
+      const updates = {
+        updated_at: Date.now(),
+      };
+      if (this.conversationMeta.model) {
+        updates.model = this.conversationMeta.model;
+      }
+      if (this.conversationMeta.provider) {
+        updates.provider = this.conversationMeta.provider;
+      }
+      conversationStore.updateConversation(this.currentConversationId, updates);
+    } catch (err) {
+      console.error('[Realm AI] 保存对话消息失败:', err.message);
+    }
+  }
+
+  /**
+   * 创建新对话（per D-04 标题默认截取首条用户消息前 30 字符）
+   *
+   * a. 调用 conversationStore.createConversation()
+   * b. 清理旧 Agent 实例
+   * c. 创建新 Agent 实例
+   * d. 设置 currentConversationId
+   *
+   * @returns {Object} 创建的对话对象
+   */
+  createNewConversation() {
+    // 保存当前对话
+    if (this.currentConversationId && this.agent) {
+      try {
+        this.saveCurrentConversation();
+      } catch (err) {
+        console.warn('[Realm AI] 保存当前对话失败:', err.message);
+      }
+    }
+
+    // 获取当前模型配置
+    const modelId = this.activeModelId || null;
+    const provider = this.activeProvider || null;
+
+    // 创建新对话记录
+    const conversation = conversationStore.createConversation({
+      title: '新对话',
+      model: modelId,
+      provider: provider,
+    });
+
+    // 清理旧 Agent 实例
+    this._cleanupCurrentAgent();
+
+    // 创建新 Agent 实例
+    this._recreateAgent();
+
+    // 更新状态
+    this.currentConversationId = conversation.id;
+    this.conversationMeta = { model: modelId, provider: provider };
+
+    console.log('[Realm AI] 创建新对话: ' + conversation.id);
+
+    return conversation;
+  }
+
+  /**
+   * 删除对话（per D-16 仅手动删除，无自动清理）
+   *
+   * 如果删除的是当前对话，先创建新对话。
+   *
+   * @param {string} conversationId - 要删除的对话 ID
+   * @returns {boolean} 是否删除成功
+   */
+  deleteConversation(conversationId) {
+    if (!conversationId || typeof conversationId !== 'string') {
+      throw new Error('对话 ID 不能为空');
+    }
+
+    // 如果删除的是当前对话，先创建新对话
+    if (conversationId === this.currentConversationId) {
+      this.createNewConversation();
+    }
+
+    const success = conversationStore.deleteConversation(conversationId);
+    if (success) {
+      console.log('[Realm AI] 删除对话: ' + conversationId);
+    }
+    return success;
+  }
+
+  /**
+   * 重命名对话
+   *
+   * @param {string} conversationId - 对话 ID
+   * @param {string} newTitle - 新标题
+   * @returns {boolean} 是否更新成功
+   */
+  renameConversation(conversationId, newTitle) {
+    if (!conversationId || typeof conversationId !== 'string') {
+      throw new Error('对话 ID 不能为空');
+    }
+    if (!newTitle || typeof newTitle !== 'string') {
+      throw new Error('标题不能为空');
+    }
+
+    return conversationStore.updateConversation(conversationId, { title: newTitle });
+  }
+
+  /**
+   * 获取对话列表
+   *
+   * @param {number} [limit=50] - 返回数量上限
+   * @returns {Array} 对话列表
+   */
+  getConversations(limit = 50) {
+    return conversationStore.getConversations(limit);
+  }
+
+  /**
+   * 清理当前 Agent 实例
+   * abort + unsubscribe + nullify
+   * @private
+   */
+  _cleanupCurrentAgent() {
     if (this.agent) {
-      this.agent.reset();
-      console.log('[Realm AI] 对话状态已重置（新对话）');
+      try {
+        this.agent.abort();
+      } catch (err) {
+        // 忽略 abort 错误
+      }
+      this.agent = null;
+    }
+    this.isProcessing = false;
+  }
+
+  /**
+   * 重新创建 Agent 实例
+   * 复用现有 init 逻辑中的 Agent 创建代码
+   * @private
+   */
+  async _recreateAgent() {
+    if (!this.models || !this.isInitialized) {
+      console.warn('[Realm AI] 无法重建 Agent：Models 未初始化');
+      return;
+    }
+
+    try {
+      const { Agent } = await import('@earendil-works/pi-agent-core');
+
+      // 获取当前模型
+      const modelId = this.activeModelId;
+      const providerId = this.activeProvider;
+      const model = modelId && providerId
+        ? this.models.getModel(providerId, modelId)
+        : null;
+
+      if (!model) {
+        console.error('[Realm AI] 无法重建 Agent：模型不存在');
+        return;
+      }
+
+      this.agent = new Agent({
+        initialState: {
+          systemPrompt: REALM_SYSTEM_PROMPT,
+          model,
+          tools: this.tools,
+        },
+        streamFn: this.models.streamSimple.bind(this.models),
+        convertToLlm: (messages) => {
+          return messages.filter(msg =>
+            msg.role === 'user' || msg.role === 'assistant' || msg.role === 'toolResult'
+          );
+        },
+        transformContext: this._compactContext.bind(this),
+      });
+
+      // 重新设置事件广播
+      this._setupEventBroadcasting();
+    } catch (err) {
+      console.error('[Realm AI] 重建 Agent 失败:', err.message);
     }
   }
 

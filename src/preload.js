@@ -999,6 +999,47 @@ contextBridge.exposeInMainWorld('realmAPI', {
     newConversation: () => ipcRenderer.invoke('ai:new-conversation'),
   },
 
+  /**
+   * AI 对话管理 API
+   * 提供对话的创建、切换、删除和重命名功能
+   */
+  conversationAPI: {
+    /**
+     * 获取对话列表
+     * @param {number} [limit=50] - 返回数量上限
+     * @returns {Promise<{conversations: Array}>}
+     */
+    getConversations: (limit) => ipcRenderer.invoke('ai:get-conversations', limit),
+
+    /**
+     * 创建新对话
+     * @returns {Promise<{conversation: Object}>}
+     */
+    createConversation: () => ipcRenderer.invoke('ai:create-conversation'),
+
+    /**
+     * 切换对话
+     * @param {string} id - 目标对话 ID
+     * @returns {Promise<{conversation: Object}>}
+     */
+    switchConversation: (id) => ipcRenderer.invoke('ai:switch-conversation', id),
+
+    /**
+     * 删除对话
+     * @param {string} id - 要删除的对话 ID
+     * @returns {Promise<{success: boolean}>}
+     */
+    deleteConversation: (id) => ipcRenderer.invoke('ai:delete-conversation', id),
+
+    /**
+     * 重命名对话
+     * @param {string} id - 对话 ID
+     * @param {string} title - 新标题
+     * @returns {Promise<{success: boolean}>}
+     */
+    renameConversation: (id, title) => ipcRenderer.invoke('ai:rename-conversation', id, title),
+  },
+
   // ==================== 搜索配置 ====================
 
   /**
