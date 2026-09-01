@@ -133,6 +133,15 @@ const elements = {
   aiNewChatBtn: document.getElementById('aiNewChatBtn'),
   aiModelSelector: document.getElementById('aiModelSelector'),
 
+  // 对话历史管理
+  aiHistoryBtn: document.getElementById('aiHistoryBtn'),
+  aiConvDropdown: document.getElementById('aiConvDropdown'),
+  aiConvList: document.getElementById('aiConvList'),
+  aiConvDeleteDialog: document.getElementById('aiConvDeleteDialog'),
+  aiConvDeleteMsg: document.getElementById('aiConvDeleteMsg'),
+  aiConvDeleteCancel: document.getElementById('aiConvDeleteCancel'),
+  aiConvDeleteConfirm: document.getElementById('aiConvDeleteConfirm'),
+
   // @ 引用标签页
   aiContextPills: document.getElementById('aiContextPills'),
   contextPickerPanel: document.getElementById('contextPickerPanel'),
@@ -230,6 +239,12 @@ const state = {
   aiCurrentMessageId: null,
   aiAutoScroll: true,
   aiCancelledByUser: false,
+
+  // 对话管理状态
+  conversations: [],
+  currentConversationId: null,
+  convDropdownOpen: false,
+  convContextTarget: null,
 
   // @ 引用标签页状态
   contextPickerOpen: false,
@@ -6478,6 +6493,38 @@ function setupEventListeners() {
     elements.aiModelSelector.addEventListener('keydown', handleModelSelectorKeydown);
   }
 
+  // 对话历史按钮
+  if (elements.aiHistoryBtn) {
+    elements.aiHistoryBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleConvDropdown();
+    });
+  }
+
+  // 对话删除确认按钮
+  if (elements.aiConvDeleteCancel) {
+    elements.aiConvDeleteCancel.addEventListener('click', closeDeleteConfirm);
+  }
+  if (elements.aiConvDeleteConfirm) {
+    elements.aiConvDeleteConfirm.addEventListener('click', async () => {
+      if (state.convContextTarget && state.convContextTarget.id) {
+        await deleteConversation(state.convContextTarget.id);
+      }
+      closeDeleteConfirm();
+    });
+  }
+
+  // 点击外部关闭对话下拉面板和右键菜单
+  document.addEventListener('click', (e) => {
+    // 关闭对话下拉面板
+    if (state.convDropdownOpen &&
+        !elements.aiConvDropdown.contains(e.target) &&
+        !elements.aiHistoryBtn.contains(e.target)) {
+      closeConvDropdown();
+    }
+    // 关闭右键菜单（由 showConvContextMenu 内部管理）
+  });
+
   // AI 输入框键盘事件（Enter 发送，Shift+Enter 换行）
   if (elements.aiInput) {
     elements.aiInput.addEventListener('keydown', handleAIInputKeydown);
@@ -6602,31 +6649,401 @@ let aiModelsData = null;
 let aiModelSelectorOpen = false;
 
 /**
- * 新对话：清空聊天消息列表，重置对话状态
- * 必须同时重置主进程 Agent 的 transcript 和 renderer 的 state.aiMessages——
- * 否则再次发送时旧消息仍在 LLM 上下文中，且会随 renderAIMessages 重新渲染
+ * 新对话按钮点击处理
+ * 委托给 createNewConversation 完成对话创建和状态重置
  */
 async function handleNewConversation() {
-  // 清空 renderer 消息数据源（renderAIMessages 的渲染来源）
-  state.aiMessages = [];
-  if (elements.aiMessageList) {
-    elements.aiMessageList.innerHTML = '';
-  }
-  state.aiStreaming = false;
-  state.aiCurrentMessageId = null;
-  state.aiCancelledByUser = false;
-  // 清除引用的标签页
-  state.referencedTabs = [];
-  if (elements.aiContextPills) {
-    elements.aiContextPills.innerHTML = '';
-  }
-  // 重置主进程 Agent 的对话状态（transcript/流式/队列）
+  await createNewConversation();
+}
+
+// ==================== 对话管理功能 ====================
+
+/**
+ * 从主进程加载对话列表并渲染
+ * 调用 conversationAPI 获取所有对话，更新 state.conversations，然后渲染列表
+ */
+async function loadConversations() {
   try {
-    await window.realmAPI.ai.newConversation();
+    const result = await window.realmAPI.conversationAPI.getConversations();
+    if (result && result.success !== false) {
+      state.conversations = result.conversations || result || [];
+    }
   } catch (err) {
-    console.error('[Realm] 重置 AI 对话状态失败:', err);
+    console.error('[Realm Renderer] 加载对话列表失败:', err);
+    state.conversations = [];
   }
-  console.log('[Realm] AI 新对话已开始');
+  renderConvList();
+}
+
+/**
+ * 渲染对话列表到 #aiConvList
+ * 空列表时显示「暂无对话」引导文案
+ * 按 updated_at 降序排列，当前对话高亮
+ * 对话标题截断为 30 字符 + ellipsis
+ */
+function renderConvList() {
+  if (!elements.aiConvList) return;
+
+  elements.aiConvList.innerHTML = '';
+
+  // 空状态
+  if (!state.conversations || state.conversations.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'ai-conv-empty';
+
+    const title = document.createElement('div');
+    title.className = 'ai-conv-empty-title';
+    title.textContent = '暂无对话';
+
+    const hint = document.createElement('div');
+    hint.textContent = '点击「新对话」开始与 AI 交流';
+
+    empty.appendChild(title);
+    empty.appendChild(hint);
+    elements.aiConvList.appendChild(empty);
+    return;
+  }
+
+  // 按 updated_at 降序排列
+  const sorted = [...state.conversations].sort((a, b) => {
+    return new Date(b.updated_at || b.updatedAt || 0) - new Date(a.updated_at || a.updatedAt || 0);
+  });
+
+  sorted.forEach(conv => {
+    const item = document.createElement('div');
+    item.className = 'ai-conv-item' + (conv.id === state.currentConversationId ? ' active' : '');
+    item.dataset.conversationId = conv.id;
+
+    const title = document.createElement('div');
+    title.className = 'ai-conv-item-title';
+    // 标题截断为 30 字符
+    const convTitle = conv.title || '新对话';
+    title.textContent = convTitle.length > 30 ? convTitle.substring(0, 30) + '...' : convTitle;
+    title.title = convTitle;
+
+    const meta = document.createElement('div');
+    meta.className = 'ai-conv-item-meta';
+    const date = new Date(conv.updated_at || conv.updatedAt || conv.created_at || conv.createdAt || Date.now());
+    const dateStr = date.toLocaleDateString('zh-CN');
+    const msgCount = conv.message_count || conv.messageCount || 0;
+    meta.textContent = `${dateStr} · ${msgCount} 条消息`;
+
+    item.appendChild(title);
+    item.appendChild(meta);
+
+    // 点击切换对话
+    item.addEventListener('click', () => {
+      switchConversation(conv.id);
+    });
+
+    // 右键菜单
+    item.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showConvContextMenu(e, conv.id, convTitle);
+    });
+
+    elements.aiConvList.appendChild(item);
+  });
+}
+
+/**
+ * 切换对话列表下拉面板的显示/隐藏
+ */
+function toggleConvDropdown() {
+  state.convDropdownOpen = !state.convDropdownOpen;
+
+  if (state.convDropdownOpen) {
+    elements.aiConvDropdown.style.display = 'flex';
+    elements.aiHistoryBtn.classList.add('active');
+    loadConversations();
+  } else {
+    elements.aiConvDropdown.style.display = 'none';
+    elements.aiHistoryBtn.classList.remove('active');
+  }
+}
+
+/**
+ * 关闭对话列表下拉面板
+ */
+function closeConvDropdown() {
+  if (!state.convDropdownOpen) return;
+  state.convDropdownOpen = false;
+  elements.aiConvDropdown.style.display = 'none';
+  elements.aiHistoryBtn.classList.remove('active');
+}
+
+/**
+ * 切换到指定对话
+ * @param {string} conversationId - 目标对话 ID
+ */
+async function switchConversation(conversationId) {
+  if (conversationId === state.currentConversationId) {
+    closeConvDropdown();
+    return;
+  }
+
+  try {
+    // 调用主进程切换对话
+    const result = await window.realmAPI.conversationAPI.switchConversation(conversationId);
+
+    state.currentConversationId = conversationId;
+
+    // 清空当前消息列表
+    state.aiMessages = [];
+    if (elements.aiMessageList) {
+      elements.aiMessageList.innerHTML = '';
+    }
+    state.aiStreaming = false;
+    state.aiCurrentMessageId = null;
+    state.aiCancelledByUser = false;
+
+    // 加载目标对话的消息
+    if (result && result.messages && result.messages.length > 0) {
+      state.aiMessages = result.messages;
+      renderAIMessages();
+    }
+
+    // 更新对话列表高亮
+    renderConvList();
+    closeConvDropdown();
+
+    console.log('[Realm Renderer] 已切换到对话:', conversationId);
+  } catch (err) {
+    console.error('[Realm Renderer] 切换对话失败:', err);
+  }
+}
+
+/**
+ * 创建新对话
+ * 调用主进程创建对话，更新当前对话 ID，刷新列表
+ */
+async function createNewConversation() {
+  try {
+    const result = await window.realmAPI.conversationAPI.createConversation();
+    if (result && result.success !== false) {
+      state.currentConversationId = result.conversationId || result.id;
+    }
+
+    // 清空当前消息
+    state.aiMessages = [];
+    if (elements.aiMessageList) {
+      elements.aiMessageList.innerHTML = '';
+    }
+    state.aiStreaming = false;
+    state.aiCurrentMessageId = null;
+    state.aiCancelledByUser = false;
+    state.referencedTabs = [];
+    if (elements.aiContextPills) {
+      elements.aiContextPills.innerHTML = '';
+    }
+
+    // 重置主进程 Agent 状态
+    try {
+      await window.realmAPI.ai.newConversation();
+    } catch (err) {
+      console.error('[Realm] 重置 AI 对话状态失败:', err);
+    }
+
+    // 刷新对话列表
+    await loadConversations();
+
+    console.log('[Realm Renderer] 新对话已创建');
+  } catch (err) {
+    console.error('[Realm Renderer] 创建新对话失败:', err);
+  }
+}
+
+/**
+ * 显示对话右键菜单
+ * @param {MouseEvent} e - 鼠标事件
+ * @param {string} conversationId - 对话 ID
+ * @param {string} title - 对话标题
+ */
+function showConvContextMenu(e, conversationId, title) {
+  // 移除已有菜单
+  closeConvContextMenu();
+
+  state.convContextTarget = { id: conversationId, title };
+
+  const menu = document.createElement('div');
+  menu.className = 'context-menu ai-conv-context-menu';
+  menu.id = 'aiConvContextMenuActive';
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+
+  // 重命名选项
+  const renameItem = document.createElement('div');
+  renameItem.className = 'context-menu-item';
+  renameItem.textContent = '重命名';
+  renameItem.addEventListener('click', () => {
+    closeConvContextMenu();
+    renameConversation(conversationId);
+  });
+
+  // 分隔线
+  const separator = document.createElement('div');
+  separator.className = 'context-menu-separator';
+
+  // 删除选项
+  const deleteItem = document.createElement('div');
+  deleteItem.className = 'context-menu-item';
+  deleteItem.style.color = 'var(--danger-color)';
+  deleteItem.textContent = '删除';
+  deleteItem.addEventListener('click', () => {
+    closeConvContextMenu();
+    showDeleteConfirm(conversationId, title);
+  });
+
+  menu.appendChild(renameItem);
+  menu.appendChild(separator);
+  menu.appendChild(deleteItem);
+
+  document.body.appendChild(menu);
+
+  // 点击外部关闭菜单
+  setTimeout(() => {
+    document.addEventListener('click', handleConvContextMenuClose);
+  }, 0);
+}
+
+/**
+ * 关闭对话右键菜单的全局点击处理器
+ */
+function handleConvContextMenuClose() {
+  closeConvContextMenu();
+  document.removeEventListener('click', handleConvContextMenuClose);
+}
+
+/**
+ * 关闭对话右键菜单
+ */
+function closeConvContextMenu() {
+  const existing = document.getElementById('aiConvContextMenuActive');
+  if (existing) {
+    existing.remove();
+  }
+  state.convContextTarget = null;
+}
+
+/**
+ * 重命名对话
+ * 将对话标题替换为可编辑的 input 输入框
+ * @param {string} conversationId - 对话 ID
+ */
+function renameConversation(conversationId) {
+  const item = elements.aiConvList.querySelector(`[data-conversation-id="${conversationId}"]`);
+  if (!item) return;
+
+  const titleEl = item.querySelector('.ai-conv-item-title');
+  if (!titleEl) return;
+
+  const currentTitle = titleEl.title || titleEl.textContent;
+
+  // 创建输入框
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = currentTitle;
+  input.style.cssText = `
+    width: 100%;
+    background: var(--bg-primary);
+    border: 1px solid var(--accent-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 14px;
+    padding: 2px 6px;
+    outline: none;
+  `;
+
+  // 替换标题元素
+  titleEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  const submitRename = async () => {
+    const newTitle = input.value.trim();
+    if (newTitle && newTitle !== currentTitle) {
+      try {
+        await window.realmAPI.conversationAPI.renameConversation(conversationId, newTitle);
+        // 更新本地状态
+        const conv = state.conversations.find(c => c.id === conversationId);
+        if (conv) {
+          conv.title = newTitle;
+        }
+      } catch (err) {
+        console.error('[Realm Renderer] 重命名对话失败:', err);
+      }
+    }
+    renderConvList();
+  };
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submitRename();
+    } else if (e.key === 'Escape') {
+      renderConvList();
+    }
+  });
+
+  input.addEventListener('blur', () => {
+    submitRename();
+  });
+}
+
+/**
+ * 显示删除确认对话框
+ * @param {string} conversationId - 对话 ID
+ * @param {string} title - 对话标题
+ */
+function showDeleteConfirm(conversationId, title) {
+  if (!elements.aiConvDeleteDialog) return;
+
+  state.convContextTarget = { id: conversationId, title };
+
+  // 更新确认文案
+  if (elements.aiConvDeleteMsg) {
+    elements.aiConvDeleteMsg.textContent = `确定要删除「${title}」吗？此操作不可撤销。`;
+  }
+
+  // 显示对话框
+  elements.aiConvDeleteDialog.style.display = 'flex';
+  if (elements.aiConvDeleteDialog.showModal) {
+    elements.aiConvDeleteDialog.showModal();
+  }
+}
+
+/**
+ * 关闭删除确认对话框
+ */
+function closeDeleteConfirm() {
+  if (!elements.aiConvDeleteDialog) return;
+  elements.aiConvDeleteDialog.style.display = 'none';
+  if (elements.aiConvDeleteDialog.close) {
+    elements.aiConvDeleteDialog.close();
+  }
+  state.convContextTarget = null;
+}
+
+/**
+ * 删除对话
+ * @param {string} conversationId - 要删除的对话 ID
+ */
+async function deleteConversation(conversationId) {
+  try {
+    await window.realmAPI.conversationAPI.deleteConversation(conversationId);
+
+    // 如果删除的是当前对话，自动创建新对话
+    if (conversationId === state.currentConversationId) {
+      await createNewConversation();
+    } else {
+      // 仅刷新列表
+      await loadConversations();
+    }
+
+    console.log('[Realm Renderer] 对话已删除:', conversationId);
+  } catch (err) {
+    console.error('[Realm Renderer] 删除对话失败:', err);
+  }
 }
 
 /**
@@ -6889,7 +7306,7 @@ function handleModelSelectorKeydown(e) {
 /**
  * 切换 AI 面板的显示/隐藏状态
  * 同时更新按钮激活态和面板可见性，持久化状态到 electron-store
- * 打开时加载持久化的面板宽度（D-04, D-17）
+ * 打开时加载持久化的面板宽度（D-04, D-17）并自动创建新对话（per D-06）
  */
 function toggleAIPanel() {
   state.aiPanelOpen = !state.aiPanelOpen;
@@ -6900,8 +7317,12 @@ function toggleAIPanel() {
     loadAIPanelWidth();
     // 加载模型选择器数据
     loadModelSelectorData();
+    // 加载对话列表
+    loadConversations();
   } else {
     elements.aiPanel.classList.add('hidden');
+    // 关闭对话下拉面板
+    closeConvDropdown();
   }
 
   elements.aiPanelBtn.classList.toggle('active', state.aiPanelOpen);
