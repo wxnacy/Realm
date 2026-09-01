@@ -5,17 +5,17 @@ milestone_name: AI 网络搜索功能
 current_phase: 42
 current_phase_name: AI 历史对话管理功能
 status: executing
-stopped_at: Phase 42 complete — all phases complete
-last_updated: "2026-09-01T13:27:17.528Z"
+stopped_at: Completed 42-03-PLAN.md（对话生命周期缺陷修复 G-42-1/G-42-2）
+last_updated: "2026-09-01T13:40:26.789Z"
 last_activity: 2026-09-01
 last_activity_desc: Phase 42 execution started
-state_head: 25e20903df445d5157691a39978fadfbdd8b8224
+state_head: 375f3a4929bd9790d2d4b4c6af333ff546f3288b
 progress:
   total_phases: 3
-  completed_phases: 3
+  completed_phases: 2
   total_plans: 10
-  completed_plans: 7
-  percent: 70
+  completed_plans: 8
+  percent: 67
 ---
 
 # Project State: Realm Browser
@@ -30,11 +30,11 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 42 (AI 历史对话管理功能) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 42
-Last activity: 2026-09-01 — Phase 42 execution started
+Plan: 4 of 5（42-01/02/03 已完成并产出 SUMMARY，下一个待执行 42-04）
+Status: Ready to execute
+Last activity: 2026-09-01 — Completed 42-03-PLAN.md（对话生命周期缺陷修复 G-42-1/G-42-2）
 
-Progress: [█████░░░░░] 50%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -52,9 +52,14 @@ Progress: [█████░░░░░] 50%
 | 39. Vimium 键盘操作 | 4 | — | — |
 | 40 | 3 | - | - |
 | 41 | 2 | - | - |
-| 42 | 2 | - | - |
+| 42 | 3 | 18min | 6min |
 
 *Updated after each plan completion*
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 42 P03 | 5min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -68,6 +73,8 @@ Recent decisions affecting current work:
 - [Research]: search-manager.js 独立模块，委托 ai-manager 工具注册
 - [Research]: SSRF 防护贯穿 search-manager + web_fetch（isPrivateIp + safeFetch）
 - [Research]: turndown 唯一新增 npm 依赖（HTML 转 Markdown）
+- [Phase 42]: 对话创建惰性化：启动/打开面板不建行，首条消息或显式「新对话」才产生对话行，删除不补建（D-06 修订，G-42-1） — UAT G-42-1：启动自动产生的 0 消息「新对话」垃圾行违反用户预期，空状态「暂无对话」必须可达
+- [Phase 42]: saveMessages 全量替换事务 + getConversations LEFT JOIN COUNT message_count + prompt 响应回传 conversationId（G-42-2） — pi-ai AgentMessage 无顶层稳定 id，INSERT OR REPLACE 每次保存重复插入（6 条消息 14 行）；列表需真实消息数与对话 id 高亮
 
 ### Roadmap Evolution
 
@@ -94,6 +101,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-01T05:34:00.113Z
-Stopped at: Phase 42 complete — all phases complete
-Resume file: /Users/wxnacy/Projects/Realm/.planning/phases/42-ai-pi-agent/42-UI-SPEC.md
+Last session: 2026-09-01T13:40:26.701Z
+Stopped at: Completed 42-03-PLAN.md（对话生命周期缺陷修复 G-42-1/G-42-2）
+Resume file: None
