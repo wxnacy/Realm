@@ -766,6 +766,12 @@
     <div class="ai-panel-header" id="aiPanelHeader">
       <span class="ai-panel-title">AI 助手</span>
       <div class="ai-panel-header-actions">
+        <button class="btn-icon ai-history-btn" id="aiHistoryBtn" title="对话历史">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+        </button>
         <button class="btn-icon" id="aiSettingsBtn" title="AI 设置">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3"></circle>
@@ -777,6 +783,15 @@
             <path d="M18 6L6 18M6 6l12 12"></path>
           </svg>
         </button>
+      </div>
+    </div>
+    <!-- 对话历史下拉面板 -->
+    <div class="ai-conv-dropdown" id="aiConvDropdown" style="display:none">
+      <div class="ai-conv-dropdown-header">
+        <span class="ai-conv-dropdown-title">对话历史</span>
+      </div>
+      <div class="ai-conv-list" id="aiConvList">
+        <!-- 对话项由 JS 动态生成 -->
       </div>
     </div>
     <div class="ai-message-list" id="aiMessageList">
@@ -915,6 +930,22 @@
       </div>
     </div>
   </div>
+
+  <!-- 对话删除确认对话框 -->
+  <dialog class="ai-modal-overlay" id="aiConvDeleteDialog">
+    <div class="ai-modal" style="max-width: 360px">
+      <div class="ai-modal-header">
+        <h3>删除对话</h3>
+      </div>
+      <p id="aiConvDeleteMsg" style="padding: 16px; color: var(--text-secondary); font-size: 14px; line-height: 1.5;">
+        确定要删除此对话吗？此操作不可撤销。
+      </p>
+      <div style="display: flex; gap: 8px; justify-content: flex-end; padding: 0 16px 16px;">
+        <button class="ai-modal-cancel-btn" id="aiConvDeleteCancel" style="padding: 8px 16px; border-radius: 6px; font-size: 14px; background: var(--bg-tertiary); color: var(--text-primary);">取消</button>
+        <button class="ai-modal-confirm-btn" id="aiConvDeleteConfirm" style="padding: 8px 16px; border-radius: 6px; font-size: 14px; background: var(--danger-color); color: #fff;">删除</button>
+      </div>
+    </div>
+  </dialog>
 
   <script src="ai-brand-map.js"></script>
   <script src="model-family.js"></script>
