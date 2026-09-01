@@ -4,17 +4,17 @@ milestone: v2.5
 milestone_name: AI 网络搜索功能
 current_phase: 42
 current_phase_name: AI 历史对话管理功能
-status: executing
-stopped_at: Completed 42-04-PLAN.md（消息格式与上下文恢复修复 G-42-3/G-42-4）
-last_updated: "2026-09-01T13:55:05.923Z"
+status: verifying
+stopped_at: Completed 42-05-PLAN.md（对话右键菜单与删除确认框交互修复 G-42-5/G-42-6/G-42-7）
+last_updated: "2026-09-01T14:07:30.305Z"
 last_activity: 2026-09-01
 last_activity_desc: Phase 42 execution started
-state_head: 0ce2e870f184cc49792312d80e4db9feb27e2195
+state_head: 5574452439c9b6d6ba09a0f9d6261910dbf97986
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 10
-  completed_plans: 9
+  completed_plans: 10
   percent: 67
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 
 Phase: 42 (AI 历史对话管理功能) — EXECUTING
 Plan: 5 of 5（42-01/02/03/04 已完成并产出 SUMMARY，下一个待执行 42-05）
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-01 — Completed 42-04-PLAN.md（消息格式与上下文恢复修复 G-42-3/G-42-4）
 
 Progress: [███████░░░] 67%
@@ -61,6 +61,7 @@ Progress: [███████░░░] 67%
 |------|----------|-------|-------|
 | Phase 42 P03 | 5min | 3 tasks | 5 files |
 | Phase 42 P04 | 6min | 2 tasks | 3 files |
+| Phase 42 P05 | 6min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,8 @@ Recent decisions affecting current work:
 - [Phase 42]: saveMessages 全量替换事务 + getConversations LEFT JOIN COUNT message_count + prompt 响应回传 conversationId（G-42-2） — pi-ai AgentMessage 无顶层稳定 id，INSERT OR REPLACE 每次保存重复插入（6 条消息 14 行）；列表需真实消息数与对话 id 高亮
 - [Phase 42]: 消息存储管线归一化：写入侧按角色提取（assistant 纯文本+tool_calls 结构化，thinking 不落盘）+ 显示/注入双形状读出 + 旧 JSON 行读时兼容不迁移（G-42-3） — 库数据自解释，读取端无需猜测格式；历史脏数据零迁移成本
 - [Phase 42]: switchConversation 改 async 并 await _recreateAgent 后注入 getAgentMessages 历史（AgentMessage 形状，toolResult 按 D-14 参与上下文），IPC 对应 await（G-42-4） — 同步帧内 agent 恒 null 致注入守卫恒 false，是上下文丢失根因
+- [Phase 42]: 删除确认目标结构化传参：showDeleteConfirm 写 dialog dataset，确认处理器读 dataset，state.convContextTarget 字段整体移除——彻底解除对会被 document 级 closer 清空的共享状态的依赖（G-42-6） — 确认流程不再依赖可被全局 closer 重置的共享可变状态；菜单项点击在 target 阶段显式关菜单，冒泡阻断后 closer 仅服务真正的面板外点击（G-42-5/G-42-6 诊断首选方案）
+- [Phase 42]: 主窗口弹框统一原生 dialog + showModal()/close() + 类规则显式 margin:auto + ::backdrop 遮罩；禁止全屏 div 遮罩类用于 dialog；realm:// 页面 CSP 豁免——已沉淀 AGENTS.md「弹框居中约定」小节（G-42-7 用户明确要求） — 全局 * { margin: 0 } 会清掉 UA 的 dialog margin:auto 居中；width/height:100% 撑满方案已被 Electron 43 实测否决（UA max 尺寸截断致 19px 偏心），与 .modal/下载弹窗项目惯例一致
 
 ### Roadmap Evolution
 
@@ -104,6 +107,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-01T13:55:05.838Z
-Stopped at: Completed 42-04-PLAN.md（消息格式与上下文恢复修复 G-42-3/G-42-4）
+Last session: 2026-09-01T14:07:20.482Z
+Stopped at: Completed 42-05-PLAN.md（对话右键菜单与删除确认框交互修复 G-42-5/G-42-6/G-42-7）
 Resume file: None
