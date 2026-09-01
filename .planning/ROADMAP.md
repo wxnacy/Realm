@@ -232,7 +232,7 @@ Phases execute in numeric order: 40 → 41
 **Goal:** 为 AI 助手添加历史对话管理功能，用户可以查看、新建、恢复和删除历史对话
 **Requirements**: CONV-01, CONV-02, CONV-03, CONV-04
 **Depends on:** Phase 41
-**Plans:** 5/5 plans executed (2 complete + 3 gap closure)
+**Plans:** 6 plans — 5 executed (2 complete + 3 gap closure) + 1 round-2 UAT gap closure
 
 Plans:
 **Wave 1**
@@ -254,3 +254,7 @@ Plans:
 **Gap Closure Wave 3** *(blocked on Gap Closure Wave 2)*
 
 - [x] 42-05-PLAN.md — 菜单/确认框交互修复 + 弹框居中（G-42-5 重命名无响应 + G-42-6 删除未生效 + G-42-7 确认框在左上角 + AGENTS.md 弹框居中约定）
+
+**Gap Closure Wave 4** *(第 2 轮 UAT 缺陷修复，blocked on Gap Closure Wave 3)*
+
+- [ ] 42-06-PLAN.md — 历史恢复工具回合分组修复（G-42-8 工具卡片上方空气泡 + AI 文本跑到卡片下方：getMessages 同回合 assistant 行合并 + renderAIMessages 空内容守卫，注入形状不变）
