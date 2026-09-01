@@ -1,5 +1,5 @@
 ---
-status: testing
+status: diagnosed
 phase: 42-ai-pi-agent
 source: [42-01-SUMMARY.md, 42-02-SUMMARY.md]
 started: 2026-09-01T06:56:16Z
@@ -117,10 +117,19 @@ blocked: 1
   reason: "User reported: 消息记录是存在的，但是展示的AI消息回复是 json 没有格式成 markdown 和 工具调用"
   severity: major
   test: 3
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "AI 消息持久化管线未归一化 pi-agent-core 的内容块数组：saveCurrentConversation（ai-manager.js:1599）直接持久化原始 agent.state.messages；AssistantMessage.content 恒为块数组（pi-ai dist/types.d.ts:309），ai-conversations-manager.js:288 的 typeof === 'string' 判断恒走 JSON.stringify 分支，块数组序列化为原始 JSON 存入 messages.content；getMessages（322-327）原样返回不解析，renderAIMessages（renderer.js:7430）把整个 JSON 字符串交给 marked.parse。实时路径正常仅因 _extractText（ai-manager.js:1145-1151）在事件层已提取纯文本。工具调用丢失三因：ToolCall 块埋在 JSON 字符串里；SDK 消息无顶层 toolCalls 字段（tool_calls 列恒 null，已查库确认）；恢复行缺渲染器工具卡片所需 toolExecutions 字段（renderer.js:7453）。历史行已是 JSON 格式，需读取侧兼容或迁移"
+  artifacts:
+    - path: "ai-manager.js"
+      issue: "1599 保存时未提取文本直接持久化原始 SDK 消息（agent_end → saveCurrentConversation，路径 1124）"
+    - path: "ai-conversations-manager.js"
+      issue: "288 非字符串 content JSON.stringify 兜底；311-328 getMessages content 不解析原样返回"
+    - path: "src/renderer.js"
+      issue: "6801-6803+7430 恢复消息直接赋 state.aiMessages 原样 markdown 渲染；7453 工具卡片需恢复行没有的 toolExecutions"
+  missing:
+    - "读取侧归一化（首选，同时恢复工具调用/思考显示）：getMessages 检测 JSON 块数组，提取 type:'text' 为显示文本，toolCall 块映射为渲染器工具卡片结构；或写入侧 saveMessages 归一化"
+    - "已存为 JSON 的历史行需兼容读取或迁移，否则旧对话仍显示 JSON"
+    - "与 G-42-2 的 saveMessages 重复 INSERT 缺陷一并规划"
+  debug_session: ".planning/debug/ai-reply-renders-raw-json.md"
 
 - gap_id: G-42-4
   truth: "从对话历史切换回某个历史对话后，继续提问时 AI 能衔接该对话之前的上下文（历史消息参与 LLM 上下文）"
@@ -128,10 +137,18 @@ blocked: 1
   reason: "User reported: 虽然消息列表加载了信息（并且没有格式化，使用的 json），但是消息没有加到上下文，对话是重新开始的"
   severity: major
   test: 4
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "ai-manager.js switchConversation()（同步方法，1540-1584）在 1567 行调用异步 _recreateAgent() 未 await：_cleanupCurrentAgent()（1561）已置 this.agent = null，而 _recreateAgent()（1750）要等动态 import（1757）完成后才在 1771 赋值 this.agent，因此 1570-1572 的历史注入守卫 if (this.agent && messages.length > 0) 恒在同步帧看到 null——数据库历史 100% 确定性从不注入 agent state。新 Agent messages 为空（pi-agent-core agent.js:28），下次 prompt()（852）仅快照 system+新消息（agent.js:280-286），LLM 完全没有历史。IPC（ipc-handlers.js:1788-1791）直接从库返回消息给 UI，形成「UI 有历史/上下文全新」分离。次要共现缺陷：即使注入成功，库行也非 AgentMessage 格式（content 为 JSON 字符串块，tool_calls/tool_results 保持 snake_case），需格式转换"
+  artifacts:
+    - path: "ai-manager.js"
+      issue: "switchConversation 1540-1584（1567 未 await _recreateAgent()；1570-1572 注入守卫恒 false）；_recreateAgent 异步 1750-1791"
+    - path: "ipc-handlers.js"
+      issue: "ai:switch-conversation 1780-1792 直接返库消息；switchConversation 改异步后需 await"
+    - path: "ai-conversations-manager.js"
+      issue: "saveMessages 264-304 / getMessages 311-328 行格式 ≠ AgentMessage（content JSON 字符串）"
+  missing:
+    - "switchConversation 改为 async 并 await this._recreateAgent() 后再注入历史；IPC 处理器对应 await"
+    - "注入前把库行转换为 pi-agent-core AgentMessage 格式（JSON.parse content、tool_calls/tool_results 转 camelCase），与 G-42-3 存储格式修复协同"
+  debug_session: ".planning/debug/switch-conversation-context-lost.md"
 
 - gap_id: G-42-5
   truth: "右键菜单点「重命名」后，对话项标题变为可编辑输入框，确认后列表立即显示新标题"
@@ -139,10 +156,14 @@ blocked: 1
   reason: "User reported: 点击重命名后列表消失后，没有任何其他反应"
   severity: major
   test: 6
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "事件冒泡竞态：renderer.js:6518-6526 的 document 级外部点击关闭处理器未把对话上下文菜单排除在关闭条件外（菜单 append 到 document.body，6898，在 #aiConvDropdown 之外），且菜单项处理器无 stopPropagation（6875-6878）。点「重命名」时 target 阶段先执行 renameConversation（6930-6988，插入行内编辑框并聚焦），同一点击随后冒泡到 document，外部点击处理器判定在面板外执行 closeConvDropdown()（6768-6773）——新建的编辑框随面板 display:none 被隐藏；隐藏带焦点元素触发 blur → submitRename()，标题未变 → renderConvList() 销毁编辑框。用户视角：面板关闭、什么都没出现。jsdom 最小复现已确认该时序。重命名后端链路完整（preload.js:1040 → ipc-handlers.js:1816 → ai-manager.js:1697 → updateConversation），排除「未实现」"
+  artifacts:
+    - path: "src/renderer.js"
+      issue: "6518-6526 外部点击关闭不排除上下文菜单；6875-6878/6889-6892 菜单项处理器缺 stopPropagation；6898 菜单挂 body；6973+6985-6987 blur→submitRename→renderConvList 二次销毁编辑框"
+  missing:
+    - "重命名/删除菜单项点击处理器加 e.stopPropagation()，或外部点击条件排除 #aiConvContextMenuActive 命中"
+    - "注意：删除项同样受此缺陷影响（与 G-42-6 交叉）；行内编辑期间保持面板打开"
+  debug_session: ".planning/debug/conversation-rename-no-response.md"
 
 - gap_id: G-42-6
   truth: "确认框点「删除」后，对话从列表移除且消息一并删除；删除当前对话后自动切换"
@@ -150,10 +171,14 @@ blocked: 1
   reason: "User reported: 点击删除后没有真的删除"
   severity: major
   test: 8
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "删除确认处理器从共享可变状态 state.convContextTarget（renderer.js:6510）读目标 id，但该状态在打开对话框的同一次点击冒泡阶段被清空：上下文菜单创建时经 setTimeout(0) 注册 document click closer（6901-6903）；点「删除」菜单项 target 阶段执行 closeConvContextMenu(); showDeleteConfirm(id, title)（6890-6891），同一点击冒泡到 document（无 stopPropagation；分发中移除菜单元素不截断事件路径），closer 再次 closeConvContextMenu() 并无条件置 state.convContextTarget = null（6922）。用户点对话框「删除」按钮时守卫 if (state.convContextTarget && state.convContextTarget.id) 为假 → deleteConversation（7028-7044）从未调用，ai:delete-conversation IPC 从未发出，对话框只是关闭——静默 no-op。jsdom 复现确认 IPC 0 次调用。后端链完整且健壮（ipc-handlers.js:1799-1807 空 id 抛错；ai-conversations-manager.js:245-254 DELETE + messages ON DELETE CASCADE），排除后端问题。与 G-42-5 同根因（缺 stopPropagation），不同后果"
+  artifacts:
+    - path: "src/renderer.js"
+      issue: "6922 closeConvContextMenu 内无条件 convContextTarget = null；6901-6912 document click closer；6889-6892 删除项处理器缺 stopPropagation；6509-6514 确认处理器读已被清空的状态"
+  missing:
+    - "结构性修复（首选）：showDeleteConfirm 把对话 id 闭包进确认处理器或存 elements.aiConvDeleteDialog.dataset，确认流程不再依赖会被 closer 清空的共享状态"
+    - "配合菜单项 stopPropagation（同 G-42-5）；删除当前对话后的自动切换/补建行为归 G-42-1 范围"
+  debug_session: ".planning/debug/conversation-delete-not-effective.md"
 
 - gap_id: G-42-7
   truth: "确认对话框（及所有弹框）显示在屏幕中央，而非左上角"
@@ -161,11 +186,17 @@ blocked: 1
   reason: "User reported: 删除框又出现在左上角，应该出现在中央。用户要求：这次修复后应记录到 AGENTS.md，以后弹框都应该显示在中央"
   severity: cosmetic
   test: 8
-  root_cause: ""
-  artifacts: []
+  root_cause: "双因叠加：① main.css:100-104 全局重置 * { margin: 0 } 覆盖了原生 <dialog> 的 UA margin:auto 居中；② 删除确认框（index.html:935）误用为 realm:// settings 全屏 div 遮罩设计的 .ai-modal-overlay 类（main.css:5124-5132：position:fixed; inset:0; flex 居中，无 margin/width/height）——UA 的 dialog fit-content 尺寸使 inset:0 拉不开盒子，flex 居中在贴内容的盒内空转；margin 为 0 + inset 全 0 + 非 auto 尺寸的过约束解析把盒子钉在 top:0; left:0。Electron 43 真实复现：当前 CSS dialog 矩形在 (0,0)，补 margin:auto 后像素级居中。这是该陷阱第三次发生——.download-delete-modal（main.css:8310）、.download-clear-modal（main.css:8369）均已带 margin:auto + 注释。width/height:100% 方案被否（UA max-width/max-height 截断致 19px 偏移）"
+  artifacts:
+    - path: "src/index.html"
+      issue: "935 <dialog class=\"ai-modal-overlay\" id=\"aiConvDeleteDialog\">：全屏 div 遮罩类误用到 dialog 元素"
+    - path: "src/styles/main.css"
+      issue: "100-104 全局 * { margin: 0 } 清掉 dialog UA 居中；5124-5132 .ai-modal-overlay 无 margin/尺寸，div 遮罩语义在 dialog 上失效"
   missing:
-    - "用户明确要求：修复后须在 AGENTS.md 记录全局约定——以后所有弹框都应显示在中央"
-  debug_session: ""
+    - "#aiConvDeleteDialog 自身规则补 margin: auto（项目惯例，与 .modal 及两个下载对话框一致），可加 border:none; padding:0; background:transparent 让内层 .ai-modal 负责外观"
+    - "settings.html 的 div 遮罩用法保持不变"
+    - "用户明确要求：修复后在 AGENTS.md 记录全局约定——以后所有弹框都显示在中央；主窗口统一原生 <dialog> + showModal() 且类规则必须显式 margin:auto（全局 *{margin:0} 会清掉 UA dialog 居中）；绝不要把全屏 div 遮罩类（.ai-modal-overlay）用到 <dialog> 上；realm:// 页面（CSP style-src 'self'）继续用 div + JS CSSOM display:flex"
+  debug_session: ".planning/debug/delete-dialog-top-left-position.md"
 
 ## Session Notes
 
