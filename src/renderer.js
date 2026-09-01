@@ -6526,6 +6526,23 @@ function setupEventListeners() {
   // AI 消息列表滚动事件（智能滚动控制）
   if (elements.aiMessageList) {
     elements.aiMessageList.addEventListener('scroll', handleAIMessageScroll);
+
+    // 拦截 AI 消息中的链接点击，在当前容器新标签页打开
+    elements.aiMessageList.addEventListener('click', (e) => {
+      const link = e.target.closest('a[href]');
+      if (!link) return;
+      const href = link.getAttribute('href');
+      if (!href) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // http(s) 链接在当前容器新标签页打开
+      if (/^https?:\/\//i.test(href)) {
+        createTab(state.currentContainer, href);
+      } else if (href.startsWith('realm://')) {
+        // realm:// 内部页面也用新标签页打开
+        createTab(state.currentContainer, href);
+      }
+    });
   }
 
   // 回到底部按钮
