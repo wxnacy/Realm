@@ -3,17 +3,12 @@ status: testing
 phase: 42-ai-pi-agent
 source: [42-01-SUMMARY.md, 42-02-SUMMARY.md]
 started: 2026-09-01T06:56:16Z
-updated: 2026-09-01T07:59:42Z
+updated: 2026-09-01T11:41:22Z
 ---
 
 ## Current Test
-<!-- OVERWRITE each test - shows where we are -->
 
-number: 3
-name: 消息持久化（重启保留）
-expected: |
-  完全退出 Realm 并重新启动应用，打开 AI 面板对话历史，之前的对话及消息记录仍然存在；点击该对话可查看历史消息。
-awaiting: user response
+[testing paused — 1 blocked item outstanding]
 
 ## Tests
 
@@ -31,36 +26,46 @@ severity: major
 
 ### 3. 消息持久化（重启保留）
 expected: 完全退出 Realm 并重新启动应用，打开 AI 面板对话历史，之前的对话及消息记录仍然存在；点击该对话可查看历史消息。
-result: [pending]
+result: issue
+reported: "之前的对话没有是新对话，这个符合预期。消息记录是存在的，但是展示的AI消息回复是 json 没有格式成 markdown 和 工具调用。"
+severity: major
 
 ### 4. 切换对话并恢复上下文
 expected: 存在第二个对话时，从对话历史点击切换回第一个对话：当前消息列表被清空并加载第一个对话的历史消息；继续提问时 AI 能衔接之前的上下文。
-result: [pending]
+result: issue
+reported: "虽然消息列表加载了信息（并且没有格式化，使用的 json），但是消息没有加到上下文，对话是重新开始的"
+severity: major
 
 ### 5. 新建对话
 expected: 通过「新对话」入口创建后，消息列表清空，对话列表出现新的「新对话」条目并成为当前高亮对话。
-result: [pending]
+result: pass
 
 ### 6. 对话重命名
 expected: 右键对话项弹出上下文菜单（重命名/删除，删除项为红色）；点击「重命名」后标题变为可编辑输入框，输入新名称确认后列表立即显示新标题。
-result: [pending]
+result: issue
+reported: "点击重命名后列表消失后，没有任何其他反应"
+severity: major
 
 ### 7. 长标题截断
 expected: 将对话标题重命名为超过 30 个字符的长文本，列表中标题截断显示省略号，不撑破列表项布局。
-result: [pending]
+result: blocked
+blocked_by: other
+reason: "因为 Test6 ，这个也没办法测试"
 
 ### 8. 删除对话（确认框）
 expected: 右键对话项选「删除」，弹出确认对话框显示「确定要删除「{title}」吗？此操作不可撤销。」；点「取消」或对话框外部不删除；点「删除」后对话从列表移除且消息一并删除；删除当前对话后自动切换。
-result: [pending]
+result: issue
+reported: "删除框又出现在左上角，应该出现在中央，并且点击删除后没有真的删除。这次修复后应该记录到 AGENTS.md 中，以后弹框都应该显示在中央"
+severity: major
 
 ## Summary
 
 total: 8
-passed: 0
-issues: 2
-pending: 6
+passed: 1
+issues: 6
+pending: 0
 skipped: 0
-blocked: 0
+blocked: 1
 
 ## Gaps
 
@@ -106,7 +111,71 @@ blocked: 0
     - "修复 saveMessages id 不稳定：重复保存应 REPLACE 而非重复插入"
   debug_session: ".planning/debug/conversation-list-not-refreshed.md"
 
+- gap_id: G-42-3
+  truth: "重启后点击历史对话查看消息记录，AI 消息回复以 markdown 格式渲染并正常展示工具调用，而非原始 JSON 文本"
+  status: failed
+  reason: "User reported: 消息记录是存在的，但是展示的AI消息回复是 json 没有格式成 markdown 和 工具调用"
+  severity: major
+  test: 3
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
+
+- gap_id: G-42-4
+  truth: "从对话历史切换回某个历史对话后，继续提问时 AI 能衔接该对话之前的上下文（历史消息参与 LLM 上下文）"
+  status: failed
+  reason: "User reported: 虽然消息列表加载了信息（并且没有格式化，使用的 json），但是消息没有加到上下文，对话是重新开始的"
+  severity: major
+  test: 4
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
+
+- gap_id: G-42-5
+  truth: "右键菜单点「重命名」后，对话项标题变为可编辑输入框，确认后列表立即显示新标题"
+  status: failed
+  reason: "User reported: 点击重命名后列表消失后，没有任何其他反应"
+  severity: major
+  test: 6
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
+
+- gap_id: G-42-6
+  truth: "确认框点「删除」后，对话从列表移除且消息一并删除；删除当前对话后自动切换"
+  status: failed
+  reason: "User reported: 点击删除后没有真的删除"
+  severity: major
+  test: 8
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
+
+- gap_id: G-42-7
+  truth: "确认对话框（及所有弹框）显示在屏幕中央，而非左上角"
+  status: failed
+  reason: "User reported: 删除框又出现在左上角，应该出现在中央。用户要求：这次修复后应记录到 AGENTS.md，以后弹框都应该显示在中央"
+  severity: cosmetic
+  test: 8
+  root_cause: ""
+  artifacts: []
+  missing:
+    - "用户明确要求：修复后须在 AGENTS.md 记录全局约定——以后所有弹框都应显示在中央"
+  debug_session: ""
+
 ## Session Notes
+
+### 2026-09-01 19:41（UAT 会话走完 — status: partial）
+
+8 项测试全部过完：1 通过 / 6 问题 / 1 blocked（Test 7 长标题截断被 Test 6 重命名失效阻塞，不单独建 gap）。G-42-1、G-42-2 沿用先前诊断；G-42-3（AI 回复渲染为原始 JSON）、G-42-4（切换对话后上下文未恢复）、G-42-5（重命名无响应）、G-42-6（删除未生效）、G-42-7（确认框在左上角）为本轮新增，待诊断。用户明确要求：弹框居中修复后写入 AGENTS.md 全局约定（已记录在 G-42-7.missing）。
+
+### 2026-09-01 19:26（Test 3 结果）
+
+Test 3 记录 issue（G-42-3）：持久化本身通过——重启后原对话与消息仍在，且未复现 G-42-1 描述的「启动自动建一条 0 消息新对话」行为（可能与工作区未提交改动 ai-manager.js/ipc-handlers.js/src/renderer.js 有关）；G-42-1 状态仍保持 failed，最终以修复计划的执行验证为准。新问题：AI 回复消息在重启后的历史视图中渲染为原始 JSON，未格式化为 markdown 与工具调用 → 新增 G-42-3（major，待诊断）。
 
 ### 2026-09-01 15:59（UAT 中途状态总结）
 
