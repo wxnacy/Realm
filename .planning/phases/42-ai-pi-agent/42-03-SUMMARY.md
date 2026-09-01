@@ -154,6 +154,12 @@ None - no external service configuration required.
 - saveMessages 已是全量替换事务，为 42-04（消息内容格式归一化 / G-42-3）与 G-42-4（切换对话上下文恢复）铺平存储层
 - REQUIREMENTS.md 无 CONV-* 条目（Phase 42 以 CONTEXT/UI-SPEC 承载需求），requirements-completed 按计划 frontmatter 记录，mark-complete 无可勾选项
 
+## Self-Check: PASSED
+
+- 全部 5 个产出文件存在于磁盘（4 个源文件 + SUMMARY.md）
+- 4 个提交均存在于 git 历史：d5b5231（Task 1）、137fae5（Task 2）、02fc5b1（Task 3）、375f3a4（SUMMARY）
+- 三个任务的全部 verify 命令与 acceptance criteria 逐项通过（含 saveMessages 重复保存冒烟测试：2 次保存 6 条消息 transcript → 仍为 6 行）
+
 ---
 *Phase: 42-ai-pi-agent*
 *Completed: 2026-09-01*
