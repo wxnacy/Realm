@@ -736,16 +736,9 @@ class AIManager {
         console.error('[Realm AI] 对话存储初始化失败:', err.message);
       }
 
-      // 创建默认对话
-      if (!this.currentConversationId) {
-        const conv = conversationStore.createConversation({
-          title: '新对话',
-          model: model.id,
-          provider: activeProvider,
-        });
-        this.currentConversationId = conv.id;
-        this.conversationMeta = { model: model.id, provider: activeProvider };
-      }
+      // 不再启动时急切创建默认对话（per D-06 修订 / G-42-1）：
+      // 对话行仅在首条用户消息（_ensureConversation 惰性建行）或
+      // 用户显式点「新对话」时产生，启动零对话行，「暂无对话」空状态可达。
 
       console.log(`[Realm AI] AI Manager 初始化完成: ${activeProvider}/${model.id}`);
     } catch (err) {
@@ -816,10 +809,10 @@ class AIManager {
    * - 使用 isProcessing 标志防止并发调用
    *
    * @param {string} message - 用户输入的消息
-   * @returns {Promise<void>}
+   * @returns {Promise<string|null>} 成功时返回当前对话 ID（惰性创建或既有），失败/早退返回 null
    */
   async prompt(message) {
-    if (!this.isInitialized || !this.agent) {
+    if (!this.isInitialized) {
       console.error('[Realm AI] AI Manager 未初始化，无法处理消息');
       // 广播错误事件：否则渲染进程流式占位符会永久卡住，且 aiStreaming 锁死后续发送
       this._sendEventsBatch([{
@@ -827,7 +820,23 @@ class AIManager {
         message: 'AI 助手未初始化，请先在「设置 → AI 助手」中配置提供商和 API Key',
         timestamp: Date.now(),
       }]);
-      return;
+      return null;
+    }
+
+    // Agent 保证（per G-42-1）：删除对话等路径会经 _cleanupCurrentAgent() 置空
+    // this.agent，此处重建而非直接早退——空状态（无任何对话）后直接发送消息
+    // 仍可恢复。惰性建行的对话无历史需要注入，全新 Agent 恰好正确（per D-09）。
+    if (!this.agent) {
+      await this._recreateAgent();
+      if (!this.agent) {
+        console.error('[Realm AI] AI Manager 未初始化，无法处理消息');
+        this._sendEventsBatch([{
+          type: 'error',
+          message: 'AI 助手未初始化，请先在「设置 → AI 助手」中配置提供商和 API Key',
+          timestamp: Date.now(),
+        }]);
+        return null;
+      }
     }
 
     // 防止并发调用
@@ -838,10 +847,26 @@ class AIManager {
         message: 'AI 正在处理上一条消息，请稍候再试',
         timestamp: Date.now(),
       }]);
-      return;
+      return null;
     }
 
     this.isProcessing = true;
+
+    // 惰性对话生命周期（per G-42-2 / D-04）：首条消息创建（或认领）对话，
+    // 标题自动取首条用户消息前 30 字符
+    try {
+      this._ensureConversation(message);
+    } catch (err) {
+      console.error('[Realm AI] 惰性创建对话失败:', err.message);
+      this.isProcessing = false;
+      this._sendEventsBatch([{
+        type: 'error',
+        message: '创建对话失败: ' + err.message,
+        timestamp: Date.now(),
+      }]);
+      return null;
+    }
+
     console.log(`[Realm AI] 发送消息: ${message}`);
 
     const maxRetries = 3;
@@ -852,7 +877,7 @@ class AIManager {
         await this.agent.prompt(message);
         await this.agent.waitForIdle();
         this.isProcessing = false;
-        return;
+        return this.currentConversationId || null;
       } catch (err) {
         const isLastAttempt = attempt === maxRetries;
 
@@ -867,7 +892,7 @@ class AIManager {
             message: err.message,
             timestamp: Date.now(),
           }]);
-          return;
+          return null;
         }
 
         console.warn(`[Realm AI] 第 ${attempt + 1} 次尝试失败，${retryDelays[attempt]}ms 后重试:`, err.message);
@@ -884,17 +909,31 @@ class AIManager {
    *
    * @param {string} message - 用户输入的消息
    * @param {Array} referencedTabs - 引用的标签页列表，每项包含 {tabId, title, url, content}
-   * @returns {Promise<void>}
+   * @returns {Promise<string|null>} 成功时返回当前对话 ID（惰性创建或既有），失败/早退返回 null
    */
   async promptWithContext(message, referencedTabs) {
-    if (!this.isInitialized || !this.agent) {
+    if (!this.isInitialized) {
       console.error('[Realm AI] AI Manager 未初始化，无法处理消息');
       this._sendEventsBatch([{
         type: 'error',
         message: 'AI 助手未初始化，请先在「设置 → AI 助手」中配置提供商和 API Key',
         timestamp: Date.now(),
       }]);
-      return;
+      return null;
+    }
+
+    // Agent 保证（per G-42-1）：同 prompt()——删除对话后直接发送可恢复
+    if (!this.agent) {
+      await this._recreateAgent();
+      if (!this.agent) {
+        console.error('[Realm AI] AI Manager 未初始化，无法处理消息');
+        this._sendEventsBatch([{
+          type: 'error',
+          message: 'AI 助手未初始化，请先在「设置 → AI 助手」中配置提供商和 API Key',
+          timestamp: Date.now(),
+        }]);
+        return null;
+      }
     }
 
     // 防止并发调用
@@ -905,10 +944,26 @@ class AIManager {
         message: 'AI 正在处理上一条消息，请稍候再试',
         timestamp: Date.now(),
       }]);
-      return;
+      return null;
     }
 
     this.isProcessing = true;
+
+    // 惰性对话生命周期（per G-42-2 / D-04）：必须传 _buildMessageWithContext
+    // 之前的原始 message，避免标题混入 XML 引用块
+    try {
+      this._ensureConversation(message);
+    } catch (err) {
+      console.error('[Realm AI] 惰性创建对话失败:', err.message);
+      this.isProcessing = false;
+      this._sendEventsBatch([{
+        type: 'error',
+        message: '创建对话失败: ' + err.message,
+        timestamp: Date.now(),
+      }]);
+      return null;
+    }
+
     console.log(`[Realm AI] 发送带上下文消息: ${message}，引用 ${referencedTabs.length} 个标签页`);
 
     try {
@@ -919,6 +974,7 @@ class AIManager {
       await this.agent.prompt(enhancedMessage);
       await this.agent.waitForIdle();
       this.isProcessing = false;
+      return this.currentConversationId || null;
     } catch (err) {
       console.error('[Realm AI] 带上下文消息处理失败:', err.message);
       this.isProcessing = false;
@@ -929,7 +985,61 @@ class AIManager {
         message: err.message,
         timestamp: Date.now(),
       }]);
+      return null;
     }
+  }
+
+  /**
+   * 惰性确保当前对话存在（per G-42-2 / D-04，D-06 修订）
+   *
+   * 两条路径：
+   * a. 无当前对话（启动后首次发送、删除最后一个对话后再次发送）：
+   *    创建对话行，标题按 D-04 派生（首条用户消息前 30 字符）。
+   * b. 已有对话但标题仍为默认值「新对话」（用户尚未显式重命名）：
+   *    更新标题为派生标题——显式「新对话」按钮建的行在首条消息落地时
+   *    也获得真实标题。
+   *
+   * @param {string} userMessageText - 原始用户消息文本（未注入 XML 引用块）
+   * @returns {string} 当前对话 ID
+   * @throws {Error} 数据库操作失败时抛出（调用方负责广播错误并复位 isProcessing）
+   * @private
+   */
+  _ensureConversation(userMessageText) {
+    const derivedTitle = this._deriveConversationTitle(userMessageText);
+
+    // 路径 a：无当前对话 → 惰性建行
+    if (!this.currentConversationId) {
+      const conv = conversationStore.createConversation({
+        title: derivedTitle,
+        model: this.activeModelId,
+        provider: this.activeProvider,
+      });
+      this.currentConversationId = conv.id;
+      this.conversationMeta = { model: this.activeModelId, provider: this.activeProvider };
+      console.log('[Realm AI] 首条消息惰性创建对话: ' + conv.id + ' (' + derivedTitle + ')');
+      return this.currentConversationId;
+    }
+
+    // 路径 b：已有对话且标题仍为默认值 → 自动改为派生标题（用户重命名过则不动）
+    const existing = conversationStore.getConversation(this.currentConversationId);
+    if (existing && existing.title === '新对话' && derivedTitle !== '新对话') {
+      conversationStore.updateConversation(this.currentConversationId, { title: derivedTitle });
+      console.log('[Realm AI] 对话标题按首条消息自动命名: ' + derivedTitle);
+    }
+
+    return this.currentConversationId;
+  }
+
+  /**
+   * 从首条用户消息派生对话标题（per D-04）
+   * 截取 trim 后的前 30 字符；空串时保持默认「新对话」
+   * @param {string} userMessageText - 原始用户消息文本
+   * @returns {string} 派生标题
+   * @private
+   */
+  _deriveConversationTitle(userMessageText) {
+    const trimmed = typeof userMessageText === 'string' ? userMessageText.trim() : '';
+    return trimmed ? trimmed.substring(0, 30) : '新对话';
   }
 
   /**
@@ -1665,7 +1775,10 @@ ${content}
   /**
    * 删除对话（per D-16 仅手动删除，无自动清理）
    *
-   * 如果删除的是当前对话，先创建新对话。
+   * 删除当前对话时清理 Agent 并置空 currentConversationId，不再自动补建
+   * （per D-06 修订 / G-42-1：允许到达「暂无对话」空状态，删除最后一个
+   * 对话后系统到达空状态；空状态后直接发送消息由 prompt 守卫重建 Agent
+   * 并经 _ensureConversation 惰性建行恢复）。
    *
    * @param {string} conversationId - 要删除的对话 ID
    * @returns {boolean} 是否删除成功
@@ -1675,9 +1788,11 @@ ${content}
       throw new Error('对话 ID 不能为空');
     }
 
-    // 如果删除的是当前对话，先创建新对话
+    // 删除当前对话：清理 Agent 并置空当前对话引用，允许到达空状态（per G-42-1）
     if (conversationId === this.currentConversationId) {
-      this.createNewConversation();
+      this._cleanupCurrentAgent();
+      this.currentConversationId = null;
+      this.conversationMeta = {};
     }
 
     const success = conversationStore.deleteConversation(conversationId);
@@ -1835,7 +1950,10 @@ ${content}
    * 返回初始化状态、当前模型和工具数量等信息。
    * 用于 UI 显示 AI 助手的连接状态。
    *
-   * @returns {{initialized: boolean, model: string|null, toolsCount: number, activeProvider: string|null}} 状态信息
+   * conversationId 为 prompt 响应之外的兜底通道（per G-42-2）：
+   * renderer 由此得知主进程的当前对话 id（无对话时为 null）。
+   *
+   * @returns {{initialized: boolean, model: string|null, toolsCount: number, activeProvider: string|null, conversationId: string|null}} 状态信息
    */
   getState() {
     let model = null;
@@ -1848,6 +1966,7 @@ ${content}
       model,
       toolsCount: this.tools.length,
       activeProvider: this.activeProvider || null,
+      conversationId: this.currentConversationId || null,
     };
   }
 
