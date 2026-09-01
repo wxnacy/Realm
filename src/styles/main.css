@@ -5131,6 +5131,22 @@ textarea::placeholder {
   z-index: 1000;
 }
 
+/* 对话删除确认框（主窗口原生 dialog + showModal 居中）：
+   全局 * { margin: 0 } 重置会清掉 UA 的 dialog margin:auto 居中，必须显式补回
+   （与 .modal / .download-delete-modal / .download-clear-modal 一致）。
+   绝不要把上面的全屏 div 遮罩类 .ai-modal-overlay 用到 dialog 元素上——
+   UA fit-content 尺寸 + inset:0 过约束解析会把盒子钉在 top:0; left:0 */
+.ai-conv-delete-dialog {
+  margin: auto;
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+
+.ai-conv-delete-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
 .ai-modal {
   background: var(--bg-secondary);
   color: var(--text-primary);

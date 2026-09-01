@@ -7009,8 +7009,8 @@ function showDeleteConfirm(conversationId, title) {
     elements.aiConvDeleteMsg.textContent = `确定要删除「${title}」吗？此操作不可撤销。`;
   }
 
-  // 显示对话框
-  elements.aiConvDeleteDialog.style.display = 'flex';
+  // 显示对话框：显隐走 showModal()/close() 原生机制，不做 style.display 手动切换
+  // （display:flex 会干扰 dialog 的 margin:auto 居中布局，见 AGENTS.md 弹框居中约定）
   if (elements.aiConvDeleteDialog.showModal) {
     elements.aiConvDeleteDialog.showModal();
   }
@@ -7021,7 +7021,6 @@ function showDeleteConfirm(conversationId, title) {
  */
 function closeDeleteConfirm() {
   if (!elements.aiConvDeleteDialog) return;
-  elements.aiConvDeleteDialog.style.display = 'none';
   if (elements.aiConvDeleteDialog.close) {
     elements.aiConvDeleteDialog.close();
   }
