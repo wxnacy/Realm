@@ -179,7 +179,7 @@ Accent reserved for: 选中对话高亮条、新对话按钮激活态
 }
 
 .ai-conv-item {
-  padding: 10px 16px;
+  padding: 8px 16px;
   cursor: pointer;
   transition: background-color 0.15s;
   border-left: 3px solid transparent;
@@ -274,16 +274,19 @@ Accent reserved for: 选中对话高亮条、新对话按钮激活态
 
 ## UI Considerations
 
-Applicable state considerations resolved: 5 covered, 1 backstop, 0 unresolved
+Applicable state considerations resolved: 9 resolved (8 explicit, 1 backstop), 0 unresolved
 
-| Category | Element(s) | Status | Resolution / Reason |
-|----------|------------|--------|---------------------|
-| empty | conversation list | covered | 空列表显示「暂无对话」+ 引导文案 |
-| loading | conversation list | covered | 列表加载时显示骨架屏或 spinner（沿用现有模式） |
-| populated | conversation list | covered | 按时间降序展示，当前对话高亮 |
-| long-text | conversation title | covered | 截断为 30 字符 + ellipsis，支持手动重命名 |
-| overflow | conversation list | covered | max-height 400px + overflow-y: auto 滚动 |
-| error | conversation load | backstop | 加载失败时 toast 提示，不阻断面板 |
+| Element | Category | Status | Resolution |
+|---------|----------|--------|------------|
+| E1 — 历史按钮/对话列表 | empty | resolved (explicit) | 空列表显示「暂无对话」+ 引导文案 |
+| E1 — 历史按钮/对话列表 | loading | resolved (explicit) | 列表加载时显示 spinner（沿用现有模式） |
+| E1 — 历史按钮/对话列表 | error | resolved (backstop) | 加载失败时 toast 提示，不阻断面板 |
+| E1 — 历史按钮/对话列表 | populated | resolved (explicit) | 按时间降序展示，当前对话高亮 |
+| E1 — 历史按钮/对话列表 | long-text | resolved (explicit) | 截断为 30 字符 + ellipsis，支持手动重命名 |
+| E2 — 对话列表下拉面板 | list | resolved (explicit) | empty/loading/populated/overflow 四态已覆盖 |
+| E3 — 对话项 | list-item | resolved (explicit) | 标准列表项交互（hover/active/click） |
+| E4 — 右键菜单 | context-menu | resolved (explicit) | 标准上下文菜单交互（重命名/删除） |
+| E5 — 删除确认框 | dialog | resolved (explicit) | 标准确认对话框交互（取消/删除） |
 
 ---
 
@@ -299,11 +302,11 @@ Applicable state considerations resolved: 5 covered, 1 backstop, 0 unresolved
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** APPROVED (2026-09-01)
