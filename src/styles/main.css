@@ -3483,6 +3483,103 @@ textarea::placeholder {
   align-items: center;
 }
 
+/* 容器筛选自定义下拉（原生 <option> 无法渲染 SVG 图标） */
+.svg-sprite-store {
+  display: none;
+}
+
+.container-select {
+  position: relative;
+}
+
+.container-select-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.container-select-btn:focus {
+  border-color: var(--accent-color);
+  outline: none;
+}
+
+.container-select-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.container-select-chevron {
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.container-select.open .container-select-chevron {
+  transform: rotate(180deg);
+}
+
+.container-select-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 180px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  padding: 4px;
+  z-index: 1000;
+}
+
+.container-select.open .container-select-menu {
+  display: block;
+}
+
+.container-select-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.container-select-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.container-select-item.active {
+  color: var(--accent-color);
+}
+
+.container-select-item .container-select-check {
+  margin-left: auto;
+  flex-shrink: 0;
+  visibility: hidden;
+}
+
+.container-select-item.active .container-select-check {
+  visibility: visible;
+}
+
 /* 过滤栏 */
 .devrequests-filters {
   display: flex;

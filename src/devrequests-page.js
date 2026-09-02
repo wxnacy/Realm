@@ -88,6 +88,9 @@ const state = {
 /** DOM 元素引用 */
 const elements = {
   containerSelect: document.getElementById('containerSelect'),
+  containerSelectBtn: document.getElementById('containerSelectBtn'),
+  containerSelectCurrent: document.getElementById('containerSelectCurrent'),
+  containerSelectMenu: document.getElementById('containerSelectMenu'),
   clearAllBtn: document.getElementById('clearAllBtn'),
   searchInput: document.getElementById('searchInput'),
   domainFilter: document.getElementById('domainFilter'),
@@ -763,13 +766,20 @@ function setupEventListeners() {
     }
   });
 
-  // 容器切换
-  elements.containerSelect.addEventListener('change', () => {
-    state.containerId = elements.containerSelect.value;
-    state.offset = 0;
-    state.expandedId = null;
-    loadRequests();
-    loadDomains();
+  // 容器下拉：按钮开合、点击外部关闭、Esc 关闭
+  elements.containerSelectBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleContainerMenu();
+  });
+  document.addEventListener('click', (e) => {
+    if (!elements.containerSelect.contains(e.target)) {
+      closeContainerMenu();
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeContainerMenu();
+    }
   });
 
   // 页面卸载时停止自动刷新
@@ -781,7 +791,148 @@ function setupEventListeners() {
 // ==================== 初始化 ====================
 
 /**
- * 加载容器列表并填充选择器
+ * 注入容器图标 SVG symbol sprite
+ * 图标以 <symbol id="realm-icon-*"> 定义在 src/icons/symbol-icons.svg，
+ * 运行时拉取并内联到页面，供 <use href="#realm-icon-xxx"> 引用。
+ * 外层容器由 CSS 类 .svg-sprite-store 隐藏（CSP 禁止内联 style 属性）。
+ */
+async function injectIconSprite() {
+  try {
+    // base href=/devrequests/ → 实际请求 /devrequests/icons/symbol-icons.svg（映射 src/icons/）
+    const res = await fetch('icons/symbol-icons.svg');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    const store = document.createElement('div');
+    store.className = 'svg-sprite-store';
+    store.innerHTML = text;
+    document.body.appendChild(store);
+  } catch (error) {
+    console.error('[Realm DevRequests] 图标 sprite 加载失败，容器图标将缺失:', error);
+  }
+}
+
+/**
+ * 构建容器图标 SVG 元素（引用 sprite 中的 symbol，着容器色）
+ * @param {string} iconId - 图标 symbol ID（如 'user'、'fingerprint'）
+ * @param {number} [size=16] - 图标尺寸
+ * @param {string} [color] - 容器颜色（symbol 描边为 currentColor，与侧边栏容器列表一致）
+ * @returns {SVGElement} 图标 DOM
+ */
+function buildContainerIcon(iconId, size = 16, color) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('width', String(size));
+  svg.setAttribute('height', String(size));
+  svg.style.flexShrink = '0';
+  if (color) {
+    svg.style.color = color;
+  }
+  const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  use.setAttribute('href', `#realm-icon-${iconId || 'fingerprint'}`);
+  svg.appendChild(use);
+  return svg;
+}
+
+/**
+ * 渲染容器下拉菜单项并回显当前选中项
+ * @param {Array<{id: string, name: string, icon: string}>} containers - 容器列表
+ */
+function renderContainerSelect(containers) {
+  const menu = elements.containerSelectMenu;
+  menu.innerHTML = '';
+
+  containers.forEach(container => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'container-select-item';
+    item.dataset.id = container.id;
+    item.setAttribute('role', 'option');
+    item.appendChild(buildContainerIcon(container.icon, 16, container.color));
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'container-select-name';
+    nameSpan.textContent = container.name || container.id;
+    item.appendChild(nameSpan);
+
+    // 选中标记
+    const check = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    check.setAttribute('class', 'container-select-check');
+    check.setAttribute('width', '14');
+    check.setAttribute('height', '14');
+    check.setAttribute('viewBox', '0 0 24 24');
+    check.setAttribute('fill', 'none');
+    check.setAttribute('stroke', 'currentColor');
+    check.setAttribute('stroke-width', '2');
+    const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    polyline.setAttribute('points', '20 6 9 17 4 12');
+    check.appendChild(polyline);
+    item.appendChild(check);
+
+    item.addEventListener('click', () => {
+      selectContainer(container.id);
+    });
+    menu.appendChild(item);
+  });
+
+  updateContainerSelectUI();
+}
+
+/**
+ * 更新下拉当前选中态（按钮回显文本 + 菜单项高亮）
+ */
+function updateContainerSelectUI() {
+  const active = elements.containerSelectMenu.querySelector(`.container-select-item[data-id="${state.containerId}"]`);
+
+  elements.containerSelectCurrent.innerHTML = '';
+  if (active) {
+    elements.containerSelectMenu.querySelectorAll('.container-select-item').forEach(el => {
+      el.classList.toggle('active', el === active);
+    });
+    // 回显图标与名称（排除选中标记；节点由本组件构建，无外部富文本）
+    Array.from(active.childNodes).forEach(node => {
+      if (node.nodeType === 1 && node.classList.contains('container-select-check')) return;
+      elements.containerSelectCurrent.appendChild(node.cloneNode(true));
+    });
+  } else {
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = state.containerId;
+    elements.containerSelectCurrent.appendChild(nameSpan);
+  }
+}
+
+/**
+ * 选择容器（含菜单关闭与数据重载）
+ * @param {string} containerId - 容器 ID
+ */
+function selectContainer(containerId) {
+  closeContainerMenu();
+  if (containerId === state.containerId) return;
+  state.containerId = containerId;
+  state.offset = 0;
+  state.expandedId = null;
+  updateContainerSelectUI();
+  loadRequests();
+  loadDomains();
+}
+
+/**
+ * 打开/关闭容器下拉菜单
+ * @param {boolean} [forceOpen] - 传入时强制为该开合状态
+ */
+function toggleContainerMenu(forceOpen) {
+  const open = forceOpen !== undefined ? forceOpen : !elements.containerSelect.classList.contains('open');
+  elements.containerSelect.classList.toggle('open', open);
+  elements.containerSelectBtn.setAttribute('aria-expanded', String(open));
+}
+
+/**
+ * 关闭容器下拉菜单
+ */
+function closeContainerMenu() {
+  toggleContainerMenu(false);
+}
+
+/**
+ * 加载容器列表并渲染自定义下拉
  * 当前容器从 URL 参数获取；若不在列表中（如 'default' 兜底），回落到第一个容器
  */
 async function loadContainers() {
@@ -791,25 +942,16 @@ async function loadContainers() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const containers = await res.json();
 
-    containers.forEach(container => {
-      const option = document.createElement('option');
-      option.value = container.id;
-      option.textContent = `${container.icon || ''} ${container.name || container.id}`.trim();
-      elements.containerSelect.appendChild(option);
-    });
-
     const ids = containers.map(c => c.id);
     if (!ids.includes(state.containerId) && ids.length > 0) {
       state.containerId = ids[0];
     }
-    elements.containerSelect.value = state.containerId;
+
+    renderContainerSelect(containers);
   } catch (error) {
     console.error('[Realm DevRequests] 加载容器列表失败:', error);
     // 兜底：至少保留当前容器选项，保证页面可用
-    const containerOption = document.createElement('option');
-    containerOption.value = state.containerId;
-    containerOption.textContent = state.containerId;
-    elements.containerSelect.appendChild(containerOption);
+    renderContainerSelect([{ id: state.containerId, name: state.containerId, icon: 'fingerprint' }]);
   }
 }
 
@@ -818,6 +960,9 @@ async function loadContainers() {
  */
 async function init() {
   console.log('[Realm DevRequests] 页面初始化');
+
+  // 先注入图标 sprite，容器下拉才能渲染 SVG 图标
+  await injectIconSprite();
 
   // 填充容器选择器（完整容器列表）
   await loadContainers();

@@ -16,8 +16,15 @@
     <div class="devrequests-header">
       <h1>API 请求记录</h1>
       <div class="devrequests-actions">
-        <select id="containerSelect" class="settings-select"></select>
-        <button class="btn btn-danger" id="clearAllBtn">清空所有请求</button>
+      <!-- 原生 <option> 无法渲染 SVG，容器图标用自定义下拉组件（devrequests-page.js） -->
+      <div class="container-select" id="containerSelect">
+        <button type="button" id="containerSelectBtn" class="container-select-btn" aria-haspopup="listbox" aria-expanded="false">
+          <span class="container-select-current" id="containerSelectCurrent"></span>
+          <svg class="container-select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+        <div class="container-select-menu" id="containerSelectMenu" role="listbox"></div>
+      </div>
+      <button class="btn btn-danger" id="clearAllBtn">清空所有请求</button>
       </div>
     </div>
 
