@@ -4,17 +4,17 @@ milestone: v2.5
 milestone_name: AI 网络搜索功能
 current_phase: 42
 current_phase_name: AI 历史对话管理功能
-status: verifying
-stopped_at: Completed 42-05-PLAN.md（对话右键菜单与删除确认框交互修复 G-42-5/G-42-6/G-42-7）
-last_updated: "2026-09-01T14:07:30.305Z"
-last_activity: 2026-09-01
+status: executing
+stopped_at: Completed 42-06-PLAN.md（G-42-8 历史恢复同回合合并与空气泡守卫）
+last_updated: "2026-09-02T01:32:59.905Z"
+last_activity: 2026-09-02
 last_activity_desc: Phase 42 execution started
-state_head: 5574452439c9b6d6ba09a0f9d6261910dbf97986
+state_head: 4254035f5012d4c90d0f9d6bc11b9db7bac3bbf7
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 11
+  completed_plans: 11
   percent: 67
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 42 (AI 历史对话管理功能) — EXECUTING
-Plan: 5 of 5（42-01/02/03/04 已完成并产出 SUMMARY，下一个待执行 42-05）
+Plan: 6 of 6（42-01..42-06 全部完成并产出 SUMMARY）
 Status: Phase complete — ready for verification
-Last activity: 2026-09-01 — Completed 42-04-PLAN.md（消息格式与上下文恢复修复 G-42-3/G-42-4）
+Last activity: 2026-09-02 — Completed 42-06-PLAN.md（G-42-8 历史恢复同回合合并与空气泡守卫）
 
 Progress: [███████░░░] 67%
 
@@ -52,7 +52,7 @@ Progress: [███████░░░] 67%
 | 39. Vimium 键盘操作 | 4 | — | — |
 | 40 | 3 | - | - |
 | 41 | 2 | - | - |
-| 42 | 4 | 24min | 6min |
+| 42 | 6 | 44min | 7min |
 
 *Updated after each plan completion*
 **Per-Plan Metrics:**
@@ -62,6 +62,7 @@ Progress: [███████░░░] 67%
 | Phase 42 P03 | 5min | 3 tasks | 5 files |
 | Phase 42 P04 | 6min | 2 tasks | 3 files |
 | Phase 42 P05 | 6min | 3 tasks | 4 files |
+| Phase 42 P06 | 20min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,7 @@ Recent decisions affecting current work:
 - [Phase 42]: switchConversation 改 async 并 await _recreateAgent 后注入 getAgentMessages 历史（AgentMessage 形状，toolResult 按 D-14 参与上下文），IPC 对应 await（G-42-4） — 同步帧内 agent 恒 null 致注入守卫恒 false，是上下文丢失根因
 - [Phase 42]: 删除确认目标结构化传参：showDeleteConfirm 写 dialog dataset，确认处理器读 dataset，state.convContextTarget 字段整体移除——彻底解除对会被 document 级 closer 清空的共享状态的依赖（G-42-6） — 确认流程不再依赖可被全局 closer 重置的共享可变状态；菜单项点击在 target 阶段显式关菜单，冒泡阻断后 closer 仅服务真正的面板外点击（G-42-5/G-42-6 诊断首选方案）
 - [Phase 42]: 主窗口弹框统一原生 dialog + showModal()/close() + 类规则显式 margin:auto + ::backdrop 遮罩；禁止全屏 div 遮罩类用于 dialog；realm:// 页面 CSP 豁免——已沉淀 AGENTS.md「弹框居中约定」小节（G-42-7 用户明确要求） — 全局 * { margin: 0 } 会清掉 UA 的 dialog margin:auto 居中；width/height:100% 撑满方案已被 Electron 43 实测否决（UA max 尺寸截断致 19px 偏心），与 .modal/下载弹窗项目惯例一致
+- [Phase 42]: G-42-8 双层修复：getMessages 同回合相邻 assistant 行合并（仅显示形状：纯工具行卡片追加/文本采纳进空 content 前条/双文本行保守不合并，锚定回合首行 id/timestamp）+ renderAIMessages 空 content 气泡守卫（流式末条占位豁免，不以工具卡片存在为前提）；getAgentMessages 注入形状零变化（D-14/CR-01 行级结构保持） — pi-agent-core 工具回合落库三行 assistant(''+tool_calls) → toolResult → assistant(text)，行级 1:1 映射产出空气泡 + 文本跑到卡片下方；显示/注入双形状分离（冒烟 48 断言证明互不渗漏）
 
 ### Roadmap Evolution
 
@@ -107,6 +109,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-01T14:07:20.482Z
-Stopped at: Completed 42-05-PLAN.md（对话右键菜单与删除确认框交互修复 G-42-5/G-42-6/G-42-7）
+Last session: 2026-09-02T01:32:59.802Z
+Stopped at: Completed 42-06-PLAN.md（G-42-8 历史恢复同回合合并与空气泡守卫）
 Resume file: None
