@@ -128,6 +128,10 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ MW-11: 右键菜单添加"在新窗口中打开"选项 — v2.4
 - ✓ MW-12: 窗口标题栏显示当前容器名称 — v2.4
 - ✓ MW-13: 窗口标题栏/工具栏显示容器颜色标识 — v2.4
+- ✓ CONV-01: 对话存储基础与消息归一化管线（双形状读出） — Phase 42
+- ✓ CONV-02: 对话管理 UI（历史列表/切换/删除/确认框居中） — Phase 42
+- ✓ CONV-03: 对话历史全局共享（跨容器，无 container_id） — Phase 42
+- ✓ CONV-04: 对话标题管理（D-04 自动命名 + 行内重命名） — Phase 42
 
 ### Active
 
@@ -332,4 +336,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-16 after v2.4 milestone completion (多窗口支持)*
+*Last updated: 2026-09-02 after Phase 42 completion (AI 历史对话管理)*
