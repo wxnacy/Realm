@@ -1,14 +1,15 @@
 ---
 phase: 42-ai-pi-agent
-verified: 2026-09-01T14:59:29Z
-status: human_needed
-score: 5/15 缺口修复 must-haves 经行为证据验证（10 项 present-behavior-unverified，0 项失败；前轮 20 条已通过真相回归通过，其中 1 条被 D-06 修订取代）
-behavior_unverified: 10
+verified: "2026-09-02T00:00:00Z"
+status: passed
+score: 15/15 缺口修复 must-haves 经行为证据验证（第 3 轮 UAT 10/10 通过含 G-42-8 复测，behavior_unverified 清零）
+behavior_unverified: 0
 overrides_applied: 0
 re_verification:
   previous_status: passed（42-01/42-02 初始验证 20/20；随后 UAT 发现 G-42-1..G-42-7 七个缺口，由 42-03/42-04/42-05 三个缺口修复计划承接）
   previous_score: 20/20
   gaps_closed:
+
     - "G-42-1 启动自动建空对话 — 惰性生命周期（init 不建行、删除不补建），存储层冒烟实证新库零行"
     - "G-42-2 记录要点新对话才出现 — 首条消息惰性建行 + D-04 自动命名 + conversationId 回传 + message_count + saveMessages 全量替换，存储层冒烟实证"
     - "G-42-3 AI 回复渲染原始 JSON — 写入侧归一化 + 双形状读出 + 旧格式行兼容（含 WR-04 启发式收紧），存储层冒烟实证"
@@ -16,18 +17,18 @@ re_verification:
     - "G-42-5 重命名无响应 — 菜单项 stopPropagation，代码实证"
     - "G-42-6 删除未生效 — dataset 结构化传参 + convContextTarget 零残留，代码实证"
     - "G-42-7 确认框左上角 — dialog 专用类 + margin:auto + ::backdrop + AGENTS.md 约定，代码实证"
-  gaps_remaining:
-    - "10 条行为依赖真相待 UAT 复测（真实 Electron + 真实 LLM / 视觉判断），见 behavior_unverified_items 与 human_verification"
+    - "G-42-8 空气泡/卡片顺序 — 42-06 getMessages 同回合合并 + 空气泡守卫，第 3 轮 UAT 复测通过 + tests/test-ai-conversations.js 99 断言持久化锁定"
+  gaps_remaining: []
   regressions: []
 requirements_note: "CONV-01..04 未在 REQUIREMENTS.md 定义（该文件仅覆盖 v2.5 搜索里程碑 SEARCH/TOOL/FETCH/CONFIG）；requirements mark-complete CONV-01 实测返回 not_found，与本报告记录一致——Phase 42 需求由 ROADMAP.md 与 42-CONTEXT.md 决策承载，非静默通过"
 ---
 
-# Phase 42: AI 历史对话管理功能 Verification Report（第 2 轮 — 缺口修复后复验）
+# Phase 42: AI 历史对话管理功能 Verification Report（第 3 轮 — G-42-8 修复复验后 canonical 化）
 
 **Phase Goal:** 为 AI 助手添加历史对话管理功能，用户可以查看、新建、恢复和删除历史对话
-**Verified:** 2026-09-01T14:59:29Z
-**Status:** human_needed（自动化检查全部通过；运行时行为待 UAT 复测）
-**Re-verification:** Yes — G-42-1..G-42-7 缺口修复（42-03/42-04/42-05）+ 代码评审修复（CR-01/WR-04/WR-05）之后
+**Verified:** 2026-09-02T00:00:00Z
+**Status:** passed（第 3 轮 UAT 10/10 通过（G-42-8 复测含在内）；42-06 修复由 tests/test-ai-conversations.js 99 断言持久化锁定，Nyquist 合规 + 威胁核验 threats_open: 0）
+**Re-verification:** Yes — G-42-1..G-42-7 缺口修复（42-03/42-04/42-05）+ 代码评审修复（CR-01/WR-04/WR-05）+ G-42-8 修复（42-06）之后
 
 ## Goal Achievement
 
