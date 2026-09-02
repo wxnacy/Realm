@@ -7389,6 +7389,9 @@ function renderAIEmptyState() {
  * 遍历 state.aiMessages，为每条消息创建气泡元素
  * 用户消息靠右蓝色，AI 消息靠左深色
  * AI 消息内容使用 marked.parse() 转换 Markdown，代码块应用语法高亮
+ * 空 content 的 assistant 消息仅渲染工具卡片，不产生空气泡（G-42-8：
+ * 历史恢复路径的中断残留行 / 无工具调用空行跳过 .ai-message-content，
+ * 流式末条占位气泡豁免以承载 typing 指示器与流式文本）
  * 如果没有消息，显示空状态
  */
 function renderAIMessages() {
@@ -7404,11 +7407,21 @@ function renderAIMessages() {
     const isUser = msg.role === 'user';
     const isLast = index === state.aiMessages.length - 1;
 
+    // 空 content 气泡守卫（G-42-8）：assistant 且 content 为空、且不处于
+    // 流式末条占位状态时，跳过 .ai-message-content 气泡的创建与挂载——
+    // 无论有无工具卡片（有卡片仅渲染工具卡片容器与操作按钮，无卡片的
+    // 空行不留任何可见气泡）。守卫不以工具卡片存在为前提；流式末条
+    // 占位豁免（占位气泡承载 typing 指示器与流式文本覆盖）
+    const skipBubble = !isUser && !msg.content && !(state.aiStreaming && isLast);
+
     const wrapper = document.createElement('div');
     wrapper.className = `ai-message ${isUser ? 'ai-message-user' : 'ai-message-ai'}`;
 
-    const content = document.createElement('div');
-    content.className = 'ai-message-content';
+    let content = null;
+    if (!skipBubble) {
+      content = document.createElement('div');
+      content.className = 'ai-message-content';
+    }
 
     if (isUser) {
       // @ 引用标签页标记（在气泡顶部展示，便于确认引用已随消息发出）
@@ -7438,7 +7451,7 @@ function renderAIMessages() {
       const textDiv = document.createElement('div');
       textDiv.textContent = msg.content || '';
       content.appendChild(textDiv);
-    } else {
+    } else if (content) {
       // AI 消息：Markdown 渲染 + DOMPurify 消毒（T-21-01）
       const sanitized = renderAIMarkdown(msg.content || '');
       if (sanitized !== null) {
@@ -7460,7 +7473,9 @@ function renderAIMessages() {
       wrapper.dataset.messageId = msg.id;
     }
 
-    wrapper.appendChild(content);
+    if (content) {
+      wrapper.appendChild(content);
+    }
 
     // 渲染工具卡片
     if (msg.toolExecutions && msg.toolExecutions.length > 0) {
