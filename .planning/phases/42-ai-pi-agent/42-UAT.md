@@ -1,10 +1,10 @@
 ---
-status: diagnosed
+status: complete
 phase: 42-ai-pi-agent
 source: [42-VERIFICATION.md]
 started: 2026-09-01T15:20:00Z
-updated: 2026-09-01T15:44:02Z
-note: 第 2 轮 UAT — G-42-1..7 缺口修复（42-03/04/05）+ 代码评审修复（CR-01/WR-04/WR-05）后的复测；第 1 轮记录见 git 历史（commit b950211）
+updated: 2026-09-02T00:00:00Z
+note: 第 3 轮 UAT — G-42-8 由 42-06（getMessages 同回合合并 + 空气泡守卫）修复后复测通过，10/10 全过
 ---
 
 ## Current Test
@@ -23,12 +23,10 @@ test: 发送一条消息，AI 回复完成后打开对话历史
 expected: 列表出现以首条消息前 30 字符为标题的对话项，元信息「日期 · N 条消息」真实，当前对话高亮；无需点「新对话」
 result: pass
 
-### 3. 重启后历史渲染 markdown + 工具卡片（G-42-3 复测）
+### 3. 重启后历史渲染 markdown + 工具卡片（G-42-8 复测）
 test: 让 AI 调用任一工具后完全退出重启，打开该对话
-expected: AI 气泡 markdown 渲染，工具调用显示为带参数/结果/状态的工具卡片，无原始 JSON 文本
-result: issue
-reported: "如果有工具调用，AI回复内容跑到了工具标签下边，然后工具标签上边出现一个空的消息气泡（见截图：search_history 工具卡片上方出现空气泡，markdown 表格回复在工具卡片下方）"
-severity: major
+expected: AI 气泡 markdown 渲染，工具调用显示为带参数/结果/状态的工具卡片，无原始 JSON 文本；文本在上、工具卡片在下，无空气泡残留（G-42-8 修复复测）
+result: pass
 
 ### 4. 切换对话上下文衔接（G-42-4 复测）
 test: 切换到另一对话再切回，发送「我们刚才聊到哪里」类问题
@@ -68,8 +66,8 @@ result: pass
 ## Summary
 
 total: 10
-passed: 9
-issues: 1
+passed: 10
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
@@ -78,7 +76,9 @@ blocked: 0
 
 - gap_id: G-42-8
   truth: "含工具调用的回复中，AI 文本气泡与工具卡片顺序正确（文本在上、工具卡片在下），无空消息气泡残留"
-  status: failed
+  status: resolved
+  resolved_by: 42-06-PLAN
+  resolved_at: 2026-09-02
   reason: "User reported: 如果有工具调用，AI回复内容跑到了工具标签下边，然后工具标签上边出现一个空的消息气泡"
   severity: major
   test: 3
