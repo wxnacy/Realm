@@ -1287,6 +1287,19 @@ function _validateScript(script) {
 // ==================== AI 自动化操作 ====================
 
 /**
+ * 判断按键是否应伴随 keypress/char 事件（与真实键盘行为一致）
+ *
+ * 真实按键中 Enter 与可打印字符会产生 keypress（聊天框回车发送、快捷键
+ * 监听 keypress 的站点依赖它），修饰键/方向键/功能键等不会。
+ *
+ * @param {string} key - 键名
+ * @returns {boolean} 是否需要补发 char 事件
+ */
+function _emitsKeyPress(key) {
+  return key === 'Enter' || key.length === 1;
+}
+
+/**
  * 自动填写网页表单（D-01/D-02/D-03/D-04）
  *
  * 通过 CDP 在页面上下文中定位表单字段并填入值。
@@ -1687,8 +1700,8 @@ async function executeAction(webContentsId, action, target, options) {
     return { success: false, error: '操作类型不能为空' };
   }
 
-  // screenshot 和 execute_script 不需要 target
-  const noTargetActions = ['screenshot', 'execute_script'];
+  // screenshot/execute_script/keydown/keyup 不需要 target，scroll 的 target 可选（缺省滚整页）
+  const noTargetActions = ['screenshot', 'execute_script', 'keydown', 'keyup', 'scroll'];
   if (!target && !noTargetActions.includes(action)) {
     return { success: false, error: '目标元素不能为空' };
   }
@@ -1754,15 +1767,25 @@ async function executeAction(webContentsId, action, target, options) {
       return { success: false, error: '等待元素超时' };
     }
 
-    // 其他操作需要定位元素
-    const findScript = _buildFindElementScript(target);
-    const objResult = await _getElementObjectId(webContentsId, findScript);
+    // 需要定位目标元素的操作才执行元素定位。
+    // screenshot/execute_script/keydown/keyup 全程不使用 objectId；
+    // scroll 仅在滚动指定元素时需要（target 为 window/page/缺省时直接滚整页）。
+    // 此前 execute_script 无 target 时也会进入 _buildFindElementScript，
+    // 对 undefined 调 .replace 直接抛错（"reading 'replace'"）。
+    const noElementActions = ['screenshot', 'execute_script', 'keydown', 'keyup'];
+    const needsElement = !noElementActions.includes(action) &&
+      !(action === 'scroll' && (!target || target === 'window' || target === 'page'));
+    let objectId = null;
+    if (needsElement) {
+      const findScript = _buildFindElementScript(target);
+      const objResult = await _getElementObjectId(webContentsId, findScript);
 
-    if (!objResult.success || !objResult.result?.result?.objectId) {
-      return { success: false, error: '元素未找到: ' + target };
+      if (!objResult.success || !objResult.result?.result?.objectId) {
+        return { success: false, error: '元素未找到: ' + target };
+      }
+
+      objectId = objResult.result.result.objectId;
     }
-
-    const objectId = objResult.result.result.objectId;
 
     // 根据操作类型执行
     switch (action) {
@@ -2026,13 +2049,34 @@ async function executeAction(webContentsId, action, target, options) {
       case 'keyup': {
         const key = options?.key || options?.code || '';
         if (!key) return { success: false, error: '键盘事件需要提供 key 参数' };
-        await executeCommand(webContentsId, 'Input.dispatchKeyEvent', {
-          type: action,
-          key,
-          code: options?.code || key,
-          windowsVirtualKeyCode: options?.keyCode || 0,
-          nativeVirtualKeyCode: options?.keyCode || 0,
-        });
+        // 键盘事件必须走 Electron sendInputEvent：CDP Input.dispatchKeyEvent
+        // 对 webview guest 的输入管线无效——返回成功但事件根本不达页面
+        // （2026-09-02 实测：focus/type 后派发 Enter，页面 0 个事件，
+        // 这是"Enter 假成功不发送"的根因）。sendInputEvent 经 embedder
+        // 输入管线派发，与真实按键完全一致（keydown/keypress/keyUp、
+        // keyCode/which 正确、isTrusted=true）。
+        // Electron 按键名（Enter/a/ArrowDown 等）自动推导 keyCode。
+        const wcForKey = webContents.fromId(webContentsId);
+        if (!wcForKey || wcForKey.isDestroyed()) {
+          return { success: false, error: 'webContents 不存在或已销毁' };
+        }
+        wcForKey.focus();
+        const modifiers = [];
+        if (options?.ctrl) modifiers.push('control');
+        if (options?.shift) modifiers.push('shift');
+        if (options?.alt) modifiers.push('alt');
+        if (options?.meta) modifiers.push('meta');
+        const keyEvent = { keyCode: key, ...(modifiers.length ? { modifiers } : {}) };
+        if (action === 'keydown') {
+          wcForKey.sendInputEvent({ type: 'keyDown', ...keyEvent });
+          // keypress/char 事件（与真实按键一致，监听 keypress 的站点依赖）
+          if (_emitsKeyPress(key)) {
+            wcForKey.sendInputEvent({ type: 'char', ...keyEvent });
+          }
+          wcForKey.sendInputEvent({ type: 'keyUp', ...keyEvent });
+        } else {
+          wcForKey.sendInputEvent({ type: 'keyUp', ...keyEvent });
+        }
         break;
       }
 

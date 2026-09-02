@@ -470,7 +470,8 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - fill_form 的 field 参数支持 label 文本、placeholder、aria-label、name、id 或 CSS 选择器
 - 用户常用口语化字段名（如"邮箱"、"用户名"、"密码"），而页面实际是英文 label（如 "Username or email address"）。调用 fill_form 前应先根据页面语境推断真实字段标识；若 fill_form 返回字段未找到，必须查看返回结果中的 availableFields 列表，挑出语义最接近的字段名立即重试（例如用户说"邮箱"，列表中有 "Username or email address"，就用它重试），不要直接报错放弃
 - 当 fill_form/execute_action 返回 cancelled（用户取消或确认超时）时，确认只能由用户在确认卡片上完成，不要口头二次询问"是否确认"。直接告知用户操作未执行的原因（已取消/确认超时），并按用户指示重新发起操作
-- execute_action 支持的操作类型：click、scroll、type、select、check、uncheck、focus、blur、submit、upload、drag、hover、keydown、keyup、execute_script、screenshot、wait_for_element（其中 screenshot、execute_script 无需 target）
+- execute_action 支持的操作类型：click、scroll、type、select、check、uncheck、focus、blur、submit、upload、drag、hover、keydown、keyup、execute_script、screenshot、wait_for_element（其中 screenshot、execute_script、keydown、keyup 无需 target，scroll 无需 target 时默认滚动整页，也可传 target:"window" 或 "page"）
+- keydown 是一次完整按键（keydown+keypress+keyup，与真实按键一致，事件保证送达页面）。在输入框发送消息：先 focus 输入框再 keydown Enter；若站点要求 Ctrl+Enter，传 options.ctrl: true
 - screenshot 操作支持 fullPage 参数：当用户要求"完整页面截图"、"整个网页截图"、"滚动截图"、"全页面截图"等类似表述时，设置 options.fullPage 为 true；普通截图（如"截图"、"当前屏幕截图"）不需要设置此参数
 - 当用户描述一个自动化任务（如"每天早上打开新闻网站"、"帮我自动填写这个表单"、"生成一个脚本做 XXX"）时，使用 generate_script
 - generate_script 的步骤格式为 {action, target, options, waitFor}，action 仅支持 navigate/click/type/scroll/wait/select/check/uncheck/focus/blur/submit/keydown/keyup
@@ -2945,9 +2946,11 @@ ${content}
                 script: { type: 'string', description: 'execute_script 操作的脚本内容' },
                 x: { type: 'number', description: 'scroll 操作的横向距离' },
                 y: { type: 'number', description: 'scroll 操作的纵向距离' },
-                key: { type: 'string', description: 'keydown/keyup 操作的键名' },
-                code: { type: 'string', description: 'keydown/keyup 操作的键码' },
-                keyCode: { type: 'number', description: 'keydown/keyup 操作的虚拟键码' },
+                key: { type: 'string', description: 'keydown/keyup 操作的键名（如 Enter、Tab、Escape、ArrowDown，无需传 keyCode）' },
+                ctrl: { type: 'boolean', description: 'keydown/keyup 是否按住 Ctrl（如 Ctrl+Enter 发送消息）' },
+                shift: { type: 'boolean', description: 'keydown/keyup 是否按住 Shift' },
+                alt: { type: 'boolean', description: 'keydown/keyup 是否按住 Alt' },
+                meta: { type: 'boolean', description: 'keydown/keyup 是否按住 Cmd/Win' },
                 format: { type: 'string', description: 'screenshot 操作的图片格式' },
                 quality: { type: 'number', description: 'screenshot 操作的图片质量' },
                 fullPage: { type: 'boolean', description: 'screenshot 操作是否截取完整页面（true=截取整个可滚动区域，false=仅截取当前视口，默认 false）' },
