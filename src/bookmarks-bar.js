@@ -116,6 +116,11 @@ function renderBookmarksBar(favorites, folders) {
   // 清空现有内容
   list.innerHTML = '';
 
+  // 空收藏栏：最左侧渲染「导入」按钮（导入成功后经 bookmarks-bar:refresh 重载自动消失）
+  if (favorites.length === 0 && folders.length === 0) {
+    list.appendChild(createImportItem());
+  }
+
   // 先渲染文件夹
   folders.forEach(folder => {
     const el = createFolderItem(folder);
@@ -134,6 +139,69 @@ function renderBookmarksBar(favorites, folders) {
       calculateOverflow();
     });
   });
+}
+
+/**
+ * 创建空收藏栏「导入」按钮元素
+ * 点击效果等同于收藏页面的「导入书签」按钮：打开/复用 realm://favorites
+ * 标签页并自动触发导入流程（经 ?action=import 参数）
+ * @returns {HTMLElement} 导入按钮 DOM 元素
+ */
+function createImportItem() {
+  const item = document.createElement('div');
+  item.className = 'bookmark-item bookmarks-import-btn';
+  item.dataset.type = 'import';
+  item.title = '导入书签';
+
+  // 导入图标（下载到托盘样式，与收藏页面导入按钮一致）
+  const icon = document.createElement('div');
+  icon.className = 'import-icon';
+  icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+
+  // 文本
+  const title = document.createElement('span');
+  title.className = 'import-title';
+  title.textContent = '导入';
+
+  item.appendChild(icon);
+  item.appendChild(title);
+
+  item.addEventListener('click', handleImportButtonClick);
+
+  return item;
+}
+
+/**
+ * 处理收藏栏「导入」按钮点击
+ * 已有 realm://favorites 标签页时切换过去并重新带上导入参数加载；
+ * 否则新建标签页（页面初始化时检测 ?action=import 自动弹出导入）
+ */
+function handleImportButtonClick() {
+  const importUrl = 'realm://favorites?action=import';
+
+  // 检查是否已有 realm://favorites 的 Tab 打开（全局唯一，不按容器区分）
+  let existingTabId = null;
+  state.tabs.forEach((tab, tabId) => {
+    if (tab.url === 'realm://favorites' ||
+        (tab.url && tab.url.startsWith('realm://favorites?'))) {
+      existingTabId = tabId;
+    }
+  });
+
+  if (existingTabId) {
+    switchTab(existingTabId);
+    const tab = state.tabs.get(existingTabId);
+    const webview = state.webviews.get(existingTabId);
+    if (webview) {
+      webview.loadURL(realmUrlToHttp(importUrl, tab && tab.containerId));
+      if (tab) {
+        tab.url = importUrl;
+        window.realmAPI.updateTab(existingTabId, { url: importUrl });
+      }
+    }
+  } else {
+    createTab(state.currentContainer, importUrl);
+  }
 }
 
 /**

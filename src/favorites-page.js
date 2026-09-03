@@ -2521,6 +2521,16 @@ async function init() {
 
     // 加载收藏列表
     await loadFavorites();
+
+    // 收藏栏空态「导入」按钮经 realm://favorites?action=import 打开本页时
+    // 自动触发导入流程（与手动点击「导入书签」按钮一致）。
+    // 触发前清理 action 参数，防止刷新页面时重复弹出导入框
+    if (pageParams.get('action') === 'import') {
+      pageParams.delete('action');
+      const cleanedQuery = pageParams.toString();
+      history.replaceState(null, '', location.pathname + (cleanedQuery ? '?' + cleanedQuery : ''));
+      handleImportClick();
+    }
   } catch (err) {
     console.error('[Realm Favorites] 初始化失败:', err);
     renderEmpty();

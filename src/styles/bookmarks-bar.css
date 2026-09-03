@@ -66,6 +66,26 @@
   background-color: rgba(255, 255, 255, 0.12);
 }
 
+/* 空收藏栏最左侧的「导入」按钮（仅有收藏/文件夹时由 JS 移除） */
+.bookmarks-import-btn {
+  color: var(--text-secondary);
+}
+
+.bookmarks-import-btn:hover {
+  color: var(--text-primary);
+}
+
+.bookmarks-import-btn .import-icon {
+  display: flex;
+  align-items: center;
+}
+
+.bookmarks-import-btn .import-title {
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
 /* ==================== 菜单打开态（Chrome 式选中高亮） ==================== */
 
 /* 注意：index.html 只引用 main.css，本文件当前未被加载；

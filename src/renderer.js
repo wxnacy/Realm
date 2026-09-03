@@ -6232,10 +6232,12 @@ function setupEventListeners() {
   elements.favoritesBtn.addEventListener('click', () => {
     const containerId = state.currentContainer;
 
-    // 检查是否已有 realm://favorites 的 Tab 打开（全局唯一，不按容器区分）
+    // 检查是否已有 realm://favorites 的 Tab 打开（全局唯一，不按容器区分；
+    // 收藏栏导入按钮打开的 tab 带 ?action=import 参数，同样视为收藏页 tab）
     let existingTabId = null;
     state.tabs.forEach((tab, tabId) => {
-      if (tab.url === 'realm://favorites') {
+      if (tab.url === 'realm://favorites' ||
+          (tab.url && tab.url.startsWith('realm://favorites?'))) {
         existingTabId = tabId;
       }
     });
