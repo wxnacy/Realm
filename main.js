@@ -2589,19 +2589,31 @@ app.whenReady().then(async () => {
   // 创建文件夹
   ipcMain.handle('favorites:create-folder', async (event, { name, parentId }) => {
     assertTrustedSender(event);
-    return favoritesManager.createFolder({ name, parentId });
+    const result = favoritesManager.createFolder({ name, parentId });
+    if (result.id) {
+      windowManager.broadcast('bookmarks-bar:refresh');
+    }
+    return result;
   });
 
   // 重命名文件夹
   ipcMain.handle('favorites:rename-folder', async (event, { id, name }) => {
     assertTrustedSender(event);
-    return favoritesManager.renameFolder(id, { name });
+    const result = favoritesManager.renameFolder(id, { name });
+    if (result) {
+      windowManager.broadcast('bookmarks-bar:refresh');
+    }
+    return result;
   });
 
   // 删除文件夹
   ipcMain.handle('favorites:delete-folder', async (event, { id }) => {
     assertTrustedSender(event);
-    return favoritesManager.deleteFolder(id);
+    const result = favoritesManager.deleteFolder(id);
+    if (result.success) {
+      windowManager.broadcast('bookmarks-bar:refresh');
+    }
+    return result;
   });
 
   // 列出子文件夹
@@ -2652,6 +2664,26 @@ app.whenReady().then(async () => {
     const result = favoritesManager.moveFavorites(ids, { folderId });
     windowManager.broadcast('bookmarks-bar:refresh');
     return result;
+  });
+
+  // 应用收藏整理方案（AI 整理卡片确认后调用）
+  ipcMain.handle('favorites:apply-organize', async (event, { plan }) => {
+    assertTrustedSender(event);
+
+    if (!Array.isArray(plan) || plan.length === 0) {
+      return { success: false, message: '整理方案为空' };
+    }
+    // 基础格式校验：每组需有 folderName 与非空 bookmarkIds
+    for (const group of plan) {
+      if (!group || typeof group.folderName !== 'string' || !group.folderName.trim() ||
+          !Array.isArray(group.bookmarkIds)) {
+        return { success: false, message: '整理方案格式不正确' };
+      }
+    }
+
+    const result = favoritesManager.applyOrganizePlan(plan);
+    windowManager.broadcast('bookmarks-bar:refresh');
+    return { success: true, ...result };
   });
 
   // 更新文件夹排序

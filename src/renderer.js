@@ -8375,6 +8375,32 @@ function renderToolCards(messageId) {
         console.error('[Realm Renderer] 解析脚本工具结果失败:', err.message);
       }
     }
+    // 特殊工具卡片：organize_favorites 完成后渲染收藏夹整理方案卡片
+    if (toolExec.name === 'organize_favorites' && toolExec.status === 'completed' && toolExec.result) {
+      try {
+        let resultData = typeof toolExec.result === 'string'
+          ? JSON.parse(toolExec.result)
+          : toolExec.result;
+        // 工具结果信封解包
+        if (resultData && !resultData.plan && Array.isArray(resultData.content)) {
+          const textBlock = resultData.content.find(
+            block => block && block.type === 'text' && typeof block.text === 'string'
+          );
+          if (textBlock) {
+            resultData = JSON.parse(textBlock.text);
+          }
+        }
+        if (resultData && Array.isArray(resultData.plan) && resultData.plan.length > 0) {
+          const organizeCard = renderFavoritesOrganizeCard(resultData);
+          if (organizeCard) {
+            container.appendChild(organizeCard);
+            return;
+          }
+        }
+      } catch (err) {
+        console.error('[Realm Renderer] 解析收藏整理工具结果失败:', err.message);
+      }
+    }
     // 默认工具卡片
     container.appendChild(renderToolCard(toolExec));
   });
@@ -10391,6 +10417,366 @@ function updateGroupCounts(groupsList) {
     const items = section.querySelectorAll('.tab-group-item');
     if (countEl) {
       countEl.textContent = `${items.length} 个标签`;
+    }
+  });
+}
+
+/**
+ * 渲染收藏夹整理方案卡片
+ *
+ * 克隆 favorites-organize-template 模板，填充分组数据和收藏列表，
+ * 绑定应用整理、取消、添加分组按钮事件。交互与标签分组卡片一致：
+ * 分组名可编辑、收藏项可跨组拖拽、分组可删除/新增。
+ *
+ * @param {Object} planData - 整理方案数据
+ * @param {Array<{folderName: string, parentId: number, bookmarks: Array<{id: number, title: string, url: string}>}>} planData.plan - 分组方案
+ * @returns {HTMLElement} 渲染好的卡片 DOM 元素
+ */
+function renderFavoritesOrganizeCard(planData) {
+  const template = document.getElementById('favorites-organize-template');
+  if (!template) {
+    console.error('[Realm Renderer] favorites-organize-template 未找到');
+    return null;
+  }
+
+  const fragment = template.content.cloneNode(true);
+  const card = fragment.querySelector('.favorites-organize-card');
+
+  // 计算总收藏数
+  const totalBookmarks = (planData.plan || []).reduce(
+    (sum, g) => sum + (g.bookmarks ? g.bookmarks.length : 0), 0
+  );
+
+  // 设置描述文本
+  const descEl = card.querySelector('.favorites-organize-desc');
+  if (descEl) {
+    descEl.textContent = `归类 ${totalBookmarks} 条收藏到 ${planData.plan.length} 个文件夹`;
+  }
+
+  // 渲染分组列表
+  const groupsList = card.querySelector('.favorites-organize-list');
+  if (groupsList && planData.plan) {
+    planData.plan.forEach((group, index) => {
+      // 分隔线（非第一个分组前）
+      if (index > 0) {
+        const divider = document.createElement('div');
+        divider.className = 'tab-group-divider';
+        groupsList.appendChild(divider);
+      }
+      const section = renderFavoritesOrganizeSection(group, index, groupsList, card);
+      groupsList.appendChild(section);
+    });
+  }
+
+  // 绑定"应用整理"按钮
+  const applyBtn = card.querySelector('.favorites-organize-apply-btn');
+  if (applyBtn) {
+    applyBtn.addEventListener('click', () => {
+      // 收集当前分组数据
+      const currentPlan = collectFavoritesPlanFromDOM(groupsList);
+      if (!currentPlan || currentPlan.length === 0) return;
+
+      // 禁用按钮防止重复操作
+      applyBtn.disabled = true;
+      applyBtn.textContent = '应用中...';
+
+      // 通过 IPC 发送到主进程执行整理
+      if (window.realmAPI && window.realmAPI.applyFavoritesOrganize) {
+        window.realmAPI.applyFavoritesOrganize(currentPlan).then(result => {
+          if (result && result.success) {
+            // 显示成功提示（含部分失败明细）
+            if (result.failures && result.failures.length > 0) {
+              showToast(`已整理 ${result.movedCount} 条收藏，${result.failures.length} 条失败`, 'success');
+            } else {
+              showToast(`已整理 ${result.movedCount} 条收藏到 ${result.folderCount} 个文件夹`, 'success');
+            }
+            // 只淡出移除卡片本身，不能 closest('.ai-message') 删整条 AI 消息
+            card.style.transition = 'opacity 0.3s';
+            card.style.opacity = '0';
+            setTimeout(() => card.remove(), 300);
+          } else {
+            showToast((result && result.message) || '应用整理失败', 'error');
+            applyBtn.disabled = false;
+            applyBtn.textContent = '应用整理';
+          }
+        }).catch(err => {
+          console.error('[Realm Renderer] 应用收藏整理异常:', err.message);
+          showToast('应用整理失败: ' + err.message, 'error');
+          applyBtn.disabled = false;
+          applyBtn.textContent = '应用整理';
+        });
+      }
+    });
+  }
+
+  // 绑定"取消"按钮
+  const cancelBtn = card.querySelector('.favorites-organize-cancel-btn');
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => {
+      // 只淡出移除卡片本身，不能 closest('.ai-message') 删整条 AI 消息
+      card.style.transition = 'opacity 0.3s';
+      card.style.opacity = '0';
+      setTimeout(() => card.remove(), 300);
+    });
+  }
+
+  // 绑定"+ 添加分组"按钮
+  const addGroupBtn = card.querySelector('.favorites-organize-add-btn');
+  if (addGroupBtn) {
+    addGroupBtn.addEventListener('click', () => {
+      const newGroup = { folderName: '新文件夹', parentId: 0, bookmarks: [] };
+      // 添加分隔线
+      const divider = document.createElement('div');
+      divider.className = 'tab-group-divider';
+      groupsList.appendChild(divider);
+      // 添加新分组
+      const section = renderFavoritesOrganizeSection(newGroup, 0, groupsList, card);
+      groupsList.appendChild(section);
+      // 自动聚焦分组名编辑
+      const nameEl = section.querySelector('.favorites-organize-name');
+      if (nameEl) {
+        nameEl.focus();
+        // 选中默认文本
+        const range = document.createRange();
+        range.selectNodeContents(nameEl);
+        const sel = window.getSelection();
+        sel.addRange(range);
+      }
+    });
+  }
+
+  return card;
+}
+
+/**
+ * 渲染收藏整理方案的单个分组区域
+ *
+ * 创建分组头部（名称、数量、删除按钮）和收藏列表，
+ * 支持编辑文件夹名、跨分组拖拽收藏项。
+ *
+ * @param {Object} group - 分组数据
+ * @param {string} group.folderName - 文件夹名称
+ * @param {Array} group.bookmarks - 收藏数组
+ * @param {number} groupIndex - 分组索引
+ * @param {HTMLElement} groupsList - 分组列表容器
+ * @param {HTMLElement} card - 卡片根元素
+ * @returns {HTMLElement} 分组区域 DOM 元素
+ */
+function renderFavoritesOrganizeSection(group, groupIndex, groupsList, card) {
+  const section = document.createElement('div');
+  section.className = 'tab-group-section';
+  section.dataset.groupIndex = groupIndex;
+
+  // 分组头部
+  const header = document.createElement('div');
+  header.className = 'tab-group-section-header';
+
+  // 文件夹名（contenteditable 可编辑）
+  const nameEl = document.createElement('span');
+  nameEl.className = 'tab-group-name favorites-organize-name';
+  nameEl.textContent = group.folderName || '未命名文件夹';
+  nameEl.contentEditable = true;
+  nameEl.spellcheck = false;
+  // 防止编辑文件夹名时触发拖拽或回车换行
+  nameEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      nameEl.blur();
+    }
+    e.stopPropagation();
+  });
+
+  // 收藏数量
+  const countEl = document.createElement('span');
+  countEl.className = 'tab-group-count';
+  countEl.textContent = `${(group.bookmarks || []).length} 条收藏`;
+
+  // 操作按钮（删除分组）
+  const actionsEl = document.createElement('span');
+  actionsEl.className = 'tab-group-section-actions';
+  const deleteBtn = document.createElement('button');
+  deleteBtn.textContent = '删除';
+  deleteBtn.addEventListener('click', () => {
+    // 删除分组：将组内收藏移至最后一个分组或直接移除
+    const sections = groupsList.querySelectorAll('.tab-group-section');
+    if (sections.length <= 1) {
+      // 只剩一个分组，清空收藏
+      const items = section.querySelector('.tab-group-items');
+      if (items) items.innerHTML = '';
+      countEl.textContent = '0 条收藏';
+      return;
+    }
+    // 移动收藏到最后一个分组
+    const lastSection = sections[sections.length - 1];
+    const isLastSection = lastSection === section;
+    const targetSection = isLastSection ? sections[sections.length - 2] : lastSection;
+    const targetItems = targetSection.querySelector('.tab-group-items');
+    const currentItems = section.querySelectorAll('.tab-group-item');
+    currentItems.forEach(item => targetItems.appendChild(item));
+    // 更新目标分组数量
+    const targetCount = targetSection.querySelector('.tab-group-count');
+    if (targetCount) {
+      targetCount.textContent = `${targetItems.children.length} 条收藏`;
+    }
+    // 移除分组和分隔线
+    const prevDivider = section.previousElementSibling;
+    if (prevDivider && prevDivider.classList.contains('tab-group-divider')) {
+      prevDivider.remove();
+    }
+    section.remove();
+  });
+  actionsEl.appendChild(deleteBtn);
+
+  header.appendChild(nameEl);
+  header.appendChild(countEl);
+  header.appendChild(actionsEl);
+
+  // 收藏列表
+  const items = document.createElement('div');
+  items.className = 'tab-group-items';
+  // 拖拽放置目标
+  items.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    items.classList.add('drag-over');
+  });
+  items.addEventListener('dragleave', () => {
+    items.classList.remove('drag-over');
+  });
+  items.addEventListener('drop', (e) => {
+    e.preventDefault();
+    items.classList.remove('drag-over');
+    const bookmarkId = e.dataTransfer.getData('text/bookmark-id');
+    if (!bookmarkId) return;
+
+    // 查找被拖拽的收藏元素
+    const draggedEl = card.querySelector(`[data-bookmark-id="${bookmarkId}"]`);
+    if (!draggedEl) return;
+
+    // 移动到目标分组
+    items.appendChild(draggedEl);
+
+    // 更新所有分组计数
+    updateFavoritesGroupCounts(groupsList);
+  });
+
+  // 渲染收藏项
+  if (group.bookmarks) {
+    group.bookmarks.forEach(bookmark => {
+      items.appendChild(renderFavoritesOrganizeItem(bookmark, groupIndex));
+    });
+  }
+
+  section.appendChild(header);
+  section.appendChild(items);
+
+  return section;
+}
+
+/**
+ * 渲染收藏整理方案中的单个收藏项
+ *
+ * 显示 favicon 占位、标题和域名，支持拖拽操作。
+ *
+ * @param {Object} bookmark - 收藏数据
+ * @param {number} bookmark.id - 收藏 ID
+ * @param {string} bookmark.title - 收藏标题
+ * @param {string} bookmark.url - 收藏 URL
+ * @param {number} groupIndex - 所属分组索引
+ * @returns {HTMLElement} 收藏项 DOM 元素
+ */
+function renderFavoritesOrganizeItem(bookmark, groupIndex) {
+  const item = document.createElement('div');
+  item.className = 'tab-group-item';
+  item.draggable = true;
+  item.dataset.bookmarkId = String(bookmark.id);
+  item.dataset.groupIndex = groupIndex;
+
+  // 拖拽事件（自定义 MIME text/bookmark-id，勿加 text/plain——
+  // 防止误拖进 webview 松手触发网页导航）
+  item.addEventListener('dragstart', (e) => {
+    e.dataTransfer.setData('text/bookmark-id', String(bookmark.id));
+    e.dataTransfer.setData('text/source-group-index', String(groupIndex));
+    e.dataTransfer.effectAllowed = 'move';
+    item.classList.add('dragging');
+  });
+  item.addEventListener('dragend', () => {
+    item.classList.remove('dragging');
+  });
+
+  // Favicon 占位（地球图标）
+  const favicon = document.createElement('span');
+  favicon.className = 'tab-item-favicon';
+  favicon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>';
+
+  // 标题
+  const title = document.createElement('span');
+  title.className = 'tab-item-title';
+  title.textContent = bookmark.title || '(无标题)';
+  title.title = bookmark.title || '';
+
+  // URL
+  const url = document.createElement('span');
+  url.className = 'tab-item-url';
+  try {
+    url.textContent = new URL(bookmark.url).hostname;
+  } catch {
+    url.textContent = bookmark.url || '';
+  }
+  url.title = bookmark.url || '';
+
+  item.appendChild(favicon);
+  item.appendChild(title);
+  item.appendChild(url);
+
+  return item;
+}
+
+/**
+ * 从 DOM 收集当前收藏整理方案
+ *
+ * 遍历分组列表 DOM，收集每个分组的文件夹名和收藏 ID 列表。
+ *
+ * @param {HTMLElement} groupsList - 分组列表容器
+ * @returns {Array<{folderName: string, parentId: number, bookmarkIds: number[]}>} 整理方案数组
+ */
+function collectFavoritesPlanFromDOM(groupsList) {
+  if (!groupsList) return [];
+
+  const sections = groupsList.querySelectorAll('.tab-group-section');
+  const plan = [];
+
+  sections.forEach(section => {
+    const nameEl = section.querySelector('.favorites-organize-name');
+    const items = section.querySelectorAll('.tab-group-item');
+    const bookmarkIds = Array.from(items)
+      .map(item => Number(item.dataset.bookmarkId))
+      .filter(id => Number.isInteger(id) && id > 0);
+
+    plan.push({
+      folderName: nameEl ? nameEl.textContent.trim() : '未命名文件夹',
+      parentId: 0,
+      bookmarkIds,
+    });
+  });
+
+  return plan;
+}
+
+/**
+ * 更新所有整理分组的收藏数量显示
+ *
+ * @param {HTMLElement} groupsList - 分组列表容器
+ */
+function updateFavoritesGroupCounts(groupsList) {
+  if (!groupsList) return;
+
+  const sections = groupsList.querySelectorAll('.tab-group-section');
+  sections.forEach(section => {
+    const countEl = section.querySelector('.tab-group-count');
+    const items = section.querySelectorAll('.tab-group-item');
+    if (countEl) {
+      countEl.textContent = `${items.length} 条收藏`;
     }
   });
 }

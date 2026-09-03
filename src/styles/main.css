@@ -7700,6 +7700,93 @@ textarea::placeholder {
   flex-shrink: 0;
 }
 
+/* ==================== 收藏夹整理方案卡片样式 ==================== */
+/* 结构复用 tab-group-* 布局类（section/header/name/items/item），
+   仅卡片壳与操作按钮使用独立类 */
+
+.favorites-organize-card {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+.favorites-organize-header {
+  padding: 12px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.favorites-organize-icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-color);
+}
+
+.favorites-organize-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.favorites-organize-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.favorites-organize-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.favorites-organize-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.favorites-organize-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.favorites-organize-list {
+  padding: 0 12px 12px;
+}
+
+.favorites-organize-add-btn {
+  width: calc(100% - 24px);
+  padding: 8px;
+  text-align: center;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px dashed var(--border-color);
+  border-radius: 6px;
+  margin: 0 12px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.favorites-organize-add-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-color);
+  background: rgba(59, 130, 246, 0.05);
+}
+
 /* ==================== 媒体面板 ==================== */
 
 /* 工具栏媒体按钮（需要相对定位以支持徽标） */

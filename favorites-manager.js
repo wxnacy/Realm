@@ -822,6 +822,29 @@ function getFolderTree(parentId = 0) {
 }
 
 /**
+ * 列出所有空文件夹（不含收藏且不含子文件夹）
+ *
+ * 用于 AI 整理收藏夹后的清理场景：一次查询即可拿到全部空文件夹，
+ * 避免逐个 folderId 查询收藏数。文件夹含空子文件夹时不算空
+ * （删除会级联删掉子树，需用户知情确认）。
+ *
+ * @returns {Array<{id: number, name: string, parentId: number}>} 空文件夹列表
+ */
+function listEmptyFolders() {
+  ensureTable();
+
+  const folders = db.prepare('SELECT id, name, parent_id FROM favorite_folders').all();
+  const usedIds = new Set(
+    db.prepare('SELECT DISTINCT folder_id FROM favorites').all().map(r => r.folder_id)
+  );
+  const parentIds = new Set(folders.map(f => f.parent_id));
+
+  return folders
+    .filter(f => !usedIds.has(f.id) && !parentIds.has(f.id))
+    .map(f => ({ id: f.id, name: f.name, parentId: f.parent_id }));
+}
+
+/**
  * 移动文件夹到新的父文件夹
  * @param {number} id - 文件夹 ID
  * @param {Object} options
@@ -919,6 +942,160 @@ function moveFavoriteInto(id, { folderId }) {
   tx();
 
   return true;
+}
+
+/**
+ * 应用收藏整理方案
+ *
+ * 逐组解析/创建目标文件夹（findFolderByName 去重，同名同父复用既有文件夹），
+ * 然后在事务内逐条 moveFavoriteInto 写入 folder_id + 目标文件夹末尾 fractional 键。
+ * 单条失败（如收藏已被手动删除）记入 failures 继续处理，不中断整批。
+ *
+ * @param {Array<{folderName: string, parentId?: number, bookmarkIds: number[]}>} plan - 整理方案
+ * @returns {{folderCount: number, movedCount: number,
+ *            createdFolders: Array<{name: string, id: number, parentId: number}>,
+ *            failures: Array<{id: number, reason: string}>}} 应用结果
+ */
+function applyOrganizePlan(plan) {
+  ensureTable();
+
+  const createdFolders = [];
+  const failures = [];
+  let movedCount = 0;
+  let folderCount = 0;
+
+  if (!Array.isArray(plan) || plan.length === 0) {
+    return { folderCount, movedCount, createdFolders, failures };
+  }
+
+  // 组间已见过的收藏 id（跨组去重，重复出现只处理首次）
+  const seenIds = new Set();
+
+  const tx = db.transaction(() => {
+    for (const group of plan) {
+      const folderName = typeof group.folderName === 'string' ? group.folderName.trim() : '';
+      const parentId = Number(group.parentId) || 0;
+      if (!folderName) {
+        for (const id of (group.bookmarkIds || [])) {
+          failures.push({ id, reason: '组缺少文件夹名' });
+        }
+        continue;
+      }
+
+      // 解析或创建目标文件夹（幂等：同名同父复用）
+      let folderId = findFolderByName(folderName, parentId);
+      if (folderId === null) {
+        const created = createFolder({ name: folderName, parentId });
+        if (created.error) {
+          for (const id of (group.bookmarkIds || [])) {
+            failures.push({ id, reason: `创建文件夹失败: ${created.message}` });
+          }
+          continue;
+        }
+        folderId = created.id;
+        createdFolders.push({ name: folderName, id: folderId, parentId });
+      }
+      folderCount++;
+
+      for (const id of (group.bookmarkIds || [])) {
+        const numId = Number(id);
+        if (seenIds.has(numId)) continue;
+        seenIds.add(numId);
+
+        const exists = db.prepare('SELECT id FROM favorites WHERE id = ?').get(numId);
+        if (!exists) {
+          failures.push({ id: numId, reason: '收藏不存在' });
+          continue;
+        }
+        moveFavoriteInto(numId, { folderId });
+        movedCount++;
+      }
+    }
+  });
+  tx();
+
+  return { folderCount, movedCount, createdFolders, failures };
+}
+
+/**
+ * 重排指定文件夹内的收藏顺序
+ *
+ * AI 整理场景使用：提交该文件夹全部收藏的目标顺序（orderedIds），
+ * 事务内生成一组全新的 fractional 排序键（a0, a1, ...）批量写入。
+ *
+ * 语义约束（保证排序结果可预期）：
+ * - 所有 id 必须属于同一个文件夹（folder_id 一致），跨文件夹返回错误
+ * - 必须提交该文件夹的全部收藏（部分列表会与未列出项交错产生不可预期的落位）
+ * - 不存在的 id 记入 droppedIds 丢弃；重复 id 只保留首次出现
+ *
+ * @param {Array<number>} orderedIds - 目标顺序的收藏 ID 列表
+ * @returns {{success: boolean, folderId?: number, count: number,
+ *            droppedIds: Array, error?: string}} 结果
+ */
+function reorderFavorites(orderedIds) {
+  ensureTable();
+
+  const droppedIds = [];
+  if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+    return { success: false, count: 0, droppedIds, error: '排序列表不能为空' };
+  }
+
+  // 去重与清洗（保序）
+  const seen = new Set();
+  const cleanIds = [];
+  for (const raw of orderedIds) {
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) {
+      droppedIds.push(raw);
+      continue;
+    }
+    seen.add(id);
+    cleanIds.push(id);
+  }
+
+  // 校验存在性与同文件夹约束
+  const folderIds = new Set();
+  const existingIds = [];
+  for (const id of cleanIds) {
+    const row = db.prepare('SELECT id, folder_id FROM favorites WHERE id = ?').get(id);
+    if (!row) {
+      droppedIds.push(id);
+      continue;
+    }
+    folderIds.add(row.folder_id);
+    existingIds.push(id);
+  }
+
+  if (existingIds.length < 2) {
+    return { success: false, count: 0, droppedIds, error: '至少需要 2 条有效收藏才能排序' };
+  }
+  if (folderIds.size > 1) {
+    return { success: false, count: 0, droppedIds, error: '排序列表跨多个文件夹，请按文件夹分别提交' };
+  }
+
+  // 必须覆盖文件夹内全部收藏（否则部分列表会与未列出项交错）
+  const folderId = [...folderIds][0];
+  const { c: folderCount } = db.prepare(
+    'SELECT COUNT(*) AS c FROM favorites WHERE folder_id = ?'
+  ).get(folderId);
+  if (existingIds.length !== folderCount) {
+    return {
+      success: false,
+      count: 0,
+      droppedIds,
+      error: `该文件夹共有 ${folderCount} 条收藏，请提供全部收藏的完整顺序列表（当前 ${existingIds.length} 条）。可先用 get(action=sort) 查看现有顺序`,
+    };
+  }
+
+  // 生成全新 fractional 键批量写入（a0, a1, ... 依次对应目标顺序）
+  const keys = computeSortKeys(null, null, existingIds.length);
+  const updateStmt = db.prepare('UPDATE favorites SET sort_order = ? WHERE id = ?');
+  const tx = db.transaction(() => {
+    existingIds.forEach((id, i) => updateStmt.run(keys[i], id));
+  });
+  tx();
+
+  return { success: true, folderId, count: existingIds.length, droppedIds };
 }
 
 /**
@@ -1543,12 +1720,15 @@ module.exports = {
   deleteFolder,
   listFolders,
   findFolderByName,
+  listEmptyFolders,
   getFolderTree,
   moveFolder,
   // 收藏项移动与排序
   moveFavorite,
   moveFavorites,
   moveFavoriteInto,
+  applyOrganizePlan,
+  reorderFavorites,
   computeSortKeys,
   updateFolderSort,
   updateFavoriteSort,

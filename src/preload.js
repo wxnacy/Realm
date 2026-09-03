@@ -790,6 +790,14 @@ contextBridge.exposeInMainWorld('realmAPI', {
   moveFavoriteInto: (id, folderId) => ipcRenderer.invoke('favorites:move-favorite-into', { id, folderId }),
 
   /**
+   * 应用收藏整理方案（AI 整理卡片确认后调用）
+   * @param {Array<{folderName: string, parentId?: number, bookmarkIds: number[]}>} plan - 整理方案
+   * @returns {Promise<{success: boolean, folderCount?: number, movedCount?: number,
+   *            createdFolders?: Array, failures?: Array, message?: string}>}
+   */
+  applyFavoritesOrganize: (plan) => ipcRenderer.invoke('favorites:apply-organize', { plan }),
+
+  /**
    * 计算 fractional-indexing 排序键
    * 主窗口从 file:// 无法访问 HTTP 端点，排序键计算走 IPC（与 /api/favorites/compute-sort-keys 同逻辑）
    * @param {string|null} beforeKey - 前邻排序键（null 表示插到最前）

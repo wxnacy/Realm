@@ -887,6 +887,29 @@
     </div>
   </template>
 
+  <!-- 收藏夹整理方案卡片模板（AI 聊天中渲染整理方案时克隆使用） -->
+  <template id="favorites-organize-template">
+    <div class="favorites-organize-card">
+      <div class="favorites-organize-header">
+        <div class="favorites-organize-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+          </svg>
+        </div>
+        <div class="favorites-organize-info">
+          <div class="favorites-organize-title">收藏夹整理方案</div>
+          <div class="favorites-organize-desc"></div>
+        </div>
+        <div class="favorites-organize-actions">
+          <button class="action-confirm-btn action-confirm-btn-cancel favorites-organize-cancel-btn">取消</button>
+          <button class="action-confirm-btn action-confirm-btn-confirm favorites-organize-apply-btn">应用整理</button>
+        </div>
+      </div>
+      <div class="favorites-organize-list"></div>
+      <button class="favorites-organize-add-btn">+ 添加分组</button>
+    </div>
+  </template>
+
   <!-- 脚本必须放在所有 DOM 之后：renderer.js 顶层 elements 对象在脚本解析时即执行 getElementById -->
   <script src="bookmarks-bar-menu.js"></script>
   <script src="bookmarks-bar.js"></script>

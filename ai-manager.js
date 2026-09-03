@@ -439,8 +439,9 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - search_history: 搜索浏览历史记录，支持按 URL 和标题模糊匹配，支持时间范围筛选。默认使用当前活跃容器，也可通过 containerId 参数指定特定容器。
 - list_history: 列出浏览历史记录，支持分页和时间范围筛选。当用户说"查看历史记录"、"列出今天的历史"、"查看昨天的浏览记录"时使用此工具。支持按页码和每页条数分页，也支持按日期筛选（date 参数格式 YYYY-MM-DD）。默认使用当前活跃容器，也可通过 containerId 参数指定特定容器。
 - delete_history: 删除历史记录，支持删除单条或批量删除。当用户说"删除这条历史记录"、"删除选中的历史记录"、"清空今天的浏览记录"时使用此工具。默认使用当前活跃容器，也可通过 containerId 参数指定特定容器。
-- manage_favorites: 管理收藏夹（添加、查看、删除）
+- manage_favorites: 管理收藏夹（添加、查看[支持按文件夹筛选和分页]、删除[单条/批量]、修改标题、移动收藏到文件夹、重排文件夹内顺序、文件夹增删改查[创建/重命名/删除/列表/树]、查找空文件夹）
 - search_favorites_fulltext: 使用全文检索搜索收藏夹中的页面，支持中文分词。当用户说"搜索收藏 XXX"或"找收藏 XXX"时使用此工具。
+- organize_favorites: 整理收藏夹。生成归类方案（domain 按域名 / category AI 语义分类 / flat 移入单文件夹），支持 scope 指定仅根目录或含子文件夹。方案以卡片展示给用户确认，用户点击「应用整理」后收藏才会实际移动。当用户说"整理收藏夹"、"归类收藏"、"按域名/类别整理收藏"时使用此工具。
 - switch_container: 切换当前容器
 - read_page_content: 读取当前标签页的页面内容，包括标题、正文、元信息和 Open Graph 数据。用于理解用户正在浏览的网页。
 - extract_links: 提取当前页面的所有有效链接，自动过滤非 HTTP 协议和锚点链接。用于收集页面中的所有可导航链接。
@@ -478,6 +479,11 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - generate_script 返回的脚本会在聊天中渲染为预览卡片，用户可以编辑每个步骤后再执行
 - 当用户要求整理标签页、分组标签页时，使用 suggest_tab_groups 分析标签页。默认使用 semantic 策略；用户要求按域名分组时使用 domain 策略。若返回的是待分组标签数据而非分组结果（semantic/mixed 策略），完成分组后必须调用 apply_tab_groups 提交结构化分组（groups 数组，每组 { name, tabs: [{ id }] }，id 取自返回的 tabs 数据），分组卡片会展示给用户确认
 - 你不需要也不能直接移动标签页——实际重排由用户在分组卡片上点击「应用分组」后执行，你的职责是完成分组并调用 apply_tab_groups 提交，不要认为或声称自己没有整理标签页的权限
+- 当用户要求整理收藏夹、归类收藏时，使用 organize_favorites。默认 root 范围 + domain 策略可由工具直接生成方案；category 策略会返回收藏数据（bookmarks），你必须根据标题和 URL 语义分类，完成后调用 organize_favorites(action=apply) 提交 plan（数组，每组 { folderName, parentId: 0, bookmarkIds: [收藏id] }，id 取自返回数据）
+- 收藏整理的实际移动由用户在整理卡片上点击「应用整理」后执行，你的职责是生成并提交方案，不要声称自己没有整理收藏夹的权限
+- 删除整个收藏夹文件夹（其中收藏和子文件夹会被一并删除）前会弹出确认卡片，必须由用户在确认卡片上确认，确认被取消时不要口头二次询问
+- 删除多个文件夹（如整理后的空文件夹清理）时，必须用 delete-folder 的 ids 参数一次性批量提交，多个文件夹只弹一次确认；查找空文件夹用 find-empty-folders 一次查询即可，不要逐个 folderId 调 get 判断是否为空
+- 当用户要求调整收藏顺序（如"把 XX 移到最前面"、"按访问时间排序"）时，使用 manage_favorites(action=reorder)：先用 get(folderId=X) 获取该文件夹当前列表，再把全部收藏 id 按目标顺序作为 ids 数组一次性提交。排序不能跨文件夹，不同文件夹需分别调用
 
 请用简洁、专业的语气回答用户问题。当需要执行操作时，使用提供的工具函数。`;
 
@@ -2287,49 +2293,94 @@ ${content}
       {
         name: 'manage_favorites',
         label: '管理收藏夹',
-        description: '管理收藏夹：添加收藏、查看收藏列表、删除收藏',
+        description: '管理收藏夹：添加收藏、查看收藏列表（支持按文件夹和分页）、删除收藏（单条/批量）、修改标题、移动收藏到文件夹、重排文件夹内收藏顺序、文件夹增删改查（批量删除文件夹只弹一次确认）、查找空文件夹',
         parameters: {
           type: 'object',
           properties: {
             action: {
               type: 'string',
-              description: '操作类型：add（添加）、get（查看列表）、delete（删除）',
-              enum: ['add', 'get', 'delete'],
+              description: '操作类型',
+              enum: [
+                'add', 'get', 'delete', 'batch-delete', 'update-title', 'move', 'reorder',
+                'add-folder', 'rename-folder', 'delete-folder', 'list-folders', 'get-folder-tree',
+                'find-empty-folders',
+              ],
             },
             url: {
               type: 'string',
-              description: '添加收藏时的页面 URL',
+              description: 'add：页面 URL',
             },
             title: {
               type: 'string',
-              description: '添加收藏时的页面标题（可选）',
+              description: 'add：页面标题（可选）；update-title：新标题（必填）',
             },
             id: {
               type: 'number',
-              description: '删除收藏时的记录 ID',
+              description: 'delete/update-title/move：收藏记录 ID；rename-folder/delete-folder：文件夹 ID',
+            },
+            ids: {
+              type: 'array',
+              items: { type: 'number' },
+              description: 'delete/batch-delete：收藏记录 ID 数组（批量删除）；delete-folder：文件夹 ID 数组（批量删除，只弹一次确认）；reorder：目标顺序的收藏 ID 完整列表（须属于同一文件夹且覆盖其全部收藏）',
+            },
+            folderId: {
+              type: 'number',
+              description: 'get：仅列出该文件夹内收藏（0=根目录，省略=全部）；move：目标文件夹 ID',
+            },
+            offset: {
+              type: 'number',
+              description: 'get：分页偏移（默认 0）',
+            },
+            limit: {
+              type: 'number',
+              description: 'get：每页条数（默认 50）',
+            },
+            name: {
+              type: 'string',
+              description: 'add-folder/rename-folder：文件夹名称',
+            },
+            parentId: {
+              type: 'number',
+              description: 'add-folder：父文件夹 ID（0=根目录，默认 0）',
             },
           },
           required: ['action'],
         },
         execute: async (toolCallId, params) => {
-          const { action, url, title, id } = params;
+          const sanitized = sanitizeInput(params) || {};
+          const {
+            action, url, title, id, ids, folderId, offset, limit, name, parentId,
+          } = sanitized;
+
+          // 写操作成功后统一广播收藏栏刷新（AI 直调 favoritesManager 不经过 IPC 层，
+          // 不会触发既有广播，必须在此显式补发）
+          const broadcastRefresh = () => windowManager.broadcast('bookmarks-bar:refresh');
 
           if (action === 'add') {
             if (!url) {
               throw new Error('添加收藏时 URL 不能为空');
             }
             const result = favoritesManager.addRecord({ url, title: title || '' });
+            if (result.id) {
+              broadcastRefresh();
+            }
             return {
               content: [{
                 type: 'text',
-                text: JSON.stringify(result, null, 2),
+                text: JSON.stringify(result.error
+                  ? { ...result, message: '该 URL 已在收藏夹中' }
+                  : result, null, 2),
               }],
               details: result,
             };
           }
 
           if (action === 'get') {
-            const records = favoritesManager.listRecords({ limit: 50 });
+            const records = favoritesManager.listRecords({
+              offset: Number(offset) || 0,
+              limit: Number(limit) || 50,
+              folderId: folderId === undefined ? undefined : (Number(folderId) || 0),
+            });
             return {
               content: [{
                 type: 'text',
@@ -2338,6 +2389,7 @@ ${content}
                     id: r.id,
                     url: r.url,
                     title: r.title,
+                    folderId: r.folder_id,
                     createdAt: r.created_at,
                   })),
                   count: records.length,
@@ -2347,17 +2399,237 @@ ${content}
             };
           }
 
-          if (action === 'delete') {
-            if (!id) {
-              throw new Error('删除收藏时 ID 不能为空');
+          if (action === 'delete' || action === 'batch-delete') {
+            // 单条传 id，批量传 ids；delete 兼容两种传法
+            const targetIds = Array.isArray(ids) && ids.length > 0
+              ? ids.map(Number).filter(n => Number.isInteger(n) && n > 0)
+              : (id ? [Number(id)] : []);
+            if (targetIds.length === 0) {
+              throw new Error('删除收藏时需提供 id（单条）或 ids 数组（批量）');
             }
-            const success = favoritesManager.deleteRecord(id);
+            const deleted = favoritesManager.deleteRecords(targetIds);
+            if (deleted > 0) {
+              broadcastRefresh();
+            }
             return {
               content: [{
                 type: 'text',
-                text: JSON.stringify({ success, id }, null, 2),
+                text: JSON.stringify({ success: deleted > 0, deleted, requested: targetIds.length }, null, 2),
+              }],
+              details: { deleted, requested: targetIds.length },
+            };
+          }
+
+          if (action === 'update-title') {
+            if (!id || typeof title !== 'string' || !title.trim()) {
+              throw new Error('修改标题时需提供 id 和新 title');
+            }
+            const success = favoritesManager.updateRecord(Number(id), { title: title.trim() });
+            if (success) {
+              broadcastRefresh();
+            }
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({ success, id, title: title.trim() }, null, 2),
               }],
               details: { success, id },
+            };
+          }
+
+          if (action === 'move') {
+            if (!id || folderId === undefined) {
+              throw new Error('移动收藏时需提供 id 和 folderId（0 表示根目录）');
+            }
+            const success = favoritesManager.moveFavoriteInto(Number(id), { folderId: Number(folderId) || 0 });
+            if (success) {
+              broadcastRefresh();
+            }
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({ success, id, folderId: Number(folderId) || 0 }, null, 2),
+              }],
+              details: { success, id },
+            };
+          }
+
+          if (action === 'reorder') {
+            if (!Array.isArray(ids) || ids.length === 0) {
+              throw new Error('排序时需提供目标顺序的 ids 数组（须覆盖同一文件夹内的全部收藏）');
+            }
+            const result = favoritesManager.reorderFavorites(ids);
+            if (result.success) {
+              broadcastRefresh();
+            }
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result.error ? {
+                  ...result,
+                  message: `${result.error}。可先调用 manage_favorites(action=get, folderId=X) 获取该文件夹当前顺序`,
+                } : result, null, 2),
+              }],
+              details: { success: result.success, count: result.count },
+            };
+          }
+
+          if (action === 'add-folder') {
+            if (!name || !String(name).trim()) {
+              throw new Error('创建文件夹时需提供 name');
+            }
+            const result = favoritesManager.createFolder({
+              name: String(name).trim(),
+              parentId: Number(parentId) || 0,
+            });
+            if (result.id) {
+              broadcastRefresh();
+            }
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2),
+              }],
+              details: result,
+            };
+          }
+
+          if (action === 'rename-folder') {
+            if (!id || !name || !String(name).trim()) {
+              throw new Error('重命名文件夹时需提供 id 和新 name');
+            }
+            const success = favoritesManager.renameFolder(Number(id), { name: String(name).trim() });
+            if (success) {
+              broadcastRefresh();
+            }
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({ success, id, name: String(name).trim() }, null, 2),
+              }],
+              details: { success, id },
+            };
+          }
+
+          if (action === 'delete-folder') {
+            // 单个传 id，批量传 ids（批量只弹一次确认，避免逐个文件夹弹确认框）
+            const targetIds = Array.isArray(ids) && ids.length > 0
+              ? ids.map(Number).filter(n => Number.isInteger(n) && n > 0)
+              : (id ? [Number(id)] : []);
+            if (targetIds.length === 0) {
+              throw new Error('删除文件夹时需提供 id（单个）或 ids 数组（批量）');
+            }
+
+            // 收集文件夹名称用于确认文案（getFolderTree 遍历全树）
+            const tree = favoritesManager.getFolderTree();
+            const nameMap = new Map();
+            const walkTree = (nodes) => {
+              for (const node of nodes) {
+                nameMap.set(node.id, node.name);
+                walkTree(node.children || []);
+              }
+            };
+            walkTree(tree);
+            const folderNames = targetIds.map(fid => nameMap.get(fid) || `#${fid}`);
+
+            // 级联删除：文件夹内所有收藏和子文件夹会被一并删除，必须用户确认
+            const actionId = `del_folder_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            const description = targetIds.length === 1
+              ? `确认删除文件夹「${folderNames[0]}」？其中所有收藏和子文件夹将被一并删除，不可恢复。`
+              : `确认删除以下 ${targetIds.length} 个文件夹？\n${folderNames.map(n => `・${n}`).join('\n')}\n其中所有收藏和子文件夹将被一并删除，不可恢复。`;
+            const confirmation = await requestActionConfirmation({
+              actionId,
+              type: 'delete',
+              title: targetIds.length === 1 ? '删除文件夹确认' : `批量删除文件夹确认（${targetIds.length} 个）`,
+              description,
+              riskLevel: 'high',
+            });
+            if (!confirmation.confirmed) {
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    success: false,
+                    cancelled: true,
+                    message: `用户取消了删除文件夹操作（${confirmation.reason || '已取消'}）`,
+                  }, null, 2),
+                }],
+                details: { cancelled: true },
+              };
+            }
+
+            // 逐个删除（单次确认已覆盖全部），汇总结果
+            const results = [];
+            let deletedCount = 0;
+            for (const fid of targetIds) {
+              const result = favoritesManager.deleteFolder(fid);
+              if (result.success) deletedCount++;
+              results.push({ id: fid, name: nameMap.get(fid) || `#${fid}`, ...result });
+            }
+            const success = deletedCount > 0;
+            if (success) {
+              broadcastRefresh();
+              notifyActionSettled(actionId, 'success', `已删除 ${deletedCount} 个文件夹`);
+            } else {
+              notifyActionSettled(actionId, 'error', '文件夹删除失败');
+            }
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  success,
+                  deletedCount,
+                  requestedCount: targetIds.length,
+                  results,
+                }, null, 2),
+              }],
+              details: { success, deletedCount, requestedCount: targetIds.length },
+            };
+          }
+
+          if (action === 'find-empty-folders') {
+            const emptyFolders = favoritesManager.listEmptyFolders();
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  emptyFolders,
+                  count: emptyFolders.length,
+                  message: emptyFolders.length > 0
+                    ? '以上文件夹不含任何收藏且不含子文件夹。删除多个空文件夹时请用 delete-folder 的 ids 参数一次性提交（只弹一次确认），不要逐个删除。'
+                    : '没有空文件夹。',
+                }, null, 2),
+              }],
+              details: { count: emptyFolders.length },
+            };
+          }
+
+          if (action === 'list-folders') {
+            const folders = favoritesManager.listFolders(Number(parentId) || 0);
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  folders: folders.map(f => ({
+                    id: f.id,
+                    name: f.name,
+                    parentId: f.parent_id,
+                  })),
+                  count: folders.length,
+                }, null, 2),
+              }],
+              details: { count: folders.length },
+            };
+          }
+
+          if (action === 'get-folder-tree') {
+            const tree = favoritesManager.getFolderTree();
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({ tree }, null, 2),
+              }],
+              details: { count: tree.length },
             };
           }
 
@@ -2403,6 +2675,311 @@ ${content}
             }],
             details: { count: results.length },
           };
+        },
+      },
+      // ==================== organize_favorites 工具 ====================
+      /**
+       * 收藏夹整理工具
+       *
+       * 生成收藏归类方案（strategy: domain/flat 由主进程直接归类，
+       * category 由 AI 语义分组后提交），方案以卡片形式展示给用户确认，
+       * 用户点击「应用整理」后收藏才会实际移动（渲染端 favorites:apply-organize IPC）。
+       *
+       * 防幻觉校验：apply 提交的收藏 id 必须存在于 favoritesManager.listRecords()
+       * 权威列表，不存在的 id 丢弃并记录 droppedBookmarkIds；条目以主进程权威数据
+       * 重建，不信 AI 提交值（与 apply_tab_groups 的 T-25-12 策略一致）。
+       */
+      {
+        name: 'organize_favorites',
+        label: '整理收藏夹',
+        description: '整理收藏夹：生成归类方案（按域名/语义分类/移入单文件夹），方案以卡片展示给用户确认，用户点击「应用整理」后收藏才会实际移动',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: {
+              type: 'string',
+              enum: ['plan', 'apply'],
+              description: 'plan=生成整理方案；apply=提交语义分类后的结构化方案（category 策略第二步）',
+            },
+            strategy: {
+              type: 'string',
+              enum: ['domain', 'category', 'flat'],
+              description: '归类策略（仅 plan 需要）：domain=按域名；category=AI 语义分类；flat=移入单个文件夹',
+            },
+            scope: {
+              type: 'string',
+              enum: ['root', 'all'],
+              description: '整理范围（仅 plan 需要）：root=仅根目录收藏（默认）；all=含所有子文件夹内的收藏',
+            },
+            folderName: {
+              type: 'string',
+              description: 'flat 策略的目标文件夹名（默认「整理收藏」）',
+            },
+            instruction: {
+              type: 'string',
+              description: '用户的自定义整理指令（category 策略时作为分类参考）',
+            },
+            plan: {
+              type: 'array',
+              description: 'apply 时必填：[{ folderName: 文件夹名, parentId: 父文件夹ID(默认0), bookmarkIds: [收藏ID] }]',
+              items: {
+                type: 'object',
+                properties: {
+                  folderName: { type: 'string', description: '文件夹名' },
+                  parentId: { type: 'number', description: '父文件夹 ID（0=根目录，默认 0）' },
+                  bookmarkIds: {
+                    type: 'array',
+                    items: { type: 'number' },
+                    description: '组内收藏 ID（取自 plan 返回的 bookmarks 数据）',
+                  },
+                },
+                required: ['folderName', 'bookmarkIds'],
+              },
+            },
+          },
+          required: ['action'],
+        },
+        execute: async (toolCallId, params) => {
+          const sanitized = sanitizeInput(params) || {};
+          const { action, strategy = 'domain', scope = 'root', folderName, instruction } = sanitized;
+
+          // 收藏规模上限（防卡片 DOM 爆炸与 LLM 上下文溢出）
+          const MAX_BOOKMARKS = 500;
+          const MAX_GROUPS = 50;
+          const CATEGORY_HINT_THRESHOLD = 300;
+
+          const fetchBookmarks = () => {
+            const all = favoritesManager.listRecords({ limit: 100000 });
+            return scope === 'all' ? all : all.filter(r => !r.folder_id);
+          };
+
+          const toEntry = r => ({
+            id: r.id,
+            title: r.title || r.url,
+            url: r.url,
+            folderId: r.folder_id || 0,
+          });
+
+          // ==================== plan：生成方案 ====================
+          if (action === 'plan') {
+            const records = fetchBookmarks();
+            if (records.length === 0) {
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    plan: [],
+                    message: scope === 'all'
+                      ? '收藏夹为空，没有可整理的收藏'
+                      : '根目录下没有可整理的收藏（子文件夹内仍有收藏时可用 scope=all）',
+                  }, null, 2),
+                }],
+                details: { totalBookmarks: 0, folderCount: 0 },
+              };
+            }
+
+            // domain 策略：主进程按 hostname 直接归类
+            if (strategy === 'domain') {
+              const domainMap = new Map();
+              for (const record of records) {
+                let hostname = '';
+                try {
+                  hostname = new URL(record.url).hostname;
+                } catch {
+                  hostname = '(无效 URL)';
+                }
+                if (!domainMap.has(hostname)) {
+                  domainMap.set(hostname, []);
+                }
+                domainMap.get(hostname).push(record);
+              }
+              const plan = [];
+              for (const [hostname, groupRecords] of domainMap) {
+                // 单域名组不单独建文件夹，归入「其他」
+                const target = groupRecords.length === 1 ? '其他' : hostname;
+                let group = plan.find(g => g.folderName === target);
+                if (!group) {
+                  group = { folderName: target, parentId: 0, bookmarks: [] };
+                  plan.push(group);
+                }
+                group.bookmarks.push(...groupRecords.map(toEntry));
+              }
+              plan.sort((a, b) => b.bookmarks.length - a.bookmarks.length);
+
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    plan,
+                    message: '整理方案已生成，将以卡片形式展示给用户确认，用户点击「应用整理」后收藏才会实际移动。请告知用户方案已就绪，等待确认。',
+                  }, null, 2),
+                }],
+                details: {
+                  totalBookmarks: records.length,
+                  folderCount: plan.length,
+                  strategy,
+                },
+              };
+            }
+
+            // flat 策略：全部移入单个文件夹
+            if (strategy === 'flat') {
+              const targetName = (typeof folderName === 'string' && folderName.trim())
+                ? folderName.trim() : '整理收藏';
+              const plan = [{
+                folderName: targetName,
+                parentId: 0,
+                bookmarks: records.map(toEntry),
+              }];
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    plan,
+                    message: '整理方案已生成，将以卡片形式展示给用户确认，用户点击「应用整理」后收藏才会实际移动。请告知用户方案已就绪，等待确认。',
+                  }, null, 2),
+                }],
+                details: {
+                  totalBookmarks: records.length,
+                  folderCount: 1,
+                  strategy,
+                },
+              };
+            }
+
+            // category 策略：返回数据，由 AI 语义分组后提交 apply
+            const bookmarkData = records.map(toEntry);
+            const hint = records.length > CATEGORY_HINT_THRESHOLD
+              ? `当前待整理收藏共 ${records.length} 条，数量较大，建议用户缩小整理范围（如仅整理某类网站）后再继续。`
+              : '';
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  bookmarks: bookmarkData,
+                  instruction: instruction || '',
+                  message: `请根据以下收藏的标题和 URL 进行语义分类（如开发工具、文档、社交媒体、购物等）${instruction ? `，并参考用户指令：「${instruction}」` : ''}。每组给一个简短的中文文件夹名。完成分类后必须调用 organize_favorites 工具（action=apply）提交结构化方案（plan 数组，每组 { folderName, parentId: 0, bookmarkIds: [收藏id] }，id 取自上面的 bookmarks 数据），提交后会渲染卡片给用户确认，未经 apply 提交的分类不会生效。${hint}`,
+                }, null, 2),
+              }],
+              details: { totalBookmarks: records.length, folderCount: 0, strategy },
+            };
+          }
+
+          // ==================== apply：提交方案（防幻觉校验） ====================
+          if (action === 'apply') {
+            const { plan } = sanitized;
+
+            if (!Array.isArray(plan) || plan.length === 0
+              || plan.some(g => !g || typeof g.folderName !== 'string' || !g.folderName.trim()
+                || !Array.isArray(g.bookmarkIds))) {
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    error: '参数不合法：plan 必须是非空数组，每组需包含非空 folderName 和 bookmarkIds 数组。请按 { plan: [{ folderName, parentId: 0, bookmarkIds: [id] }] } 格式重试。',
+                  }, null, 2),
+                }],
+                details: { totalBookmarks: 0, folderCount: 0, droppedBookmarkIds: [], droppedGroups: 0 },
+              };
+            }
+
+            if (plan.length > MAX_GROUPS) {
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    error: `分组数超过上限（${plan.length} > ${MAX_GROUPS}），请合并同类组后重新提交。`,
+                  }, null, 2),
+                }],
+                details: { totalBookmarks: 0, folderCount: 0 },
+              };
+            }
+
+            // 权威收藏列表：构建有效 id 集合和 id → 收藏数据映射
+            const allRecords = favoritesManager.listRecords({ limit: 100000 });
+            const validIds = new Set(allRecords.map(r => r.id));
+            const recordById = new Map(allRecords.map(r => [r.id, r]));
+
+            // 逐组清洗：丢弃幻觉 id，以权威数据重建条目
+            const droppedBookmarkIds = [];
+            let droppedGroups = 0;
+            const seenIds = new Set();
+            const normalizedPlan = [];
+            for (const group of plan) {
+              const validBookmarks = [];
+              for (const rawId of group.bookmarkIds) {
+                const id = Number(rawId);
+                if (!Number.isInteger(id) || !validIds.has(id)) {
+                  if (rawId !== null && rawId !== undefined) {
+                    droppedBookmarkIds.push(rawId);
+                  }
+                  continue;
+                }
+                if (seenIds.has(id)) continue;
+                seenIds.add(id);
+                const record = recordById.get(id);
+                validBookmarks.push({
+                  id: record.id,
+                  title: record.title || record.url,
+                  url: record.url,
+                });
+              }
+              if (validBookmarks.length === 0) {
+                droppedGroups += 1;
+                continue;
+              }
+              normalizedPlan.push({
+                folderName: group.folderName.trim(),
+                parentId: Number(group.parentId) || 0,
+                bookmarks: validBookmarks,
+              });
+            }
+
+            // 全部无效：返回错误说明，不抛出异常中断对话
+            if (normalizedPlan.length === 0) {
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    plan: [],
+                    message: '所有提交的收藏 id 均无效，方案未提交。请先调用 organize_favorites(action=plan) 核对收藏 id 后重试。',
+                  }, null, 2),
+                }],
+                details: { totalBookmarks: 0, folderCount: 0, droppedBookmarkIds, droppedGroups },
+              };
+            }
+
+            const totalBookmarks = normalizedPlan.reduce((sum, g) => sum + g.bookmarks.length, 0);
+            if (totalBookmarks > MAX_BOOKMARKS) {
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    error: `收藏总数超过上限（${totalBookmarks} > ${MAX_BOOKMARKS}），请拆分为多次整理或缩小范围后重新提交。`,
+                  }, null, 2),
+                }],
+                details: { totalBookmarks, folderCount: normalizedPlan.length },
+              };
+            }
+
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  plan: normalizedPlan,
+                  message: '整理方案已提交，将以卡片形式展示给用户确认，用户点击「应用整理」后收藏才会实际移动。请告知用户方案已就绪，等待用户确认。',
+                }, null, 2),
+              }],
+              details: {
+                totalBookmarks,
+                folderCount: normalizedPlan.length,
+                droppedBookmarkIds,
+                droppedGroups,
+              },
+            };
+          }
+
+          throw new Error(`未知操作: ${action}（应为 plan 或 apply）`);
         },
       },
       {
