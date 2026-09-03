@@ -5,8 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <!-- 页面经 http://localhost:PORT/devrequests/{id} 加载，base 使相对资源路径解析到 /devrequests/ 下 -->
   <base href="/devrequests/">
-  <!-- img-src 需放行远程 favicon（http/https/data） -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: http: data:">
+  <!-- img-src 需放行远程 favicon；style-src 需放行 unsafe-inline 与远程样式表
+       （"渲染后 HTML" tab 的 iframe srcdoc 继承本页 CSP，内联样式/外链样式被拦
+       会导致渲染视图丢样式）；script-src 保持 'self'，srcdoc 内另有 sandbox 双保险 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https: http: data:; img-src 'self' https: http: data:; font-src 'self' https: http: data:">
   <title>请求详情 - Realm</title>
   <link rel="stylesheet" href="styles/main.css">
 </head>
@@ -30,6 +32,7 @@
         <button class="detail-tab" data-tab="response-headers">响应头</button>
         <button class="detail-tab" data-tab="response-body">响应体</button>
         <button class="detail-tab" data-tab="cookies">Cookie</button>
+        <button class="detail-tab" data-tab="rendered-html">渲染后 HTML</button>
       </div>
 
       <!-- 内容区 -->

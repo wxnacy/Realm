@@ -56,6 +56,20 @@ let lastFlushTime = 0;
 /** @type {number} 总写入记录数 */
 let totalWritten = 0;
 
+/**
+ * 渲染后 HTML 回写缓存：捕获完成时记录可能尚未落库，暂存于此
+ * key: `${containerId}|${requestId}`，value: { html, ts }
+ * writeRecords 插入时消费；超时/超量兜底清理，防止大字符串滞留内存
+ * @type {Map<string, {html: string, ts: number}>}
+ */
+const pendingRenderedHtml = new Map();
+
+/** @type {number} 渲染 HTML 回写缓存的过期时间（毫秒） */
+const PENDING_RENDERED_TTL = 60 * 1000;
+
+/** @type {number} 渲染 HTML 回写缓存的最大条数 */
+const PENDING_RENDERED_MAX = 20;
+
 // ==================== 数据库初始化 ====================
 
 /**
@@ -125,7 +139,10 @@ function ensureTable(containerId) {
       duration INTEGER DEFAULT 0,
       size INTEGER DEFAULT 0,
       container_id TEXT NOT NULL,
-      created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
+      created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+      page_request_id TEXT DEFAULT '',
+      resource_type TEXT DEFAULT '',
+      rendered_html TEXT DEFAULT ''
     );
     CREATE INDEX IF NOT EXISTS idx_${tableName}_created_at
       ON ${tableName} (created_at DESC);
@@ -133,9 +150,32 @@ function ensureTable(containerId) {
       ON ${tableName} (url);
     CREATE INDEX IF NOT EXISTS idx_${tableName}_method
       ON ${tableName} (method);
+    CREATE INDEX IF NOT EXISTS idx_${tableName}_page_request_id
+      ON ${tableName} (page_request_id);
   `);
 
+  // 老库迁移：补齐新增列（幂等）
+  migrateTableColumns(tableName);
+
   return tableName;
+}
+
+/**
+ * 为已存在的老表补齐新增列（PRAGMA 检查缺列后 ALTER TABLE，幂等可重复执行）
+ * @param {string} tableName - 表名
+ */
+function migrateTableColumns(tableName) {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all().map(c => c.name);
+
+  if (!columns.includes('page_request_id')) {
+    db.exec(`ALTER TABLE ${tableName} ADD COLUMN page_request_id TEXT DEFAULT ''`);
+  }
+  if (!columns.includes('resource_type')) {
+    db.exec(`ALTER TABLE ${tableName} ADD COLUMN resource_type TEXT DEFAULT ''`);
+  }
+  if (!columns.includes('rendered_html')) {
+    db.exec(`ALTER TABLE ${tableName} ADD COLUMN rendered_html TEXT DEFAULT ''`);
+  }
 }
 
 // ==================== 队列操作 ====================
@@ -230,6 +270,7 @@ async function flush() {
 
     lastFlushTime = Date.now();
     totalWritten += recordsToWrite.length;
+    cleanupPendingRenderedHtml();
     console.log(`[Realm DevWriter] flush 完成，写入 ${recordsToWrite.length} 条记录`);
   } catch (err) {
     console.error(`[Realm DevWriter] flush 失败:`, err.message);
@@ -278,14 +319,27 @@ async function writeRecords(containerId, records) {
 
   const tableName = ensureTable(containerId);
 
+  // 消费渲染 HTML 回写缓存：捕获早于落库时，把暂存的 HTML 合入对应记录
+  for (const record of records) {
+    const key = `${containerId}|${record.requestId}`;
+    const pending = pendingRenderedHtml.get(key);
+    if (pending) {
+      if (!record.renderedHtml) {
+        record.renderedHtml = pending.html;
+      }
+      pendingRenderedHtml.delete(key);
+    }
+  }
+
   // 使用事务批量插入
   const insert = db.prepare(`
     INSERT INTO ${tableName} (
       request_id, url, method, status_code,
       request_headers, request_body,
       response_headers, response_body,
-      content_type, duration, size, container_id, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      content_type, duration, size, container_id, created_at,
+      page_request_id, resource_type, rendered_html
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertMany = db.transaction((items) => {
@@ -303,12 +357,69 @@ async function writeRecords(containerId, records) {
         record.duration || 0,
         record.size || 0,
         record.containerId || '',
-        record.createdAt || Date.now()
+        record.createdAt || Date.now(),
+        record.pageRequestId || '',
+        record.resourceType || '',
+        record.renderedHtml || ''
       );
     }
   });
 
   insertMany(records);
+}
+
+// ==================== 渲染后 HTML 回写 ====================
+
+/**
+ * 回写主文档记录的渲染后 HTML（页面渲染完成后由 cdp-manager 调用）
+ * 三种时序均可落库：
+ * 1. 记录已落库 → UPDATE 直接命中
+ * 2. 记录仍在内存队列 → UPDATE miss，暂存 pendingRenderedHtml，insert 时消费
+ * 3. 记录永不入库（导航失败等）→ 缓存由 TTL/容量上限兜底清理
+ * @param {string} containerId - 容器 ID
+ * @param {string} requestId - CDP 请求 ID（主文档记录的 request_id）
+ * @param {string} html - 渲染后的 HTML
+ */
+function updateRenderedHtml(containerId, requestId, html) {
+  if (!db || !containerId || !requestId || !html) return;
+
+  try {
+    const tableName = ensureTable(containerId);
+    const result = db.prepare(`
+      UPDATE ${tableName}
+      SET rendered_html = ?
+      WHERE request_id = ? AND (rendered_html IS NULL OR rendered_html = '')
+    `).run(html, requestId);
+
+    if (result.changes > 0) {
+      return;
+    }
+
+    // 记录尚未落库，暂存待 insert 时消费
+    const key = `${containerId}|${requestId}`;
+    pendingRenderedHtml.set(key, { html, ts: Date.now() });
+
+    // 容量兜底：超上限清理最旧
+    if (pendingRenderedHtml.size > PENDING_RENDERED_MAX) {
+      const oldestKey = [...pendingRenderedHtml.entries()]
+        .sort((a, b) => a[1].ts - b[1].ts)[0][0];
+      pendingRenderedHtml.delete(oldestKey);
+    }
+  } catch (err) {
+    console.error(`[Realm DevWriter] 回写渲染后 HTML 失败:`, err.message);
+  }
+}
+
+/**
+ * 清理过期的渲染 HTML 回写缓存（flush 时顺带调用）
+ */
+function cleanupPendingRenderedHtml() {
+  const now = Date.now();
+  for (const [key, item] of pendingRenderedHtml) {
+    if (now - item.ts > PENDING_RENDERED_TTL) {
+      pendingRenderedHtml.delete(key);
+    }
+  }
 }
 
 // ==================== 查询函数 ====================
@@ -340,7 +451,10 @@ function queryRecords(containerId, options = {}) {
       return { records: [], total: 0 };
     }
 
-    const { offset = 0, limit = 50, url, method, statusCode } = options;
+    // 老表对齐：查询侧也补齐新增列（幂等）
+    migrateTableColumns(tableName);
+
+    const { offset = 0, limit = 50, url, method, statusCode, pageRequestId, resourceType } = options;
 
     // 构建查询条件
     const conditions = [];
@@ -358,6 +472,23 @@ function queryRecords(containerId, options = {}) {
       conditions.push('status_code = ?');
       params.push(parseInt(statusCode, 10));
     }
+    if (pageRequestId) {
+      conditions.push('page_request_id = ?');
+      params.push(pageRequestId);
+    }
+    if (resourceType) {
+      // 展示标签 → CDP 原始类型映射：HTML=Document，API=XHR+Fetch 合并筛选，
+      // CSS=Stylesheet，WS=WebSocket，其余（Script/Image/Media/Font/Other）同名
+      const typeGroups = {
+        HTML: ['Document'],
+        API: ['XHR', 'Fetch'],
+        CSS: ['Stylesheet'],
+        WS: ['WebSocket'],
+      };
+      const types = typeGroups[resourceType] || [resourceType];
+      conditions.push(`resource_type IN (${types.map(() => '?').join(', ')})`);
+      params.push(...types);
+    }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -373,12 +504,15 @@ function queryRecords(containerId, options = {}) {
     `;
     const records = db.prepare(dataQuery).all(...params, limit, offset);
 
-    // 解析 JSON 字段
-    const parsedRecords = records.map(record => ({
-      ...record,
-      request_headers: safeParseJson(record.request_headers),
-      response_headers: safeParseJson(record.response_headers),
-    }));
+    // 解析 JSON 字段；剔除 rendered_html（最大 2MB，列表响应不能携带）
+    const parsedRecords = records.map(record => {
+      const { rendered_html, ...rest } = record;
+      return {
+        ...rest,
+        request_headers: safeParseJson(record.request_headers),
+        response_headers: safeParseJson(record.response_headers),
+      };
+    });
 
     return { records: parsedRecords, total };
   } catch (err) {
@@ -695,4 +829,5 @@ module.exports = {
   deleteRecord,
   clearRecords,
   cleanupExpired,
+  updateRenderedHtml,
 };

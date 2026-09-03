@@ -3452,14 +3452,14 @@ textarea::placeholder {
 .devrequests-page {
   /* body 是主窗口布局（overflow:hidden），内部页面必须自建滚动容器；
      flex:1 占满窗口宽度使滚动条位于窗口右缘（同 settings-page 注释）；
-     padding-inline 技巧在容器全宽的同时保持内容 1200px 居中 */
+     padding-inline 技巧在容器全宽的同时保持内容 1600px 居中 */
   flex: 1;
   min-width: 0;
   height: 100vh;
   overflow-y: auto;
   box-sizing: border-box;
   padding: 24px;
-  padding-inline: max(24px, calc((100% - 1200px) / 2));
+  padding-inline: max(24px, calc((100% - 1600px) / 2));
 }
 
 /* 头部 */
@@ -3660,9 +3660,30 @@ textarea::placeholder {
 .col-method { width: 70px; }
 .col-url { /* flex */ }
 .col-status { width: 70px; text-align: center; }
+.col-id { width: 70px; text-align: right; font-family: monospace; font-size: 12px; color: var(--text-secondary); }
+.col-page-request-id {
+  width: 100px;
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: copy;
+}
 .col-created-at { width: 110px; font-family: monospace; font-size: 12px; color: var(--text-secondary); }
 .col-time { width: 80px; text-align: right; }
 .col-size { width: 80px; text-align: right; }
+.col-resource-type { width: 70px; text-align: center; }
+
+/* 资源类型标签 */
+.resource-type {
+  font-size: 12px;
+  font-weight: 500;
+}
+.resource-document { color: #3B82F6; }
+.resource-xhr, .resource-fetch { color: #F59E0B; }
+.resource-image { color: #10B981; }
+.resource-script { color: #8B5CF6; }
+.resource-stylesheet { color: #EC4899; }
+.resource-media, .resource-font, .resource-websocket, .resource-other { color: var(--text-secondary); }
 
 /* 展开详情行 */
 .devrequests-table tr.detail-row {
@@ -3694,7 +3715,7 @@ textarea::placeholder {
 
 /* URL 列 */
 .url-cell {
-  max-width: 500px;
+  max-width: 760px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3782,6 +3803,21 @@ textarea::placeholder {
   padding: 24px;
   max-width: 1200px;
   margin: 0 auto;
+  /* body 是 flex + overflow:hidden，页面自建纵向 flex 布局：
+     内容区 flex:1 精确吃满剩余高度（固定 calc(100vh - N) 偏移在
+     header/URL 换行时会估不准导致内容框超出窗口底部） */
+  width: 100%;
+  height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#detailMain {
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
 }
 
 .detail-loading,
@@ -3850,7 +3886,7 @@ textarea::placeholder {
 }
 
 .meta-label {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 .meta-value {
@@ -3873,14 +3909,59 @@ textarea::placeholder {
   border-radius: 8px;
   padding: 16px 20px;
   min-height: 200px;
+  /* flex:1 精确占满 #detailMain 剩余高度（loadRecord 时以 display:flex 显示），
+     内容超出时在内容区内滚动，顶部信息区与 tab 条保持可见 */
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  overflow-y: auto;
+}
+
+/* 内容区滚动条常显（macOS overlay 滚动条默认不可见，用户感知为"无法滚动"） */
+.detail-content::-webkit-scrollbar {
+  width: 10px;
+}
+.detail-content::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 5px;
+}
+.detail-content::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+.detail-content::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .detail-section {
   margin-bottom: 20px;
+  flex-shrink: 0;
 }
 
 .detail-section:last-child {
   margin-bottom: 0;
+}
+
+/* 渲染后 HTML section：渲染模式占满内容区剩余高度，iframe 内部滚动；
+   源码模式回到自然高度由 .detail-content 滚动 */
+.detail-section.rendered-html-section.mode-render {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rendered-html-section.mode-render .detail-section-header {
+  flex-shrink: 0;
+}
+
+.rendered-html-frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: #fff;
 }
 
 .detail-section-header {
@@ -3930,8 +4011,8 @@ textarea::placeholder {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 500px;
-  overflow-y: auto;
+  /* 不设内部滚动：统一由外层 .detail-content 滚动，
+     滚动条贴内容区右缘（pre 内部滚动会让滚动条出现在段落中间） */
 }
 
 /* Query 参数表格 */
@@ -3971,7 +4052,7 @@ textarea::placeholder {
 .detail-empty-hint {
   text-align: center;
   padding: 32px 16px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: 13px;
 }
 

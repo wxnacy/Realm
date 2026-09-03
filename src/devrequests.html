@@ -42,6 +42,18 @@
         <option value="DELETE">DELETE</option>
         <option value="PATCH">PATCH</option>
       </select>
+      <select id="typeFilter" class="settings-select">
+        <option value="">全部类型</option>
+        <option value="HTML">HTML</option>
+        <option value="API">API</option>
+        <option value="Script">Script</option>
+        <option value="CSS">CSS</option>
+        <option value="Image">Image</option>
+        <option value="Media">Media</option>
+        <option value="Font">Font</option>
+        <option value="WS">WebSocket</option>
+        <option value="Other">Other</option>
+      </select>
       <button class="btn btn-secondary" id="refreshBtn" aria-label="刷新请求列表">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="23 4 23 10 17 10"></polyline>
@@ -55,8 +67,11 @@
       <table class="devrequests-table">
         <thead>
           <tr>
+            <th class="col-id">ID</th>
+            <th class="col-page-request-id">Request ID</th>
             <th class="col-method">方法</th>
             <th class="col-url">URL</th>
+            <th class="col-resource-type">类型</th>
             <th class="col-status">状态码</th>
             <th class="col-created-at">请求时间</th>
             <th class="col-time">耗时</th>

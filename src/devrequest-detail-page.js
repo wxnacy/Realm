@@ -123,7 +123,7 @@ async function loadRecord() {
     state.record = await res.json();
 
     elements.loadingState.style.display = 'none';
-    elements.detailMain.style.display = 'block';
+    elements.detailMain.style.display = 'flex';
 
     renderHeader();
     renderContent();
@@ -308,6 +308,15 @@ function renderHeader() {
   statusSpan.appendChild(statusBadge);
 
   metaRow.appendChild(statusSpan);
+  metaRow.appendChild(buildMetaItem('ID', `#${record.id}`));
+  if (record.page_request_id) {
+    // Request ID 是 UUID 很长，展示前 8 位，title 承载完整值
+    metaRow.appendChild(buildMetaItem(
+      'Page Request',
+      record.page_request_id.substring(0, 8),
+      record.page_request_id
+    ));
+  }
   metaRow.appendChild(buildMetaItem('耗时', formatDuration(record.duration)));
   metaRow.appendChild(buildMetaItem('大小', formatSize(record.size)));
   metaRow.appendChild(buildMetaItem('请求时间', formatFullTime(record.created_at)));
@@ -323,9 +332,10 @@ function renderHeader() {
  * 构建元信息项
  * @param {string} label
  * @param {string} value
+ * @param {string} [title] - 可选的悬停提示（如完整 UUID）
  * @returns {HTMLElement}
  */
-function buildMetaItem(label, value) {
+function buildMetaItem(label, value, title) {
   const item = document.createElement('span');
   item.className = 'meta-item';
 
@@ -336,6 +346,9 @@ function buildMetaItem(label, value) {
   const valueEl = document.createElement('span');
   valueEl.className = 'meta-value';
   valueEl.textContent = value;
+  if (title) {
+    valueEl.title = title;
+  }
 
   item.appendChild(labelEl);
   item.appendChild(valueEl);
@@ -369,6 +382,9 @@ function renderContent() {
       break;
     case 'cookies':
       container.appendChild(buildPreSection('Cookie', extractCookies(record.request_headers)));
+      break;
+    case 'rendered-html':
+      container.appendChild(buildRenderedHtmlSection(record.rendered_html || ''));
       break;
   }
 }
@@ -500,6 +516,60 @@ function buildPreSection(title, content) {
   pre.textContent = content;
   section.appendChild(pre);
 
+  return section;
+}
+
+/**
+ * 构建"渲染后 HTML" section：默认用 iframe srcdoc 真正渲染（sandbox 全禁
+ * 脚本/表单/弹窗/导航，仅静态渲染样式与图片），可切换查看源码
+ * @param {string} html - 渲染后的 HTML
+ * @returns {HTMLElement}
+ */
+function buildRenderedHtmlSection(html) {
+  const section = document.createElement('div');
+  section.className = 'detail-section rendered-html-section';
+
+  let mode = html ? 'render' : 'source';
+  let bodyEl = null;
+
+  const frame = document.createElement('iframe');
+  frame.className = 'rendered-html-frame';
+  frame.setAttribute('sandbox', '');
+  frame.title = '渲染后 HTML 预览';
+
+  const pre = document.createElement('pre');
+  pre.className = 'detail-pre';
+  pre.textContent = html || '(无渲染后 HTML)';
+
+  // 渲染/源码切换（空内容只有源码占位）
+  let toggleBtn = null;
+  if (html) {
+    toggleBtn = document.createElement('button');
+    toggleBtn.className = 'btn-icon detail-action-btn';
+    toggleBtn.addEventListener('click', () => {
+      mode = mode === 'render' ? 'source' : 'render';
+      render();
+    });
+  }
+
+  function render() {
+    const isRender = mode === 'render';
+    if (toggleBtn) {
+      toggleBtn.textContent = isRender ? '源码' : '渲染';
+      toggleBtn.title = isRender ? '查看 HTML 源码' : '查看渲染后页面';
+    }
+    if (bodyEl) bodyEl.remove();
+    if (isRender && !frame.srcdoc) {
+      frame.srcdoc = html;
+    }
+    bodyEl = isRender ? frame : pre;
+    section.appendChild(bodyEl);
+    section.classList.toggle('mode-render', isRender);
+  }
+
+  const header = buildSectionHeader('渲染后 HTML', () => copyText(html || ''), toggleBtn);
+  section.appendChild(header);
+  render();
   return section;
 }
 

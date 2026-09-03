@@ -429,6 +429,8 @@ app.on('web-contents-created', (event, contents) => {
     // D-03 用完即卸兜底：webview 销毁时清理 AI 工具附加的 CDP 调试器状态
     // （debuggerStates Map 条目；无 ai-tool 状态时 detachForAI 内部静默返回）
     cdpManager.detachForAI(contents.id);
+    // 页面导航状态清理（pageNavStates 条目 + 捕获定时器）
+    cdpManager.cleanupNavState(contents.id);
     // UA 覆盖管理器状态清理（debugger 由 Electron 自动断开）
     uaChManager.release(contents.id);
     console.log(`[Realm] webview 销毁，已清理容器映射与 CDP 调试器状态: ${contents.id}`);
@@ -499,10 +501,11 @@ app.on('web-contents-created', (event, contents) => {
     console.log(`[Realm] did-start-navigation: ${url}, isInPlace: ${isInPlace}, isMainFrame: ${isMainFrame}`);
 
     // CDP 管理器：检查域名匹配并自动附加/断开调试器
+    // isInPlace 透传：SPA 同文档导航不轮换 pageRequestId
     if (isMainFrame) {
       const containerId = getGuestContainerId(contents);
       if (containerId) {
-        cdpManager.handleNavigation(contents, url, containerId);
+        cdpManager.handleNavigation(contents, url, containerId, isInPlace);
       }
     }
   });
@@ -1658,12 +1661,16 @@ app.whenReady().then(async () => {
         const method = reqUrl.searchParams.get('method') || '';
         const domain = reqUrl.searchParams.get('domain') || '';
         const search = reqUrl.searchParams.get('search') || '';
+        const pageRequestId = reqUrl.searchParams.get('pageRequestId') || '';
+        const resourceType = reqUrl.searchParams.get('resourceType') || '';
 
         const result = devRequestsWriter.queryRecords(containerId, {
           offset,
           limit,
           url: search || undefined,
           method: method || undefined,
+          pageRequestId: pageRequestId || undefined,
+          resourceType: resourceType || undefined,
         });
 
         // 按域名过滤（queryRecords 不直接支持域名过滤，在此层过滤）

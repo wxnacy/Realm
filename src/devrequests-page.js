@@ -73,6 +73,8 @@ const state = {
   keyword: '',
   /** 方法过滤 */
   methodFilter: '',
+  /** 类型过滤（CDP 资源类型展示标签：HTML/API/Script/...） */
+  typeFilter: '',
   /** 域名过滤 */
   domainFilter: '',
   /** 当前展开的记录 ID */
@@ -95,6 +97,7 @@ const elements = {
   searchInput: document.getElementById('searchInput'),
   domainFilter: document.getElementById('domainFilter'),
   methodFilter: document.getElementById('methodFilter'),
+  typeFilter: document.getElementById('typeFilter'),
   refreshBtn: document.getElementById('refreshBtn'),
   requestsBody: document.getElementById('requestsBody'),
   emptyState: document.getElementById('emptyState'),
@@ -137,6 +140,28 @@ function formatMethod(method) {
   const m = (method || '').toUpperCase();
   const cls = `method-${m.toLowerCase()}`;
   return `<span class="${cls}">${escapeHtml(m)}</span>`;
+}
+
+/**
+ * 格式化 CDP 资源类型为展示标签
+ * @param {string} type - CDP resourceType（Document/XHR/Fetch/Image/...）
+ * @returns {string} 展示文本
+ */
+function formatResourceType(type) {
+  const map = {
+    Document: 'HTML',
+    XHR: 'API',
+    Fetch: 'API',
+    Stylesheet: 'CSS',
+    Image: 'Image',
+    Script: 'Script',
+    Media: 'Media',
+    Font: 'Font',
+    WebSocket: 'WS',
+    Other: 'Other',
+  };
+  if (!type) return '--';
+  return map[type] || type;
 }
 
 /**
@@ -229,6 +254,7 @@ async function loadRequests() {
 
     if (state.keyword) query.search = state.keyword;
     if (state.methodFilter) query.method = state.methodFilter;
+    if (state.typeFilter) query.resourceType = state.typeFilter;
     if (state.domainFilter) query.domain = state.domainFilter;
 
     const result = await devrequestsApi('list', {}, query);
@@ -308,6 +334,27 @@ function buildRecordRow(record) {
     tr.classList.add('selected');
   }
 
+  // 主键 ID 列（详情页用的记录 id）
+  const tdId = document.createElement('td');
+  tdId.className = 'col-id';
+  tdId.textContent = `#${record.id}`;
+
+  // Request ID 列：同一次页面导航共享同一 pageRequestId，展示前 8 位 +
+  // title 完整值，点击复制完整值（stopPropagation 防止触发行展开）
+  const tdPageRequestId = document.createElement('td');
+  tdPageRequestId.className = 'col-page-request-id';
+  const prid = record.page_request_id || '';
+  if (prid) {
+    tdPageRequestId.textContent = prid.substring(0, 8);
+    tdPageRequestId.title = `${prid}\n点击复制`;
+    tdPageRequestId.addEventListener('click', (e) => {
+      e.stopPropagation();
+      copyText(prid);
+    });
+  } else {
+    tdPageRequestId.textContent = '--';
+  }
+
   // 方法列
   const tdMethod = document.createElement('td');
   tdMethod.className = 'col-method';
@@ -334,6 +381,14 @@ function buildRecordRow(record) {
     window.open(`realm://devrequests/${record.id}`, '_blank');
   });
   tdUrl.appendChild(urlDiv);
+
+  // 类型列（CDP 资源类型：HTML/API/Image/Script/CSS...）
+  const tdType = document.createElement('td');
+  tdType.className = 'col-resource-type';
+  const typeSpan = document.createElement('span');
+  typeSpan.className = `resource-type resource-${(record.resource_type || 'other').toLowerCase()}`;
+  typeSpan.textContent = formatResourceType(record.resource_type);
+  tdType.appendChild(typeSpan);
 
   // 状态码列
   const tdStatus = document.createElement('td');
@@ -378,8 +433,11 @@ function buildRecordRow(record) {
   else if (size < 1024 * 1024) tdSize.textContent = `${(size / 1024).toFixed(1)} KB`;
   else tdSize.textContent = `${(size / (1024 * 1024)).toFixed(1)} MB`;
 
+  tr.appendChild(tdId);
+  tr.appendChild(tdPageRequestId);
   tr.appendChild(tdMethod);
   tr.appendChild(tdUrl);
+  tr.appendChild(tdType);
   tr.appendChild(tdStatus);
   tr.appendChild(tdCreatedAt);
   tr.appendChild(tdTime);
@@ -398,10 +456,11 @@ const DETAIL_TABS = [
   { key: 'response-headers', label: '响应头' },
   { key: 'response-body', label: '响应体' },
   { key: 'cookies', label: 'Cookie' },
+  { key: 'rendered-html', label: '渲染后 HTML' },
 ];
 
 /**
- * 构建展开详情行（<tr class="detail-row"><td colspan="6">...</td></tr>）
+ * 构建展开详情行（<tr class="detail-row"><td colspan="9">...</td></tr>）
  * @param {Object} record - 请求记录
  * @returns {HTMLTableRowElement}
  */
@@ -411,7 +470,7 @@ function buildDetailRow(record) {
   tr.dataset.id = `detail-${record.id}`;
 
   const td = document.createElement('td');
-  td.colSpan = 6;
+  td.colSpan = 9;
   td.className = 'detail-cell';
 
   const panel = document.createElement('div');
@@ -471,7 +530,7 @@ function buildDetailRow(record) {
  * @param {string} tab - 当前 tab key
  * @param {HTMLPreElement} preEl - 目标 pre 元素
  */
-function renderDetailContent(record, tab, preEl) {
+async function renderDetailContent(record, tab, preEl) {
   let content = '';
 
   switch (tab) {
@@ -490,6 +549,26 @@ function renderDetailContent(record, tab, preEl) {
     case 'cookies':
       content = extractCookies(record.request_headers);
       break;
+    case 'rendered-html': {
+      // list 响应不携带 rendered_html（体积大），按需拉取并缓存进 record
+      if (record.rendered_html !== undefined) {
+        content = record.rendered_html || '(无渲染后 HTML)';
+      } else {
+        preEl.textContent = '加载中…';
+        try {
+          const full = await devrequestsApi('detail', {}, {
+            id: record.id,
+            containerId: state.containerId,
+          });
+          record.rendered_html = full.rendered_html || '';
+        } catch (err) {
+          preEl.textContent = `(渲染后 HTML 拉取失败: ${err.message})`;
+          return;
+        }
+        content = record.rendered_html || '(无渲染后 HTML)';
+      }
+      break;
+    }
     default:
       content = '';
   }
@@ -644,7 +723,7 @@ function startAutoRefresh() {
   stopAutoRefresh();
 
   // 仅在第一页且无过滤条件时启用自动刷新
-  if (state.offset > 0 || state.keyword || state.methodFilter || state.domainFilter) {
+  if (state.offset > 0 || state.keyword || state.methodFilter || state.typeFilter || state.domainFilter) {
     return;
   }
 
@@ -714,6 +793,14 @@ function setupEventListeners() {
   // 方法过滤
   elements.methodFilter.addEventListener('change', () => {
     state.methodFilter = elements.methodFilter.value;
+    state.offset = 0;
+    loadRequests();
+    startAutoRefresh();
+  });
+
+  // 类型过滤（CDP 资源类型展示标签）
+  elements.typeFilter.addEventListener('change', () => {
+    state.typeFilter = elements.typeFilter.value;
     state.offset = 0;
     loadRequests();
     startAutoRefresh();

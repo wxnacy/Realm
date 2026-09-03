@@ -19,6 +19,7 @@
  */
 
 const { ipcMain, webContents } = require('electron');
+const crypto = require('crypto');
 const uaChManager = require('./ua-ch-manager');
 
 /** Canvas 拼接最大维度限制（浏览器安全限制） */
@@ -47,6 +48,15 @@ const pendingExtraRequestHeaders = new Map();
 /** @type {Map<string, object>} 响应 ExtraInfo 暂存（requestId → 完整 headers，含 Set-Cookie） */
 const pendingExtraResponseHeaders = new Map();
 
+/**
+ * @type {Map<number, object>} 页面导航状态（webContents.id → 导航状态）
+ *
+ * 每次「完整」主文档导航（非 SPA 同文档导航）轮换一个新 pageRequestId，
+ * 该次导航产生的主文档 + 所有子资源/API 请求共享同一 id。
+ * 注意：不能存入 debuggerStates——attachForAI 会整体覆写该 Map 条目。
+ */
+const pageNavStates = new Map();
+
 /** @type {import('./dev-requests-writer')|null} 写入队列模块引用 */
 let writer = null;
 
@@ -60,8 +70,14 @@ const TEXT_CONTENT_TYPES = [
   'application/javascript',
 ];
 
-/** 单条响应体最大字节数（1MB） */
-const MAX_RESPONSE_BODY_SIZE = 1024 * 1024;
+/** 单条响应体最大字节数（5MB），超出截断 */
+const MAX_RESPONSE_BODY_SIZE = 5 * 1024 * 1024;
+
+/** 渲染后 HTML 最大字节数（5MB），超出截断 */
+const MAX_RENDERED_HTML_SIZE = 5 * 1024 * 1024;
+
+/** 渲染后 HTML 捕获的兜底延迟（毫秒）：部分页面 iframe 长期不 onload，超时强制捕获 */
+const RENDERED_HTML_CAPTURE_FALLBACK_MS = 8000;
 
 // ==================== 初始化 ====================
 
@@ -740,7 +756,7 @@ function setupCdpListeners(webContents, containerId) {
     try {
       switch (method) {
         case 'Network.requestWillBeSent':
-          handleRequestWillBeSent(params, containerId);
+          handleRequestWillBeSent(params, containerId, webContents);
           break;
         case 'Network.requestWillBeSentExtraInfo':
           handleRequestWillBeSentExtraInfo(params);
@@ -758,7 +774,7 @@ function setupCdpListeners(webContents, containerId) {
           handleLoadingFinished(params, webContents);
           break;
         case 'Network.loadingFailed':
-          handleLoadingFailed(params);
+          handleLoadingFailed(params, webContents);
           break;
       }
     } catch (err) {
@@ -771,13 +787,17 @@ function setupCdpListeners(webContents, containerId) {
  * 处理 Network.requestWillBeSent 事件
  * @param {object} params - CDP 事件参数
  * @param {string} containerId - 容器 ID
+ * @param {Electron.WebContents} webContents - webview 的 webContents
  */
-function handleRequestWillBeSent(params, containerId) {
-  const { requestId, request, timestamp } = params;
+function handleRequestWillBeSent(params, containerId, webContents) {
+  const { requestId, request, timestamp, type } = params;
 
   // 若 ExtraInfo 先触发，取出其完整 headers（含 Cookie 等敏感头）合并
   const extraHeaders = pendingExtraRequestHeaders.get(requestId) || {};
   pendingExtraRequestHeaders.delete(requestId);
+
+  // 归属到当前页面导航：一次主文档导航产生的所有请求共享同一 pageRequestId
+  const navState = webContents ? pageNavStates.get(webContents.id) : null;
 
   // 初始化请求记录
   // startTime 为 CDP 单调时钟时间戳（秒），用于在 loadingFinished 时计算真实耗时
@@ -795,9 +815,20 @@ function handleRequestWillBeSent(params, containerId) {
     duration: 0,
     size: 0,
     containerId,
+    pageRequestId: navState ? navState.pageRequestId : null,
+    // CDP 资源类型（Document/XHR/Fetch/Image/Script/Stylesheet...），
+    // 主文档判定与列表页「类型」列展示共用此字段
+    resourceType: type || '',
     createdAt: Date.now(),
     startTime: timestamp,
   });
+
+  // 主文档请求：记录其 CDP requestId，渲染后 HTML 回写按它定位记录。
+  // 注意 iframe 子文档的 type 同样是 'Document'，不能让它覆盖主文档——
+  // 取 rotate 后「第一个」Document 请求即主文档（iframe 必然晚于主文档发起）
+  if (navState && type === 'Document' && !navState.mainDocRequestId) {
+    navState.mainDocRequestId = requestId;
+  }
 }
 
 /**
@@ -922,11 +953,18 @@ async function handleLoadingFinished(params, webContents) {
 /**
  * 处理 Network.loadingFailed 事件
  * @param {object} params - CDP 事件参数
+ * @param {Electron.WebContents} webContents - webview 的 webContents
  */
-function handleLoadingFailed(params) {
+function handleLoadingFailed(params, webContents) {
   const { requestId, errorText } = params;
   const record = pendingRequests.get(requestId);
   if (!record) return;
+
+  // 归属到当前页面导航（失败记录同样带 pageRequestId）
+  const navState = webContents ? pageNavStates.get(webContents.id) : null;
+  if (navState) {
+    record.pageRequestId = navState.pageRequestId;
+  }
 
   // 清理临时数据
   delete record.startTime;
@@ -991,29 +1029,126 @@ async function fetchResponseBody(webContents, record) {
 // ==================== 导航处理 ====================
 
 /**
- * 处理 webview 导航事件
- * 检查 URL 是否匹配抓取域名，自动附加/断开调试器
+ * 轮换页面导航状态：生成新 pageRequestId 并调度渲染后 HTML 捕获
+ * 每次「完整」主文档导航调用一次（SPA 同文档导航不轮换）
  * @param {Electron.WebContents} webContents - webview 的 webContents
  * @param {string} url - 导航目标 URL
  * @param {string} containerId - 容器 ID
  */
-function handleNavigation(webContents, url, containerId) {
+function rotatePageNavState(webContents, url, containerId) {
+  const prev = pageNavStates.get(webContents.id);
+  if (prev && prev.captureTimer) {
+    clearTimeout(prev.captureTimer);
+  }
+
+  const navState = {
+    pageRequestId: crypto.randomUUID(),
+    url,
+    containerId,
+    mainDocRequestId: null,
+    captureTimer: null,
+  };
+  pageNavStates.set(webContents.id, navState);
+
+  scheduleRenderedHtmlCapture(webContents, navState);
+}
+
+/**
+ * 调度渲染后 HTML 捕获：did-finish-load 主信号 + 8 秒兜底定时器
+ * 捕获 document.documentElement.outerHTML 回写到主文档记录的 rendered_html
+ * @param {Electron.WebContents} webContents - webview 的 webContents
+ * @param {object} navState - 页面导航状态（rotatePageNavState 生成）
+ */
+function scheduleRenderedHtmlCapture(webContents, navState) {
+  let captured = false;
+
+  const capture = async () => {
+    if (captured) return;
+    captured = true;
+
+    if (webContents.isDestroyed()) return;
+
+    // 已被新导航取代：旧导航的兜底信号不生效
+    const current = pageNavStates.get(webContents.id);
+    if (!current || current.pageRequestId !== navState.pageRequestId) return;
+
+    // 主文档请求尚未出现（导航失败/被拦截等），无处回写
+    if (!navState.mainDocRequestId) return;
+
+    try {
+      let html = await webContents.executeJavaScript(
+        "'<!DOCTYPE html>\\n' + document.documentElement.outerHTML",
+        false
+      );
+      if (!html) return;
+
+      // 大小限制（2MB），超出截断
+      if (html.length > MAX_RENDERED_HTML_SIZE) {
+        html = html.substring(0, MAX_RENDERED_HTML_SIZE)
+          + `\n[截断：原始大小 ${html.length} bytes]`;
+      }
+
+      if (writer) {
+        writer.updateRenderedHtml(navState.containerId, navState.mainDocRequestId, html);
+      }
+    } catch (err) {
+      console.warn('[Realm CDP] 捕获渲染后 HTML 失败:', err.message);
+    }
+  };
+
+  webContents.once('did-finish-load', capture);
+  navState.captureTimer = setTimeout(capture, RENDERED_HTML_CAPTURE_FALLBACK_MS);
+  if (navState.captureTimer.unref) {
+    navState.captureTimer.unref();
+  }
+}
+
+/**
+ * 清理指定 webContents 的页面导航状态（webview 销毁时调用，防 Map 泄漏）
+ * @param {number} webContentsId - webContents ID
+ */
+function cleanupNavState(webContentsId) {
+  const state = pageNavStates.get(webContentsId);
+  if (state && state.captureTimer) {
+    clearTimeout(state.captureTimer);
+  }
+  pageNavStates.delete(webContentsId);
+}
+
+/**
+ * 处理 webview 导航事件
+ * 检查 URL 是否匹配抓取域名，自动附加/断开调试器；
+ * 域名匹配的「完整」导航（非 SPA 同文档导航）轮换页面导航状态
+ * @param {Electron.WebContents} webContents - webview 的 webContents
+ * @param {string} url - 导航目标 URL
+ * @param {string} containerId - 容器 ID
+ * @param {boolean} [isInPlace] - 是否 SPA 同文档导航（pushState/replaceState）
+ */
+function handleNavigation(webContents, url, containerId, isInPlace) {
   if (!webContents || webContents.isDestroyed()) return;
 
   const shouldAttach = matchesDomain(url);
   const currentState = debuggerStates.get(webContents.id);
   const isAttached = currentState && currentState.attached;
 
-  if (shouldAttach && !isAttached) {
-    // 需要附加且未附加
-    console.log(`[Realm CDP] 域名匹配，附加调试器: ${url}`);
-    attachDebugger(webContents, containerId);
-  } else if (!shouldAttach && isAttached) {
+  if (shouldAttach) {
+    // 域名匹配：完整导航轮换 pageRequestId（isInPlace 保持不变，符合
+    // 「一次网页请求统一 request-id」语义）
+    if (!isInPlace) {
+      rotatePageNavState(webContents, url, containerId);
+    }
+
+    if (!isAttached) {
+      // 需要附加且未附加
+      console.log(`[Realm CDP] 域名匹配，附加调试器: ${url}`);
+      attachDebugger(webContents, containerId);
+    }
+  } else if (isAttached) {
     // 不需要匹配且已附加
     console.log(`[Realm CDP] 域名不匹配，断开调试器: ${url}`);
     detachDebugger(webContents);
   }
-  // 已附加且匹配、未附加且不匹配：无需操作
+  // 已附加且匹配：无需操作；未附加且不匹配：无需操作
 }
 
 // ==================== 清理 ====================
@@ -1036,6 +1171,9 @@ function cleanup() {
   pendingRequests.clear();
   pendingExtraRequestHeaders.clear();
   pendingExtraResponseHeaders.clear();
+  for (const webContentsId of pageNavStates.keys()) {
+    cleanupNavState(webContentsId);
+  }
   debuggerStates.clear();
   console.log('[Realm CDP] 资源已清理');
 }
@@ -2422,6 +2560,7 @@ module.exports = {
   detachForAI,
   executeCommand,
   handleNavigation,
+  cleanupNavState,
   cleanup,
   matchesDomain,
   fillForm,
