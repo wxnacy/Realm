@@ -248,6 +248,9 @@ const state = {
   // @ 引用标签页状态
   contextPickerOpen: false,
   contextPickerSearch: '',
+  contextPickerActiveIndex: 0,
+  contextPickerItems: [],
+  contextPickerContainerMap: {},
   referencedTabs: [],
 
   // Vim 标签历史栈（用于 ^ 命令切换到上一个访问的标签）
@@ -6540,6 +6543,7 @@ function setupEventListeners() {
   if (elements.contextPickerSearch) {
     elements.contextPickerSearch.addEventListener('input', (e) => {
       state.contextPickerSearch = e.target.value;
+      state.contextPickerActiveIndex = 0;
       renderContextPickerList();
     });
 
@@ -6547,10 +6551,19 @@ function setupEventListeners() {
       if (e.key === 'Escape') {
         closeContextPicker();
         elements.aiInput.focus();
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const count = state.contextPickerItems.length;
+        if (count === 0) return;
+        const delta = e.key === 'ArrowDown' ? 1 : -1;
+        state.contextPickerActiveIndex = (state.contextPickerActiveIndex + delta + count) % count;
+        renderContextPickerList();
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        closeContextPicker();
-        elements.aiInput.focus();
+        const tab = state.contextPickerItems[state.contextPickerActiveIndex];
+        if (tab) {
+          toggleContextPickerTab(tab.id, state.contextPickerItems, state.contextPickerContainerMap);
+        }
       }
     });
   }
@@ -8642,6 +8655,7 @@ function handleAIInputAutoResize() {
     input.value = value.slice(0, -1);
     state.contextPickerOpen = true;
     state.contextPickerSearch = '';
+    state.contextPickerActiveIndex = 0;
     elements.contextPickerPanel.style.display = 'flex';
     elements.contextPickerSearch.value = '';
     elements.contextPickerSearch.focus();
@@ -8697,6 +8711,13 @@ function renderContextPickerList() {
              (tab.url && tab.url.toLowerCase().includes(keyword));
     });
 
+    // 供键盘导航使用（上下键/Enter）
+    state.contextPickerItems = filteredTabs;
+    state.contextPickerContainerMap = containerMap;
+    if (state.contextPickerActiveIndex >= filteredTabs.length) {
+      state.contextPickerActiveIndex = Math.max(0, filteredTabs.length - 1);
+    }
+
     // 渲染列表
     if (filteredTabs.length === 0) {
       list.innerHTML = '';
@@ -8705,11 +8726,12 @@ function renderContextPickerList() {
     }
 
     empty.style.display = 'none';
-    list.innerHTML = filteredTabs.map(tab => {
+    list.innerHTML = filteredTabs.map((tab, index) => {
       const container = containerMap[tab.containerId] || { name: '未知', color: '#666' };
       const isSelected = state.referencedTabs.some(t => t.tabId === tab.id);
+      const isActive = index === state.contextPickerActiveIndex;
       return `
-        <div class="context-picker-row ${isSelected ? 'selected' : ''}" data-tab-id="${tab.id}">
+        <div class="context-picker-row ${isSelected ? 'selected' : ''} ${isActive ? 'active' : ''}" data-tab-id="${tab.id}">
           <span class="context-picker-dot" style="background-color: ${container.color}"></span>
           <span class="context-picker-container-name">${container.name}</span>
           <span class="context-picker-tab-title">${tab.title || tab.url || '空白标签页'}</span>
@@ -8717,6 +8739,12 @@ function renderContextPickerList() {
         </div>
       `;
     }).join('');
+
+    // 键盘高亮项滚动到可视区域
+    const activeRow = list.querySelector('.context-picker-row.active');
+    if (activeRow) {
+      activeRow.scrollIntoView({ block: 'nearest' });
+    }
 
     // 绑定点击事件
     list.querySelectorAll('.context-picker-row').forEach(row => {

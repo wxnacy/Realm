@@ -6699,6 +6699,11 @@ textarea::placeholder {
   background: var(--bg-hover);
 }
 
+/* 键盘上下键导航的高亮项 */
+.context-picker-row.active {
+  background: var(--bg-hover);
+}
+
 .context-picker-row.selected {
   background: rgba(59, 130, 246, 0.2);
   border-left: 2px solid var(--accent-color);
