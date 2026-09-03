@@ -7781,6 +7781,10 @@ async function handleSendAIMessage() {
   // 切换到停止按钮
   updateSendButtonState(true);
 
+  // 用户主动发送消息即表示想看最新内容：即使之前向上翻阅
+  // （handleAIMessageScroll 已暂停自动滚动），也强制恢复并滚到底部
+  state.aiAutoScroll = true;
+
   renderAIMessages();
 
   // 调用 AI API 发送消息
