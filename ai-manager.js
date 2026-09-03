@@ -602,8 +602,9 @@ class AIManager {
     this._migrateLegacyConfig();
 
     const providersCfg = configStore.get('ai.providers', {});
+    // 已配置判定含环境变量回退：存储无 Key 但环境变量可解析的供应商也可用
     const configuredIds = Object.keys(providersCfg).filter(
-      id => providersCfg[id] && providersCfg[id].apiKey
+      id => this._isProviderConfigured(id, providersCfg[id])
     );
 
     if (configuredIds.length === 0) {
@@ -625,11 +626,12 @@ class AIManager {
 
       // 创建凭证存储并注入所有已配置提供商的 API Key
       // CredentialStore 是 pi-ai 的标准认证机制：每个 provider 一个凭证条目
+      // Key 经 _resolveProviderKey 动态解析：环境变量 > 已保存 Key
       const credentialStore = new InMemoryCredentialStore();
       for (const providerId of configuredIds) {
         await credentialStore.modify(providerId, async () => ({
           type: 'api_key',
-          key: providersCfg[providerId].apiKey,
+          key: this._resolveProviderKey(providerId, providersCfg[providerId]),
         }));
       }
 
@@ -1311,6 +1313,40 @@ ${content}
   }
 
   /**
+   * 判断供应商是否可用（已保存 Key 或环境变量可解析）
+   *
+   * 与搜索配置语义对齐：环境变量可用即视为已配置，
+   * 存储层不物化环境变量值（保存时不写入 Key）。
+   *
+   * @param {string} providerId - 提供商 ID
+   * @param {Object|null} cfg - configStore 中该提供商的配置
+   * @returns {boolean}
+   */
+  _isProviderConfigured(providerId, cfg) {
+    if (!cfg) return false;
+    if (cfg.apiKey) return true;
+    const envResult = this.detectEnvVar(providerId, cfg.envVarName);
+    return Boolean(envResult && envResult.found);
+  }
+
+  /**
+   * 解析供应商运行时 API Key
+   *
+   * 优先级：环境变量 > configStore 已保存的 Key（与搜索配置一致）。
+   * 环境变量的值从不落盘，每次运行时动态解析，改环境变量重启即生效。
+   *
+   * @param {string} providerId - 提供商 ID
+   * @param {Object|null} cfg - configStore 中该提供商的配置
+   * @returns {string} 解析到的 Key，两者都无时为空字符串
+   */
+  _resolveProviderKey(providerId, cfg) {
+    if (!cfg) return '';
+    const envResult = this.detectEnvVar(providerId, cfg.envVarName);
+    if (envResult && envResult.found && envResult.value) return envResult.value;
+    return cfg.apiKey || '';
+  }
+
+  /**
    * 配置 AI 提供商
    *
    * 保存指定提供商的 API Key 和模型，设为激活提供商并重新初始化 Agent。
@@ -1330,37 +1366,25 @@ ${content}
       throw new Error('提供商不能为空');
     }
 
-    // __keep__ 哨兵值：用户未输入新 Key。
-    // 优先级：环境变量 > 已保存的 Key——设置页提示「环境变量已自动使用」，
-    // 若此时保留旧的已保存 Key（可能已失效），保存后 Agent 仍用旧 Key 导致 401。
-    if (apiKey === '__keep__') {
-      const envResult = this.detectEnvVar(provider, envVarName);
-      if (envResult && envResult.found) {
-        apiKey = envResult.value;
-        console.log(`[Realm AI] 从环境变量 ${envResult.name} 检测到 API Key（覆盖已保存）`);
-      } else {
-        const existing = this.configStore ? this.configStore.get(`ai.providers.${provider}`) : null;
-        if (existing && existing.apiKey) {
-          apiKey = existing.apiKey;
-        } else {
-          throw new Error('未找到已保存的 API Key，请手动输入');
-        }
-      }
-    }
-
-    if (!apiKey) {
-      // 如果没有 apiKey，尝试从环境变量检测
-      if (this.configStore && provider) {
+    // Key 写入策略（与搜索配置一致）：
+    // - 手动输入了 Key → 新 Key 落盘
+    // - 未输入（__keep__ 哨兵或空）→ 不物化环境变量值，保留已存 Key（可为空）；
+    //   环境变量由运行时 _resolveProviderKey 动态解析（优先级：环境变量 > 已保存 Key）
+    const existingProviders = this.configStore ? this.configStore.get('ai.providers', {}) : {};
+    const existingCfg = existingProviders[provider] || {};
+    if (apiKey === '__keep__' || !apiKey) {
+      apiKey = existingCfg.apiKey || '';
+      if (!apiKey && isBuiltin !== false) {
         const envResult = this.detectEnvVar(provider, envVarName);
-        if (envResult && envResult.found) {
-          apiKey = envResult.value;
-          console.log(`[Realm AI] 从环境变量 ${envResult.name} 检测到 API Key`);
+        if (!envResult.found) {
+          throw new Error('未找到已保存的 API Key 或环境变量，请手动输入');
         }
       }
     }
 
-    // 自定义供应商允许首次创建时无 apiKey（用户稍后填写）
-    if (!apiKey && isBuiltin === false) {
+    // 自定义供应商允许首次创建时无 apiKey（用户稍后填写）；
+    // 环境变量可用的自定义供应商不走 pending，按正常路径保存（运行时动态解析）
+    if (!apiKey && isBuiltin === false && !this.detectEnvVar(provider, envVarName).found) {
       // 保存配置但不初始化 Agent
       if (this.configStore) {
         const providers = this.configStore.get('ai.providers', {});
@@ -1382,16 +1406,10 @@ ${content}
       return { success: true, pending: true };
     }
 
-    if (!apiKey) {
-      throw new Error('API Key 不能为空，请在输入框填写或设置环境变量');
-    }
-
     // 校验提供商存在（内置供应商），自定义供应商跳过校验
     // 可选模型集合优先使用 customModels（用户检测/删减后的列表），
     // 请求未携带时回退已保存的 existing.customModels（如下拉切换模型只传 model），
     // 否则回退 catalog 默认列表——检测到的新模型可能不在 catalog 中
-    const existingProviders = this.configStore ? this.configStore.get('ai.providers', {}) : {};
-    const existingCfg = existingProviders[provider] || {};
     let validModel = model || null;
     const customList = (Array.isArray(customModels) && customModels.length > 0 && customModels)
       || (Array.isArray(existingCfg.customModels) && existingCfg.customModels.length > 0 && existingCfg.customModels)
@@ -1457,7 +1475,9 @@ ${content}
 
     const providers = catalog.getProviders().map(p => {
       const saved = providersCfg[p.id];
-      const apiKey = saved && saved.apiKey ? saved.apiKey : '';
+      // 配置状态含环境变量回退（存储不物化环境变量值）
+      const savedKey = saved && saved.apiKey ? saved.apiKey : '';
+      const hasKey = this._isProviderConfigured(p.id, saved);
       const customModels = saved && saved.customModels ? saved.customModels : [];
       // customModels 非空时视为用户确认过的列表（检测/删减后的结果），
       // 优先于 catalog 默认列表回显；名称尽量从 catalog 补全
@@ -1471,8 +1491,8 @@ ${content}
       return {
         id: p.id,
         name: saved && saved.displayName ? saved.displayName : p.name,
-        configured: Boolean(apiKey),
-        keyPreview: apiKey ? `…${apiKey.slice(-4)}` : null,
+        configured: hasKey,
+        keyPreview: savedKey ? `…${savedKey.slice(-4)}` : null,
         activeModel: saved && saved.model ? saved.model : null,
         models,
         envVarName: saved && saved.envVarName ? saved.envVarName : null,
@@ -1486,12 +1506,13 @@ ${content}
     // 附加自定义供应商（不在 catalog 中的）
     for (const [id, saved] of Object.entries(providersCfg)) {
       if (saved && !catalog.getProviders().find(p => p.id === id)) {
-        const apiKey = saved.apiKey || '';
+        const savedKey = saved.apiKey || '';
+        const hasKey = this._isProviderConfigured(id, saved);
         providers.push({
           id,
           name: saved.displayName || id,
-          configured: Boolean(apiKey),
-          keyPreview: apiKey ? `…${apiKey.slice(-4)}` : null,
+          configured: hasKey,
+          keyPreview: savedKey ? `…${savedKey.slice(-4)}` : null,
           activeModel: saved.model || null,
           models: saved.customModels ? saved.customModels.map(m => ({ id: m, name: m })) : [],
           envVarName: saved.envVarName || null,
@@ -1951,8 +1972,10 @@ ${content}
 
     console.log(`[Realm AI] 供应商已删除: ${providerId}`);
 
-    // 重新初始化（如有其他已配置供应商）
-    const remainingIds = Object.keys(providers).filter(id => providers[id] && providers[id].apiKey);
+    // 重新初始化（如有其他已配置供应商；判定含环境变量回退）
+    const remainingIds = Object.keys(providers).filter(
+      id => this._isProviderConfigured(id, providers[id])
+    );
     if (remainingIds.length > 0) {
       await this.init(this.configStore);
     } else {

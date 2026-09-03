@@ -2573,6 +2573,9 @@ let searchSelectedProviderId = null;
 /** 搜索配置数据 */
 let searchConfig = { provider: 'auto', apiKeys: {}, envVarNames: {} };
 
+/** 环境变量可用性缓存（providerId → 是否检测到环境变量），供列表状态展示与保存校验使用 */
+let searchEnvAvailability = {};
+
 /**
  * 加载 AI 助手设置
  * 获取已配置供应商列表和 AI 状态，渲染供应商列表和状态指示器
@@ -2802,7 +2805,7 @@ async function showEditorForm(providerId) {
         envVarHint.style.display = 'block';
         envVarHint.className = 'ai-env-var-hint env-found';
         envVarHint.textContent = provider.configured
-          ? `检测到环境变量 ${envResult.name}，保存时将使用它覆盖已保存的 Key`
+          ? `检测到环境变量 ${envResult.name}，运行时将优先使用它（Key 不会写入配置）`
           : `检测到环境变量 ${envResult.name}，已自动使用`;
         if (apiKeyInput && !apiKeyInput.value && !provider.configured) {
           apiKeyInput.placeholder = `环境变量 ${envResult.name} 已配置`;
@@ -3124,6 +3127,8 @@ async function loadSearchConfig() {
       apiKeys: data.apiKeys || {},
       envVarNames: data.envVarNames || {},
     };
+    // 批量检测环境变量可用性后再渲染，状态标签一次到位
+    await refreshSearchEnvAvailability();
     renderSearchProviderList();
 
     // 预选当前配置的 Provider
@@ -3136,6 +3141,27 @@ async function loadSearchConfig() {
 }
 
 /**
+ * 批量检测搜索 Provider 环境变量可用性
+ * 对所有需要 Key 的 Provider 调用 env-var 接口（含各自自定义环境变量名），
+ * 结果写入 searchEnvAvailability 缓存，供状态标签展示与保存校验使用
+ */
+async function refreshSearchEnvAvailability() {
+  const results = await Promise.all(SEARCH_PROVIDERS
+    .filter(p => p.requiresKey)
+    .map(async p => {
+      try {
+        const params = { provider: p.id };
+        if (searchConfig.envVarNames[p.id]) params.customName = searchConfig.envVarNames[p.id];
+        const r = await searchConfigApi('env-var', {}, params);
+        return [p.id, !!(r && r.found)];
+      } catch {
+        return [p.id, false];
+      }
+    }));
+  searchEnvAvailability = Object.fromEntries(results);
+}
+
+/**
  * 渲染搜索 Provider 列表
  * 遍历 SEARCH_PROVIDERS 创建列表项，显示名称和状态标签
  */
@@ -3145,7 +3171,8 @@ function renderSearchProviderList() {
 
   listEl.innerHTML = '';
   SEARCH_PROVIDERS.forEach(p => {
-    const hasKey = !!searchConfig.apiKeys[p.id];
+    // 已配置 = 已保存 Key 或环境变量可用（后端 doSearch 环境变量优先）
+    const hasKey = !!searchConfig.apiKeys[p.id] || !!searchEnvAvailability[p.id];
     const item = document.createElement('div');
     item.className = 'ai-provider-item'
       + (searchSelectedProviderId === p.id ? ' active' : '');
@@ -3259,6 +3286,9 @@ async function detectSearchEnvVar(providerId) {
 
     const envResult = await searchConfigApi('env-var', {}, params);
     if (envResult && envResult.found) {
+      // 更新环境变量可用性缓存并联动左侧列表状态
+      searchEnvAvailability[providerId] = true;
+      renderSearchProviderList();
       envVarHint.style.display = 'block';
       envVarHint.className = 'ai-env-var-hint env-found';
       const hasKey = !!searchConfig.apiKeys[providerId];
@@ -3269,6 +3299,8 @@ async function detectSearchEnvVar(providerId) {
         apiKeyInput.placeholder = `环境变量 ${envResult.name} 已配置`;
       }
     } else if (envResult && envResult.name) {
+      searchEnvAvailability[providerId] = false;
+      renderSearchProviderList();
       envVarHint.style.display = 'block';
       envVarHint.className = 'ai-env-var-hint env-not-found';
       envVarHint.textContent = `未检测到环境变量 ${envResult.name}，将使用手动输入的 API Key`;
@@ -3376,9 +3408,11 @@ function setupSearchConfigListeners() {
       const envVarName = envVarNameInput ? envVarNameInput.value.trim() : '';
 
       // 免费 Provider 不需要 Key
-      // 付费 Provider：必须有 Key 或环境变量名，或者允许清空（已配置过 Key）
+      // 付费 Provider：必须有 Key 或环境变量名，环境变量已检测到也可保存（仅依赖默认环境变量），
+      // 或者允许清空（已配置过 Key）
       const existingKey = searchConfig.apiKeys[searchSelectedProviderId];
-      if (provider.requiresKey && !apiKey && !envVarName && !existingKey) {
+      if (provider.requiresKey && !apiKey && !envVarName && !existingKey
+        && !searchEnvAvailability[searchSelectedProviderId]) {
         showToast('请输入 API Key 或环境变量名', 'error');
         return;
       }
