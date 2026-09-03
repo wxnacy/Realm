@@ -6279,6 +6279,8 @@ textarea::placeholder {
 }
 
 /* 回到底部按钮 */
+/* bottom 由 renderer.js 的 ResizeObserver 按 aiInputArea 实际高度动态设置，
+   此处值仅作 JS 未运行时的回退 */
 .ai-scroll-to-bottom {
   position: absolute;
   bottom: 80px;

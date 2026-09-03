@@ -6599,6 +6599,17 @@ function setupEventListeners() {
   // 回到底部按钮
   if (elements.aiScrollToBottom) {
     elements.aiScrollToBottom.addEventListener('click', handleScrollToBottomClick);
+
+    // 动态钉在聊天输入区顶部上方：输入区高度随引用 pills、
+    // 输入框自动增高变化，CSS 写死 bottom 会与输入区重叠
+    const aiInputArea = document.getElementById('aiInputArea');
+    if (aiInputArea && typeof ResizeObserver !== 'undefined') {
+      const syncScrollBtnPos = () => {
+        elements.aiScrollToBottom.style.bottom = (aiInputArea.offsetHeight + 8) + 'px';
+      };
+      new ResizeObserver(syncScrollBtnPos).observe(aiInputArea);
+      syncScrollBtnPos();
+    }
   }
 
   // 初始化操作确认 IPC 监听
