@@ -302,10 +302,15 @@ function parseStoredContent(contentStr, toolCallsFallback) {
 }
 
 /**
- * 读取对话的全部消息行（按 created_at 升序，rowid 稳定 tiebreak）
- * 同一毫秒产生的多条消息按插入顺序（rowid）稳定排序：全量替换后
- * rowid 即 transcript 顺序（per G-42-2），保证 assistant toolCall
- * 与其后 toolResult 相邻，满足 provider API 的配对约束
+ * 读取对话的全部消息行（按 rowid 升序 = 最后一次全量保存的数组顺序）
+ *
+ * 排序依据是 rowid 而非 created_at：saveMessages 全量替换事务按数组
+ * 顺序插入，rowid 即 transcript 逻辑顺序（per G-42-2），保证 assistant
+ * toolCall 与其后 toolResult 相邻（provider API 配对约束）。
+ * 不能用 created_at 排序：/compact 摘要消息的时间戳是压缩时刻（最新），
+ * 但逻辑位置在最前；重插的历史轮次保留原始时间戳，按 created_at 排序
+ * 会把摘要从上下文开头错位到结尾（每次 DB 回读都会重排）。
+ *
  * @param {string} conversationId - 对话 ID
  * @returns {Array} 原始消息行
  * @private
@@ -316,7 +321,7 @@ function readMessageRows(conversationId) {
     SELECT id, conversation_id, role, content, tool_calls, tool_results, page_snapshots, created_at
     FROM messages
     WHERE conversation_id = ?
-    ORDER BY created_at ASC, rowid ASC
+    ORDER BY rowid ASC
   `).all(conversationId);
 }
 
@@ -613,6 +618,19 @@ function getMessages(conversationId) {
       target.result = text;
       target.status = meta.isError ? 'failed' : 'completed';
       if (meta.isError) target.error = text;
+      continue;
+    }
+
+    // /compact 摘要消息（user 角色包 <context-summary> XML）→ 可折叠摘要框
+    // 剥掉 XML 壳透传摘要正文，渲染端默认折叠、点击展开查看
+    if (text.startsWith('<context-summary>')) {
+      const m = text.match(/^<context-summary>\n?([\s\S]*?)\n?<\/context-summary>$/);
+      display.push({
+        id: row.id,
+        role: 'summary',
+        content: (m && m[1] ? m[1] : text).trim(),
+        timestamp: row.created_at,
+      });
       continue;
     }
 

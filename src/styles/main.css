@@ -5702,6 +5702,97 @@ textarea::placeholder {
   gap: 12px;
 }
 
+/* 系统提示条（/clear、/compact 等命令的执行反馈，居中小字灰色条） */
+.ai-system-note {
+  display: flex;
+  justify-content: center;
+  margin: 4px 0;
+}
+
+.ai-system-note span {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: rgba(127, 127, 127, 0.12);
+  border-radius: 10px;
+  padding: 3px 12px;
+}
+
+/* 压缩中提示条尾部的三点 loading 动画 */
+.ai-system-note .ai-typing-indicator {
+  margin-left: 8px;
+}
+
+/* /compact 可折叠摘要框（默认折叠，点击 header 展开） */
+.ai-summary-box {
+  /* flex 子项默认可收缩，overflow:hidden 会解除 min-content 高度保护，
+     列表内容超高时 box 被压成 0 高只剩边框——必须禁用收缩 */
+  flex-shrink: 0;
+  max-width: 86%;
+  margin: 4px auto;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.ai-summary-box-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+  transition: background-color 150ms ease;
+}
+
+.ai-summary-box-header:hover {
+  background: var(--bg-hover);
+}
+
+.ai-summary-box-chevron {
+  margin-left: auto;
+  transition: transform 150ms ease;
+}
+
+.ai-summary-box.collapsed .ai-summary-box-chevron {
+  transform: rotate(-90deg);
+}
+
+.ai-summary-box-body {
+  display: none;
+  padding: 8px 12px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary, #888);
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-top: 1px solid var(--border-color);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.ai-summary-box:not(.collapsed) .ai-summary-box-body {
+  display: block;
+}
+
+/* 发送按钮压缩中禁用态（旋转图标 + 禁用交互） */
+.ai-send-btn.compacting-mode {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ai-send-btn .ai-btn-spinner {
+  animation: ai-btn-spin 0.9s linear infinite;
+}
+
+@keyframes ai-btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* 消息气泡基础 */
 .ai-message {
   display: flex;
@@ -6653,6 +6744,55 @@ textarea::placeholder {
   display: flex;
   flex-direction: column;
   margin-bottom: 4px;
+}
+
+/* / 斜杠命令浮动面板（复用 @ 面板定位思路，输入框上方弹出） */
+.slash-picker-panel {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  margin-bottom: 4px;
+}
+
+.slash-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.slash-picker-row:hover {
+  background: var(--bg-hover);
+}
+
+.slash-picker-row.active {
+  background: var(--bg-hover);
+}
+
+.slash-picker-name {
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.slash-picker-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 搜索框 */

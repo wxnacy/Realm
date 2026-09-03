@@ -490,6 +490,12 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 /** 上下文裁剪：保留最近的消息数量 */
 const MAX_CONTEXT_MESSAGES = 20;
 
+/** /compact 摘要生成的系统提示（LLM 只输出摘要本身，不续写对话） */
+const SUMMARY_SYSTEM_PROMPT = '你是对话上下文压缩助手。阅读一段用户与 AI 助手的对话记录，输出一份结构化摘要，供另一个 LLM 在后续对话中作为上下文使用。不要续写对话，不要回答对话中的任何问题，只输出摘要本身。';
+
+/** /compact 保留原文的最近轮数（一轮 = 一条 user 消息及其后所有回复） */
+const COMPACT_RECENT_TURNS = 4;
+
 /**
  * read_page_content 正文截断阈值
  * D-07：覆盖 99%+ 网页。单位按 JS string.length（UTF-16 code unit）计数字符而非字节
@@ -1805,6 +1811,217 @@ ${content}
     console.log('[Realm AI] 创建新对话: ' + conversation.id);
 
     return conversation;
+  }
+
+  /**
+   * 压缩当前对话上下文（/compact）
+   *
+   * LLM 摘要压缩点前的全部历史 + 回注最近 COMPACT_RECENT_TURNS 轮原文，
+   * 替换 agent.state.messages 并经 saveMessages 全量替换事务落库
+   * （压缩点前旧行自动清除，重开对话后上下文同为压缩态）。
+   *
+   * 失败安全：LLM 摘要失败发生在任何赋值/落库之前，原上下文原数据原状，
+   * 无需回滚代码；落库为单事务原子生效。
+   *
+   * @param {Object} [options]
+   * @param {string} [options.focus] - 用户指定的摘要重点（/compact 的参数）
+   * @returns {Promise<{success: boolean, skipped?: boolean, message?: string,
+   *   before: number, after: number, tokensBefore: number, tokensAfter: number}>}
+   * @throws {Error} 未初始化 / 无可压缩对话 / 正在处理消息 / 摘要生成失败
+   */
+  async compactConversation(options = {}) {
+    // ---- 守卫（全部 throw，不做任何状态变更）----
+    if (!this.isInitialized || !this.models) {
+      throw new Error('AI 助手未初始化，请先在设置中配置模型');
+    }
+    if (!this.agent || !this.currentConversationId) {
+      throw new Error('没有可压缩的对话');
+    }
+    if (this.isProcessing) {
+      throw new Error('AI 正在处理消息，请稍后再压缩');
+    }
+
+    // ---- 取全量上下文（system 提示独立存于 initialState，正常不存在，防御性过滤）----
+    const messages = (this.agent.state.messages || []).filter(m => m.role !== 'system');
+    const before = messages.length;
+    const tokensBefore = this._estimateMessagesTokens(messages);
+
+    // ---- 切分最近轮次：反向找最近 N 条 user 消息，取最早一条为切点 ----
+    // 切点必取 user 行起点，保证 recent 不拆轮、toolCall/toolResult 配对完整
+    let cutIdx = messages.length;
+    let userCount = 0;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        userCount++;
+        if (userCount >= COMPACT_RECENT_TURNS) {
+          cutIdx = i;
+          break;
+        }
+      }
+    }
+
+    // 对话不足 N 轮：无压缩价值，整体跳过（此时 cutIdx 未命中，
+    // 若不在此拦截会把全部历史压缩掉、一条原文都不保留）
+    if (userCount < COMPACT_RECENT_TURNS) {
+      return {
+        success: true,
+        skipped: true,
+        message: `对话不足 ${COMPACT_RECENT_TURNS} 轮，无需压缩`,
+        before, after: before, tokensBefore, tokensAfter: tokensBefore,
+      };
+    }
+
+    const oldMessages = messages.slice(0, cutIdx);
+    const recentMessages = messages.slice(cutIdx);
+
+    // 兜底：恰好 N 轮时切点为最早一条 user，旧消息为空
+    if (oldMessages.length === 0) {
+      return {
+        success: true,
+        skipped: true,
+        message: '对话较短，无需压缩',
+        before, after: before, tokensBefore, tokensAfter: tokensBefore,
+      };
+    }
+
+    // ---- 构造摘要 prompt 并调 LLM（唯一有失败风险的一步）----
+    const conversationText = this._serializeMessagesForSummary(oldMessages);
+    let summaryRequest = '以下是对话记录，请将其压缩为结构化摘要。\n\n' +
+      '<conversation>\n' + conversationText + '\n</conversation>\n\n' +
+      '请按以下四个小节输出纯文本摘要（小节标题用【】，不要使用 Markdown 代码块包裹整体）：\n\n' +
+      '【任务目标】用户要完成的一件或多件事\n' +
+      '【关键决策】过程中确定的重要决策及其理由\n' +
+      '【当前状态】已完成的事项、进行中的事项、被阻塞的事项\n' +
+      '【注意事项】后续继续工作必须知晓的细节：文件路径、报错信息原文、关键参数、遗留风险等，原样保留\n\n' +
+      '摘要要自包含：只读摘要就能接续工作，不需要回看原对话。';
+    const focus = typeof options.focus === 'string' ? options.focus.trim().slice(0, 500) : '';
+    if (focus) {
+      summaryRequest += `\n\n用户特别要求：${focus}。摘要应重点覆盖该方面的内容。`;
+    }
+
+    const model = this.models.getModel(this.activeProvider, this.activeModelId);
+    if (!model) {
+      throw new Error('未找到当前激活模型，请检查 AI 设置');
+    }
+
+    const assistant = await this.models.completeSimple(model, {
+      systemPrompt: SUMMARY_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: summaryRequest, timestamp: Date.now() }],
+    }, {});
+
+    const text = (assistant.content || [])
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join('')
+      .trim();
+    if (assistant.stopReason === 'error' || assistant.stopReason === 'aborted' || !text) {
+      throw new Error(assistant.errorMessage || '摘要生成失败或结果为空');
+    }
+
+    // ---- 组装并替换上下文（此后均为纯内存/单事务操作）----
+    const summaryMsg = {
+      role: 'user',
+      content: '<context-summary>\n' + text + '\n</context-summary>',
+      timestamp: Date.now(),
+    };
+    const newMessages = [summaryMsg, ...recentMessages];
+    this.agent.state.messages = newMessages;
+
+    // ---- 落库：全量替换事务自动删掉压缩点前的旧行 ----
+    conversationStore.saveMessages(this.currentConversationId, newMessages);
+
+    const after = newMessages.length;
+    const tokensAfter = this._estimateMessagesTokens(newMessages);
+    console.log(`[Realm AI] 上下文已压缩: ${before} 条 → ${after} 条 (${this.currentConversationId})`);
+
+    return { success: true, before, after, tokensBefore, tokensAfter };
+  }
+
+  /**
+   * 估算一组 AgentMessage 的 token 总量（estimateTokens 保守字符启发式）
+   * @private
+   * @param {Array} messages - AgentMessage 形状消息
+   * @returns {number} 估算 token 总数（estimateTokens 不可用时退化为按字符数 /4）
+   */
+  _estimateMessagesTokens(messages) {
+    let total = 0;
+    for (const msg of messages) {
+      total += this._estimateMessageTokens(msg);
+    }
+    return total;
+  }
+
+  /**
+   * 估算单条 AgentMessage 的 token 量
+   * @private
+   * @param {Object} msg - AgentMessage 形状消息
+   * @returns {number} 估算 token 数
+   */
+  _estimateMessageTokens(msg) {
+    let text = '';
+    if (typeof msg.content === 'string') {
+      text = msg.content;
+    } else if (Array.isArray(msg.content)) {
+      for (const block of msg.content) {
+        if (block.type === 'text') text += block.text || '';
+        else if (block.type === 'toolCall') text += JSON.stringify(block.arguments || {});
+      }
+    }
+    return Math.ceil(text.length / 4);
+  }
+
+  /**
+   * 将旧消息序列化为纯文本对话记录（供 /compact 摘要 prompt 使用）
+   *
+   * user → [用户] 文本；assistant → [助手] 文本 + 工具调用标注；
+   * toolResult → [工具结果] 文本截断。已存在的旧 <context-summary> 消息
+   * 剥壳保留内容继续参与摘要（二次压缩语义）。
+   *
+   * @private
+   * @param {Array} oldMessages - 压缩点前的 AgentMessage 消息
+   * @returns {string} 纯文本对话记录
+   */
+  _serializeMessagesForSummary(oldMessages) {
+    const MAX_TOOL_RESULT_CHARS = 500;
+    const lines = [];
+
+    for (const msg of oldMessages) {
+      if (msg.role === 'user') {
+        let text = typeof msg.content === 'string' ? msg.content : '';
+        // 二次压缩：旧摘要消息剥掉 XML 壳，内容原样参与新摘要
+        const m = text.match(/^<context-summary>\n?([\s\S]*?)\n?<\/context-summary>$/);
+        lines.push(m ? '[历史摘要] ' + (m[1] || '') : '[用户] ' + text);
+      } else if (msg.role === 'assistant') {
+        let text = '';
+        const toolNames = [];
+        if (Array.isArray(msg.content)) {
+          for (const block of msg.content) {
+            if (block.type === 'text') text += block.text || '';
+            else if (block.type === 'toolCall') toolNames.push(block.name || '');
+          }
+        } else if (typeof msg.content === 'string') {
+          text = msg.content;
+        }
+        let line = '[助手] ' + text;
+        if (toolNames.length > 0) {
+          line += ' (调用工具 ' + toolNames.join(', ') + ')';
+        }
+        lines.push(line);
+      } else if (msg.role === 'toolResult') {
+        let text = '';
+        if (Array.isArray(msg.content)) {
+          text = msg.content.filter(b => b.type === 'text').map(b => b.text || '').join('');
+        } else if (typeof msg.content === 'string') {
+          text = msg.content;
+        }
+        if (text.length > MAX_TOOL_RESULT_CHARS) {
+          text = text.slice(0, MAX_TOOL_RESULT_CHARS) + '…（已截断）';
+        }
+        lines.push('[工具结果' + (msg.toolName ? ' ' + msg.toolName : '') + '] ' + text);
+      }
+    }
+
+    return lines.join('\n');
   }
 
   /**

@@ -971,6 +971,13 @@ contextBridge.exposeInMainWorld('realmAPI', {
     abort: () => ipcRenderer.invoke('ai:abort'),
 
     /**
+     * 压缩当前对话上下文（/compact）
+     * @param {Object} [options] - { focus?: string } 用户指定的摘要重点
+     * @returns {Promise<Object>} { success, skipped?, message?, before, after, tokensBefore, tokensAfter }
+     */
+    compactConversation: (options) => ipcRenderer.invoke('ai:compact-conversation', options),
+
+    /**
      * 监听 Agent 事件（批量）
      * 高频事件（message_update, tool_execution_update）使用 debounce 16ms 批量合并
      * @param {function} callback - 接收事件数组的回调
@@ -1031,6 +1038,13 @@ contextBridge.exposeInMainWorld('realmAPI', {
      * @returns {Promise<{conversation: Object}>}
      */
     switchConversation: (id) => ipcRenderer.invoke('ai:switch-conversation', id),
+
+    /**
+     * 获取对话消息（renderer 显示形状，轻量只读——不切换/不重建 Agent）
+     * @param {string} id - 对话 ID
+     * @returns {Promise<Array>} 显示形状消息列表
+     */
+    getMessages: (id) => ipcRenderer.invoke('ai:get-conversation-messages', id),
 
     /**
      * 删除对话

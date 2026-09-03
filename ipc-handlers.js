@@ -1706,6 +1706,22 @@ function registerHandlers() {
   });
 
   /**
+   * 压缩当前对话上下文（/compact）
+   * @param {Object} [options] - { focus?: string } 用户指定的摘要重点
+   * @returns {Promise<Object>} { success, skipped?, message?, before, after, tokensBefore, tokensAfter }
+   */
+  ipcMain.handle('ai:compact-conversation', async (event, options) => {
+    assertTrustedSender(event);
+    if (!aiManager) {
+      throw new Error('AI Manager 未初始化');
+    }
+    if (options !== undefined && options !== null && typeof options !== 'object') {
+      throw new Error('无效的参数');
+    }
+    return aiManager.compactConversation(options || {});
+  });
+
+  /**
    * 配置 AI 提供商 API Key
    * @param {Object} config - { provider: string, apiKey: string }
    * @returns {Promise<{success: boolean}>}
@@ -1804,6 +1820,23 @@ function registerHandlers() {
     // 从数据库加载该对话的历史消息（renderer 显示形状），一并返回给渲染进程
     const messages = aiManager.getConversationMessages(conversationId);
     return { conversation, messages };
+  });
+
+  /**
+   * 获取对话消息（renderer 显示形状，轻量只读——不切换/不重建 Agent）
+   * 供 /compact 完成后刷新当前消息列表
+   * @param {string} conversationId - 对话 ID
+   * @returns {Promise<Array>} 显示形状消息列表
+   */
+  ipcMain.handle('ai:get-conversation-messages', async (event, conversationId) => {
+    assertTrustedSender(event);
+    if (!conversationId || typeof conversationId !== 'string') {
+      throw new Error('对话 ID 不能为空');
+    }
+    if (!aiManager) {
+      throw new Error('AI Manager 未初始化');
+    }
+    return aiManager.getConversationMessages(conversationId);
   });
 
   /**

@@ -149,6 +149,10 @@ const elements = {
   contextPickerList: document.getElementById('contextPickerList'),
   contextPickerEmpty: document.getElementById('contextPickerEmpty'),
 
+  // / 斜杠命令面板
+  slashPickerPanel: document.getElementById('slashPickerPanel'),
+  slashPickerList: document.getElementById('slashPickerList'),
+
   // 页面内搜索
   findInPage: document.getElementById('findInPage'),
   findInput: document.getElementById('findInput'),
@@ -239,6 +243,7 @@ const state = {
   aiCurrentMessageId: null,
   aiAutoScroll: true,
   aiCancelledByUser: false,
+  aiCompacting: false,
 
   // 对话管理状态
   conversations: [],
@@ -252,6 +257,11 @@ const state = {
   contextPickerItems: [],
   contextPickerContainerMap: {},
   referencedTabs: [],
+
+  // / 斜杠命令面板状态
+  slashPickerOpen: false,
+  slashPickerItems: [],
+  slashPickerActiveIndex: 0,
 
   // Vim 标签历史栈（用于 ^ 命令切换到上一个访问的标签）
   tabHistoryStack: [],
@@ -296,6 +306,17 @@ state.autocomplete = {
 
 // 已关闭标签栈（LIFO，最多 10 条），用于"重新打开已关闭标签页"功能
 const closedTabsStack = [];
+
+/**
+ * AI 输入框斜杠命令注册表
+ * name: 命令名（不含 /）；description: 面板展示的中文描述
+ * takesArg: 是否接受可选参数（/name 后的剩余文本作为 args 传入 handler）
+ * handler: (args: string) => Promise<void>，函数声明提升保证此处可直接引用
+ */
+const SLASH_COMMANDS = [
+  { name: 'clear', description: '开启新对话', takesArg: false, handler: executeSlashClear },
+  { name: 'compact', description: '压缩上下文（可附重点说明，如 /compact 重点保留登录调试）', takesArg: true, handler: executeSlashCompact },
+];
 
 // 注意：Tab 回收策略（上限/文案/回收逻辑）单点实现于主进程 tab-manager（WR-4）。
 // 渲染进程不再持有 TAB_MAX_COUNT / TAB_RECYCLE_MESSAGE / recycleOldestTab 副本，
@@ -6575,6 +6596,11 @@ function setupEventListeners() {
         e.target !== elements.aiInput) {
       closeContextPicker();
     }
+    if (state.slashPickerOpen &&
+        !elements.slashPickerPanel.contains(e.target) &&
+        e.target !== elements.aiInput) {
+      closeSlashPicker();
+    }
   });
 
   // AI 输入框 Escape 键关闭 @ 引用面板
@@ -7434,6 +7460,55 @@ function renderAIMessages() {
     const isUser = msg.role === 'user';
     const isLast = index === state.aiMessages.length - 1;
 
+    // 可折叠摘要框：/compact 后的上下文摘要，默认折叠、点击展开查看正文
+    if (msg.role === 'summary') {
+      const box = document.createElement('div');
+      box.className = 'ai-summary-box collapsed';
+
+      const header = document.createElement('div');
+      header.className = 'ai-summary-box-header';
+      const icon = document.createElement('span');
+      icon.className = 'ai-summary-box-icon';
+      icon.textContent = '📄';
+      const title = document.createElement('span');
+      title.className = 'ai-summary-box-title';
+      title.textContent = '上下文已压缩（点击查看摘要）';
+      const chevron = document.createElement('span');
+      chevron.className = 'ai-summary-box-chevron';
+      chevron.textContent = '▾';
+      header.appendChild(icon);
+      header.appendChild(title);
+      header.appendChild(chevron);
+
+      const body = document.createElement('div');
+      body.className = 'ai-summary-box-body';
+      body.textContent = msg.content || '';
+
+      header.addEventListener('click', () => {
+        box.classList.toggle('collapsed');
+      });
+
+      box.appendChild(header);
+      box.appendChild(body);
+      elements.aiMessageList.appendChild(box);
+      return;
+    }
+
+    // 系统提示条：居中小字灰色条（/clear、/compact 的执行反馈等）
+    if (msg.role === 'system-note') {
+      const note = document.createElement('div');
+      note.className = 'ai-system-note';
+      const span = document.createElement('span');
+      span.textContent = msg.content;
+      note.appendChild(span);
+      // 压缩中：提示条尾部追加三点 loading 动画
+      if (state.aiCompacting && isLast) {
+        note.appendChild(createTypingIndicator());
+      }
+      elements.aiMessageList.appendChild(note);
+      return;
+    }
+
     // 空 content 气泡守卫（G-42-8）：assistant 且 content 为空、且不处于
     // 流式末条占位状态时，跳过 .ai-message-content 气泡的创建与挂载——
     // 无论有无工具卡片（有卡片仅渲染工具卡片容器与操作按钮，无卡片的
@@ -7722,8 +7797,9 @@ function finalizeAIStreamingBubble() {
 /**
  * 切换发送/停止按钮状态
  * @param {boolean} isStreaming - 是否正在流式输出
+ * @param {boolean} [isCompacting=false] - 是否正在压缩上下文（按钮禁用态）
  */
-function updateSendButtonState(isStreaming) {
+function updateSendButtonState(isStreaming, isCompacting = false) {
   if (!elements.aiSendBtn) return;
 
   if (isStreaming) {
@@ -7735,6 +7811,17 @@ function updateSendButtonState(isStreaming) {
       </svg>
     `;
     elements.aiSendBtn.classList.add('stop-mode');
+    elements.aiSendBtn.classList.remove('compacting-mode');
+  } else if (isCompacting) {
+    // 压缩中：禁用态旋转图标（压缩不可中断，不提供停止）
+    elements.aiSendBtn.title = '正在压缩上下文…';
+    elements.aiSendBtn.innerHTML = `
+      <svg class="ai-btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+      </svg>
+    `;
+    elements.aiSendBtn.classList.remove('stop-mode');
+    elements.aiSendBtn.classList.add('compacting-mode');
   } else {
     // 切换为发送按钮
     elements.aiSendBtn.title = '发送';
@@ -7744,6 +7831,7 @@ function updateSendButtonState(isStreaming) {
       </svg>
     `;
     elements.aiSendBtn.classList.remove('stop-mode');
+    elements.aiSendBtn.classList.remove('compacting-mode');
   }
 }
 
@@ -7770,6 +7858,30 @@ async function handleStopAI() {
 async function handleSendAIMessage() {
   const text = elements.aiInput.value.trim();
   if (!text) return;
+  // 压缩中禁止发送（含 /clear 等命令——压缩落库期间切对话会导致写串对话）
+  if (state.aiCompacting) return;
+
+  // 斜杠命令拦截：命令文本绝不进入对话历史。
+  // 须在 aiStreaming 守卫之前——/clear、/compact 支持流式回复进行中执行，
+  // handler 内部会先 abort
+  if (text.startsWith('/')) {
+    const match = SLASH_COMMANDS.find(c =>
+      text === '/' + c.name || text.startsWith('/' + c.name + ' ')
+    );
+    if (match) {
+      elements.aiInput.value = '';
+      elements.aiInput.style.height = 'auto';
+      const args = text.slice(match.name.length + 1).trim();
+      await match.handler(args);
+      return;
+    }
+    // 未知命令：提示且不入历史
+    elements.aiInput.value = '';
+    elements.aiInput.style.height = 'auto';
+    pushSystemNote(`未知命令 ${text.split(/\s/)[0]}，输入 / 查看可用命令`);
+    return;
+  }
+
   if (state.aiStreaming) return;
 
   // 清空输入框并重置高度
@@ -7843,6 +7955,94 @@ async function handleSendAIMessage() {
     updateSendButtonState(false);
     renderAIMessages();
   }
+}
+
+/**
+ * 追加一条系统提示条到消息列表并渲染
+ * system-note 是纯渲染形状：只存渲染端不入库（/compact 的提示条
+ * 重开对话后由 getMessages 的 <context-summary> 分支再生）
+ * @param {string} content - 提示文案
+ */
+function pushSystemNote(content) {
+  state.aiMessages.push({ id: 'note-' + Date.now(), role: 'system-note', content });
+  state.aiAutoScroll = true;
+  renderAIMessages();
+}
+
+/**
+ * 命令执行前的流式中止处理（仿 handleStopAI）
+ * 设 aiCancelledByUser 使 abort 引发的 error 事件按用户取消静默处理
+ */
+async function abortAIIfStreaming() {
+  if (!state.aiStreaming) return;
+  try {
+    state.aiCancelledByUser = true;
+    await window.realmAPI.ai.abort();
+  } catch (err) {
+    console.error('[Realm Renderer] 中止流式回复失败:', err);
+    state.aiCancelledByUser = false;
+  }
+}
+
+/**
+ * /clear 命令：开启新对话
+ * 复用 createNewConversation 完整链路（勿调 ai.newConversation，会重复建对话）
+ * @returns {Promise<void>}
+ */
+async function executeSlashClear() {
+  await abortAIIfStreaming();
+  await createNewConversation();
+  pushSystemNote('已开启新对话');
+}
+
+/**
+ * /compact 命令：LLM 摘要压缩上下文
+ * 历史气泡保持可见（压缩只影响 LLM 上下文，Claude Code 式语义）
+ * @param {string} [args] - 可选的摘要重点说明
+ * @returns {Promise<void>}
+ */
+async function executeSlashCompact(args) {
+  await abortAIIfStreaming();
+
+  // 压缩中：禁用发送按钮 + 消息列表显示 loading（压缩不可中断，不提供停止）
+  state.aiCompacting = true;
+  updateSendButtonState(false, true);
+  pushSystemNote('正在压缩上下文…');
+  const note = state.aiMessages[state.aiMessages.length - 1];
+
+  try {
+    const result = await window.realmAPI.ai.compactConversation({ focus: args || undefined });
+    if (result && result.skipped) {
+      note.content = result.message || '对话较短，无需压缩';
+    } else {
+      // 压缩成功：从 DB 重载显示形状（摘要折叠框 + 最近几轮），实时反映压缩态
+      try {
+        const messages = await window.realmAPI.conversationAPI.getMessages(state.currentConversationId);
+        if (Array.isArray(messages)) {
+          state.aiMessages = messages;
+          state.aiMessages.push({
+            id: 'note-' + Date.now(),
+            role: 'system-note',
+            content: `上下文已压缩：${result.before} 条 → ${result.after} 条`,
+          });
+        } else {
+          note.content = `上下文已压缩：${result.before} 条 → ${result.after} 条`;
+        }
+      } catch (reloadErr) {
+        console.error('[Realm Renderer] 重载压缩后消息失败:', reloadErr);
+        note.content = `上下文已压缩：${result.before} 条 → ${result.after} 条`;
+      }
+    }
+  } catch (err) {
+    console.error('[Realm Renderer] 压缩上下文失败:', err);
+    // 摘要在主进程先算后写，失败不动原状，消息列表无需恢复
+    note.content = '压缩失败：' + (err.message || '未知错误');
+  } finally {
+    state.aiCompacting = false;
+    updateSendButtonState(false);
+    renderAIMessages();
+  }
+  await loadConversations();
 }
 
 // Readability 库源码缓存（null=未拉取，''=拉取失败，非空=bundle 源码）
@@ -8617,14 +8817,66 @@ function handleScrollToBottomClick() {
 
 /**
  * 处理输入框的键盘事件
+ * / 命令面板导航（↑/↓ 循环、Enter 执行、Esc 关闭，焦点留在输入框）
  * Enter 发送消息，Shift+Enter 换行
  * @param {KeyboardEvent} e - 键盘事件
  */
 function handleAIInputKeydown(e) {
+  // / 命令面板导航：优先级高于 Enter 发送与 Escape 关面板语义
+  if (state.slashPickerOpen) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const count = state.slashPickerItems.length;
+      if (count > 0) {
+        const delta = e.key === 'ArrowDown' ? 1 : -1;
+        state.slashPickerActiveIndex = (state.slashPickerActiveIndex + delta + count) % count;
+        renderSlashPickerList();
+      }
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeSlashPicker();
+      return;
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      // 按当前高亮项直接执行（输入可能是前缀如 /cle，不能依赖文本精确匹配）
+      if (!executeActiveSlashCommand()) {
+        closeSlashPicker();
+        handleSendAIMessage();
+      }
+      return;
+    }
+    // 其他按键（含字符输入）放行 → input 事件走过滤
+  }
+
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     handleSendAIMessage();
   }
+}
+
+/**
+ * 执行 / 命令面板当前高亮项
+ * args 取输入框中命令名之后的剩余文本；输入框清空、面板关闭后执行
+ * @returns {boolean} 是否有高亮项并已执行
+ */
+function executeActiveSlashCommand() {
+  const cmd = state.slashPickerItems[state.slashPickerActiveIndex];
+  if (!cmd) return false;
+
+  const value = elements.aiInput.value.trim();
+  // 跳过 "/name" 及过滤 token，取其后的剩余文本作为 args
+  // （/cle → ''；/compact 重点保留登录 → '重点保留登录'）
+  const rest = value.slice(1 + cmd.name.length).replace(/^\S*/, '').trim();
+
+  elements.aiInput.value = '';
+  elements.aiInput.style.height = 'auto';
+  closeSlashPicker();
+  cmd.handler(rest);
+  return true;
 }
 
 /**
@@ -8666,6 +8918,92 @@ function handleAIInputAutoResize() {
       closeContextPicker();
     }
   }
+
+  // 检测 / 斜杠命令触发（仅输入起始位置，保留触发字符——用户要看到 /clear 原文并回车执行）
+  if (value.startsWith('/') && !state.slashPickerOpen) {
+    openSlashPicker();
+  } else if (state.slashPickerOpen && !value.startsWith('/')) {
+    closeSlashPicker();
+  } else if (state.slashPickerOpen) {
+    // 继续输入 → 重新过滤
+    renderSlashPickerList();
+  }
+}
+
+/**
+ * 打开 / 斜杠命令面板
+ */
+function openSlashPicker() {
+  state.slashPickerOpen = true;
+  state.slashPickerActiveIndex = 0;
+  elements.slashPickerPanel.style.display = 'block';
+  renderSlashPickerList();
+}
+
+/**
+ * 关闭 / 斜杠命令面板
+ */
+function closeSlashPicker() {
+  state.slashPickerOpen = false;
+  state.slashPickerActiveIndex = 0;
+  elements.slashPickerPanel.style.display = 'none';
+}
+
+/**
+ * 渲染 / 斜杠命令面板列表
+ * 按输入框当前文本过滤（/ 后、首个空白前的部分），命令文本不入对话历史
+ */
+function renderSlashPickerList() {
+  const list = elements.slashPickerList;
+  if (!list) return;
+
+  const value = elements.aiInput ? elements.aiInput.value : '';
+  const filter = value.slice(1).split(/\s/)[0].toLowerCase();
+  const items = SLASH_COMMANDS.filter(c => c.name.startsWith(filter));
+
+  state.slashPickerItems = items;
+  if (state.slashPickerActiveIndex >= items.length) {
+    state.slashPickerActiveIndex = Math.max(0, items.length - 1);
+  }
+
+  if (items.length === 0) {
+    list.innerHTML = '<div class="slash-picker-row" style="cursor:default"><span class="slash-picker-desc">无匹配命令，输入 / 查看全部</span></div>';
+    return;
+  }
+
+  list.innerHTML = items.map((cmd, index) => {
+    const isActive = index === state.slashPickerActiveIndex;
+    return `
+      <div class="slash-picker-row ${isActive ? 'active' : ''}" data-cmd="${cmd.name}">
+        <span class="slash-picker-name">/${cmd.name}</span>
+        <span class="slash-picker-desc">${cmd.description}</span>
+      </div>
+    `;
+  }).join('');
+
+  // 键盘高亮项滚动到可视区域
+  const activeRow = list.querySelector('.slash-picker-row.active');
+  if (activeRow) {
+    activeRow.scrollIntoView({ block: 'nearest' });
+  }
+
+  // 绑定点击执行与 hover 高亮
+  list.querySelectorAll('.slash-picker-row[data-cmd]').forEach(row => {
+    row.addEventListener('click', () => {
+      const idx = items.findIndex(c => c.name === row.dataset.cmd);
+      if (idx >= 0) {
+        state.slashPickerActiveIndex = idx;
+        executeActiveSlashCommand();
+      }
+    });
+    row.addEventListener('mousemove', () => {
+      const idx = items.findIndex(c => c.name === row.dataset.cmd);
+      if (idx >= 0 && idx !== state.slashPickerActiveIndex) {
+        state.slashPickerActiveIndex = idx;
+        renderSlashPickerList();
+      }
+    });
+  });
 }
 
 /**
