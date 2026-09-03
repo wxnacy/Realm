@@ -1,6 +1,6 @@
 {
   "name": "realm",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "多容器隔离浏览器，支持独立 Cookie 管理和 AI Agent 集成",
   "main": "main.js",
   "bin": {
@@ -10,7 +10,7 @@
     "start": "electron .",
     "dev": "NODE_ENV=development electron .",
     "debug": "NODE_ENV=debug electron .",
-    "test": "NODE_ENV=test electron .",
+    "nightly": "NODE_ENV=nightly electron .",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",
     "postinstall": "node scripts/postinstall.js",

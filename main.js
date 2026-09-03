@@ -59,12 +59,15 @@ function loadShellEnv() {
   }
 }
 
-// 环境隔离：开发/调试/测试环境使用独立的 userData 目录
+// 环境隔离：开发/调试/Nightly 环境使用独立的 userData 目录
 if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'debug') {
   app.setName('realm-dev');
-} else if (process.env.NODE_ENV === 'test') {
-  app.setName('realm-test');
+} else if (process.env.NODE_ENV === 'nightly') {
+  app.setName('realm-nightly');
 }
+
+// 应用图标：Nightly 版用深色背景圆角图标，正式版/开发环境用透明背景版
+const APP_ICON_FILE = process.env.NODE_ENV === 'nightly' ? 'icon-nightly.png' : 'icon.png';
 
 // 加载 shell 环境变量（打包后 .app 需要）
 loadShellEnv();
@@ -697,7 +700,7 @@ app.whenReady().then(async () => {
   // 需要用 nativeImage 显式覆盖；打包后 Info.plist 已声明，重复设置无副作用
   if (process.platform === 'darwin') {
     const { nativeImage } = require('electron');
-    const iconPath = path.join(__dirname, 'icons/icon.png');
+    const iconPath = path.join(__dirname, 'icons', APP_ICON_FILE);
     const icon = nativeImage.createFromPath(iconPath);
     if (!icon.isEmpty()) {
       app.dock.setIcon(icon);
@@ -1090,7 +1093,7 @@ app.whenReady().then(async () => {
   const faviconCache = new Map(); // domain -> { buffer, contentType }
   let realmIconBuffer = null;
   try {
-    realmIconBuffer = fs.readFileSync(path.join(__dirname, 'icons', 'icon.png'));
+    realmIconBuffer = fs.readFileSync(path.join(__dirname, 'icons', APP_ICON_FILE));
   } catch (err) {
     console.error('[Realm] 应用图标读取失败:', err.message);
   }
@@ -1256,7 +1259,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'icon' && req.method === 'GET') {
-        const iconPath = path.join(__dirname, 'icons', 'icon.png');
+        const iconPath = path.join(__dirname, 'icons', APP_ICON_FILE);
         fs.readFile(iconPath, (err, data) => {
           if (err) {
             sendJson(res, 404, { error: 'Icon not found' });

@@ -36,23 +36,27 @@ function getUserDataPath(appName) {
  * 2. NODE_ENV 环境变量
  * 3. 默认正式环境
  *
- * @param {string} env - 环境名称：dev/prod（可选）
+ * @param {string} env - 环境名称：dev/nightly/prod（可选）
  * @returns {Array} 容器配置数组
  */
 function loadContainers(env) {
   const configFileName = 'realm-config.json';
 
   // 判断环境
-  let isDev;
+  let appName;
   if (env === 'dev') {
-    isDev = true;
+    appName = 'realm-dev';
+  } else if (env === 'nightly') {
+    appName = 'realm-nightly';
   } else if (env === 'prod') {
-    isDev = false;
+    appName = 'realm';
+  } else if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'debug') {
+    appName = 'realm-dev';
+  } else if (process.env.NODE_ENV === 'nightly') {
+    appName = 'realm-nightly';
   } else {
-    isDev = process.env.NODE_ENV === 'development';
+    appName = 'realm';
   }
-
-  const appName = isDev ? 'realm-dev' : 'realm';
   const configPath = path.join(getUserDataPath(appName), configFileName);
 
   if (fs.existsSync(configPath)) {

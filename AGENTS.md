@@ -423,24 +423,27 @@ fetch `http://localhost:PORT` 是跨域请求会被 CORS 拦截（`TypeError: Fa
 
 ## 环境隔离
 
-开发、调试、测试、正式四个环境使用独立的 `userData` 目录，互不干扰：
+开发、调试、Nightly、正式四个环境使用独立的 `userData` 目录，互不干扰：
 
 | 命令 | 环境 | userData 路径 | 自动打开 DevTools | 热加载 |
 |------|------|--------------|-------------------|--------|
 | `npm run dev` | 开发 | `~/Library/Application Support/realm-dev/` | ❌ | ✅ |
 | `npm run debug` | 调试 | `~/Library/Application Support/realm-dev/` | ✅ | ✅ |
-| `npm run test` | 测试 | `~/Library/Application Support/realm-test/` | ❌ | ❌ |
+| `npm run nightly` | Nightly | `~/Library/Application Support/realm-nightly/` | ❌ | ❌ |
 | `npm start` / .app | 正式 | `~/Library/Application Support/realm/` | ❌ | ❌ |
 
 实现在 `main.js` 顶部，通过 `process.env.NODE_ENV` 判断：
 
 ```javascript
-// 环境隔离：开发/调试/测试环境使用独立的 userData 目录
+// 环境隔离：开发/调试/Nightly 环境使用独立的 userData 目录
 if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'debug') {
   app.setName('realm-dev');
-} else if (process.env.NODE_ENV === 'test') {
-  app.setName('realm-test');
+} else if (process.env.NODE_ENV === 'nightly') {
+  app.setName('realm-nightly');
 }
+
+// 应用图标：Nightly 版用深色背景圆角图标，正式版/开发环境用透明背景版
+const APP_ICON_FILE = process.env.NODE_ENV === 'nightly' ? 'icon-nightly.png' : 'icon.png';
 ```
 
 **热重载配置**（仅开发/调试模式）：
@@ -464,9 +467,9 @@ if (mainWindow && process.env.NODE_ENV === 'debug') {
 | 命令 | 用途 | 安装路径 |
 |------|------|---------|
 | `make install` | 构建正式版 .app | `/Applications/Realm.app` |
-| `make install-test` | 构建测试版 .app | `/Applications/Realm-Test.app` |
+| `make install-nightly` | 构建 Nightly 版 .app | `/Applications/Realm Nightly.app` |
 
-`make install-test` 构建时会临时在 main.js 注入 `process.env.NODE_ENV = 'test'`，构建完成后自动恢复源代码。测试版使用独立的 appId（`com.realm.browser.test`）和 productName（`Realm-Test`）。
+`make install-nightly` 构建时会临时在 main.js 注入 `process.env.NODE_ENV = 'nightly'`，构建完成后自动恢复源代码。Nightly 版使用独立的 appId（`com.realm.browser.nightly`）、productName（`Realm Nightly`）和深色背景图标（`icons/icon-nightly.icns`）。正式版图标为透明背景版（`icons/icon.png|icns`），运行时图标由 main.js 的 `APP_ICON_FILE` 按 NODE_ENV 选择。
 
 这会影响所有本地存储：
 - electron-store 配置（`realm-config.json`）
@@ -483,13 +486,13 @@ if (mainWindow && process.env.NODE_ENV === 'debug') {
 |------|------|---------------|-------------------|--------|------|
 | **开发** | `npm run dev` | `~/Library/Application Support/realm-dev/` | ❌ | ✅ | 日常开发，快速迭代 |
 | **调试** | `npm run debug` | `~/Library/Application Support/realm-dev/` | ✅ | ✅ | 需要调试时使用，自动打开 DevTools |
-| **测试** | `npm run test` | `~/Library/Application Support/realm-test/` | ❌ | ❌ | 测试验证，数据隔离 |
+| **Nightly** | `npm run nightly` | `~/Library/Application Support/realm-nightly/` | ❌ | ❌ | Nightly 版验证，数据隔离 |
 
 **环境隔离说明：**
 - `dev` 和 `debug` 共享同一个 userData 目录（`realm-dev`），方便切换时保留数据
-- `test` 使用独立的 userData 目录（`realm-test`），不影响开发数据
+- `nightly` 使用独立的 userData 目录（`realm-nightly`），不影响开发数据
 - 只有 `debug` 模式会自动打开 DevTools，`dev` 模式需要手动打开
-- `dev` 和 `debug` 支持热重载，`test` 不支持（更接近生产环境行为）
+- `dev` 和 `debug` 支持热重载，`nightly` 不支持（更接近生产环境行为）
 
 ### 开发模式
 ```bash
@@ -528,8 +531,8 @@ npm run dev
 # 调试模式（热重载，自动打开 DevTools）
 npm run debug
 
-# 测试模式（无热重载，数据隔离）
-npm run test
+# Nightly 模式（无热重载，数据隔离）
+npm run nightly
 
 # macOS 生产构建
 npm run build:mac
