@@ -3196,6 +3196,10 @@ app.whenReady().then(async () => {
     });
   }
 
+  // 经 windowManager 注入：所有 createMainWindow 出口（启动主窗口、Cmd+N、
+  // 菜单/Dock 新建、拖出新窗口、tab:open-in-new-window）统一挂载关闭处理器
+  windowManager.setWindowCloseSetup(setupWindowCloseHandler);
+
   // 新增 IPC 通道：渲染进程查询本窗口是否有活跃媒体播放
   ipcMain.handle('window:check-active-tasks', (event) => {
     assertTrustedSender(event);
@@ -3235,13 +3239,9 @@ app.whenReady().then(async () => {
   const mainWindow = windowManager.createMainWindow('default', defaultContainer);
 
   // 多窗口迁移：历史 windowId=null 及失效窗口的 Tab 归属主窗口（36-UAT 问题 8 关联修复）
+  // 关闭处理器已由 windowManager.setWindowCloseSetup 在 createMainWindow 内统一挂载
   if (mainWindow) {
     tabManager.migrateWindowlessTabs(mainWindow.id, new Set([mainWindow.id]));
-  }
-
-  // 注册窗口关闭处理器
-  if (mainWindow) {
-    setupWindowCloseHandler(mainWindow);
     // 窗口位置持久化（Phase 36 Plan 01）
     setupWindowBoundsTracking(mainWindow, 'default');
   }
@@ -3300,7 +3300,9 @@ app.whenReady().then(async () => {
         { type: 'separator' },
         { role: 'minimize' },
         { role: 'zoom' },
-        { role: 'close' },
+        // 注意：不要加 { role: 'close' }——其默认 accelerator 是 CmdOrCtrl+W，
+        // 与 shortcut-manager 的 closeTab（Cmd+W 关闭当前标签）冲突。before-input-event
+        // 未拦截住的按键会漏进菜单，触发关闭整个窗口而非当前标签
       ],
     },
     {
@@ -3363,7 +3365,6 @@ app.whenReady().then(async () => {
         const mainWindow = windowManager.createMainWindow('default', defaultContainer);
         if (mainWindow) {
           tabManager.migrateWindowlessTabs(mainWindow.id, new Set([mainWindow.id]));
-          setupWindowCloseHandler(mainWindow);
           setupWindowBoundsTracking(mainWindow, 'default');
         }
       }

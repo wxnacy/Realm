@@ -248,7 +248,24 @@ async function endDrag(sourceWindowId, data = {}) {
     const newWindow = windowManagerRef.createMainWindow(tab.containerId, container, { offsetPosition: true });
     if (!newWindow) return { success: false, action: 'cancelled' };
 
-    // 在新窗口创建 Tab
+    // 等待新窗口加载完成：渲染进程 restoreTabs 在本窗口 tab:list 为空时只会
+    // 创建一个默认空白 Tab，不会把后续搬入的 Tab 误判为"上次会话"弹恢复确认
+    // 或触发清空（与 tab:open-in-new-window 的时序策略一致）
+    await new Promise((resolve) => {
+      if (newWindow.webContents.isLoading()) {
+        newWindow.webContents.once('did-finish-load', resolve);
+      } else {
+        resolve();
+      }
+    });
+
+    // 关闭 restoreTabs 创建的默认空白 Tab
+    const newWindowTabs = tabManagerRef.getTabsByWindowId(newWindow.id);
+    for (const defaultTab of newWindowTabs) {
+      tabManagerRef.closeTab(defaultTab.id);
+    }
+
+    // 在新窗口创建搬移的 Tab
     const newTab = tabManagerRef.createTab(tab.containerId, tab.url, newWindow.id);
 
     // 先通知源窗口移除 Tab UI，再从 tabManager 中删除

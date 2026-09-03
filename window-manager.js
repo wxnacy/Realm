@@ -32,6 +32,22 @@ const windows = new Map();
 /** 受信窗口 ID 集合：仅包含 createMainWindow 创建的窗口，用于 isManagedWindow 判断 */
 const managedWindowIds = new Set();
 
+/**
+ * 窗口关闭处理器（由 main.js 经 setWindowCloseSetup 注入）
+ * createMainWindow 创建窗口后统一挂载，保证 Cmd+N/菜单/Dock/拖出/
+ * 新窗口打开等所有出口创建的窗口都有关闭级联逻辑（D-16）
+ * @type {Function|null}
+ */
+let windowCloseSetup = null;
+
+/**
+ * 注入窗口关闭处理器（依赖注入，避免 window-manager 反向 require main.js）
+ * @param {Function} fn - 接收 BrowserWindow 参数的 setup 函数
+ */
+function setWindowCloseSetup(fn) {
+  windowCloseSetup = typeof fn === 'function' ? fn : null;
+}
+
 // ==================== 窗口位置持久化 ====================
 
 /**
@@ -173,6 +189,13 @@ function createMainWindow(containerId, container, options = {}) {
   windows.set(mainWindow.id, mainWindow);
   managedWindowIds.add(mainWindow.id);
   windowContainerMap.set(mainWindow.id, containerId);
+
+  // 统一挂载窗口关闭处理器（D-15 活跃任务确认 / D-16 级联关闭 Tab）：
+  // 此前只有启动主窗口挂了该处理器，次级窗口点红按钮直接关闭，
+  // 不级联清理 tabManager 元数据，留下 windowId 指向死窗口的幽灵 Tab
+  if (windowCloseSetup) {
+    windowCloseSetup(mainWindow);
+  }
 
   // 恢复最大化状态
   if (restoredBounds && restoredBounds.isMaximized) {
@@ -368,6 +391,7 @@ module.exports = {
   broadcast,
   closeWindowWithTabs,
   getWindowCount,
+  setWindowCloseSetup,
   saveWindowBounds,
   restoreWindowBounds,
   findWindowAtScreenPosition,

@@ -359,27 +359,34 @@ function attachInputListener(contents) {
     const action = findMatchingAction(input);
     if (!action) return; // 未命中：完全不拦截
 
+    // 命中快捷键后无条件 preventDefault：应用菜单存在同键 accelerator 时，
+    // 不拦截的按键会漏进菜单触发其默认行为（此前窗口菜单的 role:'close'
+    // 默认注册 Cmd+W，Cmd+W 曾因此关闭整个窗口而非当前标签）
+    event.preventDefault();
+
     // 获取当前焦点窗口（而非固定的 currentWindow 单例），支持多窗口场景
-    const focusedWindow = BrowserWindow.getFocusedWindow();
+    let focusedWindow = BrowserWindow.getFocusedWindow();
+    if (!focusedWindow || focusedWindow.isDestroyed()) {
+      // 焦点切换瞬间（多窗口切换/窗口关闭动画）getFocusedWindow() 可能
+      // 短暂为 null，用按键来源 webContents 反推宿主窗口兜底
+      // （webview guest 的 fromWebContents 会解析到其宿主主窗口）
+      focusedWindow = BrowserWindow.fromWebContents(contents);
+    }
     if (!focusedWindow || focusedWindow.isDestroyed()) return;
 
     // 非 Realm 管理的窗口（如播放器窗口）不派发到 managed 窗口：
     // closeTab（Cmd+W）语义转为关闭来源窗口自身（D-13）；其余快捷键放行不拦截。
-    // webview guest 的 fromWebContents 会解析到其宿主主窗口，不受影响。
     if (!windowManager.isManagedWindow(focusedWindow.id)) {
       if (action === 'closeTab') {
-        event.preventDefault();
         focusedWindow.close();
       }
       return;
     }
 
-    event.preventDefault();
-
     // 窗口级操作（newWindow/closeWindow）在主进程直接处理：
     // renderer 的 shortcut:triggered 分发没有这两个分支（窗口创建/关闭不属于渲染层职责），
-    // 若只 preventDefault + 派发，按键会被吞掉——同时 preventDefault 还阻止了应用菜单
-    // 同键 accelerator（Cmd+N / Cmd+Shift+W），表现为快捷键完全失效。
+    // 若只派发不处理，按键会被吞掉；preventDefault（上方已统一执行）同时阻止了应用菜单
+    // 同键 accelerator（Cmd+N / Cmd+Shift+W），由这里的直接处理补齐语义。
     if (action === 'newWindow') {
       // 懒加载避免模块加载顺序问题；行为与 main.js 菜单「新建窗口」保持一致（default 容器）
       const containerManager = require('./container-manager');

@@ -393,18 +393,30 @@ function registerHandlers() {
    */
   ipcMain.handle('tab:get-active', (event) => {
     assertTrustedSender(event);
-    return tabManager.getActiveTab();
+    // 按发送窗口取活动 Tab：无参 getActiveTab 返回 activeTabs Map 的第一条，
+    // 多窗口下可能是别的窗口的活动 Tab
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return tabManager.getActiveTab(win ? win.id : undefined);
   });
 
   /**
-   * 清空所有 Tab（含持久化 store）
+   * 清空发送窗口的所有 Tab（含持久化 store）
    * 启动时渲染进程判定"不恢复"后调用，避免旧会话残留在 store 里
-   * 与本次新建 Tab 一起被 saveTabs 写回磁盘
+   *
+   * 只清发送窗口自己的 Tab，不再全局清空：restoreTabs 的"不恢复"在次级窗口
+   * 触发时，全局清空会把其他活窗口正在显示的 Tab 元数据一并抹掉，导致后续
+   * 关标签被误判 lastInWindow 而销毁整个窗口。启动时全部 Tab 已由
+   * migrateWindowlessTabs 归属主窗口，按窗口清空等价于原来的全局清空，
+   * "旧会话不能复活"的持久化卫生不回退。
+   *
    * @returns {{success: boolean}}
    */
   ipcMain.handle('tab:clear-all', (event) => {
     assertTrustedSender(event);
-    tabManager.clearAllTabs();
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win && !win.isDestroyed()) {
+      tabManager.closeTabsByWindowId(win.id);
+    }
     return { success: true };
   });
 

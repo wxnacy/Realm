@@ -3346,6 +3346,7 @@ async function restoreTabs() {
     // 丢弃旧会话：主进程 initTabs 已把旧 Tab 加载到内存 Map，
     // 不清空则后续新建 Tab 会 append 进去一起被持久化，
     // 下次启动会把本次放弃的旧会话一并恢复
+    // （主进程按发送窗口清空，多窗口时不影响其他窗口的 Tab）
     await window.realmAPI.clearAllTabs();
     createTab(state.currentContainer);
     return;
