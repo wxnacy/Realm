@@ -4,17 +4,17 @@ milestone: v2.5
 milestone_name: AI 网络搜索功能
 current_phase: 43
 current_phase_name: AI 记忆系统集成（条目记忆 MVP）
-status: completed
-stopped_at: Phase 43 UI-SPEC approved
-last_updated: "2026-09-04T09:29:16.946Z"
-last_activity: 2026-09-02
-last_activity_desc: Phase 42 complete
-state_head: 5790736a216ae136842e6cedcd87d60bd69b22a4
+status: executing
+stopped_at: Completed 43-01-PLAN.md
+last_updated: "2026-09-04T09:51:36.882Z"
+last_activity: 2026-09-04
+last_activity_desc: Phase 43 execution started
+state_head: 3fe1da6247fa4f85d1b4199f145ec588a5004072
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 14
-  completed_plans: 11
+  completed_plans: 12
   percent: 75
 ---
 
@@ -25,16 +25,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-26)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 42 — AI 历史对话管理功能
+**Current focus:** Phase 43 — AI 记忆系统集成（条目记忆 MVP）
 
 ## Current Position
 
-Phase: 43 (AI 记忆系统集成（条目记忆 MVP）) — READY TO EXECUTE
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-09-02 — Phase 42 complete
+Phase: 43 (AI 记忆系统集成（条目记忆 MVP）) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-09-04 — Phase 43 execution started
 
-Progress: [███████░░░] 67%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [███████░░░] 67%
 | Phase 42 P04 | 6min | 2 tasks | 3 files |
 | Phase 42 P05 | 6min | 3 tasks | 4 files |
 | Phase 42 P06 | 20min | 2 tasks | 2 files |
+| Phase 43 P01 | 16min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,8 @@ Recent decisions affecting current work:
 - [Phase 42]: 删除确认目标结构化传参：showDeleteConfirm 写 dialog dataset，确认处理器读 dataset，state.convContextTarget 字段整体移除——彻底解除对会被 document 级 closer 清空的共享状态的依赖（G-42-6） — 确认流程不再依赖可被全局 closer 重置的共享可变状态；菜单项点击在 target 阶段显式关菜单，冒泡阻断后 closer 仅服务真正的面板外点击（G-42-5/G-42-6 诊断首选方案）
 - [Phase 42]: 主窗口弹框统一原生 dialog + showModal()/close() + 类规则显式 margin:auto + ::backdrop 遮罩；禁止全屏 div 遮罩类用于 dialog；realm:// 页面 CSP 豁免——已沉淀 AGENTS.md「弹框居中约定」小节（G-42-7 用户明确要求） — 全局 * { margin: 0 } 会清掉 UA 的 dialog margin:auto 居中；width/height:100% 撑满方案已被 Electron 43 实测否决（UA max 尺寸截断致 19px 偏心），与 .modal/下载弹窗项目惯例一致
 - [Phase 42]: G-42-8 双层修复：getMessages 同回合相邻 assistant 行合并（仅显示形状：纯工具行卡片追加/文本采纳进空 content 前条/双文本行保守不合并，锚定回合首行 id/timestamp）+ renderAIMessages 空 content 气泡守卫（流式末条占位豁免，不以工具卡片存在为前提）；getAgentMessages 注入形状零变化（D-14/CR-01 行级结构保持） — pi-agent-core 工具回合落库三行 assistant(''+tool_calls) → toolResult → assistant(text)，行级 1:1 映射产出空气泡 + 文本跑到卡片下方；显示/注入双形状分离（冒烟 48 断言证明互不渗漏）
+- [Phase 43]: BUDGETS 预算数值只在 ai-memory-manager.js 一处（1375/2200/2200）；memory 工具 parameters 不写数值，预算语义由 description 承载
+- [Phase 43]: containerId 强制 /^[\w-]+$/ 校验防路径穿越；test:memory 用 node --test glob（Node 22 目录尾斜杠会被当模块解析）
 
 ### Roadmap Evolution
 
@@ -110,6 +113,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-04T07:58:53.863Z
-Stopped at: Phase 43 UI-SPEC approved
-Resume file: .planning/phases/43-ai-mvp/43-UI-SPEC.md
+Last session: 2026-09-04T09:51:36.784Z
+Stopped at: Completed 43-01-PLAN.md
+Resume file: None
