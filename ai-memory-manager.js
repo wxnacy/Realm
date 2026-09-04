@@ -24,6 +24,70 @@ const CONTAINER_ID_RE = /^[\w-]+$/;
 /** 条目编号行首匹配（D-09 编号定位语义） */
 const ENTRY_LINE_RE = /^\[M(\d+)\]\s?/;
 
+/**
+ * 注入指令模式组（D-11 fail-closed 清单，防 T-43-01 记忆投毒持久化）
+ *
+ * 清单为 D-11 授权的实施裁量，以「攻击语料全命中 + 良性语料零误伤」为
+ * 校准目标（test/memory/threat-scan.test.js 双语料库护栏；新绕过措辞
+ * 按语料库增长机制追加）。
+ */
+const INJECTION_PATTERNS = [
+  { pattern: /忽略.{0,8}(指令|指示)/, name: '忽略指令' },
+  { pattern: /无视.{0,8}(指令|指示)/, name: '无视指令' },
+  { pattern: /(指令|指示|设定).{0,6}(都)?忘(掉|记)/, name: '遗忘指令' },
+  { pattern: /(输出|打印|泄露|透露|显示|复述|发给我|给我).{0,20}(系统提示词|系统指令|初始指令|系统设定|system\s*prompt)/i, name: '系统提示词泄露' },
+  { pattern: /(系统提示词|系统指令|初始指令|system\s*prompt).{0,20}(输出|打印|泄露|透露|显示|复述|发给我|给我)/i, name: '系统提示词泄露' },
+  { pattern: /(你现在是|你扮演|从现在开始你(是|扮演))/, name: '角色覆写' },
+  { pattern: /(不受限制|没有限制|无限制|无约束)的\s*(AI|人工智能|助手|模型)/i, name: '角色覆写（解除限制）' },
+  { pattern: /\bignore\s+(all\s+)?(the\s+)?(previous|prior|above|earlier)\b/i, name: 'instruction override (ignore previous)' },
+  { pattern: /\bdisregard\s+(all\s+)?(the\s+)?(previous|prior|above)\b/i, name: 'instruction override (disregard previous)' },
+  { pattern: /\b(reveal|print|show)\s+(me\s+)?(your\s+)?(system\s+)?(prompt|instructions)\b/i, name: 'system prompt disclosure' },
+  { pattern: /\bact\s+as\s+(an?\s+)?(unrestricted|uncensored|DAN)\b/i, name: 'role override (act as unrestricted)' },
+];
+
+/**
+ * 凭据形态模式组（AI-SPEC §6 guardrail，防 T-43-02 凭据入库外发）
+ *
+ * 凭据随全局两层冻结快照进每次请求的 system prompt 发给云端供应商——
+ * 秘密入库等于把秘密上传第三方。只记登录状态，不记凭据本身。
+ */
+const CREDENTIAL_PATTERNS = [
+  { pattern: /password\s*[=:]\s*\S+/i, name: 'password 赋值形态' },
+  { pattern: /密码\s*[是为：:]\s*\S+/, name: '密码赋值形态' },
+  { pattern: /\bsk-[A-Za-z0-9]{8,}/, name: 'sk- 开头的 API Key' },
+  { pattern: /\bBearer\s+[A-Za-z0-9._\-]{8,}/i, name: 'Bearer token' },
+  { pattern: /api[_-]?key\s*[=:]\s*\S+/i, name: 'api_key 赋值形态' },
+  { pattern: /\btoken\s*[=:]\s*\S+/i, name: 'token 赋值形态' },
+  { pattern: /-----BEGIN\s+[A-Z ]*PRIVATE KEY-----/, name: '私钥块' },
+  { pattern: /\b(ghp|gho|github_pat)_[A-Za-z0-9]{10,}/, name: 'GitHub token' },
+];
+
+/**
+ * 扫描内容中的注入指令与凭据形态（D-11 fail-closed，拒绝写入）
+ *
+ * 形状照抄 ai-manager.js validateScript 先例（{ pattern, name } 数组遍历，
+ * 命中返回 { safe: false, reason }，无命中 { safe: true }）。语义区别：
+ * validateScript 配套拒绝执行，本场景是拒绝写入——write() 命中即 throw。
+ * 正则级匹配（<1ms），不引入 LLM 判断（AI-SPEC §4b 拍板）。
+ *
+ * @param {string} content - 待写入的条目正文
+ * @returns {{safe: boolean, reason?: string}} 扫描结果
+ */
+function scanInjectionPatterns(content) {
+  const text = String(content || '');
+  for (const { pattern, name } of INJECTION_PATTERNS) {
+    if (pattern.test(text)) {
+      return { safe: false, reason: `检测到注入指令（${name}）` };
+    }
+  }
+  for (const { pattern, name } of CREDENTIAL_PATTERNS) {
+    if (pattern.test(text)) {
+      return { safe: false, reason: `检测到疑似凭据内容（${name}）。只记录登录状态等事实，不要记录凭据本身` };
+    }
+  }
+  return { safe: true };
+}
+
 /** 基目录覆写（测试注入；null 表示回落默认 userData/ai-memory） */
 let _baseDirOverride = null;
 
@@ -152,6 +216,15 @@ function write(params) {
   const budget = BUDGETS[target];
   let merged;
   let resultEntryId;
+
+  // 威胁扫描（D-11）：参数组合校验之后、预算校验之前；add 与 replace 的
+  // content 均过扫描，remove 无内容不扫。命中 throw → isError:true toolResult
+  if (action === 'add' || action === 'replace') {
+    const scan = scanInjectionPatterns(content);
+    if (!scan.safe) {
+      throw new Error(`记忆写入被拒绝：${scan.reason}。请调整措辞后重试`);
+    }
+  }
 
   if (action === 'add') {
     const nextNum = entries.reduce((max, e) => Math.max(max, e.num), 0) + 1;
@@ -295,6 +368,7 @@ module.exports = {
   setBaseDir,
   resolveFile,
   parseEntries,
+  scanInjectionPatterns,
   write,
   readContainer,
   readScope,
