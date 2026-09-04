@@ -4365,6 +4365,12 @@ function showDeleteConfirmModal(containerId) {
   elements.deleteContainerPreview.innerHTML = '';
   elements.deleteContainerPreview.appendChild(previewInfo);
 
+  // AI 记忆删除提示（D-05 / UI-SPEC Copywriting Contract：用户知情，无需二次确认）
+  const aiMemoryWarning = document.createElement('p');
+  aiMemoryWarning.className = 'warning-text';
+  aiMemoryWarning.textContent = '该容器的 AI 记忆将一并删除';
+  elements.deleteContainerPreview.appendChild(aiMemoryWarning);
+
   elements.deleteConfirmModal.showModal();
 }
 

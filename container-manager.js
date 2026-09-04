@@ -306,6 +306,12 @@ async function deleteContainer(id) {
   // 删除容器的 Cookie 文件和 Session 数据（D-01, D-02）
   await cookieManager.deleteCookies(id);
 
+  // 删除容器的 AI 记忆文件（D-05 容器生命周期联动，T-43-05 残留防护）
+  // 惰性 require：避开 electron-store 顶层依赖链（纯 Node 环境语法检查可加载本模块）；
+  // 必须 await：删除方保证原子性，不能靠懒读取兜底（清盘未完成时用户可能立即
+  // memory_read 到已删容器记忆，或进程退出时清理中断）。日志由 manager 内记录。
+  await require('./ai-memory-manager').deleteContainerMemory(id);
+
   // 从配置中移除
   let savedContainers = configStore.get('containers', DEFAULT_CONTAINERS);
   savedContainers = savedContainers.filter(c => c.id !== id);

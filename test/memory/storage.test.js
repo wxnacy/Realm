@@ -278,4 +278,16 @@ describe('deleteContainerMemory（容器删除联动，Plan 43-02 消费）', ()
     assert.strictEqual(fs.existsSync(path.join(tmp, 'memories', 'work.md')), false);
     assert.doesNotThrow(() => aiMemoryManager.deleteContainerMemory('work'));
   });
+
+  test('删除后 memory_read 空态：writeScope 写入 → deleteContainerMemory → readContainer 返回 null', (t) => {
+    const tmp = withTempMemoryDir('delete-then-read-empty', t);
+    aiMemoryManager.writeScope('container:work', '[M1] 删除前存在的容器记忆');
+    assert.strictEqual(fs.existsSync(path.join(tmp, 'memories', 'work.md')), true);
+    assert.ok(aiMemoryManager.readContainer('work').includes('[M1]'));
+
+    aiMemoryManager.deleteContainerMemory('work');
+
+    assert.strictEqual(fs.existsSync(path.join(tmp, 'memories', 'work.md')), false);
+    assert.strictEqual(aiMemoryManager.readContainer('work'), null);
+  });
 });
