@@ -230,8 +230,9 @@ describe('预算边界（replace 增长受限、缩短不受限）', () => {
       (err) => err.message.includes('先整理旧记忆'),
     );
     aiMemoryManager.write({ action: 'remove', target: 'user', entryId: 'M1' });
+    // 文件已空 → 现存最大编号 0，新条目取 max+1 = M1（编号状态完全在文件内）
     const result = aiMemoryManager.write({ action: 'add', target: 'user', content: '整理后的新条目' });
-    assert.strictEqual(result.entryId, 'M2');
+    assert.strictEqual(result.entryId, 'M1');
   });
 });
 

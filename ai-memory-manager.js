@@ -117,36 +117,69 @@ function parseEntries(text) {
  * target:'container' 的 containerId 由调用方（工具 execute）按当时活跃容器
  * 解析后传入（D-02 调用时解析语义），manager 不自行推断。
  *
+ * add 追加 [M{max+1}] 条目（D-10 稳定编号不回收）；replace 按编号精确改写
+ * 行正文；remove 只删行。编号不存在 throw（不就近匹配，Pitfall 7）。
+ *
  * @param {{action: string, target: string, content?: string, entryId?: string, containerId?: string}} params - 写入参数
  * @returns {{entryId: string, budget: number, remaining: number}} 写入结果与预算余量
- * @throws {Error} 参数非法 / 超出该层字符预算（D-07/D-08）
+ * @throws {Error} 参数组合非法 / 编号不存在 / 超出该层字符预算（D-07/D-08）
  */
 function write(params) {
-  const { action, target, content, containerId } = params || {};
+  const { action, target, content, entryId, containerId } = params || {};
   if (target !== 'user' && target !== 'global' && target !== 'container') {
     throw new Error(`未知的记忆层 target: ${target}（合法值：user / global / container）`);
   }
-  if (action !== 'add') {
-    throw new Error(`暂不支持的写入操作: ${action}（当前仅支持 add）`);
-  }
-  if (!content || typeof content !== 'string' || !content.trim()) {
-    throw new Error('add 操作缺少 content 参数，请提供条目正文');
+
+  // 参数组合校验（AI-SPEC §4b assertValidMemoryWrite 语义：消息写清如何修正）
+  if (action === 'add') {
+    if (!content || typeof content !== 'string' || !content.trim()) {
+      throw new Error('add 操作缺少 content 参数，请提供条目正文');
+    }
+  } else if (action === 'replace' || action === 'remove') {
+    if (!entryId || !/^M[0-9]+$/.test(entryId)) {
+      throw new Error(`replace/remove 需要 entryId 条目编号（如 "M3"），收到: ${entryId}`);
+    }
+    if (action === 'replace' && (!content || typeof content !== 'string' || !content.trim())) {
+      throw new Error('replace 操作缺少 content 参数，请提供新的条目正文');
+    }
+  } else {
+    throw new Error(`未知的写入操作 action: ${action}（合法值：add / replace / remove）`);
   }
 
   const file = resolveFile(target, containerId);
   const existing = readText(file) || '';
   const entries = parseEntries(existing);
   const budget = BUDGETS[target];
-  const nextNum = entries.reduce((max, e) => Math.max(max, e.num), 0) + 1;
-  const base = existing ? (existing.endsWith('\n') ? existing : `${existing}\n`) : '';
-  const merged = `${base}[M${nextNum}] ${content.trim()}\n`;
+  let merged;
+  let resultEntryId;
 
+  if (action === 'add') {
+    const nextNum = entries.reduce((max, e) => Math.max(max, e.num), 0) + 1;
+    const base = existing ? (existing.endsWith('\n') ? existing : `${existing}\n`) : '';
+    merged = `${base}[M${nextNum}] ${content.trim()}\n`;
+    resultEntryId = `M${nextNum}`;
+  } else {
+    // 按行首编号精确定位（D-09）；不存在即 fail-closed，绝不就近匹配
+    const hit = entries.find(e => e.id === entryId);
+    if (!hit) {
+      throw new Error(`条目 ${entryId} 不存在于该层记忆中（可能已被删除或人工编辑）。请先 memory_read 获取最新编号，不要就近匹配修改其他条目`);
+    }
+    const lines = existing.split('\n');
+    if (action === 'replace') {
+      merged = lines.map(line => (line === hit.line ? `[${entryId}] ${content.trim()}` : line)).join('\n');
+    } else {
+      merged = lines.filter(line => line !== hit.line).join('\n');
+    }
+    resultEntryId = entryId;
+  }
+
+  // 预算闸门（D-07/D-08）：按变更后总字符数计；replace 缩短内容自然不受限
   if (merged.length > budget) {
     throw new Error(`记忆已达字符上限（${budget}），写入被拒绝。请先整理旧记忆（用 replace 或 remove）再添加新条目`);
   }
 
   atomicWrite(file, merged);
-  return { entryId: `M${nextNum}`, budget, remaining: budget - merged.length };
+  return { entryId: resultEntryId, budget, remaining: budget - merged.length };
 }
 
 /**
@@ -156,6 +189,78 @@ function write(params) {
  */
 function readContainer(containerId) {
   return readText(resolveFile('container', containerId));
+}
+
+/**
+ * 解析记忆 scope（白名单：'user' | 'global' | 'container:<id>'）
+ * @param {string} scope - scope 字符串
+ * @returns {{target: string, containerId?: string}} 解析结果
+ * @throws {Error} scope 不在白名单内
+ */
+function parseScope(scope) {
+  if (scope === 'user' || scope === 'global') {
+    return { target: scope };
+  }
+  if (typeof scope === 'string' && scope.startsWith('container:')) {
+    const containerId = scope.slice('container:'.length);
+    // 复用 resolveFile 的容器 ID 校验（防路径穿越）
+    resolveFile('container', containerId);
+    return { target: 'container', containerId };
+  }
+  throw new Error(`非法的记忆 scope: ${scope}（合法值：user / global / container:<id>）`);
+}
+
+/**
+ * 按 scope 读取记忆原始文本（人工编辑语义，Plan 43-03 的 /api/ai-memory 消费）
+ * @param {string} scope - 'user' | 'global' | 'container:<id>'
+ * @returns {string} 文件全文；文件不存在返回空字符串
+ */
+function readScope(scope) {
+  const { target, containerId } = parseScope(scope);
+  return readText(resolveFile(target, containerId)) || '';
+}
+
+/**
+ * 按 scope 写入记忆原始文本（人工编辑语义）
+ *
+ * 与 write() 的差异：不做威胁扫描（D-11——设置页是用户本人操作），
+ * 仅保留字符预算校验作为服务端双保险（Pitfall 8：两端同用 JS string.length 口径）。
+ *
+ * @param {string} scope - 'user' | 'global' | 'container:<id>'
+ * @param {string} rawText - 完整文件内容（整文件替换，非条目追加）
+ * @returns {{budget: number, remaining: number}} 预算余量
+ * @throws {Error} scope 非法 / rawText 非字符串 / 超出该层字符预算
+ */
+function writeScope(scope, rawText) {
+  if (typeof rawText !== 'string') {
+    throw new Error('writeScope 需要字符串 rawText（整文件替换语义）');
+  }
+  const { target, containerId } = parseScope(scope);
+  const budget = BUDGETS[target];
+  if (rawText.length > budget) {
+    throw new Error(`记忆已达字符上限（${budget}），保存被拒绝。请精简内容后再保存`);
+  }
+  atomicWrite(resolveFile(target, containerId), rawText);
+  return { budget, remaining: budget - rawText.length };
+}
+
+/**
+ * 删除容器记忆文件（容器删除联动钩子，Plan 43-02 的 deleteContainer 消费）
+ *
+ * 同步删除由删除方保证原子性（不靠懒读取兜底）；文件不存在时静默容错。
+ *
+ * @param {string} containerId - 容器 ID
+ */
+function deleteContainerMemory(containerId) {
+  if (!containerId || !CONTAINER_ID_RE.test(containerId)) {
+    return;
+  }
+  const file = resolveFile('container', containerId);
+  const existed = fs.existsSync(file);
+  fs.rmSync(file, { force: true });
+  if (existed) {
+    console.log(`[Realm] 删除容器 AI 记忆: ${containerId}`);
+  }
 }
 
 /**
@@ -192,5 +297,8 @@ module.exports = {
   parseEntries,
   write,
   readContainer,
+  readScope,
+  writeScope,
+  deleteContainerMemory,
   buildGlobalSnapshot,
 };
