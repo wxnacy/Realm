@@ -168,3 +168,7 @@ None - no external service configuration required.
 ---
 *Phase: 43-ai-mvp*
 *Completed: 2026-09-04*
+
+## Self-Check: PASSED
+- ai-memory-manager.js、test/memory/scenario-harness.js、43-04-SUMMARY.md 均在盘
+- 3 个提交（0b6a091 / 3ac94bf / 4772327）均存在于 git 历史

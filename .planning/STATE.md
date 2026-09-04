@@ -4,17 +4,17 @@ milestone: v2.5
 milestone_name: AI 网络搜索功能
 current_phase: 43
 current_phase_name: AI 记忆系统集成（条目记忆 MVP）
-status: verifying
-stopped_at: Completed 43-03-PLAN.md
-last_updated: "2026-09-04T10:23:26.053Z"
+status: executing
+stopped_at: Completed 43-04-PLAN.md
+last_updated: "2026-09-04T12:34:42.380Z"
 last_activity: 2026-09-04
 last_activity_desc: Phase 43 execution started
-state_head: 4bcb0a3ceb6e2133b91256456b4ec4054fec2cb5
+state_head: 4772327558678ed6a81fa52b7934145c40925e00
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 14
-  completed_plans: 14
+  total_plans: 16
+  completed_plans: 15
   percent: 75
 ---
 
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 43 (AI 记忆系统集成（条目记忆 MVP）) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
+Plan: 5 of 5
+Status: Ready to execute
 Last activity: 2026-09-04 — Phase 43 execution started
 
 Progress: [████████░░] 75%
@@ -66,6 +66,7 @@ Progress: [████████░░] 75%
 | Phase 43 P01 | 16min | 3 tasks | 6 files |
 | Phase 43 P02 | 22min | 2 tasks | 18 files |
 | Phase 43 P03 | 18min | 2 tasks | 4 files |
+| Phase 43 P04 | 9 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,9 @@ Recent decisions affecting current work:
 - [Phase 43]: containerId 强制 /^[\w-]+$/ 校验防路径穿越；test:memory 用 node --test glob（Node 22 目录尾斜杠会被当模块解析）
 - [Phase 43]: [Phase 43]: 删除钩子惰性 require + await（删除方保证原子性）；harness 复用 ai-manager 工具链经 Module._load 拦截 tab-manager mock；expect 扩展 assistantSays/anyOf 支持二择一行为断言，安全不变式恒在顶层
 - [Phase 43]: 43-03：/api/ai-memory 预算数值单源自 manager BUDGETS（端点与前端零字面量）；POST 空 content 400，清空整层记忆暂不可经 UI 完成
+- [Phase 43]: 记忆规则统一收在 ai-memory-manager.js buildGlobalSnapshot（不可信来源拒绝+容器记忆边界+层级归属指引），不改 REALM_SYSTEM_PROMPT — 规则文本分裂两处会导致部分会话无规则；快照静态文本随 D-04 冻结注入不破坏前缀缓存（43-04）
+- [Phase 43]: 不做工具层载荷标记 fail-closed（T-43-08 accept） — 任意载荷标记无法与正常记忆内容区分会误杀正常写入；D-11 scanInjectionPatterns 已覆盖注入指令模式（43-04）
+- [Phase 43]: eval 失败修正只改规则文本不改 fixture 断言；43-04 第 1 轮 13/14 后补正向层级路由，第 2 轮 14/14 — fixture 是验收基准；critical-path-02 失败根因是快照缺正向层级归属指引致模型默认落 user 层
 
 ### Roadmap Evolution
 
@@ -117,6 +121,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-04T10:23:18.813Z
-Stopped at: Completed 43-03-PLAN.md
+Last session: 2026-09-04T12:33:26.487Z
+Stopped at: Completed 43-04-PLAN.md
 Resume file: None
