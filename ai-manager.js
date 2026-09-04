@@ -79,6 +79,19 @@ function getContainersLazy() {
   return require('./container-manager').getContainers();
 }
 
+/**
+ * 惰性 require AI 记忆管理模块
+ *
+ * ai-memory-manager 内部对 electron app 的依赖本身是惰性获取的（纯 Node
+ * 测试环境可加载），此处仍按 getContainersLazy 同款惰性模式引用：避开
+ * 模块加载顺序问题，Electron 主进程运行时直接命中模块缓存，无循环依赖风险。
+ *
+ * @returns {object} ai-memory-manager 模块导出
+ */
+function getAiMemoryManagerLazy() {
+  return require('./ai-memory-manager');
+}
+
 // ==================== 安全辅助函数 ====================
 
 /**
@@ -487,6 +500,20 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 
 请用简洁、专业的语气回答用户问题。当需要执行操作时，使用提供的工具函数。`;
 
+/**
+ * 构建完整 system prompt（REALM_SYSTEM_PROMPT + 全局两层记忆冻结快照）
+ *
+ * 快照在 Agent 创建时一次性拼入（D-04 冻结语义：会话内不变，保前缀缓存）。
+ * buildGlobalSnapshot 为同步函数——Agent 创建路径上不可异步化（G-42-4 实录）。
+ * init() 与 _recreateAgent() 两处 Agent 创建点都必须经此函数（漏一处即
+ * 部分会话无记忆快照）。
+ *
+ * @returns {string} 完整 system prompt
+ */
+function buildSystemPrompt() {
+  return REALM_SYSTEM_PROMPT + '\n\n' + getAiMemoryManagerLazy().buildGlobalSnapshot();
+}
+
 /** 上下文裁剪：保留最近的消息数量 */
 const MAX_CONTEXT_MESSAGES = 20;
 
@@ -723,7 +750,7 @@ class AIManager {
       // - transformContext: 上下文裁剪（保留最近消息）
       this.agent = new Agent({
         initialState: {
-          systemPrompt: REALM_SYSTEM_PROMPT,
+          systemPrompt: buildSystemPrompt(),
           model,
           tools: this.tools,
         },
@@ -2141,7 +2168,7 @@ ${content}
 
       this.agent = new Agent({
         initialState: {
-          systemPrompt: REALM_SYSTEM_PROMPT,
+          systemPrompt: buildSystemPrompt(),
           model,
           tools: this.tools,
         },
@@ -4508,6 +4535,132 @@ ${content}
           } catch (err) {
             throw new Error(`抓取失败: ${err.message}`);
           }
+        },
+      },
+
+      // ==================== memory 工具 ====================
+      /**
+       * 记忆写入工具（Phase 43 AI 记忆 MVP）
+       *
+       * 向三层持久记忆写入条目，委托 ai-memory-manager.write 执行。
+       * target:'container' 按当时活跃容器解析（D-02 调用时解析语义）；
+       * executionMode:'sequential' 防同批次并发写同一 md 文件。
+       * 业务校验失败（参数组合/威胁扫描/预算超限）由 manager throw →
+       * SDK 转 isError:true toolResult，LLM 可见并自行修正。
+       */
+      {
+        name: 'memory',
+        label: '写入记忆',
+        description: '向持久记忆写入条目。action: add(新增)/replace(按编号改写)/remove(按编号删除)；'
+          + 'target: user(用户画像)/global(全局记忆)/container(当前活跃容器的记忆)。'
+          + 'replace/remove 必须传 entryId（memory_read 返回的条目编号，如 "M3"）；add/replace 必须传 content。'
+          + '每层记忆有字符预算，写满时请先用 remove 整理旧条目再 add，不要静默放弃。',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: {
+              type: 'string',
+              enum: ['add', 'replace', 'remove'],
+              description: '写入操作类型',
+            },
+            target: {
+              type: 'string',
+              enum: ['user', 'global', 'container'],
+              description: '写入哪一层记忆；container 按当时活跃容器解析',
+            },
+            entryId: {
+              type: 'string',
+              pattern: '^M[0-9]+$',
+              description: 'replace/remove 必填，条目编号如 "M3"',
+            },
+            content: {
+              type: 'string',
+              description: 'add/replace 必填，条目正文；受该层字符预算限制，写满时先 remove 整理旧条目',
+            },
+          },
+          required: ['action', 'target'],
+        },
+        executionMode: 'sequential',
+        execute: async (toolCallId, params) => {
+          const { action, target } = params;
+
+          // target:'container' 在 execute 内按当时活跃容器解析（D-02 方案 A）
+          let resolvedContainerId;
+          if (target === 'container') {
+            const activeTab = tabManager.getActiveTab();
+            if (!activeTab || !activeTab.containerId) {
+              throw new Error('无法获取当前容器，请先打开一个标签页');
+            }
+            resolvedContainerId = activeTab.containerId;
+          }
+
+          const result = getAiMemoryManagerLazy().write({
+            action,
+            target,
+            content: params.content,
+            entryId: params.entryId,
+            containerId: resolvedContainerId,
+          });
+
+          const layerLabel = target === 'user' ? '用户画像'
+            : target === 'global' ? '全局记忆'
+              : `容器 ${resolvedContainerId} 记忆`;
+          const actionLabel = { add: '新增', replace: '更新', remove: '删除' }[action] || action;
+          return {
+            content: [{
+              type: 'text',
+              text: `已${actionLabel}${layerLabel}条目 ${result.entryId}。该层剩余预算 ${result.remaining}/${result.budget} 字符。`,
+            }],
+            details: {
+              budget: result.budget,
+              remaining: result.remaining,
+              entryId: result.entryId,
+              target,
+              containerId: resolvedContainerId,
+            },
+          };
+        },
+      },
+
+      // ==================== memory_read 工具 ====================
+      /**
+       * 容器记忆读取工具（Phase 43 AI 记忆 MVP）
+       *
+       * 容器记忆不进 system prompt（D-03），只经此工具按需读取。
+       * containerId 省略时读当前活跃容器（search_history 同款解析模式）。
+       * 文件不存在返回友好空态而非 throw——全链路唯一不 throw 例外（D-05）。
+       */
+      {
+        name: 'memory_read',
+        label: '读取容器记忆',
+        description: '读取指定容器的持久记忆（工作记忆：项目惯例、登录状态、站点注意事项）。'
+          + 'containerId 省略时读当前活跃容器；处理容器相关任务前先调用此工具。',
+        parameters: {
+          type: 'object',
+          properties: {
+            containerId: {
+              type: 'string',
+              description: '容器 ID（可选，默认当前活跃容器）',
+            },
+          },
+        },
+        execute: async (toolCallId, params) => {
+          let { containerId } = params;
+          if (!containerId) {
+            const activeTab = tabManager.getActiveTab();
+            if (!activeTab || !activeTab.containerId) {
+              throw new Error('无法获取当前容器，请先打开一个标签页');
+            }
+            containerId = activeTab.containerId;
+          }
+          const text = getAiMemoryManagerLazy().readContainer(containerId);
+          return {
+            content: [{
+              type: 'text',
+              text: text || '该容器暂无记忆',
+            }],
+            details: { containerId, empty: !text },
+          };
         },
       },
     ];
