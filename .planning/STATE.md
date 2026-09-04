@@ -4,17 +4,17 @@ milestone: v2.5
 milestone_name: AI 网络搜索功能
 current_phase: 43
 current_phase_name: AI 记忆系统集成（条目记忆 MVP）
-status: executing
-stopped_at: Completed 43-02-PLAN.md
-last_updated: "2026-09-04T10:13:02.619Z"
+status: verifying
+stopped_at: Completed 43-03-PLAN.md
+last_updated: "2026-09-04T10:23:26.053Z"
 last_activity: 2026-09-04
 last_activity_desc: Phase 43 execution started
-state_head: 951b8deed5e854c23af956d675558af9dedc8568
+state_head: 4bcb0a3ceb6e2133b91256456b4ec4054fec2cb5
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 14
-  completed_plans: 13
+  completed_plans: 14
   percent: 75
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 
 Phase: 43 (AI 记忆系统集成（条目记忆 MVP）) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-04 — Phase 43 execution started
 
 Progress: [████████░░] 75%
@@ -65,6 +65,7 @@ Progress: [████████░░] 75%
 | Phase 42 P06 | 20min | 2 tasks | 2 files |
 | Phase 43 P01 | 16min | 3 tasks | 6 files |
 | Phase 43 P02 | 22min | 2 tasks | 18 files |
+| Phase 43 P03 | 18min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,7 @@ Recent decisions affecting current work:
 - [Phase 43]: BUDGETS 预算数值只在 ai-memory-manager.js 一处（1375/2200/2200）；memory 工具 parameters 不写数值，预算语义由 description 承载
 - [Phase 43]: containerId 强制 /^[\w-]+$/ 校验防路径穿越；test:memory 用 node --test glob（Node 22 目录尾斜杠会被当模块解析）
 - [Phase 43]: [Phase 43]: 删除钩子惰性 require + await（删除方保证原子性）；harness 复用 ai-manager 工具链经 Module._load 拦截 tab-manager mock；expect 扩展 assistantSays/anyOf 支持二择一行为断言，安全不变式恒在顶层
+- [Phase 43]: 43-03：/api/ai-memory 预算数值单源自 manager BUDGETS（端点与前端零字面量）；POST 空 content 400，清空整层记忆暂不可经 UI 完成
 
 ### Roadmap Evolution
 
@@ -115,6 +117,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-04T10:13:02.512Z
-Stopped at: Completed 43-02-PLAN.md
+Last session: 2026-09-04T10:23:18.813Z
+Stopped at: Completed 43-03-PLAN.md
 Resume file: None
