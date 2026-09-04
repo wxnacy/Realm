@@ -4,7 +4,7 @@ slug: ai-mvp
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
 status: draft
-nyquist_compliant: false
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-09-04
 ---
@@ -42,7 +42,13 @@ created: 2026-09-04
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD（planner 细化后填写） | — | 0 | — | T-43-* | 写入威胁扫描拦截恶意注入 | unit | `node --test tests/test-ai-memory.js` | ❌ W0 | ⬜ pending |
+| 43-01-T1 | 43-01 | 0/1 | MEM-01/02/03/04 | T-43-03/04 | 容器记忆不进快照、原子写后才返回 | unit | `npm run test:memory` | ❌ W0（T1 自建） | ⬜ pending |
+| 43-01-T2 | 43-01 | 1 | MEM-01/02 | T-43-04 | 校验失败一律 throw、稳定编号不回收 | unit | `npm run test:memory` | ❌ W0（T1 自建） | ⬜ pending |
+| 43-01-T3 | 43-01 | 1 | MEM-01/02 | T-43-01/02 | 注入+凭据 fail-closed 拒写、良性零误伤 | unit | `npm run test:memory` | ❌ W0（T1 自建） | ⬜ pending |
+| 43-02-T1 | 43-02 | 2 | MEM-05 | T-43-05 | 删除容器后记忆文件清理、read 空态 | unit | `npm run test:memory` | ✅（43-01 建立后扩展） | ⬜ pending |
+| 43-02-T2 | 43-02 | 2 | MEM-02/03 | T-43-01/02/03 | 14 场景对抗/边界机器断言 | scenario | `npm run eval:memory`（无 Key skip） | ❌（T2 自建） | ⬜ pending |
+| 43-03-T1 | 43-03 | 2 | MEM-06 | T-43-07/08 | token 鉴权、scope 白名单、容器存在校验 | source+check | `node --check main.js` + grep 源断言 | ✅（main.js） | ⬜ pending |
+| 43-03-T2 | 43-03 | 2 | MEM-06 | — | UI 文案契约、CSP 无内联隐藏 | source+check | `node --check src/settings-page.js` + grep | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -50,8 +56,8 @@ created: 2026-09-04
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test-ai-memory.js` — node:test 骨架 + 临时目录注入 fixture（覆盖 USER.md / MEMORY.md / 容器记忆三层读写）
-- [ ] `ai-memory-manager.js` 路径可注入（构造函数/工厂参数），不硬编码 `app.getPath('userData')`
+- [x] `test/memory/` 目录 + `npm run test:memory` script（43-01 T1 建立；planner 采用 AI-SPEC §5 定稿的 `test/memory/` + node:test 形态，Quick run command 为 `npm run test:memory`，替代本文件早前的 `tests/test-ai-memory.js` 草案路径——fixture/harness 同目录便于相对引用）
+- [x] `ai-memory-manager.js` 路径可注入（`setBaseDir(dir)` 可覆写 + electron `app` 惰性获取，43-01 T1 tracer 任务落地，临时目录注入经 `test/memory/helpers.js` 统一入口）
 
 *若 planner 决定沿用 scripts/test-*.js 独立脚本风格，替换 Quick run command 为对应脚本路径并保持断言式退出码（exit 0/1）。*
 
@@ -69,11 +75,11 @@ created: 2026-09-04
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 10s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references（43-01 T1 自建 test/memory/ 套件 + setBaseDir 注入）
+- [x] No watch-mode flags
+- [x] Feedback latency < 10s（node:test 离线秒级）
+- [x] `nyquist_compliant: true` set in frontmatter
 
 **Approval:** pending
