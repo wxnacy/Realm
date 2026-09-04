@@ -18,11 +18,12 @@
 
 const fs = require('fs');
 const path = require('path');
-const { webContents } = require('electron');
+const { webContents, BrowserWindow } = require('electron');
 const tabManager = require('./tab-manager');
 const historyManager = require('./history-manager');
 const favoritesManager = require('./favorites-manager');
 const windowManager = require('./window-manager');
+const assignmentRules = require('./assignment-rules');
 const cdpManager = require('./cdp-manager');
 const searchManager = require('./search-manager');
 const conversationStore = require('./ai-conversations-manager');
@@ -3530,6 +3531,15 @@ ${content}
           const mainWindow = windowManager.getMainWindow();
           let containerId = params.containerId;
           if (!containerId) {
+            // 分配规则优先：URL 命中规则且容器仍存在时，打开到匹配容器
+            // （与其他导航入口语义统一，见 docs/product/navigation-entry-points.md）
+            const matchedContainer = assignmentRules.matchUrl(url);
+            if (matchedContainer &&
+                getContainersLazy().find(c => c.id === matchedContainer)) {
+              containerId = matchedContainer;
+            }
+          }
+          if (!containerId) {
             containerId = (mainWindow && windowManager.getCurrentContainer(mainWindow.id)) || 'default';
           }
 
@@ -3541,6 +3551,13 @@ ${content}
             throw new Error('指定容器不存在或已删除');
           }
 
+          // 多窗口归属：AI 面板所在窗口通常是聚焦窗口；聚焦窗口不是受管窗口
+          // （如焦点在播放器等辅助窗口）时回落主窗口
+          const focusedWin = BrowserWindow.getFocusedWindow();
+          const targetWindow = (focusedWin && windowManager.isManagedWindow(focusedWin.id))
+            ? focusedWin
+            : mainWindow;
+
           if (newTab) {
             // D-11：新标签页打开（不影响当前页面）
             // webview 只能由渲染进程创建 —— 复用 window.open 拦截同款
@@ -3549,11 +3566,11 @@ ${content}
             // 只会产生无 webview 的幽灵 Tab。
             // tabId 由渲染进程异步创建，主进程无法同步得知（返回 null，
             // 可随后经 get_tabs 按 URL 查询）。
-            if (!mainWindow || mainWindow.isDestroyed()) {
+            if (!targetWindow || targetWindow.isDestroyed()) {
               throw new Error('无法在容器中打开链接，请检查容器状态');
             }
             try {
-              mainWindow.webContents.send('open-url-in-tab', { url, containerId, guestId: undefined });
+              targetWindow.webContents.send('open-url-in-tab', { url, containerId, guestId: undefined });
             } catch (err) {
               console.warn('[Realm AI] open_link 发送打开请求失败:', err.message);
               throw new Error('无法在容器中打开链接，请检查容器状态');
@@ -3578,6 +3595,36 @@ ${content}
           if (!activeTab) {
             throw new Error('没有活跃的标签页');
           }
+
+          // 分配规则：命中其他容器时不发起当前 tab 的加载（当前 webview
+          // partition 绑定来源容器），改在匹配容器新建 tab——与主进程
+          // will-navigate 的规则重定向语义一致
+          const matchedContainer = assignmentRules.matchUrl(url);
+          if (matchedContainer && matchedContainer !== activeTab.containerId) {
+            if (!targetWindow || targetWindow.isDestroyed()) {
+              throw new Error('无法在容器中打开链接，请检查容器状态');
+            }
+            targetWindow.webContents.send('open-url-in-tab', {
+              url,
+              containerId: matchedContainer,
+              guestId: undefined,
+            });
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  success: true,
+                  tabId: null,
+                  url,
+                  containerId: matchedContainer,
+                  isNewTab: true,
+                  redirected: true,
+                }, null, 2),
+              }],
+              details: { tabId: null, url, redirected: true },
+            };
+          }
+
           const activeWcId = getActiveWebviewContentsIdLazy();
           const wc = activeWcId ? webContents.fromId(activeWcId) : null;
           if (!wc || wc.isDestroyed()) {

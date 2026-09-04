@@ -673,7 +673,7 @@ function _removeBackdrop() {
 // ==================== 导航辅助 ====================
 
 /**
- * 处理收藏项点击导航
+ * 处理收藏项点击导航（统一导航入口 openUrl：含分配规则匹配/URL 规整/m3u8 包装）
  * @param {string} url - 目标 URL
  * @param {MouseEvent} event - 鼠标事件
  */
@@ -681,29 +681,11 @@ function _handleMenuBookmarkClick(url, event) {
   if (!url) return;
 
   if (event.metaKey || event.ctrlKey) {
-    if (typeof createTab === 'function') {
-      createTab(state.currentContainer, url);
-    }
+    openUrl(url, { disposition: 'new-tab' });
     return;
   }
 
-  const activeTabId = state.activeTabId;
-  if (!activeTabId) return;
-
-  const tab = state.tabs.get(activeTabId);
-  const webview = state.webviews.get(activeTabId);
-  if (webview) {
-    // m3u8 视频文件在当前 webview tab 内用播放器页面播放（与地址栏导航一致）；
-    // tab 持久化存原始 URL，did-navigate 也会回写该值
-    const targetUrl = typeof maybePlayerUrl === 'function'
-      ? maybePlayerUrl(url, tab && tab.containerId)
-      : url;
-    webview.loadURL(targetUrl);
-    if (tab) {
-      tab.url = url;
-      window.realmAPI.updateTab(activeTabId, { url });
-    }
-  }
+  openUrl(url, { disposition: 'current-tab' });
 }
 
 // ==================== 菜单定位 ====================

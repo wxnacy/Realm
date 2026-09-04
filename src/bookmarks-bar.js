@@ -307,9 +307,9 @@ function createFolderItem(folder) {
 }
 
 /**
- * 处理收藏项点击导航
- * - 普通点击：在当前活动标签页的 webview 中导航
- * - Cmd/Ctrl+Click：在新标签页打开
+ * 处理收藏项点击导航（统一导航入口 openUrl：含分配规则匹配/URL 规整/m3u8 包装）
+ * - 普通点击：在当前活动标签页导航；命中其他容器规则时在匹配容器新建 tab，原 tab 不动
+ * - Cmd/Ctrl+Click：在新标签页打开（规则命中时建到匹配容器）
  * @param {string} url - 目标 URL
  * @param {MouseEvent} event - 鼠标事件
  */
@@ -318,30 +318,12 @@ function handleBookmarkClick(url, event) {
 
   // Cmd（Mac）或 Ctrl（Windows/Linux）+ 点击 → 新标签页打开
   if (event.metaKey || event.ctrlKey) {
-    if (typeof createTab === 'function') {
-      createTab(state.currentContainer, url);
-    }
+    openUrl(url, { disposition: 'new-tab' });
     return;
   }
 
-  // 普通点击：在当前标签页的 webview 中导航
-  const activeTabId = state.activeTabId;
-  if (!activeTabId) return;
-
-  const tab = state.tabs.get(activeTabId);
-  const webview = state.webviews.get(activeTabId);
-  if (webview) {
-    // m3u8 视频文件在当前 webview tab 内用播放器页面播放（与地址栏导航一致）；
-    // tab 持久化存原始 URL，did-navigate 也会回写该值
-    const targetUrl = typeof maybePlayerUrl === 'function'
-      ? maybePlayerUrl(url, tab && tab.containerId)
-      : url;
-    webview.loadURL(targetUrl);
-    if (tab) {
-      tab.url = url;
-      window.realmAPI.updateTab(activeTabId, { url });
-    }
-  }
+  // 普通点击：当前标签页导航（current-tab）
+  openUrl(url, { disposition: 'current-tab' });
 }
 
 // ==================== 溢出计算 ====================

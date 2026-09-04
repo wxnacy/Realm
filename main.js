@@ -3465,8 +3465,9 @@ app.whenReady().then(async () => {
 // 处理外部链接通过 realm:// 协议打开（SETT-03）
 app.on('open-url', (event, url) => {
   event.preventDefault();
-  // 获取当前活动窗口
-  const focusedWindow = BrowserWindow.getFocusedWindow();
+  // 获取当前活动窗口；无聚焦窗口（macOS 后台唤起等场景）时回落主窗口，
+  // 避免链接被静默丢弃
+  const focusedWindow = BrowserWindow.getFocusedWindow() || windowManager.getMainWindow();
   if (focusedWindow) {
     // 默认容器设置：'last-used' 在当前容器打开；固定容器 id 在指定容器打开
     const settings = configStore.get('settings', {});

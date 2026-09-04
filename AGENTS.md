@@ -185,6 +185,29 @@ await window.realmAPI.switchContainer('work');
 
 **无需**改 `ipc-handlers.js` / `preload.js` —— 注册/触发链路是通用的。重置走 `realmAPI.resetShortcut(action)`（`shortcut:reset` 通道），主进程删除自定义覆盖后 `getShortcuts` 的 `{...DEFAULT, ...custom}` 合并语义自动回落默认，**不要在 renderer 再写一份默认表**。
 
+### 导航入口与分配规则（强制维护约定）
+
+所有"加载一个 URL"的入口（地址栏、收藏栏/菜单、右键菜单、Vim hint、AI 聊天链接、AI 工具 open_link、OS open-url、guest 页面内导航等）的权威清单见 **[docs/product/navigation-entry-points.md](docs/product/navigation-entry-points.md)**。
+
+**统一导航入口 `openUrl`（src/renderer.js）**：renderer 侧所有"加载一个 URL"的入口必须收敛到 `openUrl(url, options)`，不得再直接 `webview.loadURL()` / `createTab(containerId, url)` 发起导航（程序化 loadURL 不触发主进程 `will-navigate`，会静默绕过分配规则）。签名与流水线：
+
+```js
+openUrl(url, {
+  disposition: 'current-tab' | 'new-tab' | 'background-tab',  // 缺省 current-tab
+  sourceTabId,            // current-tab 宿主 tab（缺省 state.activeTabId）
+  explicitContainerId,    // 用户显式选容器（右键指定容器、OS 固定默认容器），优先于规则
+  bypassRules,            // 显式跳过规则（快照恢复类入口用；restoreTabs/duplicate/重开关闭 tab 直接走原链路不入漏斗）
+})
+```
+
+内部流水线：normalizeUrl → WR-9 白名单（http(s)/realm/file/view-source:http(s)）→ 内部 URL 豁免 → `realmAPI.matchRule` 分配规则匹配（`state.navSeq` 竞态守卫：连续导航只让最后一次生效）→ 容器决策（explicitContainerId > 规则 > 来源/当前容器）→ disposition 分支执行。current-tab 命中其他容器规则时改为**匹配容器新建 tab、原 tab 不动**（与主进程 will-navigate 规则重定向语义一致；当前 webview partition 绑定来源容器不能跨容器加载）。
+
+主进程发起的导航（AI open_link、OS open-url）经 `open-url-in-tab` / `open-external-url` 通道落到 renderer 的 openUrl 链路；主进程侧发送前先 `assignmentRules.matchUrl` 解析容器。guest 页面内导航保持 will-navigate / setWindowOpenHandler 拦截链路不变。
+
+**以后新增任何导航入口、或修改导航 / 分配规则 / 容器决策相关功能时**：
+1. **必须收敛到 openUrl 并及时更新该文档**（入口位置、触发场景、disposition/容器参数）；
+2. **必须在各入口间同步功能逻辑**——同一 URL、同一用户意图，不管从哪个入口进来，规则匹配、URL 规整、m3u8 转换、tab 容器归属的行为必须一致。不要让"某入口绕过分配规则"这类行为分裂靠手动发现。回归验证跑 `node tests/test-unified-navigation.js`（32 项断言）。
+
 ### 内部页面（`realm://`）打开新 Tab
 
 `realm://favorites` / `realm://history` / `realm://settings` 等页面加载在 webview 中。在 guest 内打开新 tab 的标准做法：

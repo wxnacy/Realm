@@ -201,6 +201,10 @@ const state = {
   tabCounter: 0,
   webviews: new Map(),
 
+  // 统一导航入口 openUrl 的竞态守卫序列号：
+  // 连续导航（如地址栏连续回车）时只让最后一次（seq 最大者）生效
+  navSeq: 0,
+
   // Tab 拖拽排序状态（窗口内 HTML5 DnD）
   isDragging: false,
   draggingTabId: null,
@@ -700,6 +704,144 @@ function createTabElement(tab) {
   tabElement.appendChild(content);
 
   return tabElement;
+}
+
+// ==================== 统一导航入口 ====================
+
+/**
+ * 在指定 Tab 的 webview 中加载 URL（current-tab 导航的执行层，由 openUrl 调用）
+ *
+ * - tab 持久化存原始 URL（m3u8 时 loadUrl 是内部播放器页面地址，
+ *   恢复/收藏/历史应以真实视频地址为准；did-navigate 也会回写该值）
+ * - tab 存在但无 webview 时补建并显示（地址栏冷启动路径的历史行为）
+ * - 导航发起后隐藏新标签页 overlay（与 switchTab 行为一致）
+ *
+ * @param {string} tabId - 宿主 Tab ID
+ * @param {string} originalUrl - 原始 URL（用于持久化）
+ * @param {string} loadUrl - 规整后的加载地址（已做 realm 转换 + m3u8 包装）
+ * @returns {{action: 'navigated'|'skipped', tabId?: string}}
+ */
+function navigateCurrentTab(tabId, originalUrl, loadUrl) {
+  const tab = state.tabs.get(tabId);
+  if (!tab) return { action: 'skipped' };
+
+  const webview = state.webviews.get(tabId);
+  if (webview) {
+    webview.loadURL(loadUrl);
+  } else {
+    // 没有 webview（tab 元数据存在但 webview 未创建）：补建并显示
+    createWebviewForTab(tabId, tab.containerId, loadUrl);
+    showWebview(tabId);
+  }
+
+  tab.url = originalUrl;
+  window.realmAPI.updateTab(tabId, { url: originalUrl });
+
+  // 导航已发起，隐藏新标签页（统一覆盖两个分支，与 switchTab 行为一致）
+  elements.newTabPage.style.display = 'none';
+
+  return { action: 'navigated', tabId };
+}
+
+/**
+ * 统一导航入口：所有"加载一个 URL"的 renderer 侧入口最终汇聚于此
+ * （地址栏、收藏栏/菜单、右键菜单、Vim hint、AI 聊天链接、OS 外部链接等）。
+ * 完整入口清单见 docs/product/navigation-entry-points.md，新增入口必须收敛到此函数。
+ *
+ * 流水线：normalizeUrl 归一化 → 安全校验（WR-9 白名单）→ 内部 URL 豁免
+ * → 分配规则匹配（realmAPI.matchRule）→ 容器决策 → disposition 分支执行。
+ *
+ * 容器优先级：explicitContainerId（用户显式选择）> 分配规则匹配 >
+ * 来源 tab 容器（current-tab）/ 当前容器（new-tab/background-tab）。
+ *
+ * current-tab 语义下命中规则且目标容器 ≠ 来源 tab 容器时，改为在匹配容器
+ * 新建 tab（前台切换），原 tab 保持不动——与主进程 will-navigate 的规则
+ * 重定向语义一致（技术约束：当前 tab 的 webview partition 绑定来源容器，
+ * 不能加载其他容器的页面）。
+ *
+ * @param {string} url - 目标 URL（原始输入，内部 normalizeUrl，对完整 URL 幂等）
+ * @param {Object} [options]
+ * @param {'current-tab'|'new-tab'|'background-tab'} [options.disposition='current-tab']
+ * @param {string|null} [options.sourceTabId=null] - current-tab 语义的宿主 tab（缺省用 state.activeTabId）
+ * @param {string|null} [options.explicitContainerId=null] - 用户显式指定的容器，跳过规则匹配
+ * @param {boolean} [options.bypassRules=false] - 显式跳过规则（快照恢复等特殊语义入口）
+ * @returns {Promise<{action:'navigated'|'created'|'skipped', tabId?:string}>}
+ */
+async function openUrl(url, options = {}) {
+  if (!url || typeof url !== 'string') return { action: 'skipped' };
+
+  const {
+    disposition = 'current-tab',
+    sourceTabId = null,
+    explicitContainerId = null,
+    bypassRules = false,
+  } = options;
+
+  // 1. 归一化（对完整 URL 幂等；纯文本兜底为搜索）
+  const finalUrl = normalizeUrl(url);
+
+  // 2. 安全校验（WR-9 纵深防御）：放行 http(s)/realm/file；
+  //    view-source: 仅在包裹 http(s) 内层 URL 时放行（查看页面源代码）
+  const viewSourceMatch = finalUrl.match(/^view-source:(https?:\/\/.+)$/i);
+  if (!/^(https?|realm|file):\/\//i.test(finalUrl) && !viewSourceMatch) {
+    console.warn('[Realm] openUrl 拒绝非安全协议 URL:', finalUrl);
+    return { action: 'skipped' };
+  }
+
+  // 竞态守卫：连续导航（如地址栏连续回车）只让最后一次生效
+  const seq = ++state.navSeq;
+
+  // 3+4. 分配规则匹配（显式容器/bypassRules 跳过；内部 URL 豁免省一次 IPC）
+  let matchedContainer = null;
+  if (!explicitContainerId && !bypassRules) {
+    const isInternalUrl = finalUrl.startsWith('realm://') ||
+      finalUrl.startsWith('file://') ||
+      finalUrl.startsWith('view-source:') ||
+      (state.realmPort && finalUrl.startsWith(`http://localhost:${state.realmPort}/`));
+    if (!isInternalUrl) {
+      try {
+        matchedContainer = await window.realmAPI.matchRule(finalUrl);
+      } catch (err) {
+        console.warn('[Realm] 分配规则匹配失败，按未命中处理:', err);
+      }
+    }
+  }
+
+  // 过期序列号：已有更新的导航意图，丢弃本次（必须在任何 tab 状态写入之前）
+  if (seq !== state.navSeq) {
+    return { action: 'skipped' };
+  }
+
+  // 5. 容器决策
+  const resolvedSourceTabId = sourceTabId || state.activeTabId;
+  const sourceTab = resolvedSourceTabId ? state.tabs.get(resolvedSourceTabId) : null;
+  const fallbackContainer = disposition === 'current-tab'
+    ? (sourceTab ? sourceTab.containerId : state.currentContainer)
+    : state.currentContainer;
+  const containerId = explicitContainerId || matchedContainer || fallbackContainer;
+
+  // 6. disposition 分支
+  if (disposition === 'current-tab' && sourceTab && containerId === sourceTab.containerId) {
+    // 在来源 tab 内导航：realm:// 转内部 HTTP + m3u8 包播放器
+    const loadUrl = finalUrl.startsWith('realm://')
+      ? realmUrlToHttp(finalUrl, containerId)
+      : finalUrl;
+    return navigateCurrentTab(resolvedSourceTabId, finalUrl, maybePlayerUrl(loadUrl, containerId));
+  }
+
+  if (disposition === 'background-tab') {
+    // 后台打开：创建 Tab 但不切换焦点（createTab 默认 switchTab，需切回原 Tab）
+    const currentActiveTabId = state.activeTabId;
+    const newTabId = await createTab(containerId, finalUrl);
+    if (currentActiveTabId && state.tabs.has(currentActiveTabId) && currentActiveTabId !== newTabId) {
+      await switchTab(currentActiveTabId);
+    }
+    return { action: 'created', tabId: newTabId };
+  }
+
+  // new-tab（前台）：含 current-tab 但目标容器不同的情况（规则命中/显式指定）
+  const newTabId = await createTab(containerId, finalUrl);
+  return { action: 'created', tabId: newTabId };
 }
 
 /**
@@ -3113,25 +3255,10 @@ function initVimFocusListener(webview) {
           showToast('复制失败', 'error');
         });
       } else if (command === 'openInBgTab' && data && data.url) {
-        // F 键 hint：后台新标签打开，焦点保留在当前页
-        // 容器取来源 tab 的容器（与 window.open 拦截链路的"来源容器"语义一致）
-        let containerId = state.currentContainer;
-        for (const [tabId, wv] of state.webviews) {
-          if (wv === webview) {
-            const srcTab = state.tabs.get(tabId);
-            if (srcTab) containerId = srcTab.containerId;
-            break;
-          }
-        }
-        if (/^(https?|realm):\/\//i.test(data.url)) {
-          const currentActiveTabId = state.activeTabId;
-          createTab(containerId, data.url).then(() => {
-            // 切回原来的 Tab
-            if (currentActiveTabId && state.tabs.has(currentActiveTabId)) {
-              switchTab(currentActiveTabId);
-            }
-          });
-        }
+        // F 键 hint：后台新标签打开，焦点保留在当前页。
+        // hint 只在活动页触发，来源 tab 即活动 tab，openUrl 的容器
+        // fallback（规则匹配 > 当前容器）与之等价，无需反查来源容器
+        openUrl(data.url, { disposition: 'background-tab' });
       } else if (command === 'findInPage' && data && data.text) {
         // 搜索输入阶段的实时预览：只执行查找并暂存搜索词，不进入 n/N 导航阶段
         // 注意必须用 findNext:true —— 实证（Electron webview）：全新 find 会话的
@@ -3485,43 +3612,22 @@ function handleContextMenuAction(channel, data) {
 
     case 'context-menu:open-in-new-tab':
       if (data && data.url) {
-        // T-13-04 安全校验：拒绝 javascript: 等非 http(s)/realm 协议；
-        // view-source: 仅在包裹 http(s) 内层 URL 时放行（查看页面源代码菜单项）
-        const viewSourceMatch = data.url.match(/^view-source:(https?:\/\/.+)$/i);
-        if (/^(https?|realm):\/\//i.test(data.url) || viewSourceMatch) {
-          createTab(state.currentContainer, data.url);
-        } else {
-          console.warn('[Realm Renderer] 拒绝非安全协议 URL:', data.url);
-        }
+        // 统一导航入口（安全校验含 view-source:http(s) 放行，见 openUrl）
+        openUrl(data.url, { disposition: 'new-tab' });
       }
       break;
 
     case 'context-menu:open-in-bg-tab':
       if (data && data.url) {
-        // T-13-04 安全校验：同 open-in-new-tab
-        if (/^(https?|realm):\/\//i.test(data.url)) {
-          // 后台打开：创建 Tab 但不切换（createTab 默认会 switchTab，需要先记住当前 Tab）
-          const currentActiveTabId = state.activeTabId;
-          createTab(state.currentContainer, data.url).then(() => {
-            // 切回原来的 Tab
-            if (currentActiveTabId && state.tabs.has(currentActiveTabId)) {
-              switchTab(currentActiveTabId);
-            }
-          });
-        } else {
-          console.warn('[Realm Renderer] 拒绝非安全协议 URL:', data.url);
-        }
+        // 统一导航入口；后台打开（不切焦点）由 openUrl background-tab 分支处理
+        openUrl(data.url, { disposition: 'background-tab' });
       }
       break;
 
     case 'context-menu:open-in-container':
       if (data && data.url && data.containerId) {
-        // T-13-04 安全校验：同 open-in-new-tab
-        if (/^(https?|realm):\/\//i.test(data.url)) {
-          createTab(data.containerId, data.url);
-        } else {
-          console.warn('[Realm Renderer] 拒绝非安全协议 URL:', data.url);
-        }
+        // 用户显式选择容器：explicitContainerId 优先于分配规则（决策 3）
+        openUrl(data.url, { disposition: 'new-tab', explicitContainerId: data.containerId });
       }
       break;
 
@@ -3906,7 +4012,8 @@ async function init() {
   });
   window.realmAPI.onIpcMessage('bookmarks-bar:navigate', (data) => {
     if (data.newTab) {
-      createTab(state.currentContainer, data.url);
+      // 统一导航入口（含分配规则匹配）
+      openUrl(data.url, { disposition: 'new-tab' });
     }
   });
   window.realmAPI.onIpcMessage('bookmarks-bar:edit-bookmark', (data) => {
@@ -4027,15 +4134,26 @@ async function init() {
     }
   });
   window.realmAPI.onIpcMessage('bookmarks-bar:open-all', (data) => {
-    // 打开文件夹中的所有书签
+    // 打开文件夹中的所有书签（统一导航入口）
+    // 保持既有行为：整组收藏固定在当前容器（explicitContainerId），不给规则
+    // 逐个分发（会打散一组收藏）；background-tab 避免逐个切前台闪烁，
+    // 完成后切到首个新 tab
     if (data.folderId) {
-      window.realmAPI.bookmarksBar.listFavorites(data.folderId).then((favorites) => {
+      window.realmAPI.bookmarksBar.listFavorites(data.folderId).then(async (favorites) => {
         if (favorites && favorites.length > 0) {
-          favorites.forEach((fav) => {
+          const openedTabIds = [];
+          for (const fav of favorites) {
             if (fav.url) {
-              createTab(state.currentContainer, fav.url);
+              const result = await openUrl(fav.url, {
+                disposition: 'background-tab',
+                explicitContainerId: state.currentContainer,
+              });
+              if (result.tabId) openedTabIds.push(result.tabId);
             }
-          });
+          }
+          if (openedTabIds.length > 0) {
+            await switchTab(openedTabIds[0]);
+          }
         }
       });
     }
@@ -4486,7 +4604,10 @@ function handleOpenUrlInTab(data) {
     }
   }
 
-  createTab(containerId || state.currentContainer, data.url);
+  // 统一导航入口执行：resolvedContainerId 非空时作为 explicitContainerId
+  // （主进程 setWindowOpenHandler/will-navigate 已 matchUrl，null = 无匹配，
+  // renderer 不重复查规则）；为 null 时 openUrl 内部再走一次 matchRule 兜底
+  openUrl(data.url, { disposition: 'new-tab', explicitContainerId: containerId });
 }
 
 /**
@@ -5694,30 +5815,11 @@ function selectAutocompleteItem(index) {
   // 关闭下拉框
   closeAutocomplete();
 
-  // 触发导航
-  if (state.activeTabId) {
-    const tab = state.tabs.get(state.activeTabId);
-    const webview = state.webviews.get(state.activeTabId);
-
-    if (tab && webview) {
-      const targetUrl = maybePlayerUrl(suggestion.url, tab.containerId);
-      webview.loadURL(targetUrl);
-      // tab 持久化存原始 URL（m3u8 时 targetUrl 是内部播放器页面地址，
-      // 恢复/收藏/历史应以真实视频地址为准；did-navigate 也会回写该值）
-      tab.url = suggestion.url;
-      window.realmAPI.updateTab(state.activeTabId, { url: suggestion.url });
-    } else if (tab) {
-      createWebviewForTab(state.activeTabId, tab.containerId, suggestion.url);
-      tab.url = suggestion.url;
-      window.realmAPI.updateTab(state.activeTabId, { url: suggestion.url });
-      showWebview(state.activeTabId);
-    }
-
-    if (tab) {
-      elements.newTabPage.style.display = 'none';
-    }
+  // 触发导航（统一导航入口：有活动 tab → current-tab；无 → new-tab 惰性创建）
+  if (state.activeTabId && state.tabs.get(state.activeTabId)) {
+    openUrl(suggestion.url, { disposition: 'current-tab', sourceTabId: state.activeTabId });
   } else {
-    createTab(state.currentContainer, suggestion.url);
+    openUrl(suggestion.url, { disposition: 'new-tab' });
   }
 
   // 输入框聚焦时全选文本
@@ -5856,7 +5958,8 @@ function setupEventListeners() {
     if (e.key === 'Enter') {
       const value = elements.newTabSearch.value.trim();
       if (value) {
-        createTab(state.currentContainer, normalizeUrl(value));
+        // 统一导航入口（与 realm://newtab guest 页搜索行为对齐：均查分配规则）
+        openUrl(value, { disposition: 'new-tab' });
         elements.newTabSearch.value = '';
       }
     }
@@ -6353,46 +6456,15 @@ function setupEventListeners() {
     if (e.key === 'Enter') {
       const url = elements.urlInput.value.trim();
       if (url) {
-        let normalizedUrl = normalizeUrl(url);
-        // realm:// URL 需要转换为 localhost HTTP URL（webview 无法直接加载自定义协议）
-        if (normalizedUrl.startsWith('realm://')) {
-          const tab = state.tabs.get(state.activeTabId);
-          normalizedUrl = realmUrlToHttp(normalizedUrl, tab && tab.containerId);
-        }
-        console.log('[Realm] 导航到:', normalizedUrl);
+        console.log('[Realm] 导航到:', url);
 
-        // 如果有活动 Tab 和对应的 webview
+        // 统一导航入口（含分配规则匹配/URL 规整/m3u8 包装/tab 持久化）：
+        // 有活动 tab → current-tab（命中其他容器时改为匹配容器新建 tab，原 tab 不动）；
+        // 无活动 tab（冷启动空 Tab 栏或关闭最后 Tab 后）→ new-tab 惰性创建
         if (state.activeTabId) {
-          const tab = state.tabs.get(state.activeTabId);
-          const webview = state.webviews.get(state.activeTabId);
-
-          if (tab && webview) {
-            // 在 webview 中加载 URL
-            const targetUrl = maybePlayerUrl(normalizedUrl, tab.containerId);
-            webview.loadURL(targetUrl);
-            // tab 持久化存原始 URL（m3u8 时 targetUrl 是内部播放器页面地址，
-            // 恢复/收藏/历史应以真实视频地址为准；did-navigate 也会回写该值）
-            tab.url = normalizedUrl;
-            // 同步到主进程
-            await window.realmAPI.updateTab(state.activeTabId, { url: normalizedUrl });
-          } else if (tab) {
-            // 如果没有 webview，创建一个
-            createWebviewForTab(state.activeTabId, tab.containerId, normalizedUrl);
-            tab.url = normalizedUrl;
-            // 同步到主进程
-            await window.realmAPI.updateTab(state.activeTabId, { url: normalizedUrl });
-            // 显示新创建的 webview（createWebviewForTab 创建时 visibility: hidden）
-            showWebview(state.activeTabId);
-          }
-
-          // 导航已发起，隐藏新标签页（统一覆盖两个分支，与 switchTab 行为一致）
-          if (tab) {
-            elements.newTabPage.style.display = 'none';
-          }
+          await openUrl(url, { disposition: 'current-tab', sourceTabId: state.activeTabId });
         } else {
-          // 无活动 Tab（冷启动空 Tab 栏或关闭最后 Tab 后）：用当前容器惰性创建 Tab
-          // 传 normalizedUrl（主进程不规范化）；建 webview/切 Tab/隐藏新标签页由 createTab 全链路覆盖
-          await createTab(state.currentContainer, normalizedUrl);
+          await openUrl(url, { disposition: 'new-tab' });
         }
 
         // 导航发起后焦点还给页面（webview guest）：焦点留在地址栏时主进程判定在输入框中，
@@ -6440,11 +6512,11 @@ function setupEventListeners() {
   });
 
   // 监听外部链接打开事件（SETT-03）
-  // data: { url, containerId }；containerId 为 null 表示在当前容器打开，
-  // 否则在默认容器设置指定的容器中打开
+  // data: { url, containerId }；containerId 非 null = 用户在设置里固定了默认容器，
+  // 视为显式选择（优先于规则）；null（'last-used'）交给 openUrl 内部 matchRule
   window.realmAPI.onExternalUrlOpen((data) => {
     if (data && data.url) {
-      createTab(data.containerId || state.currentContainer, data.url);
+      openUrl(data.url, { disposition: 'new-tab', explicitContainerId: data.containerId || null });
     }
   });
 
@@ -6624,7 +6696,7 @@ function setupEventListeners() {
   if (elements.aiMessageList) {
     elements.aiMessageList.addEventListener('scroll', handleAIMessageScroll);
 
-    // 拦截 AI 消息中的链接点击，在当前容器新标签页打开
+    // 拦截 AI 消息中的链接点击，在新标签页打开（统一导航入口，含分配规则匹配）
     elements.aiMessageList.addEventListener('click', (e) => {
       const link = e.target.closest('a[href]');
       if (!link) return;
@@ -6632,12 +6704,9 @@ function setupEventListeners() {
       if (!href) return;
       e.preventDefault();
       e.stopPropagation();
-      // http(s) 链接在当前容器新标签页打开
-      if (/^https?:\/\//i.test(href)) {
-        createTab(state.currentContainer, href);
-      } else if (href.startsWith('realm://')) {
-        // realm:// 内部页面也用新标签页打开
-        createTab(state.currentContainer, href);
+      // http(s) 与 realm:// 内部页面均在新标签页打开
+      if (/^(https?:\/\/|realm:\/\/)/i.test(href)) {
+        openUrl(href, { disposition: 'new-tab' });
       }
     });
   }
