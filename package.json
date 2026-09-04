@@ -16,7 +16,8 @@
     "postinstall": "node scripts/postinstall.js",
     "test:pre-release": "node scripts/test-pre-release.js",
     "validate": "node scripts/test-save-domain-cookies.js && node scripts/test-ipc-favorites.js && node scripts/test-rules-import-roundtrip.js && node scripts/test-pre-release.js",
-    "test:memory": "node --test test/memory/*.test.js"
+    "test:memory": "node --test test/memory/*.test.js",
+    "eval:memory": "node test/memory/scenario-harness.js"
   },
   "keywords": [
     "browser",
