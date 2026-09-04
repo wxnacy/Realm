@@ -34,6 +34,12 @@ findings:
   info: 4
   total: 7
 status: issues_found
+gap_closure_reviewed: 2026-09-04
+gap_closure_findings:
+  critical: 0
+  warning: 1
+  info: 1
+  total: 2
 ---
 
 # Phase 43: Code Review Report
@@ -139,6 +145,66 @@ async function loadAiMemory() {
 **File:** `main.js:2163-2175`（`parseAiMemoryScope`）vs `ai-memory-manager.js:273-284`（`parseScope`）
 **Issue:** main.js 的 `parseAiMemoryScope` 是 manager `parseScope` 的宽松重复实现（不校验容器 ID 形态）。安全上无洞——`readScope`/`writeScope` 内部会再经 `parseScope` 严格校验——但两处白名单需要人工保持同步，新增 scope 枚举时容易漏改 main.js 侧（manager 会 throw，最终行为正确，但 main.js 的 400 文案会先于 manager 的更精确报错出现）。
 **Fix:** 让 main.js 直接复用 `aiMemoryManager` 暴露的 `parseScope`（导出它），删掉本地 `parseAiMemoryScope`；或至少在注释里声明 main.js 侧只是「快速失败预检，权威校验在 manager」。
+
+## Gap-Closure Review (2026-09-04)
+
+**Reviewed:** 2026-09-04 (gap-closure increment)
+**Depth:** standard
+**Scope:** commits `0b6a091` (systemPrompt 双负向规则 + harness 路径收口)、`3ac94bf` (层级归属正向指引)、`62b0d6f` (G-43-2 成功提示守卫)
+**Files Reviewed:** 3 — `ai-memory-manager.js`, `test/memory/scenario-harness.js`, `src/settings-page.js`
+**Status:** issues_found (0 Critical / 1 Warning / 1 Info — 无阻断项)
+
+### Summary
+
+Reviewed the three gap-closure commits at standard depth, reading the full hunks in their current working-tree context (not just the diffs).
+
+**ai-memory-manager.js (`0b6a091` + `3ac94bf`)**: The new snapshot sections (层级归属正向路由 + 双负向安全规则) are static text appended to `buildGlobalSnapshot`'s `lines` array — pure additive string building, no logic. Cross-checked against `ai-manager.js`: the referenced tool names `read_page_content` / `extract_links` (ai-manager.js:3304, 3403) and `memory` tool `target` enum `user/global/container` (ai-manager.js:4566-4569) all exist and match the rule text — no prompt/tool drift. Rules are frozen into the snapshot at agent creation (D-04), so they apply to new sessions only; that is documented design, not a defect. Note the JS string concatenation means the markdown renders as single lines (bullets/headings are line-separated correctly via the `lines` array).
+
+**test/memory/scenario-harness.js (`0b6a091`)**: The three `require` paths `../` → `../../` are correct for `test/memory/` → repo root (`../../ai-memory-manager`, `../../ai-manager`, `../../ai-conversations-manager`). `FIXTURES_DIR` uses `path.join(__dirname, 'fixtures')` and is unaffected. No other relative requires remain broken (grep-verified).
+
+**src/settings-page.js (`62b0d6f`)**: Guard logic traced through all state transitions: `updateAiMemoryCount` computes `over` (line 3606) before the guard check (line 3620) — no use-before-declaration; count/button updates occur before the guard short-circuit, so 字数统计/超限置红/按钮禁用 are never suppressed (D2 claim holds). Over-budget while guard active clears the guard and shows the danger hint (超限优先, T-43-09). Input listener, `switchAiMemoryTab`, and the 2s callback's unconditional first-line reset close all "残留 true" paths for the guard boolean itself. The one gap found is the **untracked setTimeout**: the timer id is never stored or cleared, so a stale timer from a previous save can truncate a newer one — see GC-W-01.
+
+Both modified JS files pass `node --check`. No Critical issues; the gap-closure increment is sound overall.
+
+### Warnings
+
+#### GC-W-01: 成功提示 2 秒定时器未追踪/未清除——连续两次保存时 stale timer 截断第二次「已保存」
+
+**File:** `src/settings-page.js:3761-3768` (`saveAiMemory` 的 `setTimeout`)
+**Issue:** `saveAiMemory` 每次成功都新建一个 2 秒匿名 `setTimeout`，timer id 不入 `aiMemoryState`、置位前不清除旧 timer。守卫布尔值本身无残留 true 路径，但 stale timer 有两条可复现的干扰路径：
+
+1. **截断第二次成功提示**：save#1 成功（t=0，guard=true，timer#1）。finally 释放 busy 后按钮立即可用，用户在 t<2s 内再次保存并成功（t=1s，guard=true，timer#2）。t=2s 时 timer#1 触发：`hint.textContent === '已保存'` 命中的是**第二次**保存的提示 → `resetAiMemoryHint()` 把第二次「已保存」在仅 1.5s 时提前抹掉。
+2. **守卫真空窗口**：timer#1 首行无条件 `successHintActive = false`，到 timer#2 触发（t=2.5s）前的 0.5s 内守卫处于 false 但 hint 仍为「已保存」——此窗口内任何 `updateAiMemoryCount` 调用（如容器下拉 change → `loadAiMemory` finally）都会提前覆盖 hint。同理 save#2 **失败**时守卫未被 catch 清除，timer#1 触发照样会命中失败后重试成功的第三次保存提示。
+
+失败场景本质：瞬态 UI 反馈的存活期由「最后一次保存」决定，而当前实现让「最早一次未到期 timer」也能裁决。
+**Fix:**
+```javascript
+// saveAiMemory 成功分支：
+if (aiMemoryState.successTimer) clearTimeout(aiMemoryState.successTimer);
+aiMemoryState.successHintActive = true;
+aiMemoryState.successTimer = setTimeout(() => {
+  aiMemoryState.successHintActive = false;
+  aiMemoryState.successTimer = null;
+  const hint = document.getElementById('aiMemoryHint');
+  if (hint && hint.textContent === '已保存') resetAiMemoryHint();
+}, 2000);
+// aiMemoryState 增加 successTimer: null 字段；switchAiMemoryTab 兜底清除处同步
+// clearTimeout(aiMemoryState.successTimer) + 置 null。
+```
+
+### Info
+
+#### GC-I-01: scenario-harness JSDoc 注释仍引用旧的 `../` 路径
+
+**File:** `test/memory/scenario-harness.js:263`
+**Issue:** `installStubs` 的 JSDoc 注释写「必须在 require('../ai-manager') 之前调用」，但本提交已把实际 require 改为 `../../ai-manager`（line 458）。注释与代码路径漂移，会误导后续按注释路径检索的维护者。
+**Fix:** 注释同步改为 `require('../../ai-manager')`。
+
+---
+
+_Gap-Closure Reviewed: 2026-09-04_
+_Reviewer: Claude (gsd-code-reviewer)_
+_Depth: standard (increment scope: 0b6a091, 3ac94bf, 62b0d6f)_
 
 ---
 
