@@ -4,17 +4,17 @@ milestone: v2.5
 milestone_name: AI 网络搜索功能
 current_phase: 42
 status: completed
-stopped_at: Phase 42 complete — all phases complete
-last_updated: "2026-09-02T02:57:19.707Z"
+stopped_at: Phase 43 context gathered
+last_updated: "2026-09-04T07:16:17.394Z"
 last_activity: 2026-09-02
 last_activity_desc: Phase 42 complete
-state_head: 7ba18577d6dc6020364c91743256b8b78a4177d3
+state_head: c2f3b78a3d91d96b3265a7c4aacbda222262cd1a
 progress:
-  total_phases: 3
+  total_phases: 4
   completed_phases: 3
   total_plans: 11
   completed_plans: 11
-  percent: 100
+  percent: 75
 ---
 
 # Project State: Realm Browser
@@ -86,6 +86,7 @@ Recent decisions affecting current work:
 ### Roadmap Evolution
 
 - Phase 42 added: AI 历史对话功能调研与 pi-agent 集成方案
+- Phase 43 added: AI 记忆系统集成（条目记忆 MVP），方案定稿见 docs/plan/ai-memory-system.md
 
 ### Pending Todos
 
@@ -108,6 +109,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-02T01:32:59.802Z
-Stopped at: Phase 42 complete — all phases complete
-Resume file: None
+Last session: 2026-09-04T07:16:17.166Z
+Stopped at: Phase 43 context gathered
+Resume file: .planning/phases/43-ai-mvp/43-CONTEXT.md
