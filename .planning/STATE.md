@@ -4,17 +4,17 @@ milestone: v2.5
 milestone_name: AI 网络搜索功能
 current_phase: 43
 current_phase_name: AI 记忆系统集成（条目记忆 MVP）
-status: executing
-stopped_at: Completed 43-04-PLAN.md
-last_updated: "2026-09-04T12:34:42.380Z"
+status: verifying
+stopped_at: Completed 43-05-PLAN.md
+last_updated: "2026-09-04T12:42:55.905Z"
 last_activity: 2026-09-04
 last_activity_desc: Phase 43 execution started
-state_head: 4772327558678ed6a81fa52b7934145c40925e00
+state_head: 62b0d6f8660917eec1f092c1430d9e7e20f68653
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 16
-  completed_plans: 15
+  completed_plans: 16
   percent: 75
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 
 Phase: 43 (AI 记忆系统集成（条目记忆 MVP）) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-04 — Phase 43 execution started
 
 Progress: [████████░░] 75%
@@ -67,6 +67,7 @@ Progress: [████████░░] 75%
 | Phase 43 P02 | 22min | 2 tasks | 18 files |
 | Phase 43 P03 | 18min | 2 tasks | 4 files |
 | Phase 43 P04 | 9 min | 2 tasks | 2 files |
+| Phase 43 P05 | 7min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,7 @@ Recent decisions affecting current work:
 - [Phase 43]: 记忆规则统一收在 ai-memory-manager.js buildGlobalSnapshot（不可信来源拒绝+容器记忆边界+层级归属指引），不改 REALM_SYSTEM_PROMPT — 规则文本分裂两处会导致部分会话无规则；快照静态文本随 D-04 冻结注入不破坏前缀缓存（43-04）
 - [Phase 43]: 不做工具层载荷标记 fail-closed（T-43-08 accept） — 任意载荷标记无法与正常记忆内容区分会误杀正常写入；D-11 scanInjectionPatterns 已覆盖注入指令模式（43-04）
 - [Phase 43]: eval 失败修正只改规则文本不改 fixture 断言；43-04 第 1 轮 13/14 后补正向层级路由，第 2 轮 14/14 — fixture 是验收基准；critical-path-02 失败根因是快照缺正向层级归属指引致模型默认落 user 层
+- [Phase 43]: G-43-2 成功提示守卫：updateAiMemoryCount hint 联动段短路（!over return），字数/按钮更新先行不受影响；超限优先清守卫走 danger（T-43-09） — finally 结构不动，改动面最小；2 秒回调无条件复位守卫无残留路径
 
 ### Roadmap Evolution
 
@@ -121,6 +123,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-04T12:33:26.487Z
-Stopped at: Completed 43-04-PLAN.md
+Last session: 2026-09-04T12:42:55.772Z
+Stopped at: Completed 43-05-PLAN.md
 Resume file: None

@@ -264,12 +264,12 @@ Plans:
 **Goal:** 为 AI 助手集成三层条目式持久记忆：USER.md（用户画像，全局一份）+ 全局 MEMORY.md（冻结快照注入 system prompt，新会话生效）+ 容器记忆 `memories/<containerId>.md`（不进 prompt，`memory_read` 工具按需加载，skill 原理）。写入走 `memory` 工具（add/replace/remove + target 消歧，方案 A：container 按当时活跃容器）。含写入威胁扫描、字符预算、懒创建、容器删除联动清理、设置页 `/api/ai-memory` 编辑入口。方案定稿见 `docs/plan/ai-memory-system.md` 第三节
 **Requirements**: MEM-01（ai-memory-manager.js 存储层）, MEM-02（memory 写入工具）, MEM-03（memory_read 读取工具）, MEM-04（system prompt 快照注入）, MEM-05（容器删除联动清理）, MEM-06（/api/ai-memory 端点 + 设置页分区）
 **Depends on:** Phase 42
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans executed
 
 Plans:
 
 - [x] 43-04-PLAN.md
-- [ ] 43-05-PLAN.md
+- [x] 43-05-PLAN.md
 
 **Wave 1**
 
