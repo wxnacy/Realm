@@ -1,10 +1,11 @@
 ---
 phase: 43
 slug: ai-mvp
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-09-04
+reviewed_at: 2026-09-04
 ---
 
 # Phase 43 — UI Design Contract
@@ -47,6 +48,8 @@ settings-group.search-config-section 模式
    └─ 操作行：<button class="btn btn-primary">「保存记忆」</button>
 ```
 
+**视觉主锚点**：textarea 记忆编辑区是「AI 记忆」子区域的主要视觉锚点（最大元素）；Tab 栏为次级导航，CTA 为动作锚点。强调层级依此排列，执行时勿将 CTA 或 tab 栏做成视觉核心。
+
 **CSP 约束（realm://settings，`style-src 'self'`）：**
 - 元素初始隐藏（如容器下拉、非当前 tab 的编辑区）必须走 CSS 类规则，markup 内禁止 `style="display:none"`
 - 显隐切换用 JS CSSOM（`el.style.display = 'flex'/'block'/'none'`），不要依赖 `''` 回落
@@ -76,7 +79,7 @@ Exceptions: 沿用设置页既有间距节奏（`settings-group` / `settings-ite
 |------|------|--------|-------------|
 | Body（textarea 正文、设置项说明） | 14px | 400 | 1.5 |
 | Label / Hint（字数统计、生效提示，`ai-form-hint` 风格） | 13px | 400 | 1.4 |
-| Heading（子区域标题 `settings-group-title`） | 15px | 600 | 1.2 |
+| Heading（子区域标题 `settings-group-title`） | 14px | 600 | 1.2 |
 | Page title（「AI 助手」页标题，既有不动） | 20px | 600 | 1.2 |
 
 Weight 上限 2 档：400（正文/hint）+ 600（标题、tab 激活态）。
@@ -131,17 +134,25 @@ Accent reserved for（仅限以下元素）:
 
 ## UI Considerations
 
-Applicable state considerations resolved: 4 covered, 2 backstop, 0 unresolved
+Applicable state considerations resolved: 12 explicit, 2 backstop, 8 dismissed, 0 unresolved
+（probe 引擎 7 元素 35 条考量，经用户确认 2026-09-04；探测识别的元素类型已核验无遗漏）
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
-| empty | 容器记忆 textarea（文件不存在/容器新删） | ✅ covered | 渲染 hint「该容器暂无记忆，AI 首次写入后在此显示」，textarea 置空可编辑 |
-| empty | 用户画像/全局 textarea（首次使用） | ✅ covered | 渲染 hint「暂无内容，AI 写入记忆后在此显示」 |
-| overflow | textarea 内容超字符上限 | ✅ covered | 计数变红 + 保存按钮 disabled + hint「超出字符上限，请精简内容后再保存」；服务端同样校验双保险 |
-| error | `/api/ai-memory` 保存失败 | ✅ covered | 状态行渲染「保存失败：{原因}，请重试」，textarea 内容不丢失 |
-| loading | 切换 tab / 切换容器取数 | 🧪 backstop | 取数期间 textarea disabled + 状态行「加载中…」； held-out UI-state 测试断言 disabled 态 |
+| empty | 容器记忆 textarea（文件不存在/容器新删） | ✅ explicit | 渲染 hint「该容器暂无记忆，AI 首次写入后在此显示」，textarea 置空可编辑 |
+| empty | 用户画像/全局 textarea（首次使用） | ✅ explicit | 渲染 hint「暂无内容，AI 写入记忆后在此显示」 |
+| empty | 工具卡片（memory_read 容器记忆空） | ✅ explicit | 既有文案「该容器暂无记忆」（D-05 呼应），零新设计 |
+| empty | 容器下拉（无可选容器） | ✅ explicit | 并入 zero-one-many 行：数据源实时取容器列表，删除后联动 |
+| overflow | textarea 内容超字符上限 | ✅ explicit | 计数变红 + 保存按钮 disabled + hint「超出字符上限，请精简内容后再保存」；服务端同样校验双保险 |
+| error | 保存失败（textarea/状态行/按钮）+ 取数失败（tab/下拉） | ✅ explicit | 状态行渲染「保存失败：{原因}，请重试」，textarea 内容不丢失；取数失败沿用同一状态行错误文案 |
+| loading | 切换 tab / 切换容器取数 / 保存请求中 | 🧪 backstop | 取数与保存期间 textarea disabled + 状态行「加载中…」；held-out UI-state 测试断言 disabled 态 |
 | long-text | 单条记忆接近/达到 2200 字符 | 🧪 backstop | textarea 内部滚动（`overflow-y: auto`），布局不撑破；visual/UI-state 测试断言等宽字体下长文本不破版 |
-| zero-one-many | 容器下拉条目数（默认 4 容器起步，可增删） | ✅ covered | 下拉数据源实时取容器列表（复用「网络搜索」/分配规则的容器下拉数据模式），删除容器后列表联动 |
+| zero-one-many | 容器下拉条目数（默认 4 容器起步，可增删） | ✅ explicit | 下拉数据源实时取容器列表（复用「网络搜索」/分配规则的容器下拉数据模式），删除容器后列表联动 |
+| populated / partial | 容器下拉（E2）、工具卡片（E7） | ⛔ dismissed | 既有组件复用表面（零新设计），无新增 UI 状态面 |
+| loading / error | 工具卡片（E7） | ⛔ dismissed | 既有工具卡片已内置加载与错误展示行为，本阶段零新设计 |
+| overflow / long-text | Tab 标签（E1）、状态行 hint（E4）、保存按钮文案（E5）、删除确认框文案（E6） | ⛔ dismissed | 全部为固定短文案，无溢出可能 |
+| overflow / long-text / zero-one-many | 容器下拉原生行为（E2）、工具卡片列表（E7） | ⛔ dismissed | 原生 `select` 控件自处理溢出与长文本；卡片列表沿用既有滚动与多条展示行为 |
+| partial | textarea（E3） | ⛔ dismissed | 单一全文编辑面，无「部分字段缺失」概念 |
 
 ---
 
@@ -156,11 +167,11 @@ Applicable state considerations resolved: 4 covered, 2 backstop, 0 unresolved
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS（FLAG 已采纳：textarea 视觉主锚点已声明）
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS（FLAG 已采纳：Heading 修正为 14px，与 `settings-group-title` 实际类一致）
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved（2026-09-04，2 项 FLAG 非阻断建议已采纳）
