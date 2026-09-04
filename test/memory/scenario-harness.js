@@ -452,11 +452,11 @@ async function runRealEval() {
     return 1;
   }
 
-  const aiMemoryManager = require('../ai-memory-manager');
+  const aiMemoryManager = require('../../ai-memory-manager');
   const stubs = installStubs();
   // stub 安装后再加载（ai-manager 顶层 require('./tab-manager') 命中 mock）
-  const AIManager = require('../ai-manager');
-  const conversationStore = require('../ai-conversations-manager');
+  const AIManager = require('../../ai-manager');
+  const conversationStore = require('../../ai-conversations-manager');
 
   // 只读 configStore 包装：读真实配置（探测已确认有 Key），写一律 no-op，
   // 绝不写回用户真实 realm-config.json（_migrateLegacyConfig 的 set/delete 被吞掉）
