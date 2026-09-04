@@ -132,6 +132,8 @@ const AIManager = require('./ai-manager');
 const { executeScript, validateScriptForSteps } = require('./ai-manager');
 const dragCoordinator = require('./drag-coordinator');
 const searchManager = require('./search-manager');
+// AI 记忆 manager（Plan 43-01；electron 依赖在模块内部惰性获取，顶层 require 安全）
+const aiMemoryManager = require('./ai-memory-manager');
 
 // AI Manager 实例（在 app.whenReady 中初始化，供后续 Phase 通过 require('./main').aiManager 访问）
 let aiManager = null;
@@ -2158,6 +2160,87 @@ app.whenReady().then(async () => {
     }
   }
 
+  /**
+   * 解析 AI 记忆 scope 白名单（user / global / container:<id>）
+   * @param {string} raw - 原始 scope 字符串
+   * @returns {string|null} 合法 scope 原样返回；非法返回 null
+   */
+  function parseAiMemoryScope(raw) {
+    if (raw === 'user' || raw === 'global') {
+      return raw;
+    }
+    if (typeof raw === 'string' && raw.startsWith('container:') && raw.length > 'container:'.length) {
+      return raw;
+    }
+    return null;
+  }
+
+  /**
+   * 处理 /api/ai-memory AI 记忆 API 请求（设置页「AI 记忆」编辑分区数据层）
+   *
+   * 人工编辑路径（D-11）：写入必须走 writeScope（不做威胁扫描——设置页是用户本人
+   * 操作），仅保留字符预算校验作为服务端双保险。budget 从 manager BUDGETS 读取，
+   * 本文件不写预算数值字面量。
+   *
+   * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} res - 响应对象
+   * @param {URL} reqUrl - 解析后的请求 URL
+   */
+  async function handleAiMemoryApi(req, res, reqUrl) {
+    // token 鉴权：防 CSRF 与 localhost 端口扫描读改 AI 记忆（T-43-07）
+    if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+      sendJson(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    try {
+      if (req.method === 'GET') {
+        const scope = parseAiMemoryScope(reqUrl.searchParams.get('scope') || '');
+        if (!scope) {
+          sendJson(res, 400, { error: '非法的记忆 scope（合法值：user / global / container:<id>）' });
+          return;
+        }
+        const content = aiMemoryManager.readScope(scope);
+        const target = scope.startsWith('container:') ? 'container' : scope;
+        const budget = aiMemoryManager.BUDGETS[target];
+        sendJson(res, 200, { content, used: content.length, budget });
+        return;
+      }
+
+      if (req.method === 'POST') {
+        const body = await readJsonBody(req);
+        const scope = parseAiMemoryScope(body && body.scope);
+        const content = body && body.content;
+        if (!scope) {
+          sendJson(res, 400, { error: '非法的记忆 scope（合法值：user / global / container:<id>）' });
+          return;
+        }
+        if (typeof content !== 'string' || content.length === 0) {
+          sendJson(res, 400, { error: 'content 必须为非空字符串' });
+          return;
+        }
+        // 容器存在性校验：防手改 URL 对已删容器写孤儿记忆文件（T-43-08）
+        if (scope.startsWith('container:')) {
+          const containerId = scope.slice('container:'.length);
+          const exists = containerManager.getContainers().some((c) => c.id === containerId);
+          if (!exists) {
+            sendJson(res, 400, { error: '容器不存在' });
+            return;
+          }
+        }
+        // 人工编辑路径：必须走 writeScope（不经威胁扫描，D-11）；超预算 throw → 统一错误形状
+        aiMemoryManager.writeScope(scope, content);
+        sendJson(res, 200, { success: true });
+        return;
+      }
+
+      sendJson(res, 404, { error: 'Not Found' });
+    } catch (err) {
+      console.error('[Realm] AI 记忆 API 处理失败:', err.message);
+      sendJson(res, 400, { error: err.message });
+    }
+  }
+
   const realmServer = http.createServer(async (req, res) => {
     const reqUrl = new URL(req.url, 'http://localhost');
     const reqPath = reqUrl.pathname;
@@ -2207,6 +2290,12 @@ app.whenReady().then(async () => {
     // 快捷键 JSON API（设置页面数据层）
     if (reqPath.startsWith('/api/shortcuts/')) {
       handleShortcutsApi(req, res, reqUrl);
+      return;
+    }
+
+    // AI 记忆 JSON API（设置页面「AI 记忆」分区数据层）
+    if (reqPath === '/api/ai-memory') {
+      handleAiMemoryApi(req, res, reqUrl);
       return;
     }
 
