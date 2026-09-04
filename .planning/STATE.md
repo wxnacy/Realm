@@ -5,16 +5,16 @@ milestone_name: AI 网络搜索功能
 current_phase: 43
 current_phase_name: AI 记忆系统集成（条目记忆 MVP）
 status: executing
-stopped_at: Completed 43-01-PLAN.md
-last_updated: "2026-09-04T09:51:36.882Z"
+stopped_at: Completed 43-02-PLAN.md
+last_updated: "2026-09-04T10:13:02.619Z"
 last_activity: 2026-09-04
 last_activity_desc: Phase 43 execution started
-state_head: 3fe1da6247fa4f85d1b4199f145ec588a5004072
+state_head: 951b8deed5e854c23af956d675558af9dedc8568
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 14
-  completed_plans: 12
+  completed_plans: 13
   percent: 75
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 43 (AI 记忆系统集成（条目记忆 MVP）) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-09-04 — Phase 43 execution started
 
@@ -64,6 +64,7 @@ Progress: [████████░░] 75%
 | Phase 42 P05 | 6min | 3 tasks | 4 files |
 | Phase 42 P06 | 20min | 2 tasks | 2 files |
 | Phase 43 P01 | 16min | 3 tasks | 6 files |
+| Phase 43 P02 | 22min | 2 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,7 @@ Recent decisions affecting current work:
 - [Phase 42]: G-42-8 双层修复：getMessages 同回合相邻 assistant 行合并（仅显示形状：纯工具行卡片追加/文本采纳进空 content 前条/双文本行保守不合并，锚定回合首行 id/timestamp）+ renderAIMessages 空 content 气泡守卫（流式末条占位豁免，不以工具卡片存在为前提）；getAgentMessages 注入形状零变化（D-14/CR-01 行级结构保持） — pi-agent-core 工具回合落库三行 assistant(''+tool_calls) → toolResult → assistant(text)，行级 1:1 映射产出空气泡 + 文本跑到卡片下方；显示/注入双形状分离（冒烟 48 断言证明互不渗漏）
 - [Phase 43]: BUDGETS 预算数值只在 ai-memory-manager.js 一处（1375/2200/2200）；memory 工具 parameters 不写数值，预算语义由 description 承载
 - [Phase 43]: containerId 强制 /^[\w-]+$/ 校验防路径穿越；test:memory 用 node --test glob（Node 22 目录尾斜杠会被当模块解析）
+- [Phase 43]: [Phase 43]: 删除钩子惰性 require + await（删除方保证原子性）；harness 复用 ai-manager 工具链经 Module._load 拦截 tab-manager mock；expect 扩展 assistantSays/anyOf 支持二择一行为断言，安全不变式恒在顶层
 
 ### Roadmap Evolution
 
@@ -113,6 +115,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-04T09:51:36.784Z
-Stopped at: Completed 43-01-PLAN.md
+Last session: 2026-09-04T10:13:02.512Z
+Stopped at: Completed 43-02-PLAN.md
 Resume file: None
