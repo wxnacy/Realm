@@ -20,9 +20,9 @@ created: 2026-09-04
 | Property | Value |
 |----------|-------|
 | **Framework** | node:test（node 内置，零新依赖 — 项目现无测试框架先例，现有 scripts/test-*.js 为独立脚本） |
-| **Config file** | none — Wave 0 installs（新建 tests/test-ai-memory.js，`node --test tests/`） |
-| **Quick run command** | `node --test tests/test-ai-memory.js` |
-| **Full suite command** | `node --test tests/` |
+| **Config file** | none — Wave 0 installs（新建 test/memory/ 套件，`npm run test:memory` 即 `node --test test/memory/`） |
+| **Quick run command** | `npm run test:memory` |
+| **Full suite command** | `npm run test:memory` |
 | **Estimated runtime** | ~5 seconds |
 
 **关键前置（来自 RESEARCH.md）**：`ai-memory-manager.js` 的 `userData` 路径必须可注入临时目录，否则无法对落盘行为（懒创建/预算/清理）做自动化验证 — Wave 0 必须先解决路径注入。
@@ -31,8 +31,8 @@ created: 2026-09-04
 
 ## Sampling Rate
 
-- **After every task commit:** Run `node --test tests/test-ai-memory.js`
-- **After every plan wave:** Run `node --test tests/`
+- **After every task commit:** Run `npm run test:memory`
+- **After every plan wave:** Run `npm run test:memory`（+ `node test/memory/scenario-harness.js --dry-run` 自检 fixture 结构）
 - **Before `/gsd:verify-work`:** Full suite must be green
 - **Max feedback latency:** 10 seconds
 
@@ -46,7 +46,7 @@ created: 2026-09-04
 | 43-01-T2 | 43-01 | 1 | MEM-01/02 | T-43-04 | 校验失败一律 throw、稳定编号不回收 | unit | `npm run test:memory` | ❌ W0（T1 自建） | ⬜ pending |
 | 43-01-T3 | 43-01 | 1 | MEM-01/02 | T-43-01/02 | 注入+凭据 fail-closed 拒写、良性零误伤 | unit | `npm run test:memory` | ❌ W0（T1 自建） | ⬜ pending |
 | 43-02-T1 | 43-02 | 2 | MEM-05 | T-43-05 | 删除容器后记忆文件清理、read 空态 | unit | `npm run test:memory` | ✅（43-01 建立后扩展） | ⬜ pending |
-| 43-02-T2 | 43-02 | 2 | MEM-02/03 | T-43-01/02/03 | 14 场景对抗/边界机器断言 | scenario | `npm run eval:memory`（无 Key skip） | ❌（T2 自建） | ⬜ pending |
+| 43-02-T2 | 43-02 | 2 | MEM-02/03 | T-43-01/02/03 | 14 场景对抗/边界机器断言 | scenario | `node test/memory/scenario-harness.js --dry-run`（提交级）；`npm run eval:memory` 全量真实跑留 UAT 前手动 | ❌（T2 自建） | ⬜ pending |
 | 43-03-T1 | 43-03 | 2 | MEM-06 | T-43-07/08 | token 鉴权、scope 白名单、容器存在校验 | source+check | `node --check main.js` + grep 源断言 | ✅（main.js） | ⬜ pending |
 | 43-03-T2 | 43-03 | 2 | MEM-06 | — | UI 文案契约、CSP 无内联隐藏 | source+check | `node --check src/settings-page.js` + grep | ✅ | ⬜ pending |
 

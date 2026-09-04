@@ -434,16 +434,18 @@ function atomicWrite(file, content) {
 
 其余全部结论均逐行验证（标注 VERIFIED + 行号）或为 CONTEXT.md/AI-SPEC/UI-SPEC 锁定决策的转述，无训练记忆来源的离散值。
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **设置页容器下拉的数据源端点**
    - What we know: settings-page.js 已有 `fetchContainers()` [VERIFIED: src/settings-page.js:77-79]，走既有容器列表 API。
    - What's unclear: 直接复用即可，但 UI-SPEC 未指明 API 路径——实施时照抄该函数现状。
    - Recommendation: 无需决策，复用现有函数。
+   - RESOLVED: 复用 `fetchContainers()`（/api/containers/list），零新端点——已落 43-03-PLAN.md Task 2 action 与 must_haves。
 
 2. **`/api/ai-memory` 的容器 scope 对不存在容器 ID 的行为**
    - What we know: D-05 只定义了「删除后 memory_read 空态」；设置页对已删容器 scope 的 GET/POST 未定义。
    - Recommendation: GET 返回空态（与 memory_read 一致）；POST 返回 400「容器不存在」（防手改 URL 写入孤儿文件）。计划里落为明确行为。
+   - RESOLVED: GET 空态 / POST 400「容器不存在」——已落 43-03-PLAN.md Task 1 action 与 acceptance_criteria。
 
 ## Environment Availability
 
