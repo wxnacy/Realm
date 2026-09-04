@@ -161,17 +161,23 @@ function readText(file) {
 
 /**
  * 解析条目：按行首编号提取（D-09 编号定位语义）
+ *
+ * 同时记录条目所在行索引（index）：replace/remove 按行索引定位改写/删除，
+ * 而非按行文本匹配——文件中出现两条字节相同的条目行时（人工编辑可产生），
+ * 按文本匹配会连锁改写/删除两条，违反 D-09 编号精确改写不变式。
+ *
  * @param {string} text - 记忆文件全文
- * @returns {Array<{id: string, num: number, line: string}>} 条目列表
+ * @returns {Array<{id: string, num: number, line: string, index: number}>} 条目列表（index 为在 split('\n') 后数组中的下标）
  */
 function parseEntries(text) {
   const entries = [];
-  for (const line of String(text || '').split('\n')) {
+  const lines = String(text || '').split('\n');
+  lines.forEach((line, i) => {
     const m = line.match(ENTRY_LINE_RE);
     if (m) {
-      entries.push({ id: `M${m[1]}`, num: parseInt(m[1], 10), line });
+      entries.push({ id: `M${m[1]}`, num: parseInt(m[1], 10), line, index: i });
     }
-  }
+  });
   return entries;
 }
 
@@ -232,16 +238,20 @@ function write(params) {
     merged = `${base}[M${nextNum}] ${content.trim()}\n`;
     resultEntryId = `M${nextNum}`;
   } else {
-    // 按行首编号精确定位（D-09）；不存在即 fail-closed，绝不就近匹配
+    // 按行首编号精确定位（D-09）；不存在即 fail-closed，绝不就近匹配。
+    // 改写/删除按行索引定位（WR-01）：文件中存在字节相同的重复条目行时，
+    // 按行文本匹配会连锁改写/删除所有同文行，按索引只动目标行
     const hit = entries.find(e => e.id === entryId);
     if (!hit) {
       throw new Error(`条目 ${entryId} 不存在于该层记忆中（可能已被删除或人工编辑）。请先 memory_read 获取最新编号，不要就近匹配修改其他条目`);
     }
     const lines = existing.split('\n');
     if (action === 'replace') {
-      merged = lines.map(line => (line === hit.line ? `[${entryId}] ${content.trim()}` : line)).join('\n');
+      lines[hit.index] = `[${entryId}] ${content.trim()}`;
+      merged = lines.join('\n');
     } else {
-      merged = lines.filter(line => line !== hit.line).join('\n');
+      lines.splice(hit.index, 1);
+      merged = lines.join('\n');
     }
     resultEntryId = entryId;
   }
