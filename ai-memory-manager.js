@@ -223,9 +223,15 @@ function write(params) {
   let merged;
   let resultEntryId;
 
-  // 威胁扫描（D-11）：参数组合校验之后、预算校验之前；add 与 replace 的
-  // content 均过扫描，remove 无内容不扫。命中 throw → isError:true toolResult
+  // 单行约束（D-09「条目 = 一行」模型，WR-02）：content 含换行时截断后的
+  // 行可被 parseEntries 误判为新条目（伪造 [MN] 编号行），破坏 D-10 连续编号
+  // 并使 replace/remove 命中歧义——add 与 replace 一律拒绝，多行内容拆成多条 add
   if (action === 'add' || action === 'replace') {
+    if (/[\r\n]/.test(content)) {
+      throw new Error('条目正文须为单行文本（请去除换行；多行内容请拆成多条 add）');
+    }
+    // 威胁扫描（D-11）：参数组合校验之后、预算校验之前；add 与 replace 的
+    // content 均过扫描，remove 无内容不扫。命中 throw → isError:true toolResult
     const scan = scanInjectionPatterns(content);
     if (!scan.safe) {
       throw new Error(`记忆写入被拒绝：${scan.reason}。请调整措辞后重试`);

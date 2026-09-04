@@ -4553,7 +4553,7 @@ ${content}
         label: '写入记忆',
         description: '向持久记忆写入条目。action: add(新增)/replace(按编号改写)/remove(按编号删除)；'
           + 'target: user(用户画像)/global(全局记忆)/container(当前活跃容器的记忆)。'
-          + 'replace/remove 必须传 entryId（memory_read 返回的条目编号，如 "M3"）；add/replace 必须传 content。'
+          + 'replace/remove 必须传 entryId（memory_read 返回的条目编号，如 "M3"）；add/replace 必须传 content，content 必须是单行文本（不含换行，多行内容拆成多条 add）。'
           + '每层记忆有字符预算，写满时请先用 remove 整理旧条目再 add，不要静默放弃。',
         parameters: {
           type: 'object',
@@ -4575,7 +4575,7 @@ ${content}
             },
             content: {
               type: 'string',
-              description: 'add/replace 必填，条目正文；受该层字符预算限制，写满时先 remove 整理旧条目',
+              description: 'add/replace 必填，条目正文；必须为单行文本（不含换行），受该层字符预算限制，写满时先 remove 整理旧条目',
             },
           },
           required: ['action', 'target'],
