@@ -3531,6 +3531,12 @@ let aiMemoryState = {
   budget: 0,
   /** 取数/保存请求进行中（禁用 textarea 与保存按钮） */
   busy: false,
+  /**
+   * 「已保存」success 提示存活期守卫（G-43-2）：为 true 期间
+   * updateAiMemoryCount 不覆盖 hint（否则 finally 的字数刷新会把
+   * 「已保存」在 0 帧内同步覆盖为生效时机文案）；输入/切 tab/超限时清除。
+   */
+  successHintActive: false,
 };
 
 /** 生效时机 hint（D-04 冻结语义 + UI-SPEC 生效 hint copy） */
@@ -3608,6 +3614,12 @@ function updateAiMemoryCount() {
   // 输入过程中超限/恢复的 hint 联动（零容器空态 hint 由 loadAiMemory 设置，不覆盖）
   if (noContainer) {
     return;
+  }
+  // 成功提示存活期守卫（G-43-2）：hint 联动段在字数/按钮更新之后，短路不影响既有联动；
+  // 超限优先于成功提示——保存期间用户改到超限必须立即清除守卫并显示超限 danger 提示
+  if (aiMemoryState.successHintActive) {
+    if (!over) return;
+    aiMemoryState.successHintActive = false;
   }
   if (over) {
     setAiMemoryHint(AI_MEMORY_OVERFLOW_HINT, 'danger');
@@ -3688,6 +3700,8 @@ async function loadAiMemory() {
  */
 async function switchAiMemoryTab(tab) {
   if (!['user', 'global', 'container'].includes(tab)) return;
+  // 兜底清守卫（G-43-2）：切 tab 后守卫残留 true 会在下一次保存前抑制 hint 联动
+  aiMemoryState.successHintActive = false;
   aiMemoryState.tab = tab;
 
   // tab 激活态
@@ -3742,7 +3756,11 @@ async function saveAiMemory() {
     });
     // 成功反馈：success 色 2 秒后消失（不弹框）；textarea 内容不丢失
     setAiMemoryHint('已保存', 'success');
+    // G-43-2 守卫置位：存活期内 updateAiMemoryCount 不覆盖 hint（finally 的字数刷新仍正常）
+    aiMemoryState.successHintActive = true;
     setTimeout(() => {
+      // 无论 hint 是否仍为成功态都先复位守卫（无残留 true 路径）
+      aiMemoryState.successHintActive = false;
       const hint = document.getElementById('aiMemoryHint');
       if (hint && hint.textContent === '已保存') {
         resetAiMemoryHint();
@@ -3777,7 +3795,11 @@ function setupAiMemoryListeners() {
 
   const textarea = document.getElementById('aiMemoryTextarea');
   if (textarea) {
-    textarea.addEventListener('input', updateAiMemoryCount);
+    textarea.addEventListener('input', () => {
+      // 用户输入使「已保存」立即失效（G-43-2 守卫清除点），避免 2 秒窗口内 hint 停留在成功态
+      aiMemoryState.successHintActive = false;
+      updateAiMemoryCount();
+    });
   }
 
   const saveBtn = document.getElementById('aiMemorySave');
