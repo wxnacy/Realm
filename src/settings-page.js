@@ -3598,12 +3598,17 @@ function updateAiMemoryCount() {
   if (!textarea || !count) return;
   const used = textarea.value.length;
   const over = aiMemoryState.budget > 0 && used > aiMemoryState.budget;
+  // 零容器空态（WR-03）：budget 为 0 时 over 恒 false，输入监听不得重新启用保存
+  const noContainer = aiMemoryState.tab === 'container' && !aiMemoryState.containerId;
   count.textContent = `${used} / ${aiMemoryState.budget}`;
   count.classList.toggle('danger', over);
   if (saveBtn) {
-    saveBtn.disabled = over || aiMemoryState.busy;
+    saveBtn.disabled = noContainer || over || aiMemoryState.busy;
   }
-  // 输入过程中超限/恢复的 hint 联动
+  // 输入过程中超限/恢复的 hint 联动（零容器空态 hint 由 loadAiMemory 设置，不覆盖）
+  if (noContainer) {
+    return;
+  }
   if (over) {
     setAiMemoryHint(AI_MEMORY_OVERFLOW_HINT, 'danger');
   } else {
@@ -3642,6 +3647,16 @@ async function loadAiMemory() {
   const textarea = document.getElementById('aiMemoryTextarea');
   const saveBtn = document.getElementById('aiMemorySave');
   if (!textarea) return;
+  // 零容器空态（WR-03）：不构造非法 scope `container:` 去请求（会被
+  // parseAiMemoryScope 400 拒绝并显示误导性「保存失败」文案），直接展示空态提示
+  if (aiMemoryState.tab === 'container' && !aiMemoryState.containerId) {
+    textarea.value = '';
+    aiMemoryState.budget = 0;
+    textarea.disabled = false;
+    setAiMemoryHint('暂无容器，创建容器后可使用容器记忆');
+    if (saveBtn) saveBtn.disabled = true;
+    return;
+  }
   const scope = aiMemoryCurrentScope();
   aiMemoryState.busy = true;
   textarea.disabled = true;
@@ -3706,6 +3721,8 @@ async function saveAiMemory() {
   const textarea = document.getElementById('aiMemoryTextarea');
   const saveBtn = document.getElementById('aiMemorySave');
   if (!textarea || aiMemoryState.busy) return;
+  // 零容器空态（WR-03）：无合法 scope 可保存，直接返回（按钮本身已禁用，双保险）
+  if (aiMemoryState.tab === 'container' && !aiMemoryState.containerId) return;
   const scope = aiMemoryCurrentScope();
   const content = textarea.value;
   if (aiMemoryState.budget > 0 && content.length > aiMemoryState.budget) {
