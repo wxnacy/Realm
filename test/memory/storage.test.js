@@ -142,3 +142,139 @@ describe('参数校验（fail-closed，throw 而非错误文本）', () => {
     assert.throws(() => aiMemoryManager.readContainer('../../evil'));
   });
 });
+
+describe('replace/remove 语义（D-09/D-10）', () => {
+  test('replace 精确改写编号行，其余条目与编号不变', (t) => {
+    const tmp = withTempMemoryDir('replace-precise', t);
+    aiMemoryManager.write({ action: 'add', target: 'global', content: '第一条' });
+    aiMemoryManager.write({ action: 'add', target: 'global', content: '第二条' });
+    aiMemoryManager.write({ action: 'add', target: 'global', content: '第三条' });
+
+    aiMemoryManager.write({ action: 'replace', target: 'global', entryId: 'M2', content: '第二条已更新' });
+    const globalText = fs.readFileSync(path.join(tmp, 'MEMORY.md'), 'utf8');
+    assert.match(globalText, /^\[M1\] 第一条$/m);
+    assert.match(globalText, /^\[M2\] 第二条已更新$/m);
+    assert.match(globalText, /^\[M3\] 第三条$/m);
+  });
+
+  test('remove 只删该行；删除后 add 取 max+1（编号不回收）', (t) => {
+    const tmp = withTempMemoryDir('remove-stable-ids', t);
+    aiMemoryManager.write({ action: 'add', target: 'global', content: 'M1 内容' });
+    aiMemoryManager.write({ action: 'add', target: 'global', content: 'M2 内容' });
+    aiMemoryManager.write({ action: 'add', target: 'global', content: 'M3 内容' });
+
+    aiMemoryManager.write({ action: 'remove', target: 'global', entryId: 'M2' });
+    const globalText = fs.readFileSync(path.join(tmp, 'MEMORY.md'), 'utf8');
+    assert.ok(!globalText.includes('M2 内容'));
+    assert.match(globalText, /^\[M1\] M1 内容$/m);
+    assert.match(globalText, /^\[M3\] M3 内容$/m);
+
+    const result = aiMemoryManager.write({ action: 'add', target: 'global', content: '新条目' });
+    assert.strictEqual(result.entryId, 'M4');
+  });
+
+  test('replace/remove 用不存在的编号 throw（不就近匹配），其余条目不受影响', (t) => {
+    const tmp = withTempMemoryDir('dangling-id', t);
+    aiMemoryManager.write({ action: 'add', target: 'global', content: '唯一条目' });
+
+    assert.throws(
+      () => aiMemoryManager.write({ action: 'replace', target: 'global', entryId: 'M9', content: '改写' }),
+      (err) => err.message.includes('不存在'),
+    );
+    assert.throws(
+      () => aiMemoryManager.write({ action: 'remove', target: 'global', entryId: 'M9' }),
+      (err) => err.message.includes('不存在'),
+    );
+    const globalText = fs.readFileSync(path.join(tmp, 'MEMORY.md'), 'utf8');
+    assert.match(globalText, /^\[M1\] 唯一条目$/m);
+  });
+
+  test('entryId 缺失或格式非法 throw，消息含「entryId」指引', (t) => {
+    const tmp = withTempMemoryDir('entryid-invalid', t);
+    aiMemoryManager.write({ action: 'add', target: 'global', content: '条目' });
+    assert.throws(
+      () => aiMemoryManager.write({ action: 'replace', target: 'global', content: '改写' }),
+      (err) => err.message.includes('entryId'),
+    );
+    assert.throws(
+      () => aiMemoryManager.write({ action: 'remove', target: 'global', entryId: '2' }),
+      (err) => err.message.includes('entryId'),
+    );
+    assert.throws(
+      () => aiMemoryManager.write({ action: 'remove', target: 'global', entryId: 'Mabc' }),
+      (err) => err.message.includes('entryId'),
+    );
+  });
+});
+
+describe('预算边界（replace 增长受限、缩短不受限）', () => {
+  test('replace 加长超出预算 throw，缩短不受限', (t) => {
+    const tmp = withTempMemoryDir('replace-budget', t);
+    aiMemoryManager.write({ action: 'add', target: 'user', content: '短条目' });
+
+    assert.throws(
+      () => aiMemoryManager.write({ action: 'replace', target: 'user', entryId: 'M1', content: 'z'.repeat(1400) }),
+      (err) => err.message.includes('记忆已达字符上限（1375）') && err.message.includes('先整理旧记忆'),
+    );
+
+    aiMemoryManager.write({ action: 'replace', target: 'user', entryId: 'M1', content: '缩' });
+    const userText = fs.readFileSync(path.join(tmp, 'USER.md'), 'utf8');
+    assert.match(userText, /^\[M1\] 缩$/m);
+  });
+
+  test('remove 释放预算后可再次 add', (t) => {
+    const tmp = withTempMemoryDir('remove-frees-budget', t);
+    aiMemoryManager.write({ action: 'add', target: 'user', content: 'y'.repeat(1369) });
+    assert.throws(
+      () => aiMemoryManager.write({ action: 'add', target: 'user', content: '再放一条' }),
+      (err) => err.message.includes('先整理旧记忆'),
+    );
+    aiMemoryManager.write({ action: 'remove', target: 'user', entryId: 'M1' });
+    const result = aiMemoryManager.write({ action: 'add', target: 'user', content: '整理后的新条目' });
+    assert.strictEqual(result.entryId, 'M2');
+  });
+});
+
+describe('readScope / writeScope（人工编辑原始文本 API，Plan 43-03 消费）', () => {
+  test('readScope 文件不存在返回空字符串；container:<id> 路由正确', (t) => {
+    withTempMemoryDir('readscope-empty', t);
+    assert.strictEqual(aiMemoryManager.readScope('container:work'), '');
+    assert.strictEqual(aiMemoryManager.readScope('user'), '');
+
+    aiMemoryManager.write({ action: 'add', target: 'container', containerId: 'work', content: '容器条目' });
+    assert.ok(aiMemoryManager.readScope('container:work').includes('[M1] 容器条目'));
+  });
+
+  test('非法 scope throw（白名单 user / global / container:<id>）', (t) => {
+    withTempMemoryDir('scope-invalid', t);
+    assert.throws(() => aiMemoryManager.readScope('bogus'));
+    assert.throws(() => aiMemoryManager.writeScope('container:../evil', 'x'));
+  });
+
+  test('writeScope 原始文本落盘；超预算 throw；不做威胁扫描（D-11 人工路径）', (t) => {
+    const tmp = withTempMemoryDir('writescope', t);
+    aiMemoryManager.writeScope('global', '手工编辑的全局记忆');
+    assert.strictEqual(fs.readFileSync(path.join(tmp, 'MEMORY.md'), 'utf8'), '手工编辑的全局记忆');
+
+    assert.throws(
+      () => aiMemoryManager.writeScope('user', 'z'.repeat(1376)),
+      (err) => err.message.includes('记忆已达字符上限（1375）'),
+    );
+
+    // D-11 反向证明：人工路径写含「密码」字样的内容不被拦截
+    aiMemoryManager.writeScope('user', '备注：密码字样在此仅作测试');
+    assert.ok(fs.readFileSync(path.join(tmp, 'USER.md'), 'utf8').includes('密码'));
+  });
+});
+
+describe('deleteContainerMemory（容器删除联动，Plan 43-02 消费）', () => {
+  test('删除容器记忆文件；文件本不存在时不抛错（幂等）', (t) => {
+    const tmp = withTempMemoryDir('delete-container-memory', t);
+    aiMemoryManager.write({ action: 'add', target: 'container', containerId: 'work', content: '待清理' });
+    assert.strictEqual(fs.existsSync(path.join(tmp, 'memories', 'work.md')), true);
+
+    aiMemoryManager.deleteContainerMemory('work');
+    assert.strictEqual(fs.existsSync(path.join(tmp, 'memories', 'work.md')), false);
+    assert.doesNotThrow(() => aiMemoryManager.deleteContainerMemory('work'));
+  });
+});
