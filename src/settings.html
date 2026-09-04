@@ -481,6 +481,28 @@
             </div>
           </div>
         </div>
+        <!-- AI 记忆子区域（D-12 显式保存；CSP：初始隐藏走 CSS 类，禁止 markup 内联 display） -->
+        <div class="settings-group ai-memory-section">
+          <div class="settings-group-header">
+            <h2 class="settings-group-title">AI 记忆</h2>
+          </div>
+          <div class="settings-group-content">
+            <div class="ai-memory-tabs" id="aiMemoryTabs" role="tablist">
+              <button type="button" class="ai-memory-tab active" data-scope="global" role="tab">全局记忆</button>
+              <button type="button" class="ai-memory-tab" data-scope="user" role="tab">用户画像</button>
+              <button type="button" class="ai-memory-tab" data-scope="container" role="tab">容器记忆</button>
+            </div>
+            <select id="aiMemoryContainerSelect" class="settings-select ai-memory-container-select" aria-label="选择容器"></select>
+            <textarea id="aiMemoryTextarea" class="text-input ai-memory-textarea" spellcheck="false" aria-label="AI 记忆内容"></textarea>
+            <div class="ai-memory-status-row">
+              <span id="aiMemoryCount" class="ai-memory-count">0 / 0</span>
+              <span id="aiMemoryHint" class="ai-form-hint"></span>
+            </div>
+            <div class="ai-memory-actions">
+              <button type="button" id="aiMemorySave" class="btn btn-primary">保存记忆</button>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- 多媒体设置页面 -->

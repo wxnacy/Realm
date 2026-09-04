@@ -9643,3 +9643,80 @@ textarea::placeholder {
 
 /* ==================== 窗口容器颜色条 ==================== */
 
+
+/* ==================== 设置页「AI 记忆」分区（Phase 43） ==================== */
+/* CSP 注意：初始隐藏（容器下拉）走此类规则，显隐切换用 JS CSSOM 具体值 */
+
+.ai-memory-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 16px;
+}
+
+.ai-memory-tab {
+  background: none;
+  border: none;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.ai-memory-tab:hover {
+  color: var(--text-primary);
+}
+
+.ai-memory-tab.active {
+  color: var(--accent-color);
+  font-weight: 600;
+  border-bottom-color: var(--accent-color);
+}
+
+.ai-memory-container-select {
+  display: none;
+  margin-bottom: 12px;
+}
+
+.ai-memory-textarea {
+  width: 100%;
+  min-height: 200px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.ai-memory-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 12px;
+  font-size: 13px;
+}
+
+.ai-memory-count {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.ai-memory-count.danger {
+  color: var(--danger-color);
+}
+
+.ai-memory-hint-success {
+  color: var(--success-color);
+}
+
+.ai-memory-hint-danger {
+  color: var(--danger-color);
+}
+
+.ai-memory-actions {
+  display: flex;
+  justify-content: flex-end;
+}

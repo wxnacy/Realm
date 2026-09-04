@@ -157,6 +157,33 @@ async function searchConfigApi(route, options = {}, query = {}) {
 }
 
 /**
+ * 调用 AI 记忆 HTTP API（/api/ai-memory，设置页「AI 记忆」分区数据层）
+ *
+ * 错误详情透传对保存失败提示（超限 / 容器不存在）尤其重要——后端 error 字段
+ * 优先展示，前端不另造文案。
+ *
+ * @param {string} [route] - API 路由（端点本身无子路由，留空即可）
+ * @param {Object} [options] - fetch 选项
+ * @param {Object} [query] - 额外查询参数（如 { scope }）
+ * @returns {Promise<*>} 解析后的 JSON 响应
+ */
+async function aiMemoryApi(route = '', options = {}, query = {}) {
+  const params = new URLSearchParams({ token: apiToken, ...query });
+  const suffix = route ? `/${route}` : '';
+  const res = await fetch(`/api/ai-memory${suffix}?${params.toString()}`, options);
+  if (!res.ok) {
+    // 优先使用后端返回的错误详情（如「容器不存在」「记忆已达字符上限…」）
+    let detail = '';
+    try {
+      const data = await res.json();
+      if (data && data.error) detail = data.error;
+    } catch { /* 非 JSON 响应忽略 */ }
+    throw new Error(detail || `AI 记忆 API 请求失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+/**
  * 调用凭据管理 HTTP API
  * @param {string} route - API 路由（如 'list'、'search'、'delete'）
  * @param {Object} [options] - fetch 选项
@@ -3492,6 +3519,259 @@ function setupSearchConfigListeners() {
   }
 }
 
+// ==================== AI 记忆分区（Phase 43，D-12 显式保存） ====================
+
+/** AI 记忆分区运行状态 */
+let aiMemoryState = {
+  /** 当前激活 tab（user / global / container） */
+  tab: 'global',
+  /** 容器 tab 当前选中容器 ID */
+  containerId: '',
+  /** 当前 scope 字符上限（来自端点响应 budget 字段，前端不硬编码数值） */
+  budget: 0,
+  /** 取数/保存请求进行中（禁用 textarea 与保存按钮） */
+  busy: false,
+};
+
+/** 生效时机 hint（D-04 冻结语义 + UI-SPEC 生效 hint copy） */
+const AI_MEMORY_EFFECT_HINTS = {
+  user: '保存后将在新会话生效',
+  global: '保存后将在新会话生效',
+  container: '容器记忆即时生效，AI 通过 memory_read 按需读取',
+};
+
+/** 空态 hint（UI-SPEC empty resolutions） */
+const AI_MEMORY_EMPTY_HINTS = {
+  user: '暂无内容，AI 写入记忆后在此显示',
+  global: '暂无内容，AI 写入记忆后在此显示',
+  container: '该容器暂无记忆，AI 首次写入后在此显示',
+};
+
+/** 超限 hint（UI-SPEC overflow resolution） */
+const AI_MEMORY_OVERFLOW_HINT = '超出字符上限，请精简内容后再保存';
+
+/**
+ * 当前编辑的完整 scope（容器 tab 拼接 container:<id>）
+ * @returns {string} scope 字符串
+ */
+function aiMemoryCurrentScope() {
+  if (aiMemoryState.tab === 'container') {
+    return `container:${aiMemoryState.containerId}`;
+  }
+  return aiMemoryState.tab;
+}
+
+/**
+ * 设置状态行 hint 文案与色调
+ * @param {string} text - hint 文案
+ * @param {''|'success'|'danger'} [tone] - 色调（默认中性）
+ */
+function setAiMemoryHint(text, tone = '') {
+  const hint = document.getElementById('aiMemoryHint');
+  if (!hint) return;
+  hint.textContent = text;
+  hint.classList.remove('ai-memory-hint-success', 'ai-memory-hint-danger');
+  if (tone === 'success') hint.classList.add('ai-memory-hint-success');
+  if (tone === 'danger') hint.classList.add('ai-memory-hint-danger');
+}
+
+/**
+ * 复位状态行 hint 为常规语义：超限 hint > 生效时机 hint
+ */
+function resetAiMemoryHint() {
+  const textarea = document.getElementById('aiMemoryTextarea');
+  if (!textarea) return;
+  if (aiMemoryState.budget > 0 && textarea.value.length > aiMemoryState.budget) {
+    setAiMemoryHint(AI_MEMORY_OVERFLOW_HINT, 'danger');
+    return;
+  }
+  setAiMemoryHint(AI_MEMORY_EFFECT_HINTS[aiMemoryState.tab] || '');
+}
+
+/**
+ * 更新字数统计「已用 / 上限」与超限阻断（计数变红 + 保存按钮 disabled）
+ */
+function updateAiMemoryCount() {
+  const textarea = document.getElementById('aiMemoryTextarea');
+  const count = document.getElementById('aiMemoryCount');
+  const saveBtn = document.getElementById('aiMemorySave');
+  if (!textarea || !count) return;
+  const used = textarea.value.length;
+  const over = aiMemoryState.budget > 0 && used > aiMemoryState.budget;
+  count.textContent = `${used} / ${aiMemoryState.budget}`;
+  count.classList.toggle('danger', over);
+  if (saveBtn) {
+    saveBtn.disabled = over || aiMemoryState.busy;
+  }
+  // 输入过程中超限/恢复的 hint 联动
+  if (over) {
+    setAiMemoryHint(AI_MEMORY_OVERFLOW_HINT, 'danger');
+  } else {
+    resetAiMemoryHint();
+  }
+}
+
+/**
+ * 填充容器下拉（数据源实时取容器列表——删除容器后联动，UI-SPEC zero-one-many resolution）
+ * @param {Array<{id: string, name: string}>} containers - 容器列表
+ */
+function populateAiMemoryContainerSelect(containers) {
+  const select = document.getElementById('aiMemoryContainerSelect');
+  if (!select) return;
+  select.innerHTML = '';
+  for (const c of containers) {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.name || c.id;
+    select.appendChild(opt);
+  }
+  // 保留原选中项；已删则回落第一个
+  const ids = containers.map((c) => c.id);
+  if (aiMemoryState.containerId && ids.includes(aiMemoryState.containerId)) {
+    select.value = aiMemoryState.containerId;
+  } else {
+    aiMemoryState.containerId = ids[0] || '';
+    select.value = aiMemoryState.containerId;
+  }
+}
+
+/**
+ * 按当前 scope 拉取记忆内容填充 textarea 与状态行
+ */
+async function loadAiMemory() {
+  const textarea = document.getElementById('aiMemoryTextarea');
+  const saveBtn = document.getElementById('aiMemorySave');
+  if (!textarea) return;
+  const scope = aiMemoryCurrentScope();
+  aiMemoryState.busy = true;
+  textarea.disabled = true;
+  if (saveBtn) saveBtn.disabled = true;
+  setAiMemoryHint('加载中…');
+  try {
+    const data = await aiMemoryApi('', {}, { scope });
+    aiMemoryState.budget = (data && data.budget) || 0;
+    textarea.value = (data && data.content) || '';
+    if (!textarea.value) {
+      setAiMemoryHint(AI_MEMORY_EMPTY_HINTS[aiMemoryState.tab] || '');
+    } else {
+      setAiMemoryHint(AI_MEMORY_EFFECT_HINTS[aiMemoryState.tab] || '');
+    }
+    updateAiMemoryCount();
+  } catch (err) {
+    // 取数失败沿用同一状态行错误文案（UI-SPEC error resolution）
+    setAiMemoryHint(`保存失败：${err.message || '未知错误'}，请重试`, 'danger');
+  } finally {
+    aiMemoryState.busy = false;
+    textarea.disabled = false;
+    updateAiMemoryCount();
+  }
+}
+
+/**
+ * 切换「AI 记忆」tab（JS CSSOM 切换显隐；容器 tab 实时刷新容器列表后取数）
+ * @param {string} tab - 目标 tab（user / global / container）
+ */
+async function switchAiMemoryTab(tab) {
+  if (!['user', 'global', 'container'].includes(tab)) return;
+  aiMemoryState.tab = tab;
+
+  // tab 激活态
+  const tabs = document.querySelectorAll('#aiMemoryTabs .ai-memory-tab');
+  tabs.forEach((el) => {
+    el.classList.toggle('active', el.dataset.scope === tab);
+  });
+
+  // 容器下拉仅容器 tab 可见（CSSOM 具体值，不依赖 '' 回落）
+  const select = document.getElementById('aiMemoryContainerSelect');
+  if (select) {
+    select.style.display = tab === 'container' ? 'block' : 'none';
+  }
+
+  if (tab === 'container') {
+    // 每次进入容器 tab 重新拉容器列表（删除容器后联动）
+    const containers = await fetchContainers();
+    if (!aiMemoryState.containerId && containers.length > 0) {
+      aiMemoryState.containerId = containers[0].id;
+    }
+    populateAiMemoryContainerSelect(containers);
+  }
+
+  await loadAiMemory();
+}
+
+/**
+ * 保存当前 scope 的记忆内容（显式按钮触发，D-12 无自动保存）
+ */
+async function saveAiMemory() {
+  const textarea = document.getElementById('aiMemoryTextarea');
+  const saveBtn = document.getElementById('aiMemorySave');
+  if (!textarea || aiMemoryState.busy) return;
+  const scope = aiMemoryCurrentScope();
+  const content = textarea.value;
+  if (aiMemoryState.budget > 0 && content.length > aiMemoryState.budget) {
+    setAiMemoryHint(AI_MEMORY_OVERFLOW_HINT, 'danger');
+    return;
+  }
+
+  aiMemoryState.busy = true;
+  textarea.disabled = true;
+  if (saveBtn) saveBtn.disabled = true;
+  setAiMemoryHint('加载中…');
+  try {
+    await aiMemoryApi('', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope, content }),
+    });
+    // 成功反馈：success 色 2 秒后消失（不弹框）；textarea 内容不丢失
+    setAiMemoryHint('已保存', 'success');
+    setTimeout(() => {
+      const hint = document.getElementById('aiMemoryHint');
+      if (hint && hint.textContent === '已保存') {
+        resetAiMemoryHint();
+      }
+    }, 2000);
+  } catch (err) {
+    // 失败：danger 色 + 原因透传；textarea 内容不清空
+    setAiMemoryHint(`保存失败：${err.message || '未知错误'}，请重试`, 'danger');
+  } finally {
+    aiMemoryState.busy = false;
+    textarea.disabled = false;
+    updateAiMemoryCount();
+  }
+}
+
+/**
+ * 初始化「AI 记忆」分区事件监听与默认 tab（全局记忆）
+ */
+function setupAiMemoryListeners() {
+  const tabs = document.querySelectorAll('#aiMemoryTabs .ai-memory-tab');
+  tabs.forEach((el) => {
+    el.addEventListener('click', () => switchAiMemoryTab(el.dataset.scope));
+  });
+
+  const select = document.getElementById('aiMemoryContainerSelect');
+  if (select) {
+    select.addEventListener('change', () => {
+      aiMemoryState.containerId = select.value;
+      loadAiMemory();
+    });
+  }
+
+  const textarea = document.getElementById('aiMemoryTextarea');
+  if (textarea) {
+    textarea.addEventListener('input', updateAiMemoryCount);
+  }
+
+  const saveBtn = document.getElementById('aiMemorySave');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', saveAiMemory);
+  }
+
+  // 默认激活「全局记忆」tab 并加载
+  switchAiMemoryTab(aiMemoryState.tab);
+}
+
 /**
  * 显示 inline 确认条（替代 window.confirm）
  * 5 秒无操作自动消失
@@ -4159,6 +4439,9 @@ async function init() {
 
   // 初始化搜索配置事件监听
   setupSearchConfigListeners();
+
+  // 初始化 AI 记忆分区事件监听（默认激活「全局记忆」tab）
+  setupAiMemoryListeners();
 
   // 检查 URL 参数中的 tab 指示；无参数时显式落在通用页，
   // 避免仅依赖 HTML 内联 display:none 兜底（内联样式失效会导致多个 section 同时显示）
