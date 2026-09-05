@@ -72,6 +72,7 @@ function initDatabase() {
       tool_calls TEXT,
       tool_results TEXT,
       page_snapshots TEXT,
+      attachments TEXT,
       created_at INTEGER NOT NULL,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
     );
@@ -82,6 +83,14 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_conversations_updated
       ON conversations (updated_at DESC);
   `);
+
+  // 旧库迁移：CREATE TABLE IF NOT EXISTS 不会给已存在的 messages 表加列，
+  // 显式检测并 ALTER（attachments 列存用户附件元数据 JSON 数组或 NULL）
+  const msgColumns = db.pragma('table_info(messages)');
+  if (!msgColumns.some(col => col.name === 'attachments')) {
+    db.exec('ALTER TABLE messages ADD COLUMN attachments TEXT');
+    console.log('[Realm AI Conv] messages 表已迁移：新增 attachments 列');
+  }
 
   console.log('[Realm] AI 对话数据库已初始化: ' + DB_PATH);
 }
@@ -199,6 +208,7 @@ function normalizeMessageColumns(msg) {
       toolCalls: msg.toolCalls || msg.tool_calls || null,
       toolResults: meta,
       pageSnapshots: msg.pageSnapshots || msg.page_snapshots || null,
+      attachments: null,
     };
   }
 
@@ -226,16 +236,20 @@ function normalizeMessageColumns(msg) {
       toolCalls: calls.length > 0 ? calls : (msg.toolCalls || msg.tool_calls || null),
       toolResults: msg.toolResults || msg.tool_results || null,
       pageSnapshots: msg.pageSnapshots || msg.page_snapshots || null,
+      attachments: null,
     };
   }
 
-  // user 及其他角色：content 为 string 原样存；为数组则提取 text 块拼接
+  // user 及其他角色：content 为 string 原样存；为数组则提取 text 块拼接。
+  // attachments 为用户附件元数据数组（ai-manager 发送时挂到 user 消息对象上），
+  // 只存元数据不存 base64——快照文件本身持久在 agent-workspace/attachments/
   return {
     role,
     content: extractTextFromBlocks(content),
     toolCalls: msg.toolCalls || msg.tool_calls || null,
     toolResults: msg.toolResults || msg.tool_results || null,
     pageSnapshots: msg.pageSnapshots || msg.page_snapshots || null,
+    attachments: Array.isArray(msg.attachments) && msg.attachments.length > 0 ? msg.attachments : null,
   };
 }
 
@@ -318,7 +332,7 @@ function parseStoredContent(contentStr, toolCallsFallback) {
 function readMessageRows(conversationId) {
   if (!conversationId || typeof conversationId !== 'string') return [];
   return db.prepare(`
-    SELECT id, conversation_id, role, content, tool_calls, tool_results, page_snapshots, created_at
+    SELECT id, conversation_id, role, content, tool_calls, tool_results, page_snapshots, attachments, created_at
     FROM messages
     WHERE conversation_id = ?
     ORDER BY rowid ASC
@@ -487,8 +501,8 @@ function saveMessages(conversationId, messages) {
 
   const deleteStmt = db.prepare('DELETE FROM messages WHERE conversation_id = ?');
   const insertStmt = db.prepare(`
-    INSERT INTO messages (id, conversation_id, role, content, tool_calls, tool_results, page_snapshots, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, conversation_id, role, content, tool_calls, tool_results, page_snapshots, attachments, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // 全量替换事务（先 DELETE 后 INSERT，原子生效）
@@ -509,6 +523,7 @@ function saveMessages(conversationId, messages) {
         serializeToolData(cols.toolCalls),
         serializeToolData(cols.toolResults),
         serializePageSnapshots(cols.pageSnapshots),
+        serializeToolData(cols.attachments),
         createdAt
       );
       count++;
@@ -634,11 +649,12 @@ function getMessages(conversationId) {
       continue;
     }
 
-    // user 及其他角色 → 用户气泡
+    // user 及其他角色 → 用户气泡（attachments 元数据随行带出，供气泡渲染附件徽标）
     display.push({
       id: row.id,
       role: 'user',
       content: text,
+      attachments: safeJsonParse(row.attachments, null) || undefined,
       timestamp: row.created_at,
     });
   }

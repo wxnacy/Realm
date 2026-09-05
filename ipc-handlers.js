@@ -23,6 +23,7 @@ const faviconFetcher = require('./favicon-fetcher');
 const mediaSniffer = require('./media-sniffer');
 const dragCoordinator = require('./drag-coordinator');
 const autocompleteManager = require('./autocomplete-manager');
+const aiAttachments = require('./ai-attachments-manager');
 
 // AI Manager 实例（由 main.js 通过 setAIManager 注入）
 let aiManager = null;
@@ -1670,14 +1671,77 @@ function registerHandlers() {
    */
   ipcMain.handle('ai:prompt-with-context', async (event, data) => {
     assertTrustedSender(event);
-    if (!data || !data.message || typeof data.message !== 'string') {
+    // 正文可为空串（纯附件发送，marker 文本兜底语义），但必须有消息字段；
+    // 空正文时必须携带附件
+    if (!data || typeof data.message !== 'string') {
+      throw new Error('无效的消息');
+    }
+    const attachmentIds = Array.isArray(data.attachmentIds) ? data.attachmentIds : [];
+    if (!data.message && attachmentIds.length === 0) {
       throw new Error('无效的消息');
     }
     if (!aiManager) {
       throw new Error('AI Manager 未初始化');
     }
-    const conversationId = await aiManager.promptWithContext(data.message, data.referencedTabs || []);
+    const conversationId = await aiManager.promptWithContext(
+      data.message,
+      data.referencedTabs || [],
+      attachmentIds,
+      data.supportsVision !== false,
+    );
     return { success: true, conversationId };
+  });
+
+  // ==================== AI 聊天附件 ====================
+
+  /**
+   * 登记路径型聊天附件（拖拽/粘贴的本地文件，主进程复制快照进 agent-workspace/attachments/）
+   * 授权语义：用户拖入/粘贴即显式授权（rule:import / cookie:import 先例），不走确认卡片
+   * @param {string[]} paths - 源绝对路径数组
+   * @returns {Promise<{attachments: Array, errors: Array<{path: string, reason: string}>}>} 部分成功语义
+   */
+  ipcMain.handle('ai:attach-files', async (event, paths) => {
+    assertTrustedSender(event);
+    if (!Array.isArray(paths)) {
+      throw new Error('无效的路径列表');
+    }
+    return aiAttachments.registerFiles(paths);
+  });
+
+  /**
+   * 登记 blob 型聊天附件（截图等无路径内存数据，base64 落盘到 attachments 目录）
+   * @param {{name?: string, mimeType?: string, base64: string}} payload - 附件数据
+   * @returns {Promise<{attachment: Object|null, error?: string}>}
+   */
+  ipcMain.handle('ai:attach-blob', async (event, payload) => {
+    assertTrustedSender(event);
+    if (!payload || typeof payload.base64 !== 'string') {
+      throw new Error('无效的附件数据');
+    }
+    return aiAttachments.registerBlob(payload);
+  });
+
+  /**
+   * 读取图片附件预览 data URL（气泡/胶囊缩略图；仅图片且 ≤2MB）
+   * @param {string} attachmentId - 登记 ID
+   * @returns {Promise<{dataUrl: string|null}>}
+   */
+  ipcMain.handle('ai:read-attachment-preview', async (event, attachmentId) => {
+    assertTrustedSender(event);
+    const dataUrl = await aiAttachments.readPreviewDataUrl(attachmentId);
+    return { dataUrl };
+  });
+
+  /**
+   * 读取图片附件内联渲染数据（聊天气泡渲染；id 或 attachments 目录内路径）
+   * 路径入口经主进程校验必须落在 agent-workspace/attachments/ 内，伪造/越界返回 null
+   * @param {{id?: string, path?: string}} payload - 登记 ID 或快照路径
+   * @returns {Promise<{dataUrl: string|null}>}
+   */
+  ipcMain.handle('ai:read-attachment-image', async (event, payload) => {
+    assertTrustedSender(event);
+    const dataUrl = await aiAttachments.readImageDataUrl(payload || {});
+    return { dataUrl };
   });
 
   /**

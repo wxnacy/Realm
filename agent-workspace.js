@@ -82,11 +82,21 @@ function getTmpDir() {
 }
 
 /**
- * 启动时建目录（幂等）：根目录 + .tmp/
+ * 解析聊天附件快照目录（用户拖入/粘贴的文件由主进程复制于此，
+ * agent 经 read 工具直接读取——快照在沙箱根内，resolveInside 天然放行）
+ * @returns {string} 附件快照目录绝对路径
+ */
+function getAttachmentsDir() {
+  return path.join(getWorkspaceDir(), 'attachments');
+}
+
+/**
+ * 启动时建目录（幂等）：根目录 + .tmp/ + attachments/
  */
 function ensureWorkspaceDir() {
   fs.mkdirSync(getWorkspaceDir(), { recursive: true });
   fs.mkdirSync(getTmpDir(), { recursive: true });
+  fs.mkdirSync(getAttachmentsDir(), { recursive: true });
 }
 
 /**
@@ -345,6 +355,7 @@ module.exports = {
   setLegacyAiMemoryDir,
   getAiMemoryDir,
   getTmpDir,
+  getAttachmentsDir,
   ensureWorkspaceDir,
   migrateAiMemory,
   resolveInside,

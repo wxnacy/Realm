@@ -34,6 +34,7 @@ agent-workspace/
 │   ├── USER.md                         用户画像（冻结快照进 system prompt）
 │   ├── MEMORY.md                       全局记忆（同上）
 │   └── memories/<containerId>.md       容器记忆（memory_read 按需读取）
+├── attachments/                        聊天附件快照（用户拖入/粘贴的文件复制于此）
 ├── .tmp/                               bash 输出截断全量落盘等临时文件
 └── （AI 自行创建的文件）                导出、抓取结果、生成的文件等
 ```
@@ -41,6 +42,8 @@ agent-workspace/
 - AI 被约定「所有落盘数据一律写工作区内」（system prompt 明确告知工作区绝对路径）
 - 旧 `userData/ai-memory/` 在应用启动时一次性迁移到工作区，**迁移后旧目录保留不删**（回滚保险）
 - 容器删除时其容器记忆文件联动删除（既有机制不变）
+
+**聊天附件（attachments/）**：用户在 AI 聊天面板拖入文件/目录，或在输入框粘贴文件/截图时，主进程把源文件**复制快照**到该目录（唯一文件名，不修改原文件），并生成登记 ID 返回给聊天框。发送消息时附件以 `[attached_file: 快照路径]` / `[attached_image: 快照路径]` marker 置于消息最前，快照在工作区内，agent 直接 read 即可；图片附件同时以原生图片块随消息发出。授权语义：**用户拖入/粘贴即显式授权**（与「文件选择器导入」同一信任级别），不弹确认卡片；敏感路径（`~/.ssh`、`~/.gnupg`、`~/.aws`、`~/.kube`、`~/Library/Keychains`、`.env`、shell history 等）与 symlink 源会被拒绝登记——该屏蔽是启发式（防手滑拖整目录连坐敏感文件），不是安全边界。完整产品说明（交互细节、图片内联渲染、持久化与历史恢复、数量与大小边界）见 [ai-chat-attachments.md](ai-chat-attachments.md)。
 
 ## 三、read / write / edit：硬沙箱（无确认，路径锁死）
 

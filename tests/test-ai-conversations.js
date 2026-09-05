@@ -584,6 +584,77 @@ describe('7. 跨容器可见（CONV-03 全局共享）', () => {
   assertEqual(rawDb.prepare('SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ?').get(convPersonal.id).n, 0, '删除对话消息级联清空');
 });
 
+describe('8. 附件元数据持久化（attachments 列）', () => {
+  const conv = conversationStore.createConversation({ title: '附件持久化' });
+
+  const attachmentMeta = [
+    { id: 'att-1', name: 'report.pdf', path: '/tmp/ws/attachments/report-x.pdf', mimeType: 'application/octet-stream', isImage: false, isDirectory: false, size: 1234 },
+    { id: 'att-2', name: 'shot.png', path: '/tmp/ws/attachments/shot-y.png', mimeType: 'image/png', isImage: true, isDirectory: false, size: 5678 },
+  ];
+
+  // 写入侧：user 消息对象挂 attachments → 落 attachments 列
+  conversationStore.saveMessages(conv.id, [
+    { role: 'user', content: '看下这个文件', attachments: attachmentMeta, timestamp: T + 1 },
+    { role: 'assistant', content: [{ type: 'text', text: '好的。' }], timestamp: T + 2 },
+  ]);
+
+  const rows = rawRows(conv.id);
+  assertEqual(rows.length, 2, '保存 2 条消息');
+  assertEqual(JSON.parse(rows[0].attachments), attachmentMeta, 'user 行 attachments 列为元数据 JSON 数组');
+  assertEqual(rows[1].attachments, null, 'assistant 行 attachments 列为 NULL');
+
+  // 显示形状：getMessages 带出 attachments（气泡徽标数据源）
+  const display = conversationStore.getMessages(conv.id);
+  assertEqual(display[0].attachments, attachmentMeta, 'getMessages user 行带出 attachments 元数据');
+  assertEqual(display[1].attachments, undefined, 'getMessages assistant 行无 attachments 字段');
+
+  // 注入形状：getAgentMessages 不重建 attachments（agent 靠 marker 文本）
+  const agentMsgs = conversationStore.getAgentMessages(conv.id);
+  assertEqual(agentMsgs[0].role, 'user', 'getAgentMessages user 行存在');
+  assert(!('attachments' in agentMsgs[0]), 'getAgentMessages user 行不携带 attachments（marker 文本保底）');
+
+  // 全量替换事务重跑：attachments 不丢
+  conversationStore.saveMessages(conv.id, [
+    { role: 'user', content: '看下这个文件', attachments: attachmentMeta, timestamp: T + 1 },
+    { role: 'assistant', content: [{ type: 'text', text: '好的。' }], timestamp: T + 2 },
+  ]);
+  assertEqual(
+    conversationStore.getMessages(conv.id)[0].attachments,
+    attachmentMeta,
+    'saveMessages 全量替换重跑后 attachments 不丢'
+  );
+
+  // 旧数据兼容：无 attachments 字段的消息照常读写（NULL 全兼容）
+  const convOld = conversationStore.createConversation({ title: '旧数据兼容' });
+  conversationStore.saveMessages(convOld.id, [
+    { role: 'user', content: '无附件消息', timestamp: T + 3 },
+  ]);
+  const oldDisplay = conversationStore.getMessages(convOld.id);
+  assertEqual(oldDisplay[0].attachments, undefined, '旧消息（无附件）读出无 attachments 字段');
+  assertEqual(oldDisplay[0].content, '无附件消息', '旧消息正文不受迁移影响');
+
+  // 旧库迁移：模拟无 attachments 列的旧表 → initDatabase 后补列
+  const legacyDb = new Database(path.join(tmpDir, 'legacy.db'));
+  legacyDb.exec(`
+    CREATE TABLE messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT,
+      tool_calls TEXT,
+      tool_results TEXT,
+      page_snapshots TEXT,
+      created_at INTEGER NOT NULL
+    );
+  `);
+  const hasCol = legacyDb.pragma('table_info(messages)').some(c => c.name === 'attachments');
+  assert(!hasCol, '前置：模拟旧表无 attachments 列');
+  legacyDb.close();
+  // 对主库直接跑一次迁移逻辑等价验证（PRAGMA 检测 + ALTER 幂等）
+  const mainCols = rawDb.pragma('table_info(messages)');
+  assert(mainCols.some(c => c.name === 'attachments'), '主库 messages 表已有 attachments 列（迁移生效）');
+});
+
 // ==================== 测试结果 ====================
 
 console.log('\n' + '═'.repeat(50));

@@ -6,12 +6,26 @@
  * 使用 container:* 新格式 IPC 通道
  */
 
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 /**
  * 暴露给渲染进程的 API
  */
 contextBridge.exposeInMainWorld('realmAPI', {
+  /**
+   * 获取拖拽/粘贴 File 对象对应的文件系统绝对路径
+   * webUtils 仅 preload 可用；File 句柄有时效，drop/paste handler 内须同步调用
+   * @param {File} file - dataTransfer.files / clipboardData.items 的 File 对象
+   * @returns {string|null} 绝对路径；无法解析（如网页拖出的内存图片）返回 null
+   */
+  getFilePathForFile: (file) => {
+    try {
+      return webUtils.getPathForFile(file) || null;
+    } catch {
+      return null;
+    }
+  },
+
   /**
    * 获取当前窗口 ID
    * 用于渲染进程判断自身窗口身份（跨窗口拖拽等场景）
@@ -953,9 +967,38 @@ contextBridge.exposeInMainWorld('realmAPI', {
      * @param {Object} data - 消息数据
      * @param {string} data.message - 用户输入的消息
      * @param {Array} data.referencedTabs - 引用的标签页列表，每项包含 {tabId, title, url, content}
+     * @param {Array} [data.attachmentIds] - 附件登记 ID 列表（ai:attach-files/attach-blob 返回的 id）
      * @returns {Promise<{success: boolean, error?: string}>}
      */
     promptWithContext: (data) => ipcRenderer.invoke('ai:prompt-with-context', data),
+
+    /**
+     * 登记路径型聊天附件（拖拽/粘贴的本地文件，主进程复制快照进 agent-workspace/attachments/）
+     * @param {string[]} paths - 源绝对路径数组
+     * @returns {Promise<{attachments: Array, errors: Array<{path: string, reason: string}>}>} 部分成功语义
+     */
+    attachFiles: (paths) => ipcRenderer.invoke('ai:attach-files', paths),
+
+    /**
+     * 登记 blob 型聊天附件（截图等无路径内存数据）
+     * @param {{name?: string, mimeType?: string, base64: string}} payload - 附件数据
+     * @returns {Promise<{attachment: Object|null, error?: string}>}
+     */
+    attachBlob: (payload) => ipcRenderer.invoke('ai:attach-blob', payload),
+
+    /**
+     * 读取图片附件预览 data URL（缩略图用；仅图片且 ≤2MB）
+     * @param {string} attachmentId - 登记 ID
+     * @returns {Promise<{dataUrl: string|null}>}
+     */
+    readAttachmentPreview: (attachmentId) => ipcRenderer.invoke('ai:read-attachment-preview', attachmentId),
+
+    /**
+     * 读取图片附件内联渲染数据（聊天气泡渲染，截图工具同款效果）
+     * @param {{id?: string, path?: string}} payload - 登记 ID 或快照路径（历史恢复场景）
+     * @returns {Promise<{dataUrl: string|null}>}
+     */
+    readAttachmentImage: (payload) => ipcRenderer.invoke('ai:read-attachment-image', payload),
 
     /**
      * 获取主进程缓存的 Readability 库源码

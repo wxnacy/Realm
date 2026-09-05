@@ -6677,6 +6677,94 @@ textarea::placeholder {
   flex: 1;
 }
 
+/* ==================== AI 聊天附件（拖拽/粘贴） ==================== */
+
+/* 用户气泡内联图片组（复用 .tool-card-image img 的缩放/光标样式） */
+.ai-attachment-images {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+/* 覆盖 tool-card-image 的分隔线内边距（气泡内不需要） */
+.ai-attachment-image {
+  border-top: none;
+  padding: 0;
+}
+
+.ai-attachment-image img {
+  max-width: min(100%, 420px);
+}
+
+/* 图片数据加载占位（避免气泡高度塌陷跳动） */
+.ai-attachment-image-loading {
+  min-height: 60px;
+  min-width: 120px;
+  opacity: 0.5;
+}
+
+/* 附件 pill 附加形状：类型徽标 + 可选缩略图 + 大小标签 */
+.ai-attachment-pill-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: var(--bg-hover, rgba(128, 128, 128, 0.25));
+  color: var(--text-secondary);
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.ai-attachment-pill-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: cover;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.ai-attachment-pill-size {
+  color: var(--text-secondary);
+  font-size: 10px;
+  margin-left: 2px;
+}
+
+/* 附件类型图标徽标（独立类，不复用 .ai-message-ref-dot——6px 圆点约束会把
+   文字徽标挤成竖排；SVG 图标由 renderer 注入） */
+.ai-attachment-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+/* 面板级文件拖拽遮罩（覆盖 #aiPanel 全区域，z-index 压过面板内浮动面板 10002） */
+.ai-drop-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 10010;
+  background: color-mix(in srgb, var(--accent-color) 12%, var(--bg-primary));
+  border: 2px dashed var(--accent-color);
+  border-radius: 8px;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.ai-drop-overlay-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-color);
+  font-size: 14px;
+  font-weight: 500;
+}
+
 .ai-context-pill-close {
   width: 16px;
   height: 16px;

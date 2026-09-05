@@ -262,6 +262,12 @@ const state = {
   contextPickerContainerMap: {},
   referencedTabs: [],
 
+  // AI 聊天附件状态（拖拽/粘贴；AttachmentMeta + previewUrl 渲染形状）
+  aiAttachments: [],
+
+  // AI 面板文件拖拽遮罩可见性（dragenter/dragleave 计数状态机驱动）
+  aiDragActive: false,
+
   // / 斜杠命令面板状态
   slashPickerOpen: false,
   slashPickerItems: [],
@@ -6742,6 +6748,9 @@ function setupEventListeners() {
   // 初始化 AI 面板拖拽调整宽度
   initAIPanelResize();
 
+  // 初始化 AI 聊天附件（面板拖拽接管 + 输入框粘贴附件）
+  initAIAttachments();
+
   // 初始化快捷键监听
   initShortcuts();
 
@@ -7628,6 +7637,39 @@ function renderAIMessages() {
       const textDiv = document.createElement('div');
       textDiv.textContent = msg.content || '';
       content.appendChild(textDiv);
+
+      // 附件渲染：图片内联展示（截图工具同款：点击放大 + 右键下载），
+      // 非图片保持徽标行（历史恢复经 getMessages attachments 列带出）
+      const msgAtts = msg.attachments || [];
+      const inlineImages = msgAtts.filter(a => a.isImage && !a.isDirectory);
+      const badgeAtts = msgAtts.filter(a => !(a.isImage && !a.isDirectory));
+
+      if (inlineImages.length > 0) {
+        content.appendChild(renderAIAttachmentImages(inlineImages));
+      }
+
+      if (badgeAtts.length > 0) {
+        const attRow = document.createElement('div');
+        attRow.className = 'ai-message-refs';
+        badgeAtts.forEach(att => {
+          const pill = document.createElement('span');
+          pill.className = 'ai-message-ref-pill ai-message-attachment-pill';
+          pill.title = att.isDirectory ? `${att.name}/（目录）` : att.name;
+
+          const badge = document.createElement('span');
+          badge.className = 'ai-attachment-badge';
+          badge.innerHTML = aiAttachmentTypeIcon(att);
+
+          const name = document.createElement('span');
+          name.className = 'ai-message-ref-title';
+          name.textContent = att.isDirectory ? `${att.name}/` : att.name;
+
+          pill.appendChild(badge);
+          pill.appendChild(name);
+          attRow.appendChild(pill);
+        });
+        content.appendChild(attRow);
+      }
     } else if (content) {
       // AI 消息：Markdown 渲染 + DOMPurify 消毒（T-21-01）
       const sanitized = renderAIMarkdown(msg.content || '');
@@ -7925,6 +7967,276 @@ async function handleStopAI() {
   }
 }
 
+// ==================== AI 聊天附件（拖拽/粘贴） ====================
+
+/**
+ * 附件类型图标 SVG（静态字符串，innerHTML 注入安全）
+ * @param {{isImage?: boolean, isDirectory?: boolean}} att - 附件元数据
+ * @returns {string} 12x12 stroke SVG（currentColor 随容器文字色）
+ */
+function aiAttachmentTypeIcon(att) {
+  if (att.isDirectory) {
+    return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>';
+  }
+  if (att.isImage) {
+    return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
+  }
+  return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>';
+}
+
+/** 附件数量上限（对标 openhanako：超过后新附件被丢弃并提示） */
+const AI_MAX_ATTACHMENTS = 9;
+
+/** 收藏栏书签拖拽的自定义 MIME（拖入 AI 面板时不接管，放行收藏栏自身逻辑） */
+const AI_BOOKMARK_DRAG_MIME = 'application/x-realm-bookmark';
+
+/** 大文件软提示阈值（字节）：仅提示，不拒绝 */
+const AI_ATTACHMENT_SIZE_WARN = 100 * 1024 * 1024;
+
+/**
+ * 从 File 对象列表提取附件源（拖拽/粘贴统一入口的采集阶段）
+ *
+ * File 句柄有时效，必须在 drop/paste handler 内同步调用
+ * getFilePathForFile 提取路径；无路径但带图片类型的（粘贴截图）
+ * 标记为 blob 走 base64 通道。
+ *
+ * @param {FileList|File[]} fileList - drop/clipboardData 中的文件列表
+ * @returns {{paths: string[], blobs: Array<{file: File, name: string}>}}
+ */
+function collectAIAttachmentSources(fileList) {
+  const paths = [];
+  const blobs = [];
+  if (!fileList) return { paths, blobs };
+  for (const file of Array.from(fileList)) {
+    const filePath = window.realmAPI.getFilePathForFile(file);
+    if (filePath) {
+      paths.push(filePath);
+    } else if (file.type && file.type.startsWith('image/')) {
+      blobs.push({ file, name: file.name || '粘贴图片' });
+    }
+    // 既无路径又非图片的内存数据（极少见）忽略
+  }
+  return { paths, blobs };
+}
+
+/**
+ * 统一附件入口：登记文件/截图并渲染 pills（拖拽与粘贴共用）
+ *
+ * - 有路径的批量走 ai:attach-files（主进程复制快照进工作区）
+ * - 无路径的图片走 FileReader base64 → ai:attach-blob
+ * - 超上限截断；>100MB 软提示；失败项 pushSystemNote 轻提示
+ * - 不加 aiStreaming 守卫：流式回复进行中拖入下一轮附件合法
+ *
+ * @param {FileList|File[]} fileList - 文件列表
+ */
+async function attachAIFiles(fileList) {
+  if (!window.realmAPI.ai || !window.realmAPI.getFilePathForFile) return;
+  const { paths, blobs } = collectAIAttachmentSources(fileList);
+  if (paths.length === 0 && blobs.length === 0) return;
+
+  // 容量预检：超限部分直接丢弃并提示（部分拖入也要给反馈）
+  const totalIncoming = paths.length + blobs.length;
+  const remaining = AI_MAX_ATTACHMENTS - state.aiAttachments.length;
+  if (remaining <= 0) {
+    pushSystemNote(`附件数量已达上限（${AI_MAX_ATTACHMENTS} 个）`);
+    return;
+  }
+  let dropped = 0;
+  if (totalIncoming > remaining) {
+    dropped = totalIncoming - remaining;
+    paths.length = Math.min(paths.length, remaining);
+  }
+
+  const added = [];
+
+  if (paths.length > 0) {
+    try {
+      const res = await window.realmAPI.ai.attachFiles(paths);
+      (res.attachments || []).forEach(meta => added.push(meta));
+      (res.errors || []).forEach(err => {
+        pushSystemNote(`无法附加 ${err.path.split('/').pop() || err.path}：${err.reason}`);
+      });
+    } catch (err) {
+      console.error('[Realm Renderer] 附件登记失败:', err);
+      pushSystemNote(`附件登记失败：${err.message || err}`);
+    }
+  }
+
+  for (const blob of blobs) {
+    // blobs 也受剩余容量约束（paths 用掉部分后重新计算）
+    if (state.aiAttachments.length + added.length >= AI_MAX_ATTACHMENTS) {
+      dropped = Math.max(dropped, 1);
+      break;
+    }
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = String(reader.result || '');
+          const commaIdx = result.indexOf(',');
+          resolve(commaIdx >= 0 ? result.slice(commaIdx + 1) : result);
+        };
+        reader.onerror = () => reject(new Error('读取图片数据失败'));
+        reader.readAsDataURL(blob.file);
+      });
+      const res = await window.realmAPI.ai.attachBlob({ name: blob.name, mimeType: blob.file.type, base64 });
+      if (res.attachment) {
+        added.push(res.attachment);
+      } else {
+        pushSystemNote(`无法附加 ${blob.name}：${res.error || '未知错误'}`);
+      }
+    } catch (err) {
+      pushSystemNote(`无法附加 ${blob.name}：${err.message || err}`);
+    }
+  }
+
+  // 前端兜底去重（同快照路径不重复展示；主进程 sourceKey 已去重一次）
+  const existingPaths = new Set(state.aiAttachments.map(a => a.path));
+  const fresh = added.filter(a => !existingPaths.has(a.path));
+  if (fresh.length > 0) {
+    state.aiAttachments.push(...fresh);
+    renderContextPills();
+    // 大文件软提示
+    const oversize = fresh.find(a => a.size > AI_ATTACHMENT_SIZE_WARN);
+    if (oversize) {
+      pushSystemNote(`附件 ${oversize.name} 较大（${(oversize.size / 1024 / 1024).toFixed(0)}MB），发送前需要一些时间复制`);
+    }
+  }
+  if (dropped > 0) {
+    pushSystemNote(`附件数量已达上限（${AI_MAX_ATTACHMENTS} 个），${dropped} 个未添加`);
+  }
+}
+
+/**
+ * 异步加载图片附件缩略图（pills 渲染后触发，成功/失败后重渲染一次）
+ * previewUrl 形状：undefined=未加载，string=data URL，false=加载失败/超限
+ * @param {string} attachmentId - 附件登记 ID
+ */
+async function loadAIAttachmentPreview(attachmentId) {
+  const att = state.aiAttachments.find(a => a.id === attachmentId);
+  if (!att || att.previewUrl !== undefined || !att.isImage || att.isDirectory) return;
+  att.previewUrl = false; // 先置 false 防重入；成功后覆盖
+  try {
+    const res = await window.realmAPI.ai.readAttachmentPreview(attachmentId);
+    att.previewUrl = res && res.dataUrl ? res.dataUrl : false;
+  } catch {
+    att.previewUrl = false;
+  }
+  if (state.aiAttachments.includes(att)) {
+    renderContextPills();
+  }
+}
+
+/**
+ * AI 拖拽接管判定：面板可见且拖拽数据含 Files、不含收藏栏书签 MIME
+ * @param {DragEvent} e - 拖拽事件
+ * @returns {boolean} true = AI 面板接管该拖拽
+ */
+function isAIDragTarget(e) {
+  if (!state.aiPanelOpen) return false;
+  const types = e.dataTransfer ? Array.from(e.dataTransfer.types) : [];
+  return types.includes('Files') && !types.includes(AI_BOOKMARK_DRAG_MIME);
+}
+
+/** AI 面板拖拽计数器（dragenter/dragleave 成对 +1/-1，防子元素边界闪烁） */
+let aiDragCounter = 0;
+
+/**
+ * 设置拖拽遮罩可见性
+ * @param {boolean} visible
+ */
+function setAIDropOverlay(visible) {
+  state.aiDragActive = visible;
+  const overlay = document.getElementById('aiDropOverlay');
+  if (overlay) {
+    overlay.style.display = visible ? 'flex' : 'none';
+  }
+}
+
+/**
+ * 初始化 AI 面板附件拖拽接管 + 输入框粘贴附件
+ *
+ * 拖拽参照 openhanako MainContent 全区域接管模式：
+ * - #aiPanel 整面板为 drop 区域（聊天框太小），dragenter/dragleave 计数
+ * - window capture 级 drop/dragend/blur 强制结束拖拽态（窗口外松手/
+ *   Escape 时收不到成对事件）
+ * - document 级 dragover/drop preventDefault 兜底（防文件误拖进 webview
+ *   触发 file:// 导航）；drop 在冒泡阶段且未 preventDefault 时才拦，
+ *   不影响收藏栏等已有元素级 drop 处理
+ */
+function initAIAttachments() {
+  const panel = document.getElementById('aiPanel');
+  if (!panel) return;
+
+  panel.addEventListener('dragenter', (e) => {
+    if (!isAIDragTarget(e)) return;
+    e.preventDefault();
+    aiDragCounter++;
+    if (aiDragCounter === 1) setAIDropOverlay(true);
+  });
+
+  panel.addEventListener('dragover', (e) => {
+    if (!isAIDragTarget(e)) return;
+    e.preventDefault(); // 允许 drop 的必要条件
+    e.dataTransfer.dropEffect = 'copy';
+  });
+
+  panel.addEventListener('dragleave', (e) => {
+    if (!isAIDragTarget(e)) return;
+    aiDragCounter = Math.max(0, aiDragCounter - 1);
+    if (aiDragCounter === 0) setAIDropOverlay(false);
+  });
+
+  panel.addEventListener('drop', (e) => {
+    if (!isAIDragTarget(e)) return;
+    e.preventDefault();
+    aiDragCounter = 0;
+    setAIDropOverlay(false);
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      void attachAIFiles(e.dataTransfer.files);
+    }
+  });
+
+  // 强制结束兜底：窗口外松手 / Escape / 失焦时成对事件不可依赖
+  const finishDrag = () => {
+    aiDragCounter = 0;
+    if (state.aiDragActive) setAIDropOverlay(false);
+  };
+  window.addEventListener('drop', finishDrag, true);
+  window.addEventListener('dragend', finishDrag, true);
+  window.addEventListener('blur', finishDrag);
+
+  // document 级兜底：只阻止浏览器默认行为（如整窗打开文件），不碰子元素
+  // 的 drop 处理——收藏栏等元素 handler 在冒泡链上游已执行并 preventDefault
+  document.addEventListener('dragover', (e) => {
+    e.preventDefault();
+  });
+  document.addEventListener('drop', (e) => {
+    if (!e.defaultPrevented) e.preventDefault();
+  });
+
+  // 粘贴附件：file item 能解析出路径 → 走文件通道；无路径的 image item
+  // （截图）→ base64 通道；处理了文件项即拦截默认粘贴，纯文本放行
+  if (elements.aiInput) {
+    elements.aiInput.addEventListener('paste', (e) => {
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      let hasFile = false;
+      const files = [];
+      for (const item of Array.from(items)) {
+        if (item.kind !== 'file') continue;
+        const file = item.getAsFile();
+        if (!file) continue;
+        hasFile = true; // 有文件项（即使最终解析不出路径）即接管本次粘贴
+        files.push(file);
+      }
+      if (!hasFile) return;
+      e.preventDefault();
+      void attachAIFiles(files);
+    });
+  }
+}
+
 /**
  * 发送 AI 消息
  * 获取输入框内容，添加用户消息到列表，调用 AI API
@@ -7932,7 +8244,8 @@ async function handleStopAI() {
  */
 async function handleSendAIMessage() {
   const text = elements.aiInput.value.trim();
-  if (!text) return;
+  // 空正文 + 无附件直接返回（空正文但有附件时放行，marker 文本兜底语义）
+  if (!text && state.aiAttachments.length === 0) return;
   // 压缩中禁止发送（含 /clear 等命令——压缩落库期间切对话会导致写串对话）
   if (state.aiCompacting) return;
 
@@ -7971,7 +8284,13 @@ async function handleSendAIMessage() {
     closeContextPicker();
   }
 
-  // 添加用户消息（附带引用标签页标记，气泡中展示）
+  // 保存并清空附件（referencedTabs 同款模式；快照文件不删——可能已被
+  // sourceKey 去重复用或后续发送引用）
+  const attachments = [...state.aiAttachments];
+  state.aiAttachments = [];
+  renderContextPills();
+
+  // 添加用户消息（附带引用标签页与附件标记，气泡中展示）
   const userMsgId = 'user-msg-' + Date.now();
   state.aiMessages.push({
     role: 'user',
@@ -7981,6 +8300,15 @@ async function handleSendAIMessage() {
       tabId: t.tabId,
       title: t.title,
       containerColor: t.containerColor
+    })),
+    attachments: attachments.map(a => ({
+      id: a.id,
+      name: a.name,
+      path: a.path,
+      mimeType: a.mimeType,
+      isImage: a.isImage,
+      isDirectory: a.isDirectory,
+      size: a.size
     }))
   });
 
@@ -8002,12 +8330,19 @@ async function handleSendAIMessage() {
   // 调用 AI API 发送消息
   try {
     let result = null;
-    if (referencedTabs.length > 0 && window.realmAPI.ai && window.realmAPI.ai.promptWithContext) {
-      // 有 @ 引用：提取 webview 内容并通过新 IPC 发送
-      const tabsWithContent = await extractReferencedTabsContent(referencedTabs);
+    if ((referencedTabs.length > 0 || attachments.length > 0) && window.realmAPI.ai && window.realmAPI.ai.promptWithContext) {
+      // 有 @ 引用或附件：提取 webview 内容并通过新 IPC 发送
+      const tabsWithContent = referencedTabs.length > 0
+        ? await extractReferencedTabsContent(referencedTabs)
+        : [];
       result = await window.realmAPI.ai.promptWithContext({
         message: text,
-        referencedTabs: tabsWithContent
+        referencedTabs: tabsWithContent,
+        attachmentIds: attachments.map(a => a.id),
+        // 图片始终走原生 vision 通道：ai-brand-map 词典能力位不可靠
+        //（实测 mimo-v2.5-pro-ultraspeed 词典无视觉位但模型支持视觉），
+        // 误判降级的代价（模型只能看到 marker 路径需自行 read）高于
+        // provider 拒绝的代价；主进程 supportsVision 缺省 true
       });
     } else {
       // 无 @ 引用：走原有通道
@@ -8396,8 +8731,10 @@ function toggleImageZoom(img) {
  * 显示图片右键菜单
  * @param {MouseEvent} e - 鼠标事件
  * @param {string} base64Data - 图片 base64 数据
+ * @param {string} [filename] - 下载文件名（缺省 screenshot-时间戳.png）
+ * @param {string} [mimeType] - 图片 mime（缺省 image/png）
  */
-function showImageContextMenu(e, base64Data) {
+function showImageContextMenu(e, base64Data, filename, mimeType = 'image/png') {
   // 移除已有的菜单
   const existingMenu = document.querySelector('.image-context-menu');
   if (existingMenu) {
@@ -8415,7 +8752,7 @@ function showImageContextMenu(e, base64Data) {
   downloadBtn.className = 'image-context-menu-item';
   downloadBtn.textContent = '下载图片';
   downloadBtn.addEventListener('click', () => {
-    downloadImage(base64Data);
+    downloadImage(base64Data, filename, mimeType);
     menu.remove();
   });
 
@@ -8437,11 +8774,13 @@ function showImageContextMenu(e, base64Data) {
 /**
  * 下载图片到本地
  * @param {string} base64Data - 图片 base64 数据
+ * @param {string} [filename] - 下载文件名
+ * @param {string} [mimeType] - 图片 mime（决定 data URL 前缀）
  */
-function downloadImage(base64Data) {
+function downloadImage(base64Data, filename, mimeType = 'image/png') {
   const link = document.createElement('a');
-  link.href = `data:image/png;base64,${base64Data}`;
-  link.download = `screenshot-${Date.now()}.png`;
+  link.href = `data:${mimeType};base64,${base64Data}`;
+  link.download = filename || `screenshot-${Date.now()}.png`;
   link.click();
 }
 
@@ -8601,6 +8940,105 @@ function renderToolCard(toolExecution) {
   }
 
   return card;
+}
+
+/**
+ * 渲染用户消息的内联图片附件（截图工具渲染同款：tool-card-image 容器 +
+ * toggleImageZoom 点击放大 + showImageContextMenu 右键下载）
+ *
+ * 图片数据经 ai:read-attachment-image 拉取（id 优先，历史恢复走路径——
+ * 主进程校验路径必须落在 attachments 目录内）；dataUrl 缓存在附件对象上
+ * （msg.attachments 元素，随消息对象同生命周期），重渲染不重拉。
+ *
+ * @param {Array<{id: string, name: string, path: string, mimeType: string, imgUrl?: string|null}>} images - 图片附件元数据列表
+ * @returns {HTMLElement} 图片容器（.ai-attachment-images）
+ */
+function renderAIAttachmentImages(images) {
+  const wrap = document.createElement('div');
+  wrap.className = 'ai-attachment-images';
+
+  images.forEach(att => {
+    const container = document.createElement('div');
+    container.className = 'tool-card-image ai-attachment-image ai-attachment-image-loading';
+    container.title = att.name;
+    wrap.appendChild(container);
+
+    // 挂载图片（截图工具渲染同款：toggleImageZoom 点击放大 + 右键下载）
+    const appendImage = (dataUrl) => {
+      container.classList.remove('ai-attachment-image-loading');
+      const img = document.createElement('img');
+      img.src = dataUrl;
+      img.alt = att.name;
+
+      // 左键点击放大/缩小（toggleImageZoom 复用）
+      img.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleImageZoom(img);
+      });
+
+      // 右键菜单下载（showImageContextMenu 复用，保留原始文件名与 mime）
+      img.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const raw = dataUrl.split(',')[1] || '';
+        showImageContextMenu(e, raw, att.name, att.mimeType || 'image/png');
+      });
+
+      container.appendChild(img);
+    };
+
+    // 拉取失败（超 25MB/路径失效/重启后快照被清）：回退文件徽标
+    const appendFallbackBadge = () => {
+      container.classList.remove('ai-attachment-image-loading');
+      const pill = document.createElement('span');
+      pill.className = 'ai-message-ref-pill ai-message-attachment-pill';
+      const badge = document.createElement('span');
+      badge.className = 'ai-attachment-badge';
+      badge.innerHTML = aiAttachmentTypeIcon(att);
+      const name = document.createElement('span');
+      name.className = 'ai-message-ref-title';
+      name.textContent = att.name;
+      pill.appendChild(badge);
+      pill.appendChild(name);
+      container.appendChild(pill);
+    };
+
+    // 缓存形状：undefined=未拉取，string=data URL，null=拉取失败/超限。
+    // 缓存命中必须走同步挂载——此刻容器尚未被调用方 appendChild 入 DOM，
+    // 任何 isConnected 检查都会恒 false（曾导致重渲染后图片永久消失）；
+    // isConnected 丢弃守卫只对「经过 await 的异步路径」有意义
+    if (att.imgUrl !== undefined) {
+      if (att.imgUrl) {
+        appendImage(att.imgUrl);
+      } else {
+        appendFallbackBadge();
+      }
+      return;
+    }
+
+    void (async () => {
+      let dataUrl;
+      try {
+        const res = await window.realmAPI.ai.readAttachmentImage({ id: att.id, path: att.path });
+        dataUrl = res && res.dataUrl ? res.dataUrl : null;
+      } catch {
+        dataUrl = null;
+      }
+      att.imgUrl = dataUrl;
+
+      // await 期间容器可能已被全量重渲染替换：丢弃本次结果
+      //（新渲染会以缓存的 att.imgUrl 走上面的同步挂载路径）
+      if (!container.isConnected) return;
+
+      if (dataUrl) {
+        appendImage(dataUrl);
+      } else {
+        appendFallbackBadge();
+      }
+    })();
+  });
+
+  return wrap;
 }
 
 /**
@@ -9220,14 +9658,16 @@ function renderContextPills() {
   const container = elements.aiContextPills;
   if (!container) return;
 
-  if (state.referencedTabs.length === 0) {
+  if (state.referencedTabs.length === 0 && state.aiAttachments.length === 0) {
     container.classList.remove('has-items');
     container.innerHTML = '';
     return;
   }
 
   container.classList.add('has-items');
-  container.innerHTML = state.referencedTabs.map(tab => `
+
+  // @ 引用标签页 pills（既有形状不变）
+  let html = state.referencedTabs.map(tab => `
     <div class="ai-context-pill" data-tab-id="${tab.tabId}">
       <span class="ai-context-pill-dot" style="background-color: ${tab.containerColor}"></span>
       <span class="ai-context-pill-title">${tab.title}</span>
@@ -9235,10 +9675,35 @@ function renderContextPills() {
     </div>
   `).join('');
 
-  // 绑定关闭事件
+  // 附件 pills（拖拽/粘贴登记的文件与图片；图片有缩略图则替代类型徽标）
+  html += state.aiAttachments.map(att => {
+    const thumb = att.previewUrl && typeof att.previewUrl === 'string'
+      ? `<img class="ai-attachment-pill-thumb" src="${att.previewUrl}" alt="">`
+      : `<span class="ai-attachment-pill-badge">${aiAttachmentTypeIcon(att)}</span>`;
+    const sizeLabel = att.size > 0 && !att.isDirectory
+      ? ` <span class="ai-attachment-pill-size">${att.size > 1024 * 1024 ? (att.size / 1024 / 1024).toFixed(1) + 'MB' : Math.max(1, Math.round(att.size / 1024)) + 'KB'}</span>`
+      : '';
+    return `
+    <div class="ai-context-pill ai-attachment-pill" data-attachment-id="${att.id}">
+      ${thumb}
+      <span class="ai-context-pill-title">${escapeHtml(att.name)}${sizeLabel}</span>
+      <span class="ai-context-pill-close" data-attachment-id="${att.id}">×</span>
+    </div>
+  `;
+  }).join('');
+
+  container.innerHTML = html;
+
+  // 绑定关闭事件（标签页引用 + 附件两类）
   container.querySelectorAll('.ai-context-pill-close').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (btn.dataset.attachmentId) {
+        // 仅移出待发送列表，不删快照文件（可能已被去重复用或后续发送引用）
+        state.aiAttachments = state.aiAttachments.filter(a => a.id !== btn.dataset.attachmentId);
+        renderContextPills();
+        return;
+      }
       const tabId = btn.dataset.tabId;
       state.referencedTabs = state.referencedTabs.filter(t => t.tabId !== tabId);
       renderContextPills();
@@ -9246,6 +9711,13 @@ function renderContextPills() {
         renderContextPickerList();
       }
     });
+  });
+
+  // 触发图片附件缩略图异步加载（previewUrl 为 undefined 时才发请求）
+  state.aiAttachments.forEach(att => {
+    if (att.isImage && !att.isDirectory && att.previewUrl === undefined) {
+      void loadAIAttachmentPreview(att.id);
+    }
   });
 }
 

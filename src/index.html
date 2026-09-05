@@ -839,6 +839,17 @@
       </svg>
     </button>
     <div class="ai-panel-resize-handle" id="aiPanelResizeHandle"></div>
+    <!-- 文件拖拽接管遮罩（整面板 drop 区域提示；初始隐藏，initAIAttachments 驱动） -->
+    <div class="ai-drop-overlay" id="aiDropOverlay">
+      <div class="ai-drop-overlay-inner">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        <span>松开以添加附件</span>
+      </div>
+    </div>
   </div>
 
   <!-- 脚本预览卡片模板（AI 聊天中渲染脚本步骤卡片时克隆使用） -->

@@ -27,6 +27,7 @@ const assignmentRules = require('./assignment-rules');
 const cdpManager = require('./cdp-manager');
 const searchManager = require('./search-manager');
 const conversationStore = require('./ai-conversations-manager');
+const aiAttachments = require('./ai-attachments-manager');
 
 // ==================== Readability 库缓存 ====================
 
@@ -535,6 +536,7 @@ function buildWorkspacePrompt() {
     '- 确认被用户拒绝时，不要反复重试同一命令，改用其他方案或询问用户',
     '- 约定：所有落盘数据（导出、抓取结果、生成的文件）一律写入工作目录内，用相对路径或该绝对路径',
     '- ai-memory 与 .tmp 子目录由系统使用，bash 操作时避免改动 .tmp',
+    '- attachments 子目录存放用户在聊天框拖入/粘贴的附件快照，可直接 read；消息里的 [attached_file: 路径] / [attached_image: 路径] marker 指向这些快照',
   ].join('\n');
 }
 
@@ -994,16 +996,25 @@ class AIManager {
   }
 
   /**
-   * 发送带上下文引用的用户消息给 AI Agent
+   * 发送带上下文引用与聊天附件的用户消息给 AI Agent
    *
    * 将引用的标签页内容注入到用户消息中，让 AI 能够理解引用页面的内容。
    * 内容以 XML 格式的 <referenced-tab> 块注入到消息前缀。
    *
-   * @param {string} message - 用户输入的消息
+   * 附件链路（per plan quantum-thunder-einstein）：attachmentIds 经登记表
+   * 反查快照元数据 → buildAttachmentMarkers 生成 [attached_file/image: 路径]
+   * marker 置于消息最前（先于 tab XML 块）；图片附件同时以 ImageContent[]
+   * 走 SDK prompt(text, images) 原生 vision 通道，模型不支持 vision 时降级
+   * 为纯 marker（agent 可自行 read 快照）。附件元数据挂到 transcript 的
+   * user 消息对象上，saveCurrentConversation 落库时随行持久化。
+   *
+   * @param {string} message - 用户输入的消息（可为空串——仅附件发送）
    * @param {Array} referencedTabs - 引用的标签页列表，每项包含 {tabId, title, url, content}
+   * @param {string[]} [attachmentIds] - 附件登记 ID 列表（ai:attach-files/attach-blob 返回的 id）
+   * @param {boolean} [supportsVision=true] - 当前模型是否支持图片输入（renderer 经 ModelFamily 词典判定）
    * @returns {Promise<string|null>} 成功时返回当前对话 ID（惰性创建或既有），失败/早退返回 null
    */
-  async promptWithContext(message, referencedTabs) {
+  async promptWithContext(message, referencedTabs, attachmentIds = [], supportsVision = true) {
     if (!this.isInitialized) {
       console.error('[Realm AI] AI Manager 未初始化，无法处理消息');
       this._sendEventsBatch([{
@@ -1041,10 +1052,22 @@ class AIManager {
 
     this.isProcessing = true;
 
-    // 惰性对话生命周期（per G-42-2 / D-04）：必须传 _buildMessageWithContext
-    // 之前的原始 message，避免标题混入 XML 引用块
+    // 解析附件登记：renderer 只持 attachmentId，主进程登记表反查快照元数据
+    //（杜绝 renderer 伪造路径指向 attachments 目录之外的文件）；未知 id 跳过
+    const resolvedAttachments = (Array.isArray(attachmentIds) ? attachmentIds : [])
+      .map((id) => aiAttachments.getAttachment(id))
+      .filter(Boolean);
+    const missingCount = (Array.isArray(attachmentIds) ? attachmentIds.length : 0) - resolvedAttachments.length;
+    if (missingCount > 0) {
+      console.warn(`[Realm AI] ${missingCount} 个附件登记已失效，已跳过`);
+    }
+
+    // 惰性对话生命周期（per G-42-2 / D-04）：必须传注入前的原始文本。
+    // 纯附件发送（正文为空）时标题回落为附件文件名拼接，避免标题失去区分度
+    const titleSource = message
+      || (resolvedAttachments.length > 0 ? resolvedAttachments.map((a) => a.name).join(' ') : '');
     try {
-      this._ensureConversation(message);
+      this._ensureConversation(titleSource);
     } catch (err) {
       console.error('[Realm AI] 惰性创建对话失败:', err.message);
       this.isProcessing = false;
@@ -1056,15 +1079,63 @@ class AIManager {
       return null;
     }
 
-    console.log(`[Realm AI] 发送带上下文消息: ${message}，引用 ${referencedTabs.length} 个标签页`);
+    console.log(`[Realm AI] 发送带上下文消息: ${message}，引用 ${referencedTabs.length} 个标签页，附件 ${resolvedAttachments.length} 个`);
 
     try {
-      // 构建增强消息
-      const enhancedMessage = this._buildMessageWithContext(message, referencedTabs);
+      // 构建增强消息：attachment marker 置于最前（先于 tab XML 块——模型先
+      // 看到「有附件及路径」再看引用内容），marker 与正文之间空行分隔
+      const markerBlock = aiAttachments.buildAttachmentMarkers(resolvedAttachments);
+      const contextBlock = this._buildMessageWithContext(message, referencedTabs);
+      const enhancedMessage = markerBlock
+        ? `${markerBlock}\n\n${contextBlock}`
+        : contextBlock;
 
-      // 调用 agent.prompt
-      await this.agent.prompt(enhancedMessage);
+      // 图片附件走 SDK 原生 vision 通道（agent.prompt(text, images) 重载，
+      // ImageContent = { type:'image', data: base64, mimeType }）；模型不支持
+      // vision 时降级为纯 marker——agent 可按路径 read 图片快照
+      const images = [];
+      if (supportsVision) {
+        for (const att of resolvedAttachments) {
+          if (!att.isImage || att.isDirectory) continue;
+          try {
+            images.push({
+              type: 'image',
+              data: fs.readFileSync(att.path).toString('base64'),
+              mimeType: att.mimeType || 'image/png',
+            });
+          } catch (err) {
+            console.warn(`[Realm AI] 读取图片附件失败（降级为纯文件引用）: ${att.path}`, err.message);
+          }
+        }
+      }
+
+      // 调用 agent.prompt（images 为空数组时传 undefined，避免 SDK 端歧义）
+      await this.agent.prompt(enhancedMessage, images.length > 0 ? images : undefined);
       await this.agent.waitForIdle();
+
+      // 附件元数据挂到 transcript 最后一条 user 消息对象上（同一对象引用，
+      // 落库时随行持久化；挂前判空防重复挂）。必须在此处显式补一次落库——
+      // agent idle 事件触发的 saveCurrentConversation 先于本挂载执行
+      //（waitForIdle 之后才挂），只靠 idle 落库附件列会丢
+      try {
+        const messages = this.agent.state.messages || [];
+        const lastUser = [...messages].reverse().find((m) => m && m.role === 'user');
+        if (lastUser && !lastUser.attachments && resolvedAttachments.length > 0) {
+          lastUser.attachments = resolvedAttachments.map((a) => ({
+            id: a.id,
+            name: a.name,
+            path: a.path,
+            mimeType: a.mimeType,
+            isImage: a.isImage,
+            isDirectory: a.isDirectory,
+            size: a.size,
+          }));
+          this.saveCurrentConversation();
+        }
+      } catch (err) {
+        console.warn('[Realm AI] 附件元数据挂载失败（不影响消息收发）:', err.message);
+      }
+
       this.isProcessing = false;
       return this.currentConversationId || null;
     } catch (err) {
