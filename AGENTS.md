@@ -246,6 +246,22 @@ window.open(url, '_blank');
 - 供应商 `enabled` 字段（默认 true）：设置页编辑器右上角开关即改即存；禁用后聊天框模型下拉不展示，存储的 activeProvider 记录保留，重新启用自动恢复
 - 词典更新：`curl -sL https://models.dev/api.json -o /tmp/realm-modelsdev.json && npm pack @lobehub/icons-static-svg -p /tmp/realm-icons && tar xzf /tmp/realm-icons/*.tgz -C /tmp/realm-icons && node scripts/generate-ai-brand-map.js`
 
+### AI 工作区与 Bash 权限（agent 根目录 + SDK 内置工具）
+
+AI 助手接入了 pi-agent-core 的 4 个内置工具（`read`/`write`/`edit`/`bash`），配套 agent 工作区与三档权限（方案见 [docs/plan/ai-file-bash-tools-integration.md](docs/plan/ai-file-bash-tools-integration.md)）。
+
+**维护约定（与导航入口清单同款）**：本功能的产品说明权威文档是 **[docs/product/ai-agent-workspace.md](docs/product/ai-agent-workspace.md)**。以后修改工具能力、权限分档、白名单匹配语义、确认流程、沙箱边界、工作区目录结构等行为时，**必须同步更新该产品文档**，保持说明与实际行为一致。本小节只记实现要点。
+
+- **agent 根目录** `userData/agent-workspace/`：AI 落盘数据统一收纳。`ai-memory/`（记忆，由 `ai-memory-manager.getBaseDir` 指向，启动时从旧 `userData/ai-memory/` 一次性迁移且旧目录保留不删）、`.tmp/`（bash 截断全量输出等临时文件，SDK `createTempDir/createTempFile` 被重定向到此）
+- **硬沙箱**（`agent-workspace.js` 的 `createSandboxEnv`）：包装 `NodeExecutionEnv` 覆写**全部** FileSystem 方法 + exec——任何漏包的路径入口就是逃逸口。路径校验 `resolveInside` 双基准（root + root 的 realpath，macOS /var → /private/var 必须放行）+ 已存在路径 realpath 复核（防 symlink 二段式逃逸）。拒绝返回 `FileError('permission_denied')` 不 throw（SDK FileSystem 契约），SDK 工具内部 getOrThrow 会转 throw → agent loop 编码为 isError toolResult
+- **工具适配**（`ai-manager.js` 的 `_adaptHarnessTool`）：AgentHarnessTool 与低层 AgentTool 唯一差异是 execute 第 5 参 `{ env }`，包装注入即可；name 保留 SDK 原值（LLM 训练先验），label/description 重写中文；4 个工具强制 `executionMode: 'sequential'`（file-mutation-queue 只串行化 write/edit，不约束 bash）
+- **write/edit 沙箱内自动执行不加确认**：破坏面已被硬沙箱限定在 AI 专用数据区；单独确认防不住 bash 天然写逃逸，只会让 LLM 绕道 bash
+- **Bash 三档权限**（`ai-bash-policy.js` 纯函数引擎，`evaluateBashCommand`）：① 白名单命中 → 免确认（主流前缀语义：裸条目 `brew` 覆盖 `brew` 本身与 `brew xxx` 子命令，空格边界不误中 `brewx`；`npm run *` 显式通配 ≡ 前缀 `npm run `）；② 默认 → 弹确认卡片；③ 危险段（`DANGEROUS_PATTERNS` 词边界正则：rm 全系/sudo/dd/kill/chmod/重定向覆盖系统路径等 + `DANGEROUS_INTERPRETERS` 管道右侧 sh/node/python 等）→ 强制确认，**进白名单也无效**。拆段 `splitCommandPipeline` 引号感知（引号内 `;`/`|` 不拆），复合命令逐段判定
+- 白名单存储键 `settings.aiBashWhitelist`（string[]），设置页 AI 分区「AI Bash 命令白名单」tag 式即改即存（复用 `whitelist-tag` 样式段），`/api/settings/update` 对该键有服务端校验（`validateWhitelistList`：数组/非空/≤200 字符/无换行控制符）；bash 工具每次执行实时 `configStore.get` 不缓存
+- 确认链路复用 `requestActionConfirmation`（type: 'execute_script'，危险 high / 普通 medium），未确认返回 cancelled 正常结果不 throw；终态经 `notifyActionSettled` 推送
+- 诚实边界：静态拆段无法覆盖全部 shell 语法，白名单判定是「降低误执行概率」的启发式而非安全边界；安全边界 = 确认卡片 + 硬沙箱；OS 级隔离（sandbox-exec）列为后续可选增强
+- 测试：`node tests/test-agent-workspace.js`（沙箱/迁移，21 例）、`node tests/test-ai-bash-policy.js`（策略引擎，29 例）
+
 ### Cookie 面板的数据源语义
 
 - **Session tab** = 容器当前活 cookie（`ses.cookies.get({})`），唯一可写源

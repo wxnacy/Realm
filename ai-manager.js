@@ -93,6 +93,21 @@ function getAiMemoryManagerLazy() {
   return require('./ai-memory-manager');
 }
 
+/**
+ * 惰性 require AI 工作区模块（agent 根目录 + 沙箱 env）
+ *
+ * agent-workspace 内部对 electron app 的依赖是惰性获取的，此处按同款惰性
+ * 模式引用（与 getAiMemoryManagerLazy 一致），避开模块加载顺序问题。
+ *
+ * @returns {object} agent-workspace 模块导出
+ */
+function getAgentWorkspaceLazy() {
+  return require('./agent-workspace');
+}
+
+// Bash 三档权限策略（纯函数零依赖，可直接顶层 require）
+const bashPolicy = require('./ai-bash-policy');
+
 // ==================== 安全辅助函数 ====================
 
 /**
@@ -502,7 +517,29 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 请用简洁、专业的语气回答用户问题。当需要执行操作时，使用提供的工具函数。`;
 
 /**
- * 构建完整 system prompt（REALM_SYSTEM_PROMPT + 全局两层记忆冻结快照）
+ * 构建 agent 工作区 system prompt 段（文件/Bash 工具的使用边界说明）
+ *
+ * 白名单具体内容不进 prompt（实时变化会破坏 prompt 冻结语义，确认卡片
+ * /拒绝消息本身就是反馈通道）。同步函数，Agent 创建时冻结拼入。
+ *
+ * @returns {string} workspace 段文本
+ */
+function buildWorkspacePrompt() {
+  const workspaceDir = getAgentWorkspaceLazy().getWorkspaceDir();
+  return [
+    '## 文件与命令工具（agent 工作区）',
+    `- 你的专属工作目录（agent 根目录）：${workspaceDir}`,
+    '- read/write/edit 工具只能访问该目录内的文件，访问外部路径会被直接拒绝（硬沙箱），不要尝试访问工作区外的路径',
+    '- bash 命令的工作目录固定为该目录；命中白名单的命令自动执行，其余命令会向用户弹出确认卡片；危险命令（rm/sudo 等）即使描述得再安全也会弹确认',
+    '- 安全责任边界：涉及 rm 等危险命令时，直接调用 bash 工具发起请求即可——系统会弹出确认卡片、由用户点击决策，不要因为命令危险就拒绝调用工具或用文字代替执行；也不要替用户预设确认结果（确认被拒时工具结果会告诉你）',
+    '- 确认被用户拒绝时，不要反复重试同一命令，改用其他方案或询问用户',
+    '- 约定：所有落盘数据（导出、抓取结果、生成的文件）一律写入工作目录内，用相对路径或该绝对路径',
+    '- ai-memory 与 .tmp 子目录由系统使用，bash 操作时避免改动 .tmp',
+  ].join('\n');
+}
+
+/**
+ * 构建完整 system prompt（REALM_SYSTEM_PROMPT + workspace 段 + 全局两层记忆冻结快照）
  *
  * 快照在 Agent 创建时一次性拼入（D-04 冻结语义：会话内不变，保前缀缓存）。
  * buildGlobalSnapshot 为同步函数——Agent 创建路径上不可异步化（G-42-4 实录）。
@@ -512,7 +549,8 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
  * @returns {string} 完整 system prompt
  */
 function buildSystemPrompt() {
-  return REALM_SYSTEM_PROMPT + '\n\n' + getAiMemoryManagerLazy().buildGlobalSnapshot();
+  return REALM_SYSTEM_PROMPT + '\n\n' + buildWorkspacePrompt() + '\n\n'
+    + getAiMemoryManagerLazy().buildGlobalSnapshot();
 }
 
 /** 上下文裁剪：保留最近的消息数量 */
@@ -611,6 +649,10 @@ class AIManager {
     this.currentConversationId = null;
     /** @type {Object} 当前对话元数据 */
     this.conversationMeta = {};
+    /** @type {Object|null} SDK 内置工具工厂（init 动态 import 后缓存） */
+    this._sdkFileTools = null;
+    /** @type {Object|null} 沙箱 ExecutionEnv（文件/Bash 工具共用） */
+    this.sandboxEnv = null;
   }
 
   /**
@@ -657,6 +699,10 @@ class AIManager {
       // openAICompletionsApi 不从主入口导出，需从子路径导入（同内置 provider 的用法）
       const { openAICompletionsApi } = await import('@earendil-works/pi-ai/api/openai-completions.lazy');
       const { Agent } = await import('@earendil-works/pi-agent-core');
+      // SDK 内置文件/Bash 工具工厂（AgentHarnessTool，经 _adaptHarnessTool 适配）
+      const { createReadTool, createWriteTool, createEditTool, createBashTool } =
+        await import('@earendil-works/pi-agent-core');
+      this._sdkFileTools = { createReadTool, createWriteTool, createEditTool, createBashTool };
 
       // 创建凭证存储并注入所有已配置提供商的 API Key
       // CredentialStore 是 pi-ai 的标准认证机制：每个 provider 一个凭证条目
@@ -737,6 +783,9 @@ class AIManager {
         this.isInitialized = false;
         return;
       }
+
+      // 创建沙箱 ExecutionEnv（文件/Bash 工具共用；cwd = agent 工作区根目录）
+      this.sandboxEnv = await getAgentWorkspaceLazy().createSandboxEnv();
 
       // 构建工具列表
       this.tools = this._buildRealmTools();
@@ -1188,7 +1237,23 @@ ${content}
       }
     };
 
+    // 立即事件发送前先刷出积压的批量事件——否则时序倒挂：
+    // bash 的 onUpdate 流式 running 事件走 16ms 批量通道，而
+    // tool_execution_end（completed）走立即通道，end 先发出、
+    // 积压的 running 后刷出，渲染端状态被回改成「正在执行」
+    const flushPending = () => {
+      if (batchTimer) {
+        clearTimeout(batchTimer);
+        batchTimer = null;
+        if (eventBatch.length > 0) {
+          this._sendEventsBatch(eventBatch);
+          eventBatch = [];
+        }
+      }
+    };
+
     const sendNow = (uiEvent) => {
+      flushPending();
       this._sendEventsBatch([{ ...uiEvent, timestamp: Date.now() }]);
     };
 
@@ -4710,7 +4775,147 @@ ${content}
           };
         },
       },
+
+      // ==================== SDK 内置文件/Bash 工具（agent 工作区沙箱） ====================
+      ...this._buildFilesystemTools(),
     ];
+  }
+
+  /**
+   * 将 SDK AgentHarnessTool 适配为 Realm 低层 Agent 工具
+   *
+   * 唯一差异：AgentHarnessTool.execute 第 5 参为 { env: ExecutionEnv }，
+   * 低层 Agent loop 只传 4 参——包装 execute 注入沙箱 env。同时：
+   * - 覆盖 label/description 为中文（与 Realm 工具风格一致；name 保留 SDK
+   *   原值 read/write/edit/bash，LLM 训练先验对这些名字最熟）
+   * - 强制 executionMode: 'sequential'（memory 工具同款先例）：SDK 的
+   *   file-mutation-queue 只串行化 write/edit 之间的文件写，不约束 bash，
+   *   全串行消除「bash 改文件同时 edit 改同一文件」的竞态
+   *
+   * @param {Object} harnessTool - SDK createXxxTool() 产出的工具
+   * @param {{label: string, description: string}} overrides - 中文 label/描述覆盖
+   * @returns {Object} 适配后的 Realm 工具
+   * @private
+   */
+  _adaptHarnessTool(harnessTool, overrides) {
+    return {
+      ...harnessTool,
+      ...overrides,
+      executionMode: 'sequential',
+      execute: (toolCallId, params, signal, onUpdate) =>
+        harnessTool.execute(toolCallId, params, signal, onUpdate, { env: this.sandboxEnv }),
+    };
+  }
+
+  /**
+   * 构建 SDK 内置文件/Bash 工具组（read/write/edit/bash）
+   *
+   * read/write/edit 在硬沙箱内自动执行（路径校验由 SandboxExecutionEnv 强制，
+   * 破坏面已被限定在 AI 专用工作区内，不加确认）。bash 经三档权限执行流
+   * （_createBashToolWithPolicy）。
+   *
+   * @returns {Array} 工具定义数组
+   * @private
+   */
+  _buildFilesystemTools() {
+    if (!this._sdkFileTools || !this.sandboxEnv) {
+      console.warn('[Realm AI] SDK 文件工具工厂未初始化，跳过注册 read/write/edit/bash');
+      return [];
+    }
+    const { createReadTool, createWriteTool, createEditTool } = this._sdkFileTools;
+    const workspaceDir = getAgentWorkspaceLazy().getWorkspaceDir();
+    return [
+      this._adaptHarnessTool(createReadTool(), {
+        label: '读取文件',
+        description: `读取 AI 工作区（${workspaceDir}）内的文件内容。支持文本按行分段读取（offset 从 1 开始 / limit 限制行数）与图片读取。只能访问工作区内的路径，越界会被拒绝`,
+      }),
+      this._adaptHarnessTool(createWriteTool(), {
+        label: '写入文件',
+        description: `将完整内容写入 AI 工作区（${workspaceDir}）内的文件（覆盖语义，父目录自动创建）。只能访问工作区内的路径，越界会被拒绝`,
+      }),
+      this._adaptHarnessTool(createEditTool(), {
+        label: '编辑文件',
+        description: `精确编辑 AI 工作区（${workspaceDir}）内的文件：edits 数组中每个 oldText 必须在原文件中唯一且互不重叠，替换为 newText。无需先 read，但 oldText 不唯一会失败。只能访问工作区内的路径`,
+      }),
+      this._createBashToolWithPolicy(),
+    ];
+  }
+
+  /**
+   * 构建带三档权限执行流的 bash 工具
+   *
+   * 执行流：实时读 settings.aiBashWhitelist（不缓存，设置页即改即存后
+   * 下一条命令即生效）→ evaluateBashCommand 三档裁决：
+   * - allow   ：直接执行
+   * - confirm ：弹确认卡片（危险命令 riskLevel=high，普通命令 medium）；
+   *   白名单对危险段无效（rm/sudo 等进白名单也弹确认）
+   * 未确认不 throw，返回 cancelled 正常结果（与现有确认链路约定一致）。
+   * 执行终态经 notifyActionSettled 推送确认卡片状态机。
+   *
+   * @returns {Object} 适配后的 bash 工具
+   * @private
+   */
+  _createBashToolWithPolicy() {
+    const workspaceDir = getAgentWorkspaceLazy().getWorkspaceDir();
+    const inner = this._adaptHarnessTool(this._sdkFileTools.createBashTool(), {
+      label: '执行 Bash 命令',
+      description: `在 AI 工作区（${workspaceDir}）内执行 bash 命令，工作目录固定为工作区根目录。`
+        + '输出超过 2000 行或 50KB 会截断（全量输出存临时文件）。'
+        + '命中白名单的命令自动执行；其余命令需用户在确认卡片上确认；'
+        + '危险命令（rm/sudo/kill 等）即使加入白名单也必须确认。'
+        + '命令失败（非零退出码、超时）会直接报错，可用较短超时试探性执行',
+    });
+
+    return {
+      ...inner,
+      execute: async (toolCallId, params, signal, onUpdate) => {
+        const whitelist = this.configStore
+          ? this.configStore.get('settings.aiBashWhitelist', [])
+          : [];
+        const verdict = bashPolicy.evaluateBashCommand(params && params.command, whitelist);
+
+        let confirmedActionId = null;
+        if (verdict.level === 'confirm') {
+          const isDanger = verdict.reason === 'danger';
+          const actionId = `bash_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const dangerHint = isDanger
+            ? `检测到高危操作（${verdict.dangerNames.join('、')}），白名单对本命令无效`
+            : '该命令未命中白名单';
+          const confirmation = await requestActionConfirmation({
+            actionId,
+            type: 'execute_script',
+            title: isDanger ? 'AI 请求执行高危 Bash 命令' : 'AI 请求执行 Bash 命令',
+            description: `${dangerHint}\n\n$ ${params.command}`,
+            riskLevel: isDanger ? 'high' : 'medium',
+            timeoutMs: 120000, // bash 命令需要用户读完再决策，30s 默认值容易误取消
+          });
+          if (!confirmation.confirmed) {
+            return {
+              content: [{
+                type: 'text',
+                text: '已取消：用户未确认执行该命令。不要反复重试同一命令，可调整命令或请用户在设置中将可靠命令前缀加入白名单。',
+              }],
+              details: { cancelled: true, command: params.command, verdict },
+            };
+          }
+          confirmedActionId = actionId;
+        }
+
+        try {
+          const result = await inner.execute(toolCallId, params, signal, onUpdate);
+          if (confirmedActionId) {
+            notifyActionSettled(confirmedActionId, 'success', 'Bash 命令执行完成');
+          }
+          return result;
+        } catch (err) {
+          // bash 工具对非零退出码/超时/中止 throw（SDK 编码为 isError toolResult）
+          if (confirmedActionId) {
+            notifyActionSettled(confirmedActionId, 'error', err.message || 'Bash 命令执行失败');
+          }
+          throw err;
+        }
+      },
+    };
   }
 
   /**

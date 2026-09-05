@@ -134,6 +134,10 @@ const dragCoordinator = require('./drag-coordinator');
 const searchManager = require('./search-manager');
 // AI 记忆 manager（Plan 43-01；electron 依赖在模块内部惰性获取，顶层 require 安全）
 const aiMemoryManager = require('./ai-memory-manager');
+// AI 工作区（agent 根目录：userData/agent-workspace，AI 落盘数据统一收纳）
+const agentWorkspace = require('./agent-workspace');
+// Bash 三档权限策略（纯函数零依赖，白名单服务端校验用）
+const bashPolicy = require('./ai-bash-policy');
 
 // AI Manager 实例（在 app.whenReady 中初始化，供后续 Phase 通过 require('./main').aiManager 访问）
 let aiManager = null;
@@ -176,11 +180,15 @@ function requestActionConfirmation(actionData) {
   const data = { ...actionData, actionId };
 
   return new Promise((resolve) => {
-    // 30 秒超时自动取消
+    // 超时自动取消（默认 30 秒；调用方可经 timeoutMs 覆盖——AI Bash 确认
+    // 需要用户读完命令再决策，30 秒经常不够导致误取消）
+    const timeoutMs = typeof actionData.timeoutMs === 'number' && actionData.timeoutMs > 0
+      ? actionData.timeoutMs
+      : 30000;
     const timer = setTimeout(() => {
       if (pendingActions.has(actionId)) {
         pendingActions.delete(actionId);
-        console.log(`[Realm] 操作确认超时，自动取消: ${actionId}`);
+        console.log(`[Realm] 操作确认超时（${Math.round(timeoutMs / 1000)}s），自动取消: ${actionId}`);
         // 主动过期渲染端确认卡片，避免用户点击已无效应的 pending 卡片
         windowManager.broadcast('action:settle', {
           actionId,
@@ -189,7 +197,7 @@ function requestActionConfirmation(actionData) {
         });
         resolve({ confirmed: false, reason: 'timeout' });
       }
-    }, 30000);
+    }, timeoutMs);
 
     pendingActions.set(actionId, { resolve, timer });
 
@@ -1221,13 +1229,25 @@ app.whenReady().then(async () => {
         if (!settings.mediaPlayer) {
           settings.mediaPlayer = { enabled: false, whitelist: [] };
         }
+        // AI Bash 命令白名单默认值（settings-page AI 分区消费）
+        if (!Array.isArray(settings.aiBashWhitelist)) {
+          settings.aiBashWhitelist = [];
+        }
         sendJson(res, 200, settings);
         return;
       }
 
       if (route === 'update' && req.method === 'POST') {
         const updates = await readJsonBody(req);
+        // 安全策略键服务端双保险校验（Pitfall 8：不能只依赖设置页前端校验）
         for (const [key, value] of Object.entries(updates)) {
+          if (key === 'aiBashWhitelist') {
+            const check = bashPolicy.validateWhitelistList(value);
+            if (!check.valid) {
+              sendJson(res, 400, { error: check.reason });
+              return;
+            }
+          }
           configStore.set(`settings.${key}`, value);
         }
         // 设置页在 webview 内通过 HTTP 写入，主进程需主动通知所有窗口 renderer 刷新（closing UAT gap G-29-6）
@@ -3126,6 +3146,11 @@ app.whenReady().then(async () => {
   // 初始化搜索管理器（per Phase 40）
   searchManager.initSearchManager(configStore);
   setSearchManager(searchManager);
+
+  // 初始化 AI 工作区（agent 根目录）并一次性迁移旧版 AI 记忆目录
+  // （必须在 aiManager 创建之前：sandbox env 与 ai-memory 新路径都依赖目录就位）
+  agentWorkspace.ensureWorkspaceDir();
+  agentWorkspace.migrateAiMemory();
 
   // 初始化 AI Manager（per Phase 19）
   aiManager = new AIManager();

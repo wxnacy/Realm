@@ -503,6 +503,21 @@
             </div>
           </div>
         </div>
+        <!-- AI Bash 命令白名单（tag 式即改即存；CSP：初始隐藏走 CSS 类，禁止 markup 内联 display） -->
+        <div class="settings-group ai-perm-section">
+          <div class="settings-group-header">
+            <h2 class="settings-group-title">AI Bash 命令白名单</h2>
+          </div>
+          <div class="settings-group-content">
+            <p class="setting-description">命中白名单的 Bash 命令免确认自动执行；未命中的命令会弹出确认卡片；危险命令（rm、sudo 等）不受白名单影响，始终需要确认。条目按命令前缀匹配：<code>brew</code> 覆盖所有 brew 子命令，也可写 <code>npm run *</code> 限定前缀</p>
+            <div class="whitelist-input-area">
+              <input type="text" id="aiBashWhitelistInput" class="text-input" placeholder="输入命令或前缀，如 brew" aria-label="白名单命令前缀">
+              <button type="button" class="btn btn-primary btn-sm" id="addAiBashWhitelistBtn">添加</button>
+            </div>
+            <div class="whitelist-tags" id="aiBashWhitelistTags"></div>
+            <div class="whitelist-hint" id="aiBashWhitelistHint">白名单为空，所有 Bash 命令都需确认</div>
+          </div>
+        </div>
       </section>
 
       <!-- 多媒体设置页面 -->

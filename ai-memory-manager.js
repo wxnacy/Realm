@@ -88,7 +88,7 @@ function scanInjectionPatterns(content) {
   return { safe: true };
 }
 
-/** 基目录覆写（测试注入；null 表示回落默认 userData/ai-memory） */
+/** 基目录覆写（测试注入；null 表示回落默认 userData/agent-workspace/ai-memory） */
 let _baseDirOverride = null;
 
 /**
@@ -102,7 +102,8 @@ let _baseDirOverride = null;
 function getBaseDir() {
   if (_baseDirOverride) return _baseDirOverride;
   const { app } = require('electron');
-  return path.join(app.getPath('userData'), 'ai-memory');
+  // AI 落盘数据统一收纳进 agent 工作区（agent-workspace.js 迁移先例）
+  return path.join(app.getPath('userData'), 'agent-workspace', 'ai-memory');
 }
 
 /**

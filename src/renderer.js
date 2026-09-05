@@ -8271,6 +8271,13 @@ function handleAIStream() {
               t => t.id === event.tool_execution_id
             );
             if (existingIdx >= 0) {
+              // 终态保护：已完成/失败的工具有迟到的 running 更新时忽略
+              // （主进程批量通道与立即通道的时序竞争防御）
+              const existing = toolMsg.toolExecutions[existingIdx];
+              if ((existing.status === 'completed' || existing.status === 'failed')
+                && event.status === 'running') {
+                break;
+              }
               // 更新已存在的工具执行状态
               toolMsg.toolExecutions[existingIdx] = {
                 ...toolMsg.toolExecutions[existingIdx],

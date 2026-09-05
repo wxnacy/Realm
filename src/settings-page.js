@@ -37,6 +37,8 @@ const state = {
     enabled: false,
     whitelist: [],
   },
+  /** AI Bash 命令白名单（AI 分区权限设置） */
+  aiBashWhitelist: [],
   /** Vim 模式配置 */
   vimium: {
     enabled: false,
@@ -2635,6 +2637,122 @@ async function loadAISettings() {
   } catch (error) {
     console.error('[Realm] 加载 AI 设置失败:', error);
   }
+
+  // 加载 AI Bash 命令白名单（独立 try：白名单加载失败不拖垮供应商列表展示）
+  try {
+    const settings = await settingsApi('get');
+    state.aiBashWhitelist = Array.isArray(settings.aiBashWhitelist) ? settings.aiBashWhitelist : [];
+    renderAiBashWhitelistTags();
+  } catch (error) {
+    console.error('[Realm] 加载 AI Bash 白名单失败:', error);
+  }
+}
+
+// ==================== AI Bash 命令白名单（tag 式即改即存） ====================
+
+/**
+ * 添加白名单条目（整存整取 settings.aiBashWhitelist，即改即存）
+ */
+async function addAiBashWhitelistEntry() {
+  const input = document.getElementById('aiBashWhitelistInput');
+  if (!input) return;
+  const raw = input.value.trim();
+
+  if (!raw) {
+    showToast('请输入命令或前缀');
+    return;
+  }
+  if (raw.length > 200) {
+    showToast('条目不能超过 200 字符');
+    return;
+  }
+  if (/[\r\n\0]/.test(raw)) {
+    showToast('条目不能包含换行或控制字符');
+    return;
+  }
+  // 重复判定按规范化口径（与主进程匹配算法一致：trim + 连续空白折叠）
+  const normalized = raw.replace(/\s+/g, ' ');
+  if (state.aiBashWhitelist.some((e) => e.replace(/\s+/g, ' ') === normalized)) {
+    showToast('条目已存在');
+    return;
+  }
+
+  try {
+    const newList = [...state.aiBashWhitelist, raw];
+    await settingsApi('update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ aiBashWhitelist: newList }),
+    });
+    state.aiBashWhitelist = newList;
+    renderAiBashWhitelistTags();
+    input.value = '';
+    showToast(`已添加白名单命令: ${raw}`);
+  } catch (error) {
+    console.error('[Realm] 添加 AI Bash 白名单失败:', error);
+    showToast(error.message || '添加失败，请重试');
+  }
+}
+
+/**
+ * 移除白名单条目
+ * @param {string} entry - 要移除的条目原文
+ */
+async function removeAiBashWhitelistEntry(entry) {
+  try {
+    const newList = state.aiBashWhitelist.filter((e) => e !== entry);
+    await settingsApi('update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ aiBashWhitelist: newList }),
+    });
+    state.aiBashWhitelist = newList;
+    renderAiBashWhitelistTags();
+    showToast(`已移除: ${entry}`);
+  } catch (error) {
+    console.error('[Realm] 移除 AI Bash 白名单失败:', error);
+    showToast('移除失败，请重试');
+  }
+}
+
+/**
+ * 渲染白名单标签
+ * 使用 DOM 构建 + textContent 防止 XSS（WR-13）；空态 hint 显隐走 CSSOM（CSP）
+ */
+function renderAiBashWhitelistTags() {
+  const tagsEl = document.getElementById('aiBashWhitelistTags');
+  const hintEl = document.getElementById('aiBashWhitelistHint');
+  if (!tagsEl || !hintEl) return;
+
+  tagsEl.innerHTML = '';
+
+  if (state.aiBashWhitelist.length === 0) {
+    hintEl.style.display = 'block';
+    tagsEl.style.display = 'none';
+    return;
+  }
+
+  hintEl.style.display = 'none';
+  tagsEl.style.display = 'flex';
+
+  state.aiBashWhitelist.forEach((entry) => {
+    const tag = document.createElement('span');
+    tag.className = 'whitelist-tag';
+
+    const textSpan = document.createElement('span');
+    textSpan.className = 'whitelist-tag-text';
+    textSpan.textContent = entry;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'whitelist-tag-remove';
+    removeBtn.textContent = '×';
+    removeBtn.setAttribute('aria-label', `移除 ${entry}`);
+    removeBtn.addEventListener('click', () => removeAiBashWhitelistEntry(entry));
+
+    tag.appendChild(textSpan);
+    tag.appendChild(removeBtn);
+    tagsEl.appendChild(tag);
+  });
 }
 
 /**
@@ -4449,6 +4567,21 @@ function setupAISettingsListeners() {
           // 忽略
         }
       }, 500);
+    });
+  }
+
+  // AI Bash 命令白名单：添加按钮 + 输入框回车
+  const addWhitelistBtn = document.getElementById('addAiBashWhitelistBtn');
+  if (addWhitelistBtn) {
+    addWhitelistBtn.addEventListener('click', addAiBashWhitelistEntry);
+  }
+  const bashWhitelistInput = document.getElementById('aiBashWhitelistInput');
+  if (bashWhitelistInput) {
+    bashWhitelistInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addAiBashWhitelistEntry();
+      }
     });
   }
 }

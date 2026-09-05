@@ -8204,6 +8204,24 @@ textarea::placeholder {
   font-size: 14px;
 }
 
+/* ==================== AI Bash 命令白名单（设置页 AI 分区） ==================== */
+
+/* 分组标题下的说明文字与分组内容留白 */
+.ai-perm-section .setting-description {
+  display: block;
+  margin-bottom: 12px;
+}
+
+/* 说明文字中的命令示例（如 npm run *） */
+.ai-perm-section .setting-description code {
+  font-family: Menlo, Monaco, monospace;
+  font-size: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
 /* 多媒体内容区域禁用态（复用 devMode disabled 模式） */
 .multimedia-content.disabled {
   opacity: 0.5;
