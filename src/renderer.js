@@ -8339,10 +8339,10 @@ async function handleSendAIMessage() {
         message: text,
         referencedTabs: tabsWithContent,
         attachmentIds: attachments.map(a => a.id),
-        // 图片始终走原生 vision 通道：ai-brand-map 词典能力位不可靠
-        //（实测 mimo-v2.5-pro-ultraspeed 词典无视觉位但模型支持视觉），
-        // 误判降级的代价（模型只能看到 marker 路径需自行 read）高于
-        // provider 拒绝的代价；主进程 supportsVision 缺省 true
+        // 图片通道决策在主进程（vision 桥）：主模型支持图片则原图直发，
+        // 不支持且已配置视觉模型则先转写为文字描述（见 vision-describer.js）。
+        // supportsVision 参数已废弃，不再传递——ai-brand-map 词典能力位不可靠
+        //（实测 mimo-v2.5-pro-ultraspeed 词典无视觉位但模型支持视觉）
       });
     } else {
       // 无 @ 引用：走原有通道

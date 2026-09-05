@@ -2646,6 +2646,112 @@ async function loadAISettings() {
   } catch (error) {
     console.error('[Realm] 加载 AI Bash 白名单失败:', error);
   }
+
+  // 加载视觉专用模型配置（独立 try：失败不拖垮其他分区）
+  try {
+    const visionData = await settingsApi('ai/vision-model');
+    renderVisionModelSelect(visionData || {});
+  } catch (error) {
+    console.error('[Realm] 加载视觉模型配置失败:', error);
+  }
+}
+
+// ==================== 视觉专用模型（Vision Bridge，下拉即改即存） ====================
+
+/**
+ * 渲染视觉模型下拉
+ *
+ * 数据源：aiProvidersCatalog 中已配置且未禁用的供应商 × 支持图片输入的模型
+ * （imageCapable 由主进程按 pi-ai Model.input + ID 正则计算，比 renderer 词典可靠）。
+ * 当前配置指向的模型即使不在候选里（供应商已禁用等）也保留为选项，配合警示回显。
+ *
+ * @param {Object} visionData - GET ai/vision-model 响应 { visionModel, resolved }
+ */
+function renderVisionModelSelect(visionData) {
+  const select = document.getElementById('aiVisionModelSelect');
+  const warnEl = document.getElementById('aiVisionModelWarn');
+  if (!select) return;
+
+  const current = visionData && visionData.visionModel
+    ? `${visionData.visionModel.provider}/${visionData.visionModel.model}`
+    : '';
+
+  select.innerHTML = '';
+
+  const emptyOption = document.createElement('option');
+  emptyOption.value = '';
+  emptyOption.textContent = '不使用视觉模型（图片仅以文件路径提供）';
+  select.appendChild(emptyOption);
+
+  let candidateCount = 0;
+  for (const p of aiProvidersCatalog) {
+    if (!p.configured || p.enabled === false) continue;
+    const capable = (p.models || []).filter(m => m.imageCapable);
+    if (capable.length === 0) continue;
+    candidateCount += capable.length;
+
+    const group = document.createElement('optgroup');
+    group.label = p.name || p.id;
+    for (const m of capable) {
+      const opt = document.createElement('option');
+      opt.value = `${p.id}/${m.id}`;
+      opt.textContent = m.id;
+      group.appendChild(opt);
+    }
+    select.appendChild(group);
+  }
+
+  // 当前配置不可解析（供应商禁用/模型被删）时保留原值为选项，让用户可见
+  if (current && !select.querySelector(`option[value="${CSS.escape(current)}"]`)) {
+    const opt = document.createElement('option');
+    opt.value = current;
+    opt.textContent = `${current}（不可用）`;
+    select.appendChild(opt);
+  }
+
+  select.value = current;
+  if (select.value !== current) select.value = ''; // 兜底：current 为空或异常回落
+
+  // 警示：已配置但主进程解析失败（resolved=false）
+  if (warnEl) {
+    warnEl.style.display = (current && visionData && visionData.resolved === false) ? 'block' : 'none';
+  }
+
+  // 无任何候选模型时禁用下拉
+  if (candidateCount === 0 && !current) {
+    select.disabled = true;
+    emptyOption.textContent = '当前无支持图片输入的模型';
+  } else {
+    select.disabled = false;
+  }
+}
+
+/**
+ * 保存视觉模型选择（change 即改即存）
+ * @param {string} value - 'provider/model' 或空串（清除）
+ */
+async function saveVisionModelSelection(value) {
+  try {
+    const config = value
+      ? (() => {
+          const idx = value.indexOf('/');
+          return { provider: value.slice(0, idx), model: value.slice(idx + 1) };
+        })()
+      : { provider: null };
+    await settingsApi('ai/vision-model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    showToast(value ? `视觉模型已设置: ${value}` : '已清除视觉模型配置');
+  } catch (error) {
+    console.error('[Realm] 保存视觉模型配置失败:', error);
+    showToast(error.message || '保存失败，请重试');
+    // 失败回读，让下拉回到服务端真实状态
+    try {
+      renderVisionModelSelect(await settingsApi('ai/vision-model'));
+    } catch { /* 忽略 */ }
+  }
 }
 
 // ==================== AI Bash 命令白名单（tag 式即改即存） ====================
@@ -4582,6 +4688,14 @@ function setupAISettingsListeners() {
         e.preventDefault();
         addAiBashWhitelistEntry();
       }
+    });
+  }
+
+  // 视觉专用模型：下拉即改即存
+  const visionSelect = document.getElementById('aiVisionModelSelect');
+  if (visionSelect) {
+    visionSelect.addEventListener('change', () => {
+      saveVisionModelSelection(visionSelect.value);
     });
   }
 }

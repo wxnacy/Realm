@@ -28,6 +28,7 @@ const cdpManager = require('./cdp-manager');
 const searchManager = require('./search-manager');
 const conversationStore = require('./ai-conversations-manager');
 const aiAttachments = require('./ai-attachments-manager');
+const { modelSupportsImage, VisionDescriber } = require('./vision-describer');
 
 // ==================== Readability 库缓存 ====================
 
@@ -759,6 +760,11 @@ class AIManager {
         console.log(`[Realm AI] 自定义供应商已注册: ${providerId} (${providerModels.length} 个模型)`);
       }
 
+      // 视觉专用模型描述器（Vision Bridge）：主模型不支持图片时把附件图片
+      // 经 ai.visionModel 指向的视觉模型转写为文字描述。每次 init 重建
+      // （持有 this.models 引用，供应商/模型集合可能已变化）
+      this.visionDescriber = new VisionDescriber({ models: this.models, configStore });
+
       // 确定激活提供商：优先 ai.activeProvider，须已配置且未禁用；否则取第一个可用项
       // 禁用的供应商保留存储记录（ai.activeProvider 不改写），仅在运行时被跳过，
       // 重新启用后自动恢复为激活供应商
@@ -1003,15 +1009,18 @@ class AIManager {
    *
    * 附件链路（per plan quantum-thunder-einstein）：attachmentIds 经登记表
    * 反查快照元数据 → buildAttachmentMarkers 生成 [attached_file/image: 路径]
-   * marker 置于消息最前（先于 tab XML 块）；图片附件同时以 ImageContent[]
-   * 走 SDK prompt(text, images) 原生 vision 通道，模型不支持 vision 时降级
-   * 为纯 marker（agent 可自行 read 快照）。附件元数据挂到 transcript 的
-   * user 消息对象上，saveCurrentConversation 落库时随行持久化。
+   * marker 置于消息最前（先于 tab XML 块）；图片附件按主模型能力分两通道：
+   * ① 视觉桥（Vision Bridge，主模型无 image 能力且已配置 ai.visionModel）：
+   *    图片经视觉模型转写为 <image-descriptions> 文字块并入正文，原图不直发；
+   * ② 原生直发（其余情况）：prompt(text, images)，含「判定不支持但未配置
+   *    视觉模型」的回退——元数据可能误判，真不支持时 SDK 降级占位符兜底。
+   * 附件元数据挂到 transcript 的 user 消息对象上，saveCurrentConversation
+   * 落库时随行持久化。
    *
    * @param {string} message - 用户输入的消息（可为空串——仅附件发送）
    * @param {Array} referencedTabs - 引用的标签页列表，每项包含 {tabId, title, url, content}
    * @param {string[]} [attachmentIds] - 附件登记 ID 列表（ai:attach-files/attach-blob 返回的 id）
-   * @param {boolean} [supportsVision=true] - 当前模型是否支持图片输入（renderer 经 ModelFamily 词典判定）
+   * @param {boolean} [supportsVision=true] - @deprecated 已忽略：能力判定内聚主进程（vision 桥）
    * @returns {Promise<string|null>} 成功时返回当前对话 ID（惰性创建或既有），失败/早退返回 null
    */
   async promptWithContext(message, referencedTabs, attachmentIds = [], supportsVision = true) {
@@ -1082,32 +1091,81 @@ class AIManager {
     console.log(`[Realm AI] 发送带上下文消息: ${message}，引用 ${referencedTabs.length} 个标签页，附件 ${resolvedAttachments.length} 个`);
 
     try {
-      // 构建增强消息：attachment marker 置于最前（先于 tab XML 块——模型先
-      // 看到「有附件及路径」再看引用内容），marker 与正文之间空行分隔
-      const markerBlock = aiAttachments.buildAttachmentMarkers(resolvedAttachments);
-      const contextBlock = this._buildMessageWithContext(message, referencedTabs);
-      const enhancedMessage = markerBlock
-        ? `${markerBlock}\n\n${contextBlock}`
-        : contextBlock;
+      // 主模型图片能力判定（Vision Bridge 触发条件，决策内聚主进程）：
+      // 判定支持图片 → 原图直发；判定不支持且已配置视觉模型（ai.visionModel）
+      // → 转写为文字描述再发送；判定不支持且未配置 → 仍原生直发
+      // （元数据可能误判；真不支持时 SDK 降级占位符兜底，见下方通道注释）
+      const mainModel = this.agent && this.agent.state ? this.agent.state.model : null;
+      const mainSupportsImage = modelSupportsImage(mainModel);
+      const imageAtts = resolvedAttachments.filter((a) => a && a.isImage && !a.isDirectory);
 
-      // 图片附件走 SDK 原生 vision 通道（agent.prompt(text, images) 重载，
-      // ImageContent = { type:'image', data: base64, mimeType }）；模型不支持
-      // vision 时降级为纯 marker——agent 可按路径 read 图片快照
+      // 图片附件通道（二选一）：
+      // ① 视觉桥：主模型被判不支持图片（Model.input 无 image 且 ID 正则不中）
+      //    且已配置视觉模型（ai.visionModel）→ 逐图读快照经 vision-describer
+      //    转写，描述块并入正文，images 保持为空（不直发）
+      // ② 原生直发（其余全部情况）：主模型判定支持图片，或判定不支持但未
+      //    配置视觉模型。后者保留直发是因为目录元数据可能误判——实测 mimo
+      //    系列支持视觉但 pi-ai 目录 input:['text']；真不支持时 SDK
+      //    downgradeUnsupportedImages 会把图片块降级为「图片被省略」占位符，
+      //    模型至少收到明确信号，能如实回答看不到图（而谎称「已附于消息」
+      //    的 marker 会诱发编造图片内容，2026-09-05 image.png 幻觉事故）
       const images = [];
-      if (supportsVision) {
-        for (const att of resolvedAttachments) {
-          if (!att.isImage || att.isDirectory) continue;
-          try {
-            images.push({
-              type: 'image',
-              data: fs.readFileSync(att.path).toString('base64'),
-              mimeType: att.mimeType || 'image/png',
-            });
-          } catch (err) {
-            console.warn(`[Realm AI] 读取图片附件失败（降级为纯文件引用）: ${att.path}`, err.message);
+      let visionNotice = '';
+      let visionBlock = '';
+      let imageMode = 'inline';
+      if (imageAtts.length > 0) {
+        if (!mainSupportsImage && this.visionDescriber && this.visionDescriber.isConfigured()) {
+          imageMode = 'described';
+          const imagesForVision = [];
+          for (const att of imageAtts) {
+            try {
+              imagesForVision.push({
+                data: fs.readFileSync(att.path).toString('base64'),
+                mimeType: att.mimeType || 'image/png',
+                name: att.name,
+                bytes: fs.statSync(att.path).size,
+              });
+            } catch (err) {
+              console.warn(`[Realm AI] 读取图片附件失败（跳过视觉转写）: ${att.path}`, err.message);
+            }
+          }
+          // describeImages 永不 throw；部分失败时描述块与失败通告并存
+          const visionResult = await this.visionDescriber.describeImages(imagesForVision, message || '');
+          if (visionResult.text) {
+            visionBlock = visionResult.text;
+          }
+          if (visionResult.failedCount > 0) {
+            visionNotice = `（提示：${visionResult.failedCount} 张图片未能转为文字描述——${visionResult.error || '原因未知'}。本轮消息不包含这些图片的内容，请明确告知用户你没有看到图片。）`;
+          }
+          console.log(`[Realm AI] 图片经视觉模型转写: ${imageAtts.length} 张，成功 ${imageAtts.length - visionResult.failedCount} 张`);
+        } else {
+          if (!mainSupportsImage) {
+            imageMode = 'fallback';
+            console.log(`[Realm AI] 主模型被判不支持图片但未配置视觉模型，图片仍原生直发（元数据可能误判，SDK 占位符兜底）`);
+          }
+          for (const att of imageAtts) {
+            try {
+              images.push({
+                type: 'image',
+                data: fs.readFileSync(att.path).toString('base64'),
+                mimeType: att.mimeType || 'image/png',
+              });
+            } catch (err) {
+              console.warn(`[Realm AI] 读取图片附件失败（降级为纯文件引用）: ${att.path}`, err.message);
+            }
           }
         }
       }
+
+      // 构建增强消息：attachment marker 置于最前（先于 tab XML 块——模型先
+      // 看到「有附件及路径」再看引用内容），marker 与正文之间空行分隔。
+      // 图片措辞按通道条件化（inline=原生直发 / fallback=直发但模型可能看不到 /
+      // described=桥接转写），避免「声称已附于消息」却看不到图诱发幻觉
+      const markerBlock = aiAttachments.buildAttachmentMarkers(resolvedAttachments, { imageMode });
+      const contextBlock = this._buildMessageWithContext(message, referencedTabs);
+      const enhancedMessage = [visionNotice, markerBlock, visionBlock, contextBlock]
+        .filter(Boolean)
+        .join('\n\n');
 
       // 调用 agent.prompt（images 为空数组时传 undefined，避免 SDK 端歧义）
       await this.agent.prompt(enhancedMessage, images.length > 0 ? images : undefined);
@@ -1624,6 +1682,12 @@ ${content}
 
       // 重新初始化 Agent
       await this.init(this.configStore);
+
+      // 同步当前对话的元数据（否则对话切换模型后 DB model 列仍停留在
+      // 建行时的旧值，误导后续排查——2026-09-05 ScreenShot 对话事故）
+      if (this.currentConversationId && this.isInitialized) {
+        this.conversationMeta = { model: this.activeModelId, provider: this.activeProvider };
+      }
     }
 
     return { success: true };
@@ -1655,9 +1719,10 @@ ${content}
       const models = customModels.length > 0
         ? customModels.map(id => {
             const cm = catalogModels.find(m => m.id === id);
-            return { id, name: cm ? cm.name : id };
+            // cm 缺失（检测到的 catalog 外模型）时按 ID 正则兜底
+            return { id, name: cm ? cm.name : id, imageCapable: cm ? modelSupportsImage(cm) : modelSupportsImage({ input: ['text'], id }) };
           })
-        : catalogModels.map(m => ({ id: m.id, name: m.name }));
+        : catalogModels.map(m => ({ id: m.id, name: m.name, imageCapable: modelSupportsImage(m) }));
       return {
         id: p.id,
         name: saved && saved.displayName ? saved.displayName : p.name,
@@ -1684,7 +1749,9 @@ ${content}
           configured: hasKey,
           keyPreview: savedKey ? `…${savedKey.slice(-4)}` : null,
           activeModel: saved.model || null,
-          models: saved.customModels ? saved.customModels.map(m => ({ id: m, name: m })) : [],
+          models: saved.customModels
+            ? saved.customModels.map(id => ({ id, name: id, imageCapable: modelSupportsImage({ input: ['text'], id }) }))
+            : [],
           envVarName: saved.envVarName || null,
           isBuiltin: false,
           customModels: saved.customModels || [],
@@ -1701,6 +1768,71 @@ ${content}
         ? providersCfg[activeProvider].model
         : null,
     };
+  }
+
+  /**
+   * 读取视觉专用模型配置（Vision Bridge）
+   *
+   * @returns {{visionModel: {provider: string, model: string}|null, resolved: boolean}}
+   *   resolved = 配置当前可解析出可用的视觉模型（供设置页回显有效性警示）
+   */
+  getVisionModel() {
+    const visionModel = this.configStore ? this.configStore.get('ai.visionModel', null) : null;
+    const resolved = !!(visionModel && this.visionDescriber && this.visionDescriber.isConfigured());
+    return { visionModel: visionModel || null, resolved };
+  }
+
+  /**
+   * 设置视觉专用模型（Vision Bridge）
+   *
+   * 校验通过后写 configStore 键 ai.visionModel = { provider, model }；
+   * 传 { provider: null } 清除配置。
+   *
+   * @param {Object|null} config - { provider, model } 或 null/{provider:null} 清除
+   * @returns {Promise<{success: boolean}>}
+   * @throws {Error} 校验失败（供应商未配置/被禁用/模型不可用）
+   */
+  async setVisionModel(config) {
+    if (!this.configStore) {
+      throw new Error('AI Manager 未初始化');
+    }
+    const provider = config && typeof config.provider === 'string' ? config.provider : null;
+    if (!provider) {
+      this.configStore.delete('ai.visionModel');
+      return { success: true };
+    }
+    const model = config && typeof config.model === 'string' ? config.model : null;
+    if (!model) {
+      throw new Error('视觉模型 ID 不能为空');
+    }
+
+    // 供应商须已配置、Key 可解析（含环境变量回退）且未禁用
+    const providers = this.configStore.get('ai.providers', {});
+    const saved = providers[provider];
+    if (!saved) {
+      throw new Error(`供应商 ${provider} 未配置`);
+    }
+    if (saved.enabled === false) {
+      throw new Error(`供应商 ${provider} 已被禁用，请先启用`);
+    }
+    if (!this._isProviderConfigured(provider, saved)) {
+      throw new Error(`供应商 ${provider} 的 API Key 未配置`);
+    }
+
+    // 模型须在该供应商可解析集合内且具备图片输入能力
+    const available = await this.getAvailableModels();
+    const providerEntry = available.providers.find(p => p.id === provider);
+    const modelEntry = providerEntry && providerEntry.models.find(m => m.id === model);
+    if (!modelEntry) {
+      throw new Error(`模型 ${model} 不在供应商 ${provider} 的可用模型列表中`);
+    }
+    if (!modelEntry.imageCapable) {
+      throw new Error(`模型 ${model} 不支持图片输入，请选择带视觉能力的模型`);
+    }
+
+    this.configStore.set('ai.visionModel', { provider, model });
+    console.log(`[Realm AI] 视觉模型已配置: ${provider}/${model}`);
+    return { success: true };
   }
 
   /**
@@ -2351,6 +2483,13 @@ ${content}
       this.configStore.delete('ai.activeProvider');
     }
 
+    // 清除视觉模型引用（如果是被删供应商）
+    const visionCfg = this.configStore.get('ai.visionModel', null);
+    if (visionCfg && visionCfg.provider === providerId) {
+      this.configStore.delete('ai.visionModel');
+      console.log(`[Realm AI] 视觉模型引用已随供应商删除清除: ${providerId}`);
+    }
+
     console.log(`[Realm AI] 供应商已删除: ${providerId}`);
 
     // 重新初始化（如有其他已配置供应商；判定含环境变量回退）
@@ -2363,6 +2502,7 @@ ${content}
       this.isInitialized = false;
       this.agent = null;
       this.models = null;
+      this.visionDescriber = null;
     }
   }
 

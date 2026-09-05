@@ -426,16 +426,34 @@ async function readImageDataUrl(payload) {
  * 历史恢复后 agent 仍可按路径 re-read 快照。
  *
  * @param {Array<{path: string, name: string, isImage: boolean, isDirectory: boolean}>} attachments
+ * @param {Object} [options]
+ * @param {string} [options.imageMode='inline'] - 图片 marker 措辞模式：
+ *   'inline'（缺省，向后兼容）= 原图已随消息直发（主模型判定支持图片）；
+ *   'described' = 图片已经视觉专用模型转写为文字描述（vision-describer 桥接
+ *   分支，原图未直发）；'fallback' = 原图已直发但主模型被判不支持图片
+ *   （元数据可能误判，实测 mimo 系列支持视觉但目录 input:['text']；真不支持
+ *   时 SDK 会降级为占位符）——措辞中性，要求模型看不了图就如实说、不编造
  * @returns {string} marker 块（空数组返回空串）
  */
-function buildAttachmentMarkers(attachments) {
+function buildAttachmentMarkers(attachments, options = {}) {
+  const imageMode = options && ['described', 'fallback'].includes(options.imageMode)
+    ? options.imageMode
+    : 'inline';
   const list = Array.isArray(attachments) ? attachments : [];
   const lines = [];
   for (const att of list) {
     if (!att || typeof att.path !== 'string' || !att.path) continue;
     const target = att.isDirectory ? `${att.path}/` : att.path;
     if (att.isImage) {
-      lines.push(`[attached_image: ${target}] ${att.name}（图片，已同步附于消息）`);
+      let note;
+      if (imageMode === 'described') {
+        note = '（图片，已由视觉模型转写为文字描述，见下方 <image-descriptions> 块）';
+      } else if (imageMode === 'fallback') {
+        note = '（图片，已随消息附上；若你无法查看图片内容，请如实告知用户你看不到图片，不要猜测或编造图片内容）';
+      } else {
+        note = '（图片，已同步附于消息）';
+      }
+      lines.push(`[attached_image: ${target}] ${att.name}${note}`);
     } else if (att.isDirectory) {
       lines.push(`[attached_file: ${target}] ${att.name}/（目录，可递归读取）`);
     } else {

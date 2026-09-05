@@ -1401,6 +1401,28 @@ app.whenReady().then(async () => {
 
       // ==================== 供应商管理 API ====================
 
+      // GET /api/ai/vision-model — 读取视觉专用模型配置（含有效性）
+      if (route === 'ai/vision-model' && req.method === 'GET') {
+        if (!aiManager) {
+          sendJson(res, 200, { visionModel: null, resolved: false });
+          return;
+        }
+        sendJson(res, 200, aiManager.getVisionModel());
+        return;
+      }
+
+      // POST /api/ai/vision-model — 设置视觉专用模型（{provider,model}；{provider:null} 清除）
+      if (route === 'ai/vision-model' && req.method === 'POST') {
+        if (!aiManager) {
+          sendJson(res, 500, { error: 'AI Manager 未初始化' });
+          return;
+        }
+        const config = await readJsonBody(req);
+        await aiManager.setVisionModel(config);
+        sendJson(res, 200, { success: true });
+        return;
+      }
+
       // GET /api/ai/providers — 获取已配置供应商列表（含 envVarName、isBuiltin）
       if (route === 'ai/providers' && req.method === 'GET') {
         if (!aiManager) {

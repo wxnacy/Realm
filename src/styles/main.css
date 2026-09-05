@@ -9786,6 +9786,18 @@ textarea::placeholder {
   margin-bottom: 12px;
 }
 
+/* 视觉专用模型（Vision Bridge）设置卡片 */
+.ai-vision-model-select {
+  max-width: 420px;
+}
+
+.ai-vision-warn {
+  display: none;
+  margin-top: 8px;
+  font-size: 13px;
+  color: #b45309;
+}
+
 .ai-memory-textarea {
   width: 100%;
   min-height: 200px;

@@ -129,6 +129,43 @@ describe('buildAttachmentMarkers marker 文本', () => {
     assert.strictEqual(manager.buildAttachmentMarkers([{ path: '', name: 'x' }]), '');
     assert.strictEqual(manager.buildAttachmentMarkers([{ name: 'no-path' }]), '');
   });
+
+  test('imageMode=fallback: 中性措辞要求模型如实说看不到，不谎称已附于消息', () => {
+    const atts = [
+      { path: '/w/attachments/a.png', name: 'a.png', isImage: true, isDirectory: false },
+    ];
+    const out = manager.buildAttachmentMarkers(atts, { imageMode: 'fallback' });
+    const line = out.split('\n')[0];
+    // 中性措辞：不谎称「已同步附于消息」，也不承诺「已转写」
+    assert.ok(line.includes('已随消息附上'));
+    assert.ok(line.includes('不要猜测或编造'));
+    assert.ok(!line.includes('已同步附于消息'));
+    assert.ok(!line.includes('视觉模型转写'));
+  });
+
+  test('imageMode=described: 图片措辞改为视觉转写，缺省措辞回归不变', () => {
+    const atts = [
+      { path: '/w/attachments/a.png', name: 'a.png', isImage: true, isDirectory: false },
+      { path: '/w/attachments/b.pdf', name: 'b.pdf', isImage: false, isDirectory: false },
+    ];
+    const described = manager.buildAttachmentMarkers(atts, { imageMode: 'described' });
+    const describedLines = described.split('\n');
+    assert.ok(describedLines[0].includes('已由视觉模型转写为文字描述'));
+    assert.ok(describedLines[0].includes('<image-descriptions>'));
+    assert.ok(!describedLines[0].includes('已同步附于消息'));
+    // 非图片附件措辞不受 imageMode 影响
+    assert.ok(describedLines[1].startsWith('[attached_file: /w/attachments/b.pdf] b.pdf'));
+
+    // 缺省（inline）与显式 inline 均维持现状文案
+    for (const out of [
+      manager.buildAttachmentMarkers(atts),
+      manager.buildAttachmentMarkers(atts, {}),
+      manager.buildAttachmentMarkers(atts, { imageMode: 'inline' }),
+    ]) {
+      assert.ok(out.split('\n')[0].includes('已同步附于消息'));
+      assert.ok(!out.includes('视觉模型'));
+    }
+  });
 });
 
 describe('registerFiles 集成', () => {

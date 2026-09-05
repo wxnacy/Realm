@@ -116,6 +116,7 @@ const windowContainerMap = new Map();
 | 文件 | 说明 |
 |------|------|
 | ai-manager.js | AI Agent 管理器，基于 pi-agent-core SDK，LLM 连接、工具注册、对话状态 |
+| vision-describer.js | 视觉专用模型描述器（Vision Bridge）：主模型不支持图片时把附件图片经 ai.visionModel 配置的视觉模型转写为文字描述 |
 | ai-attachments-manager.js | AI 聊天附件管理：拖拽/粘贴文件复制快照进 agent-workspace/attachments/、sourceKey 去重、marker 文本构建 |
 | cdp-manager.js | CDP 调试器管理器，Network 域抓包、AI 工具调试器管理 |
 | ua-ch-manager.js | UA Client Hints 覆盖（CDP Network.setUserAgentOverride） |
@@ -251,7 +252,7 @@ window.open(url, '_blank');
 
 AI 助手接入了 pi-agent-core 的 4 个内置工具（`read`/`write`/`edit`/`bash`），配套 agent 工作区与三档权限（方案见 [docs/plan/ai-file-bash-tools-integration.md](docs/plan/ai-file-bash-tools-integration.md)）。
 
-**维护约定（与导航入口清单同款）**：本功能的产品说明权威文档是 **[docs/product/ai-agent-workspace.md](docs/product/ai-agent-workspace.md)**。以后修改工具能力、权限分档、白名单匹配语义、确认流程、沙箱边界、工作区目录结构等行为时，**必须同步更新该产品文档**，保持说明与实际行为一致。聊天附件功能（拖拽/粘贴文件图片进聊天框）的产品说明见 **[docs/product/ai-chat-attachments.md](docs/product/ai-chat-attachments.md)**，修改附件交互/快照语义/vision 通道/持久化时须同步更新。本小节只记实现要点。
+**维护约定（与导航入口清单同款）**：本功能的产品说明权威文档是 **[docs/product/ai-agent-workspace.md](docs/product/ai-agent-workspace.md)**。以后修改工具能力、权限分档、白名单匹配语义、确认流程、沙箱边界、工作区目录结构等行为时，**必须同步更新该产品文档**，保持说明与实际行为一致。聊天附件功能（拖拽/粘贴文件图片进聊天框）的产品说明见 **[docs/product/ai-chat-attachments.md](docs/product/ai-chat-attachments.md)**，修改附件交互/快照语义/vision 通道/持久化时须同步更新；其中**视觉桥（Vision Bridge）**——主模型不支持图片时由视觉专用模型（`ai.visionModel` 配置，`vision-describer.js`）把附件图片转写为文字描述——的触发条件/注入格式/降级行为变更同样须同步该文档。本小节只记实现要点。
 
 - **agent 根目录** `userData/agent-workspace/`：AI 落盘数据统一收纳。`ai-memory/`（记忆，由 `ai-memory-manager.getBaseDir` 指向，启动时从旧 `userData/ai-memory/` 一次性迁移且旧目录保留不删）、`.tmp/`（bash 截断全量输出等临时文件，SDK `createTempDir/createTempFile` 被重定向到此）
 - **硬沙箱**（`agent-workspace.js` 的 `createSandboxEnv`）：包装 `NodeExecutionEnv` 覆写**全部** FileSystem 方法 + exec——任何漏包的路径入口就是逃逸口。路径校验 `resolveInside` 双基准（root + root 的 realpath，macOS /var → /private/var 必须放行）+ 已存在路径 realpath 复核（防 symlink 二段式逃逸）。拒绝返回 `FileError('permission_denied')` 不 throw（SDK FileSystem 契约），SDK 工具内部 getOrThrow 会转 throw → agent loop 编码为 isError toolResult

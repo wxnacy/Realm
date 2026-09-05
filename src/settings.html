@@ -518,6 +518,17 @@
             <div class="whitelist-hint" id="aiBashWhitelistHint">白名单为空，所有 Bash 命令都需确认</div>
           </div>
         </div>
+        <!-- 视觉专用模型（主模型无 vision 时的图片转写；下拉即改即存） -->
+        <div class="settings-group ai-vision-section">
+          <div class="settings-group-header">
+            <h2 class="settings-group-title">视觉模型（图片转文字描述）</h2>
+          </div>
+          <div class="settings-group-content">
+            <p class="setting-description">当前对话模型不支持图片输入时，聊天里的图片附件会先经此模型转写为文字描述再交给主模型；支持图片的模型不受影响，仍直接看图。下拉只列出支持图片输入的模型，留空则图片仅以文件路径形式提供（由 AI 自行读取）。</p>
+            <select id="aiVisionModelSelect" class="settings-select ai-vision-model-select" aria-label="视觉专用模型"></select>
+            <div class="ai-vision-warn" id="aiVisionModelWarn">已配置的视觉模型当前不可用（供应商被禁用、Key 失效或模型已移除）</div>
+          </div>
+        </div>
       </section>
 
       <!-- 多媒体设置页面 -->
