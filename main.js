@@ -2907,6 +2907,12 @@ app.whenReady().then(async () => {
   //（参照 handleProxyRequest 的 Referer/UA/容器 session 语义）；recordRoot 独立于
   // 缓存库（userData/media-records，D-23 不参与容量淘汰）。注入 ipc-handlers 供
   // player:record/* 通道与播放器窗口 close 拦截使用
+  //
+  // 录制根目录常量（CR-03 单一来源）：media-record-engine 注入值与此处唯一字面量，
+  // readRecordTaskSegments 的 outputPath 缺失补算（path.join(RECORD_ROOT, task.id)）同源，
+  // 杜绝引擎写目录与补算回退两处漂移
+  const RECORD_ROOT = path.join(app.getPath('userData'), 'media-records');
+
   const recordEngine = createRecordEngine({
     fetchPage: async (url, { referer, containerId } = {}) => {
       const { session } = require('electron');
@@ -2920,7 +2926,7 @@ app.whenReady().then(async () => {
       return Buffer.from(await resp.arrayBuffer());
     },
     taskManager: mediaTaskManager,
-    recordRoot: path.join(app.getPath('userData'), 'media-records'),
+    recordRoot: RECORD_ROOT,
     maxConcurrent: 2,
     maxRetries: 5,
   });
@@ -2940,12 +2946,23 @@ app.whenReady().then(async () => {
 
   /**
    * 读取 record 任务的录制目录分片列表（D-18 崩溃保留 + D-22 接力 + 续转共用）
-   * @param {Object} task - record 任务快照（outputPath = recordRoot/<taskId>）
+   * @param {Object} task - record 任务快照（outputPath = recordRoot/<taskId>；
+   *   outputPath 缺失的 interrupted/failed 恢复快照按 path.join(RECORD_ROOT, task.id) 补算——CR-03）
    * @returns {{ segmentPaths: string[], meta: Object }|null} 分片绝对路径列表与索引；无可用分片返回 null
    */
   function readRecordTaskSegments(task) {
-    const recordDir = task.outputPath;
-    if (!recordDir || typeof recordDir !== 'string') return null;
+    // CR-03 目录补算：completed 任务沿用引擎 stopRecord/completeTask 写下的 outputPath；
+    // interrupted/failed 恢复快照不带 outputPath（registerTask 初始值为空、终态才落库，
+    // 见 media-task-manager restoreTasks）——按 path.join(RECORD_ROOT, task.id) 补算
+    // taskId→录制目录映射（meta.json 崩溃前已落盘在 RECORD_ROOT/<taskId>/）。
+    // 补算前 task.id 过 uuid 形态白名单（media-tasks.json 可被本地篡改，防补算路径穿越；
+    // registerTask 用 crypto.randomUUID 生成，天然命中该白名单）。
+    let recordDir = task && typeof task.outputPath === 'string' && task.outputPath ? task.outputPath : null;
+    if (!recordDir) {
+      const tid = task && task.id;
+      if (typeof tid !== 'string' || !/^[0-9a-fA-F-]{8,64}$/.test(tid)) return null;
+      recordDir = path.join(RECORD_ROOT, tid);
+    }
     const metaPath = path.join(recordDir, 'meta.json');
     if (!fs.existsSync(metaPath)) return null;
     let meta;
