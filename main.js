@@ -3916,6 +3916,8 @@ app.on('window-all-closed', () => {
 // QUIT_CONFIRM_WINDOW_MS 内再次按下才真正进入退出流程
 let cookiesSaved = false;
 let quitting = false;
+// D-19 退出确认已通过标志：确认后重入 before-quit 不再重复弹窗
+let quitConfirmed = false;
 let quitConfirmAt = 0;
 const QUIT_CONFIRM_WINDOW_MS = 3000;
 
@@ -3938,6 +3940,28 @@ app.on('before-quit', async (event) => {
   // 窗口期内第二次按下：进入退出流程
   quitting = true;
   console.log('[Realm] 应用退出，保存 Cookie...');
+
+  // Phase 44 D-19：应用退出遇活跃录制任务弹确认（在 Cookie 保存之前）。
+  // 确认后 quitConfirmed 置位，照常走下方既有退出协程（窗口关闭 → 录制随进程
+  // 终止 → 下次启动 restoreTasks 标记 interrupted，D-18 崩溃语义兜底）；取消则
+  // 解除退出锁留在应用。不额外 setImmediate(app.quit()) 重启 quit——直接续走
+  // 本协程末尾既有的 setImmediate(() => app.quit()) 跳出模式
+  if (!quitConfirmed && mediaTaskManager && mediaTaskManager.hasActiveTasks()) {
+    const { response } = await dialog.showMessageBox({
+      type: 'question',
+      buttons: ['退出', '取消'],
+      defaultId: 0,
+      cancelId: 1,
+      message: '有正在进行的录制任务，退出将中断录制。确定退出吗？',
+      noLink: true,
+    });
+    if (response !== 0) {
+      quitting = false;
+      console.log('[Realm] 用户取消退出（存在活跃录制任务）');
+      return;
+    }
+    quitConfirmed = true;
+  }
 
   // 保存所有窗口的位置和大小（Phase 36 Plan 01）
   // 使用 BrowserWindow.getAllWindows() 遍历，避免 windowContainerMap 未导出导致 TypeError
