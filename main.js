@@ -157,6 +157,12 @@ let mediaTasksPath = null;
 let lastPersistedStatuses = new Map();
 let lastRunningCount = -1;
 
+// convert 任务取消信号注册表（CR-04）：convert taskId -> () => void
+// /api/tasks/cancel 对 running convert 任务经此触发协作式取消——置位 startConvertTask
+// 注册的 shouldCancel 闭包，convertToMp4 每分片迭代检查后以 reason='cancelled' 中止；
+// 实际终态（cancelled）由转码 promise 链 .catch 分支异步落定，令牌在 .finally 注销防泄漏
+const convertCancelTokens = new Map();
+
 // AI Manager 实例（在 app.whenReady 中初始化，供后续 Phase 通过 require('./main').aiManager 访问）
 let aiManager = null;
 
@@ -2149,7 +2155,16 @@ app.whenReady().then(async () => {
         return;
       }
 
-      // POST /api/tasks/cancel — 取消任务（仅 running 可取消，非法流转 400）
+      // POST /api/tasks/cancel — 取消任务（任务页「停止」；仅 running 可取消，非法流转 400）
+      // CR-04 分派语义：running record/convert 必须真实停止，状态标记只在引擎/转码已停后落定——
+      //   record（running）→ recordEngine.stopRecord（与红点停止同原语：停轮询 + 写 meta.json +
+      //     completeTask 落 completed，D-22 record→convert 接力随之触发；not_found 且回读仍
+      //     running 才 cancelTask 兜底，已终态返回 200 当前态不二次流转）
+      //   convert（running）→ convertCancelTokens 触发协作式取消信号（startConvertTask 注册的
+      //     shouldCancel 闭包），转码循环检查后以 reason='cancelled' 中止并清理半成品，
+      //     终态由 promise 链 .catch 分支落 cancelled（此处只发信号不等转码循环）
+      //   status 标记（cancelTask）仅覆盖：非 running 取消（维持 400 非法流转）、引擎已停后兜底、
+      //     非 record/convert 类型
       if (route === 'cancel' && req.method === 'POST') {
         const { taskId } = await readJsonBody(req);
         if (!mediaTaskManager) {
@@ -2161,6 +2176,56 @@ app.whenReady().then(async () => {
           return;
         }
         try {
+          const existing = (mediaTaskManager.listTasks() || []).find((t) => t.id === taskId);
+          if (!existing) {
+            sendJson(res, 404, { success: false, error: '任务不存在' });
+            return;
+          }
+          if (existing.status !== 'running') {
+            // 非 running 取消请求：维持旧语义——cancelTask 抛非法流转 → 400（行为不回归）
+            const task = mediaTaskManager.cancelTask(taskId, '用户取消');
+            sendJson(res, 200, { success: true, task });
+            return;
+          }
+          if (existing.type === 'record') {
+            // running record：引擎停止原语（CR-04 核心——任务页「停止」= 真实停录）
+            const r = await recordEngine.stopRecord(taskId);
+            if (r && r.ok) {
+              sendJson(res, 200, { success: true, task: r.task, stopped: 'record-engine' });
+              return;
+            }
+            if (!r || r.reason === 'not_found') {
+              // 引擎 active Map 已无此任务（刚被引擎侧自然完成/失败，或并发竞态）：
+              // 回读注册表——仍 running 才 cancelTask 兜底防悬挂；已终态返回 200 当前态
+              const fresh = (mediaTaskManager.listTasks() || []).find((t) => t.id === taskId);
+              if (fresh && fresh.status === 'running') {
+                try {
+                  const task = mediaTaskManager.cancelTask(taskId, '用户取消');
+                  sendJson(res, 200, { success: true, task });
+                } catch (err2) {
+                  sendJson(res, 400, { success: false, error: err2.message });
+                }
+              } else {
+                sendJson(res, 200, { success: true, task: fresh || existing, note: 'already-stopped' });
+              }
+              return;
+            }
+            // 引擎其他错误（completeTask 非法流转等）→ 400
+            sendJson(res, 400, { success: false, error: r.reason || '停止录制失败' });
+            return;
+          }
+          if (existing.type === 'convert') {
+            // running convert：触发协作式取消信号（转码循环取消检查后异步落 cancelled）
+            const stop = convertCancelTokens.get(taskId);
+            if (typeof stop === 'function') {
+              try {
+                stop();
+              } catch { /* 信号回调异常忽略——终态仍由 .catch 分支尝试落定 */ }
+            }
+            sendJson(res, 200, { success: true, task: existing, note: 'stop-signalled' });
+            return;
+          }
+          // 其他类型回落原语义（cancelTask 状态标记）
           const task = mediaTaskManager.cancelTask(taskId, '用户取消');
           sendJson(res, 200, { success: true, task });
         } catch (err) {
