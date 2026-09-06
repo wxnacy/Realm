@@ -5,16 +5,16 @@ milestone_name: AI 网络搜索功能
 current_phase: 44
 current_phase_name: 播放器视频缓存与本地媒体库
 status: executing
-stopped_at: Completed 44-01-PLAN.md
-last_updated: "2026-09-06T11:15:39.880Z"
+stopped_at: Completed 44-02-PLAN.md
+last_updated: "2026-09-06T11:25:54.653Z"
 last_activity: 2026-09-06
 last_activity_desc: Phase 44 execution started
-state_head: ab2e500cb21bdf00c31c7c42e8c4131111ba0f1b
+state_head: 46e195b00263e0ff6adfa264f5b709193a039935
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 21
-  completed_plans: 17
+  completed_plans: 18
   percent: 80
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 44 (播放器视频缓存与本地媒体库) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-09-06 — Phase 44 execution started
 
@@ -70,6 +70,7 @@ Progress: [████████░░] 80%
 | Phase 43 P04 | 9 min | 2 tasks | 2 files |
 | Phase 43 P05 | 7min | 2 tasks | 1 files |
 | Phase 44 P01 | 24min | 3 tasks | 8 files |
+| Phase 44 P02 | 6min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -99,6 +100,7 @@ Recent decisions affecting current work:
 - [Phase 43]: eval 失败修正只改规则文本不改 fixture 断言；43-04 第 1 轮 13/14 后补正向层级路由，第 2 轮 14/14 — fixture 是验收基准；critical-path-02 失败根因是快照缺正向层级归属指引致模型默认落 user 层
 - [Phase 43]: G-43-2 成功提示守卫：updateAiMemoryCount hint 联动段短路（!over return），字数/按钮更新先行不受影响；超限优先清守卫走 danger（T-43-09） — finally 结构不动，改动面最小；2 秒回调无条件复位守卫无残留路径
 - [Phase 44]: Phase 44 P01: 分片→视频归属用 vid 参数（m3u8 videoId 经 rewrite 注入子请求），无全局索引文件（裁量区）；整片 buffer 收集后写盘（64MB 上限）使 ENOSPC 强淘重试内聚；cache 标记仅 cache=1 请求展开为 cache+vid，webview tab 流量不进缓存分支（D-01）；新增 player:resume-position 续播点查通道；淘汰豁免双通道（isVideoActive 注入回调 + exemptVideoIds 防强淘误删在写目录）
+- [Phase 44]: Phase 44 P02: media-task-manager restoreTasks 按 T-44-05 字段类型白名单校验（未知字段丢弃/非法条目跳过/坏 JSON 返回空数组）；persist 异常吞掉仅告警不阻断状态机；isVideoActive(playbackKey) 为 D-07 豁免查询源契约，注册表不反向依赖 media-cache-manager
 
 ### Roadmap Evolution
 
@@ -127,6 +129,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T11:15:39.732Z
-Stopped at: Completed 44-01-PLAN.md
+Last session: 2026-09-06T11:25:47.657Z
+Stopped at: Completed 44-02-PLAN.md
 Resume file: None
