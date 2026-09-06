@@ -9210,6 +9210,44 @@ textarea::placeholder {
   gap: 8px;
 }
 
+/* ==================== 主窗口媒体任务角标（Phase 44 D-26，UI-SPEC Component #9） ==================== */
+
+.media-task-btn {
+  position: relative;
+}
+
+.media-task-btn.hidden {
+  display: none;
+}
+
+/* 8px 圆点 + 数字（活跃任务数 > 0 显示，归零消失），accent 色（UI-SPEC accent reserved list） */
+.media-task-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--accent-color);
+  color: white;
+  font-size: 10px;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.media-task-badge.hidden {
+  display: none;
+}
+
+/* 设置页视频缓存分区：目录路径任意断行（长路径不溢出） */
+.media-cache-dir-path {
+  word-break: break-all;
+}
+
 /* ==================== 凭据保存横幅 ==================== */
 
 .credential-save-banner {

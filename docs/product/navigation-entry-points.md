@@ -52,6 +52,8 @@ openUrl(url, {
 | 收藏「全部打开」 | renderer.js `bookmarks-bar:open-all` IPC | 循环 `background-tab` + `explicitContainerId: 当前容器`（整组收藏不拆容器），完成后切到首个新 tab |
 | OS 外部链接（SETT-03） | renderer.js `onExternalUrlOpen` | `new-tab` + `explicitContainerId: data.containerId`（null='last-used' → 漏斗内查规则） |
 | guest window.open 拦截转发（D-09） | renderer.js `handleOpenUrlInTab` | 容器三级解析段（规则结果 > guestId 反查 partition > currentContainer）原样保留，末尾改 `new-tab` + `explicitContainerId: 解析结果`（主进程已 matchUrl，null 时漏斗内兜底再查） |
+| 主窗口媒体任务角标点击（Phase 44 D-26） | renderer.js `initMediaTaskBadge` | `current-tab`（`openUrl('realm://tasks')`；无活动 tab 时自然落到 new-tab 分支；realm:// 内部 URL 豁免规则匹配，无容器参数） |
+| 设置页多媒体分区「任务列表」按钮（Phase 44 D-26） | src/settings-page.js `mediaTasksListBtn` | guest `window.open('realm://tasks', '_blank')` → main.js `setWindowOpenHandler` → `handleOpenUrlInTab` → `new-tab`（realm:// 内部 URL 豁免规则匹配，tab 归属来源容器，无容器参数） |
 
 ## 三、主进程入口（✅ 已接入规则）
 

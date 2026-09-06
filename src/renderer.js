@@ -4202,6 +4202,9 @@ async function init() {
   // 初始化媒体面板（监听更新 + 初始加载）
   initMediaPanel();
 
+  // 初始化媒体任务角标（Phase 44 D-26：活跃录制/转封装任务被动提醒）
+  initMediaTaskBadge();
+
   // 初始化下载管理 UI
   initDownloads();
 
@@ -10507,6 +10510,50 @@ function initMediaPanel() {
 
   // 初始加载
   loadMediaList();
+}
+
+// ==================== 媒体任务角标（Phase 44 D-26） ====================
+
+/**
+ * 更新媒体任务角标显隐与数字
+ * 活跃任务数 > 0 显示（可带数字），归零隐藏（UI-SPEC zero-one-many：
+ * 多任务点击统一跳任务页，不逐个弹出）
+ * @param {number} count - 活跃任务数
+ */
+function updateMediaTaskBadge(count) {
+  const btn = document.getElementById('mediaTaskBtn');
+  const badge = document.getElementById('mediaTaskBadge');
+  if (!btn || !badge) return;
+
+  if (count > 0) {
+    badge.textContent = count > 99 ? '99+' : String(count);
+    badge.classList.remove('hidden');
+    btn.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+    btn.classList.add('hidden');
+  }
+}
+
+/**
+ * 初始化媒体任务角标
+ * 监听主进程 media-task:count-changed 广播（经 preload realmAPI IPC，
+ * 主窗口不得 fetch HTTP——Phase 38 事故约定）；点击经 openUrl('realm://tasks')
+ * 收敛统一导航入口
+ */
+function initMediaTaskBadge() {
+  const btn = document.getElementById('mediaTaskBtn');
+  if (!btn) return;
+
+  btn.addEventListener('click', () => {
+    openUrl('realm://tasks');
+  });
+
+  if (window.realmAPI && window.realmAPI.onMediaTaskCountChanged) {
+    window.realmAPI.onMediaTaskCountChanged((data) => {
+      updateMediaTaskBadge((data && data.count) || 0);
+    });
+  }
 }
 
 /**

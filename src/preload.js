@@ -1528,6 +1528,24 @@ contextBridge.exposeInMainWorld('mediaAPI', {
     ipcRenderer.on('media:list-updated', handler);
     return () => ipcRenderer.removeListener('media:list-updated', handler);
   },
+
+  /**
+   * 监听媒体任务活跃数变化（主窗口任务角标数据源，Phase 44 D-26）
+   * @param {Function} callback - 回调函数，参数为 { count }
+   * @returns {Function} 取消监听的清理函数
+   */
+  onMediaTaskCountChanged: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('media-task:count-changed', handler);
+    return () => ipcRenderer.removeListener('media-task:count-changed', handler);
+  },
+
+  /**
+   * 弹出系统目录选择对话框选取媒体缓存目录（Phase 44 D-05，T-44-08：
+   * 缓存目录仅经 dialog 选取，不手输）
+   * @returns {Promise<{success: boolean, path: string|null}>}
+   */
+  chooseCacheDir: () => ipcRenderer.invoke('settings:choose-cache-dir'),
 });
 
 // ==================== 播放器窗口 API ====================

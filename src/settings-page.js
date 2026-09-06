@@ -257,6 +257,12 @@ const elements = {
   whitelistTags: document.getElementById('whitelistTags'),
   whitelistHint: document.getElementById('whitelistHint'),
 
+  // 视频缓存设置（Phase 44 D-05/D-06/D-26）
+  mediaCacheDirPath: document.getElementById('mediaCacheDirPath'),
+  chooseCacheDirBtn: document.getElementById('chooseCacheDirBtn'),
+  mediaCacheMaxGB: document.getElementById('mediaCacheMaxGB'),
+  mediaTasksListBtn: document.getElementById('mediaTasksListBtn'),
+
   // 开发者模式
   devModeToggle: document.getElementById('devModeToggle'),
   devModeSection: document.getElementById('devModeSection'),
@@ -422,6 +428,17 @@ async function loadSettings() {
         enabled: settings.mediaPlayer.enabled || false,
         whitelist: settings.mediaPlayer.whitelist || [],
       };
+    }
+
+    // 视频缓存设置（Phase 44 D-05/D-06：缓存目录只读展示 + 容量上限）
+    if (elements.mediaCacheDirPath) {
+      const cacheDir = settings.cacheDir || '';
+      elements.mediaCacheDirPath.textContent = cacheDir || '默认（用户数据目录/media-cache）';
+      elements.mediaCacheDirPath.title = cacheDir || '默认（用户数据目录/media-cache）';
+    }
+    if (elements.mediaCacheMaxGB) {
+      const maxGB = Number(settings.cacheMaxGB);
+      elements.mediaCacheMaxGB.value = (Number.isInteger(maxGB) && maxGB >= 1 && maxGB <= 1024) ? maxGB : 10;
     }
 
     // Vim 模式设置
@@ -1321,6 +1338,50 @@ function setupEventListeners() {
         e.preventDefault();
         addWhitelistDomain(elements.whitelistDomainInput.value);
       }
+    });
+  }
+
+  // ==================== 视频缓存设置事件（Phase 44 D-05/D-06/D-26） ====================
+
+  // 更改缓存目录：调主进程目录选择框（不手输路径，T-44-08），选中即写即生效
+  if (elements.chooseCacheDirBtn) {
+    elements.chooseCacheDirBtn.addEventListener('click', async () => {
+      try {
+        const res = await settingsApi('choose-cache-dir', { method: 'POST' });
+        if (res.success && res.path) {
+          state.settings.cacheDir = res.path;
+          if (elements.mediaCacheDirPath) {
+            elements.mediaCacheDirPath.textContent = res.path;
+            elements.mediaCacheDirPath.title = res.path;
+          }
+          showToast('缓存目录已更新');
+        }
+      } catch (error) {
+        console.error('[Realm] 更改缓存目录失败:', error);
+        showToast(error.message || '更改目录失败，请重试');
+      }
+    });
+  }
+
+  // 缓存上限即改即存（前端校验 1-1024 整数，非法回退默认 10——T-44-09）
+  if (elements.mediaCacheMaxGB) {
+    elements.mediaCacheMaxGB.addEventListener('change', () => {
+      const n = parseInt(elements.mediaCacheMaxGB.value, 10);
+      if (!Number.isInteger(n) || n < 1 || n > 1024) {
+        showToast('缓存上限必须为 1-1024 的整数，已回退默认 10GB');
+        elements.mediaCacheMaxGB.value = 10;
+        saveSettings('cacheMaxGB', 10);
+        return;
+      }
+      saveSettings('cacheMaxGB', n);
+    });
+  }
+
+  // 任务列表入口 → realm://tasks（D-26；window.open 经 setWindowOpenHandler
+  // → open-url-in-tab 通道收敛到 renderer openUrl 统一导航入口）
+  if (elements.mediaTasksListBtn) {
+    elements.mediaTasksListBtn.addEventListener('click', () => {
+      window.open('realm://tasks', '_blank');
     });
   }
 }

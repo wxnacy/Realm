@@ -1313,11 +1313,26 @@ app.whenReady().then(async () => {
               return;
             }
           }
+          // 缓存上限服务端校验（T-44-09：1-1024 整数，非法拒绝）
+          if (key === 'cacheMaxGB') {
+            const n = Number(value);
+            if (!Number.isInteger(n) || n < 1 || n > 1024) {
+              sendJson(res, 400, { error: '缓存上限必须为 1-1024 的整数' });
+              return;
+            }
+          }
           configStore.set(`settings.${key}`, value);
         }
         // 设置页在 webview 内通过 HTTP 写入，主进程需主动通知所有窗口 renderer 刷新（closing UAT gap G-29-6）
         const changedKeys = Object.keys(updates);
         windowManager.broadcast('settings:updated', changedKeys);
+        // 缓存上限即改即存：直接更新运行中 manager 的容量（D-06）
+        if (changedKeys.includes('cacheMaxGB') && mediaCache) {
+          const gb = Number(updates.cacheMaxGB);
+          if (Number.isInteger(gb) && gb >= 1 && gb <= 1024) {
+            mediaCache.capacityBytes = gb * 1024 * 1024 * 1024;
+          }
+        }
         // 同步主题到 nativeTheme（影响 DevTools 主题）
         if (changedKeys.includes('theme')) {
           const theme = updates.theme;
@@ -1337,6 +1352,31 @@ app.whenReady().then(async () => {
         // 默认浏览器 = http/https 协议的系统默认处理器
         const isDefault = app.isDefaultProtocolClient('http') && app.isDefaultProtocolClient('https');
         sendJson(res, 200, { isDefault });
+        return;
+      }
+
+      // POST /api/settings/choose-cache-dir — 弹目录选择框并写入 settings.cacheDir
+      // （Phase 44 D-05/T-44-08：缓存目录仅经 dialog 选取不手输；设置页运行在
+      // webview guest 内无 realmAPI，经 token 鉴权的 HTTP 端点触发主进程 dialog）
+      if (route === 'choose-cache-dir' && req.method === 'POST') {
+        try {
+          const result = await dialog.showOpenDialog({
+            title: '选择媒体缓存目录',
+            properties: ['openDirectory', 'createDirectory'],
+            defaultPath: configStore.get('settings.cacheDir', path.join(app.getPath('userData'), 'media-cache')),
+          });
+          if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length === 0) {
+            sendJson(res, 200, { success: true, path: null });
+            return;
+          }
+          const dir = result.filePaths[0];
+          configStore.set('settings.cacheDir', dir);
+          rebuildMediaCache();
+          sendJson(res, 200, { success: true, path: dir });
+        } catch (err) {
+          console.error('[Realm] 选择缓存目录失败:', err.message);
+          sendJson(res, 500, { success: false, error: err.message });
+        }
         return;
       }
 
@@ -2756,12 +2796,36 @@ app.whenReady().then(async () => {
     console.warn('[Realm] 媒体任务恢复失败（以空注册表启动）:', err.message);
   }
 
-  // Phase 44 D-03/D-05：媒体分片磁盘缓存初始化（默认 userData/media-cache，
-  // 三环境 userData 隔离自动生效；容量默认 10GB，设置页后续可改）
-  mediaCache = new MediaCacheManager({
-    cacheRoot: configStore.get('settings.mediaCachePath', path.join(app.getPath('userData'), 'media-cache')),
-    capacityBytes: configStore.get('settings.mediaCacheCapacityBytes', 10 * 1024 * 1024 * 1024),
-  });
+  // Phase 44 D-05/D-06：媒体缓存构造参数从设置读取（settings.cacheDir 缺省
+  // userData/media-cache、settings.cacheMaxGB 缺省 10，T-44-09 主进程侧缺省回退）；
+  // isVideoActive 接 mediaTaskManager（D-07：running 录制/转换任务对应视频淘汰豁免）
+  function buildMediaCacheOptions() {
+    const cacheMaxGB = configStore.get('settings.cacheMaxGB', 10);
+    const gb = (Number.isInteger(cacheMaxGB) && cacheMaxGB >= 1 && cacheMaxGB <= 1024) ? cacheMaxGB : 10;
+    return {
+      cacheRoot: configStore.get('settings.cacheDir', path.join(app.getPath('userData'), 'media-cache')),
+      capacityBytes: gb * 1024 * 1024 * 1024,
+      isVideoActive: (playbackKey) => {
+        try {
+          return mediaTaskManager ? mediaTaskManager.isVideoActive(playbackKey) : false;
+        } catch {
+          return false;
+        }
+      },
+    };
+  }
+
+  /**
+   * 重建媒体缓存管理器（设置页更改缓存目录后调用）
+   * 旧缓存目录保留不删（D-05），新目录同样注入 cacheRoot/capacityBytes/isVideoActive
+   */
+  function rebuildMediaCache() {
+    mediaCache = new MediaCacheManager(buildMediaCacheOptions());
+    setMediaCaches({ mediaCache, playerHistory: playerHistoryManager });
+    console.log(`[Realm] 媒体缓存已重建: ${mediaCache.cacheRoot}`);
+  }
+
+  mediaCache = new MediaCacheManager(buildMediaCacheOptions());
   console.log(`[Realm] 媒体缓存已初始化: ${mediaCache.cacheRoot}`);
 
   // Phase 44 D-11：播放器观看历史（独立小库，playback_key 主键 upsert，
@@ -2792,6 +2856,29 @@ app.whenReady().then(async () => {
     }
     return win;
   }
+
+  // Phase 44 D-05/T-44-08：缓存目录仅经 dialog.showOpenDialog 选取（不手输），
+  // 选中即写 settings.cacheDir 并重建 media-cache-manager（旧目录保留不删）
+  ipcMain.handle('settings:choose-cache-dir', async (event) => {
+    try {
+      const win = assertTrustedSender(event);
+      const result = await dialog.showOpenDialog(win, {
+        title: '选择媒体缓存目录',
+        properties: ['openDirectory', 'createDirectory'],
+        defaultPath: configStore.get('settings.cacheDir', path.join(app.getPath('userData'), 'media-cache')),
+      });
+      if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length === 0) {
+        return { success: true, path: null };
+      }
+      const dir = result.filePaths[0];
+      configStore.set('settings.cacheDir', dir);
+      rebuildMediaCache();
+      return { success: true, path: dir };
+    } catch (err) {
+      console.error('[Realm] 选择缓存目录失败:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
 
   // ==================== 右键菜单 IPC 监听器 ====================
 
