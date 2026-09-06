@@ -9,6 +9,7 @@
  * - D-08：写盘 ENOSPC → 强制淘汰一轮 → 重试；仍失败返回 disk_full
  * - D-10：已登记分片再次 store 跳过不重写（增量续存）
  * - T-44-01/T-44-02：路径安全（videoId 白名单 + symlink 逃逸拒绝）
+ * - CR-05：store() 源流 error 不崩主进程且 tee 收到 error；contentType 落盘-回放闭环
  *
  * 用法: node tests/test-media-cache.js
  */
@@ -299,5 +300,51 @@ describe('路径安全（T-44-01/T-44-02）', () => {
     const hit = c.lookup(segUrl, vid);
     assert.strictEqual(hit.hit, false, 'symlink 指向的外部文件内容不应作为缓存命中');
     fs.unlinkSync(outside);
+  });
+});
+
+describe('store() 源流 error 健壮性（CR-05）', () => {
+  test('源流 push 部分数据后 destroy → 不崩主进程、tee 收到 error、数据已透传', async () => {
+    const c = new MediaCacheManager({ cacheRoot: makeCacheRoot() });
+    const vid = c.touchVideo('https://a.com/x.m3u8');
+    const segUrl = 'https://cdn.com/seg-reset.ts';
+
+    // 手动驱动的事件源流：read() 空实现，外部 push/destroy 控制节奏
+    const src = new Readable({ read() {} });
+    const tee = c.store(segUrl, vid, src, {});
+    const seen = [];
+    const teeErr = new Promise((resolve) => {
+      tee.on('data', (d) => seen.push(d));
+      tee.on('error', (err) => resolve(err));
+    });
+
+    // 先推一段数据（透传应送达 tee），随后 destroy 模拟源站 RST
+    src.push(Buffer.from('partial-data-'));
+    setTimeout(() => {
+      src.destroy(Object.assign(new Error('source reset'), { code: 'ECONNRESET' }));
+    }, 5);
+
+    const err = await teeErr;
+    assert.strictEqual(err.message, 'source reset');
+    // 已到达 tee 的部分数据不被吞掉（透传先行，落盘收集中断不影响播放侧）
+    assert.strictEqual(Buffer.concat(seen).toString('utf8'), 'partial-data-');
+    // 测试进程存活至此即证明无 uncaught exception（监听生效）；销毁残留防悬挂
+    src.destroy();
+    tee.destroy();
+  });
+
+  test('storeBuffer 带 contentType 落盘 → lookup 命中回放；缺省则命中无该字段', () => {
+    const c = new MediaCacheManager({ cacheRoot: makeCacheRoot() });
+    const vid = c.touchVideo('https://a.com/ct.m3u8');
+
+    c.storeBuffer('https://cdn.com/ct1.ts', vid, makeBuffer(64, 1), { contentType: 'video/mp2t' });
+    const hit = c.lookup('https://cdn.com/ct1.ts', vid);
+    assert.strictEqual(hit.hit, true);
+    assert.strictEqual(hit.contentType, 'video/mp2t', '命中结果应回放登记时的 contentType');
+
+    c.storeBuffer('https://cdn.com/ct2.ts', vid, makeBuffer(64, 2), {});
+    const hit2 = c.lookup('https://cdn.com/ct2.ts', vid);
+    assert.strictEqual(hit2.hit, true);
+    assert.ok(!('contentType' in hit2), '未登记 contentType 的命中结果不应带该字段（回落默认）');
   });
 });

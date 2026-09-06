@@ -250,7 +250,9 @@ class MediaCacheManager {
    * 并返回 miss（调用方回源重拉，播放不中断）
    * @param {string} finalUrl - 分片最终 URL（重定向后）
    * @param {string} videoId - 视频目录 ID（由 /proxy 请求的 vid 参数提供）
-   * @returns {{hit: boolean, data?: Buffer, size?: number}}
+   * @returns {{hit: boolean, data?: Buffer, size?: number, contentType?: string}}
+   *   contentType 仅在登记条目带该附加字段（CR-05/Task 2）时返回，供命中回放；
+   *   缺省时由调用方回落 application/octet-stream
    */
   lookup(finalUrl, videoId) {
     try {
@@ -278,7 +280,13 @@ class MediaCacheManager {
         this._invalidateSegment(videoId, segKey, file, 'sha256 mismatch');
         return { hit: false };
       }
-      return { hit: true, data, size: data.length };
+      // 命中回放：登记条目带 contentType（字符串且 ≤200 字符）则随命中返回，
+      // 否则不带该字段（main.js 命中分支回落 application/octet-stream）
+      const ct = typeof entry.contentType === 'string' && entry.contentType.length <= 200
+        ? entry.contentType
+        : null;
+      const hitBase = { hit: true, data, size: data.length };
+      return ct ? { ...hitBase, contentType: ct } : hitBase;
     } catch (err) {
       console.warn('[Realm] 缓存读取失败（按 miss 处理）:', err.message);
       return { hit: false };
@@ -315,15 +323,25 @@ class MediaCacheManager {
    * 完整分片后写盘登记。收集完成即异步写盘，不阻塞透传。
    *
    * 注意：本方法消费 readable（tee 出 passthrough），调用方拿返回值 pipe 给响应。
+   * 调用契约（CR-05）：本方法内部处理 readable 的 'error'（destroy 双 tee + warn），
+   * 调用方无需再给源流挂监听——只需在返回值（passthrough）上挂 'error' 收尾响应。
    * @param {string} finalUrl - 分片最终 URL（重定向后，缓存 key）
    * @param {string} videoId - 视频目录 ID
    * @param {import('stream').Readable} readable - 回源流（Readable.fromWeb(resp.body)）
-   * @param {Object} [meta] - 附加元数据（如 title）
+   * @param {Object} [meta] - 附加元数据（如 title / contentType）
    * @returns {import('stream').PassThrough} 透传流（pipe 给 HTTP 响应）
    */
   store(finalUrl, videoId, readable, meta) {
     const passthrough = new PassThrough();
     const collector = new PassThrough();
+    // CR-05：源流 'error' 无监听 → uncaught exception → 主进程退出（Node 流契约）。
+    // pipe 不负责 source 的 error，此监听必须先于 pipe 挂载（晚挂会漏掉同步错误）。
+    // destroy(err) 的错误事件异步派发，集成层在返回值上同步挂的 'error' 无竞态。
+    readable.on('error', (err) => {
+      console.warn(`[Realm] 回源流中断（透传与落盘同步终止）: ${err.message}`);
+      passthrough.destroy(err);
+      collector.destroy();
+    });
     readable.pipe(passthrough);
     readable.pipe(collector);
 
@@ -402,7 +420,12 @@ class MediaCacheManager {
       mMeta.segments = mMeta.segments || {};
       // stored_at：分片写入时间（44-05 转封装兜底排序——清单顺序索引缺失时
       // 按「播放到哪写到哪」的时间序拼分片，VOD 线性观看场景顺序正确）
-      mMeta.segments[segKey] = { size, sha256: sha, stored_at: Date.now() };
+      const entry = { size, sha256: sha, stored_at: Date.now() };
+      // contentType 附加字段（CR-05/Task 2）：落盘时登记，命中回放 Content-Type 用。
+      // 附加字段向后兼容（缺字段不升 META_VERSION），转封装读取路径不消费该字段
+      const ct = m.contentType;
+      if (typeof ct === 'string' && ct && ct.length <= 200) entry.contentType = ct;
+      mMeta.segments[segKey] = entry;
       mMeta.total_size = (mMeta.total_size || 0) + size;
       mMeta.last_watched = typeof m.lastWatched === 'number' ? m.lastWatched : Date.now();
       if (m.title && !mMeta.title) mMeta.title = m.title;

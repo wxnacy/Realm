@@ -444,7 +444,15 @@ async function handleProxyRequest(req, res, reqUrl) {
     }
     res.writeHead(resp.status, outHeaders);
     if (resp.body) {
-      Readable.fromWeb(resp.body).pipe(res);
+      // CR-05：透传流源 error 同款防护（Phase 27 遗留同一风险面）——源站 RST/
+      // 链路闪断不再抛 uncaught exception 崩主进程；headers 已发，end 兜底
+      // 收尾截断响应，客户端 fetch 报错走播放器自身重试
+      Readable.fromWeb(resp.body)
+        .on('error', (err) => {
+          console.warn('[Realm] 视频透传流中断:', err.message);
+          if (!res.writableEnded) res.end();
+        })
+        .pipe(res);
     } else {
       res.end();
     }
