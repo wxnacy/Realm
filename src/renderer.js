@@ -3620,8 +3620,9 @@ function handleContextMenuAction(channel, data) {
     }
 
     case 'context-menu:open-in-new-window':
+      // 与 Chrome 一致的移动语义：标签随迁到新窗口，原窗口不再保留
       if (data && data.tabId) {
-        window.realmAPI.openTabInNewWindow(data.tabId, { move: false });
+        window.realmAPI.openTabInNewWindow(data.tabId, { move: true });
       }
       break;
 
