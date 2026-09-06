@@ -279,3 +279,18 @@ Plans:
 
 - [x] 43-02-PLAN.md — 容器删除联动清理 + 删除确认文案 + 场景 harness/14 fixtures（eval:memory）
 - [x] 43-03-PLAN.md — /api/ai-memory HTTP 端点 + 设置页「AI 记忆」三 tab 编辑分区
+
+### Phase 44: 播放器视频缓存与本地媒体库
+
+**Goal:** 独立播放器的 HLS 本地媒体库能力（webview tab 模式保持现状不做缓存）。① 独立播放窗口收口走 /proxy（改从 localhost 加载 player 页面，注入 token，解决防盗链/Cookie 隐患）；② /proxy 层分片级磁盘缓存：按视频组织目录（segments + 元数据），关掉重开已看部分秒开，按视频粒度 FIFO 淘汰，设置页可配缓存目录/容量；③ 观看历史式精确续播：缓存库条目 + 独立观看历史记录（key = origin+pathname，query 时效 token 不参与匹配），进度渲染进程节流上报；④ 统一媒体任务中心 media-task-manager（主进程持久化注册表）：直播录制（工具栏录制按钮，显式后台任务：并发上限/同 URL 去重/失败重试/应用退出确认/关窗弹一次继续或停止并记住默认）+ mux.js 纯 JS 转封装 TS→fMP4（showSaveDialog 弹框选目录，后台转换，完成通知）；⑤ realm://tasks 任务页（设置页多媒体分区「任务列表」按钮入口，进度/停止/产物定位，主窗口角标被动提醒）。方案定稿 2026-09-06 讨论完成
+**Requirements**: TBD
+**Depends on:** Phase 43
+**Plans:** 5 plans
+
+Plans:
+
+- [ ] 44-01-PLAN.md — 端到端切片：独立窗口 localhost 化（D-02）+ /proxy 分片缓存（D-03/D-05~D-10）+ 观看历史续播（D-11~D-13）
+- [ ] 44-02-PLAN.md — 纯逻辑模块：m3u8 行级解析器 + media-task-manager 注册表（D-18/D-22/D-25）+ Wave 0 单测
+- [ ] 44-03-PLAN.md — 任务中心集成：realm://tasks 页 + /api/tasks 端点 + 主窗口角标 + 设置页多媒体分区（D-25/D-26/D-05/D-06）
+- [ ] 44-04-PLAN.md — 直播录制：media-record-engine + 播放器录制 UI/抽屉面板 + 关窗/退出确认（D-14~D-16/D-18~D-21/D-23）
+- [ ] 44-05-PLAN.md — mux.js 转封装：convert 任务 + showSaveDialog 产物链路 + 抽屉转换入口（D-04/D-17/D-22/D-24/D-26）
