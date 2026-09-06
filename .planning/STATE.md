@@ -4,18 +4,18 @@ milestone: v2.5
 milestone_name: AI 网络搜索功能
 current_phase: 44
 current_phase_name: 播放器视频缓存与本地媒体库
-status: completed
-stopped_at: Phase 44 UI-SPEC approved
-last_updated: "2026-09-06T10:46:10.944Z"
-last_activity: 2026-09-04
-last_activity_desc: Phase 43 complete
-state_head: 68f57eedde48737f807b72b7afa1a6ac886364e8
+status: executing
+stopped_at: Completed 44-01-PLAN.md
+last_updated: "2026-09-06T11:15:39.880Z"
+last_activity: 2026-09-06
+last_activity_desc: Phase 44 execution started
+state_head: ab2e500cb21bdf00c31c7c42e8c4131111ba0f1b
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 21
-  completed_plans: 16
-  percent: 76
+  completed_plans: 17
+  percent: 80
 ---
 
 # Project State: Realm Browser
@@ -25,16 +25,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-26)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 43 — AI 记忆系统集成（条目记忆 MVP）
+**Current focus:** Phase 44 — 播放器视频缓存与本地媒体库
 
 ## Current Position
 
-Phase: 44 (播放器视频缓存与本地媒体库) — READY TO EXECUTE
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-09-04 — Phase 43 complete
+Phase: 44 (播放器视频缓存与本地媒体库) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-09-06 — Phase 44 execution started
 
-Progress: [████████░░] 76%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -69,6 +69,7 @@ Progress: [████████░░] 76%
 | Phase 43 P03 | 18min | 2 tasks | 4 files |
 | Phase 43 P04 | 9 min | 2 tasks | 2 files |
 | Phase 43 P05 | 7min | 2 tasks | 1 files |
+| Phase 44 P01 | 24min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -97,6 +98,7 @@ Recent decisions affecting current work:
 - [Phase 43]: 不做工具层载荷标记 fail-closed（T-43-08 accept） — 任意载荷标记无法与正常记忆内容区分会误杀正常写入；D-11 scanInjectionPatterns 已覆盖注入指令模式（43-04）
 - [Phase 43]: eval 失败修正只改规则文本不改 fixture 断言；43-04 第 1 轮 13/14 后补正向层级路由，第 2 轮 14/14 — fixture 是验收基准；critical-path-02 失败根因是快照缺正向层级归属指引致模型默认落 user 层
 - [Phase 43]: G-43-2 成功提示守卫：updateAiMemoryCount hint 联动段短路（!over return），字数/按钮更新先行不受影响；超限优先清守卫走 danger（T-43-09） — finally 结构不动，改动面最小；2 秒回调无条件复位守卫无残留路径
+- [Phase 44]: Phase 44 P01: 分片→视频归属用 vid 参数（m3u8 videoId 经 rewrite 注入子请求），无全局索引文件（裁量区）；整片 buffer 收集后写盘（64MB 上限）使 ENOSPC 强淘重试内聚；cache 标记仅 cache=1 请求展开为 cache+vid，webview tab 流量不进缓存分支（D-01）；新增 player:resume-position 续播点查通道；淘汰豁免双通道（isVideoActive 注入回调 + exemptVideoIds 防强淘误删在写目录）
 
 ### Roadmap Evolution
 
@@ -125,6 +127,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T09:15:47.082Z
-Stopped at: Phase 44 UI-SPEC approved
-Resume file: .planning/phases/44-/44-UI-SPEC.md
+Last session: 2026-09-06T11:15:39.732Z
+Stopped at: Completed 44-01-PLAN.md
+Resume file: None
