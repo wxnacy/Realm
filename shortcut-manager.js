@@ -492,10 +492,21 @@ function getVimDebugState() {
 }
 
 /**
- * 注册 Vim 相关的 IPC 处理器
+ * Vim IPC handler 是否已注册（幂等守卫）。
+ * registerShortcuts 会在启动和 macOS activate（Dock 点击重建窗口）时多次调用，
+ * 重复 ipcMain.handle 同一通道会抛 "Attempted to register a second handler"
+ * 未捕获异常导致主进程弹窗僵死。
+ */
+let vimIpcRegistered = false;
+
+/**
+ * 注册 Vim 相关的 IPC 处理器（幂等，重复调用只注册一次）
  * 在 registerShortcuts 中调用
  */
 function registerVimIpcHandlers() {
+  if (vimIpcRegistered) return;
+  vimIpcRegistered = true;
+
   // 处理焦点状态设置请求（renderer 报告 webview guest 的焦点状态）
   ipcMain.handle('vim:set-focus-state', (event, webContentsId, isInInput) => {
     // webContentsId 缺省时取发送者自身：host 主窗口报告地址栏等 chrome 内输入框焦点，
