@@ -9072,6 +9072,144 @@ textarea::placeholder {
   display: none;
 }
 
+/* ==================== 媒体任务页面（realm://tasks，Phase 44 D-26） ==================== */
+
+.tasks-page {
+  /* 与 .downloads-page 同构：flex:1 撑满后 padding-inline 居中内容 */
+  flex: 1;
+  overflow-y: auto;
+  padding-block: 24px;
+  padding-inline: max(24px, calc((100% - var(--downloads-page-max-width)) / 2));
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+/* 分区标题（16px/600，UI-SPEC Typography Heading） */
+.tasks-section {
+  margin-bottom: 24px;
+}
+
+.tasks-section.hidden {
+  display: none;
+}
+
+.tasks-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.tasks-zone-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 任务卡片（--bg-secondary 底，UI-SPEC Component #7） */
+.task-card {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 状态徽标（running accent / completed success / failed danger / cancelled、interrupted warning） */
+.task-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.task-badge.running {
+  color: var(--accent-color);
+  background: color-mix(in srgb, var(--accent-color) 15%, transparent);
+}
+
+.task-badge.completed {
+  color: var(--success-color);
+  background: color-mix(in srgb, var(--success-color) 15%, transparent);
+}
+
+.task-badge.failed {
+  color: var(--danger-color);
+  background: color-mix(in srgb, var(--danger-color) 15%, transparent);
+}
+
+.task-badge.cancelled,
+.task-badge.interrupted {
+  color: var(--warning-color);
+  background: color-mix(in srgb, var(--warning-color) 15%, transparent);
+}
+
+.task-type {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.task-time {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 进度条（4px accent 填充，UI-SPEC Component #7） */
+.task-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-color);
+  overflow: hidden;
+}
+
+.task-progress-bar {
+  height: 100%;
+  border-radius: 2px;
+}
+
+.task-progress-bar.accent {
+  background: var(--accent-color);
+}
+
+/* 失败原因（danger 文案） */
+.task-error {
+  font-size: 13px;
+  color: var(--danger-color);
+  word-break: break-all;
+}
+
+/* 产物路径（13px 次要色，任意断行 + title tooltip） */
+.task-path {
+  font-size: 13px;
+  color: var(--text-secondary);
+  word-break: break-all;
+  cursor: default;
+}
+
+.task-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* ==================== 凭据保存横幅 ==================== */
 
 .credential-save-banner {

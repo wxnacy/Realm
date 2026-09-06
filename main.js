@@ -10,7 +10,7 @@ if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'debug') 
 }
 
 const path = require('path');
-const { app, BrowserWindow, protocol, net, ipcMain, Menu, dialog, nativeTheme, session } = require('electron');
+const { app, BrowserWindow, protocol, net, ipcMain, Menu, dialog, nativeTheme, session, Notification, shell } = require('electron');
 const { pathToFileURL } = require('url');
 const { execSync } = require('child_process');
 const http = require('http');
@@ -140,9 +140,18 @@ const agentWorkspace = require('./agent-workspace');
 const bashPolicy = require('./ai-bash-policy');
 // 媒体分片磁盘缓存（Phase 44 D-03：/proxy 层按视频组织的分片缓存，仅独立播放器流量）
 const { MediaCacheManager, videoIdOf } = require('./media-cache-manager');
+// 媒体任务统一注册表（Phase 44 D-25：record/convert 状态机 + 持久化 + D-07 豁免查询源）
+const { createMediaTaskManager } = require('./media-task-manager');
 
 // 媒体缓存实例（whenReady 中初始化；handleProxyRequest 运行期读取）
 let mediaCache = null;
+
+// 媒体任务注册表实例（whenReady 中初始化；/api/tasks/* 端点与 D-07 豁免注入读取）
+let mediaTaskManager = null;
+// persistMediaTasks 使用的模块级状态（whenReady 中赋值）
+let mediaTasksPath = null;
+let lastPersistedStatuses = new Map();
+let lastRunningCount = -1;
 
 // AI Manager 实例（在 app.whenReady 中初始化，供后续 Phase 通过 require('./main').aiManager 访问）
 let aiManager = null;
@@ -1963,6 +1972,157 @@ app.whenReady().then(async () => {
   }
 
   /**
+   * 媒体任务系统通知（Phase 44 D-26，Pitfall 8：通知失败仅告警不阻断状态更新）
+   * completed convert「MP4 转换完成：{文件名}」/ completed record「录制已保存」/
+   * failed 带 error 原因；点击 shell.showItemInFolder 定位产物。
+   * @param {Object} task - 进入终态的任务快照
+   */
+  function showTaskNotification(task) {
+    try {
+      if (!Notification.isSupported()) return;
+      let title;
+      if (task.status === 'completed') {
+        title = task.type === 'convert'
+          ? `MP4 转换完成：${path.basename(task.outputPath || task.title)}`
+          : '录制已保存';
+      } else if (task.status === 'failed') {
+        title = task.type === 'convert'
+          ? `MP4 转换失败：${task.error || '未知原因'}`
+          : `录制失败：${task.error || '未知原因'}`;
+      } else {
+        // interrupted/cancelled 不发系统通知（任务页可见）
+        return;
+      }
+      const notification = new Notification({ title, body: task.title });
+      if (task.outputPath) {
+        notification.on('click', () => {
+          try {
+            shell.showItemInFolder(task.outputPath);
+          } catch (err) {
+            console.warn('[Realm] 通知点击定位产物失败:', err.message);
+          }
+        });
+      }
+      notification.show();
+    } catch (err) {
+      console.warn('[Realm] 媒体任务系统通知发送失败:', err.message);
+    }
+  }
+
+  /**
+   * 媒体任务注册表 persist 包装（Phase 44 D-25/D-26）
+   * 1. 写 userData/media-tasks.json（D-18 崩溃重启恢复源）
+   * 2. 与上次快照 diff：状态变化的任务广播 media-task:changed；
+   *    活跃（running）数变化广播 media-task:count-changed（主窗口角标数据源）
+   * 3. 新进入 completed/failed 终态的任务发系统通知
+   * @param {Array} tasks - 注册表快照（listTasks() 结果）
+   */
+  function persistMediaTasks(tasks) {
+    // 写盘（D-18 恢复源）
+    try {
+      fs.writeFileSync(mediaTasksPath, JSON.stringify(tasks, null, 2));
+    } catch (err) {
+      console.warn('[Realm] 媒体任务持久化失败:', err.message);
+    }
+    // 状态 diff → 广播 + 系统通知
+    const prevStatuses = lastPersistedStatuses;
+    lastPersistedStatuses = new Map();
+    for (const task of tasks) {
+      lastPersistedStatuses.set(task.id, task.status);
+      const prev = prevStatuses.get(task.id);
+      if (prev && prev !== task.status) {
+        windowManager.broadcast('media-task:changed', task);
+        if (task.status === 'completed' || task.status === 'failed') {
+          showTaskNotification(task);
+        }
+      }
+    }
+    // 活跃任务数广播（角标数据源）
+    const runningCount = tasks.filter((t) => t.status === 'running').length;
+    if (runningCount !== lastRunningCount) {
+      lastRunningCount = runningCount;
+      windowManager.broadcast('media-task:count-changed', { count: runningCount });
+    }
+  }
+
+  /**
+   * 处理 /api/tasks/* 媒体任务 API 请求
+   * 任务页（realm://tasks）数据层；全部端点 token 鉴权（T-44-07）
+   * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} res - 响应对象
+   * @param {URL} reqUrl - 解析后的请求 URL
+   */
+  async function handleTasksApi(req, res, reqUrl) {
+    // token 鉴权：无 token 一律 403，不回任何任务字段（T-44-10）
+    if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+      sendJson(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    try {
+      const route = reqUrl.pathname.replace('/api/tasks/', '');
+
+      // GET /api/tasks/list — 全量任务快照（updatedAt 降序）
+      if (route === 'list' && req.method === 'GET') {
+        sendJson(res, 200, { success: true, tasks: mediaTaskManager ? mediaTaskManager.listTasks() : [] });
+        return;
+      }
+
+      // POST /api/tasks/cancel — 取消任务（仅 running 可取消，非法流转 400）
+      if (route === 'cancel' && req.method === 'POST') {
+        const { taskId } = await readJsonBody(req);
+        if (!mediaTaskManager) {
+          sendJson(res, 503, { success: false, error: '任务注册表未初始化' });
+          return;
+        }
+        if (!taskId || typeof taskId !== 'string') {
+          sendJson(res, 400, { success: false, error: '缺少 taskId' });
+          return;
+        }
+        try {
+          const task = mediaTaskManager.cancelTask(taskId, '用户取消');
+          sendJson(res, 200, { success: true, task });
+        } catch (err) {
+          sendJson(res, 400, { success: false, error: err.message });
+        }
+        return;
+      }
+
+      // POST /api/tasks/show-in-folder — Finder 定位产物（仅 completed/interrupted 且产物存在）
+      if (route === 'show-in-folder' && req.method === 'POST') {
+        const { taskId } = await readJsonBody(req);
+        const task = (mediaTaskManager ? mediaTaskManager.listTasks() : []).find((t) => t.id === taskId);
+        if (!task) {
+          sendJson(res, 404, { success: false, error: '任务不存在' });
+          return;
+        }
+        if (task.status !== 'completed' && task.status !== 'interrupted') {
+          sendJson(res, 400, { success: false, error: '任务尚无产物可定位' });
+          return;
+        }
+        if (!task.outputPath || !fs.existsSync(task.outputPath)) {
+          sendJson(res, 404, { success: false, error: '产物文件不存在' });
+          return;
+        }
+        shell.showItemInFolder(task.outputPath);
+        sendJson(res, 200, { success: true });
+        return;
+      }
+
+      // POST /api/tasks/convert-resume — 已落盘部分续转（44-05 实现，本计划预留路由位）
+      if (route === 'convert-resume' && req.method === 'POST') {
+        sendJson(res, 404, { success: false, error: '续转功能尚未提供' });
+        return;
+      }
+
+      sendJson(res, 404, { error: 'Not Found' });
+    } catch (err) {
+      console.error('[Realm] 媒体任务 API 处理失败:', err.message);
+      sendJson(res, 400, { error: err.message });
+    }
+  }
+
+  /**
    * 处理 /api/credentials/* 凭据管理 API 请求
    * per AF-04：设置页凭据管理（列表、搜索、删除、批量删除、查看详情）
    * @param {http.IncomingMessage} req - 请求对象
@@ -2434,6 +2594,12 @@ app.whenReady().then(async () => {
       return;
     }
 
+    // 媒体任务 JSON API（realm://tasks 任务页数据层）
+    if (reqPath.startsWith('/api/tasks/')) {
+      handleTasksApi(req, res, reqUrl);
+      return;
+    }
+
     // 凭据管理 JSON API（设置页面自动填充数据层）
     if (reqPath.startsWith('/api/credentials/')) {
       handleCredentialsApi(req, res, reqUrl);
@@ -2499,6 +2665,11 @@ app.whenReady().then(async () => {
       filePath = path.join(__dirname, 'src', 'downloads.html');
     } else if (reqPath.startsWith('/downloads/')) {
       const subPath = reqPath.replace('/downloads/', '');
+      filePath = path.join(__dirname, 'src', subPath);
+    } else if (reqPath === '/tasks' || reqPath === '/tasks/') {
+      filePath = path.join(__dirname, 'src', 'tasks.html');
+    } else if (reqPath.startsWith('/tasks/')) {
+      const subPath = reqPath.replace('/tasks/', '');
       filePath = path.join(__dirname, 'src', subPath);
     } else if (reqPath === '/devrequests' || reqPath === '/devrequests/') {
       filePath = path.join(__dirname, 'src', 'devrequests.html');
@@ -2568,6 +2739,22 @@ app.whenReady().then(async () => {
       return { port: realmPort, token: REALM_TOKEN };
     });
   });
+
+  // Phase 44 D-25：媒体任务统一注册表（record/convert 状态机）
+  // persist 写 userData/media-tasks.json（D-18 崩溃重启恢复源），
+  // 状态 diff 广播 media-task:changed / media-task:count-changed（D-26 角标），
+  // 终态 completed/failed 发系统通知（Pitfall 8 失败不阻断）
+  mediaTasksPath = path.join(app.getPath('userData'), 'media-tasks.json');
+  lastPersistedStatuses = new Map();
+  lastRunningCount = -1;
+  mediaTaskManager = createMediaTaskManager({ persist: persistMediaTasks });
+  try {
+    const saved = fs.existsSync(mediaTasksPath) ? fs.readFileSync(mediaTasksPath, 'utf8') : '[]';
+    mediaTaskManager.restoreTasks(saved);
+    console.log(`[Realm] 媒体任务注册表已初始化: ${mediaTasksPath}`);
+  } catch (err) {
+    console.warn('[Realm] 媒体任务恢复失败（以空注册表启动）:', err.message);
+  }
 
   // Phase 44 D-03/D-05：媒体分片磁盘缓存初始化（默认 userData/media-cache，
   // 三环境 userData 隔离自动生效；容量默认 10GB，设置页后续可改）
