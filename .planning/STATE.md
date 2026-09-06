@@ -5,16 +5,16 @@ milestone_name: AI 网络搜索功能
 current_phase: 44
 current_phase_name: 播放器视频缓存与本地媒体库
 status: executing
-stopped_at: Completed 44-06-PLAN.md
-last_updated: "2026-09-06T14:24:59.013Z"
+stopped_at: Completed 44-07-PLAN.md
+last_updated: "2026-09-06T14:34:14.566Z"
 last_activity: 2026-09-06
 last_activity_desc: Phase 44 execution started
-state_head: 84feef7b6281755f1149071a1b723b0d06245907
+state_head: 3b68622adee5648d56059bbe09cc3b1885f2855f
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 24
-  completed_plans: 22
+  completed_plans: 23
   percent: 80
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 44 (播放器视频缓存与本地媒体库) — EXECUTING
-Plan: 2 of 8
+Plan: 3 of 8
 Status: Ready to execute
 Last activity: 2026-09-06 — Phase 44 execution started
 
@@ -75,6 +75,7 @@ Progress: [████████░░] 80%
 | Phase 44 P04 | 14min | 3 tasks | 7 files |
 | Phase 44 P05 | 20min | 2 tasks | 12 files |
 | Phase 44 P06 | 3 min | 3 tasks | 4 files |
+| Phase 44 P07 | 5min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -112,6 +113,10 @@ Recent decisions affecting current work:
 - [Phase 44]: Phase 44 44-06: 缓存 key 统一为请求 URL（target）废弃 finalUrl——命中优先下 finalUrl 回源后才能得知无法用作查询 key；target 与 44-05 playlist_order segKey（resolveUri(uri, 清单最终URL)）同源，转封装顺序索引不回归（CR-01）
 - [Phase 44]: Phase 44 44-06: 旧 finalUrl-key 存量孤儿分片不迁移——键不再被查询，由容量淘汰（44-07 CR-02 修复后生产生效）按 total_size 正常回收，接受此代价（缓存非持久资产）
 - [Phase 44]: Phase 44 44-06: hlsRetryCount 复位事件选 FRAG_LOADED 而非 LEVEL_LOADED——分片数据到达=最精确「网络恢复」信号，直播刷新/清单级不误触发（WR-06）
+- [Phase 44]: Phase 44 44-07: CR-02 采用水位方案替代每片全库扫描——storeBuffer 成功登记后累计 _trackedTotal（首写惰性初始化取磁盘权威总量、_writeMeta 已含本片不重复加防双计），仅水位越过 capacityBytes 才 evictIfNeeded(exempt 正在写 videoId) 一次并把 r.total 同步回水位自校正漂移；ENOSPC 强淘 D-08 兜底保留（prohibition 无每分片全扫回归）
+- [Phase 44]: Phase 44 44-07: setCapacityBytes 为容量变更统一入口——设置页 cacheMaxGB 即改即存改调 mediaCache.setCapacityBytes（校验赋值 + 立即 evictIfNeeded + 水位同步），外部不再直改 capacityBytes 字段；改小容量即时按 last_watched FIFO 收敛（CR-02 missing 第 2 项）
+- [Phase 44]: Phase 44 44-07: CR-03 RECORD_ROOT 常量单一来源——main.js whenReady 作用域声明 const RECORD_ROOT = path.join(app.getPath('userData'), 'media-records')，createRecordEngine.recordRoot 与 readRecordTaskSegments 补算同源；字面全文件唯一（引擎写目录与补算回退不漂移）
+- [Phase 44]: Phase 44 44-07: readRecordTaskSegments 目录补算 + uuid 白名单——outputPath 缺失（interrupted/failed 终态才落库的恢复快照）按 path.join(RECORD_ROOT, task.id) 补算，task.id 过 /^[0-9a-fA-F-]{8,64}$/ 白名单防本地篡改 JSON 的补算路径穿越；completed 任务沿用 outputPath 不受影响
 
 ### Roadmap Evolution
 
@@ -140,6 +145,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T14:24:58.856Z
-Stopped at: Completed 44-06-PLAN.md
+Last session: 2026-09-06T14:34:14.408Z
+Stopped at: Completed 44-07-PLAN.md
 Resume file: None
