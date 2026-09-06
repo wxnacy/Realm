@@ -206,6 +206,12 @@ async function initPlayer(url) {
           hls.on(Hls.Events.LEVEL_LOADED, (event, data) => {
             state.isLive = data.details.live;
           });
+          // WR-06（CR-01 断网照播 missing 点名）：成功拉到分片即复位重试计数——
+          // 分片数据到达 = 最精确的「网络恢复」信号（粒度优于 LEVEL_LOADED），
+          // 避免长会话累计 3 次瞬时错误后 D-10 降级重试永久失效（各次均自恢复）
+          hls.on(Hls.Events.FRAG_LOADED, () => {
+            state.hlsRetryCount = 0;
+          });
           currentEngine = { engine: hls, destroy: () => hls.destroy() };
         } else {
           console.warn('[Realm Player] HLS 不受支持，尝试原生播放');
