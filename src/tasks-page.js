@@ -253,7 +253,7 @@ function renderStatusBadge(status) {
 
 /**
  * 渲染操作按钮
- * running：停止/取消；completed/interrupted：定位；interrupted 额外：已落盘部分续转
+ * running：停止/取消；completed/interrupted：定位；record 任务（中断/失败/完成）额外：已落盘部分续转
  * @param {Object} task - 任务快照
  * @returns {string} HTML 字符串
  */
@@ -268,7 +268,10 @@ function renderActions(task) {
         <button class="btn btn-secondary btn-sm task-show-folder-btn" data-id="${escapeHtml(task.id)}">定位</button>`;
     }
   }
-  if (task.status === 'interrupted') {
+  // 已落盘部分续转（D-22/D-18）：record 任务已中断/失败（崩溃不白录）或
+  // 已完成（弹框取消后补转）均可再次发起转换——仅 record 类型（convert 无分片可续）
+  if (task.type === 'record' &&
+      (task.status === 'interrupted' || task.status === 'failed' || task.status === 'completed')) {
     html += `
       <button class="btn btn-primary btn-sm task-resume-convert-btn" data-id="${escapeHtml(task.id)}">已落盘部分续转</button>`;
   }

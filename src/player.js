@@ -983,6 +983,31 @@ async function renderDrawer() {
     meta.textContent = parts.join(' · ');
     el.appendChild(meta);
 
+    // 转换按钮（D-17/D-24）：仅分片齐全（完整度 100%）的缓存条目可见——
+    // 隐藏而非置灰（UI-SPEC Disabled）；点击经主进程服务端复校后弹框选目录
+    if (item.cacheSize > 0 && item.completeness != null && item.completeness >= 100) {
+      const convert = document.createElement('button');
+      convert.className = 'drawer-item-convert';
+      convert.textContent = '转换为 MP4';
+      convert.title = '转换为 MP4';
+      convert.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        convert.disabled = true;
+        try {
+          const r = await window.playerAPI.startConvert({ entryId: item.playbackKey });
+          // cancelled = 用户在弹框取消，静默即可；其余失败原因主进程已记录日志
+          if (r && r.ok === false && r.reason && r.reason !== 'cancelled') {
+            console.warn('[Realm Player] 转换发起失败:', r.reason);
+          }
+        } catch (err) {
+          console.warn('[Realm Player] 转换发起异常:', err);
+        } finally {
+          convert.disabled = false;
+        }
+      });
+      el.appendChild(convert);
+    }
+
     // 删除按钮：hover 显示（aria-label「删除缓存」——UI-SPEC checker 建议 ②）
     const del = document.createElement('button');
     del.className = 'drawer-item-delete';

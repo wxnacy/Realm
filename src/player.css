@@ -664,6 +664,37 @@ body.fullscreen #title-bar {
   height: 12px;
 }
 
+/* 转换按钮（D-17/D-24）：仅完整度 100% 条目渲染；hover 条目时显示，
+   位于删除按钮左侧（CTA 用 accent 描边——UI-SPEC Primary CTA 语义） */
+.drawer-item-convert {
+  position: absolute;
+  top: 8px;
+  right: 36px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--player-accent);
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.45);
+  border-radius: 6px;
+  cursor: pointer;
+  display: none;
+  white-space: nowrap;
+}
+
+.drawer-item:hover .drawer-item-convert {
+  display: inline-block;
+}
+
+.drawer-item-convert:hover {
+  background: rgba(59, 130, 246, 0.28);
+}
+
+.drawer-item-convert:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* 抽屉空态（UI-SPEC empty 文案） */
 .drawer-empty {
   flex: 1;

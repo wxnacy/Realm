@@ -1680,6 +1680,15 @@ contextBridge.exposeInMainWorld('playerAPI', {
   getRecordList: () => ipcRenderer.invoke('player:record/list'),
 
   /**
+   * 发起 MP4 转换（Phase 44 D-17/D-24：缓存条目完整度 100% 或 record 任务续转；
+   * D-17 校验在主进程服务端复校，弹框选目录由主进程发起）
+   * @param {{entryId?: string, taskId?: string}} input - 缓存条目 ID 或 record 任务 ID
+   * @returns {Promise<{ok: boolean, taskId?: string, reason?: string}>}
+   *   reason: cancelled（用户取消弹框）/ segments_incomplete / discontinuity / ...
+   */
+  startConvert: (input) => ipcRenderer.invoke('player:convert/start', input),
+
+  /**
    * 监听录制任务状态变化（media-task:changed 中 type=record 的任务，Phase 44 D-20：
    * 播放状态不影响录制，红点仅按任务状态渲染）
    * @param {Function} callback - 回调函数，参数为任务对象快照（含 status/type/playbackKey）

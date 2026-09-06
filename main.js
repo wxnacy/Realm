@@ -115,7 +115,7 @@ const tabManager = require('./tab-manager');
 const cookieManager = require('./cookie-manager');
 const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
-const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager, setRealmServerInfo, setMediaCaches, setMediaRecordEngine } = require('./ipc-handlers');
+const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager, setRealmServerInfo, setMediaCaches, setMediaRecordEngine, setMediaConvertStarter } = require('./ipc-handlers');
 const historyManager = require('./history-manager');
 const downloadManager = require('./download-manager');
 const credentialManager = require('./credential-manager');
@@ -144,6 +144,8 @@ const { MediaCacheManager, videoIdOf } = require('./media-cache-manager');
 const { createMediaTaskManager } = require('./media-task-manager');
 // 直播录制引擎（Phase 44 D-18/D-20/D-21/D-23：m3u8 轮询追分片，纯逻辑去 Electron 化）
 const { createRecordEngine } = require('./media-record-engine');
+// mp4 转封装（Phase 44 D-04：mux.js 纯 JS；D-22/D-24 convert 任务执行体与产物命名）
+const { convertToMp4, buildOutputName } = require('./media-remuxer');
 
 // 媒体缓存实例（whenReady 中初始化；handleProxyRequest 运行期读取）
 let mediaCache = null;
@@ -365,6 +367,9 @@ async function handleProxyRequest(req, res, reqUrl) {
       if (cacheEnabled && mediaCache) {
         try {
           mediaCache.touchVideo(finalUrl);
+          // 44-05 转封装索引：记录分片播放顺序/总数/ENDLIST/DISCONTINUITY
+          //（D-17 完整度分母 + 转封装分片顺序 + discontinuity 拒转依据）
+          mediaCache.updatePlaylistIndex(finalUrl, text);
         } catch (err) {
           console.warn('[Realm] 缓存建档失败:', err.message);
         }
@@ -2029,7 +2034,9 @@ app.whenReady().then(async () => {
           : '录制已保存';
       } else if (task.status === 'failed') {
         title = task.type === 'convert'
-          ? `MP4 转换失败：${task.error || '未知原因'}`
+          // 44-05：convert 任务 error 统一携带「MP4 转换失败：」前缀（UI-SPEC
+          // Copywriting），此处避免重复拼接
+          ? (task.error && task.error.startsWith('MP4 转换失败') ? task.error : `MP4 转换失败：${task.error || '未知原因'}`)
           : `录制失败：${task.error || '未知原因'}`;
       } else {
         // interrupted/cancelled 不发系统通知（任务页可见）
@@ -2151,9 +2158,37 @@ app.whenReady().then(async () => {
         return;
       }
 
-      // POST /api/tasks/convert-resume — 已落盘部分续转（44-05 实现，本计划预留路由位）
+      // POST /api/tasks/convert-resume — 已落盘部分续转（44-05 落地 44-03 预留路由）：
+      // record 任务的录制目录分片 → startConvertTask（弹框选目录在主进程发起）
       if (route === 'convert-resume' && req.method === 'POST') {
-        sendJson(res, 404, { success: false, error: '续转功能尚未提供' });
+        const { taskId } = await readJsonBody(req);
+        if (!mediaTaskManager) {
+          sendJson(res, 503, { success: false, error: '任务注册表未初始化' });
+          return;
+        }
+        if (!taskId || typeof taskId !== 'string') {
+          sendJson(res, 400, { success: false, error: '缺少 taskId' });
+          return;
+        }
+        const task = mediaTaskManager.listTasks().find((t) => t.id === taskId);
+        if (!task) {
+          sendJson(res, 404, { success: false, error: '任务不存在' });
+          return;
+        }
+        if (task.type !== 'record') {
+          sendJson(res, 400, { success: false, error: '仅录制任务支持续转' });
+          return;
+        }
+        if (task.status !== 'interrupted' && task.status !== 'failed' && task.status !== 'completed') {
+          sendJson(res, 400, { success: false, error: '任务状态不支持续转' });
+          return;
+        }
+        const r = await startConvertFromRecordTask(task);
+        if (!r.ok) {
+          sendJson(res, 400, { success: false, error: r.reason === 'cancelled' ? '已取消转换' : (r.reason || '续转失败') });
+          return;
+        }
+        sendJson(res, 200, { success: true, taskId: r.taskId });
         return;
       }
 
@@ -2858,6 +2893,207 @@ app.whenReady().then(async () => {
     maxRetries: 5,
   });
   setMediaRecordEngine(recordEngine);
+
+  // ==================== Phase 44 D-22/D-24：mp4 转换任务编排 ====================
+
+  /** convert 任务失败原因 → 用户可读文案（UI-SPEC Copywriting：任务页「MP4 转换失败：{原因}」） */
+  const CONVERT_FAIL_TEXT = {
+    discontinuity: '直播流含不连续片段，暂不支持转换',
+    transmux_failed: '转封装处理失败',
+    write_failed: '产物写盘失败',
+    segment_missing: '分片文件缺失',
+    no_segments: '无可转换的分片',
+    invalid_output: '产物路径无效',
+  };
+
+  /**
+   * 读取 record 任务的录制目录分片列表（D-18 崩溃保留 + D-22 接力 + 续转共用）
+   * @param {Object} task - record 任务快照（outputPath = recordRoot/<taskId>）
+   * @returns {{ segmentPaths: string[], meta: Object }|null} 分片绝对路径列表与索引；无可用分片返回 null
+   */
+  function readRecordTaskSegments(task) {
+    const recordDir = task.outputPath;
+    if (!recordDir || typeof recordDir !== 'string') return null;
+    const metaPath = path.join(recordDir, 'meta.json');
+    if (!fs.existsSync(metaPath)) return null;
+    let meta;
+    try {
+      meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+    } catch (err) {
+      console.warn('[Realm] 录制索引读取失败:', err.message);
+      return null;
+    }
+    const segmentPaths = (Array.isArray(meta.segments) ? meta.segments : [])
+      .map((s) => (s && typeof s.file === 'string' ? path.join(recordDir, 'segments', s.file) : null))
+      .filter((p) => p && fs.existsSync(p));
+    if (segmentPaths.length === 0) return null;
+    return { segmentPaths, meta };
+  }
+
+  /**
+   * 转换发起统一入口（D-22/D-24）：showSaveDialog 选目录（默认 last-used/下载目录，
+   * 记住选择写回 settings.lastMediaSaveDir）→ 同名「 (2)」序号 → 注册 convert 任务
+   * → media-remuxer 后台转封装（进度/终态走注册表统一链路：任务页/角标/通知/定位）。
+   * 用户取消弹框 → 不建任务返回 cancelled（D-22：已录分片保留可稍后续转）。
+   * @param {Object} input - { segmentPaths, title, containerId?, playbackKey?, hasDiscontinuity?, sourceTaskId? }
+   * @returns {Promise<{ok: boolean, taskId?: string, reason?: string}>}
+   */
+  async function startConvertTask(input) {
+    const { segmentPaths, title, containerId, playbackKey, hasDiscontinuity } = input || {};
+    if (hasDiscontinuity) return { ok: false, reason: 'discontinuity' };
+    if (!Array.isArray(segmentPaths) || segmentPaths.length === 0) {
+      return { ok: false, reason: 'no_segments' };
+    }
+    // D-24：弹框默认目录 = last-used（缺省下载目录），产物命名「{标题} {YYYY-MM-DD HHmm}.mp4」
+    const lastDir = configStore.get('settings.lastMediaSaveDir', app.getPath('downloads'));
+    const defaultPath = path.join(lastDir, buildOutputName(title || '未命名', new Date()));
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: '转换 MP4',
+      defaultPath,
+      filters: [{ name: 'MP4 视频', extensions: ['mp4'] }],
+    });
+    if (canceled || !filePath) return { ok: false, reason: 'cancelled' };
+    // D-24 记住所选目录（下次弹框默认）
+    try {
+      configStore.set('settings.lastMediaSaveDir', path.dirname(filePath));
+    } catch (err) {
+      console.warn('[Realm] lastMediaSaveDir 写回失败:', err.message);
+    }
+    // D-22 同名「 (2)」序号（复用 download-manager getUniqueFilePath 先例）
+    const savePath = downloadManager.getUniqueFilePath(filePath);
+
+    let task;
+    try {
+      task = mediaTaskManager.registerTask({
+        type: 'convert',
+        title: title || '未命名',
+        containerId: containerId || '',
+        playbackKey: playbackKey || null,
+      });
+    } catch (err) {
+      console.warn('[Realm] convert 任务注册失败:', err.message);
+      return { ok: false, reason: 'register_failed' };
+    }
+    const taskId = task.id;
+
+    // 后台执行转封装（T-44-17 流式写盘在 media-remuxer 内）；进度整数百分比
+    // 变化才 updateProgress（注册表每次变更都触发 persist 落盘，降写放大）
+    let lastPct = -1;
+    convertToMp4({
+      segmentPaths,
+      outputPath: savePath,
+      hasDiscontinuity: false,
+      onProgress: (done, total) => {
+        const pct = Math.max(1, Math.min(99, Math.round((done / total) * 100)));
+        if (pct === lastPct) return;
+        lastPct = pct;
+        try {
+          mediaTaskManager.updateProgress(taskId, pct);
+        } catch (err) {
+          console.warn(`[Realm] 转换进度更新失败 (${taskId}):`, err.message);
+        }
+      },
+    }).then(() => {
+      try {
+        mediaTaskManager.completeTask(taskId, { outputPath: savePath });
+      } catch (err) {
+        console.warn(`[Realm] 转换任务完成流转失败 (${taskId}):`, err.message);
+      }
+    }).catch((err) => {
+      const reasonText = CONVERT_FAIL_TEXT[err.reason] || err.message || '未知原因';
+      try {
+        mediaTaskManager.failTask(taskId, `MP4 转换失败：${reasonText}`);
+      } catch (err2) {
+        console.warn(`[Realm] 转换任务失败流转异常 (${taskId}):`, err2.message);
+      }
+    });
+    return { ok: true, taskId };
+  }
+
+  /**
+   * 从 record 任务发起续转（D-22 取消弹框后续转 / D-18 中断续转共用）：
+   * 读录制目录 meta.json 分片索引 → startConvertTask
+   * @param {Object} task - record 任务快照
+   * @returns {Promise<{ok: boolean, taskId?: string, reason?: string}>}
+   */
+  async function startConvertFromRecordTask(task) {
+    const bundle = readRecordTaskSegments(task);
+    if (!bundle) return { ok: false, reason: 'no_segments' };
+    return startConvertTask({
+      segmentPaths: bundle.segmentPaths,
+      title: bundle.meta.title || task.title,
+      containerId: bundle.meta.containerId || task.containerId || '',
+      playbackKey: bundle.meta.playbackKey || task.playbackKey || null,
+      hasDiscontinuity: !!bundle.meta.hasDiscontinuity,
+      sourceTaskId: task.id,
+    });
+  }
+
+  /**
+   * 转换发起 IPC/弹框桥（player:convert/start 数据源，D-17 服务端复校——
+   * 前端已隐藏按钮属纵深防御）：entryId（缓存条目）或 taskId（record 任务）
+   * @param {{ entryId?: string, taskId?: string }} input
+   * @returns {Promise<{ok: boolean, taskId?: string, reason?: string}>}
+   */
+  async function startConvertFromInput(input) {
+    if (!input || typeof input !== 'object') return { ok: false, reason: 'invalid_input' };
+    if (typeof input.taskId === 'string' && input.taskId) {
+      if (!mediaTaskManager) return { ok: false, reason: 'not_ready' };
+      const task = mediaTaskManager.listTasks().find((t) => t.id === input.taskId);
+      if (!task) return { ok: false, reason: 'task_not_found' };
+      if (task.type !== 'record') return { ok: false, reason: 'not_record' };
+      // D-17：录制中断/失败（崩溃不白录）与已完成（取消弹框后补转）可续转
+      if (task.status !== 'interrupted' && task.status !== 'failed' && task.status !== 'completed') {
+        return { ok: false, reason: 'not_resumable' };
+      }
+      return startConvertFromRecordTask(task);
+    }
+    if (typeof input.entryId === 'string' && input.entryId) {
+      if (!mediaCache) return { ok: false, reason: 'not_ready' };
+      // entryId 兼容 playbackKey / videoId（沿 player:cache:delete 先例）
+      let videoId = input.entryId;
+      if (!/^[a-f0-9]{16}$/.test(videoId)) {
+        try {
+          videoId = videoIdOf(videoId);
+        } catch {
+          return { ok: false, reason: 'invalid_entry' };
+        }
+      }
+      if (!/^[a-f0-9]{16}$/.test(videoId)) return { ok: false, reason: 'invalid_entry' };
+      let info = null;
+      try {
+        info = mediaCache.getConvertInfo(videoId);
+      } catch {
+        return { ok: false, reason: 'invalid_entry' };
+      }
+      if (!info) return { ok: false, reason: 'invalid_entry' };
+      // D-17 服务端复校：完整度 100%（分片齐全）才可转；discontinuity 拒转
+      if (info.hasDiscontinuity) return { ok: false, reason: 'discontinuity' };
+      if (info.completeness === null || info.completeness < 100) {
+        return { ok: false, reason: 'segments_incomplete' };
+      }
+      return startConvertTask({
+        segmentPaths: info.segmentPaths,
+        title: info.title || '',
+        containerId: '',
+        playbackKey: info.playbackKey || null,
+      });
+    }
+    return { ok: false, reason: 'invalid_input' };
+  }
+
+  // 注入 ipc-handlers 供 player:convert/start 通道调用（沿 setMediaRecordEngine 惯例）
+  setMediaConvertStarter(startConvertFromInput);
+
+  // D-22 接力：record 任务 completed（停止录制/VOD 录完/关窗「停止并保存」）
+  // → 自动弹框选目录派生 convert 任务；取消弹框则不建任务，已录分片保留，
+  // 任务页该条目仍可「已落盘部分续转」
+  mediaTaskManager.onTaskCompleted((task) => {
+    if (task.type !== 'record' || task.status !== 'completed') return;
+    startConvertFromRecordTask(task).catch((err) => {
+      console.warn('[Realm] 录制→转换接力失败:', err.message);
+    });
+  });
 
   // 注册 IPC 处理器
   registerHandlers();

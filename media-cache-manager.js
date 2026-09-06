@@ -18,9 +18,16 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { PassThrough } = require('stream');
+const { parsePlaylist, resolveUri } = require('./media-m3u8-parser');
 
 /** meta.json 当前格式版本（D-03 costly：改结构必须升版本并写迁移） */
 const META_VERSION = 1;
+
+/**
+ * EXT-X-DISCONTINUITY 标签检测（整行匹配，不误中 DISCONTINUITY-SEQUENCE）。
+ * 含不连续片段的流转封装时间轴跳变（Pitfall 5），D-17 允许隐藏转换按钮。
+ */
+const DISCONTINUITY_RE = /(^|\r?\n)#EXT-X-DISCONTINUITY(\r?\n|$)/;
 
 /** 视频目录 ID 白名单：16 位 hex */
 const VIDEO_ID_RE = /^[a-f0-9]{16}$/;
@@ -393,7 +400,9 @@ class MediaCacheManager {
       const size = fs.statSync(file).size;
       const sha = crypto.createHash('sha256').update(buffer).digest('hex');
       mMeta.segments = mMeta.segments || {};
-      mMeta.segments[segKey] = { size, sha256: sha };
+      // stored_at：分片写入时间（44-05 转封装兜底排序——清单顺序索引缺失时
+      // 按「播放到哪写到哪」的时间序拼分片，VOD 线性观看场景顺序正确）
+      mMeta.segments[segKey] = { size, sha256: sha, stored_at: Date.now() };
       mMeta.total_size = (mMeta.total_size || 0) + size;
       mMeta.last_watched = typeof m.lastWatched === 'number' ? m.lastWatched : Date.now();
       if (m.title && !mMeta.title) mMeta.title = m.title;
@@ -490,6 +499,82 @@ class MediaCacheManager {
   }
 
   // ==================== 查询与进度同步 ====================
+
+  // ==================== 转封装索引（Phase 44 D-17/D-22，44-05 补齐 44-01 completeness 预留） ====================
+
+  /**
+   * 更新播放清单索引（m3u8 清单请求时由 main.js /proxy 分支调用）：
+   * 记录分片播放顺序（segKey 有序数组）、分片总数、ENDLIST、DISCONTINUITY——
+   * 转封装需要播放顺序（segments 索引本身是按 URL 哈希的无序 map），
+   * 完整度（D-17）需要分片总数做分母。附加字段向后兼容（旧 meta 缺字段时
+   * 完整度为 null、转换按钮隐藏，不升 META_VERSION）。
+   * @param {string} m3u8Url - 清单最终 URL（重定向后）
+   * @param {string} playlistText - 清单原始文本
+   */
+  updatePlaylistIndex(m3u8Url, playlistText) {
+    const vid = videoIdOf(m3u8Url);
+    const meta = this._readMeta(vid);
+    if (!meta || meta.version !== META_VERSION) return;
+    const pl = parsePlaylist(playlistText || '');
+    const order = [];
+    for (const seg of pl.segments) {
+      try {
+        // 分片 URI → 绝对 URL → 缓存 key（与 storeBuffer 的 segKey 同源）
+        order.push(segmentKeyOf(resolveUri(seg.uri, m3u8Url)));
+      } catch { /* 非法 URI 跳过 */ }
+    }
+    meta.playlist_order = order;
+    meta.total_segments = order.length;
+    meta.playlist_ended = !!pl.ended;
+    meta.has_discontinuity = DISCONTINUITY_RE.test(playlistText || '');
+    this._writeMeta(vid, meta);
+  }
+
+  /**
+   * 读取缓存条目的转封装信息（player:convert/start 入口数据源，D-17）
+   * 分片顺序：playlist_order 优先（权威播放顺序，且须覆盖全部已登记分片），
+   * 回退 stored_at 时间序（VOD 线性观看近似正确）。
+   * @param {string} videoId - 视频目录 ID（16 位 hex）
+   * @returns {{ title: string, m3u8Url: string, playbackKey: string, segmentPaths: string[], completeness: number|null, totalSegments: number|null, hasDiscontinuity: boolean }|null}
+   *   completeness=null 表示分片总数未知（无法确认齐全，D-17 按不齐全处理）
+   */
+  getConvertInfo(videoId) {
+    this._assertVideoId(videoId);
+    const meta = this._readMeta(videoId);
+    if (!meta) return null;
+    const segs = meta.segments || {};
+    const allKeys = Object.keys(segs);
+    let keys = null;
+    if (Array.isArray(meta.playlist_order) && meta.playlist_order.length === allKeys.length) {
+      keys = meta.playlist_order.filter((k) => segs[k]);
+      if (keys.length !== allKeys.length) keys = null; // 顺序索引与实际分片不匹配 → 回退
+    }
+    if (!keys) {
+      keys = allKeys.slice().sort((a, b) => (segs[a].stored_at || 0) - (segs[b].stored_at || 0));
+    }
+    const segmentPaths = [];
+    for (const k of keys) {
+      try {
+        const f = this._safePath(videoId, 'segments', k);
+        if (fs.existsSync(f)) segmentPaths.push(f);
+      } catch { /* 路径校验失败跳过 */ }
+    }
+    const total = typeof meta.total_segments === 'number' && meta.total_segments > 0
+      ? meta.total_segments
+      : null;
+    const completeness = total
+      ? Math.min(100, Math.round((segmentPaths.length / total) * 100))
+      : null;
+    return {
+      title: meta.title || '',
+      m3u8Url: meta.m3u8_url || '',
+      playbackKey: meta.playback_key || '',
+      segmentPaths,
+      completeness,
+      totalSegments: total,
+      hasDiscontinuity: !!meta.has_discontinuity,
+    };
+  }
 
   /**
    * 列出所有缓存条目（抽屉列表数据源之一）

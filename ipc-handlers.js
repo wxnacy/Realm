@@ -49,6 +49,10 @@ let realmServerInfo = { port: 0, token: '' };
 let mediaCache = null;
 let playerHistory = null;
 
+// 转换发起桥（main.js 经 setMediaConvertStarter 注入，Phase 44 D-22/D-24：
+// D-17 服务端复校 + 弹框 + convert 任务编排都在 main.js，IPC 侧只透传）
+let mediaConvertStarter = null;
+
 // 与 main.js 共享 realm-config.json（settings:* 命名空间）
 const configStore = new Store({ name: 'realm-config' });
 
@@ -2279,7 +2283,12 @@ function registerHandlers() {
             lastWatched: 0,
           };
           item.cacheSize = e.size || 0;
-          // 完整度在录制/转换任务提供分片总数后才能计算（44-02 契约），暂置 null
+          // 完整度（44-05 补齐 44-01 预留，D-17 分母）：已登记分片数 / 清单分片总数
+          //（updatePlaylistIndex 在 m3u8 请求时登记；无清单索引时为 null → 转换按钮隐藏）
+          if (e.meta.total_segments > 0 && e.meta.segments) {
+            const present = Object.keys(e.meta.segments).length;
+            item.completeness = Math.min(100, Math.round((present / e.meta.total_segments) * 100));
+          }
           if (!item.title && e.meta.title) item.title = e.meta.title;
           if (!item.url && e.meta.m3u8_url) item.url = e.meta.m3u8_url;
           if (e.meta.last_position) item.lastPosition = Math.max(item.lastPosition, e.meta.last_position);
@@ -2403,6 +2412,24 @@ function registerHandlers() {
     assertPlayerSender(event);
     if (!recordEngine) return [];
     return recordEngine.getActiveRecordings();
+  });
+
+  /**
+   * 发起 MP4 转换（Phase 44 D-17/D-22/D-24）：entryId（缓存条目，playbackKey
+   * 或 videoId）或 taskId（record 任务续转）。D-17 校验（完整度 100%/中断续转/
+   * discontinuity 拒转）在 main.js 的 startConvertFromInput 服务端复校——
+   * 前端按钮 gating 属纵深防御（T-44-16：分片路径仅取自索引，不接受 renderer 传路径）
+   * @param {{ entryId?: string, taskId?: string }} input
+   * @returns {Promise<{ok: boolean, taskId?: string, reason?: string}>}
+   */
+  ipcMain.handle('player:convert/start', async (event, input) => {
+    assertPlayerSender(event);
+    if (!mediaConvertStarter) return { ok: false, reason: 'not_ready' };
+    if (!input || typeof input !== 'object' ||
+        (typeof input.entryId !== 'string' && typeof input.taskId !== 'string')) {
+      return { ok: false, reason: 'invalid_input' };
+    }
+    return mediaConvertStarter(input);
   });
 
   /**
@@ -2710,4 +2737,12 @@ function setMediaRecordEngine(engine) {
   recordEngine = engine || null;
 }
 
-module.exports = { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager, setRealmServerInfo, setMediaCaches, setMediaRecordEngine };
+/**
+ * 注入转换发起桥（Phase 44 D-22/D-24）
+ * @param {Function} starter - (input: { entryId?, taskId? }) => Promise<{ok, taskId?, reason?}>
+ */
+function setMediaConvertStarter(starter) {
+  mediaConvertStarter = typeof starter === 'function' ? starter : null;
+}
+
+module.exports = { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager, setRealmServerInfo, setMediaCaches, setMediaRecordEngine, setMediaConvertStarter };

@@ -114,6 +114,7 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
       stopped: false,             // stopRecord 置位后轮询循环退出且不再触发终态流转
       consecutiveFailures: 0,
       firstRound: true,
+      hasDiscontinuity: false,    // 清单含 EXT-X-DISCONTINUITY（Pitfall 5：转封装拒转）
     };
     active.set(taskId, st);
 
@@ -178,6 +179,8 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
       totalDuration,
       totalSize: st.totalBytes,
       segments: segs,
+      // 44-05 转封装消费：含不连续片段的流转封装时间轴跳变（Pitfall 5），直接拒转
+      hasDiscontinuity: !!st.hasDiscontinuity,
       finishedAt: new Date().toISOString(),
     };
     try {
@@ -198,6 +201,11 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
         const buf = await fetchPage(st.url, { referer: st.referer, containerId: st.containerId });
         const pl = parse(buf.toString('utf8'));
         if (pl.targetDuration > 0) st.targetDuration = pl.targetDuration;
+        // D-17/Pitfall 5：任一版清单出现过 EXT-X-DISCONTINUITY 即记录（整行匹配，
+        // 不误中 DISCONTINUITY-SEQUENCE）——转封装直接拒转
+        if (/(^|\r?\n)#EXT-X-DISCONTINUITY(\r?\n|$)/.test(buf.toString('utf8'))) {
+          st.hasDiscontinuity = true;
+        }
         st.consecutiveFailures = 0;
 
         if (st.firstRound) {

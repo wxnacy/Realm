@@ -772,6 +772,7 @@ function showInFolder(filePath) {
 module.exports = {
   initDatabase,
   registerSessionDownloadHandler,
+  getUniqueFilePath,
   getDownloads,
   getAllDownloads,
   deleteDownload,
