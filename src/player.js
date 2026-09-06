@@ -256,15 +256,21 @@ function showError(message) {
 const urlParams = new URLSearchParams(window.location.search);
 const paramUrl = urlParams.get('url');
 
-// webview tab 模式（http 协议加载；独立窗口为 file://）下，hls.js 请求经
-// /proxy 同源代理：播放器页面源是 localhost，直接 XHR 外部视频源会被 CORS 拦截，
-// 且防盗链站点校验 Referer——代理由主进程 ses.fetch 发出，Referer 可控、
-// 容器 session 携带 Cookie。m3u8 清单由代理重写，分片/密钥请求同样走代理
+// webview tab 模式（http 协议加载）下，hls.js 请求经 /proxy 同源代理：播放器页面
+// 源是 localhost，直接 XHR 外部视频源会被 CORS 拦截，且防盗链站点校验 Referer——
+// 代理由主进程 ses.fetch 发出，Referer 可控、容器 session 携带 Cookie。
+// m3u8 清单由代理重写，分片/密钥请求同样走代理
 const isWebviewMode = location.protocol === 'http:' || location.protocol === 'https:';
 
+// Phase 44 D-02：独立窗口 localhost 化后出现第三形态——http: 加载的独立窗口。
+// mode=independent 参数区分：保留标题栏与红绿灯（不进 webview tab 的隐藏标题栏
+// 分支，Pitfall 1），token/container/referer/cache 从 URL 参数取，mediaList 仍经
+// playerAPI.onPlayUrl 接收
+const isIndependentMode = urlParams.get('mode') === 'independent';
+
 /**
- * 将视频源 URL 转换为 /proxy 代理 URL（仅 webview tab 模式）
- * token/container/referer 从播放器页面 URL 透传
+ * 将视频源 URL 转换为 /proxy 代理 URL（webview tab 与独立窗口 localhost 模式）
+ * token/container/referer/cache 从播放器页面 URL 透传
  * @param {string} url - 原始视频 URL
  * @returns {string} 代理 URL 或原 URL
  */
@@ -272,14 +278,14 @@ function proxiedUrl(url) {
   if (!isWebviewMode || !/^https?:\/\//i.test(url)) return url;
   const proxyUrl = new URL('/proxy', location.origin);
   proxyUrl.searchParams.set('url', url);
-  for (const key of ['token', 'container', 'referer']) {
+  for (const key of ['token', 'container', 'referer', 'cache']) {
     const v = urlParams.get(key);
     if (v) proxyUrl.searchParams.set(key, v);
   }
   return proxyUrl.toString();
 }
 
-if (paramUrl) {
+if (paramUrl && !isIndependentMode) {
   // webview tab 模式：从 URL 参数读取播放地址，隐藏标题栏
   console.log('[Realm Player] webview tab 模式，URL 参数:', paramUrl);
   document.body.classList.add('webview-player');

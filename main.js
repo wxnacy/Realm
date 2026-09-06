@@ -115,7 +115,7 @@ const tabManager = require('./tab-manager');
 const cookieManager = require('./cookie-manager');
 const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
-const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager } = require('./ipc-handlers');
+const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager, setRealmServerInfo } = require('./ipc-handlers');
 const historyManager = require('./history-manager');
 const downloadManager = require('./download-manager');
 const credentialManager = require('./credential-manager');
@@ -138,6 +138,11 @@ const aiMemoryManager = require('./ai-memory-manager');
 const agentWorkspace = require('./agent-workspace');
 // Bash 三档权限策略（纯函数零依赖，白名单服务端校验用）
 const bashPolicy = require('./ai-bash-policy');
+// 媒体分片磁盘缓存（Phase 44 D-03：/proxy 层按视频组织的分片缓存，仅独立播放器流量）
+const { MediaCacheManager, videoIdOf } = require('./media-cache-manager');
+
+// 媒体缓存实例（whenReady 中初始化；handleProxyRequest 运行期读取）
+let mediaCache = null;
 
 // AI Manager 实例（在 app.whenReady 中初始化，供后续 Phase 通过 require('./main').aiManager 访问）
 let aiManager = null;
@@ -242,6 +247,15 @@ function rewriteM3u8ForProxy(text, baseUrl, params) {
       const v = params.get(key);
       if (v) q.set(key, v);
     }
+    // Phase 44 D-01/D-03：仅独立播放器流量带 cache 标记，分片/密钥/子清单请求
+    // 自动继承标记与视频 ID（vid = m3u8 清单 origin+pathname 的哈希，分片
+    // 借此归属到视频目录；webview tab 流量无 cache 参数不进缓存分支）
+    if (params.get('cache') === '1') {
+      q.set('cache', '1');
+      try {
+        q.set('vid', params.get('vid') || videoIdOf(baseUrl));
+      } catch { /* 非法 URL 时省略 vid，分片请求走透传 */ }
+    }
     return `/proxy?${q.toString()}`;
   };
   return text.split('\n').map((line) => {
@@ -281,6 +295,9 @@ async function handleProxyRequest(req, res, reqUrl) {
     res.end('Forbidden');
     return;
   }
+  // Phase 44 D-01/D-03：仅独立播放器流量（URL 带 cache=1）进入缓存分支；
+  // webview tab 流量无 cache 参数，保持现状纯透传
+  const cacheEnabled = reqUrl.searchParams.get('cache') === '1';
   const target = reqUrl.searchParams.get('url') || '';
   let targetOrigin;
   try {
@@ -332,13 +349,52 @@ async function handleProxyRequest(req, res, reqUrl) {
     if (resp.ok && isM3u8) {
       const text = await resp.text();
       const rewritten = rewriteM3u8ForProxy(text, finalUrl, reqUrl.searchParams);
-      res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl' });
+      // 缓存上下文登记（Pitfall 2：live/VOD 清单本身不落盘，重写每次现做；
+      // touchVideo 仅建档并刷新 last_watched，供分片落盘归属与淘汰排序）
+      if (cacheEnabled && mediaCache) {
+        try {
+          mediaCache.touchVideo(finalUrl);
+        } catch (err) {
+          console.warn('[Realm] 缓存建档失败:', err.message);
+        }
+      }
+      // Pitfall 7：/proxy 响应统一 no-store，避免 localhost 页面 Chromium HTTP
+      // 缓存与自建磁盘缓存双写
+      res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store' });
       res.end(rewritten);
       return;
     }
 
+    // Phase 44 分片缓存分支（D-03）：仅 cache=1 且非清单、非 Range（Pitfall 3：
+    // Range 请求永远透传不落盘，避免破坏 206 语义）、回源成功时启用
+    if (cacheEnabled && mediaCache && resp.ok && !isM3u8 && !req.headers.range) {
+      const vid = reqUrl.searchParams.get('vid') || '';
+      if (/^[a-f0-9]{16}$/.test(vid)) {
+        // 命中：读盘响应（Content-Length 用实际字节数，Pitfall 4）
+        const hit = mediaCache.lookup(finalUrl, vid);
+        if (hit) {
+          res.writeHead(200, {
+            'Content-Type': contentType || 'application/octet-stream',
+            'Content-Length': hit.size,
+            'Cache-Control': 'no-store',
+          });
+          res.end(hit.data);
+          return;
+        }
+        // 未命中：tee 回源流——一边透传给播放器一边收集落盘（写盘失败不影响透传）
+        const outHeaders = { 'Content-Type': contentType || 'application/octet-stream', 'Cache-Control': 'no-store' };
+        for (const h of ['content-range', 'accept-ranges']) {
+          const v = resp.headers.get(h);
+          if (v) outHeaders[h] = v;
+        }
+        res.writeHead(200, outHeaders);
+        mediaCache.store(finalUrl, vid, Readable.fromWeb(resp.body), {}).pipe(res);
+        return;
+      }
+    }
+
     // 分片/密钥等非清单响应：流式透传
-    const outHeaders = { 'Content-Type': contentType || 'application/octet-stream' };
+    const outHeaders = { 'Content-Type': contentType || 'application/octet-stream', 'Cache-Control': 'no-store' };
     for (const h of ['content-range', 'accept-ranges']) {
       const v = resp.headers.get(h);
       if (v) outHeaders[h] = v;
@@ -2489,7 +2545,8 @@ app.whenReady().then(async () => {
         res.end('Not Found');
         return;
       }
-      res.writeHead(200, { 'Content-Type': contentType });
+      // 内部页响应统一 no-store（Pitfall 7：避免 localhost 页面进入 Chromium HTTP 缓存）
+      res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-store' });
       res.end(data);
     });
   });
@@ -2501,12 +2558,24 @@ app.whenReady().then(async () => {
     // 媒体嗅探忽略内部服务器流量（播放器页面 /proxy 代理请求不计入媒体列表）
     mediaSniffer.internalOrigin = `http://localhost:${realmPort}`;
 
+    // 独立播放器窗口 localhost 化（Phase 44 D-02）：media:play 经此端口加载
+    // player 页并注入 token（ipc-handlers 无 main.js 作用域，经 setter 传入）
+    setRealmServerInfo({ port: realmPort, token: REALM_TOKEN });
+
     // 暴露端口和 API token 给渲染进程（token 用于内部页面调用 /api/history/*）
     ipcMain.handle('get-realm-port', (event) => {
       assertTrustedSender(event);
       return { port: realmPort, token: REALM_TOKEN };
     });
   });
+
+  // Phase 44 D-03/D-05：媒体分片磁盘缓存初始化（默认 userData/media-cache，
+  // 三环境 userData 隔离自动生效；容量默认 10GB，设置页后续可改）
+  mediaCache = new MediaCacheManager({
+    cacheRoot: configStore.get('settings.mediaCachePath', path.join(app.getPath('userData'), 'media-cache')),
+    capacityBytes: configStore.get('settings.mediaCacheCapacityBytes', 10 * 1024 * 1024 * 1024),
+  });
+  console.log(`[Realm] 媒体缓存已初始化: ${mediaCache.cacheRoot}`);
 
   // 注册 IPC 处理器
   registerHandlers();

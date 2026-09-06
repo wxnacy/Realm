@@ -1941,6 +1941,21 @@ function registerHandlers() {
   let playerWindow = null;
   /** @type {string|null} 播放器关联的容器 ID（D-22 Session 隔离） */
   let playerContainerId = null;
+  /** @type {boolean} close 拦截放行标记（Pitfall 6 最终进度索取后二次 close） */
+  let playerClosing = false;
+  /** @type {{port: number, token: string}} 内部服务器信息（main.js 经 setter 注入，D-02） */
+  let realmServerInfo = { port: 0, token: '' };
+
+  /**
+   * 注入内部服务器端口与 token（Phase 44 D-02 独立窗口 localhost 化）
+   * main.js 在 realmServer listen 回调中调用（ipc-handlers 无 main.js 作用域）
+   * @param {{port: number, token: string}} info
+   */
+  function setRealmServerInfo(info) {
+    if (info && typeof info.port === 'number' && typeof info.token === 'string') {
+      realmServerInfo = { port: info.port, token: info.token };
+    }
+  }
 
   /**
    * 校验播放器窗口 IPC 来源：仅接受来自当前播放器窗口的调用。
@@ -2037,7 +2052,25 @@ function registerHandlers() {
 
     playerContainerId = containerId;
 
-    playerWindow.loadFile(path.join(__dirname, 'src/player.html'));
+    // Phase 44 D-02：独立播放窗口从 file:// 收口到 localhost——hls.js 请求统一走
+    // /proxy 同源代理（token 鉴权、容器 session 携带 Cookie、Referer 可控），
+    // 并带 cache=1（D-01 仅独立窗口缓存）与 mode=independent（player.js 第三形态
+    // 判定：保留标题栏与红绿灯，不进 webview tab 隐藏标题栏分支）。mediaList 仍走
+    // did-finish-load 后 media:play-url IPC 传递。服务器未启动时回落 file:// 兜底
+    if (realmServerInfo.port && realmServerInfo.token) {
+      const playParams = new URLSearchParams({
+        url,
+        token: realmServerInfo.token,
+        container: containerId,
+        referer: '',
+        cache: '1',
+        mode: 'independent',
+      });
+      playerWindow.loadURL(`http://localhost:${realmServerInfo.port}/player/?${playParams}`);
+    } else {
+      console.warn('[Realm] 内部页面服务器未就绪，播放器窗口回落 file:// 加载');
+      playerWindow.loadFile(path.join(__dirname, 'src/player.html'));
+    }
 
     // 页面加载完成后发送媒体数据
     playerWindow.webContents.on('did-finish-load', () => {
@@ -2350,4 +2383,4 @@ function setSearchManager(manager) {
   searchManager = manager;
 }
 
-module.exports = { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager };
+module.exports = { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager, setRealmServerInfo };
