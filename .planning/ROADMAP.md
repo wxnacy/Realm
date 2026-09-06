@@ -288,9 +288,19 @@ Plans:
 **Plans:** 5 plans
 
 Plans:
+**Wave 1**
 
 - [ ] 44-01-PLAN.md — 端到端切片：独立窗口 localhost 化（D-02）+ /proxy 分片缓存（D-03/D-05~D-10）+ 观看历史续播（D-11~D-13）
 - [ ] 44-02-PLAN.md — 纯逻辑模块：m3u8 行级解析器 + media-task-manager 注册表（D-18/D-22/D-25）+ Wave 0 单测
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 44-03-PLAN.md — 任务中心集成：realm://tasks 页 + /api/tasks 端点 + 主窗口角标 + 设置页多媒体分区（D-25/D-26/D-05/D-06）
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 44-04-PLAN.md — 直播录制：media-record-engine + 播放器录制 UI/抽屉面板 + 关窗/退出确认（D-14~D-16/D-18~D-21/D-23）
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 44-05-PLAN.md — mux.js 转封装：convert 任务 + showSaveDialog 产物链路 + 抽屉转换入口（D-04/D-17/D-22/D-24/D-26）

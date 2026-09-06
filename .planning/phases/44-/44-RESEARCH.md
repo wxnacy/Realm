@@ -437,19 +437,21 @@ if (reqPath === '/api/tasks/list' && req.method === 'GET') {
 | A6 | 观看历史记录量极小，SQLite 与 JSON 两方案皆可承载（D-11 未定存储介质，属 planner 裁量） | Standard Stack | 低 |
 | A7 | hls.js 对同一分片不会并发重复请求到需要主进程去重的程度（in-flight 合并是稳健性优化非常量依赖） | Pitfall（并发） | 低 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **独立窗口 localhost 化后 mediaList 的传递方式**
+> 三个问题的 Recommendation 均已被采纳进计划任务，无遗留未决项。
+
+1. **独立窗口 localhost 化后 mediaList 的传递方式** — ✅ 已采纳：保留 IPC 通道传 mediaList（仅列表数据），导航参数（url/token/container/referer/cache）走 URL 参数（44-01 Task 1 action 1）。
    - What we know: 现有链路是 `did-finish-load` 后 `playerWindow.webContents.send('media:play-url', …)`（ipc-handlers.js:2043-2046）；webview 模式从 URL 参数取 url/token/container/referer。
    - What's unclear: mode=independent 下播放列表（上一个/下一个）仍走 IPC 还是也参数化。
    - Recommendation: 保留 IPC 通道传 mediaList（仅列表数据），导航参数（url/token/container/referer/cache）走 URL 参数——与 webview 模式参数语义对齐，改动最小。
 
-2. **观看历史存储介质（SQLite 表 vs electron-store JSON）**
+2. **观看历史存储介质（SQLite 表 vs electron-store JSON）** — ✅ 已采纳：SQLite（独立小库），按 playbackKey 主键 upsert（44-01 Task 3 action 1）。
    - What we know: D-11 说「纯记录，很小」；项目 SQLite 惯例成熟。
    - What's unclear: 是否需要与容器关联（播放器窗口本身有 containerId）。
    - Recommendation: SQLite（独立小库或 history.db 加表），按 playbackKey 主键 upsert；A6 已标注可裁量。
 
-3. **cache 标记的传递格式**
+3. **cache 标记的传递格式** — ✅ 已采纳：把 `'cache'` 加入 main.js:241 透传白名单，播放器页 proxiedUrl 附加 `cache=1`（44-01 Task 1 action 2）。
    - What we know: D-01/D-03 要求「带 cache 标记的播放器流量」落盘；rewriteM3u8ForProxy 的参数透传白名单是 `['token', 'container', 'referer']`（main.js:241）。
    - What's unclear: cache 标记加进透传白名单（`q.set('cache', …)`）还是独立参数。
    - Recommendation: 把 `'cache'` 加入 main.js:241 的透传白名单数组，播放器页 proxiedUrl 附加 `cache=1`——分片/密钥/子清单请求自动继承标记，零额外状态。
