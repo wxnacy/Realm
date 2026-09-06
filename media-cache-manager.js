@@ -386,7 +386,7 @@ class MediaCacheManager {
 
       const file = this._safePath(videoId, 'segments', segKey);
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      const written = this._writeWithEvictRetry(file, buffer);
+      const written = this._writeWithEvictRetry(file, buffer, videoId);
       if (!written.ok) return written;
 
       // 登记索引：实际落盘字节数（stat，不信任上游 Content-Length）+ 哈希
@@ -409,9 +409,10 @@ class MediaCacheManager {
    * 写文件并在磁盘满（ENOSPC/EDQUOT）时强制淘汰一轮后重试一次（D-08）
    * @param {string} file - 目标文件路径
    * @param {Buffer} buffer - 内容
+   * @param {string} [videoId] - 正在写入的视频 ID（强淘豁免，防删掉自己的目录）
    * @returns {{ok: boolean, reason?: string}}
    */
-  _writeWithEvictRetry(file, buffer) {
+  _writeWithEvictRetry(file, buffer, videoId) {
     try {
       fs.writeFileSync(file, buffer);
       return { ok: true };
@@ -419,7 +420,7 @@ class MediaCacheManager {
       const isDiskFull = err.code === 'ENOSPC' || err.code === 'EDQUOT';
       if (!isDiskFull) throw err;
       console.warn('[Realm] 磁盘空间不足，触发强制淘汰:', err.message);
-      const freed = this.evictIfNeeded();
+      const freed = this.evictIfNeeded(new Set(videoId ? [videoId] : []));
       console.log(`[Realm] 强制淘汰释放 ${freed.freed} 字节，重试写盘`);
       try {
         fs.writeFileSync(file, buffer);
@@ -436,9 +437,12 @@ class MediaCacheManager {
   /**
    * 容量淘汰（D-06/D-07）：总大小超 capacityBytes 时按 meta.last_watched 升序
    * 整视频目录删除，活跃任务（isVideoActive(playbackKey) === true）豁免。
+   * @param {Set<string>} [exemptVideoIds] - 额外豁免的视频 ID
+   *   （如正在写入的条目，防强淘删掉自己的目录）
    * @returns {{freed: number, total: number, evicted: string[]}}
    */
-  evictIfNeeded() {
+  evictIfNeeded(exemptVideoIds) {
+    const exempt = exemptVideoIds instanceof Set ? exemptVideoIds : new Set();
     const entries = this.listEntries();
     let total = entries.reduce((sum, e) => sum + (e.size || 0), 0);
     if (total <= this.capacityBytes) {
@@ -452,6 +456,7 @@ class MediaCacheManager {
         if (total <= this.capacityBytes) return;
         // D-07：活跃任务（正在缓存/录制的视频）豁免淘汰
         if (this.isVideoActive(e.meta.playback_key || '')) return;
+        if (exempt.has(e.videoId)) return;
         try {
           const dir = this._videoDir(e.videoId);
           fs.rmSync(dir, { recursive: true, force: true });
