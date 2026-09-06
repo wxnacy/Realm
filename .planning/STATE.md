@@ -4,17 +4,17 @@ milestone: v2.5
 milestone_name: AI 网络搜索功能
 current_phase: 44
 current_phase_name: 播放器视频缓存与本地媒体库
-status: executing
-stopped_at: Completed 44-04-PLAN.md
-last_updated: "2026-09-06T12:22:53.285Z"
+status: verifying
+stopped_at: Completed 44-05-PLAN.md
+last_updated: "2026-09-06T12:53:07.441Z"
 last_activity: 2026-09-06
 last_activity_desc: Phase 44 execution started
-state_head: 1a543f442d5e635751a47dc67043ed2bbbcd5818
+state_head: 835e4cad88a08285599d615295a234dcaf0a2d56
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 21
-  completed_plans: 20
+  completed_plans: 21
   percent: 80
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 
 Phase: 44 (播放器视频缓存与本地媒体库) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-06 — Phase 44 execution started
 
 Progress: [████████░░] 80%
@@ -73,6 +73,7 @@ Progress: [████████░░] 80%
 | Phase 44 P02 | 6min | 2 tasks | 4 files |
 | Phase 44 P03 | 18min | 2 tasks | 10 files |
 | Phase 44 P04 | 14min | 3 tasks | 7 files |
+| Phase 44 P05 | 20min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -106,6 +107,7 @@ Recent decisions affecting current work:
 - [Phase 44]: 媒体任务键统一 settings.cacheDir/cacheMaxGB（44-01 遗留键切换，无存量数据）
 - [Phase 44]: webview guest 设置页对话框走 /api/settings/choose-cache-dir HTTP 端点（guest 无 realmAPI）
 - [Phase 44]: Phase 44 P04: 录制引擎去 Electron 化（fetchPage 注入，main.js 容器 session 包装 ses.fetch）；meta.json stop/fail 双路径落盘供 44-05 续转；录制进度 live 流按 recorded/seen 比率偏低是真实语义，VOD 转正收敛；Task3 退出确认续走既有协程（双击确认门会拦截 setImmediate 重启路径）；appQuitting 标志防退出双重弹窗；新增 player:record/list 通道供 keep-recording 重开窗口恢复红点
+- [Phase 44]: Phase 44 P05: mux.js 单实例顺序转封装（data 监听先于 push + 流式写盘 + discontinuity 拒转依据落到 record meta/缓存 meta 检测）；缓存 completeness/顺序索引补齐（updatePlaylistIndex 登记分片顺序/总数，playlist_order 优先 stored_at 兜底，附加字段不升 META_VERSION）；convert error 落库带「MP4 转换失败：」前缀（通知去重）；续转扩展 interrupted/failed/completed record；convert 进度整数百分比变化才 updateProgress 降 persist 写放大；settings.lastMediaSaveDir 记忆弹框目录
 
 ### Roadmap Evolution
 
@@ -134,6 +136,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T12:22:51.954Z
-Stopped at: Completed 44-04-PLAN.md
+Last session: 2026-09-06T12:53:07.286Z
+Stopped at: Completed 44-05-PLAN.md
 Resume file: None
