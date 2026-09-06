@@ -3476,37 +3476,46 @@ async function restoreTabs() {
   const tabs = await window.realmAPI.getTabs();
   const activeTab = await window.realmAPI.getActiveTab();
 
+  // 主进程预注入 Tab 的窗口（右键「在新窗口中打开」/拖出新窗口，经
+  // createMainWindow 的 ?injected=1 query 标记）：restoreTabsOnLaunch 的
+  // 「丢弃上次会话」语义只应作用于启动恢复，不应清掉本窗口刚注入的 Tab，
+  // 故跳过设置分支直接渲染 tab:list 拉到的 Tab
+  const hasInjectedTabs =
+    new URLSearchParams(window.location.search).get('injected') === '1';
+
   if (tabs.length === 0) {
     // 没有保存的 Tab，创建新 Tab
     createTab(state.currentContainer);
     return;
   }
 
-  // 按设置决定是否恢复
-  const settings = await window.realmAPI.getSettings();
-  const behavior = settings.restoreTabsOnLaunch || 'ask';
+  if (!hasInjectedTabs) {
+    // 按设置决定是否恢复
+    const settings = await window.realmAPI.getSettings();
+    const behavior = settings.restoreTabsOnLaunch || 'ask';
 
-  let shouldRestore = behavior === 'always';
-  if (behavior === 'ask') {
-    const { action, remember } = await showRestoreTabsDialog(tabs.length);
-    shouldRestore = action === 'restore';
-    if (remember) {
-      // 永久更改设置：恢复 → 'always'，不恢复 → 'never'
-      await window.realmAPI.setSetting(
-        'restoreTabsOnLaunch',
-        shouldRestore ? 'always' : 'never'
-      );
+    let shouldRestore = behavior === 'always';
+    if (behavior === 'ask') {
+      const { action, remember } = await showRestoreTabsDialog(tabs.length);
+      shouldRestore = action === 'restore';
+      if (remember) {
+        // 永久更改设置：恢复 → 'always'，不恢复 → 'never'
+        await window.realmAPI.setSetting(
+          'restoreTabsOnLaunch',
+          shouldRestore ? 'always' : 'never'
+        );
+      }
     }
-  }
 
-  if (!shouldRestore) {
-    // 丢弃旧会话：主进程 initTabs 已把旧 Tab 加载到内存 Map，
-    // 不清空则后续新建 Tab 会 append 进去一起被持久化，
-    // 下次启动会把本次放弃的旧会话一并恢复
-    // （主进程按发送窗口清空，多窗口时不影响其他窗口的 Tab）
-    await window.realmAPI.clearAllTabs();
-    createTab(state.currentContainer);
-    return;
+    if (!shouldRestore) {
+      // 丢弃旧会话：主进程 initTabs 已把旧 Tab 加载到内存 Map，
+      // 不清空则后续新建 Tab 会 append 进去一起被持久化，
+      // 下次启动会把本次放弃的旧会话一并恢复
+      // （主进程按发送窗口清空，多窗口时不影响其他窗口的 Tab）
+      await window.realmAPI.clearAllTabs();
+      createTab(state.currentContainer);
+      return;
+    }
   }
 
   console.log(`[Realm Renderer] 恢复 ${tabs.length} 个 Tab`);

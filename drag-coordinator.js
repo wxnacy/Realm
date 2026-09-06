@@ -244,28 +244,18 @@ async function endDrag(sourceWindowId, data = {}) {
     const container = containerManagerRef.getContainer(tab.containerId);
     if (!container) return { success: false, action: 'cancelled' };
 
-    // 创建新窗口（相对于源窗口偏移位置）
-    const newWindow = windowManagerRef.createMainWindow(tab.containerId, container, { offsetPosition: true });
+    // 创建新窗口（相对于源窗口偏移位置；injectedTabs 标记：renderer 的
+    // restoreTabs 跳过启动恢复分支，直接渲染 tab:list 拉到的搬移 Tab）
+    const newWindow = windowManagerRef.createMainWindow(tab.containerId, container, {
+      offsetPosition: true,
+      injectedTabs: true,
+    });
     if (!newWindow) return { success: false, action: 'cancelled' };
 
-    // 等待新窗口加载完成：渲染进程 restoreTabs 在本窗口 tab:list 为空时只会
-    // 创建一个默认空白 Tab，不会把后续搬入的 Tab 误判为"上次会话"弹恢复确认
-    // 或触发清空（与 tab:open-in-new-window 的时序策略一致）
-    await new Promise((resolve) => {
-      if (newWindow.webContents.isLoading()) {
-        newWindow.webContents.once('did-finish-load', resolve);
-      } else {
-        resolve();
-      }
-    });
-
-    // 关闭 restoreTabs 创建的默认空白 Tab
-    const newWindowTabs = tabManagerRef.getTabsByWindowId(newWindow.id);
-    for (const defaultTab of newWindowTabs) {
-      tabManagerRef.closeTab(defaultTab.id);
-    }
-
-    // 在新窗口创建搬移的 Tab
+    // 立即创建搬移的 Tab（主进程同步执行，早于 renderer 脚本加载，
+    // renderer 的 restoreTabs 经 tab:list 天然拉到，无竞态；
+    // 不等 did-finish-load——它不代表 restoreTabs 完成，与
+    // tab:open-in-new-window 的时序策略一致）
     const newTab = tabManagerRef.createTab(tab.containerId, tab.url, newWindow.id);
 
     // 先通知源窗口移除 Tab UI，再从 tabManager 中删除
@@ -281,7 +271,8 @@ async function endDrag(sourceWindowId, data = {}) {
     }
     tabManagerRef.closeTab(tabId);
 
-    // 通知新窗口
+    // 兜底通知新窗口：renderer 若已注册监听则去重跳过；未注册则静默丢弃，
+    // 不影响主流程——搬移的 Tab 已由 restoreTabs 经 tab:list 拉取
     try {
       newWindow.webContents.send('tab:created', { tab: newTab });
       newWindow.webContents.send('tab:switched', { tabId: newTab.id });

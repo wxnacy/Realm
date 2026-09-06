@@ -140,6 +140,10 @@ function restoreWindowBounds(containerId) {
  * @param {Object} container - 容器配置对象（必须包含 session）
  * @param {Object} [options] - 额外选项
  * @param {boolean} [options.offsetPosition=false] - 是否相对于当前活动窗口偏移位置
+ * @param {boolean} [options.injectedTabs=false] - 主进程将为本窗口预注入 Tab
+ *   （右键「在新窗口中打开」/拖出新窗口）。经 loadFile query（?injected=1）告知
+ *   renderer：restoreTabs 跳过「启动恢复」分支直接渲染注入的 Tab，
+ *   避免 restoreTabsOnLaunch='never' 时 clearAllTabs 把注入的 Tab 清掉
  * @returns {BrowserWindow|undefined} 创建的窗口实例
  */
 function createMainWindow(containerId, container, options = {}) {
@@ -203,7 +207,11 @@ function createMainWindow(containerId, container, options = {}) {
   }
 
   // 加载 UI（WR-11：使用绝对路径——打包后进程 CWD 不保证为应用目录，相对路径会白屏）
-  mainWindow.loadFile(path.join(__dirname, 'src/index.html'));
+  // 注入窗口带 query 标记，renderer 的 restoreTabs 据此跳过启动恢复分支
+  mainWindow.loadFile(
+    path.join(__dirname, 'src/index.html'),
+    options.injectedTabs ? { query: { injected: '1' } } : undefined
+  );
 
   // 窗口关闭时清理三个数据结构
   mainWindow.on('closed', () => {
