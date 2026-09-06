@@ -5,16 +5,16 @@ milestone_name: AI 网络搜索功能
 current_phase: 44
 current_phase_name: 播放器视频缓存与本地媒体库
 status: executing
-stopped_at: Completed 44-07-PLAN.md
-last_updated: "2026-09-06T14:34:14.566Z"
+stopped_at: Completed 44-08-PLAN.md (CR-04 cancel bridge)
+last_updated: "2026-09-06T14:39:45.800Z"
 last_activity: 2026-09-06
 last_activity_desc: Phase 44 execution started
-state_head: 3b68622adee5648d56059bbe09cc3b1885f2855f
+state_head: 3061ff746fc8073538c283e8eebe8c6fa9070add
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 24
-  completed_plans: 23
+  completed_plans: 24
   percent: 80
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 44 (播放器视频缓存与本地媒体库) — EXECUTING
-Plan: 3 of 8
+Plan: 4 of 8
 Status: Ready to execute
 Last activity: 2026-09-06 — Phase 44 execution started
 
@@ -76,6 +76,7 @@ Progress: [████████░░] 80%
 | Phase 44 P05 | 20min | 2 tasks | 12 files |
 | Phase 44 P06 | 3 min | 3 tasks | 4 files |
 | Phase 44 P07 | 5min | 2 tasks | 3 files |
+| Phase 44 P08 | 8 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -117,6 +118,9 @@ Recent decisions affecting current work:
 - [Phase 44]: Phase 44 44-07: setCapacityBytes 为容量变更统一入口——设置页 cacheMaxGB 即改即存改调 mediaCache.setCapacityBytes（校验赋值 + 立即 evictIfNeeded + 水位同步），外部不再直改 capacityBytes 字段；改小容量即时按 last_watched FIFO 收敛（CR-02 missing 第 2 项）
 - [Phase 44]: Phase 44 44-07: CR-03 RECORD_ROOT 常量单一来源——main.js whenReady 作用域声明 const RECORD_ROOT = path.join(app.getPath('userData'), 'media-records')，createRecordEngine.recordRoot 与 readRecordTaskSegments 补算同源；字面全文件唯一（引擎写目录与补算回退不漂移）
 - [Phase 44]: Phase 44 44-07: readRecordTaskSegments 目录补算 + uuid 白名单——outputPath 缺失（interrupted/failed 终态才落库的恢复快照）按 path.join(RECORD_ROOT, task.id) 补算，task.id 过 /^[0-9a-fA-F-]{8,64}$/ 白名单防本地篡改 JSON 的补算路径穿越；completed 任务沿用 outputPath 不受影响
+- [Phase 44]: cancel 对 running record 走 recordEngine.stopRecord（引擎 completeTask 后无需再 cancelTask，not_found 且仍 running 才兜底）——任务页停止语义 = 红点停止 = 停止并保存
+- [Phase 44]: convert 取消 = 协作式信号（convertCancelTokens → shouldCancel 每分片检查），reason='cancelled' 拦截在文案映射前落 cancelled 而非 failed
+- [Phase 44]: convertCancelTokens 令牌 .finally 注销（三终态路径收敛防 Map 泄漏）；终态竞态窗口接受
 
 ### Roadmap Evolution
 
@@ -145,6 +149,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T14:34:14.408Z
-Stopped at: Completed 44-07-PLAN.md
+Last session: 2026-09-06T14:39:45.633Z
+Stopped at: Completed 44-08-PLAN.md (CR-04 cancel bridge)
 Resume file: None
