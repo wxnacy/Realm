@@ -297,6 +297,8 @@ function rewriteM3u8ForProxy(text, baseUrl, params) {
  * 校验 Referer 防盗链。经主进程 ses.fetch 代理后：请求同源（无 CORS）、
  * Referer 可控、容器 session 携带 Cookie。
  * m3u8 响应经 rewriteM3u8ForProxy 重写，分片/密钥/子清单请求同样走代理。
+ * CR-01：命中优先——分片缓存查询先于回源，缓存 key = 请求 URL（target），
+ * 命中直接读盘响应不发起 ses.fetch（断网已缓存分片照播 D-10 由此成立）。
  * @param {http.IncomingMessage} req - 请求对象
  * @param {http.ServerResponse} res - 响应对象
  * @param {URL} reqUrl - 解析后的请求 URL
@@ -349,6 +351,30 @@ async function handleProxyRequest(req, res, reqUrl) {
   // fMP4 等按字节范围请求的分片需要透传 Range
   if (req.headers.range) headers['Range'] = req.headers.range;
 
+  // CR-01：命中优先分支——在回源（ses.fetch）之前先查分片缓存，命中直接
+  // 读盘响应并 return（省流量 + 秒开 + 断网照播 D-10）；未命中才落到下方
+  // fetch 回源 tee。Range 请求（206 语义）与 m3u8-likely URL 显式排除。
+  const vidParam = reqUrl.searchParams.get('vid') || '';
+  const vidOk = /^[a-f0-9]{16}$/.test(vidParam);
+  // URL 层 m3u8 预判：m3u8 响应必须走下方 rewrite 清单分支，不得被命中优先截走
+  //（伪装 m3u8 的 URL 在 cache 中本无条目——旧实现只有非 m3u8 才落盘——必然 miss）
+  const isM3u8Target = /\.m3u8(\?|$)/i.test(target);
+  if (cacheEnabled && mediaCache && vidOk && !req.headers.range && !isM3u8Target) {
+    const hit = mediaCache.lookup(target, vidParam);
+    if (hit.hit) {
+      // 命中：读盘响应（Content-Length 用实际字节数，Pitfall 4）；Content-Type
+      // 优先回放落盘时登记的 contentType（Task 2 扩展 lookup），缺省 octet-stream
+      res.writeHead(200, {
+        'Content-Type': hit.contentType || 'application/octet-stream',
+        'Content-Length': hit.size,
+        'Cache-Control': 'no-store',
+      });
+      res.end(hit.data);
+      return;
+    }
+    // 命中失败（D-09 校验删片）自然落到下方 fetch 回源
+  }
+
   try {
     const ses = containerId
       ? session.fromPartition(`persist:container-${containerId}`)
@@ -382,31 +408,27 @@ async function handleProxyRequest(req, res, reqUrl) {
     }
 
     // Phase 44 分片缓存分支（D-03）：仅 cache=1 且非清单、非 Range（Pitfall 3：
-    // Range 请求永远透传不落盘，避免破坏 206 语义）、回源成功时启用
-    if (cacheEnabled && mediaCache && resp.ok && !isM3u8 && !req.headers.range) {
-      const vid = reqUrl.searchParams.get('vid') || '';
-      if (/^[a-f0-9]{16}$/.test(vid)) {
-        // 命中：读盘响应（Content-Length 用实际字节数，Pitfall 4）
-        const hit = mediaCache.lookup(finalUrl, vid);
-        if (hit) {
-          res.writeHead(200, {
-            'Content-Type': contentType || 'application/octet-stream',
-            'Content-Length': hit.size,
-            'Cache-Control': 'no-store',
-          });
-          res.end(hit.data);
-          return;
-        }
-        // 未命中：tee 回源流——一边透传给播放器一边收集落盘（写盘失败不影响透传）
-        const outHeaders = { 'Content-Type': contentType || 'application/octet-stream', 'Cache-Control': 'no-store' };
-        for (const h of ['content-range', 'accept-ranges']) {
-          const v = resp.headers.get(h);
-          if (v) outHeaders[h] = v;
-        }
-        res.writeHead(200, outHeaders);
-        mediaCache.store(finalUrl, vid, Readable.fromWeb(resp.body), {}).pipe(res);
-        return;
+    // Range 请求永远透传不落盘，避免破坏 206 语义）、回源成功时启用。
+    // 命中已在上方 pre-fetch 分支处理（CR-01），此分支只负责未命中 tee 落盘
+    if (cacheEnabled && mediaCache && resp.ok && !isM3u8 && !req.headers.range && vidOk) {
+      // 未命中：tee 回源流——一边透传给播放器一边收集落盘（写盘失败不影响透传）。
+      // 落盘 key 与命中查询同源（请求 URL target）；meta 带 contentType 供命中回放
+      const outHeaders = { 'Content-Type': contentType || 'application/octet-stream', 'Cache-Control': 'no-store' };
+      for (const h of ['content-range', 'accept-ranges']) {
+        const v = resp.headers.get(h);
+        if (v) outHeaders[h] = v;
       }
+      res.writeHead(200, outHeaders);
+      // CR-05：store 内部源流中断会 destroy(err) 传播到 tee 的 'error'——
+      // 收尾截断响应（不悬挂连接），播放器侧拿到不完整响应走自身重试链路
+      const tee = mediaCache.store(target, vidParam, Readable.fromWeb(resp.body), {
+        contentType: contentType || 'application/octet-stream',
+      });
+      tee.on('error', () => {
+        if (!res.writableEnded) res.end();
+      });
+      tee.pipe(res);
+      return;
     }
 
     // 分片/密钥等非清单响应：流式透传
