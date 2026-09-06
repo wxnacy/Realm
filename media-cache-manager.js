@@ -91,6 +91,10 @@ class MediaCacheManager {
       : DEFAULT_CAPACITY_BYTES;
     this.isVideoActive = typeof isVideoActive === 'function' ? isVideoActive : () => false;
     this._rootRealCache = null;
+    // CR-02 容量水位：null = 未初始化（进程内首次写盘前以磁盘实际总量惰性初始化）。
+    // 此后每片 O(1) 加法累计，仅水位越过 capacityBytes 才触发一次全库扫描淘汰
+    // （避免 storeBuffer 每片写盘后无条件全库扫描的性能回归——prohibition）。
+    this._trackedTotal = null;
   }
 
   /** @see playbackKeyOf */
@@ -430,6 +434,28 @@ class MediaCacheManager {
       mMeta.last_watched = typeof m.lastWatched === 'number' ? m.lastWatched : Date.now();
       if (m.title && !mMeta.title) mMeta.title = m.title;
       this._writeMeta(videoId, mMeta);
+      // CR-02 写路径容量水位检查：旧实现 evictIfNeeded 仅 _writeWithEvictRetry 的
+      // ENOSPC/EDQUOT 分支可达（物理盘满才触发），capacityBytes 上限生产失效、
+      // 缓存只增到盘满。此处落盘登记成功后即累计水位并越过容量时触发一轮 FIFO 淘汰。
+      // 水位方案取舍（prohibition）：不做每片全库扫描——首写惰性初始化取磁盘权威总量
+      //（_writeMeta 已把本片计入 meta.total_size，磁盘口径已含本片，直接取不再重复加
+      // size，防双计）；此后每片 O(1) 加法。仅水位越过容量才全扫一次（evictIfNeeded
+      // 内部以 listEntries 为权威），淘汰后把返回的 r.total 同步回水位（自校正漂移）。
+      if (this._trackedTotal === null) {
+        this._trackedTotal = this._diskTotalBytes();
+      } else {
+        this._trackedTotal += size;
+      }
+      if (this._trackedTotal > this.capacityBytes) {
+        try {
+          // exempt 传正在写入的 videoId（防误删自己目录，与 _writeWithEvictRetry
+          // ENOSPC 强淘同款豁免）；D-07 isVideoActive 活跃豁免在 evictIfNeeded 内部保持
+          const r = this.evictIfNeeded(new Set([videoId]));
+          this._trackedTotal = r.total;
+        } catch (err) {
+          console.warn('[Realm] 写路径容量淘汰失败:', err.message);
+        }
+      }
       return { ok: true, size };
     } catch (err) {
       console.warn('[Realm] 分片写盘失败:', err.message);
@@ -465,6 +491,36 @@ class MediaCacheManager {
   }
 
   // ==================== 淘汰与删除 ====================
+
+  /**
+   * 磁盘权威总量（复用 listEntries 口径：meta.total_size 优先、目录递归兜底）。
+   * 供水位惰性初始化与淘汰后同步——evictIfNeeded 始终以本口径为权威，
+   * 外部删除/deleteEntry/校验删片造成的水位漂移在每次淘汰后收敛（T-44-G07-02 accept）。
+   * @returns {number} 缓存目录总字节数
+   */
+  _diskTotalBytes() {
+    return this.listEntries().reduce((sum, e) => sum + (e.size || 0), 0);
+  }
+
+  /**
+   * 更新容量上限并立即触发一轮容量检查（CR-02：设置页改小 cacheMaxGB 即收敛，
+   * 不再只是改字段——旧实现 evictIfNeeded 唯一可达点在 ENOSPC 分支，容量上限生产失效）。
+   * - 容量调大且未超：evictIfNeeded 内部 total<=capacity 短路，仅一次扫描零淘汰；
+   * - 容量调小：立即按 last_watched FIFO 收敛到新上限（豁免语义照常生效）。
+   * - 入参非有限正数时回落 DEFAULT_CAPACITY_BYTES。
+   * @param {number} bytes - 新容量上限（字节）
+   */
+  setCapacityBytes(bytes) {
+    this.capacityBytes = (typeof bytes === 'number' && Number.isFinite(bytes) && bytes > 0)
+      ? bytes
+      : DEFAULT_CAPACITY_BYTES;
+    try {
+      const r = this.evictIfNeeded();
+      this._trackedTotal = r.total;
+    } catch (err) {
+      console.warn('[Realm] 容量变更淘汰失败:', err.message);
+    }
+  }
 
   /**
    * 容量淘汰（D-06/D-07）：总大小超 capacityBytes 时按 meta.last_watched 升序

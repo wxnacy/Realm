@@ -6,6 +6,8 @@
  * - D-05：分片落盘 + meta.json 索引（实际字节数 + sha256）
  * - D-09：读取时哈希/大小校验失败 → 删片 → miss（回源播放不中断）
  * - D-06/D-07：容量 FIFO 淘汰（按 last_watched 升序整目录删除）+ 活跃任务豁免
+ * - CR-02（44-07）：容量淘汰接进 storeBuffer 写路径（水位方案）——仅经 storeBuffer 超限即
+ *   自动淘汰、setCapacityBytes 缩小容量即时触发、单视频写目录自豁免不自杀
  * - D-08：写盘 ENOSPC → 强制淘汰一轮 → 重试；仍失败返回 disk_full
  * - D-10：已登记分片再次 store 跳过不重写（增量续存）
  * - T-44-01/T-44-02：路径安全（videoId 白名单 + symlink 逃逸拒绝）
@@ -140,9 +142,12 @@ describe('哈希/大小校验删片回源（D-09）', () => {
   });
 });
 
-describe('FIFO 淘汰与活跃豁免（D-06/D-07）', () => {
-  test('超容量按 last_watched 升序整目录删除', () => {
-    const c = new MediaCacheManager({ cacheRoot: makeCacheRoot(), capacityBytes: 100 });
+describe('FIFO 淘汰与活跃豁免（D-06/D-07，44-07 适配生产写路径自动淘汰）', () => {
+  test('超容量按 last_watched 升序整目录删除（写路径自动触发）', () => {
+    // 44-07 CR-02：容量淘汰已接进 storeBuffer 生产写路径（不再只在 ENOSPC 分支可达）。
+    // capacityBytes:130 + sizes 60/50/40：前两次累计 110 ≤ 130 不触发，第三次 150 > 130
+    // 自动淘汰——不显式调 evictIfNeeded，直接验证写路径淘汰生效（D-06 生产语义回归锚）
+    const c = new MediaCacheManager({ cacheRoot: makeCacheRoot(), capacityBytes: 130 });
     const vids = [];
     const sizes = [60, 50, 40];
     const urls = ['https://s.com/v1.m3u8', 'https://s.com/v2.m3u8', 'https://s.com/v3.m3u8'];
@@ -151,19 +156,43 @@ describe('FIFO 淘汰与活跃豁免（D-06/D-07）', () => {
       c.storeBuffer(`https://cdn.com/${i}.ts`, vid, makeBuffer(sizes[i], i), { lastWatched: 1000 + i });
       vids.push(vid);
     });
-    // 总 150 > 100：最久没看的 v1（60B）先删
-    const r = c.evictIfNeeded();
-    assert.strictEqual(r.evicted.length, 1);
-    assert.strictEqual(r.evicted[0], vids[0]);
+    // 总 150 > 130：第三次 storeBuffer 后 v1（60B，最久未看）已被自动整目录删除
     assert.strictEqual(fs.existsSync(path.join(c.cacheRoot, vids[0])), false);
     assert.strictEqual(fs.existsSync(path.join(c.cacheRoot, vids[1])), true);
     assert.strictEqual(fs.existsSync(path.join(c.cacheRoot, vids[2])), true);
-    assert.ok(r.total <= 100);
+    // 磁盘权威总量收敛于容量上限（90 = 50+40）
+    const entries = c.listEntries();
+    const total = entries.reduce((s, e) => s + (e.size || 0), 0);
+    assert.ok(total <= 130, `淘汰后磁盘总量应 ≤ 容量上限，实际 ${total}`);
+    assert.strictEqual(entries.some((e) => e.videoId === vids[0]), false);
+  });
+
+  test('写路径超限自动淘汰（仅经 storeBuffer 即发生，FIFO 取最旧）', () => {
+    // capacity 100，lastWatched 依次 1000/2000/3000：第二次写入累计 60+50=110 > 100
+    // 即自动淘汰最旧的 v1（last_watched 1000），第三次 50+40=90 不再触发；
+    // 全程不显式调 evictIfNeeded
+    const c = new MediaCacheManager({ cacheRoot: makeCacheRoot(), capacityBytes: 100 });
+    const vids = [];
+    const sizes = [60, 50, 40];
+    const urls = ['https://s.com/a1.m3u8', 'https://s.com/a2.m3u8', 'https://s.com/a3.m3u8'];
+    urls.forEach((u, i) => {
+      const vid = c.touchVideo(u);
+      c.storeBuffer(`https://cdn.com/a${i}.ts`, vid, makeBuffer(sizes[i], i), { lastWatched: 1000 + i });
+      vids.push(vid);
+    });
+    assert.strictEqual(fs.existsSync(path.join(c.cacheRoot, vids[0])), false, '最旧 v1 应被自动淘汰');
+    assert.strictEqual(fs.existsSync(path.join(c.cacheRoot, vids[1])), true);
+    assert.strictEqual(fs.existsSync(path.join(c.cacheRoot, vids[2])), true);
+    const total = c.listEntries().reduce((s, e) => s + (e.size || 0), 0);
+    assert.ok(total <= 100, `淘汰后磁盘总量应 ≤ 容量上限，实际 ${total}`);
   });
 
   test('活跃任务豁免淘汰（isVideoActive 按 playbackKey 匹配，D-07）', () => {
     // 回调契约：逐视频按 meta.playback_key（m3u8 的 origin+pathname）查询，
     // 与 44-02 media-task-manager.isVideoActive 的注入契约一致
+    // 44-07 语义：第二次 storeBuffer 累计 80+50=130 > 100 触发写路径自动淘汰，但因
+    // old 活跃 + new 是正在写入方（exempt）双双豁免、零删除；显式 evictIfNeeded 时
+    // 豁免已解除 → 淘汰非活跃的 new、活跃 old 保留——D-07 豁免分支不受自动淘汰干扰
     const activeKey = playbackKeyOf('https://s.com/old.m3u8');
     const c = new MediaCacheManager({
       cacheRoot: makeCacheRoot(),
@@ -180,6 +209,36 @@ describe('FIFO 淘汰与活跃豁免（D-06/D-07）', () => {
     assert.ok(r.evicted.includes(newVid));
     assert.ok(!r.evicted.includes(oldVid));
     assert.strictEqual(fs.existsSync(path.join(c.cacheRoot, oldVid)), true);
+  });
+
+  test('setCapacityBytes 缩小容量立即触发一轮淘汰（CR-02）', () => {
+    // capacity 500 存两视频共 150（不触发自动淘汰）→ setCapacityBytes(100)：
+    // 改小即按 last_watched FIFO 收敛，最旧目录被删、剩余 ≤ 100、字段生效
+    const c = new MediaCacheManager({ cacheRoot: makeCacheRoot(), capacityBytes: 500 });
+    const oldVid = c.touchVideo('https://s.com/s1.m3u8');
+    const newVid = c.touchVideo('https://s.com/s2.m3u8');
+    c.storeBuffer('https://cdn.com/s1.ts', oldVid, makeBuffer(90, 1), { lastWatched: 1000 });
+    c.storeBuffer('https://cdn.com/s2.ts', newVid, makeBuffer(60, 2), { lastWatched: 2000 });
+    assert.strictEqual(fs.existsSync(path.join(c.cacheRoot, oldVid)), true, '改容量前最旧目录仍存活');
+
+    c.setCapacityBytes(100);
+    assert.strictEqual(c.capacityBytes, 100);
+    assert.strictEqual(fs.existsSync(path.join(c.cacheRoot, oldVid)), false, '改小后最旧目录应被删');
+    assert.strictEqual(fs.existsSync(path.join(c.cacheRoot, newVid)), true);
+    const total = c.listEntries().reduce((s, e) => s + (e.size || 0), 0);
+    assert.ok(total <= 100, `缩小容量后磁盘总量应 ≤ 新上限，实际 ${total}`);
+  });
+
+  test('单视频超限自豁免不自杀（写目录防误删回归锚）', () => {
+    // capacity 100 单视频写 150：自动淘汰 exempt 自身 → 目录仍存在、分片仍可命中。
+    // 超限收敛留待后续写其他视频/活跃解除时发生（防「正在写入的视频被误删」回归）
+    const c = new MediaCacheManager({ cacheRoot: makeCacheRoot(), capacityBytes: 100 });
+    const vid = c.touchVideo('https://s.com/only.m3u8');
+    const segUrl = 'https://cdn.com/only.ts';
+    const r = c.storeBuffer(segUrl, vid, makeBuffer(150, 7), { lastWatched: 1000 });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(fs.existsSync(path.join(c.cacheRoot, vid)), true, '正在写入的视频不应被自身淘汰误删');
+    assert.strictEqual(c.lookup(segUrl, vid).hit, true, '超限但未被淘汰的分片应可正常命中');
   });
 });
 

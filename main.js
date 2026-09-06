@@ -1363,11 +1363,13 @@ app.whenReady().then(async () => {
         // 设置页在 webview 内通过 HTTP 写入，主进程需主动通知所有窗口 renderer 刷新（closing UAT gap G-29-6）
         const changedKeys = Object.keys(updates);
         windowManager.broadcast('settings:updated', changedKeys);
-        // 缓存上限即改即存：直接更新运行中 manager 的容量（D-06）
+        // 缓存上限即改即存：经 setCapacityBytes 更新运行中 manager 容量（CR-02）——
+        // 改小容量立即触发一轮 FIFO 淘汰（旧实现直改 capacityBytes 字段只在字段上生效，
+        // evictIfNeeded 唯一可达点在 ENOSPC 分支，改小上限从不收敛）
         if (changedKeys.includes('cacheMaxGB') && mediaCache) {
           const gb = Number(updates.cacheMaxGB);
           if (Number.isInteger(gb) && gb >= 1 && gb <= 1024) {
-            mediaCache.capacityBytes = gb * 1024 * 1024 * 1024;
+            mediaCache.setCapacityBytes(gb * 1024 * 1024 * 1024);
           }
         }
         // 同步主题到 nativeTheme（影响 DevTools 主题）
