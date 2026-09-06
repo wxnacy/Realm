@@ -3090,6 +3090,16 @@ app.whenReady().then(async () => {
     }
     const taskId = task.id;
 
+    // 取消令牌注册（CR-04 Task 2）：/api/tasks/cancel 对 running convert 任务经
+    // convertCancelTokens 触发 cancelSignal → shouldCancel 闭包置位 → convertToMp4
+    // 每分片迭代检查后以 reason='cancelled' 中止并清理半成品；令牌在 promise 链
+    // .finally 注销（防 Map 泄漏，T-44-G08-04）
+    let convertCancelled = false;
+    const cancelSignal = () => {
+      convertCancelled = true;
+    };
+    convertCancelTokens.set(taskId, cancelSignal);
+
     // 后台执行转封装（T-44-17 流式写盘在 media-remuxer 内）；进度整数百分比
     // 变化才 updateProgress（注册表每次变更都触发 persist 落盘，降写放大）
     let lastPct = -1;
@@ -3097,6 +3107,7 @@ app.whenReady().then(async () => {
       segmentPaths,
       outputPath: savePath,
       hasDiscontinuity: false,
+      shouldCancel: () => convertCancelled,
       onProgress: (done, total) => {
         const pct = Math.max(1, Math.min(99, Math.round((done / total) * 100)));
         if (pct === lastPct) return;
@@ -3107,20 +3118,39 @@ app.whenReady().then(async () => {
           console.warn(`[Realm] 转换进度更新失败 (${taskId}):`, err.message);
         }
       },
-    }).then(() => {
-      try {
-        mediaTaskManager.completeTask(taskId, { outputPath: savePath });
-      } catch (err) {
-        console.warn(`[Realm] 转换任务完成流转失败 (${taskId}):`, err.message);
-      }
-    }).catch((err) => {
-      const reasonText = CONVERT_FAIL_TEXT[err.reason] || err.message || '未知原因';
-      try {
-        mediaTaskManager.failTask(taskId, `MP4 转换失败：${reasonText}`);
-      } catch (err2) {
-        console.warn(`[Realm] 转换任务失败流转异常 (${taskId}):`, err2.message);
-      }
-    });
+    })
+      .then(() => {
+        try {
+          mediaTaskManager.completeTask(taskId, { outputPath: savePath });
+        } catch (err) {
+          console.warn(`[Realm] 转换任务完成流转失败 (${taskId}):`, err.message);
+        }
+      })
+      .catch((err) => {
+        // CR-04：协作式取消落 cancelled（而非 failed）——reason='cancelled' 拦截在
+        // 失败文案映射之前（CONVERT_FAIL_TEXT 无 'cancelled' 条目）
+        if (err && err.reason === 'cancelled') {
+          try {
+            mediaTaskManager.cancelTask(taskId, '用户取消');
+          } catch (e2) {
+            console.warn(`[Realm] 转换任务取消流转异常 (${taskId}):`, e2.message);
+          }
+          return;
+        }
+        const reasonText = CONVERT_FAIL_TEXT[err.reason] || err.message || '未知原因';
+        try {
+          mediaTaskManager.failTask(taskId, `MP4 转换失败：${reasonText}`);
+        } catch (err2) {
+          console.warn(`[Realm] 转换任务失败流转异常 (${taskId}):`, err2.message);
+        }
+      })
+      .finally(() => {
+        // 终态注销令牌（完成/失败/取消路径均收敛；竞态窗口：循环越过最后检查点后
+        // 到达的取消信号不生效——任务按 completeTask 收尾为 completed，接受该竞态）
+        try {
+          convertCancelTokens.delete(taskId);
+        } catch { /* 忽略注销异常 */ }
+      });
     return { ok: true, taskId };
   }
 

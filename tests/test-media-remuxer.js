@@ -5,7 +5,8 @@
  * buildOutputName 格式（D-22「{标题} {YYYY-MM-DD HHmm}.mp4」）、
  * mux.js Transmuxer 构造 smoke（D-04 主进程可用性）、
  * convertToMp4 监听先于 push 的结构断言（RESEARCH Pattern 3 README 硬约束）
- * 与 discontinuity 拒转（Pitfall 5）。
+ * 与 discontinuity 拒转（Pitfall 5）；CR-04 协作式取消（shouldCancel 即拒转
+ * reason=cancelled 且半成品清理 / shouldCancel=false 默认路径不变）。
  *
  * 用法: node tests/test-media-remuxer.js
  */
@@ -13,6 +14,7 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const remuxer = require('../media-remuxer');
@@ -118,6 +120,36 @@ describe('convertToMp4 契约', () => {
   test('分片文件缺失拒转 reason=segment_missing', async () => {
     await assert.rejects(
       () => remuxer.convertToMp4({ segmentPaths: ['/tmp/__realm_no_such__.ts'], outputPath: '/tmp/x.mp4' }),
+      (err) => err.reason === 'segment_missing'
+    );
+  });
+
+  test('shouldCancel=true 即拒转 reason=cancelled 且产物清理（CR-04 取消路径）', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-cancel-'));
+    try {
+      // 占位分片：取消检查在首个 readFileSync 之前触发，无需真实 TS 载荷
+      const seg = path.join(dir, 'seg.ts');
+      fs.writeFileSync(seg, Buffer.from('placeholder'));
+      const out = path.join(dir, 'out.mp4');
+      await assert.rejects(
+        () => remuxer.convertToMp4({ segmentPaths: [seg], outputPath: out, shouldCancel: () => true }),
+        (err) => err.reason === 'cancelled'
+      );
+      // 半成品清理：createWriteStream 已建文件 → fail 的 unlinkSync 须删除（不留盘）
+      assert.strictEqual(fs.existsSync(out), false, '取消后半成品 mp4 应被清理');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('shouldCancel=false 行为不变（CR-04 回归：新入参不改变默认路径）', async () => {
+    // 沿用既有拒转契约：segment_missing 在分片存在性校验（早于循环取消检查）即触发
+    await assert.rejects(
+      () => remuxer.convertToMp4({
+        segmentPaths: ['/tmp/__realm_no_such__.ts'],
+        outputPath: '/tmp/x.mp4',
+        shouldCancel: () => false,
+      }),
       (err) => err.reason === 'segment_missing'
     );
   });

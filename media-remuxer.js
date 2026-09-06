@@ -89,11 +89,13 @@ function remuxError(reason, detail) {
  * @param {string} input.outputPath - 产物 mp4 绝对路径
  * @param {boolean} [input.hasDiscontinuity] - 索引含 EXT-X-DISCONTINUITY 时拒转
  * @param {Function} [input.onProgress] - (processed, total) 进度回调（异常不阻断）
+ * @param {Function} [input.shouldCancel] - 每分片迭代开始前调用的取消检查，返回 true
+ *   即中止（reason='cancelled'，半成品清理同失败路径）
  * @returns {Promise<{ outputPath: string, segments: number }>} 完成时 resolve
  *   失败时 reject Error（err.reason 机器可读：discontinuity/no_segments/
- *   invalid_output/segment_missing/transmux_failed/write_failed）
+ *   invalid_output/segment_missing/transmux_failed/write_failed/cancelled）
  */
-function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity }) {
+function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity, shouldCancel }) {
   return new Promise((resolve, reject) => {
     if (hasDiscontinuity) {
       reject(remuxError('discontinuity', '直播流含不连续片段（EXT-X-DISCONTINUITY），暂不支持转换'));
@@ -159,6 +161,13 @@ function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity }
     try {
       for (const tsFile of segmentPaths) {
         if (settled) return;
+        // CR-04 协作式取消检查点：每分片迭代开始前检查（粒度 = 单分片处理时间——
+        // 主进程事件循环内同步循环无法被异步打断，此为最小可打断单元，可接受）。
+        // 成立即 fail('cancelled')：fail 复用既有清理（destroy stream + unlink 半成品）
+        if (typeof shouldCancel === 'function' && shouldCancel()) {
+          fail(remuxError('cancelled', '用户取消转换'));
+          return;
+        }
         transmuxer.push(new Uint8Array(fs.readFileSync(tsFile)));
         transmuxer.flush();
         processed++;
