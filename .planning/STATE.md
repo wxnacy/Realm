@@ -5,16 +5,16 @@ milestone_name: AI 网络搜索功能
 current_phase: 44
 current_phase_name: 播放器视频缓存与本地媒体库
 status: executing
-stopped_at: Completed 44-05-PLAN.md
-last_updated: "2026-09-06T14:17:09.816Z"
+stopped_at: Completed 44-06-PLAN.md
+last_updated: "2026-09-06T14:24:59.013Z"
 last_activity: 2026-09-06
 last_activity_desc: Phase 44 execution started
-state_head: 527d80b84424b5e18662e87925ded36dbca77d87
+state_head: 84feef7b6281755f1149071a1b723b0d06245907
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 24
-  completed_plans: 21
+  completed_plans: 22
   percent: 80
 ---
 
@@ -29,8 +29,8 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 
 ## Current Position
 
-Phase: 44 (播放器视频缓存与本地媒体库) — READY TO EXECUTE
-Plan: 5 of 5
+Phase: 44 (播放器视频缓存与本地媒体库) — EXECUTING
+Plan: 2 of 8
 Status: Ready to execute
 Last activity: 2026-09-06 — Phase 44 execution started
 
@@ -74,6 +74,7 @@ Progress: [████████░░] 80%
 | Phase 44 P03 | 18min | 2 tasks | 10 files |
 | Phase 44 P04 | 14min | 3 tasks | 7 files |
 | Phase 44 P05 | 20min | 2 tasks | 12 files |
+| Phase 44 P06 | 3 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -108,6 +109,9 @@ Recent decisions affecting current work:
 - [Phase 44]: webview guest 设置页对话框走 /api/settings/choose-cache-dir HTTP 端点（guest 无 realmAPI）
 - [Phase 44]: Phase 44 P04: 录制引擎去 Electron 化（fetchPage 注入，main.js 容器 session 包装 ses.fetch）；meta.json stop/fail 双路径落盘供 44-05 续转；录制进度 live 流按 recorded/seen 比率偏低是真实语义，VOD 转正收敛；Task3 退出确认续走既有协程（双击确认门会拦截 setImmediate 重启路径）；appQuitting 标志防退出双重弹窗；新增 player:record/list 通道供 keep-recording 重开窗口恢复红点
 - [Phase 44]: Phase 44 P05: mux.js 单实例顺序转封装（data 监听先于 push + 流式写盘 + discontinuity 拒转依据落到 record meta/缓存 meta 检测）；缓存 completeness/顺序索引补齐（updatePlaylistIndex 登记分片顺序/总数，playlist_order 优先 stored_at 兜底，附加字段不升 META_VERSION）；convert error 落库带「MP4 转换失败：」前缀（通知去重）；续转扩展 interrupted/failed/completed record；convert 进度整数百分比变化才 updateProgress 降 persist 写放大；settings.lastMediaSaveDir 记忆弹框目录
+- [Phase 44]: Phase 44 44-06: 缓存 key 统一为请求 URL（target）废弃 finalUrl——命中优先下 finalUrl 回源后才能得知无法用作查询 key；target 与 44-05 playlist_order segKey（resolveUri(uri, 清单最终URL)）同源，转封装顺序索引不回归（CR-01）
+- [Phase 44]: Phase 44 44-06: 旧 finalUrl-key 存量孤儿分片不迁移——键不再被查询，由容量淘汰（44-07 CR-02 修复后生产生效）按 total_size 正常回收，接受此代价（缓存非持久资产）
+- [Phase 44]: Phase 44 44-06: hlsRetryCount 复位事件选 FRAG_LOADED 而非 LEVEL_LOADED——分片数据到达=最精确「网络恢复」信号，直播刷新/清单级不误触发（WR-06）
 
 ### Roadmap Evolution
 
@@ -136,6 +140,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T12:53:07.286Z
-Stopped at: Completed 44-05-PLAN.md
+Last session: 2026-09-06T14:24:58.856Z
+Stopped at: Completed 44-06-PLAN.md
 Resume file: None
