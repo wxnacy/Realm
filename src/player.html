@@ -67,7 +67,7 @@
           <span class="time-display" id="time-display">00:00 / 00:00</span>
         </div>
 
-        <!-- 右组：音量、倍速、刷新、复制链接、画中画、全屏 -->
+        <!-- 右组：音量、倍速、刷新、录制、抽屉、复制链接、画中画、全屏 -->
         <div class="controls-right">
           <button class="control-btn" id="btn-volume" title="静音">
             <svg id="icon-volume-high" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" fill="currentColor"/></svg>
@@ -78,6 +78,14 @@
           <button class="control-btn" id="btn-speed" title="倍速">1x</button>
           <button class="control-btn" id="btn-refresh" title="刷新">
             <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-8 8s3.57 8 8 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" fill="currentColor"/></svg>
+          </button>
+          <!-- 直播录制按钮（UI-SPEC Component 1：未录制=描边圆点，录制中隐藏图标让位红点） -->
+          <button class="control-btn" id="btn-record" title="开始录制">
+            <svg id="icon-record" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          </button>
+          <!-- 本地媒体库抽屉列表按钮（UI-SPEC Component 3） -->
+          <button class="control-btn" id="btn-drawer" title="本地媒体库">
+            <svg viewBox="0 0 24 24"><path d="M3 5h18v2H3zm0 6h18v2H3zm0 6h18v2H3z" fill="currentColor"/></svg>
           </button>
           <button class="control-btn" id="btn-copy-url" title="复制链接">
             <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" fill="currentColor"/></svg>
@@ -92,6 +100,40 @@
         </div>
       </div>
     </div>
+
+    <!-- 录制红点（UI-SPEC Component 2：标题栏区域右上，destructive 色 #EF4444，
+         闪烁可点击停止，hover tooltip 显已录时长/大小；独立于 title-bar 显隐，
+         录制中始终可见） -->
+    <div id="record-dot" title="">
+      <div id="record-dot-tooltip">已录 00:00 · 0MB</div>
+    </div>
+
+    <!-- 本地媒体库抽屉面板（UI-SPEC Component 3：320px 右滑，与 speed-menu 同层） -->
+    <div id="drawer-panel">
+      <div class="drawer-header">
+        <span class="drawer-title">本地媒体库</span>
+        <button class="drawer-close-btn" id="btn-drawer-close" title="关闭">
+          <svg viewBox="0 0 12 12"><path d="M3.5 3.5l5 5M8.5 3.5l-5 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="drawer-list" id="drawer-list">
+        <!-- 条目由 player.js 渲染 -->
+      </div>
+      <div class="drawer-empty" id="drawer-empty">
+        <p class="drawer-empty-title">暂无观看记录</p>
+        <p class="drawer-empty-body">播放过的视频会出现在这里，重开可从上次位置继续</p>
+      </div>
+    </div>
+
+    <!-- 删除缓存确认框（AGENTS.md 弹框居中约定：原生 dialog + showModal，
+         类规则显式 margin:auto，遮罩 ::backdrop） -->
+    <dialog id="drawer-delete-dialog">
+      <p class="drawer-delete-text" id="drawer-delete-text"></p>
+      <div class="drawer-delete-actions">
+        <button class="drawer-delete-btn" id="btn-drawer-delete-cancel">取消</button>
+        <button class="drawer-delete-btn danger" id="btn-drawer-delete-confirm">删除</button>
+      </div>
+    </dialog>
 
     <!-- 倍速选择菜单 -->
     <div id="speed-menu">

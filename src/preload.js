@@ -1651,6 +1651,47 @@ contextBridge.exposeInMainWorld('playerAPI', {
     ipcRenderer.on('player:request-final-progress', handler);
     return () => ipcRenderer.removeListener('player:request-final-progress', handler);
   },
+
+  /**
+   * 发起直播录制（Phase 44 D-18：显式后台任务，主进程独立轮询追分片）
+   * @param {{url: string, title: string, containerId: string, referer?: string}} input
+   * @returns {Promise<{success: boolean, taskId?: string, error?: string}>}
+   */
+  startRecord: (input) => ipcRenderer.invoke('player:record/start', input),
+
+  /**
+   * 停止录制并保存（Phase 44 D-19：写分片索引后任务转 completed）
+   * @param {string} taskId - 任务 ID
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  stopRecord: (taskId) => ipcRenderer.invoke('player:record/stop', taskId),
+
+  /**
+   * 查询录制状态（Phase 44 D-21 红点 hover：已录时长/已录大小）
+   * @param {string} taskId - 任务 ID
+   * @returns {Promise<Object|null>}
+   */
+  getRecordStatus: (taskId) => ipcRenderer.invoke('player:record/status', taskId),
+
+  /**
+   * 运行中录制任务列表（Phase 44 D-19：keep-recording 关窗后重开窗口的红点状态同步）
+   * @returns {Promise<Array>}
+   */
+  getRecordList: () => ipcRenderer.invoke('player:record/list'),
+
+  /**
+   * 监听录制任务状态变化（media-task:changed 中 type=record 的任务，Phase 44 D-20：
+   * 播放状态不影响录制，红点仅按任务状态渲染）
+   * @param {Function} callback - 回调函数，参数为任务对象快照（含 status/type/playbackKey）
+   * @returns {Function} 取消监听的清理函数
+   */
+  onRecordStateChanged: (callback) => {
+    const handler = (event, data) => {
+      if (data && data.type === 'record') callback(data);
+    };
+    ipcRenderer.on('media-task:changed', handler);
+    return () => ipcRenderer.removeListener('media-task:changed', handler);
+  },
 });
 
 // ==================== 下载管理 API ====================

@@ -115,7 +115,7 @@ const tabManager = require('./tab-manager');
 const cookieManager = require('./cookie-manager');
 const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
-const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager, setRealmServerInfo, setMediaCaches } = require('./ipc-handlers');
+const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager, setRealmServerInfo, setMediaCaches, setMediaRecordEngine } = require('./ipc-handlers');
 const historyManager = require('./history-manager');
 const downloadManager = require('./download-manager');
 const credentialManager = require('./credential-manager');
@@ -142,6 +142,8 @@ const bashPolicy = require('./ai-bash-policy');
 const { MediaCacheManager, videoIdOf } = require('./media-cache-manager');
 // 媒体任务统一注册表（Phase 44 D-25：record/convert 状态机 + 持久化 + D-07 豁免查询源）
 const { createMediaTaskManager } = require('./media-task-manager');
+// 直播录制引擎（Phase 44 D-18/D-20/D-21/D-23：m3u8 轮询追分片，纯逻辑去 Electron 化）
+const { createRecordEngine } = require('./media-record-engine');
 
 // 媒体缓存实例（whenReady 中初始化；handleProxyRequest 运行期读取）
 let mediaCache = null;
@@ -2833,6 +2835,29 @@ app.whenReady().then(async () => {
   const playerHistoryManager = require('./player-history-manager');
   playerHistoryManager.init({ dbPath: path.join(app.getPath('userData'), 'player-history.db') });
   setMediaCaches({ mediaCache, playerHistory: playerHistoryManager });
+
+  // Phase 44 D-18/D-23：直播录制引擎——fetchPage 用容器 session 包装 ses.fetch 回源
+  //（参照 handleProxyRequest 的 Referer/UA/容器 session 语义）；recordRoot 独立于
+  // 缓存库（userData/media-records，D-23 不参与容量淘汰）。注入 ipc-handlers 供
+  // player:record/* 通道与播放器窗口 close 拦截使用
+  const recordEngine = createRecordEngine({
+    fetchPage: async (url, { referer, containerId } = {}) => {
+      const { session } = require('electron');
+      const ses = containerId
+        ? session.fromPartition(`persist:container-${containerId}`)
+        : session.defaultSession;
+      const headers = { 'User-Agent': CHROME_UA };
+      if (referer) headers['Referer'] = referer;
+      const resp = await ses.fetch(url, { headers });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return Buffer.from(await resp.arrayBuffer());
+    },
+    taskManager: mediaTaskManager,
+    recordRoot: path.join(app.getPath('userData'), 'media-records'),
+    maxConcurrent: 2,
+    maxRetries: 5,
+  });
+  setMediaRecordEngine(recordEngine);
 
   // 注册 IPC 处理器
   registerHandlers();

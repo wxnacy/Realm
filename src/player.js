@@ -34,6 +34,8 @@ const state = {
   currentTitle: '',
   /** @type {number} hls.js fatal network error 重试计数（Phase 44 D-10，initPlayer 时归零） */
   hlsRetryCount: 0,
+  /** @type {string|null} 当前 URL 对应的运行中录制任务 ID（Phase 44 D-20/D-21，红点数据源；null=当前视频未在录） */
+  recordingTaskId: null,
 };
 
 /**
@@ -93,6 +95,20 @@ const errorText = document.getElementById('error-text');
 const btnClose = document.getElementById('btn-close');
 const btnMinimize = document.getElementById('btn-minimize');
 const btnMaximize = document.getElementById('btn-maximize');
+// Phase 44 录制与抽屉（D-14~D-16/D-18/D-21）
+const btnRecord = document.getElementById('btn-record');
+const iconRecord = document.getElementById('icon-record');
+const recordDot = document.getElementById('record-dot');
+const recordDotTooltip = document.getElementById('record-dot-tooltip');
+const btnDrawer = document.getElementById('btn-drawer');
+const drawerPanel = document.getElementById('drawer-panel');
+const drawerList = document.getElementById('drawer-list');
+const drawerEmpty = document.getElementById('drawer-empty');
+const btnDrawerClose = document.getElementById('btn-drawer-close');
+const drawerDeleteDialog = document.getElementById('drawer-delete-dialog');
+const drawerDeleteText = document.getElementById('drawer-delete-text');
+const btnDrawerDeleteCancel = document.getElementById('btn-drawer-delete-cancel');
+const btnDrawerDeleteConfirm = document.getElementById('btn-drawer-delete-confirm');
 
 // ==================== 格式检测与库初始化 ====================
 
@@ -260,6 +276,10 @@ async function initPlayer(url) {
 
   // 更新播放列表按钮状态
   updatePlaylistButtons();
+
+  // Phase 44 D-20：切视频后红点按当前 URL 的任务实况同步（在录任务本身不受
+  // 影响——切走后红点消失但任务页仍 running；切回来自动恢复显示）
+  syncRecordUi();
 }
 
 /**
@@ -756,6 +776,299 @@ function showCacheFallbackBanner() {
   }, 4000);
 }
 
+// ==================== 直播录制（Phase 44 D-18/D-20/D-21 / UI-SPEC Component 1/2） ====================
+
+/**
+ * 续播匹配 key（与主进程 D-12 语义一致）：origin + pathname，query 时效 token 不参与
+ * @param {string} rawUrl - 视频 URL
+ * @returns {string} playbackKey
+ */
+function playbackKeyOfUrl(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return rawUrl || '';
+  }
+}
+
+/**
+ * 字节数格式化（红点 tooltip / 抽屉元信息）：
+ * <1GB 显示 xxxMB，≥1GB 显示 x.xGB
+ * @param {number} bytes - 字节数
+ * @returns {string}
+ */
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0MB';
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
+  }
+  return `${Math.round(bytes / (1024 * 1024))}MB`;
+}
+
+/**
+ * 红点/录制按钮 UI 同步（红点显隐、按钮图标与 tooltip 文案）
+ */
+function updateRecordUi() {
+  const recording = !!state.recordingTaskId;
+  recordDot.classList.toggle('visible', recording);
+  iconRecord.style.display = recording ? 'none' : 'block';
+  btnRecord.title = recording ? '停止录制' : '开始录制';
+}
+
+/**
+ * 按主进程任务实况同步录制状态（initPlayer/状态广播后调用）：
+ * 当前 URL 的 playbackKey 命中运行中录制任务 → 红点显示（D-19 keep-recording
+ * 关窗后重开同一视频也由此恢复红点）。仅独立窗口模式调用——webview tab 的
+ * 发送方会被主进程 assertPlayerSender 拒绝。
+ */
+async function syncRecordUi() {
+  if (!state.isIndependentMode || !window.playerAPI || !window.playerAPI.getRecordList) return;
+  try {
+    const list = await window.playerAPI.getRecordList();
+    const key = playbackKeyOfUrl(state.currentUrl);
+    const active = (list || []).find((t) => t.playbackKey === key);
+    state.recordingTaskId = active ? active.taskId : null;
+    updateRecordUi();
+  } catch (e) {
+    console.warn('[Realm Player] 录制状态同步失败:', e);
+  }
+}
+
+// 录制按钮点击：未录制 → 发起录制；录制中 → 停止并保存（与红点点击等价）
+btnRecord.addEventListener('click', async () => {
+  if (state.recordingTaskId) {
+    await stopCurrentRecording();
+    return;
+  }
+  if (!state.currentUrl || !window.playerAPI || !window.playerAPI.startRecord) return;
+  try {
+    const r = await window.playerAPI.startRecord({
+      url: state.currentUrl,
+      title: state.currentTitle || '',
+      containerId: state.containerId || '',
+      referer: urlParams.get('referer') || '',
+    });
+    if (r && r.success) {
+      state.recordingTaskId = r.taskId;
+      updateRecordUi();
+    } else {
+      showError((r && r.error) || '录制启动失败');
+    }
+  } catch (e) {
+    console.error('[Realm Player] 发起录制失败:', e);
+    showError('录制启动失败');
+  }
+});
+
+/**
+ * 停止当前 URL 对应的录制任务（红点点击/录制按钮/状态广播共用）
+ */
+async function stopCurrentRecording() {
+  const taskId = state.recordingTaskId;
+  if (!taskId || !window.playerAPI || !window.playerAPI.stopRecord) return;
+  try {
+    await window.playerAPI.stopRecord(taskId);
+  } catch (e) {
+    console.error('[Realm Player] 停止录制失败:', e);
+  }
+  // 终态广播会再次触发 syncRecordUi，这里先乐观复位红点
+  state.recordingTaskId = null;
+  updateRecordUi();
+}
+
+// 红点点击 = 停止录制（D-21 可点击停止）
+recordDot.addEventListener('click', stopCurrentRecording);
+
+// 红点 hover：tooltip 定时刷新（已录时长≈分片数×targetDuration、已录大小——D-21）
+let recordTooltipTimer = null;
+async function refreshRecordTooltip() {
+  if (!state.recordingTaskId) return;
+  try {
+    const s = await window.playerAPI.getRecordStatus(state.recordingTaskId);
+    if (s && s.status === 'running') {
+      recordDotTooltip.textContent = `已录 ${formatTime(s.durationSeconds)} · ${formatBytes(s.totalBytes)}`;
+    }
+  } catch { /* tooltip 刷新失败静默 */ }
+}
+recordDot.addEventListener('mouseenter', () => {
+  refreshRecordTooltip();
+  recordTooltipTimer = setInterval(refreshRecordTooltip, 1000);
+});
+recordDot.addEventListener('mouseleave', () => {
+  clearInterval(recordTooltipTimer);
+  recordTooltipTimer = null;
+});
+
+// 录制任务状态变化（主进程 media-task:changed 过滤 type=record）：D-20 播放状态
+// 不影响录制——这里只按任务终态同步红点；失败任务给出可转提示（UI-SPEC Copywriting）
+if (window.playerAPI && window.playerAPI.onRecordStateChanged) {
+  window.playerAPI.onRecordStateChanged((task) => {
+    if (task.id === state.recordingTaskId && task.status !== 'running') {
+      state.recordingTaskId = null;
+      updateRecordUi();
+      if (task.status === 'failed') {
+        const reason = task.error === 'network' ? '网络错误' : (task.error || '未知原因');
+        showError(`录制失败：${reason}。已录部分仍可转换为 MP4`);
+      }
+    }
+    syncRecordUi();
+  });
+}
+
+// ==================== 本地媒体库抽屉（Phase 44 D-14~D-16 / UI-SPEC Component 3/4） ====================
+
+/** 待删除的抽屉条目 playbackKey（删除确认框确认后消费） @type {string|null} */
+let pendingDeleteKey = null;
+
+/**
+ * 最近观看时间格式化：同年省略年份（MM-DD HH:mm），跨年带年份
+ * @param {number} ts - 毫秒时间戳
+ * @returns {string}
+ */
+function formatWatchedTime(ts) {
+  if (!Number.isFinite(ts) || ts <= 0) return '';
+  const d = new Date(ts);
+  const pad = (n) => String(n).padStart(2, '0');
+  const now = new Date();
+  const md = `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}-${md}`;
+}
+
+/**
+ * 渲染抽屉列表（缓存库 + 观看历史合并、最近观看优先——44-01 player:drawer:list 契约）
+ */
+async function renderDrawer() {
+  if (!window.playerAPI || !window.playerAPI.getDrawerList) return;
+  let items = [];
+  try {
+    items = (await window.playerAPI.getDrawerList()) || [];
+  } catch (e) {
+    console.warn('[Realm Player] 抽屉列表获取失败:', e);
+  }
+  drawerList.innerHTML = '';
+  drawerEmpty.classList.toggle('visible', items.length === 0);
+  for (const item of items) {
+    const el = document.createElement('div');
+    el.className = 'drawer-item';
+
+    const title = document.createElement('div');
+    title.className = 'drawer-item-title';
+    title.textContent = item.title || decodeURIComponent((item.url || '').split('/').pop().split('?')[0]) || '未知视频';
+    title.title = title.textContent;
+    el.appendChild(title);
+
+    // 续播进度条：3px accent 填充（duration 未知时不显示）
+    if (item.duration > 0) {
+      const progress = document.createElement('div');
+      progress.className = 'drawer-item-progress';
+      const fill = document.createElement('div');
+      fill.className = 'drawer-item-progress-fill';
+      fill.style.width = `${Math.min(100, (item.lastPosition / item.duration) * 100)}%`;
+      progress.appendChild(fill);
+      el.appendChild(progress);
+    }
+
+    // 元信息：「缓存大小 · 完整度% · 最近观看时间」（completeness 缺省时省略）
+    const meta = document.createElement('div');
+    meta.className = 'drawer-item-meta';
+    const parts = [];
+    if (item.cacheSize > 0) {
+      parts.push(formatBytes(item.cacheSize) + (item.completeness != null ? ` · 完整度 ${Math.round(item.completeness)}%` : ''));
+    } else {
+      parts.push('未缓存');
+    }
+    const watched = formatWatchedTime(item.lastWatched);
+    if (watched) parts.push(`最近观看 ${watched}`);
+    meta.textContent = parts.join(' · ');
+    el.appendChild(meta);
+
+    // 删除按钮：hover 显示（aria-label「删除缓存」——UI-SPEC checker 建议 ②）
+    const del = document.createElement('button');
+    del.className = 'drawer-item-delete';
+    del.setAttribute('aria-label', '删除缓存');
+    del.title = '删除缓存';
+    del.innerHTML = '<svg viewBox="0 0 12 12"><path d="M3.5 3.5l5 5M8.5 3.5l-5 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>';
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openDeleteConfirm(item);
+    });
+    el.appendChild(del);
+
+    // 条目点击：关抽屉并按原 URL 加载（续播自动生效——initPlayerWithResume 的
+    // D-12 链路：loadedmetadata 后 seek 到上次位置）
+    el.addEventListener('click', () => {
+      closeDrawer();
+      if (item.url) initPlayerWithResume(item.url);
+    });
+
+    drawerList.appendChild(el);
+  }
+}
+
+function openDrawer() {
+  drawerPanel.classList.add('open');
+  renderDrawer();
+  showControls();
+}
+
+function closeDrawer() {
+  drawerPanel.classList.remove('open');
+}
+
+function toggleDrawer() {
+  if (drawerPanel.classList.contains('open')) {
+    closeDrawer();
+  } else {
+    openDrawer();
+  }
+}
+
+btnDrawer.addEventListener('click', toggleDrawer);
+btnDrawerClose.addEventListener('click', closeDrawer);
+
+/**
+ * 打开删除缓存确认框（原生 dialog + showModal，AGENTS.md 弹框居中约定）
+ * 文案按 UI-SPEC Copywriting Contract：「删除缓存「{标题}」？观看历史保留，下次播放将重新缓存」
+ * @param {{ title: string, playbackKey: string }} item - 抽屉条目
+ */
+function openDeleteConfirm(item) {
+  pendingDeleteKey = item.playbackKey || null;
+  const label = item.title || '该视频';
+  drawerDeleteText.textContent = `删除缓存「${label}」？观看历史保留，下次播放将重新缓存`;
+  drawerDeleteDialog.showModal();
+}
+
+btnDrawerDeleteCancel.addEventListener('click', () => {
+  pendingDeleteKey = null;
+  drawerDeleteDialog.close();
+});
+
+btnDrawerDeleteConfirm.addEventListener('click', async () => {
+  const key = pendingDeleteKey;
+  pendingDeleteKey = null;
+  drawerDeleteDialog.close();
+  if (!key || !window.playerAPI || !window.playerAPI.deleteCacheEntry) return;
+  try {
+    await window.playerAPI.deleteCacheEntry(key);
+  } catch (e) {
+    console.error('[Realm Player] 删除缓存失败:', e);
+  }
+  renderDrawer();
+});
+
+// Esc 关闭确认框时清理待删状态（dialog cancel 事件）
+drawerDeleteDialog.addEventListener('cancel', () => {
+  pendingDeleteKey = null;
+});
+
+// webview tab 模式下录制/抽屉按钮隐藏（CSS 兜底已写，这里把 file:// 兜底加载
+// 且无 playerAPI 的场景一并隐藏——通道不存在点了也无效）
+if (!window.playerAPI || !window.playerAPI.startRecord) {
+  btnRecord.style.display = 'none';
+  btnDrawer.style.display = 'none';
+}
+
 // ==================== 双击全屏（D-13） ====================
 
 /**
@@ -804,6 +1117,8 @@ function hideControls() {
   if (state.isDragging) return;
   // 倍速菜单打开时不隐藏
   if (speedMenu.classList.contains('visible')) return;
+  // Phase 44：抽屉面板打开时不隐藏（UI-SPEC Component 3「打开时控制栏保持可见」）
+  if (drawerPanel.classList.contains('open')) return;
 
   controlsContainer.classList.remove('visible');
   titleBar.classList.remove('visible');

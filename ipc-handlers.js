@@ -5,7 +5,7 @@
  * 每个处理器对入参做类型校验
  */
 
-const { ipcMain, dialog, BrowserWindow, clipboard, session, webContents } = require('electron');
+const { ipcMain, dialog, BrowserWindow, clipboard, session, webContents, app } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
 const containerManager = require('./container-manager');
@@ -25,13 +25,22 @@ const dragCoordinator = require('./drag-coordinator');
 const autocompleteManager = require('./autocomplete-manager');
 const aiAttachments = require('./ai-attachments-manager');
 // 媒体缓存 key 工具（纯函数模块，Phase 44 D-12 续播匹配）
-const { playbackKeyOf } = require('./media-cache-manager');
+const { playbackKeyOf, videoIdOf } = require('./media-cache-manager');
 
 // AI Manager 实例（由 main.js 通过 setAIManager 注入）
 let aiManager = null;
 
 // Search Manager 实例（由 main.js 通过 setSearchManager 注入）
 let searchManager = null;
+
+// 直播录制引擎实例（Phase 44 D-18，由 main.js 通过 setMediaRecordEngine 注入）
+let recordEngine = null;
+
+// 应用退出中标志（D-19：应用退出流程已有全局确认，播放器窗口 close 拦截不再重复弹录制确认）
+let appQuitting = false;
+app.on('before-quit', () => {
+  appQuitting = true;
+});
 
 // 内部服务器信息（main.js 经 setRealmServerInfo 注入，Phase 44 D-02 独立窗口 localhost 化）
 let realmServerInfo = { port: 0, token: '' };
@@ -2079,25 +2088,74 @@ function registerHandlers() {
     playerWindow.on('close', (event) => {
       if (playerClosing || !playerWindow || playerWindow.isDestroyed()) return;
       event.preventDefault();
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(finishTimer);
-        playerClosing = true;
-        try {
-          if (playerWindow && !playerWindow.isDestroyed()) playerWindow.close();
-        } catch (err) {
-          console.warn('[Realm] 播放器窗口关闭放行失败:', err.message);
-        }
+
+      /** 关窗序列：先向 renderer 索取最终进度（ack/500ms 超时双保险）后放行 */
+      const beginCloseSequence = () => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(finishTimer);
+          playerClosing = true;
+          try {
+            if (playerWindow && !playerWindow.isDestroyed()) playerWindow.close();
+          } catch (err) {
+            console.warn('[Realm] 播放器窗口关闭放行失败:', err.message);
+          }
+        };
+        const ackHandler = () => finish();
+        ipcMain.once('player:final-progress-ack', ackHandler);
+        const finishTimer = setTimeout(() => {
+          ipcMain.removeListener('player:final-progress-ack', ackHandler);
+          finish();
+        }, 500);
+        playerWindow.webContents.send('player:request-final-progress');
       };
-      const ackHandler = () => finish();
-      ipcMain.once('player:final-progress-ack', ackHandler);
-      const finishTimer = setTimeout(() => {
-        ipcMain.removeListener('player:final-progress-ack', ackHandler);
-        finish();
-      }, 500);
-      playerWindow.webContents.send('player:request-final-progress');
+
+      // Phase 44 D-19：有活跃录制任务时确认。应用退出流程已有全局确认
+      //（before-quit hasActiveTasks 分支），appQuitting 时跳过避免双重弹窗
+      const activeRecords = recordEngine ? recordEngine.getActiveRecordings() : [];
+      if (activeRecords.length > 0 && !appQuitting) {
+        const remembered = configStore.get('settings.recordCloseAction', null);
+        if (remembered !== 'keep-recording' && remembered !== 'stop-save') {
+          // 未记忆默认选择：弹一次（checkbox「记住我的选择」写 settings.recordCloseAction）
+          dialog.showMessageBox(playerWindow, {
+            type: 'question',
+            buttons: ['继续后台录制', '停止并保存'],
+            defaultId: 0,
+            message: '播放器窗口即将关闭，有正在进行的录制任务。',
+            detail: '继续后台录制时任务在主进程独立运行，可在任务页查看进度与停止。',
+            checkboxLabel: '记住我的选择',
+            noLink: true,
+          }).then(({ response, checkboxChecked }) => {
+            // Esc/取消（response 非 0/1）：不关窗，留在播放器
+            if (response !== 0 && response !== 1) return;
+            if (checkboxChecked) {
+              configStore.set('settings.recordCloseAction', response === 0 ? 'keep-recording' : 'stop-save');
+            }
+            if (response === 1) {
+              // 停止并保存：等引擎写完索引后继续关窗序列
+              recordEngine.stopAll()
+                .catch((err) => console.warn('[Realm] 关窗停止录制失败:', err.message))
+                .then(beginCloseSequence);
+            } else {
+              beginCloseSequence();
+            }
+          }).catch((err) => {
+            console.warn('[Realm] 关窗录制确认对话框失败:', err.message);
+          });
+          return;
+        }
+        if (remembered === 'stop-save') {
+          // 已记忆「停止并保存」：直接执行
+          recordEngine.stopAll()
+            .catch((err) => console.warn('[Realm] 关窗停止录制失败:', err.message))
+            .then(beginCloseSequence);
+          return;
+        }
+        // remembered === 'keep-recording'：录制继续，直接走关窗序列
+      }
+      beginCloseSequence();
     });
 
     // D-21: 窗口关闭时清理资源
@@ -2243,12 +2301,108 @@ function registerHandlers() {
    */
   ipcMain.handle('player:cache:delete', (event, videoId) => {
     assertPlayerSender(event);
+    // 抽屉条目数据携带 playbackKey（origin+pathname），此处兼容两种入参：
+    // 16 位 hex videoId 或 playbackKey（经 videoIdOf 换算）
+    if (videoId && typeof videoId === 'string' && !/^[a-f0-9]{16}$/.test(videoId)) {
+      try {
+        videoId = videoIdOf(videoId);
+      } catch {
+        return { success: false, error: '无效的缓存条目 ID' };
+      }
+    }
     if (!videoId || typeof videoId !== 'string' || !/^[a-f0-9]{16}$/.test(videoId)) {
       return { success: false, error: '无效的缓存条目 ID' };
     }
     if (!mediaCache) return { success: false, error: '缓存模块未初始化' };
     // 注意：观看历史（player_history）独立存储，此处不动——D-16「观看历史保留」
     return mediaCache.deleteEntry(videoId);
+  });
+
+  // ==================== 直播录制（Phase 44 D-18/D-20/D-21） ====================
+
+  /** 录制任务 containerId 校验（沿 43 期 /^[\w-]+$/ 惯例，T-44-12） */
+  function isValidContainerId(containerId) {
+    return typeof containerId === 'string' && /^[\w-]+$/.test(containerId);
+  }
+
+  /**
+   * 发起直播录制（D-18：显式后台任务）。引擎在主进程独立轮询 m3u8 追分片，
+   * 与播放状态完全解耦（D-20）。同 URL 已在录/并发超限返回结构化拒绝原因。
+   * @param {{ url: string, title: string, containerId: string, referer?: string }} input
+   * @returns {Promise<{success: boolean, taskId?: string, error?: string}>}
+   */
+  ipcMain.handle('player:record/start', async (event, input) => {
+    assertPlayerSender(event);
+    if (!recordEngine) return { success: false, error: '录制引擎未初始化' };
+    if (!input || typeof input !== 'object') {
+      return { success: false, error: '无效的录制参数' };
+    }
+    const { url, title, containerId, referer } = input;
+    if (!url || typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+      return { success: false, error: '无效的录制 URL' };
+    }
+    if (!title || typeof title !== 'string') {
+      return { success: false, error: '无效的录制标题' };
+    }
+    if (!isValidContainerId(containerId)) {
+      return { success: false, error: '无效的容器 ID' };
+    }
+    const result = await recordEngine.startRecord({
+      url,
+      title,
+      containerId,
+      referer: typeof referer === 'string' ? referer : '',
+    });
+    if (!result.ok) {
+      const reasonText = {
+        already_recording: '该视频已在录制中',
+        concurrency_limit: '录制任务已达并发上限',
+        invalid_input: '无效的录制参数',
+      };
+      return { success: false, error: reasonText[result.reason] || '录制启动失败' };
+    }
+    return { success: true, taskId: result.taskId };
+  });
+
+  /**
+   * 停止录制并保存（D-19 红点点击/「停止并保存」路径）：停轮询 → 写分片索引
+   * meta.json → completeTask（D-22 转码接力由 44-05 消费）
+   * @param {string} taskId - 任务 ID
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  ipcMain.handle('player:record/stop', async (event, taskId) => {
+    assertPlayerSender(event);
+    if (!recordEngine) return { success: false, error: '录制引擎未初始化' };
+    if (!taskId || typeof taskId !== 'string') {
+      return { success: false, error: '缺少任务 ID' };
+    }
+    const result = await recordEngine.stopRecord(taskId);
+    if (!result.ok) {
+      return { success: false, error: result.reason === 'not_found' ? '录制任务不存在或已结束' : (result.reason || '停止失败') };
+    }
+    return { success: true };
+  });
+
+  /**
+   * 查询录制状态（D-21 红点 hover 数据：已录时长≈分片数×targetDuration、已录大小）
+   * @param {string} taskId - 任务 ID
+   * @returns {Promise<Object|null>}
+   */
+  ipcMain.handle('player:record/status', (event, taskId) => {
+    assertPlayerSender(event);
+    if (!recordEngine || !taskId || typeof taskId !== 'string') return null;
+    return recordEngine.getRecordStatus(taskId);
+  });
+
+  /**
+   * 运行中录制任务列表（播放器窗口重开后红点状态同步——keep-recording 关窗
+   * 后再开同一视频，红点需按主进程任务实况恢复）
+   * @returns {Promise<Array>}
+   */
+  ipcMain.handle('player:record/list', (event) => {
+    assertPlayerSender(event);
+    if (!recordEngine) return [];
+    return recordEngine.getActiveRecordings();
   });
 
   /**
@@ -2547,4 +2701,13 @@ function setMediaCaches({ mediaCache: cache, playerHistory: history }) {
   playerHistory = history || null;
 }
 
-module.exports = { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager, setRealmServerInfo, setMediaCaches };
+/**
+ * 注入直播录制引擎实例（Phase 44 D-18/D-19）
+ * 由 main.js 在 mediaTaskManager/mediaCache 初始化完成后调用
+ * @param {Object} engine - createRecordEngine 实例
+ */
+function setMediaRecordEngine(engine) {
+  recordEngine = engine || null;
+}
+
+module.exports = { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager, setRealmServerInfo, setMediaCaches, setMediaRecordEngine };

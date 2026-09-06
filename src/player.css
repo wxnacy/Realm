@@ -467,3 +467,289 @@ body.webview-player #player {
 body.fullscreen #title-bar {
   display: none;
 }
+
+/* ==================== 直播录制红点（Phase 44 D-21 / UI-SPEC Component 2） ==================== */
+/* destructive 色 #EF4444（非 accent），闪烁约 1s 循环，可点击停止；
+   独立于 title-bar 显隐——录制中始终可见（D-20 与播放状态解耦） */
+#record-dot {
+  position: absolute;
+  top: 9px;
+  right: 12px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #EF4444;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  z-index: 101;
+  display: none;
+  animation: record-dot-blink 1s ease-in-out infinite;
+}
+
+#record-dot.visible {
+  display: block;
+}
+
+@keyframes record-dot-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* 红点 hover tooltip：「已录 mm:ss · xxxMB」（tabular-nums） */
+#record-dot-tooltip {
+  position: absolute;
+  top: 18px;
+  right: -4px;
+  background: rgba(0, 0, 0, 0.85);
+  color: var(--player-text);
+  font-size: 13px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+#record-dot:hover #record-dot-tooltip {
+  opacity: 1;
+}
+
+/* ==================== 本地媒体库抽屉面板（Phase 44 D-14~D-16 / UI-SPEC Component 3/4） ==================== */
+/* 320px 右滑，rgba(0,0,0,0.85) 底，与 speed-menu 同层（z-index 95） */
+#drawer-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  background: rgba(0, 0, 0, 0.85);
+  transform: translateX(100%);
+  transition: transform 0.25s ease;
+  z-index: 95;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+}
+
+#drawer-panel.open {
+  transform: translateX(0);
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.drawer-title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--player-text);
+}
+
+.drawer-close-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--player-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.drawer-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--player-text);
+}
+
+.drawer-close-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.drawer-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+/* 抽屉条目：标题 ellipsis + 续播进度条 + 元信息；hover 显删除按钮（D-16） */
+.drawer-item {
+  position: relative;
+  padding: 12px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.drawer-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.drawer-item-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--player-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 28px;
+}
+
+/* 续播进度条：3px 高，accent 填充（UI-SPEC accent reserved list） */
+.drawer-item-progress {
+  height: 3px;
+  background: var(--player-progress-track);
+  border-radius: 1.5px;
+  margin: 8px 0;
+  overflow: hidden;
+}
+
+.drawer-item-progress-fill {
+  height: 100%;
+  background: var(--player-accent);
+  border-radius: 1.5px;
+}
+
+/* 元信息行：缓存大小 · 完整度% + 最近观看时间（13px 次要色，tabular-nums） */
+.drawer-item-meta {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--player-text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 删除按钮：hover 条目时显示（aria-label「删除缓存」——checker 建议 ②） */
+.drawer-item-delete {
+  position: absolute;
+  top: 10px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--player-text-secondary);
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.drawer-item:hover .drawer-item-delete {
+  display: flex;
+}
+
+.drawer-item-delete:hover {
+  color: #EF4444;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.drawer-item-delete svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* 抽屉空态（UI-SPEC empty 文案） */
+.drawer-empty {
+  flex: 1;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+}
+
+.drawer-empty.visible {
+  display: flex;
+}
+
+.drawer-empty-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--player-text);
+  margin-bottom: 8px;
+}
+
+.drawer-empty-body {
+  font-size: 13px;
+  color: var(--player-text-secondary);
+  line-height: 1.5;
+}
+
+/* ==================== 删除缓存确认框（AGENTS.md 弹框居中约定） ==================== */
+/* 原生 dialog + showModal()：全局 * { margin: 0 } 会清掉 UA 居中，必须显式 margin: auto */
+#drawer-delete-dialog {
+  margin: auto;
+  background: rgba(20, 20, 20, 0.95);
+  color: var(--player-text);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 20px 24px;
+  min-width: 280px;
+  max-width: 360px;
+}
+
+#drawer-delete-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.drawer-delete-text {
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.drawer-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.drawer-delete-btn {
+  padding: 6px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--player-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.drawer-delete-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.drawer-delete-btn.danger {
+  background: #EF4444;
+  border-color: #EF4444;
+}
+
+.drawer-delete-btn.danger:hover {
+  background: #dc2626;
+}
+
+/* ==================== webview tab 模式隐藏录制/抽屉入口 ==================== */
+/* webview tab 无 playerAPI 录制通道且 sender 校验必拒（D-01 缓存/录制仅独立窗口） */
+body.webview-player #btn-record,
+body.webview-player #btn-drawer,
+body.webview-player #record-dot,
+body.webview-player #drawer-panel {
+  display: none !important;
+}
