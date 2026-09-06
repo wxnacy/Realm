@@ -1589,6 +1589,50 @@ contextBridge.exposeInMainWorld('playerAPI', {
    * @returns {Promise<void>}
    */
   closeWindow: () => ipcRenderer.invoke('player:close'),
+
+  /**
+   * 上报播放进度（Phase 44 D-13，单向 send 无需 await）
+   * @param {{url: string, title: string, position: number, duration: number}} data
+   */
+  reportProgress: (data) => ipcRenderer.send('player:progress', data),
+
+  /**
+   * 查询续播位置（Phase 44 D-12：主进程按 origin+pathname 查观看历史）
+   * @param {string} url - 视频 URL
+   * @returns {Promise<{position: number, duration: number, url: string}|null>}
+   */
+  getResumePosition: (url) => ipcRenderer.invoke('player:resume-position', url),
+
+  /**
+   * 获取抽屉列表数据（Phase 44 D-14/D-15：缓存库 + 观看历史合并，最近观看优先）
+   * @returns {Promise<Array<{title, url, playbackKey, cacheSize, completeness, lastPosition, duration, lastWatched}>>}
+   */
+  getDrawerList: () => ipcRenderer.invoke('player:drawer:list'),
+
+  /**
+   * 删除缓存条目（Phase 44 D-16：按 videoId 整目录删除，观看历史保留）
+   * @param {string} videoId - 视频目录 ID（16 位 hex）
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  deleteCacheEntry: (videoId) => ipcRenderer.invoke('player:cache:delete', videoId),
+
+  /**
+   * 监听主进程关窗前的最终进度索取（Phase 44 D-13/Pitfall 6：
+   * 主进程 close 拦截后发此事件，renderer 立即上报一次进度并回 ack）
+   * @param {Function} callback - 回调函数（无参数）
+   * @returns {Function} 取消监听的清理函数
+   */
+  onRequestFinalProgress: (callback) => {
+    const handler = () => {
+      try {
+        callback();
+      } finally {
+        ipcRenderer.send('player:final-progress-ack');
+      }
+    };
+    ipcRenderer.on('player:request-final-progress', handler);
+    return () => ipcRenderer.removeListener('player:request-final-progress', handler);
+  },
 });
 
 // ==================== 下载管理 API ====================

@@ -115,7 +115,7 @@ const tabManager = require('./tab-manager');
 const cookieManager = require('./cookie-manager');
 const assignmentRules = require('./assignment-rules');
 const shortcutManager = require('./shortcut-manager');
-const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager, setRealmServerInfo } = require('./ipc-handlers');
+const { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager, setRealmServerInfo, setMediaCaches } = require('./ipc-handlers');
 const historyManager = require('./history-manager');
 const downloadManager = require('./download-manager');
 const credentialManager = require('./credential-manager');
@@ -2576,6 +2576,12 @@ app.whenReady().then(async () => {
     capacityBytes: configStore.get('settings.mediaCacheCapacityBytes', 10 * 1024 * 1024 * 1024),
   });
   console.log(`[Realm] 媒体缓存已初始化: ${mediaCache.cacheRoot}`);
+
+  // Phase 44 D-11：播放器观看历史（独立小库，playback_key 主键 upsert，
+  // 不随缓存淘汰消失）；注入 ipc-handlers 供 player:progress 等通道使用
+  const playerHistoryManager = require('./player-history-manager');
+  playerHistoryManager.init({ dbPath: path.join(app.getPath('userData'), 'player-history.db') });
+  setMediaCaches({ mediaCache, playerHistory: playerHistoryManager });
 
   // 注册 IPC 处理器
   registerHandlers();

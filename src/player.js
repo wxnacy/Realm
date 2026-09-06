@@ -28,6 +28,12 @@ const state = {
   controlsHidden: false,
   /** @type {boolean} 当前流是否为直播（HLS LEVEL_LOADED 更新，直播刷新不恢复进度） */
   isLive: false,
+  /** @type {boolean} 独立窗口 localhost 模式（Phase 44 D-02 mode=independent，进度上报/缓存降级仅此模式启用） */
+  isIndependentMode: false,
+  /** @type {string} 当前显示标题（进度上报 title 字段来源） */
+  currentTitle: '',
+  /** @type {number} hls.js fatal network error 重试计数（Phase 44 D-10，initPlayer 时归零） */
+  hlsRetryCount: 0,
 };
 
 /**
@@ -134,12 +140,16 @@ async function initPlayer(url) {
   state.currentUrl = url;
   // 直播属性随新加载的流重新判定，旧值不能带到下一次播放
   state.isLive = false;
+  // D-10 重试计数随新流归零
+  state.hlsRetryCount = 0;
 
   // 更新窗口标题为 {容器名} - {文件名}（肉眼可验证 D-22 容器隔离）
   const fileName = decodeURIComponent(url.split('/').pop().split('?')[0]);
   const displayTitle = state.containerName ? `${state.containerName} - ${fileName}` : fileName;
   titleText.textContent = displayTitle;
   document.title = `Realm Player - ${displayTitle}`;
+  // 进度上报 title 来源（D-13）
+  state.currentTitle = displayTitle;
 
   console.log('[Realm Player] 初始化播放, 格式:', format, 'URL:', url);
 
@@ -159,6 +169,19 @@ async function initPlayer(url) {
           hls.on(Hls.Events.ERROR, (event, data) => {
             if (data.fatal) {
               console.error('[Realm Player] hls.js 致命错误:', data);
+              // Phase 44 D-10：断网/源站失效时已缓存分片照播（缓存读盘链路
+              // 天然生效）——独立窗口缓存模式下 fatal network error 不打断播放，
+              // 重试拉流并显示降级提示条；webview tab 模式行为不变（D-01）
+              if (state.isIndependentMode && data.type === Hls.ErrorTypes.NETWORK_ERROR && !state.isLive) {
+                if (state.hlsRetryCount < 3) {
+                  state.hlsRetryCount++;
+                  showCacheFallbackBanner();
+                  hls.startLoad();
+                  return;
+                }
+                showCacheFallbackBanner();
+                return;
+              }
               showError('HLS 播放失败');
             }
           });
@@ -295,7 +318,10 @@ if (paramUrl && !isIndependentMode) {
   state.currentIndex = 0;
   initPlayer(paramUrl);
 } else if (window.playerAPI && window.playerAPI.onPlayUrl) {
-  // 独立窗口模式：通过 IPC 接收播放数据
+  // 独立窗口模式（file:// 或 Phase 44 D-02 localhost）：通过 IPC 接收播放数据。
+  // mode=independent 时保留标题栏与红绿灯（不进 webview-player 分支，Pitfall 1），
+  // token/container/referer/cache 从 URL 参数取（proxiedUrl 透传），mediaList 仍走 IPC
+  state.isIndependentMode = isIndependentMode;
   window.playerAPI.onPlayUrl((data) => {
     console.log('[Realm Player] 收到播放数据:', data.url);
 
@@ -309,7 +335,8 @@ if (paramUrl && !isIndependentMode) {
       state.currentIndex = 0;
     }
 
-    initPlayer(data.url);
+    // Phase 44 D-12：先查观看历史再起播，loadedmetadata 后续播 seek
+    initPlayerWithResume(data.url);
   });
 }
 
@@ -642,6 +669,92 @@ function refreshCurrent() {
 }
 
 btnRefresh.addEventListener('click', refreshCurrent);
+
+// ==================== 续播与进度上报（Phase 44 D-12/D-13） ====================
+
+/**
+ * 独立窗口模式起播（D-12）：先按 playbackKey（origin+pathname，query 时效
+ * token 不参与）查观看历史，initPlayer 后在 loadedmetadata 时 seek 到上次
+ * 位置（非直播；直播流回到边缘）。复用 refreshCurrent 的 resume 模式。
+ * @param {string} url - 视频 URL
+ */
+async function initPlayerWithResume(url) {
+  let resumePosition = 0;
+  try {
+    if (window.playerAPI && window.playerAPI.getResumePosition) {
+      const r = await window.playerAPI.getResumePosition(url);
+      if (r && r.position > 0) resumePosition = r.position;
+    }
+  } catch (e) {
+    console.warn('[Realm Player] 续播位置查询失败:', e);
+  }
+  initPlayer(url);
+  if (resumePosition > 0) {
+    video.addEventListener('loadedmetadata', () => {
+      if (!state.isLive) {
+        video.currentTime = resumePosition;
+        console.log('[Realm Player] 续播 seek 到:', resumePosition);
+      }
+    }, { once: true });
+  }
+}
+
+/**
+ * 立即上报一次播放进度（D-13）。仅独立窗口模式启用——webview tab 模式的
+ * 发送方不是播放器窗口，主进程 assertPlayerSender 会拒绝。
+ */
+function reportProgressNow() {
+  if (!state.isIndependentMode || !state.currentUrl) return;
+  if (!window.playerAPI || !window.playerAPI.reportProgress) return;
+  try {
+    window.playerAPI.reportProgress({
+      url: state.currentUrl,
+      title: state.currentTitle || '',
+      position: video.currentTime || 0,
+      duration: isFinite(video.duration) ? video.duration : 0,
+    });
+  } catch (e) {
+    console.warn('[Realm Player] 进度上报失败:', e);
+  }
+}
+
+// 每 5 秒节流上报（播放中）
+setInterval(() => {
+  if (!video.paused && state.currentUrl) reportProgressNow();
+}, 5000);
+
+// 暂停即报
+video.addEventListener('pause', reportProgressNow);
+
+// 关窗兜底（Pitfall 6）：主进程 close 拦截后索取最终进度，ack 在
+// onRequestFinalProgress 桥接内发出（send 有序，进度先于 ack 到达主进程）
+if (window.playerAPI && window.playerAPI.onRequestFinalProgress) {
+  window.playerAPI.onRequestFinalProgress(reportProgressNow);
+}
+
+// ==================== 缓存降级提示条（Phase 44 D-10 / UI-SPEC Component 5） ====================
+
+/** 降级提示条元素（动态创建，避免改 player.html） */
+const cacheFallbackBanner = document.createElement('div');
+cacheFallbackBanner.className = 'cache-fallback-banner';
+cacheFallbackBanner.textContent = '部分分片加载失败，已缓存部分可继续观看';
+cacheFallbackBanner.style.display = 'none';
+playerContainer.appendChild(cacheFallbackBanner);
+
+/** 提示条自动隐藏定时器 @type {number|null} */
+let bannerTimer = null;
+
+/**
+ * 显示降级提示条：断网/源站失效时告知用户已缓存部分可继续观看，
+ * 约 4 秒自动消失，不打断播放
+ */
+function showCacheFallbackBanner() {
+  cacheFallbackBanner.style.display = 'flex';
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(() => {
+    cacheFallbackBanner.style.display = 'none';
+  }, 4000);
+}
 
 // ==================== 双击全屏（D-13） ====================
 

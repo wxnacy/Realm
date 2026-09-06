@@ -164,6 +164,38 @@ body.webview-player #player {
   cursor: pointer;
 }
 
+/* ==================== 缓存降级提示条（Phase 44 D-10 / UI-SPEC Component 5） ==================== */
+/* 断网/源站失效时提示「已缓存部分可继续观看」，约 4s 自动消失，不打断播放 */
+.cache-fallback-banner {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: 6px;
+  background: rgba(20, 20, 20, 0.85);
+  color: var(--player-text-secondary);
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: nowrap;
+  z-index: 95;
+  pointer-events: none;
+  animation: cache-banner-in 0.25s ease;
+}
+
+@keyframes cache-banner-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
 /* ==================== 控制栏容器 ==================== */
 #controls-container {
   position: absolute;

@@ -24,12 +24,21 @@ const mediaSniffer = require('./media-sniffer');
 const dragCoordinator = require('./drag-coordinator');
 const autocompleteManager = require('./autocomplete-manager');
 const aiAttachments = require('./ai-attachments-manager');
+// 媒体缓存 key 工具（纯函数模块，Phase 44 D-12 续播匹配）
+const { playbackKeyOf } = require('./media-cache-manager');
 
 // AI Manager 实例（由 main.js 通过 setAIManager 注入）
 let aiManager = null;
 
 // Search Manager 实例（由 main.js 通过 setSearchManager 注入）
 let searchManager = null;
+
+// 内部服务器信息（main.js 经 setRealmServerInfo 注入，Phase 44 D-02 独立窗口 localhost 化）
+let realmServerInfo = { port: 0, token: '' };
+
+// 媒体缓存与播放器观看历史实例（main.js 经 setMediaCaches 注入，Phase 44 D-03/D-11）
+let mediaCache = null;
+let playerHistory = null;
 
 // 与 main.js 共享 realm-config.json（settings:* 命名空间）
 const configStore = new Store({ name: 'realm-config' });
@@ -1943,19 +1952,6 @@ function registerHandlers() {
   let playerContainerId = null;
   /** @type {boolean} close 拦截放行标记（Pitfall 6 最终进度索取后二次 close） */
   let playerClosing = false;
-  /** @type {{port: number, token: string}} 内部服务器信息（main.js 经 setter 注入，D-02） */
-  let realmServerInfo = { port: 0, token: '' };
-
-  /**
-   * 注入内部服务器端口与 token（Phase 44 D-02 独立窗口 localhost 化）
-   * main.js 在 realmServer listen 回调中调用（ipc-handlers 无 main.js 作用域）
-   * @param {{port: number, token: string}} info
-   */
-  function setRealmServerInfo(info) {
-    if (info && typeof info.port === 'number' && typeof info.token === 'string') {
-      realmServerInfo = { port: info.port, token: info.token };
-    }
-  }
 
   /**
    * 校验播放器窗口 IPC 来源：仅接受来自当前播放器窗口的调用。
@@ -2078,10 +2074,37 @@ function registerHandlers() {
       playerWindow.webContents.send('media:play-url', { url, mediaList, containerId, containerName });
     });
 
+    // Phase 44 D-13/Pitfall 6：关窗兜底——close 时向 renderer 索取一次最终进度
+    //（窗口销毁后 async IPC 会丢，必须在销毁前要），超时 500ms 兜底放行
+    playerWindow.on('close', (event) => {
+      if (playerClosing || !playerWindow || playerWindow.isDestroyed()) return;
+      event.preventDefault();
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(finishTimer);
+        playerClosing = true;
+        try {
+          if (playerWindow && !playerWindow.isDestroyed()) playerWindow.close();
+        } catch (err) {
+          console.warn('[Realm] 播放器窗口关闭放行失败:', err.message);
+        }
+      };
+      const ackHandler = () => finish();
+      ipcMain.once('player:final-progress-ack', ackHandler);
+      const finishTimer = setTimeout(() => {
+        ipcMain.removeListener('player:final-progress-ack', ackHandler);
+        finish();
+      }, 500);
+      playerWindow.webContents.send('player:request-final-progress');
+    });
+
     // D-21: 窗口关闭时清理资源
     playerWindow.on('closed', () => {
       playerWindow = null;
       playerContainerId = null;
+      playerClosing = false;
     });
 
     // 全屏状态变化时通知渲染进程（Electron setFullScreen 不会触发 DOM fullscreenchange）
@@ -2108,6 +2131,124 @@ function registerHandlers() {
     assertTrustedSender(event);
     if (!containerId || typeof containerId !== 'string') return [];
     return mediaSniffer.getMediaListByContainer(containerId);
+  });
+
+  // ==================== 播放器观看历史与缓存（Phase 44 D-11~D-16） ====================
+
+  /**
+   * 播放进度落盘（D-11/D-13，单向 send）：写观看历史（player_history 表 upsert）
+   * 并同步刷新缓存元数据的 last_position/last_watched（双层同步）
+   */
+  ipcMain.on('player:progress', (event, data) => {
+    assertPlayerSender(event);
+    if (!data || typeof data !== 'object' || !data.url || typeof data.url !== 'string') return;
+    const position = Number(data.position) || 0;
+    const duration = Number(data.duration) || 0;
+    const title = typeof data.title === 'string' ? data.title : '';
+    try {
+      if (playerHistory) {
+        playerHistory.upsertProgress({
+          playbackKey: playbackKeyOf(data.url),
+          url: data.url,
+          title,
+          position,
+          duration,
+          lastWatched: Date.now(),
+        });
+      }
+      if (mediaCache) mediaCache.updateProgress(data.url, position);
+    } catch (err) {
+      console.error('[Realm] 播放进度落盘失败:', err.message);
+    }
+  });
+
+  /**
+   * 查询续播位置（D-12）：主进程按 playbackKey（origin+pathname，query 时效
+   * token 不参与）查观看历史，renderer 在 loadedmetadata 后 seek
+   * @param {string} url - 视频 URL
+   * @returns {Promise<{position: number, duration: number, url: string}|null>}
+   */
+  ipcMain.handle('player:resume-position', (event, url) => {
+    assertPlayerSender(event);
+    if (!url || typeof url !== 'string' || !playerHistory) return null;
+    try {
+      const row = playerHistory.getByKey(playbackKeyOf(url));
+      if (!row) return null;
+      return { position: row.last_position, duration: row.duration, url: row.url };
+    } catch (err) {
+      console.error('[Realm] 续播位置查询失败:', err.message);
+      return null;
+    }
+  });
+
+  /**
+   * 抽屉列表数据（D-14/D-15）：缓存库条目 + 观看历史双层合并，按 last_watched
+   * 降序。条目 { title, url, playbackKey, cacheSize, completeness, lastPosition,
+   * lastWatched }——缓存条目含大小，纯历史条目 cacheSize 为 0
+   * @returns {Promise<Array>}
+   */
+  ipcMain.handle('player:drawer:list', (event) => {
+    assertPlayerSender(event);
+    const merged = new Map();
+    try {
+      if (playerHistory) {
+        for (const row of playerHistory.listRecent(200)) {
+          merged.set(row.playback_key, {
+            title: row.title || '',
+            url: row.url,
+            playbackKey: row.playback_key,
+            cacheSize: 0,
+            completeness: null,
+            lastPosition: row.last_position || 0,
+            duration: row.duration || 0,
+            lastWatched: row.last_watched || 0,
+          });
+        }
+      }
+      if (mediaCache) {
+        for (const e of mediaCache.listEntries()) {
+          const key = e.meta.playback_key || '';
+          if (!key) continue;
+          const existing = merged.get(key);
+          const item = existing || {
+            title: '',
+            url: e.meta.m3u8_url || '',
+            playbackKey: key,
+            cacheSize: 0,
+            completeness: null,
+            lastPosition: 0,
+            duration: 0,
+            lastWatched: 0,
+          };
+          item.cacheSize = e.size || 0;
+          // 完整度在录制/转换任务提供分片总数后才能计算（44-02 契约），暂置 null
+          if (!item.title && e.meta.title) item.title = e.meta.title;
+          if (!item.url && e.meta.m3u8_url) item.url = e.meta.m3u8_url;
+          if (e.meta.last_position) item.lastPosition = Math.max(item.lastPosition, e.meta.last_position);
+          item.lastWatched = Math.max(item.lastWatched, e.meta.last_watched || 0);
+          merged.set(key, item);
+        }
+      }
+    } catch (err) {
+      console.error('[Realm] 抽屉列表合并失败:', err.message);
+    }
+    return Array.from(merged.values()).sort((a, b) => b.lastWatched - a.lastWatched);
+  });
+
+  /**
+   * 删除缓存条目（D-16 后端）：按 videoId 整目录删缓存，观看历史记录保留
+   *（删除确认文案「观看历史保留」语义）
+   * @param {string} videoId - 视频目录 ID（16 位 hex）
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  ipcMain.handle('player:cache:delete', (event, videoId) => {
+    assertPlayerSender(event);
+    if (!videoId || typeof videoId !== 'string' || !/^[a-f0-9]{16}$/.test(videoId)) {
+      return { success: false, error: '无效的缓存条目 ID' };
+    }
+    if (!mediaCache) return { success: false, error: '缓存模块未初始化' };
+    // 注意：观看历史（player_history）独立存储，此处不动——D-16「观看历史保留」
+    return mediaCache.deleteEntry(videoId);
   });
 
   /**
@@ -2383,4 +2524,27 @@ function setSearchManager(manager) {
   searchManager = manager;
 }
 
-module.exports = { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager, setRealmServerInfo };
+/**
+ * 注入内部服务器端口与 token（Phase 44 D-02 独立窗口 localhost 化）
+ * main.js 在 realmServer listen 回调中调用（ipc-handlers 无 main.js 作用域）
+ * @param {{port: number, token: string}} info
+ */
+function setRealmServerInfo(info) {
+  if (info && typeof info.port === 'number' && typeof info.token === 'string') {
+    realmServerInfo = { port: info.port, token: info.token };
+  }
+}
+
+/**
+ * 注入媒体缓存与播放器观看历史实例（Phase 44 D-03/D-11）
+ * 由 main.js 在两者初始化完成后调用
+ * @param {Object} opts
+ * @param {Object} opts.mediaCache - MediaCacheManager 实例
+ * @param {Object} opts.playerHistory - player-history-manager 模块
+ */
+function setMediaCaches({ mediaCache: cache, playerHistory: history }) {
+  mediaCache = cache || null;
+  playerHistory = history || null;
+}
+
+module.exports = { registerHandlers, getActiveWebviewContentsId, getGuestContainer, unregisterGuestContainer, setAIManager, setSearchManager, setRealmServerInfo, setMediaCaches };
