@@ -3008,6 +3008,9 @@ app.whenReady().then(async () => {
     segment_missing: '分片文件缺失',
     no_segments: '无可转换的分片',
     invalid_output: '产物路径无效',
+    unsupported_container: '分片格式暂不支持转换（仅支持 MPEG-TS）',
+    encrypted_stream: '分片为加密数据，暂不支持转换',
+    empty_output: '转换产物为空',
   };
 
   /**
