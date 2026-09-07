@@ -164,3 +164,10 @@ None - no external service configuration required.
 ---
 *Phase: 44-player-video-cache-and-local-media-library*
 *Completed: 2026-09-07*
+
+## Self-Check: PASSED
+
+- 全部 4 个修改文件存在于磁盘
+- 3 个提交（143ae64 / 0a079b5 / 2cc1f52）均存在于 git 历史
+- 回归测试：test-media-task-registry 26/26、test-media-remuxer 17/17
+- main.js 零改动确认（git diff --stat main.js 为空）

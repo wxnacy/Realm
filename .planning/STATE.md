@@ -5,16 +5,16 @@ milestone_name: AI 网络搜索功能
 current_phase: 44
 current_phase_name: 播放器视频缓存与本地媒体库
 status: executing
-stopped_at: Completed 44-09-PLAN.md (G-44-2/2b/4a gap closure)
-last_updated: "2026-09-07T06:18:47.777Z"
+stopped_at: Completed 44-10-PLAN.md (G-44-5 终态应用内 toast)
+last_updated: "2026-09-07T06:51:51.132Z"
 last_activity: 2026-09-07
 last_activity_desc: Phase 44 execution started
-state_head: 0216cc93da9db9efc83ebe26927cdc261aef0a42
+state_head: 2cc1f5264b69310290ac31285e1bbde2f4038e9a
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 29
-  completed_plans: 24
+  completed_plans: 26
   percent: 80
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 44 (播放器视频缓存与本地媒体库) — EXECUTING
-Plan: 2 of 13
+Plan: 3 of 13
 Status: Ready to execute
 Last activity: 2026-09-07 — Phase 44 execution started
 
@@ -78,6 +78,7 @@ Progress: [████████░░] 80%
 | Phase 44 P07 | 5min | 2 tasks | 3 files |
 | Phase 44 P08 | 8 | 2 tasks | 3 files |
 | Phase 44 P09 | 2min | 2 tasks | 4 files |
+| Phase 44 P10 | 4min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -122,6 +123,7 @@ Recent decisions affecting current work:
 - [Phase 44]: cancel 对 running record 走 recordEngine.stopRecord（引擎 completeTask 后无需再 cancelTask，not_found 且仍 running 才兜底）——任务页停止语义 = 红点停止 = 停止并保存
 - [Phase 44]: convert 取消 = 协作式信号（convertCancelTokens → shouldCancel 每分片检查），reason='cancelled' 拦截在文案映射前落 cancelled 而非 failed
 - [Phase 44]: convertCancelTokens 令牌 .finally 注销（三终态路径收敛防 Map 泄漏）；终态竞态窗口接受
+- [Phase 44]: G-44-5 toast 落主窗口 renderer，播放器不重复建设 toast 基建；.toast 基类 pointer-events:none，可点击变体必须显式恢复 pointer-events:auto
 
 ### Roadmap Evolution
 
@@ -150,6 +152,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-07T06:18:47.613Z
-Stopped at: Completed 44-09-PLAN.md (G-44-2/2b/4a gap closure)
+Last session: 2026-09-07T06:51:32.211Z
+Stopped at: Completed 44-10-PLAN.md (G-44-5 终态应用内 toast)
 Resume file: None
