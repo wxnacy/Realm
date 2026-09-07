@@ -73,6 +73,68 @@ function remuxError(reason, detail) {
   return err;
 }
 
+/** 嗅探读取上限：首分片头部 64KB 足以判别容器格式（fs.readSync 定长读取，无循环拼接无内存放大——T-44-G11-01） */
+const SNIFF_READ_BYTES = 64 * 1024;
+
+/** 熵判定采样字节数（AES-128 密文字节分布近均匀，4KB 采样足以稳定区分） */
+const ENTROPY_SAMPLE_BYTES = 4096;
+
+/** 高熵阈值：256 值域中不同字节值数 ≥ 240 视为近满覆盖（密文特征；明文媒体码流远低于此） */
+const ENTROPY_DISTINCT_THRESHOLD = 240;
+
+/**
+ * 首分片容器格式嗅探（G-44-4b）：仅判别首分片容器格式；录制/缓存同一清单的
+ * 分片格式齐一，嗅探首片即可代表全流。
+ *
+ * 判定序（宽松优先避免误杀）：
+ * ① 首字节 0x47 → MPEG-TS，放行（不做 188 步进强校验——首包对齐存在变体）；
+ * ② 缓冲区内可检索到 fMP4 box 特征 ASCII（ftyp/styp/moof/moov/sidx 任一）
+ *    → unsupported_container（HLS+fMP4 分片，mux.js Transmuxer 不支持）；
+ * ③ 前 4KB 采样不同字节值 ≥ 240 → encrypted_stream（AES-128 密文高熵特征）；
+ * ④ 其余 → unsupported_container（未知格式，仅支持 MPEG-TS）。
+ * @param {string} filePath - 首分片文件绝对路径
+ * @returns {Error|null} null = MPEG-TS 放行；否则返回带 reason 的 remuxError
+ */
+function sniffContainerFormat(filePath) {
+  let fd;
+  let buf;
+  try {
+    fd = fs.openSync(filePath, 'r');
+    buf = Buffer.alloc(SNIFF_READ_BYTES);
+    const bytesRead = fs.readSync(fd, buf, 0, SNIFF_READ_BYTES, 0);
+    buf = buf.subarray(0, bytesRead);
+  } catch (err) {
+    return remuxError('unsupported_container', `分片读取失败: ${err.message}`);
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch { /* 关闭失败忽略 */ }
+    }
+  }
+  // ① MPEG-TS 同步字节：放行（宽松判定，保持既有 TS 路径零回归）
+  if (buf.length > 0 && buf[0] === 0x47) return null;
+  // ② fMP4 box 特征 ASCII：HLS+fMP4（CMF）分片以 box 开头、无同步字节
+  for (const tag of ['ftyp', 'styp', 'moof', 'moov', 'sidx']) {
+    if (buf.indexOf(Buffer.from(tag, 'ascii')) !== -1) {
+      return remuxError('unsupported_container', 'fMP4 分片暂不支持转封装（仅支持 MPEG-TS）');
+    }
+  }
+  // ③ 熵判定：不同字节值近满覆盖 = 高熵密文（如 AES-128），转封装无解密链路
+  const sample = buf.subarray(0, Math.min(buf.length, ENTROPY_SAMPLE_BYTES));
+  const seen = new Uint8Array(256);
+  let distinct = 0;
+  for (const b of sample) {
+    if (!seen[b]) {
+      seen[b] = 1;
+      distinct++;
+    }
+  }
+  if (distinct >= ENTROPY_DISTINCT_THRESHOLD) {
+    return remuxError('encrypted_stream', '分片疑似加密数据（如 AES-128），暂不支持转封装');
+  }
+  // ④ 未知格式：非 TS 同步字节且无 box 特征、非高熵，一律拒转
+  return remuxError('unsupported_container', '未知分片格式，仅支持 MPEG-TS');
+}
+
 /**
  * TS 分片序列 → fMP4 转封装（D-22/D-24 convert 任务执行体）
  *
@@ -84,6 +146,10 @@ function remuxError(reason, detail) {
  *
  * 含 EXT-X-DISCONTINUITY 的录制索引直接拒转（Pitfall 5：时间轴跳变产物
  * 不可用；D-17 允许隐藏转换按钮 + 任务页失败文案兜底），不尝试。
+ *
+ * G-44-4b 首片格式嗅探：首个分片 push 前经 sniffContainerFormat 判别容器
+ * 格式（首字节 0x47 放行；fMP4 box 特征 / 高熵密文 / 未知格式均拒转），
+ * 不可转容器在进入 mux.js 前显式失败，不再静默产出无效产物。
  * @param {Object} input - 转封装参数
  * @param {string[]} input.segmentPaths - TS 分片绝对路径列表（**按播放顺序**）
  * @param {string} input.outputPath - 产物 mp4 绝对路径
@@ -93,7 +159,8 @@ function remuxError(reason, detail) {
  *   即中止（reason='cancelled'，半成品清理同失败路径）
  * @returns {Promise<{ outputPath: string, segments: number }>} 完成时 resolve
  *   失败时 reject Error（err.reason 机器可读：discontinuity/no_segments/
- *   invalid_output/segment_missing/transmux_failed/write_failed/cancelled）
+ *   invalid_output/segment_missing/transmux_failed/write_failed/cancelled/
+ *   unsupported_container/encrypted_stream/empty_output）
  */
 function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity, shouldCancel }) {
   return new Promise((resolve, reject) => {
@@ -159,7 +226,8 @@ function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity, 
     // 顺序 push 循环：每分片 readFileSync + push + flush（同步 IO 逐分片，
     // 单分片大小受录制/缓存分片固有上限约束）
     try {
-      for (const tsFile of segmentPaths) {
+      for (let i = 0; i < segmentPaths.length; i++) {
+        const tsFile = segmentPaths[i];
         if (settled) return;
         // CR-04 协作式取消检查点：每分片迭代开始前检查（粒度 = 单分片处理时间——
         // 主进程事件循环内同步循环无法被异步打断，此为最小可打断单元，可接受）。
@@ -167,6 +235,16 @@ function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity, 
         if (typeof shouldCancel === 'function' && shouldCancel()) {
           fail(remuxError('cancelled', '用户取消转换'));
           return;
+        }
+        // G-44-4b 首片格式嗅探检查点：置于取消检查之后、push 之前——不可转
+        // 容器（fMP4/密文）在进入 mux.js 前显式 reject，错误对象直接携带
+        // reason/detail，fail 复用既有清理
+        if (i === 0) {
+          const sniffErr = sniffContainerFormat(tsFile);
+          if (sniffErr) {
+            fail(sniffErr);
+            return;
+          }
         }
         transmuxer.push(new Uint8Array(fs.readFileSync(tsFile)));
         transmuxer.flush();
@@ -184,6 +262,18 @@ function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity, 
 
     stream.end(() => {
       if (settled) return;
+      // G-44-4b 产物终检：写盘收尾后 statSync 校验产物字节数，无有效媒体数据
+      // 的空产物按 empty_output 失败处理并清理（try/catch 异常按空产物处理）
+      let outSize = 0;
+      try {
+        outSize = fs.statSync(outputPath).size;
+      } catch { /* 产物不存在按空产物处理 */ }
+      if (outSize === 0) {
+        settled = true;
+        try { fs.unlinkSync(outputPath); } catch { /* 清理失败忽略 */ }
+        reject(remuxError('empty_output', '转封装产物为空（无有效媒体数据）'));
+        return;
+      }
       settled = true;
       resolve({ outputPath, segments: processed });
     });
