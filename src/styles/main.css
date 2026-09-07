@@ -9217,6 +9217,23 @@ textarea::placeholder {
   gap: 8px;
 }
 
+/* 任务页操作失败反馈条（G-44-9）：红系错误态，页头下留白；
+   初始隐藏走 CSS 类（realm:// 页面约定），JS 经 CSSOM 切显隐 */
+.task-feedback {
+  margin-top: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--danger-color);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid var(--danger-color);
+  border-radius: 6px;
+  word-break: break-all;
+}
+
+.task-feedback.hidden {
+  display: none;
+}
+
 /* ==================== 主窗口媒体任务角标（Phase 44 D-26，UI-SPEC Component #9） ==================== */
 
 .media-task-btn {

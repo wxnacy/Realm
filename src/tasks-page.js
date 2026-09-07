@@ -14,6 +14,9 @@ let realmToken = null;
 /** @type {number|null} 轮询定时器 */
 let pollTimer = null;
 
+/** @type {number|null} 反馈条自动消失定时器（新操作覆盖重挂） */
+let feedbackTimer = null;
+
 // ==================== 主题同步 ====================
 
 /**
@@ -298,12 +301,33 @@ async function apiAction(path, body = {}) {
       return true;
     }
     console.error(`[Tasks Page] API 操作失败: ${path}`, data.error);
+    showTaskFeedback(data.error || '操作失败，请重试');
     await loadTasks();
     return false;
   } catch (error) {
     console.error(`[Tasks Page] API 请求失败: ${path}`, error);
+    showTaskFeedback('请求失败，请重试');
     return false;
   }
+}
+
+/**
+ * 展示任务页操作失败反馈条（G-44-9：不做无声失败）
+ * textContent 写入（零 HTML 解析，防后端 error 字符串注入）；
+ * 移除 hidden 显示，4s 自动恢复隐藏；新操作覆盖旧反馈——定时器先清
+ * 再重挂，文案立即被新内容替换
+ * @param {string} message - 反馈文案（后端 error 字段或兜底文案）
+ */
+function showTaskFeedback(message) {
+  const el = document.getElementById('taskFeedback');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.remove('hidden');
+  if (feedbackTimer) clearTimeout(feedbackTimer);
+  feedbackTimer = setTimeout(() => {
+    el.classList.add('hidden');
+    feedbackTimer = null;
+  }, 4000);
 }
 
 // ==================== 工具函数 ====================

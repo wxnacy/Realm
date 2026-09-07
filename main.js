@@ -2283,7 +2283,7 @@ app.whenReady().then(async () => {
         }
         const r = await startConvertFromRecordTask(task);
         if (!r.ok) {
-          sendJson(res, 400, { success: false, error: r.reason === 'cancelled' ? '已取消转换' : (r.reason || '续转失败') });
+          sendJson(res, 400, { success: false, error: r.reason === 'cancelled' ? '已取消转换' : (r.reason === 'no_segments' ? '录制中崩溃的任务暂无分片索引，暂不支持续转' : (r.reason || '续转失败')) });
           return;
         }
         sendJson(res, 200, { success: true, taskId: r.taskId });
