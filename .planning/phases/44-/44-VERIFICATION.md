@@ -1,8 +1,8 @@
 ---
 phase: 44-player-video-cache-and-local-media-library
-verified: 2026-09-06T14:56:06Z
+verified: 2026-09-07T07:43:36Z
 status: human_needed
-score: 20/21 must-haves verified
+score: 14/16 must-haves verified
 covered_files:
   - .planning/phases/44-/44-01-PLAN.md
   - .planning/phases/44-/44-01-SUMMARY.md
@@ -20,233 +20,236 @@ covered_files:
   - .planning/phases/44-/44-07-SUMMARY.md
   - .planning/phases/44-/44-08-PLAN.md
   - .planning/phases/44-/44-08-SUMMARY.md
+  - .planning/phases/44-/44-09-PLAN.md
+  - .planning/phases/44-/44-09-SUMMARY.md
+  - .planning/phases/44-/44-10-PLAN.md
+  - .planning/phases/44-/44-10-SUMMARY.md
+  - .planning/phases/44-/44-11-PLAN.md
+  - .planning/phases/44-/44-11-SUMMARY.md
+  - .planning/phases/44-/44-12-PLAN.md
+  - .planning/phases/44-/44-12-SUMMARY.md
+  - .planning/phases/44-/44-13-PLAN.md
+  - .planning/phases/44-/44-13-SUMMARY.md
   - .planning/phases/44-/44-CONTEXT.md
+  - .planning/phases/44-/44-UAT.md
   - .planning/phases/44-/44-REVIEW.md
-  - .planning/STATE.md
-  - docs/product/navigation-entry-points.md
-  - ipc-handlers.js
+  - .planning/REQUIREMENTS.md
   - main.js
-  - media-cache-manager.js
-  - media-m3u8-parser.js
-  - media-record-engine.js
+  - ipc-handlers.js
   - media-remuxer.js
+  - media-cache-manager.js
   - media-task-manager.js
-  - package.json
+  - media-record-engine.js
+  - media-m3u8-parser.js
   - player-history-manager.js
-  - src/index.html
-  - src/player.css
-  - src/player.html
   - src/player.js
+  - src/player.html
+  - src/player.css
   - src/preload.js
   - src/renderer.js
-  - src/settings-page.js
-  - src/settings.html
+  - src/index.html
   - src/styles/main.css
-  - src/tasks-page.js
   - src/tasks.html
-  - tests/test-media-cache.js
+  - src/tasks-page.js
+  - docs/product/navigation-entry-points.md
   - tests/test-media-remuxer.js
+  - tests/test-media-cache.js
   - tests/test-media-task-registry.js
   - tests/test-m3u8-playlist-parser.js
+  - tests/test-player-history.js
   - tests/test-unified-navigation.js
-covered_digest: "v1:sha256:1e943ab3a48b4b34c439494030e9047d0687e4e4e74679e50f99727fb3ef98f5"
-behavior_unverified: 1
+covered_digest: "v1:sha256:7c512d347ed7bf14b11009831f27ee958403adeb6e5e4e0a22cf0c4d4b9cce16"
+behavior_unverified: 2
 overrides_applied: 0
 re_verification:
-  previous_status: gaps_found
-  previous_score: 15/21
+  previous_status: human_needed
+  previous_score: 20/21
   gaps_closed:
-    - "重开已看视频秒开/不重复回源（D-05 核心目标）— CR-01 lookup 先于 fetch"
-    - "按视频粒度 FIFO 淘汰在生产路径生效（D-06/D-07）— CR-02 写路径水位淘汰 + setCapacityBytes"
-    - "断网/源站失效时已缓存分片照播（D-10）— CR-01 同根因，命中分支先行修复后成立"
-    - "崩溃/失败中断的录制可「已落盘部分续转」（D-18）— CR-03 RECORD_ROOT 补算（failed 路径闭合；硬崩溃无 meta.json 边界仍受 WR-C 限制，见报告）"
-    - "任务页「停止」对运行中录制生效 — CR-04 cancel 桥接 recordEngine.stopRecord"
-    - "缓存 tee 路径源流错误健壮性 — CR-05 store()/透传分支源流 error 监听"
+    - "G-44-2：webview tab 播放器直连拉流（proxiedUrl 守卫仅 isIndependentMode，D-01 用户锁定行为落地）— 44-09/5716f7a"
+    - "G-44-2b：webview 空索引 meta 副作用随直连消失，cacheEnabled 登记门槛护栏留存（main.js:399）— 44-09"
+    - "G-44-4a：录制中按钮停止方块图标（icon-stop + updateRecordUi 双图标切换）— 44-09/0216cc9"
+    - "G-44-4b：不可转格式（fMP4/AES-128 密文）前置嗅探显式拒转 + 产物字节数终检（empty_output）+ 任务页三条失败文案 — 44-11/b3bd216,32ff0bd,c450960"
+    - "G-44-5：convert/record 终态应用内 toast（preload onMediaTaskChanged → renderer initMediaTaskToast → 点击 showInFolder 定位），系统通知链路保留 — 44-10/143ae64,0a079b5"
+    - "G-44-7：主窗口任务角标监听命名空间修复（realmAPI → mediaAPI，监听真正注册）— 44-13/9858a1a"
+    - "G-44-8：抽屉「同时删除条目（含观看历史）」checkbox + playerHistory.deleteByKey 参数化联动 + 「最近观看」时钟图标 — 44-12/0f934f5,b1919d8,44a24ef"
+    - "G-44-9：任务页操作失败可见反馈条（showTaskFeedback，textContent + 4s 覆盖重挂）+ no_segments 解释性中文 — 44-13/25d5a5d"
   gaps_remaining: []
   regressions: []
 behavior_unverified_items:
-  - truth: "关窗/应用退出两级确认（D-19）按预期弹一次并记住默认"
-    test: "dev/打包环境：有活跃录制时关播放器窗口（未记忆默认时）观察确认框与 checkbox 记忆；再走一次 Cmd+Q 取消退出后关播放器窗口，确认录制确认框仍弹出"
+  - truth: "webview tab 直连下 m3u8 直接播放可正常识别为多媒体（端到端）——CR-06 表态：代码结构 VERIFIED，端到端可播性依赖真实源站"
+    test: "UAT 第 2 项收紧版：在「不发 Access-Control-Allow-Origin + 校验 Referer + 需 Cookie」的真实源站上，webview tab 播放器直连播放 m3u8，观察能否识别为多媒体并起播"
+    expected: "能直连播放且行为与 Phase 43 一致；若失败，按 CR-06 三选一（webRequest 层传输补偿 / 回退 /proxy / 修正注释）作为新 gap 闭环"
+    why_human: "hls.js XHR 的 CORS/Referer/Cookie 行为只有真实源站可证；44-REVIEW.md CR-06 已论证新增注释的技术依据（Cookie 天然携带/像网页自身播放）与浏览器网络栈实际行为矛盾，直连对受保护源站可能不可用——不能只测开放 CORS 的源"
+  - truth: "关窗/应用退出两级确认（D-19）按预期弹一次并记住默认（前轮 #12 保持，WR-05 提示取消退出后确认可能被静默跳过）"
+    test: "dev/打包环境：有活跃录制时关播放器窗口观察确认框与 checkbox 记忆；Cmd+Q 取消退出后再关播放器窗口，确认录制确认框仍弹出"
     expected: "窗口级确认弹一次、写 settings.recordCloseAction；取消退出后确认不被永久跳过"
-    why_human: "对话框/退出流程交互无自动化测试；且 WR-05（appQuitting 置位后永不复位，ipc-handlers.js:40-43）提示取消退出后确认可能被静默跳过，需真机判定影响面"
+    why_human: "对话框/退出流程交互无自动化测试；WR-05（appQuitting 置位后永不复位）影响面需真机判定"
 human_verification:
-  - test: "真机重开已看视频秒开体感（CR-01 修复后；前次第 1 项，未被修复证伪）"
-    expected: "重开同一视频已看部分立即起播、网络面板/日志无分片回源请求；接着上次进度继续"
-    why_human: "秒开是体感指标，依赖真实网络与磁盘时序"
-  - test: "webview tab 模式播放回归（D-01；前次第 2 项，未被修复证伪）"
-    expected: "webview tab 内播放行为与 Phase 43 完全一致，无缓存落盘、无 mode=independent 行为"
-    why_human: "需要真机双模式对比"
-  - test: "断网/源站失效降级提示条（CR-01 修复后；前次第 3 项，修复后该测试才有意义）"
-    expected: "播放中断网：已缓存分片继续播、提示条「部分分片加载失败，已缓存部分可继续观看」约 4s 消失、恢复网络后播放续上"
-    why_human: "依赖真实网络故障注入"
-  - test: "直播录制全链路（真实直播源；前次第 4 项，CR-04 修复后停止语义才正确）"
-    expected: "录制按钮→红点闪烁→hover tooltip「已录 mm:ss · xxxMB」→停止→任务页可见→关窗/退出确认→产物 meta.json 正确"
-    why_human: "依赖真实直播源的滑动窗口/防盗链行为"
-  - test: "系统通知与 Finder 定位（打包版优先，dev 环境 Notification 可能静默；前次第 5 项）"
-    expected: "convert 完成/失败通知弹出，点击定位产物"
-    why_human: "系统通知行为 make install 后真机才能验证"
-  - test: "mux.js 真机转封装产物可播性（前次第 6 项）"
-    expected: "录制→停止→自动弹框→转换→产物在 QuickTime/IINA 播放，时长/进度/音画正常"
-    why_human: "mux.js Node 侧长时转封装真机首跑，单测无法证明产物可播"
-  - test: "任务页三区渲染/空态/角标显隐/设置分区即改即存（前次第 7 项）"
-    expected: "三区与状态文案符合 UI-SPEC；角标 count>0 显示归零消失、点击跳 realm://tasks；改缓存目录/容量即时生效（改小容量触发淘汰）"
+  - test: "UAT 第 2 项（CR-06 收紧版）：webview tab 内用「无 ACAO + Referer 校验 + Cookie 门控」真实源站直连播放 m3u8"
+    expected: "直连播放可识别为多媒体且与 Phase 43 行为一致；若不可用则按 CR-06 方案①/②/③ 建新 gap"
+    why_human: "CORS/Referer/Cookie 端到端行为只有真实源站可证（CR-06 依据见 44-REVIEW.md）"
+  - test: "录制进行中观察工具栏按钮（UAT 4.1）：红点闪烁之外按钮图标可辨识"
+    expected: "录制中显示停止方块图标、停止后恢复描边圆点、title 切换「停止录制/开始录制」"
+    why_human: "图标视觉语义需真机目检"
+  - test: "直播录制/转换全链路（UAT 4.2/6，真实源）：B 站直播（fMP4 流）与正常 TS 直播源各录一段"
+    expected: "fMP4 流停止录制后任务页显示「MP4 转换失败：分片格式暂不支持转换（仅支持 MPEG-TS）」且无 0 字节产物；正常 TS 源转换产物在播放器播放、时长/音画正常"
+    why_human: "真实分片流格式无法在单测环境复现；G-44-4b 的端到端验收"
+  - test: "终态 toast（UAT 5）：发起转换或录制→停止，观察主窗口 toast"
+    expected: "「MP4 转换完成：{文件名}」/「录制已保存」toast 出现约 5s，点击在 Finder 定位产物；失败任务弹 error toast"
+    why_human: "toast 视觉呈现与点击链路需运行中的应用验证"
+  - test: "任务角标（UAT 7）：录制进行中观察主窗口工具栏"
+    expected: "角标出现（数字=running 数）、停止后归零消失、点击跳 realm://tasks"
+    why_human: "G-44-7 修复后的真机显隐行为"
+  - test: "抽屉删除两路径（UAT 8）：默认不勾删除 → 条目变「未缓存」；勾选「同时删除条目」删除 → 条目消失且重开抽屉不再出现"
+    expected: "文案随勾选联动、确认框居中、meta 行时钟图标 hover 显示「最近观看 时间」"
     why_human: "视觉与交互规格"
-  - test: "抽屉增删/续播/转换按钮 gating（D-17；前次第 8 项）"
-    expected: "抽屉条目展示、删除确认框居中、完整度 100% 或中断条目才显「转换为 MP4」"
-    why_human: "视觉与交互规格"
-  - test: "崩溃中断任务续转实况（WR-C 派生新增项——决定 D-18 硬崩溃承诺是否需 44-09）"
-    expected: "可控模拟：录制进行中 kill 主进程 → 重启 → 任务页该任务显示「已中断」→ 点「已落盘部分续转」：因录制中从不写 meta.json（writeMeta 仅 stop/fail/pl.ended/异常兜底四路径），RECORD_ROOT/<taskId>/ 无 meta.json，readRecordTaskSegments 短路返回 null → 仍 400 no_segments（.ts 分片滞留目录）。请判定：此项属可接受边界（记 REVIEW.md 债务，建议录制中周期性写轻量 meta 或按 <seq>.ts 文件名合成索引）还是必须本阶段闭合"
-    why_human: "需要真机 kill 模拟与产品决策；代码路径已逐行确认（media-record-engine.js writeMeta 仅 :225/:237/:246/:270，无周期写；main.js:3032 metaPath 缺失 return null）"
+  - test: "任务页失败反馈（UAT 9）：对无 meta.json 的中断任务点「已落盘部分续转」等失败操作"
+    expected: "反馈条显示「录制中崩溃的任务暂无分片索引，暂不支持续转」约 4s 消失；停止/定位失败同样有可见反馈"
+    why_human: "显隐时机与文案观感需真机操作失败场景"
+  - test: "关窗/应用退出两级确认（D-19，前轮 #12 保持；见 behavior_unverified_items 第 2 项）"
+    expected: "窗口级确认弹一次并记忆默认；取消退出后确认不被永久跳过（WR-05）"
+    why_human: "退出流程交互无自动化测试"
 ---
 
-# Phase 44: 播放器视频缓存与本地媒体库 Verification Report（gap-closure 后复验）
+# Phase 44: 播放器视频缓存与本地媒体库 Verification Report（第二轮 gap-closure 复验，44-09~44-13）
 
 **Phase Goal:** 独立播放器的 HLS 本地媒体库能力（webview tab 模式保持现状不做缓存）：① 独立窗口收口 /proxy；② 分片级磁盘缓存 + FIFO 淘汰 + 设置页配置；③ 观看历史精确续播；④ 统一媒体任务中心（直播录制 + mux.js 转封装）；⑤ realm://tasks 任务页 + 角标。
-**Verified:** 2026-09-06T14:56:06Z
-**Status:** human_needed（代码层 0 失败 gap；20/21 代码级核实，1 项 PRESENT_BEHAVIOR_UNVERIFIED；8+1 项 human-only 复测待 UAT）
-**Re-verification:** Yes — gap-closure 后复验（前次 gaps_found 15/21，CR-01~CR-05 五项 Critical 经 44-06/07/08 修复，commit 09f380d..1a7bf3f）
+**Verified:** 2026-09-07T07:43:36Z
+**Status:** human_needed（代码层 0 失败 gap；14/16 核实，2 项 PRESENT_BEHAVIOR_UNVERIFIED；8 项 human-only 复测待 UAT）
+**Re-verification:** Yes — 第二轮 gap-closure 后复验（前轮 human_needed 20/21 + 8 项 UAT gap；本轮 44-09~44-13 五计划闭合 G-44-2/2b/4a/4b/5/7/8/9，commit 5716f7a..364a58c）
 
 ## Goal Achievement
 
-**复验结论：前次 5 条 failed truth 的根因缺陷（CR-01~CR-05）经代码逐行核实**全部结构性闭合**——5 条真值全部由 ✗ FAILED 转为 ✓ VERIFIED（代码层），无回归（另 16 条既有 passing truth 全部保持）。单测实跑全绿：test-media-cache 20/20、test-media-remuxer 17/17、test-media-task-registry 26/26、test-m3u8-playlist-parser 15/15、test-unified-navigation 32/32（五个套件本轮全部独立实跑确认，与 SUMMARY 声称一致）。44-REVIEW.md 复评（f7d182e）0 Critical / 3 Warning / 2 Info——其中 2 条 Warning（WR-B 死代码、WR-C 硬崩溃边界）与 1 条 Info（IN-01 形参名）经核实不影响任一 must-have 真值成立（WR-C 对 truth #15 构成部分限制，见下）。**
+**复验结论：8 个 UAT gap 的修复经代码逐行核实全部结构性闭合**——本轮核心 truths 全部 ✓（除 2 项端到端行为依赖真实源站/真机，归 PRESENT_BEHAVIOR_UNVERIFIED 并入 human 列表）。实跑全绿：test-media-remuxer 23/23（含嗅探契约 6 用例）、test-media-cache 20/20、test-media-task-registry 26/26、test-m3u8-playlist-parser 15/15、test-player-history 7/7（新建）、test-unified-navigation 32/32、npm run test:memory 56/56；8 个改动源文件 node --check 全过。前轮 21 条 truths 受本轮触碰的链路（main.js 缓存命中优先/cancel 桥、player.js proxiedUrl、remuxer、tasks 页、preload/renderer）逐一回归核实**无回归**；未触碰链路保持前轮结论。44-REVIEW.md 增量复评（1 Critical / 1 Warning / 4 Info）中 CR-06/WR-07 表态见下。
 
 ### Observable Truths
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | ① 独立播放窗口收口走 /proxy（localhost 加载 player 页 + token + mode=independent，标题栏保留） | ✓ VERIFIED | ipc-handlers.js:2078 `playerWindow.loadURL('http://localhost:…/player/?…')`；player.js:318 `isIndependentMode`；gap-closure 未触碰（回归确认）。真实窗口加载走 UAT |
-| 2 | ② 分片按视频目录落盘（segments + meta.json）并读盘命中 | ✓ VERIFIED | media-cache-manager.js storeBuffer/lookup/_safePath；tests 20/20。生产命中顺序缺陷已修复（见 #3） |
-| 3 | 重开已看部分秒开、不重复回源（D-05 核心） | ✓ VERIFIED（CR-01 闭合） | **previously FAILED → 现 VERIFIED**：main.js:369 `mediaCache.lookup(target, vidParam)` 先于 :388 `ses.fetch(target)`；命中 `writeHead(200, Content-Length=hit.size, no-store)` + `end(hit.data)` + `return`（:370-380）——**不发起任何源站请求**；key 统一请求 URL target，全文无 `lookup(finalUrl`/`store(finalUrl` 残留；m3u8-likely 与带 Range 请求被命中分支显式排除（:367-368）。真机秒开体感留 human 第 1 项 |
-| 4 | 按视频粒度 FIFO 淘汰生产生效（D-06/D-07） | ✓ VERIFIED（CR-02 闭合） | **previously FAILED → 现 VERIFIED**：storeBuffer 落盘登记成功（_writeMeta 后，media-cache-manager.js:436）即累计 `_trackedTotal` 水位（:444-447，首写惰性取磁盘权威总量防双计），越 capacityBytes 才 `evictIfNeeded(new Set([videoId]))` 一轮（:449-458，exempt 正在写目录 + isVideoActive 活跃豁免保留）；`setCapacityBytes()`（:513-523）校验赋值 + 立即淘汰 + 水位同步；main.js:1378 cacheMaxGB 改走 setCapacityBytes，无字段直写残留。行为单测覆盖：写路径自动淘汰（FIFO 取最旧，test :170）、setCapacityBytes 缩小触发（:214）、自豁免（:232）。注意 WR-A：单视频持续超限时每片写盘触发一次全库扫描无退避（性能 Warning，见 Anti-Patterns） |
-| 5 | 设置页可配缓存目录/容量并生效 | ✓ VERIFIED | buildMediaCacheOptions + /api/settings/choose-cache-dir；settings-page.js 视频缓存分区；cacheMaxGB 即改即存经 setCapacityBytes（main.js:1375-1378，CR-02 桥接后改小容量即触发一轮淘汰） |
-| 6 | ③ 观看历史独立记录 + 续播 key=origin+pathname（query 不参与） | ✓ VERIFIED | player-history-manager.js（player_history 表 playback_key 主键 upsert，:46/:74-78）；D-12 断言；player.js:708-722 续播 seek |
-| 7 | 进度 5s/暂停/关窗三路落盘（D-13） | ✓ VERIFIED | player.js setInterval 5000 + pause + player:request-final-progress（ipc-handlers.js:2110-2117） |
-| 8 | 断网/源站失效已缓存分片照播 + 降级提示条（D-10） | ✓ VERIFIED（CR-01 同根因闭合） | **previously FAILED → 现 VERIFIED（结构层）**：命中分支在 fetch 之前且命中即 return——已缓存分片**永不触达源站**，源站失效/断网不影响其响应（代码控制流直接保证，非竞态）；未缓存分片 fetch throw 走 502 catch（main.js:465-471），player.js 降级提示条与 startLoad 重试链路可达且 WR-06 已修复（FRAG_LOADED 复位 hlsRetryCount，player.js:212-213——瞬时错误恢复后降级重试不永久失效）。端到端断网故障注入留 human 第 3 项 |
-| 9 | ④ 任务注册表状态机/持久化/崩溃恢复（D-25/D-18） | ✓ VERIFIED | media-task-manager.js；tests/test-media-task-registry.js 26/26；persist media-tasks.json + restore（unmodified by closures，回归绿） |
-| 10 | 直播录制引擎（并发上限/同 URL 去重/失败重试/独立目录，D-18/D-21/D-23） | ✓ VERIFIED | media-record-engine.js（纯 Node、首轮基线、seq 去重、重试停录、recordRoot 独立，main.js:2994 recordRoot: RECORD_ROOT）。真实直播源走 UAT |
-| 11 | 录制 UI（按钮/红点/抽屉面板，D-14~D-16/D-21） | ✓ VERIFIED | player.html/css 红点/抽屉；player:record/start\|stop\|status\|list 四通道（ipc-handlers.js:2343/2382/2400/2411）。视觉走 UAT |
-| 12 | 关窗/应用退出两级确认（D-19） | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | 接线在位（ipc-handlers.js:2119-2150 recordCloseAction 记忆；main.js:4329 hasActiveTasks 退出确认）；WR-05（appQuitting 置位后永不复位，ipc-handlers.js:40-43——取消的 Cmd+Q 后窗口级确认可能被永久跳过）仍在，gap-closure 明示范围外 → 见 behavior_unverified_items + human 复测 |
-| 13 | mux.js TS→fMP4 转封装后台任务（D-04/D-24） | ✓ VERIFIED | mux.js@^6.3.0（package.json:52，零 ffmpeg）；media-remuxer.js；tests/test-media-remuxer.js 17/17（含 shouldCancel 两用例）；main.js startConvertTask + lastMediaSaveDir 记忆 |
-| 14 | D-22 录制停止自动接力 convert | ✓ VERIFIED | main.js:3235 onTaskCompleted → :3237 startConvertFromRecordTask（:3193）；取消弹框不建任务、分片保留 |
-| 15 | 崩溃/失败中断录制「已落盘部分续转」（D-18 崩溃不白录） | ✓ VERIFIED（CR-03 闭合于 gated 范围；**WR-C 限制硬崩溃子路径，见下方说明**） | **previously FAILED → 现 VERIFIED（CR-03 映射断裂修复）**：readRecordTaskSegments（main.js:3018-3045）outputPath 缺失时按 `path.join(RECORD_ROOT, task.id)` 补算（:3026-3030），task.id 过 `/^[0-9a-fA-F-]{8,64}$/` uuid 白名单防穿越（:3028）；RECORD_ROOT 常量单一来源（main.js:2979，字面全文件唯一，createRecordEngine.recordRoot :2994 同源）。**闭合范围**：failed（网络自动停录已写 meta.json）+「写完 meta 未 persist」竞态窗口两类中断任务现可读盘续转（meta.json 存在即不再恒 400）。**残余（WR-C，Warning 非 Critical）**：录制中从不周期写 meta.json（writeMeta 仅 stop/fail/pl.ended/异常兜底：media-record-engine.js:225/:237/:246/:270），硬崩溃（OS kill/断电/主进程崩）中断任务的 RECORD_ROOT/<taskId>/ 无 meta.json → readRecordTaskSegments :3032 短路 return null → 续转仍 400——「崩溃不白录」对真硬崩溃仍受限；44-07 计划明示「硬崩溃未写 meta.json 属既有边界不扩展」，复评定为 Warning，留 human 第 9 项判定是否需 44-09（周期写轻量 meta 或按 `<seq>.ts` 数字文件名合成索引） |
-| 16 | ⑤ realm://tasks 任务页三区/进度/产物定位（D-26） | ✓ VERIFIED | src/tasks.html + tasks-page.js；main.js /tasks 路由 + /api/tasks/list\|show-in-folder（token 鉴权，:2237-2256）+ media-task:changed/count-changed 广播 |
-| 17 | 任务页「停止」对运行中录制生效 | ✓ VERIFIED（CR-04 闭合） | **previously FAILED → 现 VERIFIED**：/api/tasks/cancel（main.js:2168-2234）按类型分派——running record → `recordEngine.stopRecord(taskId)`（:2192，与红点停止同原语：停轮询 + writeMeta + completeTask 落 completed + D-22 接力；not_found 且回读仍 running 才 cancelTask 兜底 :2200-2207，已终态 200 already-stopped）；running convert → convertCancelTokens 协作式信号（:2219）；不存在 404（:2180-2183）、非 running 400（cancelTask 抛非法流转）。convertToMp4 shouldCancel 每分片检查点（media-remuxer.js:167-168）+ 令牌 set/.finally delete（main.js:3101/:3151）+ .catch cancelled → cancelTask（:3134）。单测覆盖取消路径（remuxer 17/17）。**WR-B（Warning）**：非 running 分支 :2186-2187 的 200 响应是死代码（cancelTask 必然 throw → 外层 400），实际行为维持 400 不回归，但注释/代码语义自相矛盾（见 Anti-Patterns） |
-| 18 | 主窗口角标被动提醒（zero-one-many，点击 openUrl 收敛） | ✓ VERIFIED | renderer.js:10540-10553 onMediaTaskCountChanged + openUrl('realm://tasks')，preload 桥接 |
-| 19 | 【禁止】webview tab 模式不做缓存（D-01） | ✓ VERIFIED | cache=1 仅独立窗口 URL 注入（ipc-handlers.js:2078 playParams）；player.js:330 cache 从 URL 参数透传——webview tab 页面 URL 无 cache 参数 → handleProxyRequest cacheEnabled=false 纯透传。gap-closure 未触碰此链路 |
-| 20 | 【禁止】缓存 key/目录名禁用原始 URL 拼路径 | ✓ VERIFIED | videoId/segKey 均 sha256 hex + _safePath resolve 前缀 + realpath 复核；symlink 逃逸拒绝有单测（test :320/:329/:346）；lookup D-09 大小/sha256 校验删片回源保留（media-cache-manager.js:274-286，prohibition gate 过） |
-| 21 | 【禁止】不使用 ffmpeg-static；不引 hls-parser | ✓ VERIFIED | package.json 零 ffmpeg/hls-parser，唯一新依赖 mux.js ^6.3.0 |
+| 1 | G-44-2：webview tab 播放器直连拉流，proxiedUrl 守卫仅 isIndependentMode（D-01 代码层落地） | ✓ VERIFIED | player.js:328 `if (!isIndependentMode \|\| !/^https?:\/\//i.test(url)) return url;`；isWebviewMode 全文零残留（grep 计数 0）；独立窗口分支 :329-335 proxy URL 组装（token/container/referer/cache 透传）原样保留；test-unified-navigation 32/32 |
+| 2 | G-44-2：直连下 m3u8 直接播放可正常识别为多媒体（端到端） | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | 守卫已落地（#1）但端到端可播性依赖真实源站的 CORS/Referer/Cookie 行为。**CR-06 表态（按任务指令裁量）：代码结构 VERIFIED + 端到端 human 判定**——CR-06 论证了新增注释的技术依据不成立（hls.js XHR 是 CORS 门控请求，webview 未关 webSecurity；直连 Referer 变 localhost、容器 Cookie 不随跨源 XHR 发送），受保护源站直连可能不可用且此前 /proxy 正为解决此问题而建。按诚实验证器原则不判 FAILED（守卫行为本身是 D-01 用户锁定决策且开放源站可播）、不判 VERIFIED（无任何测试执行过真实源站直连）→ 归 human 第 1 项（收紧版：必须用无 ACAO + Referer 校验 + Cookie 门控源站验证；若失败按 CR-06 方案①/②/③ 建新 gap） |
+| 3 | G-44-2b：webview 空索引 meta 副作用随直连消失 + cacheEnabled 登记门槛护栏留存 | ✓ VERIFIED | webview 流量不再进 /proxy（#1）；main.js:399 `if (cacheEnabled && mediaCache) {` 门槛在位（grep 确认）；test-media-cache 20/20 |
+| 4 | G-44-4a：录制中按钮显示停止方块图标（接线层） | ✓ VERIFIED | player.html:85 `<svg id="icon-stop" … style="display:none">`；player.js:822-823 updateRecordUi 双图标对称切换（iconRecord/iconStop）；title 切换 :824；红点/IPC 链路未触碰。图标视觉目检留 human 第 2 项 |
+| 5 | G-44-4b：fMP4 分片（moof/ftyp 开头无 0x47）被前置嗅探拒绝 reason=unsupported_container | ✓ VERIFIED | media-remuxer.js:98-135 sniffContainerFormat 四判定（0x47 放行 :114 → box 特征 :116-119 → 高熵 ≥240 :122-128 → 未知 :④）；检查点 :243-249 置于 shouldCancel（:236-240）之后、push（:254）之前、仅首片（i===0）；单测 fMP4 拒转 + 产物清理通过 |
+| 6 | G-44-4b：AES-128 高熵密文分片被拒绝 reason=encrypted_stream | ✓ VERIFIED | 嗅探判定③（:122-128，4KB 采样 distinct ≥ ENTROPY_DISTINCT_THRESHOLD）；单测高熵拒转通过 |
+| 7 | G-44-4b：0 字节产物按 empty_output 失败处理并清理半成品 | ✓ VERIFIED | media-remuxer.js:265-277 stream.end 回调 statSync 终检，outSize===0 → settled + unlinkSync + reject(remuxError('empty_output'))；单测经伪 TS 路径行为性覆盖（Test 3：0x47 放行后由终检兜底 empty_output） |
+| 8 | G-44-4b：任务页失败文案覆盖三个新 reason | ✓ VERIFIED | main.js:3011-3013 CONVERT_FAIL_TEXT 三条中文映射；grep 确认 + remuxer 测试内覆盖断言通过 |
+| 9 | G-44-4b：正常 MPEG-TS 分片转封装路径零回归 + shouldCancel 取消检查先于嗅探（44-08 契约） | ✓ VERIFIED | 源码序：shouldCancel :236-240 < 嗅探 :243 < push :254；单测 Test 3（0x47 放行，绝不落 unsupported_container/encrypted_stream）+ Test 4（取消占位分片仍 cancelled）+ 结构断言全绿（remuxer 23/23）。**WR-07 表态：不构成 failed gap**——must-have 字面范围（「嗅探对 0x47 开头分片放行」）已被单测证明成立；WR-07 指出的 ID3/前导 TS（首字节 0x49，此前可转）会被判定④误拒，属 must-have 字面范围外的子类回归风险，按项目「Warning 记债务不阻断收尾」先例记 REVIEW.md 债务；建议后续按 WR-07 fix 放宽为 188 周期同步字节扫描并补 ID3 前导用例 |
+| 10 | G-44-5：convert/record 终态主窗口应用内 toast 链路（监听/终态过滤/文案契约/点击定位） | ✓ VERIFIED（接线层） | preload.js:1550 mediaAPI.onMediaTaskChanged（media-task:changed 透传 + removeListener 契约）；renderer.js:10581-10613 initMediaTaskToast（completed/failed 过滤、文案与 showTaskNotification 契约一致、outputPath → downloadAPI.showInFolder、duration 5000）；:4209 接线；main.css:1477-1480 `.toast.toast-clickable`（含 pointer-events:auto——执行期 Rule 1 自动修复，点击可达）；index.html:11 main.css?v=6；main.js 零改动（showTaskNotification 系统通知链路保留，prohibition 达成）。toast 实际弹出/点击定位留 human 第 4 项 |
+| 11 | G-44-7：主窗口任务角标监听真正注册（命名空间错配修复） | ✓ VERIFIED | renderer.js:10565-10566 `window.mediaAPI.onMediaTaskCountChanged`（与 preload :1537 定义命名空间一致），realmAPI 命名空间引用清零（grep 确认）；main.js:2132 count-changed 广播源在位；真机角标显隐留 human 第 5 项 |
+| 12 | G-44-8：抽屉「同时删除条目（含观看历史）」checkbox + playerHistory.deleteByKey 联动 + 时钟图标 | ✓ VERIFIED | player-history-manager.js:124-129 deleteByKey（prepare 参数化 DELETE + changes>0 判定 + 非法入参 false 不抛）；ipc-handlers.js:2333-2337 严格 `deleteEntry === true` + `r.success` 前置 + 非 hex 原始入参门 → deleteByKey，返回补 historyDeleted；preload.js:1650 签名扩展向后兼容；player.html:133 checkbox；player.js:1082 openDeleteConfirm 复位 unchecked + :1089-1094 文案联动（默认文案 UI-SPEC 契约原文逐字）+ :1103 确认透传勾选态；:996-1003 时钟 svg + title 完整时间；player.css 两组样式；test-player-history 7/7。默认不勾 = 仅删缓存（D-16 语义锁定，IPC 缺省路径零触达 playerHistory）。真机两删除路径留 human 第 6 项 |
+| 13 | G-44-9：任务页操作失败可见反馈条 + no_segments 解释性文案 | ✓ VERIFIED | tasks.html:19 `#taskFeedback`（CSS 类初始隐藏，realm:// 约定）；tasks-page.js:321-329 showTaskFeedback（textContent 写入防注入 + 定时器先清再重挂 4s 覆盖）；apiAction 非 success :304 + catch :310 两分支接线，loadTasks 轮询分支刻意不接（防噪）；main.js:2286 no_segments → 「录制中崩溃的任务暂无分片索引，暂不支持续转」（cancelled 分支「已取消转换」保持）；main.css:9222-9235。真机反馈时机留 human 第 7 项 |
+| 14 | 前轮 truths 回归：本轮触碰链路无回归（cache 命中优先 / cancel 桥接 / 导航包装 / 角标数据链） | ✓ VERIFIED | main.js:369 lookup 仍先于 :388 ses.fetch（CR-01 结论保持）；:2193 recordEngine.stopRecord + :2220 convertCancelTokens（CR-04 结论保持）；test-unified-navigation 32/32、test-media-cache 20/20、test-media-task-registry 26/26、test:memory 56/56；media-cache-manager.js / media-task-manager.js / media-record-engine.js 本轮零改动 |
+| 15 | 关窗/应用退出两级确认（D-19，前轮 #12 保持） | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | 接线在位未触碰；WR-05（appQuitting 永不复位）仍在，gap-closure 明示范围外 → 保持前轮结论，见 behavior_unverified_items + human 第 8 项 |
+| 16 | 【禁止】webview tab 模式不做缓存（D-01，前轮 #19 强化） | ✓ VERIFIED | 本轮修复使该 prohibition 结构性强化：cache=1 参数仅经 proxiedUrl 注入（player.js:331-334），而 proxiedUrl 守卫仅 isIndependentMode → webview 流量结构性无法携带 cache/vid 参数进 /proxy（此前仅靠 URL 注入点约定）；main.js:399 cacheEnabled 门槛双保险 |
 
-**Score:** 20/21 truths verified（0 failed，1 PRESENT_BEHAVIOR_UNVERIFIED = #12）
-**code-level gap 数：0**（前次 5 条 failed truth 全部闭合）
+**Score:** 14/16 truths verified（0 failed，2 PRESENT_BEHAVIOR_UNVERIFIED = #2/#15）
 
 ### Deferred Items
 
-无（Step 9b：无任何 must-have gap 顺延到后续 phase；本阶段为 milestone 最后 phase，无 later-phase 覆盖对象）。
+无新增顺延。WR-C（硬崩溃续转能力：录制中周期写轻量 meta / `<seq>.ts` 合成索引）经 UAT 第 9 项用户判定记 REVIEW.md 债务（非 gap：本阶段目标已按用户裁量收缩为「修失败反馈」，G-44-9 闭环）；AES-128 解密与 fMP4 拼接同理（44-11 锁定为可选增强债务）。
+
+### Advisory (New Scope, Unevidenced)
+
+| # | Finding | Category | Why Advisory |
+|---|---------|----------|--------------|
+| — | None | — | 本轮复验未发现无确定性证据的新范围发现；CR-06/WR-07/IN-05~08 均有代码级/单测级证据并已在 truths 或 Anti-Patterns 中表态 |
 
 ### Required Artifacts
 
-| Artifact | Expected    | Status | Details |
-| -------- | ----------- | ------ | ------- |
-| media-cache-manager.js | 缓存管理器（读写盘/淘汰/校验/路径安全） | ✓ VERIFIED | 20/20 单测；CR-02 写路径水位淘汰 + setCapacityBytes；CR-05 源流 error 监听（:344-348 pipe 前挂载）；lookup contentType 回放 |
-| player-history-manager.js | player_history 表 CRUD | ✓ VERIFIED | playback_key 主键 upsert |
-| media-m3u8-parser.js | 纯函数清单解析 | ✓ VERIFIED | 15/15 单测 |
-| media-task-manager.js | 任务注册表状态机 | ✓ VERIFIED | 26/26 单测（gap-closure 零改动，回归绿） |
-| media-record-engine.js | 直播录制引擎 | ✓ VERIFIED | 纯 Node、stopRecord 原语完整（writeMeta + completeTask）；WR-C 限制见 truth #15 |
-| media-remuxer.js | mux.js 转封装封装 | ✓ VERIFIED | 17/17 单测（含 shouldCancel 取消两用例） |
-| tests/*（5 套件） | 单测 | ✓ VERIFIED | cache 20 + remuxer 17 + registry 26 + parser 15 + navigation 32（本轮实跑确认全绿） |
-| src/tasks.html + tasks-page.js | 任务页三件套 | ✓ VERIFIED | 零内联 style（IN-01 例外：CSP 含 style unsafe-inline，Info 级）、token 鉴权 |
-| main.js 集成 | 缓存/注册表/引擎/端点 | ✓ VERIFIED | CR-01 命中优先、CR-02 setCapacityBytes、CR-03 RECORD_ROOT 补算、CR-04 cancel 分派全部接线在位 |
+| Artifact | Expected | Status | Details |
+| -------- | -------- | ------ | ------- |
+| src/player.js | 直连守卫 + 双图标 + 删除勾选/时钟图标 | ✓ VERIFIED | 语法过；四组改动逐行核实 |
+| src/player.html / player.css | icon-stop / checkbox / 样式 | ✓ VERIFIED | :85 / :133 / 样式组 grep 确认 |
+| media-remuxer.js | sniffContainerFormat + empty_output 终检 | ✓ VERIFIED | 纯 Node（require 直跑 ok）、四判定 + 检查点序正确 |
+| main.js | 注释同步 / CONVERT_FAIL_TEXT / no_segments 文案 | ✓ VERIFIED | 逻辑变更仅文案映射，缓存/cancel 链路零改动 |
+| player-history-manager.js | deleteByKey 参数化 | ✓ VERIFIED | prepare + ? 占位（prohibition 达成）；7/7 单测 |
+| ipc-handlers.js | deleteEntry 严格布尔门 | ✓ VERIFIED | :2333-2337；缺省路径零触达 playerHistory |
+| src/preload.js | onMediaTaskChanged + deleteCacheEntry 扩展 | ✓ VERIFIED | :1550 / :1650；G-44-7 窗口内零改动（git diff 为空，prohibition 达成） |
+| src/renderer.js | initMediaTaskToast + mediaAPI 角标监听 | ✓ VERIFIED | :10565 / :10581 / :4209 |
+| src/tasks.html / tasks-page.js / main.css | 反馈条三件套 | ✓ VERIFIED | textContent + 定时器重挂 + CSS 类初始隐藏 |
+| tests/test-player-history.js | 新建单测 | ✓ VERIFIED | 7/7 全绿（本轮实跑） |
+| tests/test-media-remuxer.js | 嗅探契约 describe | ✓ VERIFIED | 23/23 全绿（本轮实跑，含 6 新用例） |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 | ---- | --- | --- | ------ | ------- |
-| /proxy 分片命中路径 | 磁盘读盘响应 | handleProxyRequest pre-fetch 分支 | ✓ WIRED（CR-01） | lookup@369 < fetch@388，命中直返 return 不回源；m3u8/Range 排除 |
-| player.js proxiedUrl(cache=1) | main.js handleProxyRequest 缓存分流 | URL 参数 | ✓ WIRED | cache 参数仅独立窗口注入，key=target 两端统一 |
-| mediaCache.store/lookup | 磁盘 `<videoId>/segments/` | _safePath | ✓ WIRED | sha256 hex 路径 + D-09 校验保留 |
-| mediaCache.store 源流 | 'error' 监听 | Node 流契约 | ✓ WIRED（CR-05） | store() pipe 前挂 readable.on('error') destroy 双 tee（:344-348）；main.js 透传分支同款（:456-461）；tee.on('error') → res.end 收尾（:433-435） |
-| storeBuffer 成功登记 | evictIfNeeded | 水位累计 | ✓ WIRED（CR-02） | _trackedTotal 越限才触发一轮，exempt 自身 + 活跃豁免 |
-| main.js cacheMaxGB 更新 | setCapacityBytes → evictIfNeeded | settings:update | ✓ WIRED | :1378，无 capacityBytes 字段直写 |
-| record 任务 interrupted/failed | readRecordTaskSegments | RECORD_ROOT/<task.id> 补算 | ✓ WIRED（CR-03） | outputPath 缺失补算 + uuid 白名单；meta.json 存在即续转（硬崩溃无 meta 仍限 WR-C） |
-| /api/tasks/cancel (record) | recordEngine.stopRecord | 集成层桥接 | ✓ WIRED（CR-04） | :2192；红点/任务页停止同原语 |
-| /api/tasks/cancel (convert) | convertToMp4 shouldCancel | convertCancelTokens | ✓ WIRED（CR-04） | :2219 信号 → remuxer :167-168 检查点 → .catch cancelled → cancelTask（:3134） |
-| record 任务终态 | onTaskCompleted → startConvertFromRecordTask | 接力钩子 | ✓ WIRED | main.js:3235-3237 |
-| 任务终态 | notifyRenderer 广播 → 角标/任务页 | persist diff | ✓ WIRED | main.js:2131 count-changed |
-| hls ERROR 重试 | FRAG_LOADED 复位 | player.js hls 事件 | ✓ WIRED（WR-06） | :212-213 hlsRetryCount=0 |
+| webview player 页 | 源站 m3u8（直连） | proxiedUrl 守卫 return url | ✓ WIRED | player.js:328；端到端可播性见 truth #2（CR-06） |
+| 独立窗口 player 页 | /proxy（缓存链路） | proxiedUrl 改写 | ✓ WIRED | :329-335 零回归 |
+| main.js persistMediaTasks 状态 diff | 主窗口 renderer toast | broadcast('media-task:changed') → preload :1550 → renderer :10583 | ✓ WIRED | 全链路命名空间一致（三端核实） |
+| main.js count-changed 广播 | 主窗口角标 | mediaAPI.onMediaTaskCountChanged | ✓ WIRED（G-44-7 修复） | 此前 renderer 引用 realmAPI 短路；现已打通 |
+| toast click | Finder 定位 | download:show-in-folder IPC | ✓ WIRED | renderer :10608 + .toast-clickable pointer-events:auto（main.css:1479） |
+| 抽屉 checkbox | playerHistory 删除 | deleteCacheEntry(key, checked) → player:cache:delete → deleteByKey | ✓ WIRED | 严格布尔门 + 缓存删除成功前置 + hex 防御 |
+| apiAction 失败 | 反馈条 | showTaskFeedback(data.error) | ✓ WIRED | 两分支接线；textContent 防注入 |
+| convert-resume no_segments | 解释性文案 | main.js:2286 后端翻译 | ✓ WIRED | 任务页零特判 |
+| 首分片 → mux.js | 嗅探闸门 | sniffContainerFormat @ push 前 | ✓ WIRED | 取消检查先于嗅探（44-08 契约保序） |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 | -------- | ------------- | ------ | ------------------ | ------ |
-| 任务页列表 | /api/tasks/list | mediaTaskManager.listTasks() | ✓ | ✓ FLOWING |
-| 任务页停止 | /api/tasks/cancel → stopRecord/取消信号 | recordEngine/remuxer 真实停止 | ✓ | ✓ FLOWING（CR-04 后不再是状态标记） |
-| 续转分片 | readRecordTaskSegments | RECORD_ROOT/<task.id>/meta.json | ✓（meta 存在时） | ✓ FLOWING（CR-03 后补算生效；硬崩溃无 meta 限 WR-C） |
-| 缓存命中响应 | lookup(target, vidParam) | 磁盘 segments 读回 + contentType 回放 | ✓ | ✓ FLOWING（CR-01 后命中不回源） |
-| 角标计数 | media-task:count-changed | persist diff | ✓ | ✓ FLOWING |
-| 续播位置 | player:resume-position | player_history.getByKey | ✓ | ✓ FLOWING |
+| toast 文案 | task.outputPath/title/error | 主进程任务注册表快照 | ✓ | ✓ FLOWING |
+| 角标计数 | data.count | count-changed 广播（persist diff） | ✓ | ✓ FLOWING（G-44-7 修复后 renderer 真实可达） |
+| 反馈条文案 | data.error | 主进程端点 error 字段 | ✓ | ✓ FLOWING |
+| 时钟 tooltip | item.lastWatched | player_history 表 | ✓ | ✓ FLOWING |
+| 嗅探判定 | 分片首部 64KB | 磁盘真实分片文件 | ✓ | ✓ FLOWING |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 | -------- | ------- | ------ | ------ |
-| 缓存管理器单测（含 CR-02 写路径淘汰/setCapacityBytes/CR-05 error 源/contentType） | node tests/test-media-cache.js | 20 pass / 0 fail | ✓ PASS |
-| remuxer 单测（含 shouldCancel 取消两用例） | node tests/test-media-remuxer.js | 17 pass / 0 fail | ✓ PASS |
+| remuxer 单测（含嗅探契约 6 用例） | node tests/test-media-remuxer.js | 23 pass / 0 fail | ✓ PASS |
+| 缓存管理器单测 | node tests/test-media-cache.js | 20 pass / 0 fail | ✓ PASS |
 | 任务注册表单测 | node tests/test-media-task-registry.js | 26 pass / 0 fail | ✓ PASS |
 | m3u8 解析器单测 | node tests/test-m3u8-playlist-parser.js | 15 pass / 0 fail | ✓ PASS |
+| player-history 单测（deleteByKey 闭环） | node tests/test-player-history.js | 7 pass / 0 fail | ✓ PASS |
 | 导航回归 | node tests/test-unified-navigation.js | 32 通过 / 0 失败 | ✓ PASS |
-| 语法检查 | node --check main.js / media-cache-manager.js / media-remuxer.js / src/player.js | 全过 | ✓ PASS |
-| 命中先于回源 | 源码断言 lookup@369 < fetch@388 + 无 finalUrl-key 调用 | 命中先于回源 | ✓ PASS（CR-01） |
-| 淘汰生产可达性 | storeBuffer :444-458 水位检查 + setCapacityBytes 单测 | 写路径自动淘汰 | ✓ PASS（CR-02） |
-| cancel→引擎桥接 | grep recordEngine.stopRecord(taskId) @:2192 + convertCancelTokens @:2219 | 桥接在位 | ✓ PASS（CR-04） |
-| store 源流 error | store() :344 readable.on('error') 先于 :349/:350 pipe | 监听先于 pipe | ✓ PASS（CR-05） |
+| 内存测试 | npm run test:memory | 56 pass / 0 fail | ✓ PASS |
+| 语法检查（8 文件） | node --check main.js / ipc-handlers.js / media-remuxer.js / player-history-manager.js / src/player.js / src/renderer.js / src/preload.js / src/tasks-page.js | 全过 | ✓ PASS |
+| 直连守卫 | 源码断言 player.js:328 仅 isIndependentMode + isWebviewMode 计数 0 | 守卫落地 | ✓ PASS |
+| 嗅探检查点序 | 源码断言 shouldCancel(:236) < sniff(:243) < push(:254) | 取消优先序保持 | ✓ PASS |
+| 命中先于回源（回归） | 源码断言 lookup@369 < ses.fetch@388 | CR-01 结论保持 | ✓ PASS |
+| cancel 桥接（回归） | grep stopRecord@2193 + convertCancelTokens@2220 | CR-04 结论保持 | ✓ PASS |
+| G-44-7 命名空间 | grep mediaAPI.onMediaTaskCountChanged 计 1 + realmAPI 残留计 0 | 错配清零 | ✓ PASS |
 
 ### Probe Execution
 
-无 probe 脚本声明（非迁移/tooling phase）；以 5 个单测套件 + 4 文件语法检查实跑替代。
+无 probe 脚本声明（非迁移/tooling phase）；以 7 个测试套件实跑 + 8 文件语法检查替代。
 
 ### Requirements Coverage
 
-REQUIREMENTS.md 无 Phase 44 需求 ID（specless）。以 CONTEXT.md D-01~D-26 为决策骨架。gap-closure 计划 requirements 并集（D-03/D-05/D-10 + D-06/D-07/D-08/D-18 + D-18/D-25/D-26）与既验 D-01~D-26 全覆盖一致，无孤儿。D-05/D-10（CR-01）、D-06/D-07（CR-02）、D-18（CR-03 补算 / CR-04 停止）、D-25/D-26（CR-04）修复后原「部分证伪」状态全部解除——唯 D-18 硬崩溃子路径受 WR-C 限制（见 #15 与 human 第 9 项）。
+REQUIREMENTS.md 无 Phase 44 需求 ID（specless，前轮已确认）。本轮五个计划 requirements 声明（D-01/D-03/D-21、D-26、D-04/D-24、D-11/D-14/D-15/D-16、D-18/D-22/D-26）逐一对照 44-CONTEXT.md——D-01~D-26 全部真实存在，无孤儿、无虚构编号。D-11（双层设计）/D-16（删除）/D-26（任务页+角标+通知）经本轮修复后覆盖完整；D-26 的「系统通知」子项因环境级 ad-hoc 签名不可用，已按 UAT 推荐方案以应用内 toast 达成同等目标（系统通知代码保留，正式签名后双通道）。
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 | ---- | ---- | ------- | -------- | ------ |
-| media-cache-manager.js | 444-458 | WR-A：单视频持续超限时水位检查每片写盘触发一次全库 listEntries 扫描无进展退避（该 videoId 自豁免零删除 → 每片重复全扫） | ⚠️ Warning | 默认 10GB + 单条 >10GB VOD 观看或改小容量场景的性能回归；44-07 prohibition「无每分片全库扫描」在「持续超限单视频」情形未完全达成。不证伪 truth #4（多视频/改容量路径淘汰真实生效，单测覆盖）；建议退避或目录内按 stored_at 删最旧分片 |
-| main.js | 2184-2188 | WR-B：非 running cancel 分支先调 cancelTask（必 throw）后写 200 死代码——实际恒 400，与 record 分支幂等 already-stopped 200 语义不一致 | ⚠️ Warning | 行为不回归（400 保持），但注释/代码语义自相矛盾，误导后续维护者「清理死代码」改坏行为；建议删死代码并对已终态显式幂等 200 |
-| main.js:3018 / media-record-engine.js | 3032 / 167-192 | WR-C：录制中从不周期写 meta.json（仅 stop/fail/pl.ended/异常兜底四路径），硬崩溃 interrupted 任务无索引可转 | ⚠️ Warning | truth #15 的 D-18「崩溃不白录」对真硬崩溃子路径仍受限（续转 400、.ts 滞留）；44-07 明示为既有边界、复评 0 Critical 归类 Warning；建议周期写轻量 meta 或按 `<seq>.ts` 合成索引——已列入 human 第 9 项待产品判定 |
-| ipc-handlers.js | 40-43 | WR-05：appQuitting 置位后永不复位（取消的 Cmd+Q 后窗口级录制确认被永久跳过） | ⚠️ Warning | 关联 truth #12（PRESENT_BEHAVIOR_UNVERIFIED）；44-08 明示范围外，UAT 复测 #12 时一并观察 |
-| media-record-engine.js | 201/144 | WR-01：fetchPage 无超时 | ⚠️ Warning | 挂起连接使录制无限停滞（既有债务，不在 gap-closure 范围） |
-| media-cache-manager.js | 255-260/332-337/385-390 | IN-01：公开方法形参仍名 finalUrl，与实际传入的请求 URL target 语义漂移（CR-01 后） | ℹ️ Info | 阅读方易误解 key 语义而引入漂移；建议改名 cacheKey/requestUrl 并同步类头注释 |
-| main.js | 3147-3153 | IN-02：startConvertTask .finally 中 try/catch 包裹不可能抛错的 Map.delete | ℹ️ Info | 冗余防御噪声，无缺陷 |
-| media-cache-manager.js | 195-212/369-415 | WR-02：meta.json 非原子读写 | ⚠️ Warning | 并发写丢索引/截断 JSON（既有债务） |
-| media-cache-manager.js | 514-531 | WR-03：master 清单完整度恒 100%（updatePlaylistIndex） | ⚠️ Warning | 多码率流 D-17 gating 失效 + 孤儿目录（既有债务） |
-| main.js | 386-408 | WR-04：EXT-X-KEY 密钥被当分片缓存（既有债务） | ⚠️ Warning | 加密流转封装必失败 |
-| media-record-engine.js | 209 | IN-04：失败计数每轮清零（间歇故障源永不触发停录） | ℹ️ Info | 既有债务 |
-| src/tasks.html | 7 | IN-01（原）：CSP 引入 style unsafe-inline | ℹ️ Info | 偏离内部页面 CSP 约定（既有债务） |
-| main.js | 1312-1332 | IN-03：settings:update 可直写 cacheDir（token 限制内纵深缺口） | ℹ️ Info | 既有债务 |
+| media-remuxer.js | 114-135 | WR-07：嗅探判定①仅校验首字节，ID3/timed-metadata 前导的合法 TS（首字节 0x49）被判定④误拒——相对嗅探前是子类回归 | ⚠️ Warning | 见 truth #9 表态：不构成 failed gap（must-have 字面范围已证），记 REVIEW.md 债务；建议 188 周期同步字节扫描 + box 起始偏移限定 + 补 ID3 前导用例 |
+| src/player.js / main.js / renderer.js | 310-313 / 669-671 / 387-390 | CR-06：直连注释技术依据不成立（Cookie「天然携带」、「像网页自身播放一样」与 hls.js XHR CORS 门控事实矛盾），违背「两处注释互引同步」纪律的错误声明 | 🛑→📋 | **表态：不判 BLOCKER**——代码行为（直连）是 D-01 用户锁定决策，注释错误属文档缺陷而非目标缺陷；端到端影响面已升格为 behavior_unverified + human 第 1 项（收紧版源站）；UAT 判定失败则按 CR-06 方案①/②/③ 建新 gap，届时注释修正并入修复 |
+| media-remuxer.js | 107 | IN-05：首分片读取失败（TOCTOU/权限）映射 unsupported_container，与 segment_missing 语义重叠误导 | ℹ️ Info | 不影响 must-have；建议按 err.code 区分 |
+| src/renderer.js | 10591/10599 | IN-07：toast 文案与系统通知契约两处分叉（record failed 缺「录制失败：」前缀；split('/').pop() vs path.basename） | ℹ️ Info | 不影响 G-44-5 真值成立（convert failed 前缀已带）；建议抽公共文案或注释互引 |
+| main.js | 2286 | IN-08：no_segments 文案过拟合「崩溃」成因（meta 存在但分片为空同样返回 null，文案与事实可能不符） | ℹ️ Info | G-44-9 可见性目标已达成，文案精度问题；建议中性表述 |
+| ipc-handlers.js / player.js | 2336 / 1104-1114 | IN-06：deleteEntry=true 时历史删除失败对用户静默（historyDeleted 返回值未被 confirm 处理器消费） | ℹ️ Info | 缺省/勾选主路径行为正确；建议消费 historyDeleted 提示 |
+| （历史段）WR-A/B/C/05/01-04、IN-01-04 | — | 前轮债务维持不动（44-09~13 未触碰） | ⚠️/ℹ️ | 见 44-REVIEW.md 历史段与前轮报告 |
 
-（gap-closure 涉及四文件无 TBD/FIXME/XXX 债务标记、无 stub 返回值、无注释反义残留；node --check 全过。）
+（gap-closure 涉及文件无 TBD/FIXME/XXX 债务标记、无 stub 返回值；node --check 全过。）
 
 ### Human Verification Required
 
-前次 8 项 human-only 复测**全部未被 gap-closure 证伪**（CR-01 修复后第 1/3 项从「必然失败」变为「可验证」；CR-04 修复后第 4 项停止语义正确），继续保留；另新增 1 项由 WR-C 派生（第 9 项：崩溃中断续转实况 + 产品判定）。完整明细见 frontmatter `human_verification`（9 项）。
+见 frontmatter `human_verification`（8 项）。要点：第 1 项为本轮唯一实质性新风险（CR-06），必须用「无 ACAO + Referer 校验 + Cookie 门控」的真实源站验证，若不可用按 CR-06 三选一建新 gap；第 2~7 项为各 gap 修复的真机验收（对应 UAT 第 4/5/6/7/8/9 项复测）；第 8 项为前轮保持项。
 
 ### Gaps Summary
 
-**代码层 0 failed gap**。前次 5 条 failed truth（#3/#4/#8/#15/#17）与 CR-05 崩溃级缺陷全部闭合，逐项核实：
+**代码层 0 failed gap。** 8 个 UAT gap（G-44-2/2b/4a/4b/5/7/8/9）经代码逐行核实全部闭合：直连守卫落地且空索引副作用结构性消失并留护栏；录制按钮停止图标接线完整；嗅探拒转 + 产物终检 + 文案映射由 6 个新单测锁定（remuxer 23/23）；toast/角标/反馈条/删除联动四条 UI 链路三端命名空间与接线一致（角标链路 G-44-7 命名空间错配确已修复）；deleteByKey 参数化 + 三重护栏达成 prohibition。7 个测试套件 + test:memory 实跑全绿，前轮关键结论（CR-01 命中优先、CR-04 cancel 桥接、CR-02/03/05）回归核实无回归。
 
-1. **CR-01（#3/#8）**：命中优先分支（lookup@369 → fetch@388 之前，命中直返 return）使「重开秒开不回源」「断网已缓存分片照播」在生产路径成立——前次「每分片必回源、断网 502」的证伪根因消除。
-2. **CR-02（#4）**：storeBuffer 写路径水位淘汰 + setCapacityBytes（改容量即收敛）使 10GB 上限真实生效，多视频与改容量场景单测行为证明（20/20）。
-3. **CR-03（#15）**：RECORD_ROOT 单一来源 + outputPath 缺失按 task.id 补算（uuid 白名单），failed/竞态中断任务续转不再恒 400。残余硬崩溃无 meta.json 子路径由 WR-C 记录（复评 0 Critical 归类 Warning），留 human 第 9 项判定。
-4. **CR-04（#17）**：cancel 路由按类型分派桥接 recordEngine.stopRecord / convert 协作式取消信号，任务页停止 = 真实停录/停转码（不再无限落盘），鉴权与非法流转语义零回归。
-5. **CR-05**：store() 与透传分支源流 error 监听，源站 RST 不再 uncaught 崩主进程。
+**两项保留 PRESENT_BEHAVIOR_UNVERIFIED**：① webview 直连端到端可播性（CR-06——代码结构正确、端到端依赖真实源站 CORS/Referer/Cookie 行为，评论依据矛盾已如实记录，收紧版 UAT 承载）；② 关窗/退出两级确认（前轮 #12 保持）。
 
-**残余均为 Warning/Info 级债务**（WR-A/B/C/05/01/02/03/04、IN-01/02/03/04），其中 WR-C 是唯一与 must-have 真值（#15）部分相关的项，按项目「Warning 记 REVIEW.md 债务不阻断收尾」先例与复评 0 Critical 判定不构成 failed gap，但已显式提升至 human 第 9 项供产品决策。
+**WR-07 表态**：不构成 failed gap（G-44-4b must-have 字面范围「0x47 开头分片放行」已被单测证明）；ID3 前导 TS 子类回归风险记 REVIEW.md 债务，建议与后续嗅探放宽一并处理。
 
-**状态说明**：status = human_needed——代码层 must-have 全部核实（20/21，1 项 #12 保持 PRESENT_BEHAVIOR_UNVERIFIED）、无 failed gap；但 9 项 human-only 复测（含 8 项前次保留 + WR-C 派生项）待 UAT 真机执行。若以代码闭合为门槛，本复验结果 = 通过（可进入 UAT）；UAT 通过即 phase.complete（既有收尾约定）。
+**状态说明**：status = human_needed——代码层 must-have 全部核实（14/16）、无 failed gap；8 项 human-only 复测待 UAT 真机执行。若以代码闭合为门槛，本复验结果 = 通过（可进入 UAT）；UAT 通过即 phase.complete（既有收尾约定）。
 
 ---
 
-_Verified: 2026-09-06T14:56:06Z_
-_Verifier: Claude (gsd-verifier) — re-verification after gap closure (44-06/07/08)_
+_Verified: 2026-09-07T07:43:36Z_
+_Verifier: Claude (gsd-verifier) — second re-verification after gap closure (44-09~44-13)_
