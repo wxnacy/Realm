@@ -2301,7 +2301,7 @@ app.whenReady().then(async () => {
         }
         const r = await startConvertFromRecordTask(task);
         if (!r.ok) {
-          sendJson(res, 400, { success: false, error: r.reason === 'cancelled' ? '已取消转换' : (r.reason === 'no_segments' ? '录制中崩溃的任务暂无分片索引，暂不支持续转' : (r.reason || '续转失败')) });
+          sendJson(res, 400, { success: false, error: r.reason === 'cancelled' ? '已取消转换' : (r.reason === 'encrypted' ? '加密视频暂不支持转换' : (r.reason === 'no_segments' ? '录制中崩溃的任务暂无分片索引，暂不支持续转' : (r.reason || '续转失败'))) });
           return;
         }
         sendJson(res, 200, { success: true, taskId: r.taskId });
@@ -3028,6 +3028,8 @@ app.whenReady().then(async () => {
     invalid_output: '产物路径无效',
     unsupported_container: '分片格式暂不支持转换（仅支持 MPEG-TS）',
     encrypted_stream: '分片为加密数据，暂不支持转换',
+    // G-44-7：转换入口早拒的统一文案（纵深防御——万一某入口漏判进了 mux，失败文案也是本句）
+    encrypted: '加密视频暂不支持转换',
     empty_output: '转换产物为空',
   };
 
@@ -3071,11 +3073,14 @@ app.whenReady().then(async () => {
    * 记住选择写回 settings.lastMediaSaveDir）→ 同名「 (2)」序号 → 注册 convert 任务
    * → media-remuxer 后台转封装（进度/终态走注册表统一链路：任务页/角标/通知/定位）。
    * 用户取消弹框 → 不建任务返回 cancelled（D-22：已录分片保留可稍后续转）。
-   * @param {Object} input - { segmentPaths, title, containerId?, playbackKey?, hasDiscontinuity?, sourceTaskId? }
+   * @param {Object} input - { segmentPaths, title, containerId?, playbackKey?, hasDiscontinuity?, hasEncryption?, sourceTaskId? }
    * @returns {Promise<{ok: boolean, taskId?: string, reason?: string}>}
    */
   async function startConvertTask(input) {
-    const { segmentPaths, title, containerId, playbackKey, hasDiscontinuity } = input || {};
+    const { segmentPaths, title, containerId, playbackKey, hasDiscontinuity, hasEncryption } = input || {};
+    // G-44-7：加密源（EXT-X-KEY METHOD≠NONE）在保存弹框与任务注册之前早拒——
+    // 缓存落盘的是解密前密文、mux.js 无解密链路，转换对该源永远不可能成功
+    if (hasEncryption) return { ok: false, reason: 'encrypted' };
     if (hasDiscontinuity) return { ok: false, reason: 'discontinuity' };
     if (!Array.isArray(segmentPaths) || segmentPaths.length === 0) {
       return { ok: false, reason: 'no_segments' };
@@ -3191,6 +3196,7 @@ app.whenReady().then(async () => {
       containerId: bundle.meta.containerId || task.containerId || '',
       playbackKey: bundle.meta.playbackKey || task.playbackKey || null,
       hasDiscontinuity: !!bundle.meta.hasDiscontinuity,
+      hasEncryption: !!bundle.meta.hasEncryption,
       sourceTaskId: task.id,
     });
   }
@@ -3235,6 +3241,8 @@ app.whenReady().then(async () => {
       if (!info) return { ok: false, reason: 'invalid_entry' };
       // D-17 服务端复校：完整度 100%（分片齐全）才可转；discontinuity 拒转
       if (info.hasDiscontinuity) return { ok: false, reason: 'discontinuity' };
+      // G-44-7：加密源早拒（缓存分片为密文，无解密链路）
+      if (info.hasEncryption) return { ok: false, reason: 'encrypted' };
       if (info.completeness === null || info.completeness < 100) {
         return { ok: false, reason: 'segments_incomplete' };
       }

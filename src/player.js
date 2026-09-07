@@ -1003,9 +1003,11 @@ async function renderDrawer() {
     }
     el.appendChild(meta);
 
-    // 转换按钮（D-17/D-24）：仅分片齐全（完整度 100%）的缓存条目可见——
-    // 隐藏而非置灰（UI-SPEC Disabled）；点击经主进程服务端复校后弹框选目录
-    if (item.cacheSize > 0 && item.completeness != null && item.completeness >= 100) {
+    // 转换按钮（D-17/D-24）：仅分片齐全（完整度 100%）且非加密源的缓存条目可见——
+    // 隐藏而非置灰（UI-SPEC Disabled）；点击经主进程服务端复校后弹框选目录。
+    // G-44-7：AES-128 加密源（#EXT-X-KEY METHOD≠NONE）缓存落盘为密文、mux.js
+    // 无解密链路，转换永远失败——按钮整体不渲染（锁定决策：播放器不建 toast 基建）
+    if (item.cacheSize > 0 && item.completeness != null && item.completeness >= 100 && !item.hasEncryption) {
       const convert = document.createElement('button');
       convert.className = 'drawer-item-convert';
       convert.textContent = '转换为 MP4';

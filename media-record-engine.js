@@ -182,6 +182,8 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
       segments: segs,
       // 44-05 转封装消费：含不连续片段的流转封装时间轴跳变（Pitfall 5），直接拒转
       hasDiscontinuity: !!st.hasDiscontinuity,
+      // G-44-7：加密流（EXT-X-KEY METHOD≠NONE）无解密链路，转换入口早拒
+      hasEncryption: !!st.hasEncryption,
       finishedAt: new Date().toISOString(),
     };
     try {
@@ -206,6 +208,11 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
         // 不误中 DISCONTINUITY-SEQUENCE）——转封装直接拒转
         if (/(^|\r?\n)#EXT-X-DISCONTINUITY(\r?\n|$)/.test(buf.toString('utf8'))) {
           st.hasDiscontinuity = true;
+        }
+        // G-44-7：任一版清单出现 EXT-X-KEY 加密即记录（优先 parse 结果，原始清单
+        // 行级正则兜底——注入的自定义解析器可能不返回 hasEncryption）——转换入口早拒
+        if (pl.hasEncryption || /(^|\r?\n)#EXT-X-KEY:.*METHOD=(?!"?NONE)/.test(buf.toString('utf8'))) {
+          st.hasEncryption = true;
         }
         st.consecutiveFailures = 0;
 
