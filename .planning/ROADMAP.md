@@ -285,7 +285,7 @@ Plans:
 **Goal:** 独立播放器的 HLS 本地媒体库能力（webview tab 模式保持现状不做缓存）。① 独立播放窗口收口走 /proxy（改从 localhost 加载 player 页面，注入 token，解决防盗链/Cookie 隐患）；② /proxy 层分片级磁盘缓存：按视频组织目录（segments + 元数据），关掉重开已看部分秒开，按视频粒度 FIFO 淘汰，设置页可配缓存目录/容量；③ 观看历史式精确续播：缓存库条目 + 独立观看历史记录（key = origin+pathname，query 时效 token 不参与匹配），进度渲染进程节流上报；④ 统一媒体任务中心 media-task-manager（主进程持久化注册表）：直播录制（工具栏录制按钮，显式后台任务：并发上限/同 URL 去重/失败重试/应用退出确认/关窗弹一次继续或停止并记住默认）+ mux.js 纯 JS 转封装 TS→fMP4（showSaveDialog 弹框选目录，后台转换，完成通知）；⑤ realm://tasks 任务页（设置页多媒体分区「任务列表」按钮入口，进度/停止/产物定位，主窗口角标被动提醒）。方案定稿 2026-09-06 讨论完成
 **Requirements**: TBD
 **Depends on:** Phase 43
-**Plans:** 18 plans（16 executed + 2 gap-closure planned, 44-UAT.md Round 3 gap G-44-7）
+**Plans:** 17/18 plans executed（16 executed + 2 gap-closure planned, 44-UAT.md Round 3 gap G-44-7）
 
 Plans:
 
@@ -306,7 +306,7 @@ Plans:
 
 **Gap Closure Wave 3** *(44-UAT.md Round 3 复验，G-44-7)*
 
-- [ ] 44-17-PLAN.md — G-44-7 泄漏层：convertToMp4 产物流同步 fd 创建消除 unlink 竞态 + 0 字节残留回归测试
+- [x] 44-17-PLAN.md — G-44-7 泄漏层：convertToMp4 产物流同步 fd 创建消除 unlink 竞态 + 0 字节残留回归测试
 - [ ] 44-18-PLAN.md — G-44-7 体验/分类层：清单解析加密检测（hasEncryption/keyUris）+ 缓存 key URI 排除 + 转换入口早拒与抽屉按钮隐藏
 
 **Wave 1**
