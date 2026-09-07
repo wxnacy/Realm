@@ -1078,8 +1078,9 @@ async function closeTab(tabId) {
     }
   }
 
-  // 销毁关联的 webview
-  destroyWebview(tabId);
+  // 销毁关联的 webview（用户关 tab：键盘/右键/批量关闭全部汇入 closeTab，
+  // G-44-2 走延迟销毁，给在途键盘 ACK 留出送达时间）
+  destroyWebview(tabId, { deferred: true });
 
   // 如果关闭的是活动 Tab，切换到新的活动 Tab
   if (tabId === state.activeTabId) {
@@ -1128,6 +1129,8 @@ function handleTabRecycled(data) {
     }
     state.tabs.delete(data.tabId);
   }
+  // G-44-2 判定：主进程达到回收上限的程序化静默回收（非用户交互瞬间，
+  // 被回收的一定是非活动 Tab），无键盘 ACK 在途窗口，保持同步销毁
   destroyWebview(data.tabId);
 
   // 被回收的一定是非活动 Tab（主进程回收逻辑排除活动 Tab），无需切换 activeTabId
@@ -1345,6 +1348,8 @@ function handleTabRemovedFromMain(data) {
   if (tabData.element) tabData.element.remove();
 
   // 移除 webview
+  // G-44-2 判定：跨窗口移动语境——tab 即将转移到目标窗口重建，非用户关闭
+  // 销毁，无键盘 ACK 在途窗口，保持同步移除
   const webview = state.webviews.get(tabId);
   if (webview) webview.remove();
   state.webviews.delete(tabId);
@@ -1802,13 +1807,47 @@ function showWebview(tabId) {
 }
 
 /**
+ * 延迟移除 webview 元素（G-44-2 规避）：先用 CSSOM display:none 从布局摘除
+ * （用户无感知），延迟后再从 DOM 移除——移除 webview 元素即销毁 guest
+ * webContents，延迟给在途键盘事件 ACK 留出送达时间（Electron 43.3.0 上游
+ * UAF：键盘 ACK 经 InputRouterImpl::KeyboardEventHandled 委派给已被同步
+ * 销毁的 InspectableWebContents）。仅用 DOM API 与 setTimeout，renderer
+ * 无 Node 全局。
+ * 判定标准：凡是用户交互瞬间触发的 guest webContents 销毁都走延迟；
+ * 程序化静默销毁（错误恢复/tab 回收）与跨窗口移动语境不延迟。
+ * @param {HTMLElement} webviewEl - webview 元素
+ * @param {number} [delayMs=300] - 延迟毫秒数
+ */
+function deferredRemoveWebview(webviewEl, delayMs = 300) {
+  try {
+    webviewEl.style.display = 'none';
+  } catch (err) {
+    console.warn('[Realm Renderer] webview 隐藏失败:', err.message);
+  }
+  setTimeout(() => {
+    try {
+      webviewEl.remove();
+    } catch (err) {
+      console.warn('[Realm Renderer] webview 延迟移除失败:', err.message);
+    }
+  }, delayMs);
+}
+
+/**
  * 销毁 webview
  * @param {string} tabId - Tab ID
+ * @param {{deferred?: boolean}} [options] - deferred=true 时先隐藏再延迟移除
+ *   （用户关闭 tab 语境，G-44-2 规避同步销毁）；缺省同步移除（程序化/移动语境）
  */
-function destroyWebview(tabId) {
+function destroyWebview(tabId, options = {}) {
   const webview = state.webviews.get(tabId);
   if (webview) {
-    webview.remove();
+    const { deferred = false } = options;
+    if (deferred) {
+      deferredRemoveWebview(webview);
+    } else {
+      webview.remove();
+    }
     state.webviews.delete(tabId);
   }
 }
@@ -12933,6 +12972,8 @@ function initTabDragAndDrop() {
     if (tabData.element) tabData.element.remove();
 
     // 移除 webview
+    // G-44-2 判定：跨窗口移动成功后的源窗口侧清理（tab 已在目标窗口重建），
+    // 非用户关闭销毁，无键盘 ACK 在途窗口，保持同步移除
     const webview = state.webviews.get(tabId);
     if (webview) webview.remove();
     state.webviews.delete(tabId);
