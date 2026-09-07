@@ -150,6 +150,11 @@ function sniffContainerFormat(filePath) {
  * G-44-4b 首片格式嗅探：首个分片 push 前经 sniffContainerFormat 判别容器
  * 格式（首字节 0x47 放行；fMP4 box 特征 / 高熵密文 / 未知格式均拒转），
  * 不可转容器在进入 mux.js 前显式失败，不再静默产出无效产物。
+ *
+ * G-44-7 产物创建时序：产物文件经 fs.openSync(outputPath, 'w') 同步创建 fd 再
+ * 传入 createWriteStream——自 Promise 执行体起产物已确定性存在（或 openSync 失败
+ * 从未创建），fail() 的 unlinkSync 必然命中，清理行为不依赖异步 open 的事件循环
+ * 时序（旧实现的排队 open 竞态会让失败路径泄漏 0 字节残留）。
  * @param {Object} input - 转封装参数
  * @param {string[]} input.segmentPaths - TS 分片绝对路径列表（**按播放顺序**）
  * @param {string} input.outputPath - 产物 mp4 绝对路径
@@ -184,7 +189,21 @@ function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity, 
     }
 
     let settled = false;
-    const stream = fs.createWriteStream(outputPath);
+    // G-44-7 泄漏层修复：产物文件同步创建（fs.openSync 'w'）——自 Promise 执行体起
+    // 文件已确定性存在，fail() 的 unlinkSync 不再可能命中「异步 open 尚未执行」的
+    // 竞态窗口（旧实现 createWriteStream 的 open(O_CREAT) 经 nextTick 排队，嗅探拒绝
+    // 同 tick 内 unlinkSync ENOENT 被吞掉，随后排队的 open() 泄漏 0 字节文件）。
+    // stream.destroy()（autoClose 默认 true）负责关闭传入 fd，成功路径 stream.end()
+    // 同样收尾 fd，两路径均无需手动 closeSync。
+    let outFd;
+    try {
+      outFd = fs.openSync(outputPath, 'w');
+    } catch (err) {
+      // 目录不存在/无写权限：文件从未创建，直接拒绝（无需清理）
+      reject(remuxError('write_failed', err.message));
+      return;
+    }
+    const stream = fs.createWriteStream(outputPath, { fd: outFd });
     // 单实例跨全部分片（Pitfall 5：每分片新建实例时间轴断裂）
     const transmuxer = new muxjs.mp4.Transmuxer({ keepOriginalTimestamps: false });
     let wroteInit = false;
