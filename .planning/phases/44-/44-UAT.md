@@ -1,14 +1,14 @@
 ---
-status: complete
+status: diagnosed
 phase: 44-player-video-cache-and-local-media-library
 source: [44-VERIFICATION.md]
 started: 2026-09-07T08:00:00Z
-updated: 2026-09-07T13:05:00Z
+updated: 2026-09-07T14:00:00Z
 ---
 
 ## Current Test
 
-[testing complete]
+[诊断中 — Round 3 追加 test 4（G-44-7），见 Tests 末尾]
 
 ## Tests (Round 3 — gap closure 复验，44-14/44-15/44-16)
 
@@ -24,11 +24,17 @@ result: pass
 expected: 缓存抽屉条目 meta 行为「时钟图标 + 时间」并排常显（时间文本非仅 hover 可见），title 保留完整「最近观看 时间」提示
 result: pass
 
+### 4. 缓存完成后转录 MP4 产物非 0 字节（G-44-7，Round 3 追加）
+expected: 播放 https://hn.bfvvs.com/play/b2k7JoJd/index.m3u8 缓存完成后点「转换为 MP4」，产物为可播放的非 0 字节 mp4；不可转格式应显式报错且不留 0 字节半成品
+result: issue
+reported: "现在还有问题，https://hn.bfvvs.com/play/b2k7JoJd/index.m3u8 播放视频时，缓存完成转录 mp4 还是0字节"
+severity: blocker
+
 ## Summary (Round 3)
 
-total: 3
+total: 4
 passed: 3
-issues: 0
+issues: 1
 pending: 0
 skipped: 0
 blocked: 0
@@ -146,3 +152,21 @@ blocked: 0
   missing:
     - "保留时钟图标 span，其后追加时间文本节点实现「图标 + 时间」并排常显；title 保留完整「最近观看 时间」作补充提示"
   debug_session: .planning/debug/watch-time-icon-replaced.md
+
+- gap_id: G-44-7
+  truth: "缓存完成后「转换为 MP4」产物为可播放的非 0 字节 mp4（不可转格式应显式报错且不留 0 字节半成品）"
+  status: failed
+  reason: "User reported: https://hn.bfvvs.com/play/b2k7JoJd/index.m3u8 播放视频时，缓存完成转录 mp4 还是0字节"
+  severity: blocker
+  test: 4
+  root_cause: "双因链（AND）：① 格式层——该源是 AES-128 加密 HLS（#EXT-X-KEY METHOD=AES-128），缓存层落盘的是解密前密文（52 分片无一 0x47 开头、熵判定 256≥240），mux.js 无解密链路，44-13 嗅探正确拒转（今日任务 fa53643f 正确 failed=encrypted_stream），状态机无缺陷；② 泄漏层——convertToMp4 在嗅探检查点之前 fs.createWriteStream(outputPath)（open 带 O_CREAT 异步排队、文件尚未创建），嗅探拒绝后 fail() 同一同步 tick 内 unlinkSync → ENOENT 被静默吞掉，事件循环随后执行排队的 open() 创建 0 字节文件，此后无人清理。历史两条 9/6 任务（44-13 修复前）completed+0 字节是另一面：当时无 empty_output 终检，密文分片转出无效产物"
+  artifacts:
+    - path: "media-remuxer.js"
+      issue: "fail()/empty_output 清理的 unlinkSync 与 createWriteStream 异步 open() 竞态（187/196-198 行区域）——凡「stream 创建后、首条 data 写盘前」失败路径（encrypted_stream/unsupported_container/cancelled/早期 transmux 异常）均泄漏 0 字节文件"
+    - path: "media-cache-manager.js"
+      issue: "次要：segment 请求分类未排除 EXT-X-KEY 的 key URI，enc.key（16 字节 ASCII）被当分片落库（meta.segments 53 > total_segments 52），污染 playlist_order 完整性判定"
+  missing:
+    - "泄漏修复（核心）：清理改为等 stream 完全关闭后再 unlink（'close' 事件时序），或先同步建 fd 再建 WriteStream；回归测试断言密文分片 reject 后 outputPath 不存在"
+    - "体验改进：转换入口/清单解析层检测 EXT-X-KEY:METHOD=AES-128 直接报「加密视频暂不支持转换」，不进 mux 流程"
+    - "缓存分类修正（次要）：缓存捕获排除 EXT-X-KEY 的 key URI，避免 key 污染 segments"
+  debug_session: .planning/debug/convert-mp4-zero-bytes.md
