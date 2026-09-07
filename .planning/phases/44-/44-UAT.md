@@ -1,39 +1,35 @@
 ---
-status: testing
+status: complete
 phase: 44-player-video-cache-and-local-media-library
 source: [44-VERIFICATION.md]
 started: 2026-09-07T08:00:00Z
-updated: 2026-09-07T12:30:00Z
+updated: 2026-09-07T13:05:00Z
 ---
 
 ## Current Test
 
-number: 1
-name: 真机 5 轮「开始录制→停止→关窗（含 Cmd+W）」无 SIGSEGV（G-44-2 复验）
-expected: |
-  dev 或正式版真机连续 5 轮「开始录制 → 停止 → 关闭播放器窗口（鼠标+Cmd+W 各混若干次）」全程无 SIGSEGV 崩溃；dev 环境主进程日志可见 `webContents destroyed` 诊断行（含 id + 最近 URL），正式版零输出
-awaiting: user response
+[testing complete]
 
 ## Tests (Round 3 — gap closure 复验，44-14/44-15/44-16)
 
 ### 1. 真机 5 轮「开始录制→停止→关窗（含 Cmd+W）」无 SIGSEGV（G-44-2 复验）
 expected: 连续 5 轮录制→停止→关窗（Cmd+W 与点关闭混用）全程无 SIGSEGV；dev 环境可见 webContents destroyed 诊断日志，生产版零输出（44-14 延迟销毁规避 + 44-15 Electron 43.6.0 双层防御）
-result: [pending]
+result: pass
 
 ### 2. 红点时长每秒平滑 +1（G-44-4 复验）
 expected: 录制中红点 hover 时长每秒平滑推进 +1s，0 分片落盘（弱网）时也在走表，不再出现「半天不动/突然跳几秒」；停止后任务页时长口径不变
-result: [pending]
+result: pass
 
 ### 3. 抽屉「时钟图标+时间」并排常显（G-44-6 复验）
 expected: 缓存抽屉条目 meta 行为「时钟图标 + 时间」并排常显（时间文本非仅 hover 可见），title 保留完整「最近观看 时间」提示
-result: [pending]
+result: pass
 
 ## Summary (Round 3)
 
 total: 3
-passed: 0
+passed: 3
 issues: 0
-pending: 3
+pending: 0
 skipped: 0
 blocked: 0
 
@@ -98,7 +94,9 @@ blocked: 0
 
 - gap_id: G-44-2
   truth: "停止录制流程稳定完成，不闪退（录制按钮图标目检为附带确认）"
-  status: failed
+  status: resolved        # was: failed
+  resolved_by: 44-14, 44-15
+  resolved_at: 2026-09-07
   reason: "User reported: 直播按钮切换点击都没问题，点播 m3u8 点击停止录制后程序闪退了。日志末尾：Electron exited with signal SIGSEGV"
   severity: blocker
   test: 2
@@ -115,7 +113,9 @@ blocked: 0
 
 - gap_id: G-44-4
   truth: "录制中红色按钮 hover 显示的录制时长应平滑连续更新（每秒推进）"
-  status: failed
+  status: resolved        # was: failed
+  resolved_by: 44-16
+  resolved_at: 2026-09-07
   reason: "User reported: 播放器右上角红色按钮，鼠标放上去显示时间更新不及时，有时半天不改变时间，有时又突然增加好几秒"
   severity: minor
   test: 4
@@ -131,7 +131,9 @@ blocked: 0
 
 - gap_id: G-44-6
   truth: "缓存抽屉条目 meta 行应为「时钟图标 + 时间」并排展示——图标只替换「最近观看」四个字，时间文本始终可见（非仅 hover）"
-  status: failed
+  status: resolved        # was: failed
+  resolved_by: 44-16
+  resolved_at: 2026-09-07
   reason: "User reported: 图标替换理解有误，我只想替换「最近观看」四个字，时间还是要有的，现在只有一个图标没有时间了"
   severity: major
   test: 6
