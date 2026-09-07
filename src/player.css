@@ -633,6 +633,20 @@ body.fullscreen #title-bar {
   text-overflow: ellipsis;
 }
 
+/* G-44-8：「最近观看」时钟图标（替代 meta 行文字，完整时间进 title tooltip） */
+.drawer-item-watched {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  color: var(--player-text-secondary);
+}
+
+.drawer-item-watched svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
 /* 删除按钮：hover 条目时显示（aria-label「删除缓存」——checker 建议 ②） */
 .drawer-item-delete {
   position: absolute;
@@ -744,6 +758,27 @@ body.fullscreen #title-bar {
   font-size: 14px;
   line-height: 1.5;
   word-break: break-all;
+}
+
+/* G-44-8：「同时删除条目（含观看历史）」checkbox 行（13px，与确认文案协调） */
+.drawer-delete-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--player-text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.drawer-delete-option input[type='checkbox'] {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: #EF4444;
 }
 
 .drawer-delete-actions {

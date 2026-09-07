@@ -108,6 +108,7 @@ const drawerEmpty = document.getElementById('drawer-empty');
 const btnDrawerClose = document.getElementById('btn-drawer-close');
 const drawerDeleteDialog = document.getElementById('drawer-delete-dialog');
 const drawerDeleteText = document.getElementById('drawer-delete-text');
+const drawerDeleteEntry = document.getElementById('drawer-delete-entry');
 const btnDrawerDeleteCancel = document.getElementById('btn-drawer-delete-cancel');
 const btnDrawerDeleteConfirm = document.getElementById('btn-drawer-delete-confirm');
 
@@ -928,6 +929,9 @@ if (window.playerAPI && window.playerAPI.onRecordStateChanged) {
 /** 待删除的抽屉条目 playbackKey（删除确认框确认后消费） @type {string|null} */
 let pendingDeleteKey = null;
 
+/** 待删除的抽屉条目标题（G-44-8：checkbox 勾选联动文案读取） @type {string|null} */
+let pendingDeleteTitle = null;
+
 /**
  * 最近观看时间格式化：同年省略年份（MM-DD HH:mm），跨年带年份
  * @param {number} ts - 毫秒时间戳
@@ -976,7 +980,7 @@ async function renderDrawer() {
       el.appendChild(progress);
     }
 
-    // 元信息：「缓存大小 · 完整度% · 最近观看时间」（completeness 缺省时省略）
+    // 元信息：「缓存大小 · 完整度%」+ 时钟图标（最近观看时间进 tooltip——G-44-8 missing 3）
     const meta = document.createElement('div');
     meta.className = 'drawer-item-meta';
     const parts = [];
@@ -985,9 +989,16 @@ async function renderDrawer() {
     } else {
       parts.push('未缓存');
     }
-    const watched = formatWatchedTime(item.lastWatched);
-    if (watched) parts.push(`最近观看 ${watched}`);
     meta.textContent = parts.join(' · ');
+    const watched = formatWatchedTime(item.lastWatched);
+    if (watched) {
+      meta.appendChild(document.createTextNode(' · '));
+      const watchedIcon = document.createElement('span');
+      watchedIcon.className = 'drawer-item-watched';
+      watchedIcon.title = `最近观看 ${watched}`;
+      watchedIcon.innerHTML = '<svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.75" stroke="currentColor" stroke-width="1.1" fill="none"/><path d="M6 3.6V6l1.8 1.1" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+      meta.appendChild(watchedIcon);
+    }
     el.appendChild(meta);
 
     // 转换按钮（D-17/D-24）：仅分片齐全（完整度 100%）的缓存条目可见——
@@ -1061,28 +1072,42 @@ btnDrawerClose.addEventListener('click', closeDrawer);
 
 /**
  * 打开删除缓存确认框（原生 dialog + showModal，AGENTS.md 弹框居中约定）
- * 文案按 UI-SPEC Copywriting Contract：「删除缓存「{标题}」？观看历史保留，下次播放将重新缓存」
+ * 默认文案按 UI-SPEC Copywriting Contract（逐字）：「删除缓存「{标题}」？观看历史保留，下次播放将重新缓存」；
+ * 勾选「同时删除条目」后由 change 监听切换警示文案（G-44-8）。每次打开 checkbox 复位为不勾选。
  * @param {{ title: string, playbackKey: string }} item - 抽屉条目
  */
 function openDeleteConfirm(item) {
   pendingDeleteKey = item.playbackKey || null;
-  const label = item.title || '该视频';
-  drawerDeleteText.textContent = `删除缓存「${label}」？观看历史保留，下次播放将重新缓存`;
+  pendingDeleteTitle = item.title || '该视频';
+  drawerDeleteEntry.checked = false;
+  drawerDeleteText.textContent = `删除缓存「${pendingDeleteTitle}」？观看历史保留，下次播放将重新缓存`;
   drawerDeleteDialog.showModal();
 }
 
+// G-44-8：checkbox 勾选联动文案（绑定一次）
+drawerDeleteEntry.addEventListener('change', () => {
+  if (pendingDeleteTitle == null) return;
+  drawerDeleteText.textContent = drawerDeleteEntry.checked
+    ? `删除缓存「${pendingDeleteTitle}」？将同时删除观看历史条目，不可恢复`
+    : `删除缓存「${pendingDeleteTitle}」？观看历史保留，下次播放将重新缓存`;
+});
+
 btnDrawerDeleteCancel.addEventListener('click', () => {
   pendingDeleteKey = null;
+  pendingDeleteTitle = null;
   drawerDeleteDialog.close();
 });
 
 btnDrawerDeleteConfirm.addEventListener('click', async () => {
   const key = pendingDeleteKey;
+  const deleteEntry = drawerDeleteEntry.checked;
   pendingDeleteKey = null;
+  pendingDeleteTitle = null;
   drawerDeleteDialog.close();
   if (!key || !window.playerAPI || !window.playerAPI.deleteCacheEntry) return;
   try {
-    await window.playerAPI.deleteCacheEntry(key);
+    // G-44-8：第二参透传勾选态（缺省/false = 仅删缓存 D-16 原语义；true = 连观看历史条目删除）
+    await window.playerAPI.deleteCacheEntry(key, deleteEntry);
   } catch (e) {
     console.error('[Realm Player] 删除缓存失败:', e);
   }
@@ -1092,6 +1117,7 @@ btnDrawerDeleteConfirm.addEventListener('click', async () => {
 // Esc 关闭确认框时清理待删状态（dialog cancel 事件）
 drawerDeleteDialog.addEventListener('cancel', () => {
   pendingDeleteKey = null;
+  pendingDeleteTitle = null;
 });
 
 // webview tab 模式下录制/抽屉按钮隐藏（CSS 兜底已写，这里把 file:// 兜底加载
