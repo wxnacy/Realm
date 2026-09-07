@@ -3,9 +3,9 @@ phase: 44
 slug: ""
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-09-06
 ---
 
@@ -44,22 +44,36 @@ created: 2026-09-06
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 44-W0-cache | 01 | 0 | D-05/07/08/09 | T-44-proxy-token | 缓存仅经 token 鉴权的 /proxy 命中，直写目录不外泄 | unit（纯逻辑） | `node tests/test-media-cache.js` | ❌ W0 | ⬜ pending |
-| 44-W0-parser | 01 | 0 | 录制解析 | — | N/A | unit | `node tests/test-m3u8-playlist-parser.js` | ❌ W0 | ⬜ pending |
-| 44-W0-registry | 01 | 0 | D-25 | — | N/A | unit | `node tests/test-media-task-registry.js` | ❌ W0 | ⬜ pending |
-| 44-resume-key | — | — | D-12/续播 | — | N/A | unit（可并入 test-media-cache） | `node tests/test-media-cache.js` | ❌ W0 | ⬜ pending |
-| 44-nav-regression | — | — | D-02 导航回归 | — | N/A | integration（playwright _electron） | `node tests/test-unified-navigation.js` | ✅ 既有 | ⬜ pending |
+| 44-W0-cache | 01 | 0 | D-05/07/08/09 | T-44-proxy-token | 缓存仅经 token 鉴权的 /proxy 命中，直写目录不外泄 | unit（纯逻辑） | `node tests/test-media-cache.js` | ✅ | ✅ green（20 pass） |
+| 44-W0-parser | 01 | 0 | 录制解析 | — | N/A | unit | `node tests/test-m3u8-playlist-parser.js` | ✅ | ✅ green（15 pass） |
+| 44-W0-registry | 01 | 0 | D-25 | — | N/A | unit | `node tests/test-media-task-registry.js` | ✅ | ✅ green（26 pass） |
+| 44-resume-key | — | — | D-12/续播 | — | N/A | unit（可并入 test-media-cache） | `node tests/test-media-cache.js` | ✅ | ✅ green（并入 20 pass） |
+| 44-nav-regression | — | — | D-02 导航回归 | — | N/A | integration（playwright _electron） | `node tests/test-unified-navigation.js` | ✅ 既有 | ✅ green（32 pass） |
+| 44-remuxer | 05 | 4 | D-21 转封装 | — | N/A | unit | `node tests/test-media-remuxer.js` | ✅ | ✅ green（23 pass） |
+| 44-record-duration | 16 | 1 | G-44-4 时长平滑 | — | N/A | unit | `node tests/test-media-record-duration.js` | ✅ | ✅ green（4 pass） |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
 ---
 
+## Validation Audit 2026-09-07
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+
+全部 6 个测试文件实跑全绿（120 断言 / 0 失败），requirements 全部 COVERED，新增 44-05/44-16 产出的两个测试文件补入映射表。
+
+---
+
 ## Wave 0 Requirements
 
-- [ ] `tests/test-media-cache.js` — 覆盖 D-05~D-10、D-12（缓存索引/FIFO 淘汰豁免活跃任务/磁盘满强淘/哈希校验删片/续播 key）
-- [ ] `tests/test-m3u8-playlist-parser.js` — 覆盖录制解析（MEDIA-SEQUENCE/分片列举/ENDLIST/targetDuration）
-- [ ] `tests/test-media-task-registry.js` — 覆盖 D-25 状态机（running→completed/failed/cancelled/interrupted + 持久化 + record→convert 接力）
-- [ ] Framework install: none needed
+- [x] `tests/test-media-cache.js` — 覆盖 D-05~D-10、D-12（缓存索引/FIFO 淘汰豁免活跃任务/磁盘满强淘/哈希校验删片/续播 key）
+- [x] `tests/test-m3u8-playlist-parser.js` — 覆盖录制解析（MEDIA-SEQUENCE/分片列举/ENDLIST/targetDuration）
+- [x] `tests/test-media-task-registry.js` — 覆盖 D-25 状态机（running→completed/failed/cancelled/interrupted + 持久化 + record→convert 接力）
+- [x] Framework install: none needed
 
 ---
 
@@ -74,11 +88,11 @@ created: 2026-09-06
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 10s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 10s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** validated 2026-09-07（Nyquist audit：0 gap）
