@@ -407,3 +407,93 @@ describe('store() 源流 error 健壮性（CR-05）', () => {
     assert.ok(!('contentType' in hit2), '未登记 contentType 的命中结果不应带该字段（回落默认）');
   });
 });
+
+describe('密钥 URI 排除与加密标记（G-44-7）', () => {
+  const M3U8 = 'https://a.com/enc/index.m3u8';
+  const PLAYLIST = [
+    '#EXTM3U',
+    '#EXT-X-KEY:METHOD=AES-128,URI="enc.key",IV=0x00000000000000000000000000000001',
+    '#EXTINF:5.0,',
+    'seg0.ts',
+    '#EXTINF:5.0,',
+    'seg1.ts',
+    '#EXT-X-ENDLIST',
+  ].join('\n');
+
+  test('含 EXT-X-KEY 清单 → meta.has_encryption=true 且 key_uris 含密钥键', () => {
+    const root = makeCacheRoot();
+    const c = new MediaCacheManager({ cacheRoot: root });
+    const vid = c.touchVideo(M3U8);
+    c.updatePlaylistIndex(M3U8, PLAYLIST);
+    const meta = JSON.parse(fs.readFileSync(path.join(root, vid, 'meta.json'), 'utf8'));
+    assert.strictEqual(meta.has_encryption, true);
+    const keySeg = segmentKeyOf('https://a.com/enc/enc.key');
+    assert.deepStrictEqual(meta.key_uris, [keySeg]);
+  });
+
+  test('storeBuffer 存密钥 URI → segments 无该键且目录无文件；真实分片正常登记', () => {
+    const root = makeCacheRoot();
+    const c = new MediaCacheManager({ cacheRoot: root });
+    const vid = c.touchVideo(M3U8);
+    c.updatePlaylistIndex(M3U8, PLAYLIST);
+
+    const keyUrl = 'https://a.com/enc/enc.key';
+    const keySeg = segmentKeyOf(keyUrl);
+    const rk = c.storeBuffer(keyUrl, vid, makeBuffer(16, 9));
+    assert.strictEqual(rk.ok, true);
+    assert.strictEqual(rk.skipped, true);
+    assert.strictEqual(rk.reason, 'key_uri');
+
+    const r0 = c.storeBuffer('https://a.com/enc/seg0.ts', vid, makeBuffer(128, 1));
+    const r1 = c.storeBuffer('https://a.com/enc/seg1.ts', vid, makeBuffer(128, 2));
+    assert.strictEqual(r0.ok, true);
+    assert.strictEqual(r1.ok, true);
+
+    const meta = JSON.parse(fs.readFileSync(path.join(root, vid, 'meta.json'), 'utf8'));
+    assert.ok(!meta.segments[keySeg], '密钥 URI 不应登记进 segments');
+    assert.ok(!fs.existsSync(path.join(root, vid, 'segments', keySeg)), '密钥文件不应落盘');
+    assert.strictEqual(Object.keys(meta.segments).length, 2, 'segments 数应与清单分片数一致');
+    assert.strictEqual(meta.playlist_order.length, Object.keys(meta.segments).length);
+  });
+
+  test('有 key_uris 的污染 meta → getConvertInfo 剔除 key 键且 hasEncryption=true', () => {
+    const root = makeCacheRoot();
+    const c = new MediaCacheManager({ cacheRoot: root });
+    const vid = c.touchVideo(M3U8);
+    // 模拟修复前污染落库（key 键混入 segments），随后清单重新拉取登记 key_uris
+    c.storeBuffer('https://a.com/enc/seg0.ts', vid, makeBuffer(128, 1));
+    c.storeBuffer('https://a.com/enc/seg1.ts', vid, makeBuffer(128, 2));
+    c.storeBuffer('https://a.com/enc/enc.key', vid, makeBuffer(16, 9));
+    c.updatePlaylistIndex(M3U8, PLAYLIST);
+
+    const info = c.getConvertInfo(vid);
+    const keySeg = segmentKeyOf('https://a.com/enc/enc.key');
+    assert.strictEqual(info.hasEncryption, true);
+    assert.strictEqual(info.segmentPaths.length, 2, 'key 键应被剔除出 segmentPaths');
+    assert.ok(
+      info.segmentPaths.every((p) => !p.endsWith(keySeg)),
+      'segmentPaths 不应包含 key 文件'
+    );
+    // 剔除后 playlist_order（2）与分片数（2）对齐 → completeness 恢复 100
+    assert.strictEqual(info.completeness, 100);
+  });
+
+  test('无 key_uris 的污染 meta → getConvertInfo 过滤为 no-op（key 键仍留在 segmentPaths）', () => {
+    const root = makeCacheRoot();
+    const c = new MediaCacheManager({ cacheRoot: root });
+    const vid = c.touchVideo(M3U8);
+    // 模拟修复前落库且未重新播放的历史污染条目：无 key_uris 字段
+    c.storeBuffer('https://a.com/enc/seg0.ts', vid, makeBuffer(128, 1));
+    c.storeBuffer('https://a.com/enc/seg1.ts', vid, makeBuffer(128, 2));
+    c.storeBuffer('https://a.com/enc/enc.key', vid, makeBuffer(16, 9));
+
+    const info = c.getConvertInfo(vid);
+    const keySeg = segmentKeyOf('https://a.com/enc/enc.key');
+    assert.strictEqual(info.hasEncryption, false, '无 has_encryption 字段的历史条目应为 false');
+    assert.strictEqual(info.segmentPaths.length, 3, '过滤为 no-op，key 键保留');
+    assert.ok(
+      info.segmentPaths.some((p) => p.endsWith(keySeg)),
+      '读取侧不静默改动历史污染条目'
+    );
+  });
+});

@@ -412,6 +412,18 @@ class MediaCacheManager {
       if (mMeta.segments && mMeta.segments[segKey]) {
         return { ok: true, skipped: true };
       }
+      // G-44-7：密钥 URI（EXT-X-KEY 的 enc.key 等）不落库——它不是分片，
+      // 16 字节密钥混入 segments 会污染 playlist_order 完整性判定。
+      // 时序依据：hls.js 先请求清单（updatePlaylistIndex 此刻已把 key_uris 落盘）
+      // 后请求密钥/分片，故判定所依赖的 key_uris 必然先行就绪。
+      // 适用域：直连媒体清单形态；master→variant 两级清单下 updatePlaylistIndex
+      // 按 variant URL 落库、分片按 master vid 归属（44-05 既有行为），时序前提不成立，
+      // 但该形态本就 completeness=null、转换按钮隐藏，不参与 key 排除机制。
+      // store() 的 passthrough 透传独立于此（pipe 先行），早退不影响播放取流。
+      if (Array.isArray(mMeta.key_uris) && mMeta.key_uris.includes(segKey)) {
+        console.debug(`[Realm] 密钥 URI 跳过落盘: ${finalUrl}`);
+        return { ok: true, skipped: true, reason: 'key_uri' };
+      }
 
       const file = this._safePath(videoId, 'segments', segKey);
       fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -606,6 +618,16 @@ class MediaCacheManager {
     meta.total_segments = order.length;
     meta.playlist_ended = !!pl.ended;
     meta.has_discontinuity = DISCONTINUITY_RE.test(playlistText || '');
+    // G-44-7：加密标记 + 密钥 URI 键集合（与 meta.segments 同源的 segKey）。
+    // key_uris 供 storeBuffer O(1) 成员判定跳过密钥落库、getConvertInfo 读取侧过滤。
+    meta.has_encryption = !!pl.hasEncryption;
+    const keyUris = [];
+    for (const uri of pl.keyUris || []) {
+      try {
+        keyUris.push(segmentKeyOf(resolveUri(uri, m3u8Url)));
+      } catch { /* 非法 URI 跳过 */ }
+    }
+    meta.key_uris = keyUris;
     this._writeMeta(vid, meta);
   }
 
@@ -613,8 +635,12 @@ class MediaCacheManager {
    * 读取缓存条目的转封装信息（player:convert/start 入口数据源，D-17）
    * 分片顺序：playlist_order 优先（权威播放顺序，且须覆盖全部已登记分片），
    * 回退 stored_at 时间序（VOD 线性观看近似正确）。
+   * 密钥过滤前提（G-44-7）：仅对 meta.key_uris 已存在（修复后清单被重新拉取
+   * 登记过）的条目，把 key 键剔除出分片集（读取侧自愈）；修复前落库且未重新
+   * 播放（无 key_uris）的历史污染条目过滤为 no-op——该情形由转换入口
+   * has_encryption 早拒 + 44-17 无 0 字节残留兜底，读取侧不做静默改动。
    * @param {string} videoId - 视频目录 ID（16 位 hex）
-   * @returns {{ title: string, m3u8Url: string, playbackKey: string, segmentPaths: string[], completeness: number|null, totalSegments: number|null, hasDiscontinuity: boolean }|null}
+   * @returns {{ title: string, m3u8Url: string, playbackKey: string, segmentPaths: string[], completeness: number|null, totalSegments: number|null, hasDiscontinuity: boolean, hasEncryption: boolean }|null}
    *   completeness=null 表示分片总数未知（无法确认齐全，D-17 按不齐全处理）
    */
   getConvertInfo(videoId) {
@@ -622,7 +648,10 @@ class MediaCacheManager {
     const meta = this._readMeta(videoId);
     if (!meta) return null;
     const segs = meta.segments || {};
-    const allKeys = Object.keys(segs);
+    const keyUris = Array.isArray(meta.key_uris) ? meta.key_uris : null;
+    const allKeys = keyUris
+      ? Object.keys(segs).filter((k) => !keyUris.includes(k))
+      : Object.keys(segs);
     let keys = null;
     if (Array.isArray(meta.playlist_order) && meta.playlist_order.length === allKeys.length) {
       keys = meta.playlist_order.filter((k) => segs[k]);
@@ -652,6 +681,7 @@ class MediaCacheManager {
       completeness,
       totalSegments: total,
       hasDiscontinuity: !!meta.has_discontinuity,
+      hasEncryption: !!meta.has_encryption,
     };
   }
 
