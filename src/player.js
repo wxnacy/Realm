@@ -980,7 +980,8 @@ async function renderDrawer() {
       el.appendChild(progress);
     }
 
-    // 元信息：「缓存大小 · 完整度%」+ 时钟图标（最近观看时间进 tooltip——G-44-8 missing 3）
+    // 元信息：「缓存大小 · 完整度%」+「时钟图标 + 时间」并排常显（G-44-6：
+    // 图标只替代「最近观看」四个字，时间文本始终可见；title 保留完整提示）
     const meta = document.createElement('div');
     meta.className = 'drawer-item-meta';
     const parts = [];
@@ -997,6 +998,7 @@ async function renderDrawer() {
       watchedIcon.className = 'drawer-item-watched';
       watchedIcon.title = `最近观看 ${watched}`;
       watchedIcon.innerHTML = '<svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.75" stroke="currentColor" stroke-width="1.1" fill="none"/><path d="M6 3.6V6l1.8 1.1" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+      watchedIcon.appendChild(document.createTextNode(watched));
       meta.appendChild(watchedIcon);
     }
     el.appendChild(meta);

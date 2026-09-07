@@ -633,11 +633,12 @@ body.fullscreen #title-bar {
   text-overflow: ellipsis;
 }
 
-/* G-44-8：「最近观看」时钟图标（替代 meta 行文字，完整时间进 title tooltip） */
+/* G-44-6：时钟图标 + 时间并排常显（图标只替代「最近观看」文字，时间文本可见） */
 .drawer-item-watched {
   display: inline-flex;
   align-items: center;
   vertical-align: middle;
+  gap: 4px;
   color: var(--player-text-secondary);
 }
 
