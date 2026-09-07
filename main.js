@@ -523,6 +523,24 @@ function notifyOpenUrlInTab(contents, url, containerId) {
 // guest 页面 target=_blank / window.open 必须在主进程用 setWindowOpenHandler 拦截：
 // 一律 deny 独立窗口，改为通知渲染进程在 guest 所在容器新建 Tab（D-09）
 app.on('web-contents-created', (event, contents) => {
+  // G-44-2 诊断（仅 dev/debug）：为每个 webContents 留存「最近 URL + 销毁日志」。
+  // 用户下次复现闪退时，崩溃前最后一条 destroyed 日志即被销毁的具体 webContents
+  //（候选：ERR_FAILED 的 mp4 webview guest 或播放器窗口本体）。
+  // URL 取局部变量，不在 destroyed 回调里调 getURL——销毁后取值抛错。
+  // 生产/Nightly 环境零输出；本块只挂监听与日志，不含行为逻辑
+  //（UA 覆盖、预加载注入等既有逻辑不动）
+  if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'debug') {
+    const wcType = contents.getType();
+    let lastUrl = '';
+    contents.on('did-navigate', (navEvent, url) => { lastUrl = url; });
+    contents.on('dom-ready', () => {
+      try { lastUrl = contents.getURL(); } catch { /* 过渡态取值失败，保留上次记录 */ }
+    });
+    contents.once('destroyed', () => {
+      console.log(`[Realm] webContents destroyed id=${contents.id} type=${wcType} url=${lastUrl}`);
+    });
+  }
+
   if (contents.getType() !== 'webview') return;
 
   console.log(`[Realm] webview webContents 创建, id: ${contents.id}`);
