@@ -4205,6 +4205,9 @@ async function init() {
   // 初始化媒体任务角标（Phase 44 D-26：活跃录制/转封装任务被动提醒）
   initMediaTaskBadge();
 
+  // 初始化媒体任务终态 toast（Phase 44 G-44-5：convert/record 终态应用内提示）
+  initMediaTaskToast();
+
   // 初始化下载管理 UI
   initDownloads();
 
@@ -4565,8 +4568,13 @@ async function confirmDeleteContainer() {
  * 显示 Toast 提示
  * @param {string} message - 提示内容
  * @param {string} type - 提示类型：'success' 或 'error'
+ * @param {Object} [opts] - 可选配置（Phase 44 G-44-5 扩展，缺省行为不变）
+ * @param {Function} [opts.onClick] - 点击 toast 时执行的回调（如定位产物）
+ * @param {number} [opts.duration=3000] - 自动消失毫秒数
  */
-function showToast(message, type) {
+function showToast(message, type, opts = {}) {
+  const { onClick, duration = 3000 } = opts || {};
+
   // 移除已有的 toast
   const existingToast = document.querySelector('.toast');
   if (existingToast) {
@@ -4576,6 +4584,11 @@ function showToast(message, type) {
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
   toast.textContent = message;
+  // 点击回调存在时标记可点击（.toast-clickable 恢复 pointer-events 并显示手型光标）
+  if (typeof onClick === 'function') {
+    toast.classList.add('toast-clickable');
+    toast.addEventListener('click', () => onClick());
+  }
   document.body.appendChild(toast);
 
   // 触发动画
@@ -4583,11 +4596,11 @@ function showToast(message, type) {
     toast.classList.add('visible');
   });
 
-  // 3 秒后自动消失
+  // duration 毫秒后自动消失（缺省 3000）
   setTimeout(() => {
     toast.classList.remove('visible');
     setTimeout(() => toast.remove(), 300);
-  }, 3000);
+  }, duration);
 }
 
 /**
@@ -10554,6 +10567,48 @@ function initMediaTaskBadge() {
       updateMediaTaskBadge((data && data.count) || 0);
     });
   }
+}
+
+/**
+ * 初始化媒体任务终态 toast（Phase 44 G-44-5）
+ * 根因：ad-hoc 签名下 macOS 静默拒授系统通知授权，convert/record 终态
+ * 在主窗口无任何提示。监听 media-task:changed 广播，过滤 completed/failed
+ * 终态弹应用内 toast；文案与 main.js showTaskNotification 标题契约一致；
+ * 有 outputPath 时点击经 download:show-in-folder IPC（shell.showItemInFolder）
+ * 在 Finder 定位产物。系统通知代码保留不删（正式签名后双通道并存）。
+ */
+function initMediaTaskToast() {
+  if (!(window.mediaAPI && window.mediaAPI.onMediaTaskChanged)) return;
+
+  window.mediaAPI.onMediaTaskChanged((task) => {
+    if (!task || (task.status !== 'completed' && task.status !== 'failed')) return;
+
+    let message;
+    if (task.status === 'completed') {
+      if (task.type === 'convert') {
+        // 与 showTaskNotification 契约一致：MP4 转换完成：{文件名}
+        const base = task.outputPath
+          ? task.outputPath.split('/').pop()
+          : task.title;
+        message = `MP4 转换完成：${base}`;
+      } else {
+        message = '录制已保存';
+      }
+    } else {
+      // failed：task.error 已带「MP4 转换失败：」等前缀（44-05），不重复拼接
+      message = task.error || '任务失败';
+    }
+
+    const type = task.status === 'failed' ? 'error' : 'success';
+
+    // 有产物路径时点击定位（复用既有受信 IPC 链路）；无 outputPath 仅提示
+    const onClick = task.outputPath && window.downloadAPI && window.downloadAPI.showInFolder
+      ? () => window.downloadAPI.showInFolder(task.outputPath)
+      : undefined;
+
+    // 终态提示停留 5s，久于普通 3s toast
+    showToast(message, type, { onClick, duration: 5000 });
+  });
 }
 
 /**

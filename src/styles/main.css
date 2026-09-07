@@ -1472,6 +1472,13 @@ textarea::placeholder {
   border-left: 3px solid var(--danger-color);
 }
 
+/* 可点击 toast（媒体任务终态定位产物，G-44-5）：
+   .toast 基类 pointer-events:none 拦截点击，可点击变体需恢复 */
+.toast.toast-clickable {
+  cursor: pointer;
+  pointer-events: auto;
+}
+
 /* 滚动条样式 */
 ::-webkit-scrollbar {
   width: 8px;
