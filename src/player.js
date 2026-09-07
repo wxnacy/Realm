@@ -947,6 +947,74 @@ function formatWatchedTime(ts) {
 }
 
 /**
+ * 填充抽屉条目元信息（缓存大小 · 完整度 + 时钟图标时间）——renderDrawer 初渲
+ * 与 refreshDrawerProgress 实时刷新共用（G-44-6：图标只替代「最近观看」四个字，
+ * 时间文本始终可见；title 保留完整提示）
+ * @param {HTMLElement} meta - .drawer-item-meta 元素
+ * @param {Object} item - 抽屉条目数据
+ */
+function fillDrawerMeta(meta, item) {
+  meta.textContent = '';
+  const parts = [];
+  if (item.cacheSize > 0) {
+    parts.push(formatBytes(item.cacheSize) + (item.completeness != null ? ` · 完整度 ${Math.round(item.completeness)}%` : ''));
+  } else {
+    parts.push('未缓存');
+  }
+  meta.textContent = parts.join(' · ');
+  const watched = formatWatchedTime(item.lastWatched);
+  if (watched) {
+    meta.appendChild(document.createTextNode(' · '));
+    const watchedIcon = document.createElement('span');
+    watchedIcon.className = 'drawer-item-watched';
+    watchedIcon.title = `最近观看 ${watched}`;
+    watchedIcon.innerHTML = '<svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.75" stroke="currentColor" stroke-width="1.1" fill="none"/><path d="M6 3.6V6l1.8 1.1" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+    watchedIcon.appendChild(document.createTextNode(watched));
+    meta.appendChild(watchedIcon);
+  }
+}
+
+/**
+ * 同步抽屉条目转换按钮（D-17/D-24）：分片齐全（完整度 100%）可见——隐藏而非
+ * 置灰（UI-SPEC Disabled）；点击经主进程服务端复校后弹框选目录。AES-128 加密源
+ * 同样显示：主进程有解密材料（key_hex）即解密转换，密钥缺失按 key_unavailable
+ * 文案反馈。renderDrawer 初渲与实时刷新共用：完整度跨 100% 时增删按钮。
+ * @param {HTMLElement} el - .drawer-item 元素
+ * @param {Object} item - 抽屉条目数据
+ */
+function syncDrawerConvertButton(el, item) {
+  const show = item.cacheSize > 0 && item.completeness != null && item.completeness >= 100;
+  let convert = el.querySelector('.drawer-item-convert');
+  if (!show) {
+    if (convert) convert.remove();
+    return;
+  }
+  if (convert) return;
+  convert = document.createElement('button');
+  convert.className = 'drawer-item-convert';
+  convert.textContent = '转换为 MP4';
+  convert.title = '转换为 MP4';
+  convert.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    convert.disabled = true;
+    try {
+      const r = await window.playerAPI.startConvert({ entryId: item.playbackKey });
+      // cancelled = 用户在弹框取消，静默即可；其余失败原因主进程已记录日志
+      if (r && r.ok === false && r.reason && r.reason !== 'cancelled') {
+        console.warn('[Realm Player] 转换发起失败:', r.reason);
+      }
+    } catch (err) {
+      console.warn('[Realm Player] 转换发起异常:', err);
+    } finally {
+      convert.disabled = false;
+    }
+  });
+  // 删除按钮之前插入（保持 转换 → 删除 的 DOM 序）
+  const del = el.querySelector('.drawer-item-delete');
+  el.insertBefore(convert, del || null);
+}
+
+/**
  * 渲染抽屉列表（缓存库 + 观看历史合并、最近观看优先——44-01 player:drawer:list 契约）
  */
 async function renderDrawer() {
@@ -962,6 +1030,8 @@ async function renderDrawer() {
   for (const item of items) {
     const el = document.createElement('div');
     el.className = 'drawer-item';
+    // playbackKey 标记供实时刷新按条目定位（不重建 DOM，保住滚动位与 hover 态）
+    el.dataset.playbackKey = item.playbackKey || '';
 
     const title = document.createElement('div');
     title.className = 'drawer-item-title';
@@ -980,55 +1050,12 @@ async function renderDrawer() {
       el.appendChild(progress);
     }
 
-    // 元信息：「缓存大小 · 完整度%」+「时钟图标 + 时间」并排常显（G-44-6：
-    // 图标只替代「最近观看」四个字，时间文本始终可见；title 保留完整提示）
     const meta = document.createElement('div');
     meta.className = 'drawer-item-meta';
-    const parts = [];
-    if (item.cacheSize > 0) {
-      parts.push(formatBytes(item.cacheSize) + (item.completeness != null ? ` · 完整度 ${Math.round(item.completeness)}%` : ''));
-    } else {
-      parts.push('未缓存');
-    }
-    meta.textContent = parts.join(' · ');
-    const watched = formatWatchedTime(item.lastWatched);
-    if (watched) {
-      meta.appendChild(document.createTextNode(' · '));
-      const watchedIcon = document.createElement('span');
-      watchedIcon.className = 'drawer-item-watched';
-      watchedIcon.title = `最近观看 ${watched}`;
-      watchedIcon.innerHTML = '<svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.75" stroke="currentColor" stroke-width="1.1" fill="none"/><path d="M6 3.6V6l1.8 1.1" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
-      watchedIcon.appendChild(document.createTextNode(watched));
-      meta.appendChild(watchedIcon);
-    }
+    fillDrawerMeta(meta, item);
     el.appendChild(meta);
 
-    // 转换按钮（D-17/D-24）：仅分片齐全（完整度 100%）且非加密源的缓存条目可见——
-    // 隐藏而非置灰（UI-SPEC Disabled）；点击经主进程服务端复校后弹框选目录。
-    // G-44-7：AES-128 加密源（#EXT-X-KEY METHOD≠NONE）缓存落盘为密文、mux.js
-    // 无解密链路，转换永远失败——按钮整体不渲染（锁定决策：播放器不建 toast 基建）
-    if (item.cacheSize > 0 && item.completeness != null && item.completeness >= 100 && !item.hasEncryption) {
-      const convert = document.createElement('button');
-      convert.className = 'drawer-item-convert';
-      convert.textContent = '转换为 MP4';
-      convert.title = '转换为 MP4';
-      convert.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        convert.disabled = true;
-        try {
-          const r = await window.playerAPI.startConvert({ entryId: item.playbackKey });
-          // cancelled = 用户在弹框取消，静默即可；其余失败原因主进程已记录日志
-          if (r && r.ok === false && r.reason && r.reason !== 'cancelled') {
-            console.warn('[Realm Player] 转换发起失败:', r.reason);
-          }
-        } catch (err) {
-          console.warn('[Realm Player] 转换发起异常:', err);
-        } finally {
-          convert.disabled = false;
-        }
-      });
-      el.appendChild(convert);
-    }
+    syncDrawerConvertButton(el, item);
 
     // 删除按钮：hover 显示（aria-label「删除缓存」——UI-SPEC checker 建议 ②）
     const del = document.createElement('button');
@@ -1053,14 +1080,51 @@ async function renderDrawer() {
   }
 }
 
+/** 抽屉缓存进度实时刷新间隔（播放中分片持续落盘，2s 轮询足够跟手且低耗） */
+const DRAWER_PROGRESS_REFRESH_MS = 2000;
+
+/** @type {number|null} 抽屉打开期间的进度轮询定时器 */
+let drawerProgressTimer = null;
+
+/**
+ * 抽屉打开期间的缓存进度实时刷新：拉最新抽屉数据，按 playbackKey 命中已渲染
+ * 条目就地更新元信息/转换按钮（不重建列表——重建会丢滚动位与 hover 态）。
+ */
+async function refreshDrawerProgress() {
+  if (!window.playerAPI || !window.playerAPI.getDrawerList) return;
+  let items = [];
+  try {
+    items = (await window.playerAPI.getDrawerList()) || [];
+  } catch {
+    return;
+  }
+  const byKey = new Map(items.map((it) => [it.playbackKey || '', it]));
+  for (const el of drawerList.querySelectorAll('.drawer-item')) {
+    const item = byKey.get(el.dataset.playbackKey || '');
+    if (!item) continue;
+    const meta = el.querySelector('.drawer-item-meta');
+    if (meta) fillDrawerMeta(meta, item);
+    const fill = el.querySelector('.drawer-item-progress-fill');
+    if (fill && item.duration > 0) {
+      fill.style.width = `${Math.min(100, (item.lastPosition / item.duration) * 100)}%`;
+    }
+    syncDrawerConvertButton(el, item);
+  }
+}
+
 function openDrawer() {
   drawerPanel.classList.add('open');
   renderDrawer();
   showControls();
+  // 缓存进度实时刷新：播放中分片持续落盘，轮询就地更新条目（关抽屉即停）
+  clearInterval(drawerProgressTimer);
+  drawerProgressTimer = setInterval(refreshDrawerProgress, DRAWER_PROGRESS_REFRESH_MS);
 }
 
 function closeDrawer() {
   drawerPanel.classList.remove('open');
+  clearInterval(drawerProgressTimer);
+  drawerProgressTimer = null;
 }
 
 function toggleDrawer() {
@@ -1138,6 +1202,16 @@ if (!window.playerAPI || !window.playerAPI.startRecord) {
  * 使用 300ms 延迟区分单击播放/暂停和双击全屏
  */
 video.addEventListener('click', (e) => {
+  // 抽屉打开时点击视频画面：只收起抽屉，不改变播放状态（不触发播放/暂停切换，
+  // 也不排单击定时器——避免 300ms 后误 togglePlay）
+  if (drawerPanel.classList.contains('open')) {
+    if (clickTimer) {
+      clearTimeout(clickTimer);
+      clickTimer = null;
+    }
+    closeDrawer();
+    return;
+  }
   if (clickTimer) {
     // 这是双击的第二次点击，由 dblclick 事件处理
     return;
@@ -1154,6 +1228,11 @@ video.addEventListener('dblclick', (e) => {
   if (clickTimer) {
     clearTimeout(clickTimer);
     clickTimer = null;
+  }
+  // 抽屉打开时双击：只收起抽屉，不进全屏
+  if (drawerPanel.classList.contains('open')) {
+    closeDrawer();
+    return;
   }
   toggleFullscreen();
 });

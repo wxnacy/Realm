@@ -412,7 +412,7 @@ class MediaCacheManager {
       if (mMeta.segments && mMeta.segments[segKey]) {
         return { ok: true, skipped: true };
       }
-      // G-44-7：密钥 URI（EXT-X-KEY 的 enc.key 等）不落库——它不是分片，
+      // G-44-7：密钥 URI（EXT-X-KEY 的 enc.key 等）不落 segments 库——它不是分片，
       // 16 字节密钥混入 segments 会污染 playlist_order 完整性判定。
       // 时序依据：hls.js 先请求清单（updatePlaylistIndex 此刻已把 key_uris 落盘）
       // 后请求密钥/分片，故判定所依赖的 key_uris 必然先行就绪。
@@ -420,7 +420,13 @@ class MediaCacheManager {
       // 按 variant URL 落库、分片按 master vid 归属（44-05 既有行为），时序前提不成立，
       // 但该形态本就 completeness=null、转换按钮隐藏，不参与 key 排除机制。
       // store() 的 passthrough 透传独立于此（pipe 先行），早退不影响播放取流。
+      // 密钥本体留存：16 字节（AES-128 key size）的密钥写进 meta.key_hex（转换
+      // 解密链路的数据源；安全域与落盘密文同级——userData 本地目录），不进 segments。
       if (Array.isArray(mMeta.key_uris) && mMeta.key_uris.includes(segKey)) {
+        if (buffer.length === 16 && !mMeta.key_hex) {
+          mMeta.key_hex = buffer.toString('hex');
+          this._writeMeta(videoId, mMeta);
+        }
         console.debug(`[Realm] 密钥 URI 跳过落盘: ${finalUrl}`);
         return { ok: true, skipped: true, reason: 'key_uri' };
       }
@@ -628,6 +634,11 @@ class MediaCacheManager {
       } catch { /* 非法 URI 跳过 */ }
     }
     meta.key_uris = keyUris;
+    // 解密材料（AES-128 转换链路）：IV 属性（无则按 HLS 规范用分片 seq 推导）
+    // 与清单 media sequence 基线。附加字段向后兼容（旧 meta 缺字段 = 无法解密转换，
+    // 入口按 key_unavailable 处理），不升 META_VERSION。
+    meta.key_iv = typeof pl.keyIv === 'string' ? pl.keyIv : null;
+    meta.media_sequence = typeof pl.mediaSequence === 'number' ? pl.mediaSequence : 0;
     this._writeMeta(vid, meta);
   }
 
@@ -640,8 +651,9 @@ class MediaCacheManager {
    * 播放（无 key_uris）的历史污染条目过滤为 no-op——该情形由转换入口
    * has_encryption 早拒 + 44-17 无 0 字节残留兜底，读取侧不做静默改动。
    * @param {string} videoId - 视频目录 ID（16 位 hex）
-   * @returns {{ title: string, m3u8Url: string, playbackKey: string, segmentPaths: string[], completeness: number|null, totalSegments: number|null, hasDiscontinuity: boolean, hasEncryption: boolean }|null}
-   *   completeness=null 表示分片总数未知（无法确认齐全，D-17 按不齐全处理）
+   * @returns {{ title: string, m3u8Url: string, playbackKey: string, segmentPaths: string[], completeness: number|null, totalSegments: number|null, hasDiscontinuity: boolean, hasEncryption: boolean, keyHex: string|null, keyIvHex: string|null, mediaSequence: number }|null}
+   *   completeness=null 表示分片总数未知（无法确认齐全，D-17 按不齐全处理）；
+   *   keyHex/keyIvHex/mediaSequence 为 AES-128 解密材料（keyHex=null 时加密条目不可转换）
    */
   getConvertInfo(videoId) {
     this._assertVideoId(videoId);
@@ -673,6 +685,29 @@ class MediaCacheManager {
     const completeness = total
       ? Math.min(100, Math.round((segmentPaths.length / total) * 100))
       : null;
+    // 解密材料（AES-128 转换链路）。key_hex 自愈：修复前密钥被当分片落库的历史
+    // 条目（key_uris 已登记但 key_hex 缺失），从污染分片文件回读 16 字节密钥并
+    // 补写 meta.key_hex——用户无需重播即可转换。
+    let keyHex = typeof meta.key_hex === 'string' ? meta.key_hex : null;
+    if (!keyHex && keyUris) {
+      for (const k of keyUris) {
+        if (!segs[k]) continue;
+        try {
+          const f = this._safePath(videoId, 'segments', k);
+          if (!fs.existsSync(f)) continue;
+          const buf = fs.readFileSync(f);
+          if (buf.length === 16) {
+            keyHex = buf.toString('hex');
+            const m2 = this._readMeta(videoId);
+            if (m2 && !m2.key_hex) {
+              m2.key_hex = keyHex;
+              this._writeMeta(videoId, m2);
+            }
+            break;
+          }
+        } catch { /* 回读失败跳过 */ }
+      }
+    }
     return {
       title: meta.title || '',
       m3u8Url: meta.m3u8_url || '',
@@ -682,6 +717,9 @@ class MediaCacheManager {
       totalSegments: total,
       hasDiscontinuity: !!meta.has_discontinuity,
       hasEncryption: !!meta.has_encryption,
+      keyHex,
+      keyIvHex: typeof meta.key_iv === 'string' ? meta.key_iv : null,
+      mediaSequence: typeof meta.media_sequence === 'number' ? meta.media_sequence : 0,
     };
   }
 

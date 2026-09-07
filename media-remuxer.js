@@ -21,6 +21,7 @@
  */
 
 const fs = require('fs');
+const crypto = require('crypto');
 const muxjs = require('mux.js');
 
 /** 文件名非法字符（含路径分隔符）与控制字符 → 替换为 _（T-44-15 白名单替换） */
@@ -110,6 +111,18 @@ function sniffContainerFormat(filePath) {
       try { fs.closeSync(fd); } catch { /* 关闭失败忽略 */ }
     }
   }
+  return sniffContainerBuffer(buf);
+}
+
+/**
+ * 缓冲级容器格式嗅探（判定序同 sniffContainerFormat）：
+ * ① 首字节 0x47 放行；② fMP4 box 特征 → unsupported_container；
+ * ③ 高熵 → encrypted_stream；④ 其余 → unsupported_container。
+ * 解密链路对「解密后的首分片缓冲」调用本函数（密文先解密再判别，不错杀）。
+ * @param {Buffer} buf - 分片头部缓冲（截到 64KB 足够）
+ * @returns {Error|null} null = MPEG-TS 放行
+ */
+function sniffContainerBuffer(buf) {
   // ① MPEG-TS 同步字节：放行（宽松判定，保持既有 TS 路径零回归）
   if (buf.length > 0 && buf[0] === 0x47) return null;
   // ② fMP4 box 特征 ASCII：HLS+fMP4（CMF）分片以 box 开头、无同步字节
@@ -133,6 +146,69 @@ function sniffContainerFormat(filePath) {
   }
   // ④ 未知格式：非 TS 同步字节且无 box 特征、非高熵，一律拒转
   return remuxError('unsupported_container', '未知分片格式，仅支持 MPEG-TS');
+}
+
+/** AES-128 密钥长度（字节）：EXT-X-KEY 的 16 字节密钥 */
+const AES128_KEY_BYTES = 16;
+
+/**
+ * 规范化解密材料（convertToMp4 decryption 入参校验）
+ * @param {Object} decryption - { keyHex, ivHex?, mediaSequence? }
+ * @returns {{ key: Buffer, iv: Buffer|null, mediaSequence: number }} iv=null 表示按分片 seq 推导
+ * @throws {Error} remuxError('decrypt_failed') 密钥/IV 形态非法
+ */
+function normalizeDecryption(decryption) {
+  if (!decryption || typeof decryption !== 'object') {
+    throw remuxError('decrypt_failed', '解密材料缺失');
+  }
+  const key = Buffer.from(String(decryption.keyHex || ''), 'hex');
+  if (key.length !== AES128_KEY_BYTES) {
+    throw remuxError('decrypt_failed', 'AES-128 密钥长度非法（须 16 字节）');
+  }
+  let iv = null;
+  if (typeof decryption.ivHex === 'string' && decryption.ivHex) {
+    iv = Buffer.from(decryption.ivHex, 'hex');
+    if (iv.length !== 16) {
+      throw remuxError('decrypt_failed', 'IV 长度非法（须 16 字节）');
+    }
+  }
+  const mediaSequence = Number.isInteger(decryption.mediaSequence) && decryption.mediaSequence >= 0
+    ? decryption.mediaSequence
+    : 0;
+  return { key, iv, mediaSequence };
+}
+
+/**
+ * 分片 IV：清单带 IV 属性用固定 IV；否则按 HLS 规范（RFC 8216 §5.2）
+ * 用分片 media sequence 的 16 字节大端序。
+ * @param {Buffer|null} fixedIv - 清单 IV 属性（null = 按 seq 推导）
+ * @param {number} seq - 分片 media sequence
+ * @returns {Buffer} 16 字节 IV
+ */
+function segmentIv(fixedIv, seq) {
+  if (fixedIv) return fixedIv;
+  const iv = Buffer.alloc(16, 0);
+  iv.writeBigUInt64BE(BigInt(seq), 8);
+  return iv;
+}
+
+/**
+ * AES-128-CBC 解密单个分片。PKCS7 去填充优先（规范形态）；填充校验失败
+ * 回落不去填充（部分编码器不补齐），明文是否正确交给后续嗅探/transmux 裁决。
+ * @param {Buffer} buf - 密文分片
+ * @param {Buffer} key - 16 字节密钥
+ * @param {Buffer} iv - 16 字节 IV
+ * @returns {Buffer} 解密后分片
+ */
+function decryptSegment(buf, key, iv) {
+  try {
+    const d = crypto.createDecipheriv('aes-128-cbc', key, iv);
+    return Buffer.concat([d.update(buf), d.final()]);
+  } catch {
+    const d = crypto.createDecipheriv('aes-128-cbc', key, iv);
+    d.setAutoPadding(false);
+    return Buffer.concat([d.update(buf), d.final()]);
+  }
 }
 
 /**
@@ -162,12 +238,17 @@ function sniffContainerFormat(filePath) {
  * @param {Function} [input.onProgress] - (processed, total) 进度回调（异常不阻断）
  * @param {Function} [input.shouldCancel] - 每分片迭代开始前调用的取消检查，返回 true
  *   即中止（reason='cancelled'，半成品清理同失败路径）
+ * @param {Object} [input.decryption] - AES-128 解密材料（加密 HLS 缓存条目转换）：
+ *   { keyHex: string, ivHex?: string|null, mediaSequence?: number }。
+ *   提供时每分片 readFileSync 后先 AES-128-CBC 解密再 push（IV 缺省按分片 seq 推导，
+ *   RFC 8216 §5.2）；首分片嗅探改为裁决解密后缓冲（密文不再被 encrypted_stream 错杀）。
+ *   缺省时行为与 G-44-4b/G-44-7 完全一致（密文分片 encrypted_stream 拒转）。
  * @returns {Promise<{ outputPath: string, segments: number }>} 完成时 resolve
  *   失败时 reject Error（err.reason 机器可读：discontinuity/no_segments/
  *   invalid_output/segment_missing/transmux_failed/write_failed/cancelled/
- *   unsupported_container/encrypted_stream/empty_output）
+ *   unsupported_container/encrypted_stream/empty_output/decrypt_failed）
  */
-function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity, shouldCancel }) {
+function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity, shouldCancel, decryption }) {
   return new Promise((resolve, reject) => {
     if (hasDiscontinuity) {
       reject(remuxError('discontinuity', '直播流含不连续片段（EXT-X-DISCONTINUITY），暂不支持转换'));
@@ -218,6 +299,18 @@ function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity, 
       reject(err);
     };
 
+    // AES-128 解密材料规范化（可选）：形态非法立即 fail（产物同步 fd 已建，
+    // fail 的 unlinkSync 必然命中，无泄漏）
+    let dec = null;
+    if (decryption) {
+      try {
+        dec = normalizeDecryption(decryption);
+      } catch (err) {
+        fail(err);
+        return;
+      }
+    }
+
     stream.on('error', (err) => {
       fail(remuxError('write_failed', err.message));
     });
@@ -257,15 +350,27 @@ function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity, 
         }
         // G-44-4b 首片格式嗅探检查点：置于取消检查之后、push 之前——不可转
         // 容器（fMP4/密文）在进入 mux.js 前显式 reject，错误对象直接携带
-        // reason/detail，fail 复用既有清理
+        // reason/detail，fail 复用既有清理。
+        // AES-128 解密链路：提供 decryption 时先解密再判别——密文（高熵）不再
+        // 被 encrypted_stream 错杀；解密失败（密钥形态/数据非法）按 decrypt_failed
+        // 显式 reject。解密后仍非 TS（密钥错误解出垃圾等）由嗅探原路径拒转。
+        let payload;
+        if (dec) {
+          try {
+            payload = decryptSegment(fs.readFileSync(tsFile), dec.key, segmentIv(dec.iv, dec.mediaSequence + i));
+          } catch (err) {
+            fail(remuxError('decrypt_failed', `分片 ${i} 解密失败: ${err.message}`));
+            return;
+          }
+        }
         if (i === 0) {
-          const sniffErr = sniffContainerFormat(tsFile);
+          const sniffErr = dec ? sniffContainerBuffer(payload) : sniffContainerFormat(tsFile);
           if (sniffErr) {
             fail(sniffErr);
             return;
           }
         }
-        transmuxer.push(new Uint8Array(fs.readFileSync(tsFile)));
+        transmuxer.push(dec ? new Uint8Array(payload) : new Uint8Array(fs.readFileSync(tsFile)));
         transmuxer.flush();
         processed++;
         if (typeof onProgress === 'function') {

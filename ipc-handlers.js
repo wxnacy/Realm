@@ -2274,7 +2274,7 @@ function registerHandlers() {
    * 抽屉列表数据（D-14/D-15）：缓存库条目 + 观看历史双层合并，按 last_watched
    * 降序。条目 { title, url, playbackKey, cacheSize, completeness, hasEncryption,
    * lastPosition, lastWatched }——缓存条目含大小，纯历史条目 cacheSize 为 0、
-   * hasEncryption 为 undefined（非缓存条目不参与转换按钮判定，G-44-7）
+   * hasEncryption 为 undefined
    * @returns {Promise<Array>}
    */
   ipcMain.handle('player:drawer:list', (event) => {
@@ -2318,7 +2318,8 @@ function registerHandlers() {
             item.completeness = Math.min(100, Math.round((present / e.meta.total_segments) * 100));
           }
           if (!item.title && e.meta.title) item.title = e.meta.title;
-          // G-44-7：加密源（EXT-X-KEY METHOD≠NONE）透出标记——抽屉隐藏转换按钮（D-17 隐藏语义）
+          // 加密源标记（EXT-X-KEY METHOD≠NONE）透出——转换按钮不再据此隐藏
+          //（AES-128 走解密转换链路），保留字段供后续 badge/诊断使用
           item.hasEncryption = !!e.meta.has_encryption;
           if (!item.url && e.meta.m3u8_url) item.url = e.meta.m3u8_url;
           if (e.meta.last_position) item.lastPosition = Math.max(item.lastPosition, e.meta.last_position);

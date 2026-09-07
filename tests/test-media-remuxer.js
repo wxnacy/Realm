@@ -322,3 +322,124 @@ describe('G-44-7 产物泄漏回归（异步 open 竞态修复）', () => {
     }
   });
 });
+
+describe('AES-128 解密转换（加密 HLS 缓存条目，G-44-7 后续）', () => {
+  const KEY = Buffer.from('00112233445566778899aabbccddeeff', 'hex');
+  const IV = Buffer.from('00000000000000000000000000000001', 'hex');
+
+  /** 用 aes-128-cbc（PKCS7）加密明文分片 */
+  function encryptSegment(plain, key, iv) {
+    const c = crypto.createCipheriv('aes-128-cbc', key, iv);
+    return Buffer.concat([c.update(plain), c.final()]);
+  }
+
+  test('固定 IV 解密链路：密文分片解密后过嗅探进入 mux.js（错误语义落 empty_output 而非 encrypted_stream）', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-aes-'));
+    try {
+      // 伪 TS（0x47 填充，4 个包）加密成密文分片；解密后首字节 0x47 → 嗅探放行，
+      // 垃圾包 mux.js 不产数据 → 既有 empty_output 终检兜底。核心断言：不被
+      // encrypted_stream/unsupported_container 拒转（密文未被错杀，解密确实发生）
+      const seg = path.join(dir, 'seg0.ts');
+      fs.writeFileSync(seg, encryptSegment(Buffer.alloc(188 * 4, 0x47), KEY, IV));
+      const out = path.join(dir, 'out.mp4');
+      await assert.rejects(
+        () => remuxer.convertToMp4({
+          segmentPaths: [seg],
+          outputPath: out,
+          decryption: { keyHex: KEY.toString('hex'), ivHex: IV.toString('hex') },
+        }),
+        (err) => {
+          assert.strictEqual(err.reason, 'empty_output', `解密后应过嗅探（实际 reason=${err.reason}）`);
+          return true;
+        }
+      );
+      assert.strictEqual(fs.existsSync(out), false, '失败路径产物清理');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('无 IV 属性时按分片 seq 推导 IV（mediaSequence 大端序，RFC 8216 §5.2）', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-aes-seq-'));
+    try {
+      // 清单 MEDIA-SEQUENCE=7：首分片 IV = 16 字节大端序 7
+      const seqIv = Buffer.alloc(16, 0);
+      seqIv.writeBigUInt64BE(7n, 8);
+      const seg = path.join(dir, 'seg0.ts');
+      fs.writeFileSync(seg, encryptSegment(Buffer.alloc(188 * 4, 0x47), KEY, seqIv));
+      const out = path.join(dir, 'out.mp4');
+      await assert.rejects(
+        () => remuxer.convertToMp4({
+          segmentPaths: [seg],
+          outputPath: out,
+          decryption: { keyHex: KEY.toString('hex'), mediaSequence: 7 },
+        }),
+        (err) => {
+          assert.strictEqual(err.reason, 'empty_output', `seq 推导 IV 应正确解密（实际 reason=${err.reason}）`);
+          return true;
+        }
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('密钥长度非法 → reason=decrypt_failed 且产物清理', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-aes-badkey-'));
+    try {
+      const seg = path.join(dir, 'seg0.ts');
+      fs.writeFileSync(seg, encryptSegment(Buffer.alloc(188 * 4, 0x47), KEY, IV));
+      const out = path.join(dir, 'out.mp4');
+      await assert.rejects(
+        () => remuxer.convertToMp4({
+          segmentPaths: [seg],
+          outputPath: out,
+          decryption: { keyHex: 'abcd', ivHex: IV.toString('hex') },
+        }),
+        (err) => err.reason === 'decrypt_failed'
+      );
+      assert.strictEqual(fs.existsSync(out), false, 'decrypt_failed 产物清理');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('错误密钥解密出垃圾 → 嗅探原路径拒转（绝不产出文件）', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-aes-wrongkey-'));
+    try {
+      const seg = path.join(dir, 'seg0.ts');
+      fs.writeFileSync(seg, encryptSegment(Buffer.alloc(188 * 4, 0x47), KEY, IV));
+      const out = path.join(dir, 'out.mp4');
+      const wrongKey = Buffer.from('ffeeddccbbaa99887766554433221100', 'hex');
+      // 错密钥 CBC 仍解出字节流（高熵垃圾）：不预言具体 reason（encrypted_stream/
+      // unsupported_container/decrypt_failed 均为显式拒转），核心断言是绝不产出文件
+      await assert.rejects(
+        () => remuxer.convertToMp4({
+          segmentPaths: [seg],
+          outputPath: out,
+          decryption: { keyHex: wrongKey.toString('hex'), ivHex: IV.toString('hex') },
+        }),
+        (err) => {
+          assert.ok(
+            ['encrypted_stream', 'unsupported_container', 'decrypt_failed', 'empty_output'].includes(err.reason),
+            `错密钥不得静默产出（实际 reason=${err.reason}）`
+          );
+          return true;
+        }
+      );
+      assert.strictEqual(fs.existsSync(out), false, '错密钥转换不得残留产物');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('main.js CONVERT_FAIL_TEXT 覆盖 key_unavailable/decrypt_failed（任务页文案不落「未知原因」）', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+    for (const reason of ['key_unavailable', 'decrypt_failed']) {
+      assert.ok(
+        src.includes(`${reason}: '`),
+        `main.js CONVERT_FAIL_TEXT 缺少 ${reason} 文案映射`
+      );
+    }
+  });
+});

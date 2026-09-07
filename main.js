@@ -3030,6 +3030,9 @@ app.whenReady().then(async () => {
     encrypted_stream: '分片为加密数据，暂不支持转换',
     // G-44-7：转换入口早拒的统一文案（纵深防御——万一某入口漏判进了 mux，失败文案也是本句）
     encrypted: '加密视频暂不支持转换',
+    // AES-128 解密链路：密钥未缓存（重新播放一次即会经 /proxy 留存）/ 解密失败
+    key_unavailable: '解密密钥未缓存，请重新播放该视频后再转换',
+    decrypt_failed: '分片解密失败',
     empty_output: '转换产物为空',
   };
 
@@ -3073,14 +3076,15 @@ app.whenReady().then(async () => {
    * 记住选择写回 settings.lastMediaSaveDir）→ 同名「 (2)」序号 → 注册 convert 任务
    * → media-remuxer 后台转封装（进度/终态走注册表统一链路：任务页/角标/通知/定位）。
    * 用户取消弹框 → 不建任务返回 cancelled（D-22：已录分片保留可稍后续转）。
-   * @param {Object} input - { segmentPaths, title, containerId?, playbackKey?, hasDiscontinuity?, hasEncryption?, sourceTaskId? }
+   * @param {Object} input - { segmentPaths, title, containerId?, playbackKey?, hasDiscontinuity?, hasEncryption?, decryption?, sourceTaskId? }
    * @returns {Promise<{ok: boolean, taskId?: string, reason?: string}>}
    */
   async function startConvertTask(input) {
-    const { segmentPaths, title, containerId, playbackKey, hasDiscontinuity, hasEncryption } = input || {};
-    // G-44-7：加密源（EXT-X-KEY METHOD≠NONE）在保存弹框与任务注册之前早拒——
-    // 缓存落盘的是解密前密文、mux.js 无解密链路，转换对该源永远不可能成功
-    if (hasEncryption) return { ok: false, reason: 'encrypted' };
+    const { segmentPaths, title, containerId, playbackKey, hasDiscontinuity, hasEncryption, decryption } = input || {};
+    // G-44-7：加密源（EXT-X-KEY METHOD≠NONE）无解密材料时早拒——record 录制链路
+    // 不留存密钥，加密录制任务不可转换；缓存链路带 decryption（keyHex/ivHex/seq）
+    // 走 AES-128 解密转换，不放行本分支
+    if (hasEncryption && !decryption) return { ok: false, reason: 'encrypted' };
     if (hasDiscontinuity) return { ok: false, reason: 'discontinuity' };
     if (!Array.isArray(segmentPaths) || segmentPaths.length === 0) {
       return { ok: false, reason: 'no_segments' };
@@ -3135,6 +3139,7 @@ app.whenReady().then(async () => {
       outputPath: savePath,
       hasDiscontinuity: false,
       shouldCancel: () => convertCancelled,
+      decryption: decryption || undefined,
       onProgress: (done, total) => {
         const pct = Math.max(1, Math.min(99, Math.round((done / total) * 100)));
         if (pct === lastPct) return;
@@ -3241,8 +3246,17 @@ app.whenReady().then(async () => {
       if (!info) return { ok: false, reason: 'invalid_entry' };
       // D-17 服务端复校：完整度 100%（分片齐全）才可转；discontinuity 拒转
       if (info.hasDiscontinuity) return { ok: false, reason: 'discontinuity' };
-      // G-44-7：加密源早拒（缓存分片为密文，无解密链路）
-      if (info.hasEncryption) return { ok: false, reason: 'encrypted' };
+      // AES-128 加密源：有解密材料（key_hex 经 /proxy 密钥请求留存/历史污染自愈）
+      // 走解密转换；密钥缺失（未重播/两级清单形态）提示重播后再转
+      let decryption = null;
+      if (info.hasEncryption) {
+        if (!info.keyHex) return { ok: false, reason: 'key_unavailable' };
+        decryption = {
+          keyHex: info.keyHex,
+          ivHex: info.keyIvHex || null,
+          mediaSequence: info.mediaSequence || 0,
+        };
+      }
       if (info.completeness === null || info.completeness < 100) {
         return { ok: false, reason: 'segments_incomplete' };
       }
@@ -3251,6 +3265,8 @@ app.whenReady().then(async () => {
         title: info.title || '',
         containerId: '',
         playbackKey: info.playbackKey || null,
+        hasEncryption: info.hasEncryption,
+        decryption,
       });
     }
     return { ok: false, reason: 'invalid_input' };

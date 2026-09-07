@@ -203,6 +203,44 @@ describe('parsePlaylist 加密检测（EXT-X-KEY，G-44-7）', () => {
     assert.strictEqual(r.hasEncryption, true);
     assert.deepStrictEqual(r.keyUris, ['enc.key']);
   });
+
+  test('IV 属性捕获（AES-128 转换解密链路）：IV=0x... → keyIv 为小写 hex（无 0x 前缀）', () => {
+    const text = [
+      '#EXTM3U',
+      '#EXT-X-KEY:METHOD=AES-128,URI="enc.key",IV=0x000000000000000000000000000000AB',
+      '#EXTINF:5.0,',
+      'seg0.ts',
+    ].join('\n');
+    const r = parser.parsePlaylist(text);
+    assert.strictEqual(r.keyIv, '000000000000000000000000000000ab');
+  });
+
+  test('无 IV 属性 → keyIv=null（按 HLS 规范回落分片 seq 推导）', () => {
+    const text = [
+      '#EXTM3U',
+      '#EXT-X-KEY:METHOD=AES-128,URI="enc.key"',
+      '#EXTINF:5.0,',
+      'seg0.ts',
+    ].join('\n');
+    const r = parser.parsePlaylist(text);
+    assert.strictEqual(r.keyIv, null);
+  });
+
+  test('多加密 KEY 行只取首个 IV（单密钥轮换场景）；无加密行 keyIv=null', () => {
+    const text = [
+      '#EXTM3U',
+      '#EXT-X-KEY:METHOD=AES-128,URI="k1.key",IV=0x00000000000000000000000000000001',
+      '#EXTINF:5.0,',
+      'seg0.ts',
+      '#EXT-X-KEY:METHOD=AES-128,URI="k2.key",IV=0x00000000000000000000000000000002',
+      '#EXTINF:5.0,',
+      'seg1.ts',
+    ].join('\n');
+    const r = parser.parsePlaylist(text);
+    assert.strictEqual(r.keyIv, '00000000000000000000000000000001');
+    const plain = parser.parsePlaylist(['#EXTM3U', '#EXTINF:5.0,', 'seg0.ts'].join('\n'));
+    assert.strictEqual(plain.keyIv, null);
+  });
 });
 
 describe('resolveUri 相对 URI 解析', () => {

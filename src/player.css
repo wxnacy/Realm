@@ -518,12 +518,15 @@ body.fullscreen #title-bar {
 }
 
 /* ==================== 本地媒体库抽屉面板（Phase 44 D-14~D-16 / UI-SPEC Component 3/4） ==================== */
-/* 320px 右滑，rgba(0,0,0,0.85) 底，与 speed-menu 同层（z-index 95） */
+/* 320px 右滑，rgba(0,0,0,0.85) 底，与 speed-menu 同层（z-index 95）。
+   上下边界避开常驻覆盖层：top 28px = 自定义标题栏高度（#title-bar），
+   bottom 68px = 控制栏总高（progress 20 + #controls margin 4 + 36 + 容器 padding-bottom 8）——
+   抽屉打开时控制栏保持可见（hideControls 早退），不得遮挡 */
 #drawer-panel {
   position: absolute;
-  top: 0;
+  top: 28px;
   right: 0;
-  bottom: 0;
+  bottom: 68px;
   width: 320px;
   background: rgba(0, 0, 0, 0.85);
   transform: translateX(100%);
@@ -536,6 +539,11 @@ body.fullscreen #title-bar {
 
 #drawer-panel.open {
   transform: translateX(0);
+}
+
+/* 全屏时自定义标题栏隐藏（body.fullscreen #title-bar display:none），抽屉顶到屏幕顶 */
+body.fullscreen #drawer-panel {
+  top: 0;
 }
 
 .drawer-header {

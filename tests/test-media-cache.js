@@ -497,3 +497,90 @@ describe('密钥 URI 排除与加密标记（G-44-7）', () => {
     );
   });
 });
+
+describe('AES-128 解密材料（key_hex/key_iv/media_sequence，加密转换链路）', () => {
+  const M3U8 = 'https://a.com/enc/index.m3u8';
+  const PLAYLIST = [
+    '#EXTM3U',
+    '#EXT-X-MEDIA-SEQUENCE:7',
+    '#EXT-X-KEY:METHOD=AES-128,URI="enc.key",IV=0x00000000000000000000000000000001',
+    '#EXTINF:5.0,',
+    'seg0.ts',
+    '#EXTINF:5.0,',
+    'seg1.ts',
+    '#EXT-X-ENDLIST',
+  ].join('\n');
+
+  test('updatePlaylistIndex 登记 key_iv 与 media_sequence；getConvertInfo 透出解密材料', () => {
+    const root = makeCacheRoot();
+    const c = new MediaCacheManager({ cacheRoot: root });
+    const vid = c.touchVideo(M3U8);
+    c.updatePlaylistIndex(M3U8, PLAYLIST);
+    c.storeBuffer('https://a.com/enc/seg0.ts', vid, makeBuffer(128, 1));
+    c.storeBuffer('https://a.com/enc/seg1.ts', vid, makeBuffer(128, 2));
+
+    const meta = JSON.parse(fs.readFileSync(path.join(root, vid, 'meta.json'), 'utf8'));
+    assert.strictEqual(meta.key_iv, '00000000000000000000000000000001');
+    assert.strictEqual(meta.media_sequence, 7);
+
+    const info = c.getConvertInfo(vid);
+    assert.strictEqual(info.hasEncryption, true);
+    assert.strictEqual(info.keyHex, null, '密钥未到达时 keyHex 为 null（入口按 key_unavailable 处理）');
+    assert.strictEqual(info.keyIvHex, '00000000000000000000000000000001');
+    assert.strictEqual(info.mediaSequence, 7);
+  });
+
+  test('storeBuffer 16 字节密钥 → meta.key_hex 留存（不进 segments）；二次密钥不覆盖', () => {
+    const root = makeCacheRoot();
+    const c = new MediaCacheManager({ cacheRoot: root });
+    const vid = c.touchVideo(M3U8);
+    c.updatePlaylistIndex(M3U8, PLAYLIST);
+
+    const rk = c.storeBuffer('https://a.com/enc/enc.key', vid, makeBuffer(16, 9));
+    assert.strictEqual(rk.skipped, true);
+    assert.strictEqual(rk.reason, 'key_uri');
+
+    const meta = JSON.parse(fs.readFileSync(path.join(root, vid, 'meta.json'), 'utf8'));
+    assert.strictEqual(meta.key_hex, makeBuffer(16, 9).toString('hex'));
+    assert.ok(!meta.segments[segmentKeyOf('https://a.com/enc/enc.key')], '密钥不进 segments');
+
+    // 二次不同内容密钥请求：不覆盖已留存 key_hex（首密钥为准）
+    c.storeBuffer('https://a.com/enc/enc.key', vid, makeBuffer(16, 3));
+    const meta2 = JSON.parse(fs.readFileSync(path.join(root, vid, 'meta.json'), 'utf8'));
+    assert.strictEqual(meta2.key_hex, makeBuffer(16, 9).toString('hex'));
+
+    // getConvertInfo 透出 keyHex
+    c.storeBuffer('https://a.com/enc/seg0.ts', vid, makeBuffer(128, 1));
+    c.storeBuffer('https://a.com/enc/seg1.ts', vid, makeBuffer(128, 2));
+    const info = c.getConvertInfo(vid);
+    assert.strictEqual(info.keyHex, makeBuffer(16, 9).toString('hex'));
+  });
+
+  test('非 16 字节密钥 URI 响应不留存 key_hex（非 AES-128 key size）', () => {
+    const root = makeCacheRoot();
+    const c = new MediaCacheManager({ cacheRoot: root });
+    const vid = c.touchVideo(M3U8);
+    c.updatePlaylistIndex(M3U8, PLAYLIST);
+    c.storeBuffer('https://a.com/enc/enc.key', vid, makeBuffer(24, 9));
+    const meta = JSON.parse(fs.readFileSync(path.join(root, vid, 'meta.json'), 'utf8'));
+    assert.strictEqual(meta.key_hex, undefined);
+  });
+
+  test('历史污染条目 key_hex 自愈：key 作分片落库（16 字节）→ getConvertInfo 回读并补写 meta', () => {
+    const root = makeCacheRoot();
+    const c = new MediaCacheManager({ cacheRoot: root });
+    const vid = c.touchVideo(M3U8);
+    // 修复前污染落库：key 被当分片存进 segments（key_uris 尚未登记）
+    c.storeBuffer('https://a.com/enc/seg0.ts', vid, makeBuffer(128, 1));
+    c.storeBuffer('https://a.com/enc/seg1.ts', vid, makeBuffer(128, 2));
+    c.storeBuffer('https://a.com/enc/enc.key', vid, makeBuffer(16, 9));
+    // 清单重新拉取：登记 key_uris / key_iv / media_sequence
+    c.updatePlaylistIndex(M3U8, PLAYLIST);
+
+    const info = c.getConvertInfo(vid);
+    assert.strictEqual(info.keyHex, makeBuffer(16, 9).toString('hex'), '从污染分片回读密钥自愈');
+    assert.strictEqual(info.segmentPaths.length, 2, 'key 键仍被剔除出 segmentPaths');
+    const meta = JSON.parse(fs.readFileSync(path.join(root, vid, 'meta.json'), 'utf8'));
+    assert.strictEqual(meta.key_hex, makeBuffer(16, 9).toString('hex'), '自愈结果补写 meta.key_hex');
+  });
+});
