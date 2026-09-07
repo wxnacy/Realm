@@ -285,7 +285,7 @@ Plans:
 **Goal:** 独立播放器的 HLS 本地媒体库能力（webview tab 模式保持现状不做缓存）。① 独立播放窗口收口走 /proxy（改从 localhost 加载 player 页面，注入 token，解决防盗链/Cookie 隐患）；② /proxy 层分片级磁盘缓存：按视频组织目录（segments + 元数据），关掉重开已看部分秒开，按视频粒度 FIFO 淘汰，设置页可配缓存目录/容量；③ 观看历史式精确续播：缓存库条目 + 独立观看历史记录（key = origin+pathname，query 时效 token 不参与匹配），进度渲染进程节流上报；④ 统一媒体任务中心 media-task-manager（主进程持久化注册表）：直播录制（工具栏录制按钮，显式后台任务：并发上限/同 URL 去重/失败重试/应用退出确认/关窗弹一次继续或停止并记住默认）+ mux.js 纯 JS 转封装 TS→fMP4（showSaveDialog 弹框选目录，后台转换，完成通知）；⑤ realm://tasks 任务页（设置页多媒体分区「任务列表」按钮入口，进度/停止/产物定位，主窗口角标被动提醒）。方案定稿 2026-09-06 讨论完成
 **Requirements**: TBD
 **Depends on:** Phase 43
-**Plans:** 13/13 plans executed（6 executed + 2 gap-closure pending, 44-VERIFICATION.md gaps_found）
+**Plans:** 16 plans（13 executed + 3 gap-closure planned, 44-UAT.md gaps G-44-2/G-44-4/G-44-6）
 
 Plans:
 
@@ -294,6 +294,15 @@ Plans:
 - [x] 44-11-PLAN.md
 - [x] 44-12-PLAN.md
 - [x] 44-13-PLAN.md
+
+**Gap Closure Wave 1** *(44-UAT.md 2026-09-07 复验)*
+
+- [ ] 44-14-PLAN.md — G-44-2 规避：播放器窗口关闭/ tab guest 销毁序列延迟 + dev 销毁诊断日志
+- [ ] 44-16-PLAN.md — G-44-4 录制时长本地时钟平滑推进（含新单测）+ G-44-6 抽屉「时钟图标+时间」并排常显
+
+**Gap Closure Wave 2** *(blocked on 44-14)*
+
+- [ ] 44-15-PLAN.md — G-44-2 Electron 43 补丁线升级（43.3.0→43.4.11）+ UA/CH 全版本号常量同步 + 打包验证
 
 **Wave 1**
 
