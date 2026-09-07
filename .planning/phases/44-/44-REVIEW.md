@@ -75,6 +75,8 @@ if (existing.status !== 'running') {
 
 ## Info
 
+**UAT 实测确认（2026-09-07，44-UAT Test 9 / G-44-9）:** 用户硬崩溃模拟复验——中断任务 7d5b4a10 目录 39 个 .ts（3.6MB）滞留、无 meta.json，续转 400 no_segments，与 WR-C 预测完全一致。用户决策：本项维持记债（本条），本阶段仅修「续转失败无可见反馈」的 UX 缺口（见 44-UAT G-44-9）。
+
 ### IN-01: media-cache-manager 公开方法形参与 JSDoc 仍称 `finalUrl`，与 CR-01 后实际传入的「请求 URL target」语义漂移
 
 **File:** `media-cache-manager.js:255-260`（lookup @param）、`:332-337`（store @param/meta 说明）、`:385-390`（storeBuffer @param）
