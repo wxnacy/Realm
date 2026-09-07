@@ -2303,15 +2303,20 @@ function registerHandlers() {
   });
 
   /**
-   * 删除缓存条目（D-16 后端）：按 videoId 整目录删缓存，观看历史记录保留
-   *（删除确认文案「观看历史保留」语义）
-   * @param {string} videoId - 视频目录 ID（16 位 hex）
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * 删除缓存条目（D-16 后端 + G-44-8 扩展）：按 videoId 整目录删缓存。
+   * deleteEntry 缺省（undefined/false）时行为与 D-16 原语义逐字节一致——仅删
+   * 缓存目录，观看历史保留；显式 true 且缓存删除成功时连 player_history 中
+   * 该 playbackKey 的记录一并删除（抽屉删除确认框勾选项）。
+   * @param {string} videoId - 视频目录 ID（16 位 hex）或 playbackKey
+   * @param {boolean} [deleteEntry] - 是否连观看历史条目删除（缺省 false）
+   * @returns {Promise<{success: boolean, error?: string, historyDeleted?: boolean}>}
    */
-  ipcMain.handle('player:cache:delete', (event, videoId) => {
+  ipcMain.handle('player:cache:delete', (event, videoId, deleteEntry) => {
     assertPlayerSender(event);
     // 抽屉条目数据携带 playbackKey（origin+pathname），此处兼容两种入参：
     // 16 位 hex videoId 或 playbackKey（经 videoIdOf 换算）
+    // G-44-8：保存原始入参——hex 入参无 playbackKey 语义，历史删除跳过
+    const originalKey = videoId;
     if (videoId && typeof videoId === 'string' && !/^[a-f0-9]{16}$/.test(videoId)) {
       try {
         videoId = videoIdOf(videoId);
@@ -2323,8 +2328,14 @@ function registerHandlers() {
       return { success: false, error: '无效的缓存条目 ID' };
     }
     if (!mediaCache) return { success: false, error: '缓存模块未初始化' };
-    // 注意：观看历史（player_history）独立存储，此处不动——D-16「观看历史保留」
-    return mediaCache.deleteEntry(videoId);
+    const r = mediaCache.deleteEntry(videoId);
+    // 历史删除联动：严格布尔门 + 仅缓存删除成功后 + 非 hex 原始入参（playbackKey）
+    if (deleteEntry === true && r && r.success && playerHistory
+      && typeof originalKey === 'string' && !/^[a-f0-9]{16}$/.test(originalKey)) {
+      const historyDeleted = playerHistory.deleteByKey(originalKey);
+      return { ...r, historyDeleted: !!historyDeleted };
+    }
+    return r;
   });
 
   // ==================== 直播录制（Phase 44 D-18/D-20/D-21） ====================

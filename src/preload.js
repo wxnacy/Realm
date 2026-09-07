@@ -1641,11 +1641,13 @@ contextBridge.exposeInMainWorld('playerAPI', {
   getDrawerList: () => ipcRenderer.invoke('player:drawer:list'),
 
   /**
-   * 删除缓存条目（Phase 44 D-16：按 videoId 整目录删除，观看历史保留）
-   * @param {string} videoId - 视频目录 ID（16 位 hex）
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * 删除缓存条目（Phase 44 D-16 / G-44-8：按 videoId 整目录删除）
+   * @param {string} videoId - 视频目录 ID（16 位 hex）或 playbackKey
+   * @param {boolean} [deleteEntry] - 是否同时删除观看历史条目（缺省/false = 仅删缓存，
+   *   D-16 原语义不变；true = 缓存删除成功后连 player_history 记录一并删除）
+   * @returns {Promise<{success: boolean, error?: string, historyDeleted?: boolean}>}
    */
-  deleteCacheEntry: (videoId) => ipcRenderer.invoke('player:cache:delete', videoId),
+  deleteCacheEntry: (videoId, deleteEntry) => ipcRenderer.invoke('player:cache:delete', videoId, deleteEntry),
 
   /**
    * 监听主进程关窗前的最终进度索取（Phase 44 D-13/Pitfall 6：

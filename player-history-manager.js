@@ -115,6 +115,24 @@ function getByKey(playbackKey) {
 }
 
 /**
+ * 按 playbackKey 删除观看历史记录（Phase 44 G-44-8：抽屉删除确认框勾选
+ * 「同时删除条目（含观看历史）」时，由 IPC 层在缓存删除成功后联动调用）。
+ * SQL 参数化（prepare + ? 占位，禁字符串拼接），changes 计数判定是否真删。
+ * @param {string} playbackKey - origin+pathname
+ * @returns {boolean} 是否删除了记录（未初始化/非法入参/未命中返回 false）
+ */
+function deleteByKey(playbackKey) {
+  if (!db || !playbackKey || typeof playbackKey !== 'string') return false;
+  try {
+    const r = db.prepare('DELETE FROM player_history WHERE playback_key = ?').run(playbackKey);
+    return r.changes > 0;
+  } catch (err) {
+    console.error('[Realm] 观看历史删除失败:', err.message);
+    return false;
+  }
+}
+
+/**
  * 最近观看列表（D-15 抽屉排序：最近观看优先）
  * @param {number} [limit] - 上限（默认 200）
  * @returns {Array<{playbackKey: string, url: string, title: string, position: number, duration: number, lastWatched: number}>}
@@ -130,4 +148,4 @@ function listRecent(limit) {
   }
 }
 
-module.exports = { init, upsertProgress, getByKey, listRecent };
+module.exports = { init, upsertProgress, getByKey, deleteByKey, listRecent };
