@@ -5,16 +5,16 @@ milestone_name: AI 网络搜索功能
 current_phase: 44
 current_phase_name: 播放器视频缓存与本地媒体库
 status: executing
-stopped_at: Completed 44-11-PLAN.md (G-44-4b 格式嗅探与显式拒转)
-last_updated: "2026-09-07T07:02:05.234Z"
+stopped_at: Completed 44-12-PLAN.md (G-44-8 抽屉条目级删除+时钟图标)
+last_updated: "2026-09-07T07:12:48.627Z"
 last_activity: 2026-09-07
 last_activity_desc: Phase 44 execution started
-state_head: a639f293404db862a2831f5b8c207a935d185cc7
+state_head: 6e113fa568bb52ebdababc606544222d466c81a5
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 29
-  completed_plans: 27
+  completed_plans: 28
   percent: 80
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 44 (播放器视频缓存与本地媒体库) — EXECUTING
-Plan: 4 of 13
+Plan: 5 of 13
 Status: Ready to execute
 Last activity: 2026-09-07 — Phase 44 execution started
 
@@ -80,6 +80,7 @@ Progress: [████████░░] 80%
 | Phase 44 P09 | 2min | 2 tasks | 4 files |
 | Phase 44 P10 | 4min | 2 tasks | 4 files |
 | Phase 44 P11 | 4min | 2 tasks | 3 files |
+| Phase 44 P12 | 6min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,7 @@ Recent decisions affecting current work:
 - [Phase 44]: convert 取消 = 协作式信号（convertCancelTokens → shouldCancel 每分片检查），reason='cancelled' 拦截在文案映射前落 cancelled 而非 failed
 - [Phase 44]: convertCancelTokens 令牌 .finally 注销（三终态路径收敛防 Map 泄漏）；终态竞态窗口接受
 - [Phase 44]: G-44-5 toast 落主窗口 renderer，播放器不重复建设 toast 基建；.toast 基类 pointer-events:none，可点击变体必须显式恢复 pointer-events:auto
+- [Phase 44]: Phase 44 P12: deleteEntry 历史删除联动收在 IPC 层（严格 === true + 缓存删除成功前置 + hex 防御三重护栏），缺省 falsy 零触达 playerHistory——D-16 仅删缓存语义逐字节不变 — G-44-8：主进程单点裁决防 renderer 伪造第二参误删观看历史
 
 ### Roadmap Evolution
 
@@ -153,6 +155,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-07T07:02:05.061Z
-Stopped at: Completed 44-11-PLAN.md (G-44-4b 格式嗅探与显式拒转)
+Last session: 2026-09-07T07:12:28.384Z
+Stopped at: Completed 44-12-PLAN.md (G-44-8 抽屉条目级删除+时钟图标)
 Resume file: None
