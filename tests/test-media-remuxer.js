@@ -6,7 +6,9 @@
  * mux.js Transmuxer 构造 smoke（D-04 主进程可用性）、
  * convertToMp4 监听先于 push 的结构断言（RESEARCH Pattern 3 README 硬约束）
  * 与 discontinuity 拒转（Pitfall 5）；CR-04 协作式取消（shouldCancel 即拒转
- * reason=cancelled 且半成品清理 / shouldCancel=false 默认路径不变）。
+ * reason=cancelled 且半成品清理 / shouldCancel=false 默认路径不变）；
+ * G-44-4b 首片格式嗅探（fMP4/高熵拒转、0x47 放行、取消先于嗅探）与
+ * main.js CONVERT_FAIL_TEXT 对新失败 reason 的文案覆盖。
  *
  * 用法: node tests/test-media-remuxer.js
  */
@@ -16,6 +18,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 
 const remuxer = require('../media-remuxer');
 
@@ -152,5 +155,115 @@ describe('convertToMp4 契约', () => {
       }),
       (err) => err.reason === 'segment_missing'
     );
+  });
+});
+
+describe('convertToMp4 格式嗅探（G-44-4b）', () => {
+  test('源码结构断言：嗅探检查点位于 shouldCancel 之后、push 之前（44-08 取消契约优先序）', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'media-remuxer.js'), 'utf8');
+    const cancelIdx = src.indexOf("shouldCancel === 'function' && shouldCancel()");
+    const sniffIdx = src.indexOf('sniffContainerFormat(tsFile)');
+    const pushIdx = src.indexOf('transmuxer.push(');
+    assert.ok(cancelIdx !== -1, '缺少 shouldCancel 取消检查点');
+    assert.ok(sniffIdx !== -1, '缺少首片嗅探检查点');
+    assert.ok(pushIdx !== -1, '缺少 transmuxer.push 调用');
+    assert.ok(cancelIdx < sniffIdx, '取消检查必须先于嗅探（44-08 取消契约）');
+    assert.ok(sniffIdx < pushIdx, '嗅探必须先于 push（不可转容器在进入 mux.js 前拒绝）');
+  });
+
+  test('fMP4 box 分片拒转 reason=unsupported_container 且产物清理', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-fmp4-'));
+    try {
+      // 手工构造 fMP4 分片：4 字节 size + 'ftyp' + 'isom' + 填充（首字节 0x00 非同步字节）
+      const seg = path.join(dir, 'seg.ts');
+      fs.writeFileSync(seg, Buffer.concat([
+        Buffer.from([0x00, 0x00, 0x00, 0x14]),
+        Buffer.from('ftypisom', 'ascii'),
+        Buffer.alloc(12, 0x00),
+      ]));
+      const out = path.join(dir, 'out.mp4');
+      await assert.rejects(
+        () => remuxer.convertToMp4({ segmentPaths: [seg], outputPath: out }),
+        (err) => err.reason === 'unsupported_container'
+      );
+      assert.strictEqual(fs.existsSync(out), false, '拒转后半成品 mp4 应被清理');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('高熵密文分片拒转 reason=encrypted_stream', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-enc-'));
+    try {
+      // 高熵载荷：随机字节强制首字节为固定非 0x47 值（消除随机撞同步字节的偶发）；
+      // 再生循环规避随机撞 fMP4 box 特征 ASCII 的偶发（概率 ~5e-6，测试须确定性）
+      let payload;
+      do {
+        payload = crypto.randomBytes(4096);
+        payload[0] = 0xaa;
+      } while (['ftyp', 'styp', 'moof', 'moov', 'sidx'].some((t) => payload.includes(Buffer.from(t, 'ascii'))));
+      const seg = path.join(dir, 'seg.ts');
+      fs.writeFileSync(seg, payload);
+      const out = path.join(dir, 'out.mp4');
+      await assert.rejects(
+        () => remuxer.convertToMp4({ segmentPaths: [seg], outputPath: out }),
+        (err) => err.reason === 'encrypted_stream'
+      );
+      assert.strictEqual(fs.existsSync(out), false, '拒转后半成品 mp4 应被清理');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('0x47 首字节分片嗅探放行，错误语义落在既有路径（嗅探不误杀 TS）', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-ts-'));
+    try {
+      // 伪 TS（全 0x47）：嗅探放行进入 mux.js；垃圾包不产出有效媒体数据，
+      // 由既有 empty_output 终检兜底（计划预测 transmux_failed，实测 mux.js
+      // 对垃圾包静默不产数据——两者均为既有路径，核心断言是非嗅探 reason，
+      // 证明嗅探未误杀 TS 容器）
+      const seg = path.join(dir, 'seg.ts');
+      fs.writeFileSync(seg, Buffer.alloc(188, 0x47));
+      const out = path.join(dir, 'out.mp4');
+      await assert.rejects(
+        () => remuxer.convertToMp4({ segmentPaths: [seg], outputPath: out }),
+        (err) => {
+          assert.ok(
+            err.reason !== 'unsupported_container' && err.reason !== 'encrypted_stream',
+            `TS 分片不得被嗅探拒绝（实际 reason=${err.reason}）`
+          );
+          assert.strictEqual(err.reason, 'empty_output');
+          return true;
+        }
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('shouldCancel=true + 任意占位分片仍 reason=cancelled（取消先于嗅探，44-08 契约回归）', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-cancel2-'));
+    try {
+      // 占位内容刻意用 fMP4 特征：若嗅探先于取消检查，此处会误报 unsupported_container
+      const seg = path.join(dir, 'seg.ts');
+      fs.writeFileSync(seg, Buffer.from('moofplaceholder'));
+      const out = path.join(dir, 'out.mp4');
+      await assert.rejects(
+        () => remuxer.convertToMp4({ segmentPaths: [seg], outputPath: out, shouldCancel: () => true }),
+        (err) => err.reason === 'cancelled'
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('main.js CONVERT_FAIL_TEXT 覆盖三个新 reason（任务页文案不落「未知原因」）', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+    for (const reason of ['unsupported_container', 'encrypted_stream', 'empty_output']) {
+      assert.ok(
+        src.includes(`${reason}: '`),
+        `main.js CONVERT_FAIL_TEXT 缺少 ${reason} 文案映射`
+      );
+    }
   });
 });
