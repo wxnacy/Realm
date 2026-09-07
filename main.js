@@ -666,8 +666,9 @@ app.on('web-contents-created', (event, contents) => {
       event.preventDefault();
       console.log(`[Realm] m3u8 导航拦截，转播放器页面: ${url}`);
       if (realmPort) {
-        // 携带容器与 token（播放器页面 hls.js 经 /proxy 同源代理拉流需鉴权、
-        // 容器 session 携带 Cookie）及来源页面 referer（防盗链站点校验）
+        // 携带容器与 token（webview tab 播放器页面直连拉流，44-09 G-44-2、D-01：
+        // 仅独立播放器窗口走 /proxy；container/token 参数保留供页面上下文使用）
+        // 及来源页面 referer（防盗链站点校验，独立窗口 /proxy 链路使用）
         const params = new URLSearchParams({ url });
         const guestContainer = getGuestContainerId(contents);
         if (guestContainer) params.set('container', guestContainer);

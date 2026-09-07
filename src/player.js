@@ -305,11 +305,10 @@ function showError(message) {
 const urlParams = new URLSearchParams(window.location.search);
 const paramUrl = urlParams.get('url');
 
-// webview tab 模式（http 协议加载）下，hls.js 请求经 /proxy 同源代理：播放器页面
-// 源是 localhost，直接 XHR 外部视频源会被 CORS 拦截，且防盗链站点校验 Referer——
-// 代理由主进程 ses.fetch 发出，Referer 可控、容器 session 携带 Cookie。
-// m3u8 清单由代理重写，分片/密钥请求同样走代理
-const isWebviewMode = location.protocol === 'http:' || location.protocol === 'https:';
+// 传输层语义（44-09 G-44-2，D-01）：webview tab 模式播放器直连拉流——像网页自身
+// 播放一样直接访问源站，不经 /proxy；防盗链/Cookie 由 webview 容器 session 天然携带。
+// 仅独立窗口经 /proxy 同源代理：token 鉴权、Referer 可控，分片缓存仅此链路
+// （m3u8 清单由代理重写，分片/密钥请求同样走代理）
 
 // Phase 44 D-02：独立窗口 localhost 化后出现第三形态——http: 加载的独立窗口。
 // mode=independent 参数区分：保留标题栏与红绿灯（不进 webview tab 的隐藏标题栏
@@ -318,13 +317,13 @@ const isWebviewMode = location.protocol === 'http:' || location.protocol === 'ht
 const isIndependentMode = urlParams.get('mode') === 'independent';
 
 /**
- * 将视频源 URL 转换为 /proxy 代理 URL（webview tab 与独立窗口 localhost 模式）
+ * 将视频源 URL 转换为 /proxy 代理 URL（仅独立播放器窗口 mode=independent）
  * token/container/referer/cache 从播放器页面 URL 透传
  * @param {string} url - 原始视频 URL
  * @returns {string} 代理 URL 或原 URL
  */
 function proxiedUrl(url) {
-  if (!isWebviewMode || !/^https?:\/\//i.test(url)) return url;
+  if (!isIndependentMode || !/^https?:\/\//i.test(url)) return url;
   const proxyUrl = new URL('/proxy', location.origin);
   proxyUrl.searchParams.set('url', url);
   for (const key of ['token', 'container', 'referer', 'cache']) {

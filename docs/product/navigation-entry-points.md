@@ -82,6 +82,7 @@ openUrl(url, {
 - renderer 版 `maybePlayerUrl`（renderer.js:385）：URL 预包装，openUrl/createWebviewForTab 链路用
 - 主进程版（main.js:549-573 will-navigate 内联）：导航事件流拦截，preventDefault 后 setImmediate 延迟 loadURL（防 ERR_FAILED），多 referer 防盗链参数
 - 运行上下文与时机不同，**不合并**；两处注释互引，改动时两份同步
+- 包装出的 webview tab 播放器页面直连拉流，不走 /proxy（G-44-2 修复，D-01）；仅独立播放器窗口经 /proxy（分片缓存仅此链路）
 
 ## 六、历史问题存档（openUrl 落地前的不一致点，已全部修复）
 
