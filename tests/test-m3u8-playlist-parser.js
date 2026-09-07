@@ -145,6 +145,66 @@ describe('parsePlaylist 标签行与注释行忽略', () => {
   });
 });
 
+describe('parsePlaylist 加密检测（EXT-X-KEY，G-44-7）', () => {
+  test('AES-128 + 相对 URI → hasEncryption=true 且 keyUris=["enc.key"]', () => {
+    const text = [
+      '#EXTM3U',
+      '#EXT-X-KEY:METHOD=AES-128,URI="enc.key",IV=0x00000000000000000000000000000001',
+      '#EXTINF:5.0,',
+      'seg0.ts',
+    ].join('\n');
+    const r = parser.parsePlaylist(text);
+    assert.strictEqual(r.hasEncryption, true);
+    assert.deepStrictEqual(r.keyUris, ['enc.key']);
+  });
+
+  test('METHOD=NONE → hasEncryption=false 且 keyUris 为空', () => {
+    const text = [
+      '#EXTM3U',
+      '#EXT-X-KEY:METHOD=NONE',
+      '#EXTINF:5.0,',
+      'seg0.ts',
+    ].join('\n');
+    const r = parser.parsePlaylist(text);
+    assert.strictEqual(r.hasEncryption, false);
+    assert.deepStrictEqual(r.keyUris, []);
+  });
+
+  test('无 KEY 标签清单 → hasEncryption=false、keyUris 为空', () => {
+    const text = ['#EXTM3U', '#EXTINF:5.0,', 'seg0.ts'].join('\n');
+    const r = parser.parsePlaylist(text);
+    assert.strictEqual(r.hasEncryption, false);
+    assert.deepStrictEqual(r.keyUris, []);
+  });
+
+  test('SAMPLE-AES → hasEncryption=true', () => {
+    const text = [
+      '#EXTM3U',
+      '#EXT-X-KEY:METHOD=SAMPLE-AES,URI="k/key.bin"',
+      '#EXTINF:5.0,',
+      'seg0.ts',
+    ].join('\n');
+    const r = parser.parsePlaylist(text);
+    assert.strictEqual(r.hasEncryption, true);
+    assert.deepStrictEqual(r.keyUris, ['k/key.bin']);
+  });
+
+  test('多 KEY 行（NONE 在后）→ 仍 true，只收集加密行 URI', () => {
+    const text = [
+      '#EXTM3U',
+      '#EXT-X-KEY:METHOD=AES-128,URI="enc.key"',
+      '#EXTINF:5.0,',
+      'seg0.ts',
+      '#EXT-X-KEY:METHOD=NONE',
+      '#EXTINF:5.0,',
+      'seg1.ts',
+    ].join('\n');
+    const r = parser.parsePlaylist(text);
+    assert.strictEqual(r.hasEncryption, true);
+    assert.deepStrictEqual(r.keyUris, ['enc.key']);
+  });
+});
+
 describe('resolveUri 相对 URI 解析', () => {
   test('相对路径以清单 URL 为 base 解析为绝对 URL', () => {
     assert.strictEqual(

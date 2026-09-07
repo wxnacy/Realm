@@ -15,10 +15,14 @@ const DEFAULT_TARGET_DURATION = 6;
 /**
  * 解析 m3u8 清单文本
  * @param {string} text - 原始清单文本
- * @returns {{ mediaSequence: number, targetDuration: number, ended: boolean, isLive: boolean, segments: Array<{ uri: string, seq: number, duration: number|null }> }}
+ * @returns {{ mediaSequence: number, targetDuration: number, ended: boolean, isLive: boolean, hasEncryption: boolean, keyUris: string[], segments: Array<{ uri: string, seq: number, duration: number|null }> }}
  *   mediaSequence — 滑动窗口基线序号（缺省 0）；segments[].seq = mediaSequence + 分片序位
  *   ended — 是否含 EXT-X-ENDLIST；isLive — 播放中清单（!ended）
  *   duration — 紧邻 EXTINF 标签的时长（秒），无对应标签时为 null
+ *   hasEncryption — 任一 #EXT-X-KEY 行 METHOD ≠ NONE 即 true（AES-128 / SAMPLE-AES 都算；
+ *     不因后续 METHOD=NONE 行回落——整清单出现过加密即视为加密流，G-44-7）
+ *   keyUris — 加密 KEY 行的 URI="..." 原始值（相对/绝对原样保留，绝对化由调用方负责）；
+ *     METHOD=NONE 行不收集
  */
 function parsePlaylist(text) {
   const result = {
@@ -26,6 +30,8 @@ function parsePlaylist(text) {
     targetDuration: DEFAULT_TARGET_DURATION,
     ended: false,
     isLive: true,
+    hasEncryption: false,
+    keyUris: [],
     segments: [],
   };
   if (typeof text !== 'string' || !text) return result;
@@ -41,6 +47,19 @@ function parsePlaylist(text) {
       if (trimmed.includes('EXT-X-ENDLIST')) {
         result.ended = true;
         result.isLive = false;
+        continue;
+      }
+      // EXT-X-KEY：METHOD ≠ NONE 即加密流（容忍引号与属性顺序）；
+      // 加密行的 URI="..." 原始值收集进 keyUris（METHOD=NONE 不收集）
+      if (trimmed.startsWith('#EXT-X-KEY:')) {
+        const attrs = trimmed.slice('#EXT-X-KEY:'.length);
+        const methodMatch = attrs.match(/(?:^|,)METHOD="?([^",]+)"?/i);
+        const method = methodMatch ? methodMatch[1].toUpperCase() : '';
+        if (method && method !== 'NONE') {
+          result.hasEncryption = true;
+          const uriMatch = attrs.match(/(?:^|,)URI="([^"]*)"/);
+          if (uriMatch) result.keyUris.push(uriMatch[1]);
+        }
         continue;
       }
       const seqMatch = trimmed.match(/^#EXT-X-MEDIA-SEQUENCE:(\d+)/);
