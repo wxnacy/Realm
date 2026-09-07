@@ -8,7 +8,9 @@
  * 与 discontinuity 拒转（Pitfall 5）；CR-04 协作式取消（shouldCancel 即拒转
  * reason=cancelled 且半成品清理 / shouldCancel=false 默认路径不变）；
  * G-44-4b 首片格式嗅探（fMP4/高熵拒转、0x47 放行、取消先于嗅探）与
- * main.js CONVERT_FAIL_TEXT 对新失败 reason 的文案覆盖。
+ * main.js CONVERT_FAIL_TEXT 对新失败 reason 的文案覆盖；
+ * G-44-7 产物泄漏回归（密文拒转/协作式取消失败路径事件循环延迟 100ms 后
+ * 产物文件仍不存在——旧异步 open 竞态的复现窗口）。
  *
  * 用法: node tests/test-media-remuxer.js
  */
@@ -264,6 +266,59 @@ describe('convertToMp4 格式嗅探（G-44-4b）', () => {
         src.includes(`${reason}: '`),
         `main.js CONVERT_FAIL_TEXT 缺少 ${reason} 文案映射`
       );
+    }
+  });
+});
+
+describe('G-44-7 产物泄漏回归（异步 open 竞态修复）', () => {
+  // 复现窗口：旧实现 createWriteStream 的 open(O_CREAT) 经 nextTick 排队，
+  // fail() 同 tick unlinkSync 命中 ENOENT 被吞掉，随后排队的 open() 创建 0 字节
+  // 残留。修复后产物经 openSync 同步创建，fail() 的 unlink 必然命中——
+  // 延迟 ≥100ms 再断言（等任何潜在排队 open 落地）才能检出回归。
+  const DELAYED_LEAK_CHECK_MS = 100;
+  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  test('密文分片 reject 后产物不存在（含事件循环延迟 100ms 后仍不存在）', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-g447-enc-'));
+    try {
+      // 高熵载荷构造同 G-44-4b describe：首字节固定非 0x47，再生循环规避
+      // 随机撞 fMP4 box 特征 ASCII（测试须确定性）
+      let payload;
+      do {
+        payload = crypto.randomBytes(4096);
+        payload[0] = 0xaa;
+      } while (['ftyp', 'styp', 'moof', 'moov', 'sidx'].some((t) => payload.includes(Buffer.from(t, 'ascii'))));
+      const seg = path.join(dir, 'seg.ts');
+      fs.writeFileSync(seg, payload);
+      const out = path.join(dir, 'out.mp4');
+      await assert.rejects(
+        () => remuxer.convertToMp4({ segmentPaths: [seg], outputPath: out }),
+        (err) => err.reason === 'encrypted_stream'
+      );
+      // 延迟检查：旧竞态下排队的 open() 在 reject 后的事件循环才创建 0 字节文件
+      await delay(DELAYED_LEAK_CHECK_MS);
+      assert.strictEqual(fs.existsSync(out), false, '密文拒转 100ms 后产物文件仍不得存在（0 字节泄漏回归）');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('协作式取消 reject 后产物不存在（含事件循环延迟 100ms 后仍不存在）', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-g447-cancel-'));
+    try {
+      // 有效 TS 同步字节分片（0x47 开头）：取消检查先于嗅探/push 触发，
+      // 分片内容不会进入 mux.js
+      const seg = path.join(dir, 'seg.ts');
+      fs.writeFileSync(seg, Buffer.alloc(188, 0x47));
+      const out = path.join(dir, 'out.mp4');
+      await assert.rejects(
+        () => remuxer.convertToMp4({ segmentPaths: [seg], outputPath: out, shouldCancel: () => true }),
+        (err) => err.reason === 'cancelled'
+      );
+      await delay(DELAYED_LEAK_CHECK_MS);
+      assert.strictEqual(fs.existsSync(out), false, '取消 100ms 后产物文件仍不得存在（0 字节泄漏回归）');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });
