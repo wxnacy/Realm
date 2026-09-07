@@ -309,6 +309,10 @@ Plans:
 - [x] 44-17-PLAN.md — G-44-7 泄漏层：convertToMp4 产物流同步 fd 创建消除 unlink 竞态 + 0 字节残留回归测试
 - [x] 44-18-PLAN.md — G-44-7 体验/分类层：清单解析加密检测（hasEncryption/keyUris）+ 缓存 key URI 排除 + 转换入口早拒与抽屉按钮隐藏
 
+**UAT Round 4 直接修复** *(44-UAT.md 2026-09-07 晚，非 GSD 计划——用户推翻 44-18 D-17 隐藏决策)*
+
+- [x] AES-128 解密转换链路：parser IV 捕获 + meta key_hex/key_iv/media_sequence 留存（历史污染条目自愈）+ remuxer decryption 逐分片解密转封装 + 入口 key_unavailable 引导重播；抽屉 UI 三修复（高度避开标题栏/控制栏、点击视频仅收起、缓存进度 2s 实时刷新）——真机 4/4 通过，Phase 44 COMPLETE
+
 **Wave 1**
 
 - [x] 44-01-PLAN.md — 端到端切片：独立窗口 localhost 化（D-02）+ /proxy 分片缓存（D-03/D-05~D-10）+ 观看历史续播（D-11~D-13）

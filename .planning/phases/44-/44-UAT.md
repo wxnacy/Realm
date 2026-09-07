@@ -1,14 +1,43 @@
 ---
-status: diagnosed
+status: complete
 phase: 44-player-video-cache-and-local-media-library
 source: [44-VERIFICATION.md]
 started: 2026-09-07T08:00:00Z
-updated: 2026-09-07T14:00:00Z
+updated: 2026-09-07T23:30:00Z
+note: 第 4 轮 UAT — G-44-7 由 AES-128 解密转换链路（D-17 隐藏决策用户推翻）修复后复测通过，4/4 全过，phase 收尾
 ---
 
 ## Current Test
 
-[诊断中 — Round 3 追加 test 4（G-44-7），见 Tests 末尾]
+[全部通过 — Round 4（G-44-7 复验 + 抽屉 UI 三修复）见下]
+
+## Tests (Round 4 — G-44-7 复验 + 抽屉 UI 修复，2026-09-07 晚)
+
+### 1. 抽屉高度避开标题栏与控制栏
+expected: 抽屉上边界不压自定义标题栏（top=28px）、下边界不压控制栏（bottom=68px），全屏时顶到屏幕顶
+result: pass
+
+### 2. 加密 HLS 缓存完成后出现「转换为 MP4」按钮且产物有效（G-44-7 复验）
+expected: https://hn.bfvvs.com/play/b2k7JoJd/index.m3u8（AES-128 + enc.key + IV=0）缓存完整度 100% 后抽屉出现转换按钮，产物为可播放的非 0 字节 mp4
+result: pass
+note: "D-17 隐藏决策用户推翻：加密源不再隐藏按钮，转为 AES-128 解密转换链路（key_hex 经 /proxy 密钥请求留存 meta、历史污染条目自愈回读、remuxer decryption 入参 aes-128-cbc 逐分片解密后嗅探转封装）。真实源 3 密文分片转出 555KB 合法 mp4（ffprobe h264+aac）"
+
+### 3. 抽屉打开时点击视频画面只收起抽屉
+expected: 抽屉弹出中点击视频：抽屉收起，播放状态不变（不触发播放/暂停，不误进全屏）
+result: pass
+
+### 4. 抽屉打开期间缓存进度实时刷新
+expected: 抽屉打开中条目「缓存大小 · 完整度%」随分片落盘实时推进（2s 轮询就地更新，不重建列表），完整度到 100% 时转换按钮自动出现
+result: pass
+
+## Summary (Round 4)
+
+total: 4
+passed: 4
+issues: 0
+pending: 0
+skipped: 0
+blocked: 0
 
 ## Tests (Round 3 — gap closure 复验，44-14/44-15/44-16)
 
@@ -155,7 +184,10 @@ blocked: 0
 
 - gap_id: G-44-7
   truth: "缓存完成后「转换为 MP4」产物为可播放的非 0 字节 mp4（不可转格式应显式报错且不留 0 字节半成品）"
-  status: failed
+  status: resolved        # was: failed
+  resolved_by: "44-17 + 44-18 + AES-128 解密转换链路（2026-09-07 晚直接修复，非 GSD 计划）"
+  resolved_at: 2026-09-07
+  resolution: "三层修复：① 44-17 泄漏层——convertToMp4 产物改 fs.openSync 同步 fd，失败路径 unlinkSync 必命中，0 字节泄漏消除；② 44-18 分类层——清单加密检测 + key URI 不落 segments；③ 解密层（D-17 隐藏决策用户推翻）——parser 捕 IV、meta 留存 key_hex/key_iv/media_sequence（含历史污染条目自愈回读）、remuxer 新增 decryption 入参逐分片 aes-128-cbc 解密后嗅探转封装、入口缺 key 按 key_unavailable 文案引导重播。Round 4 真机复验通过（bfvvs 真实源转出有效 mp4）"
   reason: "User reported: https://hn.bfvvs.com/play/b2k7JoJd/index.m3u8 播放视频时，缓存完成转录 mp4 还是0字节"
   severity: blocker
   test: 4

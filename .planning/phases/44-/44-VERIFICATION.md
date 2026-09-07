@@ -213,3 +213,75 @@ REQUIREMENTS.md 无 Phase 44 需求 ID（specless，前两轮已确认）。本�
 
 _Verified: 2026-09-07T11:49:14Z_
 _Verifier: Claude (gsd-verifier) — third re-verification after gap closure (44-14~44-16, G-44-2/G-44-4/G-44-6)_
+
+---
+
+# 第四轮 gap-closure 复验（44-17~44-18，G-44-7 转 MP4 0 字节）
+
+```yaml
+phase: 44-player-video-cache-and-local-media-library
+verified: 2026-09-07T14:30:00Z
+status: human_needed  # 代码层 8/8 全绿；G-44-7 端到端真机项留 UAT
+score: 8/8 must-haves verified（代码层）
+re_verification:
+  previous_status: human_needed
+  previous_score: 10/11
+  gaps_closed:
+    - "G-44-7（blocker，转 MP4 0 字节）：44-17 泄漏层（sync fd 消除 open/unlink 竞态）+ 44-18 加密层（解析层加密检测 → 缓存密钥排除 → 双入口早拒 → 抽屉按钮隐藏）双因链闭合——代码层全部核实"
+  gaps_remaining: []
+  regressions: []
+```
+
+**Phase Goal 关联：** G-44-7 truth——「缓存完成后『转换为 MP4』产物为可播放的非 0 字节 mp4（不可转格式应显式报错且不留 0 字节半成品）」。
+**Re-verification:** Yes — 第四轮 gap-closure 后复验（commit 2e9f217/da0aad8/47ec479（44-17）、6799d00/1f55fc4/8675aba/e7ab2c9（44-18），全部经 git log 确认存在）。
+
+## G-44-7 双因链闭合核实
+
+**复验结论：双因链两半修复经代码逐行核实全部闭合。** ① 泄漏层：产物创建改同步 fd（openSync 'w' → createWriteStream {fd}），旧异步 open(O_CREAT) 与 fail() unlinkSync 的竞态窗口彻底消除；② 加密层：AES-128 加密源在清单解析层被检测，缓存层排除密钥 URI 落库，转换双入口在弹框前显式早拒（「加密视频暂不支持转换」），抽屉加密条目按钮整体不渲染。实跑全绿：test-media-remuxer 25/25（含 G-44-7 产物泄漏回归 suite，密文拒转 + 协作式取消两例 ≥100ms 延迟存在性断言）、test-m3u8-playlist-parser 20/20（含加密检测 5 例）、test-media-cache 24/24（含密钥 URI 排除与加密标记 4 例）。
+
+### Observable Truths（第四轮）
+
+| # | Truth | Status | Evidence |
+|---|-------|--------|----------|
+| 1 | 44-17：产物文件自 Promise 执行体起确定性存在（sync fd），失败清理 unlinkSync 必然命中，无 0 字节泄漏 | ✓ VERIFIED | media-remuxer.js:200 `fs.openSync(outputPath, 'w')`（失败按 write_failed 直接 reject、文件从未创建）→ :206 `fs.createWriteStream(outputPath, { fd: outFd })`；grep 全文件仅此一处 createWriteStream，旧「异步 open 先于嗅探检查点」路径零残留；fail() :212-219 unlinkSync 现只命中已存在文件；fd 收经由 stream.destroy()/end() 双路径（JSDoc :154-155/:192-197 时序语义在码） |
+| 2 | 44-17：G-44-7 回归测试存在且通过（密文拒转 + 取消路径，延迟 ≥100ms 存在性断言） | ✓ VERIFIED | tests/test-media-remuxer.js suite「G-44-7 产物泄漏回归（异步 open 竞态修复）」2 例（suite duration 205ms 与延迟断言相符）；`node tests/test-media-remuxer.js` 实跑 **25 pass / 0 fail**，既有 23 项零回归 |
+| 3 | 44-18：parsePlaylist 暴露 hasEncryption/keyUris（METHOD≠NONE 即加密，多 KEY 行不回落） | ✓ VERIFIED | media-m3u8-parser.js:33 初始化、:59 置位（只置 true 不回落）、JSDoc :18-22 契约同步；test-m3u8-playlist-parser 实跑 **20 pass / 0 fail**（含加密检测 describe 5 例：相对 URI/NONE/无 KEY/SAMPLE-AES/多 KEY 行） |
+| 4 | 44-18：storeBuffer 跳过 EXT-X-KEY key URI 落库（enc.key 不污染 segments），meta 登记 has_encryption/key_uris | ✓ VERIFIED | media-cache-manager.js:423-425 key_uris 命中早退 `{ ok:true, skipped:true, reason:'key_uri' }`；:623 `meta.has_encryption`、:624-630 keyUris 经 resolveUri 绝对化 → segmentKeyOf（与 segments 同源键）登记；test-media-cache 实跑 **24 pass / 0 fail**（含「密钥 URI 排除与加密标记（G-44-7）」4 例，53>52 playlist_order 失配根治有断言） |
+| 5 | 44-18：getConvertInfo 剔除 key 键并透出 hasEncryption（读取侧自愈带前提） | ✓ VERIFIED | media-cache-manager.js:651-653 仅 key_uris 已存在时过滤 key 键（无 key_uris 的历史污染条目 no-op 钉死，JSDoc :638-641 前提在码）；:684 `hasEncryption: !!meta.has_encryption` |
+| 6 | 44-18：录制引擎 writeMeta 写 hasEncryption（parse 优先 + 行级正则兜底） | ✓ VERIFIED | media-record-engine.js:186 `hasEncryption: !!st.hasEncryption`；:213-215 轮询清单检测（pl.hasEncryption 优先，注入解析器不返回时行级正则 `METHOD=(?!"?NONE)` 兜底） |
+| 7 | 44-18：startConvertTask 在保存弹框与任务注册之前早拒 encrypted + 文案全链路 | ✓ VERIFIED | main.js:3083 `if (hasEncryption) return { ok:false, reason:'encrypted' }`——函数体最前，早于 showSaveDialog（:3091）与 registerTask（:3108）；缓存分支 :3245 复拒、录制分支 :3199 透传；CONVERT_FAIL_TEXT.encrypted='加密视频暂不支持转换'（:3032）；convert-resume 错误映射 :2304 同步 |
+| 8 | 44-18：drawer:list 透出 hasEncryption + 抽屉转换按钮对加密条目整体不渲染（D-17 隐藏语义） | ✓ VERIFIED | ipc-handlers.js:2322 `item.hasEncryption = !!e.meta.has_encryption`（:2275-2277 条目契约 JSDoc 同步，非缓存条目 undefined 不参与判定）；src/player.js:1010 按钮条件追加 `&& !item.hasEncryption`（:1006-1009 G-44-7 依据注释在码） |
+
+**Score:** 8/8 truths verified（0 failed，0 behavior-unverified——泄漏竞态与密钥排除均为可自动化断言的行为，已由回归测试行为性锁定）
+
+### 无关改动检查
+
+`git status --short`：`M src/settings-page.js` / `M src/settings.html` 仍为工作树未提交改动（44-15 之前既有），两文件不在本轮 7 个 commit（2e9f217..e7ab2c9）任何其一——锁定文件零触碰确认。
+
+### Behavioral Spot-Checks（第四轮）
+
+| Behavior | Command | Result | Status |
+| -------- | ------- | ------ | ------ |
+| remuxer 全套（含 G-44-7 泄漏回归） | node tests/test-media-remuxer.js | 25 pass / 0 fail | ✓ PASS |
+| m3u8 解析器（含加密检测 5 例） | node tests/test-m3u8-playlist-parser.js | 20 pass / 0 fail | ✓ PASS |
+| 缓存管理器（含密钥排除 4 例） | node tests/test-media-cache.js | 24 pass / 0 fail | ✓ PASS |
+| 旧异步 createWriteStream 路径残留 | grep createWriteStream media-remuxer.js | 仅 :206（{fd} 形式） | ✓ PASS |
+| 加密早拒位置断言 | 读取 main.js:3079-3117 | 早拒 :3083 早于弹框 :3091 | ✓ PASS |
+| 抽屉按钮隐藏断言 | 读取 src/player.js:1010 | 含 !item.hasEncryption | ✓ PASS |
+| 无关文件未提交断言 | git status --short | settings 两文件仅工作树修改 | ✓ PASS |
+
+### Human Verification Required（G-44-7 真机项，并入前轮 human 清单）
+
+| # | Test | Expected | Why human |
+|---|------|----------|-----------|
+| 1 | UAT 真机：bfvvs 类 AES-128 源（https://hn.bfvvs.com/play/b2k7JoJd/index.m3u8）缓存完成后，抽屉无「转换为 MP4」按钮；Downloads 目录无 0 字节 mp4 残留 | 加密条目按钮不渲染；任何失败路径无 0 字节产物 | 端到端真实加密源 + 真实事件循环时序，无自动化可复现（代码层已由 25/25 回归锁定） |
+| 2 | 任务页续转入口对加密源发起转换 | 弹框前被拒，「加密视频暂不支持转换」可见 | 错误文案呈现需真机目检 |
+
+### 第四轮 Gaps Summary
+
+**代码层 0 failed gap。** G-44-7 双因链闭合：44-17 把产物创建从异步 open 改为同步 fd（openSync 'w' → createWriteStream {fd}），失败清理从「竞态」变「确定」——凡 encrypted_stream/unsupported_container/cancelled/早期 transmux 异常路径均不再泄漏 0 字节文件，回归测试两例延迟 ≥100ms 存在性断言行为性锁定；44-18 把加密检测下沉到清单解析层（hasEncryption/keyUris），缓存层排除密钥 URI 落库（enc.key 53>52 失配根治），转换双入口弹框前早拒 + 抽屉按钮隐藏，历史污染条目读取侧自愈带前提钉死。三个测试套件实跑 69 用例零失败；锁定文件（settings 两文件）零触碰；7 个提交全部存在。**状态：代码层通过，端到端真机 2 项留 UAT 第四轮（并入前轮 human 清单）。**
+
+---
+
+_Verified: 2026-09-07T14:30:00Z_
+_Verifier: Claude (gsd-verifier) — fourth re-verification after gap closure (44-17~44-18, G-44-7)_
