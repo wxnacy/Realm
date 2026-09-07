@@ -27,6 +27,12 @@ const aiAttachments = require('./ai-attachments-manager');
 // 媒体缓存 key 工具（纯函数模块，Phase 44 D-12 续播匹配）
 const { playbackKeyOf, videoIdOf } = require('./media-cache-manager');
 
+// G-44-2 规避：播放器窗口关闭终末放行先 hide 再延迟 destroy，给在途键盘事件
+// ACK 留出送达时间（Electron 43.3.0 上游 UAF——键盘 ACK 经
+// InputRouterImpl::KeyboardEventHandled 委派给已被同步销毁的
+// InspectableWebContents，触发条件即同步销毁窗口）
+const PLAYER_CLOSE_DESTROY_DELAY_MS = 300;
+
 // AI Manager 实例（由 main.js 通过 setAIManager 注入）
 let aiManager = null;
 
@@ -2100,12 +2106,33 @@ function registerHandlers() {
           if (settled) return;
           settled = true;
           clearTimeout(finishTimer);
+          // G-44-2 诊断：留存本次销毁的 webContents id 与最近 URL
+          //（销毁前后 getURL 可能抛错，try/catch 包裹）
+          try {
+            if (playerWindow && !playerWindow.isDestroyed()) {
+              console.log(`[Realm] 播放器窗口关闭销毁 webContents id=${playerWindow.webContents.id} url=${playerWindow.webContents.getURL()}`);
+            }
+          } catch (diagErr) {
+            console.warn('[Realm] 播放器窗口销毁诊断日志失败:', diagErr.message);
+          }
+          // G-44-2 规避：先隐藏再延迟销毁（PLAYER_CLOSE_DESTROY_DELAY_MS），
+          // 关闭瞬时不再有同步销毁窗口，给在途键盘事件 ACK 留出送达时间。
+          // playerClosing 必须在此同步置位（早于定时器回调触发的 close 事件），
+          // 保证延迟 close 经 'close' handler 旁路判断直接放行、不重入确认序列。
+          // 延迟期间窗口若已被销毁，静默跳过
           playerClosing = true;
           try {
-            if (playerWindow && !playerWindow.isDestroyed()) playerWindow.close();
+            if (playerWindow && !playerWindow.isDestroyed()) playerWindow.hide();
           } catch (err) {
-            console.warn('[Realm] 播放器窗口关闭放行失败:', err.message);
+            console.warn('[Realm] 播放器窗口关闭隐藏失败:', err.message);
           }
+          setTimeout(() => {
+            try {
+              if (playerWindow && !playerWindow.isDestroyed()) playerWindow.close();
+            } catch (err) {
+              console.warn('[Realm] 播放器窗口延迟关闭失败:', err.message);
+            }
+          }, PLAYER_CLOSE_DESTROY_DELAY_MS);
         };
         const ackHandler = () => finish();
         ipcMain.once('player:final-progress-ack', ackHandler);
