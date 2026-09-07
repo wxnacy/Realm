@@ -1541,6 +1541,19 @@ contextBridge.exposeInMainWorld('mediaAPI', {
   },
 
   /**
+   * 监听媒体任务状态变化（主窗口终态 toast 数据源，G-44-5）
+   * 参数为任务对象快照（含 id/type/status/title/outputPath/error），
+   * 不过滤类型——调用方自行过滤（convert + record 两类终态均需）
+   * @param {Function} callback - 回调函数，参数为状态变化的任务快照
+   * @returns {Function} 取消监听的清理函数
+   */
+  onMediaTaskChanged: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('media-task:changed', handler);
+    return () => ipcRenderer.removeListener('media-task:changed', handler);
+  },
+
+  /**
    * 弹出系统目录选择对话框选取媒体缓存目录（Phase 44 D-05，T-44-08：
    * 缓存目录仅经 dialog 选取，不手输）
    * @returns {Promise<{success: boolean, path: string|null}>}
