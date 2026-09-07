@@ -98,6 +98,7 @@ const btnMaximize = document.getElementById('btn-maximize');
 // Phase 44 录制与抽屉（D-14~D-16/D-18/D-21）
 const btnRecord = document.getElementById('btn-record');
 const iconRecord = document.getElementById('icon-record');
+const iconStop = document.getElementById('icon-stop');
 const recordDot = document.getElementById('record-dot');
 const recordDotTooltip = document.getElementById('record-dot-tooltip');
 const btnDrawer = document.getElementById('btn-drawer');
@@ -818,6 +819,7 @@ function updateRecordUi() {
   const recording = !!state.recordingTaskId;
   recordDot.classList.toggle('visible', recording);
   iconRecord.style.display = recording ? 'none' : 'block';
+  iconStop.style.display = recording ? 'block' : 'none';
   btnRecord.title = recording ? '停止录制' : '开始录制';
 }
 
