@@ -335,3 +335,14 @@ Plans:
 - [x] 44-06-PLAN.md — CR-01/CR-05 gap 闭合：缓存命中先于回源（key=target）+ 源流 error 防护 + WR-06 hlsRetryCount 复位（D-03/D-05/D-10）
 - [x] 44-07-PLAN.md — CR-02/CR-03 gap 闭合：storeBuffer 写路径容量水位淘汰 + setCapacityBytes + RECORD_ROOT 补算（D-06/D-07/D-08/D-18）
 - [x] 44-08-PLAN.md — CR-04 gap 闭合：cancel 桥接 recordEngine.stopRecord + convert 协作式取消（D-18/D-25/D-26）
+
+### Phase 45: B 站直播 fMP4 转录支持
+
+**Goal:** 录制/缓存的 fMP4 分片序列（init.mp4 + moof/mdat，B 站直播流形态）可转为可播放 mp4 产物。当前 mux.js Transmuxer 仅支持 MPEG-TS 输入，fMP4 分片被 sniffContainerFormat 按设计拒转（unsupported_container）。候选路线（44-UAT Deferred Follow-Ups 记录）：① init.mp4 + moof/mdat 顺序拼接产 fMP4 容器（纯 JS，播放器兼容性折中）② 可选依赖 ffmpeg。来源：Phase 44 Deferred Follow-Up（用户 2026-09-06 拍板要做）
+**Requirements**: TBD
+**Depends on:** Phase 44
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 45 to break down)
