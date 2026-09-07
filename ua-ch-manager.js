@@ -53,7 +53,7 @@ function getMacOSVersion() {
 
 /**
  * Chrome 150 品牌表——不是拍的，是按 Chromium 源码逐字段算出来的
- * （components/embedder_support/user_agent_utils.cc，tag 150.0.7871.212）：
+ * （components/embedder_support/user_agent_utils.cc，tag 150.0.7871.250）：
  *
  * GREASE 生成（GetGreasedUserAgentBrandVersion，seed = 主版本号 150）：
  * - greasy_chars = [" ","(",":","-",".","/",")",";","=","?","_"]，
@@ -66,7 +66,7 @@ function getMacOSVersion() {
  * - 排列 orders[150 % 6] = orders[0] = {0,1,2}（恒等）→ 最终序 = 构造序
  *   即 "Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"
  *
- * fullVersionList/fullVersion 用 Electron 43.3.0 真实内核版本 150.0.7871.212：
+ * fullVersionList/fullVersion 用 Electron 43.6.0 真实内核版本 150.0.7871.250：
  * JS 侧 navigator.userAgentData.getHighEntropyValues 的 uaFullVersion 不受 CDP
  * 覆盖控制、恒为内核真实值，fullVersionList 只有取同一值才不产生层内矛盾。
  */
@@ -76,11 +76,11 @@ const UA_METADATA = {
     { brand: 'Chromium', version: '150' },
     { brand: 'Google Chrome', version: '150' },
   ],
-  fullVersion: '150.0.7871.212',
+  fullVersion: '150.0.7871.250',
   fullVersionList: [
     { brand: 'Not;A=Brand', version: '8.0.0.0' },
-    { brand: 'Chromium', version: '150.0.7871.212' },
-    { brand: 'Google Chrome', version: '150.0.7871.212' },
+    { brand: 'Chromium', version: '150.0.7871.250' },
+    { brand: 'Google Chrome', version: '150.0.7871.250' },
   ],
   // platformVersion/architecture/model 为 CDP UserAgentMetadata 必填字段，
   // 缺失会导致 setUserAgentOverride 返回 "Invalid parameters"（实测，2026-08）。

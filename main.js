@@ -725,7 +725,7 @@ app.on('web-contents-created', (event, contents) => {
 
 /**
  * Chrome 150 真实 Sec-CH-UA 品牌表——按 Chromium 源码逐字段计算
- * （components/embedder_support/user_agent_utils.cc，tag 150.0.7871.212）：
+ * （components/embedder_support/user_agent_utils.cc，tag 150.0.7871.250）：
  *   "Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"
  * - GREASE 字符串/版本随主版本确定性轮换（seed=150 → "Not;A=Brand" v"8"，
  *   算法见 ua-ch-manager.js UA_METADATA 注释），抄旧版本（如 v128 的 v"24"）
@@ -770,7 +770,7 @@ app.on('session-created', (ses) => {
     // 注入本身就是指纹异常）。Google 登录页会请求这些高熵头，而内核按真实品牌生成
     // （只有 GREASE + Chromium，缺 Google Chrome），与上面伪装的低熵 sec-ch-ua
     // 矛盾 → 跨通道身份不一致，是 signin/rejected 的强伪造信号。版本号取内核真实
-    // 值 150.0.7871.212，与 JS 侧 uaFullVersion（不受 CDP 覆盖控制、恒为内核值）
+    // 值 150.0.7871.250，与 JS 侧 uaFullVersion（不受 CDP 覆盖控制、恒为内核值）
     // 及 ua-ch-manager 的 fullVersionList 保持一致；品牌顺序与低熵头相同。
     // arch/bitness/platform/platform-version/model 内核取值与同机真实 Chrome 相同，
     // 无需改写。
@@ -778,9 +778,9 @@ app.on('session-created', (ses) => {
       const lower = key.toLowerCase();
       if (lower === 'sec-ch-ua-full-version-list') {
         headers[key] =
-          '"Not;A=Brand";v="8.0.0.0", "Chromium";v="150.0.7871.212", "Google Chrome";v="150.0.7871.212"';
+          '"Not;A=Brand";v="8.0.0.0", "Chromium";v="150.0.7871.250", "Google Chrome";v="150.0.7871.250"';
       } else if (lower === 'sec-ch-ua-full-version') {
-        headers[key] = '"150.0.7871.212"';
+        headers[key] = '"150.0.7871.250"';
       }
     }
     callback({ requestHeaders: headers });
