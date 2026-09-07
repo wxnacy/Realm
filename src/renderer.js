@@ -386,8 +386,8 @@ function httpUrlToRealm(url) {
 
 /**
  * 若 URL 为 m3u8 视频文件，转换为播放器页面 URL（在当前 webview tab 内播放）
- * 携带容器与 token：播放器页面 hls.js 经 /proxy 同源代理拉流，
- * 需 token 鉴权、容器 session 携带 Cookie
+ * 携带容器与 token：播放器页面直连拉流（44-09 G-44-2，D-01：仅独立播放器
+ * 窗口走 /proxy）；container/token 参数保留供页面上下文
  * @param {string} url - 原始 URL
  * @param {string} [containerId] - 容器 ID
  * @returns {string} 播放器页面 URL 或原 URL
@@ -10550,7 +10550,7 @@ function updateMediaTaskBadge(count) {
 
 /**
  * 初始化媒体任务角标
- * 监听主进程 media-task:count-changed 广播（经 preload realmAPI IPC，
+ * 监听主进程 media-task:count-changed 广播（经 preload mediaAPI IPC，
  * 主窗口不得 fetch HTTP——Phase 38 事故约定）；点击经 openUrl('realm://tasks')
  * 收敛统一导航入口
  */
@@ -10562,8 +10562,8 @@ function initMediaTaskBadge() {
     openUrl('realm://tasks');
   });
 
-  if (window.realmAPI && window.realmAPI.onMediaTaskCountChanged) {
-    window.realmAPI.onMediaTaskCountChanged((data) => {
+  if (window.mediaAPI && window.mediaAPI.onMediaTaskCountChanged) {
+    window.mediaAPI.onMediaTaskCountChanged((data) => {
       updateMediaTaskBadge((data && data.count) || 0);
     });
   }
