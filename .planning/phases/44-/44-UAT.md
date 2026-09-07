@@ -1,16 +1,43 @@
 ---
-status: diagnosed
+status: testing
 phase: 44-player-video-cache-and-local-media-library
 source: [44-VERIFICATION.md]
 started: 2026-09-07T08:00:00Z
-updated: 2026-09-07T10:45:00Z
+updated: 2026-09-07T12:30:00Z
 ---
 
 ## Current Test
 
-[testing complete]
+number: 1
+name: 真机 5 轮「开始录制→停止→关窗（含 Cmd+W）」无 SIGSEGV（G-44-2 复验）
+expected: |
+  dev 或正式版真机连续 5 轮「开始录制 → 停止 → 关闭播放器窗口（鼠标+Cmd+W 各混若干次）」全程无 SIGSEGV 崩溃；dev 环境主进程日志可见 `webContents destroyed` 诊断行（含 id + 最近 URL），正式版零输出
+awaiting: user response
 
-## Tests
+## Tests (Round 3 — gap closure 复验，44-14/44-15/44-16)
+
+### 1. 真机 5 轮「开始录制→停止→关窗（含 Cmd+W）」无 SIGSEGV（G-44-2 复验）
+expected: 连续 5 轮录制→停止→关窗（Cmd+W 与点关闭混用）全程无 SIGSEGV；dev 环境可见 webContents destroyed 诊断日志，生产版零输出（44-14 延迟销毁规避 + 44-15 Electron 43.6.0 双层防御）
+result: [pending]
+
+### 2. 红点时长每秒平滑 +1（G-44-4 复验）
+expected: 录制中红点 hover 时长每秒平滑推进 +1s，0 分片落盘（弱网）时也在走表，不再出现「半天不动/突然跳几秒」；停止后任务页时长口径不变
+result: [pending]
+
+### 3. 抽屉「时钟图标+时间」并排常显（G-44-6 复验）
+expected: 缓存抽屉条目 meta 行为「时钟图标 + 时间」并排常显（时间文本非仅 hover 可见），title 保留完整「最近观看 时间」提示
+result: [pending]
+
+## Summary (Round 3)
+
+total: 3
+passed: 0
+issues: 0
+pending: 3
+skipped: 0
+blocked: 0
+
+## Tests (Round 2 — archived, 2026-09-07 上午)
 
 ### 1. webview 直连真实源站（CR-06 收紧版，唯一实质新风险）
 expected: webview tab 内用「无 ACAO + Referer 校验 + Cookie 门控」真实源站直连播放 m3u8，可识别为多媒体且与 Phase 43 行为一致；若不可用则按 CR-06 方案①/②/③建新 gap
@@ -52,7 +79,7 @@ reason: "用户选择跳过，以后遇到再说"
 expected: 窗口级确认弹一次并记忆默认；取消退出后确认不被永久跳过（WR-05 观察）
 result: pass
 
-## Summary
+## Summary (Round 2 — archived)
 
 total: 8
 passed: 3
