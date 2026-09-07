@@ -110,6 +110,7 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
       seen: new Set(),            // 已见过的 seq（首轮基线 + 已落盘）
       recorded: new Map(),        // seq → { file, size, duration }
       totalBytes: 0,
+      startedAt: Date.now(),      // G-44-4：运行中时长 = 本地挂钟差值（平滑显示），与分片落盘节奏解耦
       targetDuration: 6,
       stopped: false,             // stopRecord 置位后轮询循环退出且不再触发终态流转
       consecutiveFailures: 0,
@@ -279,7 +280,9 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
   }
 
   /**
-   * 查询录制状态（D-21 红点 hover 数据源：已录时长≈分片数×targetDuration、已录大小）
+   * 查询录制状态（D-21 红点 hover 数据源：已录大小 + 运行中已录时长）
+   * 运行中 durationSeconds 为本地挂钟差值（startedAt 起平滑推进，0 分片落盘也在走表，
+   * G-44-4）；与 meta.json totalDuration（分片 EXTINF 累计）是两套口径，互不渗透。
    * @param {string} taskId - 任务 ID
    * @returns {Object|null} { taskId, title, url, status, segments, totalBytes, durationSeconds }
    */
@@ -293,7 +296,7 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
         status: 'running',
         segments: st.recorded.size,
         totalBytes: st.totalBytes,
-        durationSeconds: st.recorded.size * st.targetDuration,
+        durationSeconds: Math.max(0, Math.round((Date.now() - st.startedAt) / 1000)),
       };
     }
     // 已终态的任务回查注册表快照（窗口重开等场景）
@@ -316,6 +319,8 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
 
   /**
    * 运行中录制任务列表（D-19 关窗确认 / 播放器红点同步用）
+   * 运行中 durationSeconds 与 getRecordStatus 同式：本地挂钟差值（G-44-4），
+   * 与 meta.json totalDuration（EXTINF 累计）口径分离。
    * @returns {Array<{ taskId: string, title: string, url: string, playbackKey: string, containerId: string, segments: number, totalBytes: number, durationSeconds: number }>}
    */
   function getActiveRecordings() {
@@ -327,7 +332,7 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
       containerId: st.containerId,
       segments: st.recorded.size,
       totalBytes: st.totalBytes,
-      durationSeconds: st.recorded.size * st.targetDuration,
+      durationSeconds: Math.max(0, Math.round((Date.now() - st.startedAt) / 1000)),
     }));
   }
 
