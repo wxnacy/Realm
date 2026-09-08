@@ -11,6 +11,10 @@
  * main.js CONVERT_FAIL_TEXT 对新失败 reason 的文案覆盖；
  * G-44-7 产物泄漏回归（密文拒转/协作式取消失败路径事件循环延迟 100ms 后
  * 产物文件仍不存在——旧异步 open 竞态的复现窗口）。
+ * G-45-2 tfdt 时间轴 rebase：rebaseFmp4SegmentTfdt walker 单测（v1 epoch
+ * 基线归零/递减排差/双轨独立基线/v0 兼容/等长原位改写/多 moof/零基线恒等/
+ * 畸形容忍）与 concatFmp4ToMp4 产物级断言（首片 tfdt=0、双轨归零、
+ * init 段逐位一致、零基线产物字节精确相等）。
  *
  * 用法: node tests/test-media-remuxer.js
  */
@@ -45,26 +49,122 @@ const FMP4_VIDEO_TRACK = {
   sps: [new Uint8Array([0x67, 0x64, 0x00, 0x1f, 0xac, 0xd9, 0x40, 0x50, 0x05, 0xbb, 0x01, 0x10, 0x00, 0x00, 0x03, 0x00, 0x10, 0x00, 0x00, 0x03, 0x03, 0x20, 0xf1, 0x83, 0x19, 0x60])],
 };
 
+/** 夹具音频轨（id 2、48kHz AAC——mux.js generator esds/moov 需要的最小字段） */
+const FMP4_AUDIO_TRACK = {
+  id: 2,
+  type: 'audio',
+  codec: 'mp4a',
+  timescale: 48000,
+  duration: 0,
+  audioobjecttype: 2,
+  samplingfrequencyindex: 3, // 48kHz（ISO/IEC 13818-7 Table 35）
+  channelcount: 2,
+  samplerate: 48000,
+};
+
 /** init 分片夹具：ftyp + moov（mux.js probe 可解析，~676 字节） */
 function makeInit() {
   return Buffer.from(muxjs.mp4.generator.initSegment([FMP4_VIDEO_TRACK]));
 }
 
-/** 单个 moof+mdat 对（payload 100 字节） */
-function makeFragment(seq) {
-  const track = Object.assign({}, FMP4_VIDEO_TRACK, {
-    samples: [{
-      size: 100,
-      duration: 3000,
-      compositionTimeOffset: 0,
-      flags: { isLeading: 0, dependsOn: 2, isDependedOn: 0, hasRedundancy: 0, degradationPriority: 0, isNonSyncSample: 0 },
-    }],
+/** 双轨 init 分片夹具：ftyp + moov（视频轨 1 + 音频轨 2） */
+function makeDualTrackInit() {
+  return Buffer.from(muxjs.mp4.generator.initSegment([FMP4_VIDEO_TRACK, FMP4_AUDIO_TRACK]));
+}
+
+/** 视频样本模板（videoTrun 需要 flags/compositionTimeOffset） */
+function makeVideoSample() {
+  return {
+    size: 100,
+    duration: 3000,
+    compositionTimeOffset: 0,
+    flags: { isLeading: 0, dependsOn: 2, isDependedOn: 0, hasRedundancy: 0, degradationPriority: 0, isNonSyncSample: 0 },
+  };
+}
+
+/**
+ * 单个 moof+mdat 对（payload 100 字节）。
+ * opts.track='audio' 用音频轨夹具；opts.baseMediaDecodeTime 注入 tfdt v1
+ * 64 位值（epoch 级大数复刻 B 站直播形态；默认不传 → mux.js 生成 0 值
+ * tfdt，保持既有用例零改动）。
+ */
+function makeFragment(seq, opts) {
+  const options = opts || {};
+  const isAudio = options.track === 'audio';
+  const track = Object.assign({}, isAudio ? FMP4_AUDIO_TRACK : FMP4_VIDEO_TRACK, {
+    samples: [isAudio ? { size: 100, duration: 2048 } : makeVideoSample()],
   });
+  if (options.baseMediaDecodeTime !== undefined) {
+    track.baseMediaDecodeTime = options.baseMediaDecodeTime;
+  }
   const payload = new Uint8Array(100).fill(seq & 0xff);
   return Buffer.concat([
     Buffer.from(muxjs.mp4.generator.moof(seq, [track])),
     Buffer.from(muxjs.mp4.generator.mdat(payload)),
   ]);
+}
+
+/** 双轨 moof+mdat 对（B 站直播形态：同一 moof 内视频 traf + 音频 traf，各自 tfdt 基线） */
+function makeDualTrackFragment(seq, videoBase, audioBase) {
+  const videoTrack = Object.assign({}, FMP4_VIDEO_TRACK, {
+    baseMediaDecodeTime: videoBase,
+    samples: [makeVideoSample()],
+  });
+  const audioTrack = Object.assign({}, FMP4_AUDIO_TRACK, {
+    baseMediaDecodeTime: audioBase,
+    samples: [{ size: 80, duration: 2048 }],
+  });
+  const payload = new Uint8Array(180).fill(seq & 0xff);
+  return Buffer.concat([
+    Buffer.from(muxjs.mp4.generator.moof(seq, [videoTrack, audioTrack])),
+    Buffer.from(muxjs.mp4.generator.mdat(payload)),
+  ]);
+}
+
+/** 手工构造 v0 tfdt 的 moof（moof{mfhd, traf{tfhd, tfdt v0}}）——按 box 布局拼字节 */
+function makeV0TfdtMoof(trackId, baseMediaDecodeTime) {
+  const mfhd = Buffer.alloc(16);
+  mfhd.writeUInt32BE(16, 0);
+  mfhd.write('mfhd', 4, 'ascii');
+  mfhd.writeUInt32BE(1, 12); // version+flags 全 0，sequence_number=1
+
+  const tfhd = Buffer.alloc(16);
+  tfhd.writeUInt32BE(16, 0);
+  tfhd.write('tfhd', 4, 'ascii');
+  tfhd.writeUInt32BE(trackId, 12); // version+flags=0（无可选字段）+ track_ID
+
+  const tfdt = Buffer.alloc(16);
+  tfdt.writeUInt32BE(16, 0);
+  tfdt.write('tfdt', 4, 'ascii');
+  tfdt.writeUInt32BE(baseMediaDecodeTime, 12); // version=0+flags=0+32 位值
+
+  const box = (type, body) => {
+    const b = Buffer.alloc(8 + body.length);
+    b.writeUInt32BE(8 + body.length, 0);
+    b.write(type, 4, 'ascii');
+    body.copy(b, 8);
+    return b;
+  };
+  return box('moof', Buffer.concat([mfhd, box('traf', Buffer.concat([tfhd, tfdt]))]));
+}
+
+/** 只读遍历 buffer 的 tfdt 值（mux.js probe.findBox 定位 traf 后配对 tfhd track_ID） */
+function readTfdtValues(buf) {
+  const trafs = muxjs.mp4.probe.findBox(buf, ['moof', 'traf']);
+  const results = [];
+  for (const traf of trafs) {
+    const tfhd = muxjs.mp4.probe.findBox(traf, ['tfhd'])[0];
+    if (!tfhd) continue;
+    const trackId = tfhd[4] * 0x1000000 + tfhd[5] * 0x10000 + tfhd[6] * 0x100 + tfhd[7];
+    for (const tfdt of muxjs.mp4.probe.findBox(traf, ['tfdt'])) {
+      const version = tfdt[0];
+      const value = version === 1
+        ? Buffer.from(tfdt.buffer, tfdt.byteOffset + 4, 8).readBigUInt64BE(0)
+        : tfdt[4] * 0x1000000 + tfdt[5] * 0x10000 + tfdt[6] * 0x100 + tfdt[7];
+      results.push({ trackId, version, value });
+    }
+  }
+  return results;
 }
 
 /** fMP4 分片文件夹具：单文件内两个 moof+mdat 对、无 styp/ftyp（B 站实测多 moof 形态） */
@@ -492,6 +592,172 @@ describe('AES-128 解密转换（加密 HLS 缓存条目，G-44-7 后续）', ()
     }
   });
 });
+describe('rebaseFmp4SegmentTfdt tfdt 时间轴 rebase walker（G-45-2）', () => {
+  const EPOCH_BASE = 160000000000000; // 1.6e14 epoch 级大数（90kHz 直播绝对时刻）
+  const AUDIO_EPOCH_BASE = 85000000000000; // 8.5e13（48kHz 音频轨基线）
+
+  test('导出为函数', () => {
+    assert.strictEqual(typeof remuxer.rebaseFmp4SegmentTfdt, 'function');
+  });
+
+  test('v1 大数基线归零：epoch 级 tfdt 改写为 0，基线以 BigInt 记入 baselines', () => {
+    const buf = makeFragment(1, { baseMediaDecodeTime: EPOCH_BASE });
+    const baselines = new Map();
+    const n = remuxer.rebaseFmp4SegmentTfdt(buf, baselines);
+    assert.strictEqual(n, 1, '改写计数 = 1');
+    const tfdts = readTfdtValues(buf);
+    assert.strictEqual(tfdts.length, 1);
+    assert.strictEqual(tfdts[0].version, 1);
+    assert.strictEqual(tfdts[0].value, 0n, '首片 tfdt 应归零');
+    assert.strictEqual(baselines.get(1), BigInt(EPOCH_BASE), 'v1 基线存 BigInt 防 64 位精度溢出');
+  });
+
+  test('后续递减排差：第二片 tfdt = 基线+270000 → 改写为 270000 不为 0', () => {
+    const baselines = new Map();
+    remuxer.rebaseFmp4SegmentTfdt(makeFragment(1, { baseMediaDecodeTime: EPOCH_BASE }), baselines);
+    const buf2 = makeFragment(2, { baseMediaDecodeTime: EPOCH_BASE + 270000 }); // +3s @90kHz
+    const n = remuxer.rebaseFmp4SegmentTfdt(buf2, baselines);
+    assert.strictEqual(n, 1);
+    assert.strictEqual(readTfdtValues(buf2)[0].value, 270000n);
+  });
+
+  test('双轨独立基线：视频 1.6e14 / 音频 8.5e13 各自减各自基线，同 buffer 多 traf 互不串轨', () => {
+    const baselines = new Map();
+    const buf = makeDualTrackFragment(1, EPOCH_BASE, AUDIO_EPOCH_BASE);
+    const n = remuxer.rebaseFmp4SegmentTfdt(buf, baselines);
+    assert.strictEqual(n, 2, '同 moof 两个 traf 的 tfdt 都被改写');
+    const tfdts = readTfdtValues(buf);
+    assert.strictEqual(tfdts.length, 2);
+    assert.strictEqual(tfdts.find((t) => t.trackId === 1).value, 0n, '视频轨首片归零');
+    assert.strictEqual(tfdts.find((t) => t.trackId === 2).value, 0n, '音频轨首片归零');
+    assert.strictEqual(baselines.get(1), BigInt(EPOCH_BASE));
+    assert.strictEqual(baselines.get(2), BigInt(AUDIO_EPOCH_BASE));
+    // 第二片：各轨递减排差（视频 +3s@90kHz，音频 +3s@48kHz）
+    const buf2 = makeDualTrackFragment(2, EPOCH_BASE + 270000, AUDIO_EPOCH_BASE + 144000);
+    remuxer.rebaseFmp4SegmentTfdt(buf2, baselines);
+    const t2 = readTfdtValues(buf2);
+    assert.strictEqual(t2.find((t) => t.trackId === 1).value, 270000n);
+    assert.strictEqual(t2.find((t) => t.trackId === 2).value, 144000n);
+  });
+
+  test('v0 兼容：32 位 tfdt 原位改写为 0，box size 字段与总长度不变', () => {
+    const buf = makeV0TfdtMoof(1, 400000);
+    const lenBefore = buf.length;
+    const moofSizeBefore = buf.readUInt32BE(0);
+    const baselines = new Map();
+    const n = remuxer.rebaseFmp4SegmentTfdt(buf, baselines);
+    assert.strictEqual(n, 1);
+    assert.strictEqual(buf.length, lenBefore, 'buffer 总长度不变');
+    assert.strictEqual(buf.readUInt32BE(0), moofSizeBefore, 'moof size 字段不变');
+    const tfdts = readTfdtValues(buf);
+    assert.strictEqual(tfdts[0].version, 0);
+    assert.strictEqual(tfdts[0].value, 0);
+    assert.strictEqual(baselines.get(1), 400000, 'v0 基线存 Number');
+  });
+
+  test('等长原位改写：除 tfdt 值域外其余字节逐位不变（mdat/mfhd/tfhd/trun 不动）', () => {
+    const buf = makeFragment(1, { baseMediaDecodeTime: EPOCH_BASE });
+    const original = Buffer.from(buf);
+    // tfdt box 布局：size(4) type(4) version(1) flags(3) value(8) —— 值域 = 'tfdt' 串起始 +8 起 8 字节
+    const tfdtIdx = buf.indexOf(Buffer.from('tfdt', 'ascii'));
+    assert.ok(tfdtIdx !== -1, '夹具应含 tfdt box');
+    const valueStart = tfdtIdx + 8;
+    const valueEnd = valueStart + 8;
+    remuxer.rebaseFmp4SegmentTfdt(buf, new Map());
+    assert.strictEqual(buf.length, original.length, 'buffer 长度不变（等长改写）');
+    for (let i = 0; i < original.length; i++) {
+      if (i >= valueStart && i < valueEnd) continue;
+      assert.strictEqual(buf[i], original[i], `偏移 ${i} 字节不应被改写（仅 tfdt 值域可变）`);
+    }
+  });
+
+  test('多 moof 单 buffer：一个分片内 2 个 moof+mdat 对都被处理（B 站 1s 分片多 moof 形态）', () => {
+    const buf = Buffer.concat([
+      makeFragment(1, { baseMediaDecodeTime: EPOCH_BASE }),
+      makeFragment(2, { baseMediaDecodeTime: EPOCH_BASE + 90000 }),
+    ]);
+    const n = remuxer.rebaseFmp4SegmentTfdt(buf, new Map());
+    assert.strictEqual(n, 2, '两个 moof 的 tfdt 都被改写');
+    assert.deepStrictEqual(readTfdtValues(buf).map((t) => t.value), [0n, 90000n]);
+  });
+
+  test('基线为 0 恒等：首片 tfdt 已是 0 → 全 buffer 字节逐位不变（既有字节相等用例的保证）', () => {
+    const buf = makeFmp4Segment(1); // 既有夹具：不传 baseMediaDecodeTime，mux.js 生成 0 值 tfdt
+    const original = Buffer.from(buf);
+    remuxer.rebaseFmp4SegmentTfdt(buf, new Map());
+    assert.strictEqual(Buffer.compare(buf, original), 0, '零基线分片应字节逐位不变');
+  });
+
+  test('畸形容忍：截断 box/非法 size/未知 box/无 tfdt 均不抛异常，能定位的 tfdt 照常改写', () => {
+    const good = makeFragment(1, { baseMediaDecodeTime: EPOCH_BASE });
+
+    // ① box size 声明超出 buffer 剩余 → 停止该层遍历不抛
+    const truncated = Buffer.from(good);
+    truncated.writeUInt32BE(0x7fffffff, 0);
+    assert.doesNotThrow(() => remuxer.rebaseFmp4SegmentTfdt(truncated, new Map()));
+
+    // ② size < 8 → 停止不抛
+    const tinySize = Buffer.from(good);
+    tinySize.writeUInt32BE(4, 0);
+    assert.doesNotThrow(() => remuxer.rebaseFmp4SegmentTfdt(tinySize, new Map()));
+
+    // ③ size==1 largesize 未知 box 在前 → 跳过后 moof 照常改写
+    const large = Buffer.alloc(24);
+    large.writeUInt32BE(1, 0);
+    large.write('sidx', 4, 'ascii');
+    large.writeBigUInt64BE(24n, 8); // largesize = 24
+    const withLarge = Buffer.concat([large, good]);
+    const baselines3 = new Map();
+    assert.strictEqual(remuxer.rebaseFmp4SegmentTfdt(withLarge, baselines3), 1, 'largesize box 后的 moof 照常处理');
+    assert.strictEqual(readTfdtValues(withLarge)[0].value, 0n);
+
+    // ④ 未知 box 类型（sidx/emsg）包围 moof → 跳过未知、moof 照常改写
+    const sidx = Buffer.alloc(16);
+    sidx.writeUInt32BE(16, 0);
+    sidx.write('sidx', 4, 'ascii');
+    const emsg = Buffer.alloc(16);
+    emsg.writeUInt32BE(16, 0);
+    emsg.write('emsg', 4, 'ascii');
+    const wrapped = Buffer.concat([sidx, makeFragment(1, { baseMediaDecodeTime: EPOCH_BASE }), emsg]);
+    assert.strictEqual(remuxer.rebaseFmp4SegmentTfdt(wrapped, new Map()), 1);
+    assert.strictEqual(readTfdtValues(wrapped)[0].value, 0n);
+
+    // ⑤ traf 内无 tfdt → 不抛、不改写、不记录基线
+    const mfhd = Buffer.alloc(16);
+    mfhd.writeUInt32BE(16, 0);
+    mfhd.write('mfhd', 4, 'ascii');
+    const tfhd = Buffer.alloc(16);
+    tfhd.writeUInt32BE(16, 0);
+    tfhd.write('tfhd', 4, 'ascii');
+    tfhd.writeUInt32BE(1, 12);
+    const trafLen = 8 + tfhd.length;
+    const traf = Buffer.alloc(trafLen);
+    traf.writeUInt32BE(trafLen, 0);
+    traf.write('traf', 4, 'ascii');
+    tfhd.copy(traf, 8);
+    const moofLen = 8 + mfhd.length + traf.length;
+    const noTfdt = Buffer.alloc(moofLen);
+    noTfdt.writeUInt32BE(moofLen, 0);
+    noTfdt.write('moof', 4, 'ascii');
+    mfhd.copy(noTfdt, 8);
+    traf.copy(noTfdt, 8 + mfhd.length);
+    const baselines5 = new Map();
+    assert.doesNotThrow(() => remuxer.rebaseFmp4SegmentTfdt(noTfdt, baselines5));
+    assert.strictEqual(remuxer.rebaseFmp4SegmentTfdt(noTfdt, baselines5), 0);
+    assert.strictEqual(baselines5.size, 0, '无 tfdt 不记录基线');
+  });
+
+  test('当前值 < 基线的异常形态（分片乱序/时钟回拨）保守不改写，原样保留', () => {
+    const baselines = new Map();
+    remuxer.rebaseFmp4SegmentTfdt(makeFragment(1, { baseMediaDecodeTime: EPOCH_BASE }), baselines);
+    const stale = makeFragment(2, { baseMediaDecodeTime: EPOCH_BASE - 90000 });
+    const original = Buffer.from(stale);
+    const n = remuxer.rebaseFmp4SegmentTfdt(stale, baselines);
+    assert.strictEqual(n, 0, '回拨分片不改写');
+    assert.strictEqual(Buffer.compare(stale, original), 0, '回拨分片字节原样保留');
+  });
+});
+
 describe('concatFmp4ToMp4 拼接执行体（D-01/D-07 纯字节拼接）', () => {
   test('init + 两多 moof 分片 → 产物字节 = init+seg1+seg2 精确相等；probe 检出 moov 且 moof 计数 ≥4；onProgress 异常不阻断', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-concat-'));
