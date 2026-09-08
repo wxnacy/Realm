@@ -590,10 +590,30 @@ function rebaseFmp4SegmentTfdt(buf, baselines) {
  * @param {string} input.outputPath - 产物 mp4 绝对路径
  * @param {Function} [input.onProgress] - (processed, total) 进度回调（异常不阻断）
  * @param {Function} [input.shouldCancel] - 每分片迭代开始前调用的取消检查
- * @returns {Promise<{ outputPath: string, segments: number }>} 完成时 resolve
+ * @returns {Promise<{ outputPath: string, segments: number, skipped: number }>} 完成时
+ *   resolve（segments = 实际写入分片数；skipped = 非 fMP4 box 头被跳过的毒分片数，
+ *   见 isFmp4Fragment）
  *   失败时 reject Error（err.reason：no_segments/invalid_output/segment_missing/
  *   init_missing/invalid_init/write_failed/cancelled/empty_output）
  */
+/**
+ * fMP4 分片落盘字节嗅探（拼接前逐分片校验，纵深防御）：
+ * 录制侧可能落盘 CDN 毒应答（分片请求返回 m3u8 清单文本/错误页，B 站直播
+ * 实测发生）——毒字节混进 moof/mdat 拼接流后，fMP4 解析器走到该处即中断，
+ * 产物时长截断在首个坏分片处（后续数据全在但不可见）。拼接前逐分片校验
+ * 首 box 头（白名单类型 + 声明 size 不越界），坏分片跳过不写入，产物只在
+ * 坏点处少约一个分片时长，时间轴 rebase 可正常跨越。
+ * @param {Buffer} buf - 分片字节
+ * @returns {boolean} true = 合法 fMP4 分片形态
+ */
+function isFmp4Fragment(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 8) return false;
+  const size = buf.readUInt32BE(0);
+  if (size < 8 || size > buf.length) return false;
+  const type = buf.toString('ascii', 4, 8);
+  return type === 'moof' || type === 'styp' || type === 'ftyp' || type === 'sidx';
+}
+
 function concatFmp4ToMp4({ initPath, segmentPaths, outputPath, onProgress, shouldCancel }) {
   return new Promise((resolve, reject) => {
     // ① 入参 fail-fast
@@ -660,6 +680,7 @@ function concatFmp4ToMp4({ initPath, segmentPaths, outputPath, onProgress, shoul
       // epoch 级 tfdt 基线（首片写出前完成采集），后续分片递减排差归零
       const baselines = new Map();
       let processed = 0;
+      let skipped = 0;
       for (const segPath of segmentPaths) {
         if (settled) return;
         // ④ 协作式取消：每分片迭代开始前（同 convertToMp4 CR-04 检查点）
@@ -673,6 +694,14 @@ function concatFmp4ToMp4({ initPath, segmentPaths, outputPath, onProgress, shoul
         // 不拆箱。单分片大小受来源侧 MAX_SEGMENT_BYTES 64MB 上限约束（T-45-02），
         // walker 只在已入内存的分片 buffer 上工作，无新增内存面
         const segBuf = fs.readFileSync(segPath);
+        // 纵深防御：非 fMP4 box 头的毒分片（CDN 把分片请求应答成清单文本等，
+        // 见 isFmp4Fragment 注释）跳过不写入——写入即中断产物解析，跳过只损失
+        // 该分片时长，rebase 时间轴可正常跨越
+        if (!isFmp4Fragment(segBuf)) {
+          skipped++;
+          console.warn(`[Realm] 拼接跳过损坏分片（非 fMP4 box 头）: ${segPath}`);
+          continue;
+        }
         rebaseFmp4SegmentTfdt(segBuf, baselines);
         stream.write(segBuf);
         processed++;
@@ -721,7 +750,7 @@ function concatFmp4ToMp4({ initPath, segmentPaths, outputPath, onProgress, shoul
           return;
         }
         settled = true;
-        resolve({ outputPath, segments: processed });
+        resolve({ outputPath, segments: processed, skipped });
       });
     } catch (err) {
       fail(remuxError('write_failed', err.message));
@@ -729,4 +758,4 @@ function concatFmp4ToMp4({ initPath, segmentPaths, outputPath, onProgress, shoul
   });
 }
 
-module.exports = { convertToMp4, concatFmp4ToMp4, sanitizeFilename, buildOutputName, rebaseFmp4SegmentTfdt };
+module.exports = { convertToMp4, concatFmp4ToMp4, sanitizeFilename, buildOutputName, rebaseFmp4SegmentTfdt, isFmp4Fragment };

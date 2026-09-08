@@ -30,6 +30,40 @@ const MIN_POLL_INTERVAL_MS = 2000;
 /** 分片文件名 seq 补零位数（8 位足够直播时长场景） */
 const SEQ_PAD = 8;
 
+/** fMP4 分片合法起始 box 类型白名单（B 站直播实测首 box 为 moof；styp/ftyp/sidx 为 CMAF 合法形态） */
+const FMP4_SEGMENT_BOX_TYPES = new Set(['moof', 'styp', 'ftyp', 'sidx']);
+
+/**
+ * 分片内容落盘前嗅探（防 CDN 毒应答污染录制）：
+ * B 站直播实测：签名过期/CDN 节点切换边缘，分片请求可能以 HTTP 200 返回
+ * 当前 m3u8 清单文本——零校验落盘后混进 moof/mdat 字节流，fMP4 解析器走到
+ * 该处即中断，转码产物时长截断在坏分片处（数据全在但不可见）。
+ * 判定序：
+ * ① `#EXTM3U` 前缀 = 清单毒应答 → 拒绝；
+ * ② 已知 fMP4 录制（mapUri 已捕获）→ 要求首 box 头合法（白名单类型 + size 不越界）；
+ * ③ 格式未知（TS 流或 MAP 尚未捕获）→ 0x47 同步字节或合法 box 头放行（宽松，
+ *    不在录制期误杀未知-but-合法的形态）。
+ * @param {Buffer} buf - 下载的分片内容
+ * @param {boolean} expectFmp4 - 是否已知为 fMP4 录制（st.mapUri 已捕获）
+ * @returns {boolean} true = 内容可落盘
+ */
+function isPlausibleSegment(buf, expectFmp4) {
+  if (!Buffer.isBuffer(buf) || buf.length === 0) return false;
+  // ① 清单毒应答（含 BOM/前导空白变体一律按前 16 字节内出现 #EXTM3U 判定）
+  if (buf.subarray(0, 16).includes('#EXTM3U')) return false;
+  // TS 同步字节：任何形态下都放行
+  if (buf[0] === 0x47) return true;
+  // box 头校验：offset 4 为类型、声明 size 不越界
+  const boxOk = buf.length >= 8
+    && buf.readUInt32BE(0) >= 8
+    && buf.readUInt32BE(0) <= buf.length
+    && FMP4_SEGMENT_BOX_TYPES.has(buf.toString('ascii', 4, 8));
+  // ② 已知 fMP4 录制必须 box 头合法；③ 未知形态 box 合法也放行
+  return boxOk;
+}
+
+
+
 /**
  * 创建直播录制引擎
  * @param {Object} deps - 注入依赖
@@ -146,6 +180,12 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
   async function downloadSegment(st, seg) {
     const absUrl = resolveUri(seg.uri, st.url);
     const buf = await fetchPage(absUrl, { referer: st.referer, containerId: st.containerId });
+    // 落盘前内容嗅探：CDN 毒应答（清单文本/错误页）不写盘不记 seen——
+    // seq 未入 seen 故下轮轮询自然重试同一 seq（清单窗口内可补回），
+    // 失败计数与重试语义复用 D-18 既有路径（throw 由调用方计 consecutiveFailures）
+    if (!isPlausibleSegment(buf, !!st.mapUri)) {
+      throw new Error(`invalid segment content (seq ${seg.seq})`);
+    }
     const name = `${String(seg.seq).padStart(SEQ_PAD, '0')}.ts`;
     fs.writeFileSync(path.join(st.segmentsDir, name), buf);
     st.seen.add(seg.seq);
@@ -397,4 +437,4 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
   return { startRecord, stopRecord, getRecordStatus, getActiveRecordings, stopAll };
 }
 
-module.exports = { createRecordEngine };
+module.exports = { createRecordEngine, isPlausibleSegment };

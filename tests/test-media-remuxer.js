@@ -890,6 +890,71 @@ describe('concatFmp4ToMp4 拼接执行体（D-01/D-07 纯字节拼接）', () =>
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test('毒分片（m3u8 清单文本混入）→ 跳过不写入，产物 = init + 合法分片字节，skipped 计数', async () => {
+    // 纵深防御回归：录制侧落盘的 CDN 毒应答（分片请求返回 #EXTM3U 清单，
+    // B 站直播实测）混进拼接流会中断产物 fMP4 解析——必须跳过而非写入
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-concat-poison-'));
+    try {
+      const initBuf = makeInit();
+      const initPath = path.join(dir, 'init');
+      fs.writeFileSync(initPath, initBuf);
+      const b1 = makeFmp4Segment(1);
+      const b2 = makeFmp4Segment(3);
+      const seg1 = path.join(dir, 'seg1.m4s');
+      const poison = path.join(dir, 'poison.ts');
+      const seg2 = path.join(dir, 'seg2.m4s');
+      fs.writeFileSync(seg1, b1);
+      fs.writeFileSync(poison, Buffer.from('#EXTM3U\n#EXT-X-VERSION:7\n#EXTINF:1.00,\n1788862934.m4s\n'));
+      fs.writeFileSync(seg2, b2);
+      const out = path.join(dir, 'out.mp4');
+      const r = await remuxer.concatFmp4ToMp4({ initPath, segmentPaths: [seg1, poison, seg2], outputPath: out });
+      assert.strictEqual(r.segments, 2, '毒分片不计入写入数');
+      assert.strictEqual(r.skipped, 1, '毒分片计入跳过数');
+      assert.strictEqual(
+        Buffer.compare(fs.readFileSync(out), Buffer.concat([initBuf, b1, b2])), 0,
+        '产物 = init + 两个合法分片，毒分片字节不出现'
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('全部为毒分片 → 产物仅剩 init（无 moof）→ reason=empty_output 且清理', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-concat-allpoison-'));
+    try {
+      const initPath = path.join(dir, 'init');
+      fs.writeFileSync(initPath, makeInit());
+      const poison = path.join(dir, 'poison.ts');
+      fs.writeFileSync(poison, Buffer.from('#EXTM3U\n#EXT-X-VERSION:7\n'));
+      const out = path.join(dir, 'out.mp4');
+      await assert.rejects(
+        () => remuxer.concatFmp4ToMp4({ initPath, segmentPaths: [poison], outputPath: out }),
+        (err) => err.reason === 'empty_output'
+      );
+      assert.strictEqual(fs.existsSync(out), false, 'empty_output 后产物应被清理');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('isFmp4Fragment 嗅探：moof/styp/ftyp 放行，#EXTM3U/越界 size/过短/非 box 拒绝', () => {
+    assert.strictEqual(remuxer.isFmp4Fragment(makeFmp4Segment(1)), true, '合法分片放行');
+    const styp = Buffer.alloc(16);
+    styp.writeUInt32BE(16, 0);
+    styp.write('styp', 4, 'ascii');
+    assert.strictEqual(remuxer.isFmp4Fragment(styp), true, 'styp box 放行');
+    assert.strictEqual(remuxer.isFmp4Fragment(Buffer.from('#EXTM3U\n#EXT-X-VERSION:7\n')), false, '清单文本拒绝');
+    const oob = Buffer.alloc(16);
+    oob.writeUInt32BE(0x1000, 0); // 声明 size 远超实际长度
+    oob.write('moof', 4, 'ascii');
+    assert.strictEqual(remuxer.isFmp4Fragment(oob), false, 'size 越界拒绝');
+    assert.strictEqual(remuxer.isFmp4Fragment(Buffer.alloc(4)), false, '过短拒绝');
+    const notBox = Buffer.alloc(16);
+    notBox.writeUInt32BE(16, 0);
+    notBox.write('xxxx', 4, 'ascii');
+    assert.strictEqual(remuxer.isFmp4Fragment(notBox), false, '非白名单 box 拒绝');
+  });
 });
 
 describe('concatFmp4ToMp4 tfdt rebase 集成（G-45-2 产物时间轴归零）', () => {
