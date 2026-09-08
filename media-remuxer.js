@@ -441,6 +441,127 @@ function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity, 
 const FINAL_PROBE_READ_BYTES = 4 * 1024 * 1024;
 
 /**
+ * fMP4 分片 tfdt 时间轴 rebase（G-45-2，D-01 零新依赖）
+ *
+ * B 站直播 fMP4 分片的 moof/traf/tfdt baseMediaDecodeTime 为 epoch 级大数
+ * （直播流绝对时刻），纯字节拼接会把该基线原样保留进产物，播放器以首个
+ * tfdt 为时间轴零点 → 十几秒录制显示 143 小时量级时长。本函数用轻量 box
+ * walker 遍历 moof→traf→(tfhd/tfdt)，按轨减去该轨首次见到的 tfdt 基线，
+ * 产物时间轴从 0 开始、总时长 = 录制时长（RESEARCH Route B 正解；不修
+ * moov/mvhd、不注入 elst——Pitfall 3 / 诊断结论）。
+ *
+ * 边界与畸形容忍（T-45-04/T-45-05，远端字节不可信）：
+ * - 每 box 读取前边界校验（size >= 头宽且 offset+size <= 区间末尾），违反
+ *   即停止该层遍历不 throw；size==1 读 64 位 largesize，size==0 视为到区间末尾
+ * - 循环界只受 buffer 实际长度约束，不依赖声明 size 累加推进（无超界读取/
+ *   死循环路径；分片已被 MAX_SEGMENT_BYTES 64MB 上限约束，T-45-02 沿用）
+ * - 未知 box 类型（sidx/emsg 等）与 traf 内非 tfhd/tfdt 子 box 原样跳过
+ * - 只写 tfdt 值域原位字节（等长改写：新值 = 原值 − 基线 <= 原值，同宽必容下），
+ *   box size/version/flags 与其余 box（mdat/trun/mfhd/tfhd 可选字段）零改动
+ * - v1（64 位）读写用 BigInt 防精度溢出（T-45-06）；v0（32 位）用 Number
+ * - 当前值 < 基线的异常形态（分片乱序/时钟回拨）保守不改写，原样保留
+ *
+ * @param {Buffer} buf - fMP4 分片缓冲（原地修改）
+ * @param {Map<number, bigint|number>} baselines - 调用方持有的轨基线表
+ *   （track_ID → 该轨首次见到的 baseMediaDecodeTime；v1 存 BigInt，v0 存
+ *   Number）。跨分片复用同一 Map 实现全产物按轨归零。
+ * @returns {number} 改写的 tfdt 计数（含改写为同值 0 的首片；供测试断言与诊断）
+ */
+function rebaseFmp4SegmentTfdt(buf, baselines) {
+  if (!Buffer.isBuffer(buf) || !(baselines instanceof Map)) return 0;
+  let rewritten = 0;
+
+  // 单层 box 遍历：区间 [start, end) 内逐个 box 回调。边界校验失败即 return
+  // （停止本层遍历），不抛出——远端字节不可信（T-45-04）
+  const walkRange = (start, end, onBox) => {
+    let offset = start;
+    while (offset + 8 <= end) {
+      let size = buf.readUInt32BE(offset);
+      const type = buf.toString('ascii', offset + 4, offset + 8);
+      let headerSize = 8;
+      if (size === 1) {
+        // 64 位 largesize
+        if (offset + 16 > end) return;
+        const large = buf.readBigUInt64BE(offset + 8);
+        if (large > BigInt(end - offset)) return; // 声明超出剩余区间 → 停止
+        size = Number(large);
+        headerSize = 16;
+      } else if (size === 0) {
+        size = end - offset; // size==0 表示延伸到区间末尾
+      }
+      if (size < headerSize || offset + size > end) return;
+      onBox(offset, offset + size, type, headerSize);
+      offset += size;
+    }
+  };
+
+  // traf 内：先定位 tfhd 的 track_ID 与全部 tfdt，再按轨 rebase
+  const processTraf = (start, end) => {
+    let trackId = -1;
+    const tfdts = [];
+    walkRange(start, end, (boxStart, boxEnd, type, headerSize) => {
+      if (type === 'tfhd') {
+        // version(1B)+flags(3B) 之后固定 4 字节 track_ID（flags 只影响其后的
+        // 可选字段，本 walker 不读它们）
+        if (boxStart + headerSize + 8 <= boxEnd) {
+          trackId = buf.readUInt32BE(boxStart + headerSize + 4);
+        }
+      } else if (type === 'tfdt') {
+        tfdts.push({ start: boxStart, end: boxEnd, headerSize });
+      }
+    });
+    if (trackId < 0) return;
+    for (const t of tfdts) {
+      const versionOffset = t.start + t.headerSize;
+      if (versionOffset + 4 > t.end) continue; // version+flags 不完整 → 跳过
+      const version = buf[versionOffset];
+      const valueOffset = versionOffset + 4;
+      if (version === 1) {
+        if (valueOffset + 8 > t.end) continue;
+        const value = buf.readBigUInt64BE(valueOffset);
+        if (!baselines.has(trackId)) {
+          baselines.set(trackId, value);
+          buf.writeBigUInt64BE(0n, valueOffset);
+        } else {
+          const baseline = baselines.get(trackId);
+          const base = typeof baseline === 'bigint' ? baseline : BigInt(baseline);
+          if (value < base) continue; // 乱序/回拨保守不改写
+          buf.writeBigUInt64BE(value - base, valueOffset);
+        }
+        rewritten++;
+      } else if (version === 0) {
+        if (valueOffset + 4 > t.end) continue;
+        const value = buf.readUInt32BE(valueOffset);
+        if (!baselines.has(trackId)) {
+          baselines.set(trackId, value);
+          buf.writeUInt32BE(0, valueOffset);
+        } else {
+          const baseline = baselines.get(trackId);
+          const base = typeof baseline === 'bigint' ? baseline : BigInt(baseline);
+          const current = BigInt(value);
+          if (current < base) continue;
+          // 新值 = 当前值 − 基线 <= 当前值，32 位必容下（等长改写）
+          buf.writeUInt32BE(Number(current - base), valueOffset);
+        }
+        rewritten++;
+      }
+      // 其他 version 未知 → 跳过不改写
+    }
+  };
+
+  // 顶层遍历：moof → traf → (tfhd/tfdt)；其余 box 原样跳过
+  walkRange(0, buf.length, (moofStart, moofEnd, type, headerSize) => {
+    if (type !== 'moof') return;
+    walkRange(moofStart + headerSize, moofEnd, (trafStart, trafEnd, innerType, innerHeader) => {
+      if (innerType !== 'traf') return;
+      processTraf(trafStart + innerHeader, trafEnd);
+    });
+  });
+
+  return rewritten;
+}
+
+/**
  * fMP4 分片序列纯字节拼接执行体（D-01/D-06/D-07，Phase 45）
  *
  * init.mp4 + moof/mdat 分片按播放序原样字节拼接为 fMP4 产物——不解析
@@ -595,4 +716,4 @@ function concatFmp4ToMp4({ initPath, segmentPaths, outputPath, onProgress, shoul
   });
 }
 
-module.exports = { convertToMp4, concatFmp4ToMp4, sanitizeFilename, buildOutputName };
+module.exports = { convertToMp4, concatFmp4ToMp4, sanitizeFilename, buildOutputName, rebaseFmp4SegmentTfdt };

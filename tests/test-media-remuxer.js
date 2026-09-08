@@ -709,7 +709,9 @@ describe('rebaseFmp4SegmentTfdt tfdt 时间轴 rebase walker（G-45-2）', () =>
     const withLarge = Buffer.concat([large, good]);
     const baselines3 = new Map();
     assert.strictEqual(remuxer.rebaseFmp4SegmentTfdt(withLarge, baselines3), 1, 'largesize box 后的 moof 照常处理');
-    assert.strictEqual(readTfdtValues(withLarge)[0].value, 0n);
+    // mux.js findBox 不认 largesize（测试 helper 限制），直接按 box 布局读回 tfdt 值域
+    const tfdtIdx3 = withLarge.indexOf(Buffer.from('tfdt', 'ascii'));
+    assert.strictEqual(withLarge.readBigUInt64BE(tfdtIdx3 + 8), 0n, 'tfdt 已归零');
 
     // ④ 未知 box 类型（sidx/emsg）包围 moof → 跳过未知、moof 照常改写
     const sidx = Buffer.alloc(16);
