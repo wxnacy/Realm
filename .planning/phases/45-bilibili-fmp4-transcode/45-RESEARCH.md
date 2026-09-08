@@ -318,11 +318,13 @@ if (trimmed.startsWith('#EXT-X-MAP:')) {
 | A3 | B 站其他清晰度/HEVC 流 MAP 形态与 avc 一致 | Q1 | 低——实测仅 avc qn250；hevc 流清单结构预期同构（同 CDN 体系），tracer 用 avc 即可 |
 | A4 | B 站 VOD fMP4（缓存链路）与直播形态一致 | Q5 缓存链路 | 中——VOD 形态未实测；缓存链路 tracer 验证时若形态差异（如带 BYTERANGE），按 reason 拒转兜底不静默坏 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **QuickTime 实际表现？**——UAT checkpoint 人工打开一次即可关闭此问。
-2. **B 站 VOD fMP4 缓存条目是否同样形态（MAP 无 BYTERANGE、分片无 styp）？**——未实测；缓存链路实现按直播形态假设，tracer 第二轮验证。若遇 BYTERANGE/差异形态：拒转+文案兜底（不静默产坏产物），回报用户决定是否扩展。
-3. **tfdt rebase 要不要做？**——建议 defer 到 UAT 后用户看实际进度条体验再定（Route B）。
+> 处置已接线进 Phase 45 计划（2026-09-08 plan-checker 复核标记）：3 问均有明确处置，无悬空开放问题。
+
+1. **QuickTime 实际表现？**——UAT checkpoint 人工打开一次即可关闭此问。**(RESOLVED)** 处置：45-03-PLAN Task 2 `<verify><human-check>` 验证点（QuickTime 打开拼接产物确认，失败不阻塞——mpv/VLC 已实测兜底，结果记入 UAT）。
+2. **B 站 VOD fMP4 缓存条目是否同样形态（MAP 无 BYTERANGE、分片无 styp）？**——未实测；缓存链路实现按直播形态假设，tracer 第二轮验证。若遇 BYTERANGE/差异形态：拒转+文案兜底（不静默产坏产物），回报用户决定是否扩展。**(RESOLVED)** 处置：45-03-PLAN Task 2 `<verify><human-check>` 验证点（fMP4 VOD 缓存条目转换）+ 链路兜底已落码进计划（BYTERANGE 非空不登记/不留存 init → startConvertFromInput 早拒 init_missing 引导重播文案，45-03 Task 1/2）。
+3. **tfdt rebase 要不要做？**——建议 defer 到 UAT 后用户看实际进度条体验再定（Route B）。**(RESOLVED)** 处置：deferred——本阶段 plans 未包含（D-02「能看就行」容忍带内，Route B defer 口径）；UAT 后用户看实际进度条体验再定，若立小项按 Route B 单独立阶段。
 
 ## Metadata
 
