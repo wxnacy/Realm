@@ -1,0 +1,223 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": "v2.5 — AI 网络搜索功能",
+  "phases": [
+    {
+      "number": "1",
+      "name": "Core Container Management + Architecture Refactoring",
+      "status": "complete"
+    },
+    {
+      "number": "2",
+      "name": "Browser Core - URL Navigation + Multi-Tab",
+      "status": "complete"
+    },
+    {
+      "number": "3",
+      "name": "Data Isolation + Cookie Persistence",
+      "status": "complete"
+    },
+    {
+      "number": "4",
+      "name": "Convenience Features",
+      "status": "complete"
+    },
+    {
+      "number": "5",
+      "name": "容器属性扩展",
+      "status": "complete"
+    },
+    {
+      "number": "6",
+      "name": "浏览历史记录",
+      "status": "complete"
+    },
+    {
+      "number": "7",
+      "name": "收藏夹管理",
+      "status": "complete"
+    },
+    {
+      "number": "8",
+      "name": "常用网站推荐 + 设置页面",
+      "status": "complete"
+    },
+    {
+      "number": "9",
+      "name": "共享收藏数据库",
+      "status": "complete"
+    },
+    {
+      "number": "10",
+      "name": "Cookie 管理增强",
+      "status": "complete"
+    },
+    {
+      "number": "11",
+      "name": "设置页面重构",
+      "status": "complete"
+    },
+    {
+      "number": "12",
+      "name": "开发者模式",
+      "status": "complete"
+    },
+    {
+      "number": "13",
+      "name": "右键菜单增强",
+      "status": "complete"
+    },
+    {
+      "number": "14",
+      "name": "收藏夹文件夹 - 数据库层实现",
+      "status": "complete"
+    },
+    {
+      "number": "15",
+      "name": "收藏夹文件夹 - UI 交互",
+      "status": "complete"
+    },
+    {
+      "number": "16",
+      "name": "收藏夹文件夹 - 增强功能",
+      "status": "complete"
+    },
+    {
+      "number": "17",
+      "name": "Chrome 书签导入",
+      "status": "complete"
+    },
+    {
+      "number": "18",
+      "name": "收藏栏功能",
+      "status": "complete"
+    },
+    {
+      "number": "19",
+      "name": "AI Agent 集成 - 基础验证",
+      "status": "complete"
+    },
+    {
+      "number": "20",
+      "name": "AI Agent 集成 - 核心功能",
+      "status": "complete"
+    },
+    {
+      "number": "21",
+      "name": "AI Agent 集成 - 聊天 UI",
+      "status": "complete"
+    },
+    {
+      "number": "22",
+      "name": "CDP 管理器扩展 + 基础网页操控工具",
+      "status": "complete"
+    },
+    {
+      "number": "23",
+      "name": "智能上下文引用 + 全文检索",
+      "status": "complete"
+    },
+    {
+      "number": "24",
+      "name": "任务自主执行",
+      "status": "complete"
+    },
+    {
+      "number": "25",
+      "name": "脚本生成 + 智能标签整理",
+      "status": "complete"
+    },
+    {
+      "number": "26",
+      "name": "视频源检测 + IPC 基础",
+      "status": "complete"
+    },
+    {
+      "number": "27",
+      "name": "媒体面板",
+      "status": "complete"
+    },
+    {
+      "number": "28",
+      "name": "播放器窗口",
+      "status": "complete"
+    },
+    {
+      "number": "29",
+      "name": "多媒体播放器设置控制",
+      "status": "complete"
+    },
+    {
+      "number": "30",
+      "name": "下载管理器 — 核心引擎",
+      "status": "complete"
+    },
+    {
+      "number": "31",
+      "name": "下载管理器 — 用户交互",
+      "status": "complete"
+    },
+    {
+      "number": "32",
+      "name": "自动填充 — 凭据引擎",
+      "status": "complete"
+    },
+    {
+      "number": "33",
+      "name": "自动填充 — 增强 + Bug 修复",
+      "status": "complete"
+    },
+    {
+      "number": "34",
+      "name": "窗口管理基础",
+      "status": "complete"
+    },
+    {
+      "number": "35",
+      "name": "Tab 窗口关联",
+      "status": "complete"
+    },
+    {
+      "number": "36",
+      "name": "Tab 拖拽与跨窗口移动",
+      "status": "complete"
+    },
+    {
+      "number": "37",
+      "name": "地址栏地址补全功能",
+      "status": "complete"
+    },
+    {
+      "number": "38",
+      "name": "AI 助手供应商管理",
+      "status": "complete"
+    },
+    {
+      "number": "39",
+      "name": "Vimium 键盘操作功能",
+      "status": "complete"
+    },
+    {
+      "number": "40",
+      "name": "搜索基础设施 + web_search 工具",
+      "status": "complete"
+    },
+    {
+      "number": "41",
+      "name": "web_fetch 工具 + 搜索配置 UI",
+      "status": "complete"
+    },
+    {
+      "number": "42",
+      "name": "AI 历史对话管理功能",
+      "status": "complete"
+    }
+  ],
+  "next": {
+    "command": "/gsd:progress",
+    "label": "Show progress",
+    "reason": "Unsure of state — showing progress"
+  },
+  "updated_at": "2026-09-07T15:29:04.490Z"
+}
