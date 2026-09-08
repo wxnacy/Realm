@@ -3033,6 +3033,10 @@ app.whenReady().then(async () => {
     // AES-128 解密链路：密钥未缓存（重新播放一次即会经 /proxy 留存）/ 解密失败
     key_unavailable: '解密密钥未缓存，请重新播放该视频后再转换',
     decrypt_failed: '分片解密失败',
+    // 45-02（Pitfall 5）：fMP4 拼接链路新 reason（45-01 产生）——参照 key_unavailable
+    // 引导口吻；init_missing = 录制/缓存时未留存 init（重新播放/录制即会留存）
+    init_missing: 'fMP4 视频缺少初始化段，请重新播放或重新录制后再转换',
+    invalid_init: 'fMP4 初始化段损坏，无法转换',
     empty_output: '转换产物为空',
   };
 

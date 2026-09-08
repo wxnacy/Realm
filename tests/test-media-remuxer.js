@@ -307,9 +307,10 @@ describe('convertToMp4 格式嗅探（G-44-4b）', () => {
     }
   });
 
-  test('main.js CONVERT_FAIL_TEXT 覆盖三个新 reason（任务页文案不落「未知原因」）', () => {
+  test('main.js CONVERT_FAIL_TEXT 覆盖全部新 reason（任务页文案不落「未知原因」）', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
-    for (const reason of ['unsupported_container', 'encrypted_stream', 'empty_output']) {
+    // 45-02：扩 init_missing/invalid_init（45-01 fMP4 拼接链路产生的两个新 reason 文案闭环）
+    for (const reason of ['unsupported_container', 'encrypted_stream', 'empty_output', 'init_missing', 'invalid_init']) {
       assert.ok(
         src.includes(`${reason}: '`),
         `main.js CONVERT_FAIL_TEXT 缺少 ${reason} 文案映射`
