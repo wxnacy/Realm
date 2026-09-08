@@ -18,6 +18,11 @@
  * 命名与 sanitize（D-22/T-44-15）：产物命名「{标题} {YYYY-MM-DD HHmm}.mp4」，
  * 远端标题经 sanitizeFilename 白名单替换防路径注入——目录固定为用户所选，
  * 仅文件名来自标题。
+ *
+ * Phase 45（D-01/D-06/D-07）：fMP4 分片序列（init.mp4 + moof/mdat，B 站直播
+ * HLS 形态）经 concatFmp4ToMp4 纯字节拼接转出 fMP4 产物——不解析 moof/trun
+ * 内部（攻击面 = 字节拷贝，零新依赖）；convertToMp4 首片嗅探命中 fMP4 box
+ * 特征时按 initPath 有无分流到拼接分支或 init_missing 拒转。
  */
 
 const fs = require('fs');
@@ -90,7 +95,8 @@ const ENTROPY_DISTINCT_THRESHOLD = 240;
  * 判定序（宽松优先避免误杀）：
  * ① 首字节 0x47 → MPEG-TS，放行（不做 188 步进强校验——首包对齐存在变体）；
  * ② 缓冲区内可检索到 fMP4 box 特征 ASCII（ftyp/styp/moof/moov/sidx 任一）
- *    → unsupported_container（HLS+fMP4 分片，mux.js Transmuxer 不支持）；
+ *    → fmp4_container（HLS+fMP4 分片，mux.js Transmuxer 不支持；内部信号——
+ *    convertToMp4 据此分流拼接分支或 init_missing，不对用户可见）；
  * ③ 前 4KB 采样不同字节值 ≥ 240 → encrypted_stream（AES-128 密文高熵特征）；
  * ④ 其余 → unsupported_container（未知格式，仅支持 MPEG-TS）。
  * @param {string} filePath - 首分片文件绝对路径
@@ -116,7 +122,7 @@ function sniffContainerFormat(filePath) {
 
 /**
  * 缓冲级容器格式嗅探（判定序同 sniffContainerFormat）：
- * ① 首字节 0x47 放行；② fMP4 box 特征 → unsupported_container；
+ * ① 首字节 0x47 放行；② fMP4 box 特征 → fmp4_container（内部信号，供分流）；
  * ③ 高熵 → encrypted_stream；④ 其余 → unsupported_container。
  * 解密链路对「解密后的首分片缓冲」调用本函数（密文先解密再判别，不错杀）。
  * @param {Buffer} buf - 分片头部缓冲（截到 64KB 足够）
@@ -125,10 +131,12 @@ function sniffContainerFormat(filePath) {
 function sniffContainerBuffer(buf) {
   // ① MPEG-TS 同步字节：放行（宽松判定，保持既有 TS 路径零回归）
   if (buf.length > 0 && buf[0] === 0x47) return null;
-  // ② fMP4 box 特征 ASCII：HLS+fMP4（CMF）分片以 box 开头、无同步字节
+  // ② fMP4 box 特征 ASCII：HLS+fMP4（CMF）分片以 box 开头、无同步字节。
+  // D-06：不再直接拒转——返回内部信号 fmp4_container 供 convertToMp4 分流
+  // （有 initPath 走 concatFmp4ToMp4 拼接，无则 init_missing 拒转）
   for (const tag of ['ftyp', 'styp', 'moof', 'moov', 'sidx']) {
     if (buf.indexOf(Buffer.from(tag, 'ascii')) !== -1) {
-      return remuxError('unsupported_container', 'fMP4 分片暂不支持转封装（仅支持 MPEG-TS）');
+      return remuxError('fmp4_container', 'fMP4 分片（供拼接分流）');
     }
   }
   // ③ 熵判定：不同字节值近满覆盖 = 高熵密文（如 AES-128），转封装无解密链路
@@ -243,12 +251,17 @@ function decryptSegment(buf, key, iv) {
  *   提供时每分片 readFileSync 后先 AES-128-CBC 解密再 push（IV 缺省按分片 seq 推导，
  *   RFC 8216 §5.2）；首分片嗅探改为裁决解密后缓冲（密文不再被 encrypted_stream 错杀）。
  *   缺省时行为与 G-44-4b/G-44-7 完全一致（密文分片 encrypted_stream 拒转）。
+ * @param {string|null} [input.initPath] - fMP4 init 分片绝对路径（D-06，缺省 null）：
+ *   首片嗅探命中 fMP4 box 特征时——initPath 非空则清理半成品后委托
+ *   concatFmp4ToMp4 纯字节拼接分支接续终态；为空则 init_missing 拒转。
+ *   TS 分片（0x47 放行）与加密链路不受此入参影响。
  * @returns {Promise<{ outputPath: string, segments: number }>} 完成时 resolve
  *   失败时 reject Error（err.reason 机器可读：discontinuity/no_segments/
  *   invalid_output/segment_missing/transmux_failed/write_failed/cancelled/
- *   unsupported_container/encrypted_stream/empty_output/decrypt_failed）
+ *   unsupported_container/encrypted_stream/empty_output/decrypt_failed/
+ *   init_missing/invalid_init）
  */
-function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity, shouldCancel, decryption }) {
+function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity, shouldCancel, decryption, initPath }) {
   return new Promise((resolve, reject) => {
     if (hasDiscontinuity) {
       reject(remuxError('discontinuity', '直播流含不连续片段（EXT-X-DISCONTINUITY），暂不支持转换'));
@@ -366,6 +379,25 @@ function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity, 
         if (i === 0) {
           const sniffErr = dec ? sniffContainerBuffer(payload) : sniffContainerFormat(tsFile);
           if (sniffErr) {
+            // D-06 分流：fMP4 box 命中不再是终态拒转。加密链路（dec）下 fMP4
+            // 维持旧拒转语义（D-04，拼接读的是密文原文件无意义）；
+            // 非加密 fMP4：有 initPath → 清理本执行体半成品（此时尚未 push 任何
+            // 分片）后委托 concatFmp4ToMp4 接续终态；无 initPath → init_missing
+            if (sniffErr.reason === 'fmp4_container') {
+              if (dec) {
+                fail(remuxError('unsupported_container', 'fMP4 分片暂不支持转封装（仅支持 MPEG-TS）'));
+                return;
+              }
+              if (!initPath) {
+                fail(remuxError('init_missing', 'fMP4 视频缺少初始化段'));
+                return;
+              }
+              settled = true;
+              try { stream.destroy(); } catch { /* 已销毁 */ }
+              try { fs.unlinkSync(outputPath); } catch { /* 文件可能未创建 */ }
+              concatFmp4ToMp4({ initPath, segmentPaths, outputPath, onProgress, shouldCancel }).then(resolve, reject);
+              return;
+            }
             fail(sniffErr);
             return;
           }
@@ -404,4 +436,163 @@ function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity, 
   });
 }
 
-module.exports = { convertToMp4, sanitizeFilename, buildOutputName };
+/** 产物终检读取上限：probe 只需校验头部结构（moov 在 init 内、首个 moof 紧随
+ * init 之后），4MB 头部足够——全量读入会违背 T-45-02/T-44-17 流式约束 */
+const FINAL_PROBE_READ_BYTES = 4 * 1024 * 1024;
+
+/**
+ * fMP4 分片序列纯字节拼接执行体（D-01/D-06/D-07，Phase 45）
+ *
+ * init.mp4 + moof/mdat 分片按播放序原样字节拼接为 fMP4 产物——不解析
+ * moof/trun 内部（攻击面 = 字节拷贝）；单文件多 moof+mdat 对（B 站直播实测
+ * 形态）原样通过不拆箱。产物形态为 fMP4 容器（init 的 mvhd duration=0 是
+ * RFC 8216 强制形态，不修 moov——D-02「能看就行」：mpv/IINA/VLC/QuickTime
+ * 可播，不承诺剪辑软件兼容）。
+ *
+ * 执行体契约逐项复刻 convertToMp4（G-44-7/PATTERNS 六件套）：
+ * ① 入参 fail-fast（no_segments/invalid_output/segment_missing/init_missing）；
+ * ② fs.openSync(outputPath, 'w') 同步 fd 产物创建（G-44-7 竞态修复同款，
+ *    禁退回 createWriteStream 隐式 open）；
+ * ③ fail() = destroy + unlink 统一清理；
+ * ④ 每分片迭代开头 shouldCancel 协作式取消；
+ * ⑤ onProgress try/catch 不阻断；
+ * ⑥ stream.end 回调内终检（empty_output）。
+ * @param {Object} input - 拼接参数
+ * @param {string} input.initPath - fMP4 init 分片绝对路径（缺失/不可读 → init_missing）
+ * @param {string[]} input.segmentPaths - fMP4 分片绝对路径列表（**按播放顺序**）
+ * @param {string} input.outputPath - 产物 mp4 绝对路径
+ * @param {Function} [input.onProgress] - (processed, total) 进度回调（异常不阻断）
+ * @param {Function} [input.shouldCancel] - 每分片迭代开始前调用的取消检查
+ * @returns {Promise<{ outputPath: string, segments: number }>} 完成时 resolve
+ *   失败时 reject Error（err.reason：no_segments/invalid_output/segment_missing/
+ *   init_missing/invalid_init/write_failed/cancelled/empty_output）
+ */
+function concatFmp4ToMp4({ initPath, segmentPaths, outputPath, onProgress, shouldCancel }) {
+  return new Promise((resolve, reject) => {
+    // ① 入参 fail-fast
+    if (!Array.isArray(segmentPaths) || segmentPaths.length === 0) {
+      reject(remuxError('no_segments', '无可转换的分片'));
+      return;
+    }
+    if (!outputPath || typeof outputPath !== 'string') {
+      reject(remuxError('invalid_output', '产物路径缺失'));
+      return;
+    }
+    for (const p of segmentPaths) {
+      if (!fs.existsSync(p)) {
+        reject(remuxError('segment_missing', `分片文件缺失: ${p}`));
+        return;
+      }
+    }
+    // init 读取 fail-fast：缺失/不可读 → init_missing（D-06 引导语义）
+    let initBuf = null;
+    if (typeof initPath === 'string' && initPath) {
+      try {
+        initBuf = fs.readFileSync(initPath);
+      } catch { /* init 不可读按缺失处理 */ }
+    }
+    if (!initBuf) {
+      reject(remuxError('init_missing', 'fMP4 视频缺少初始化段'));
+      return;
+    }
+
+    let settled = false;
+    // ② 产物同步 fd 创建（G-44-7 同款）：fail() 的 unlinkSync 必然命中
+    let outFd;
+    try {
+      outFd = fs.openSync(outputPath, 'w');
+    } catch (err) {
+      // 目录不存在/无写权限：文件从未创建，直接拒绝（无需清理）
+      reject(remuxError('write_failed', err.message));
+      return;
+    }
+    const stream = fs.createWriteStream(outputPath, { fd: outFd });
+
+    // ③ fail() 统一清理半成品
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      try { stream.destroy(); } catch { /* 已销毁 */ }
+      try { fs.unlinkSync(outputPath); } catch { /* 文件可能未创建 */ }
+      reject(err);
+    };
+
+    stream.on('error', (err) => {
+      fail(remuxError('write_failed', err.message));
+    });
+
+    try {
+      // init 头校验 fail-fast：前 8 字节须为 box size + 'ftyp'（RFC 8216 §3.3
+      // init MUST 含 ftyp）——畸形 init 不产静默坏产物（T-45-01）
+      if (initBuf.length < 8 || initBuf.toString('ascii', 4, 8) !== 'ftyp') {
+        fail(remuxError('invalid_init', '初始化段不是合法的 fMP4 init（缺少 ftyp box）'));
+        return;
+      }
+      stream.write(initBuf);
+      let processed = 0;
+      for (const segPath of segmentPaths) {
+        if (settled) return;
+        // ④ 协作式取消：每分片迭代开始前（同 convertToMp4 CR-04 检查点）
+        if (typeof shouldCancel === 'function' && shouldCancel()) {
+          fail(remuxError('cancelled', '用户取消转换'));
+          return;
+        }
+        // 分片原样字节写出（init 在前 + 分片按入参播放序，D-07）；不解析
+        // moof/trun 内部，单文件多 moof+mdat 对原样通过。单分片大小受来源侧
+        // MAX_SEGMENT_BYTES 64MB 上限约束（T-45-02），不全量载入内存
+        stream.write(fs.readFileSync(segPath));
+        processed++;
+        // ⑤ 进度回调异常不阻断
+        if (typeof onProgress === 'function') {
+          try {
+            onProgress(processed, segmentPaths.length);
+          } catch { /* 进度回调异常不阻断拼接 */ }
+        }
+      }
+      stream.end(() => {
+        if (settled) return;
+        // ⑥ 终检加强档（RESEARCH Q5）：基线 = 产物非空且头部 ftyp；加强 =
+        // mux.js probe 校验 moov 存在 + moof 计数 ≥1（不断言具体 track 数——
+        // Pitfall 9 音频-only 流合法）；probe 调用异常时降级为基线校验。
+        // 只读头部 4MB：moov 在 init 内、首个 moof 紧随 init，足够判别
+        let head = null;
+        let outSize = 0;
+        let fd;
+        try {
+          outSize = fs.statSync(outputPath).size;
+          fd = fs.openSync(outputPath, 'r');
+          const len = Math.min(outSize, FINAL_PROBE_READ_BYTES);
+          head = Buffer.alloc(len);
+          fs.readSync(fd, head, 0, len, 0);
+        } catch { /* 产物不存在按空产物处理 */ } finally {
+          if (fd !== undefined) {
+            try { fs.closeSync(fd); } catch { /* 关闭失败忽略 */ }
+          }
+        }
+        const passBaseline = head !== null && outSize > 0 && head.length >= 8
+          && head.toString('ascii', 4, 8) === 'ftyp';
+        let pass = passBaseline;
+        if (passBaseline) {
+          try {
+            pass = muxjs.mp4.probe.findBox(head, ['moov']).length >= 1
+              && muxjs.mp4.probe.findBox(head, ['moof']).length >= 1;
+          } catch {
+            pass = passBaseline; // probe 异常 → 降级 ftyp 头 + 大小基线校验
+          }
+        }
+        if (!pass) {
+          settled = true;
+          try { fs.unlinkSync(outputPath); } catch { /* 清理失败忽略 */ }
+          reject(remuxError('empty_output', '转封装产物为空（无有效媒体数据）'));
+          return;
+        }
+        settled = true;
+        resolve({ outputPath, segments: processed });
+      });
+    } catch (err) {
+      fail(remuxError('write_failed', err.message));
+    }
+  });
+}
+
+module.exports = { convertToMp4, concatFmp4ToMp4, sanitizeFilename, buildOutputName };
