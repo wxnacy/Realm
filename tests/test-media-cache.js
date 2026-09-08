@@ -24,6 +24,36 @@ const path = require('path');
 const { Readable } = require('stream');
 
 const { MediaCacheManager, playbackKeyOf, videoIdOf, segmentKeyOf } = require('../media-cache-manager');
+const muxjs = require('mux.js');
+const crypto = require('crypto');
+
+// ---------------------------------------------------------------------------
+// fMP4 init 分片夹具（mux.js mp4.generator 确定性生成，45-01 同法）：
+// makeInit() 生成 ftyp+moov init 分片（probe 可解析的合法 init 形态）。
+// ---------------------------------------------------------------------------
+
+/** 夹具视频轨（mux.js generator initSegment 需要合法 sps/pps 字节） */
+const FMP4_VIDEO_TRACK = {
+  id: 1,
+  type: 'video',
+  codec: 'avc',
+  width: 640,
+  height: 360,
+  timescale: 90000,
+  duration: 0,
+  pps: [new Uint8Array([0x68, 0xee, 0x3c, 0x80])],
+  sps: [new Uint8Array([0x67, 0x64, 0x00, 0x1f, 0xac, 0xd9, 0x40, 0x50, 0x05, 0xbb, 0x01, 0x10, 0x00, 0x00, 0x03, 0x00, 0x10, 0x00, 0x00, 0x03, 0x03, 0x20, 0xf1, 0x83, 0x19, 0x60])],
+};
+
+/** init 分片夹具：ftyp + moov（mux.js probe 可解析，~676 字节） */
+function makeInit() {
+  return Buffer.from(muxjs.mp4.generator.initSegment([FMP4_VIDEO_TRACK]));
+}
+
+/** sha256 hex（meta.init_segment 断言用） */
+function sha256Hex(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
 
 /** 临时缓存根目录 */
 function makeCacheRoot() {
@@ -582,5 +612,163 @@ describe('AES-128 解密材料（key_hex/key_iv/media_sequence，加密转换链
     assert.strictEqual(info.segmentPaths.length, 2, 'key 键仍被剔除出 segmentPaths');
     const meta = JSON.parse(fs.readFileSync(path.join(root, vid, 'meta.json'), 'utf8'));
     assert.strictEqual(meta.key_hex, makeBuffer(16, 9).toString('hex'), '自愈结果补写 meta.key_hex');
+  });
+});
+
+describe('EXT-X-MAP 排除与 init 留存（D-05/D-07，fMP4 缓存链路 45-03）', () => {
+  const M3U8 = 'https://a.com/vod/index.m3u8';
+  const INIT_URL = 'https://a.com/vod/init.mp4';
+  const PLAYLIST = [
+    '#EXTM3U',
+    '#EXT-X-MAP:URI="init.mp4"',
+    '#EXTINF:5.0,',
+    'seg0.m4s',
+    '#EXTINF:5.0,',
+    'seg1.m4s',
+    '#EXT-X-ENDLIST',
+  ].join('\n');
+
+  test('含 EXT-X-MAP 清单 → meta.has_fmp4_map=true 且 map_uris 含 init 键', () => {
+    const root = makeCacheRoot();
+    const c = new MediaCacheManager({ cacheRoot: root });
+    const vid = c.touchVideo(M3U8);
+    c.updatePlaylistIndex(M3U8, PLAYLIST);
+    const meta = JSON.parse(fs.readFileSync(path.join(root, vid, 'meta.json'), 'utf8'));
+    assert.strictEqual(meta.has_fmp4_map, true);
+    const initSeg = segmentKeyOf(INIT_URL);
+    assert.deepStrictEqual(meta.map_uris, [initSeg], 'map_uris 应为 segKey(init 绝对 URL) 数组');
+    assert.strictEqual(meta.map_byterange, null, '无 BYTERANGE 的 MAP 应记 null');
+  });
+
+  test('storeBuffer 命中 map_uris → init 本体落盘 + meta.init_segment 登记（不进 segments）', () => {
+    const root = makeCacheRoot();
+    const c = new MediaCacheManager({ cacheRoot: root });
+    const vid = c.touchVideo(M3U8);
+    c.updatePlaylistIndex(M3U8, PLAYLIST);
+
+    const initBuf = makeInit();
+    const rk = c.storeBuffer(INIT_URL, vid, initBuf);
+    assert.strictEqual(rk.ok, true);
+    assert.strictEqual(rk.skipped, true);
+    assert.strictEqual(rk.reason, 'map_uri');
+
+    const initSeg = segmentKeyOf(INIT_URL);
+    const initFile = path.join(root, vid, 'init');
+    assert.ok(fs.existsSync(initFile), 'init 本体应落盘 <videoDir>/init');
+    assert.deepStrictEqual(fs.readFileSync(initFile), initBuf, 'init 落盘内容应与原字节一致');
+
+    const meta = JSON.parse(fs.readFileSync(path.join(root, vid, 'meta.json'), 'utf8'));
+    assert.ok(!meta.segments[initSeg], 'init 绝不进 segments（Pitfall 2，D-07）');
+    assert.deepStrictEqual(meta.init_segment, {
+      size: initBuf.length,
+      sha256: sha256Hex(initBuf),
+      uri_key: initSeg,
+    });
+
+    // 真实分片正常登记，不受 MAP 排除影响
+    const r0 = c.storeBuffer('https://a.com/vod/seg0.m4s', vid, makeBuffer(128, 1));
+    assert.strictEqual(r0.ok, true);
+    assert.strictEqual(r0.skipped, undefined);
+  });
+
+  test('二次同 uri_key init 请求 → 不覆盖已留存 init（首 init 为准，D-10）', () => {
+    const root = makeCacheRoot();
+    const c = new MediaCacheManager({ cacheRoot: root });
+    const vid = c.touchVideo(M3U8);
+    c.updatePlaylistIndex(M3U8, PLAYLIST);
+
+    const initBuf = makeInit();
+    c.storeBuffer(INIT_URL, vid, initBuf);
+    // 二次同 uri_key、不同内容：不覆盖
+    const other = makeBuffer(64, 9);
+    const rk2 = c.storeBuffer(INIT_URL, vid, other);
+    assert.strictEqual(rk2.skipped, true);
+    assert.strictEqual(rk2.reason, 'map_uri');
+
+    const initFile = path.join(root, vid, 'init');
+    assert.deepStrictEqual(fs.readFileSync(initFile), initBuf, '二次 init 不应覆盖已留存内容');
+    const meta = JSON.parse(fs.readFileSync(path.join(root, vid, 'meta.json'), 'utf8'));
+    assert.strictEqual(meta.init_segment.size, initBuf.length, 'init_segment 登记保持首 init');
+    assert.strictEqual(meta.init_segment.sha256, sha256Hex(initBuf));
+  });
+
+  test('完整性判定不含 init：playlist_order 对齐 + completeness=100 不污染（D-07）', () => {
+    const root = makeCacheRoot();
+    const c = new MediaCacheManager({ cacheRoot: root });
+    const vid = c.touchVideo(M3U8);
+    c.updatePlaylistIndex(M3U8, PLAYLIST);
+
+    c.storeBuffer(INIT_URL, vid, makeInit());
+    c.storeBuffer('https://a.com/vod/seg0.m4s', vid, makeBuffer(128, 1));
+    c.storeBuffer('https://a.com/vod/seg1.m4s', vid, makeBuffer(128, 2));
+
+    const meta = JSON.parse(fs.readFileSync(path.join(root, vid, 'meta.json'), 'utf8'));
+    assert.strictEqual(Object.keys(meta.segments).length, 2, 'init 不占 segments 名额');
+    assert.strictEqual(meta.playlist_order.length, 2);
+
+    const info = c.getConvertInfo(vid);
+    assert.strictEqual(info.segmentPaths.length, 2, 'segmentPaths 不含 init');
+    assert.strictEqual(info.completeness, 100, 'init 不计入完整度分母（D-07）');
+  });
+
+  test('getConvertInfo 透出 initPath/hasFmp4Map；历史无 init_segment 条目 initPath=null', () => {
+    const root = makeCacheRoot();
+    const c = new MediaCacheManager({ cacheRoot: root });
+
+    // ① fMP4 清单 + init 已留存 → initPath 非 null 且文件存在
+    const vid = c.touchVideo(M3U8);
+    c.updatePlaylistIndex(M3U8, PLAYLIST);
+    c.storeBuffer(INIT_URL, vid, makeInit());
+    const info = c.getConvertInfo(vid);
+    assert.strictEqual(info.hasFmp4Map, true);
+    assert.ok(info.initPath, 'init_segment 已登记且文件存在 → initPath 非 null');
+    assert.ok(fs.existsSync(info.initPath), 'initPath 应指向真实存在的 init 文件');
+    assert.ok(info.initPath.endsWith(path.sep + 'init'), 'initPath 应指向 <videoDir>/init');
+
+    // ② fMP4 清单但 init 未留存（45-03 前历史条目）→ initPath=null（init_missing 兜底前提）
+    const vid2 = c.touchVideo('https://a.com/vod2/index.m3u8');
+    c.updatePlaylistIndex('https://a.com/vod2/index.m3u8', PLAYLIST);
+    const info2 = c.getConvertInfo(vid2);
+    assert.strictEqual(info2.hasFmp4Map, true);
+    assert.strictEqual(info2.initPath, null, 'init 未留存 → initPath=null');
+
+    // ③ 普通 TS 清单（无 MAP）→ hasFmp4Map=false、initPath=null（TS 路径不受影响）
+    const TS_PLAYLIST = [
+      '#EXTM3U',
+      '#EXTINF:5.0,',
+      'seg0.ts',
+      '#EXT-X-ENDLIST',
+    ].join('\n');
+    const vid3 = c.touchVideo('https://a.com/ts/index.m3u8');
+    c.updatePlaylistIndex('https://a.com/ts/index.m3u8', TS_PLAYLIST);
+    const info3 = c.getConvertInfo(vid3);
+    assert.strictEqual(info3.hasFmp4Map, false);
+    assert.strictEqual(info3.initPath, null);
+  });
+
+  test('BYTERANGE 形态 MAP → 记 map_byterange 不登记 map_uris（init_missing 兜底前提）', () => {
+    const root = makeCacheRoot();
+    const c = new MediaCacheManager({ cacheRoot: root });
+    const BR_PLAYLIST = [
+      '#EXTM3U',
+      '#EXT-X-MAP:URI="init.mp4",BYTERANGE="720@0"',
+      '#EXTINF:5.0,',
+      'seg0.m4s',
+      '#EXT-X-ENDLIST',
+    ].join('\n');
+    const vid = c.touchVideo(M3U8);
+    c.updatePlaylistIndex(M3U8, BR_PLAYLIST);
+    const meta = JSON.parse(fs.readFileSync(path.join(root, vid, 'meta.json'), 'utf8'));
+    assert.strictEqual(meta.has_fmp4_map, true, 'BYTERANGE 形态仍标记 has_fmp4_map');
+    assert.strictEqual(meta.map_byterange, '720@0');
+    assert.strictEqual(meta.map_uris, undefined, 'BYTERANGE 形态不登记 map_uris（不支持，转换落 init_missing）');
+
+    // init 请求按普通分片处理（无 map_uris 可命中）；getConvertInfo initPath=null
+    c.storeBuffer(INIT_URL, vid, makeInit());
+    const meta2 = JSON.parse(fs.readFileSync(path.join(root, vid, 'meta.json'), 'utf8'));
+    assert.strictEqual(meta2.init_segment, undefined, 'BYTERANGE 形态不留存 init_segment');
+    const info = c.getConvertInfo(vid);
+    assert.strictEqual(info.hasFmp4Map, true);
+    assert.strictEqual(info.initPath, null, 'BYTERANGE 形态 initPath=null → 入口 init_missing 早拒');
   });
 });
