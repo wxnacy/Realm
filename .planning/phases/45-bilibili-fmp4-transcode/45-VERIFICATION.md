@@ -1,9 +1,17 @@
 ---
 phase: 45-bilibili-fmp4-transcode
-verified: 2026-09-08T05:27:36Z
-status: human_needed
-score: 17/17 must-haves verified
+verified: 2026-09-08T08:51:19Z
+status: passed
+score: 17/17 must-haves verified + G-45-2 gap-closure re-verified
 covered_files:
+  - .planning/phases/45-bilibili-fmp4-transcode/45-01-PLAN.md
+  - .planning/phases/45-bilibili-fmp4-transcode/45-01-SUMMARY.md
+  - .planning/phases/45-bilibili-fmp4-transcode/45-02-PLAN.md
+  - .planning/phases/45-bilibili-fmp4-transcode/45-02-SUMMARY.md
+  - .planning/phases/45-bilibili-fmp4-transcode/45-03-PLAN.md
+  - .planning/phases/45-bilibili-fmp4-transcode/45-03-SUMMARY.md
+  - .planning/phases/45-bilibili-fmp4-transcode/45-04-PLAN.md
+  - .planning/phases/45-bilibili-fmp4-transcode/45-04-SUMMARY.md
   - main.js
   - media-cache-manager.js
   - media-m3u8-parser.js
@@ -13,7 +21,7 @@ covered_files:
   - tests/test-media-cache.js
   - tests/test-media-record-duration.js
   - tests/test-media-remuxer.js
-covered_digest: "v1:sha256:48fb3e06aa4e38328aa38084fceecd6eba6c482bf5c11f66a72fcca5f0cee972"
+covered_digest: "v1:sha256:ef4c19001b39afd542f63538766fd18b84e09797f6ab7f4acd5f3df0a47f6489"
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
@@ -28,9 +36,9 @@ human_verification:
 # Phase 45: B 站 fMP4 转录 Verification Report
 
 **Phase Goal:** 录制/缓存的 fMP4 分片序列（init.mp4 + moof/mdat，B 站直播流形态）可转为可播放 mp4 产物（路线①：init.mp4 + moof/mdat 顺序拼接产 fMP4 容器，纯 JS）
-**Verified:** 2026-09-08T05:27:36Z
-**Status:** human_needed
-**Re-verification:** No — initial verification
+**Verified:** 2026-09-08T08:51:19Z
+**Status:** passed（human_needed 两项 UAT 已于 2026-09-08 真机通过：Test 2 修复后复测时间轴从 0 开始、总时长 ≈ 录制时长，G-45-2 关闭）
+**Re-verification:** Yes — G-45-2 gap-closure re-verification（见文末专节）
 
 ## Goal Achievement
 
@@ -154,5 +162,36 @@ REQUIREMENTS.md 无本阶段映射（phase_req_ids null，已 grep 核实）。P
 
 ---
 
+## Gap-Closure Re-Verification: G-45-2（Plan 45-04，tfdt 时间轴 rebase）
+
+**Re-verified:** 2026-09-08
+**Scope:** 仅 G-45-2 gap closure（45-04 PLAN/SUMMARY）；45-01/02/03 既有 17/17 结论不动
+**Verdict:** ✅ **CLOSED**（自动化部分全闭合；真实流 UAT 复测仍待人工，见下）
+
+### Must-Have 复核（5 条 truths + 2 项 artifacts + 2 条 locked prohibitions）
+
+| # | Must-Have | Status | Evidence |
+|---|-----------|--------|----------|
+| 1 | 产物首片每轨 tfdt 归零，后续 = 原值 − 该轨基线；双轨（90kHz/48kHz）独立基线 | ✓ VERIFIED | 产物级断言 `readTfdtValues(produced)` == `[0n, 270000n, 540000n]`（test-media-remuxer.js:928-932）；双轨 `byTrack(1)==[0n,270000n]`、`byTrack(2)==[0n,144000n]`（:958-959）；walker 按 tfhd track_ID 配对（media-remuxer.js:501-514） |
+| 2 | v0（32 位）/ v1（64 位）原位等长改写，box 结构零变化 | ✓ VERIFIED | v1 `readBigUInt64BE/writeBigUInt64BE`（:523/:526/:531）、v0 `readUInt32BE/writeUInt32BE`（:536/:539/:546），只写值域；等长逐位用例断言值域外字节全等（test :658-672）；v0 用例断言 buffer 长度与 moof size 字段不变（test :643-656） |
+| 3 | 基线为 0 的流产出与原字节逐位一致（零回归） | ✓ VERIFIED | 零基线恒等用例 `Buffer.compare == 0`（test :684-689 helper 级、:965-986 产物级）；既有 :763 字节精确相等用例保持绿 |
+| 4 | 畸形/未知 box 容忍不抛异常 | ✓ VERIFIED | 用例覆盖截断 size/非法 size<8/largesize/sidx+emsg 包围/无 tfdt traf（test :691-750，5 子例全绿）；walker `return` 不 throw（media-remuxer.js:478-498）；本 verifier 独立 spot-check：随机 4KB/截断/空 buffer/0xffffffff size 声明 5 例无 throw |
+| 5 | concatFmp4ToMp4 集成 rebase：baselines Map 在 init 写出后/循环前创建；readFileSync→rebase→write；取消/进度/fail 结构不动 | ✓ VERIFIED | media-remuxer.js:658 init 写出 → :661 `const baselines = new Map()` → :663 循环 → :675-677 三步；取消检查 :664-669、进度回调 :679-684、fail :639-645、终检 :686-725 结构完整；既有取消/失败 reason 用例（cancelled/init_missing/invalid_init/empty_output）51/51 套件内全绿 |
+| P1 | 不修 init moov/mvhd、不注入 elst（locked） | ✓ HOLDS | initBuf 原样 `stream.write`（:658）；产物级断言 init 段与输入逐位一致（test :921-924、:954）；grep `elst` 仅 JSDoc 一处禁言表述 |
+| P2 | 零新依赖；不做 moof/trun 解析重打包（locked） | ✓ HOLDS | `git diff 5a63a13..HEAD -- package.json package-lock.json` 为空；media-remuxer.js require 仍仅 fs/crypto/mux.js（:30-32，无新增）；walker 只定位 tfdt 值域，不解析 trun/sample 表 |
+
+### 本 verifier 独立执行的证据（非 SUMMARY 复述）
+
+- **三套件全绿（独立重跑）**：`node tests/test-media-remuxer.js` 51/51、`node tests/test-media-cache.js` 34/34、`node tests/test-media-record-duration.js` 6/6，0 fail
+- **测试可失败性证明（a test that can't fail is a finding —— 已排除）**：独立 spot-check 用 mux.js generator 造 `baseMediaDecodeTime=1.6e14` 分片，rebase 前 tfdt 原始值确认为 `160000000000000`（v1）；若 rebase 为 no-op，产物断言 `[0n,270000n,540000n]` 必然失败 → 断言确实锻炼 rebase 行为
+- **提交链核实**：`b574c65`(RED) → `85b1c75`(GREEN) → `3af81a6`(RED) → `d41e759`(GREEN) 与 SUMMARY 一致，TDD 两轮 RED→GREEN 结构真实存在
+
+### Human Verification（仍未结）
+
+**真实流 UAT 复测（UAT Test 2 场景重跑）**：npm run dev 录制 B 站 fMP4 直播 ≥15 秒转 mp4（录制 tracer 链路）+ fMP4 VOD 缓存「转换为 MP4」（缓存链路），两产物分别用 mpv/VLC 打开。**预期：** 时间轴从 0 开始、总时长 ≈ 录制时长（不再是 143:53:42 量级 epoch 基线），音画可播。**Why human:** 自动化禁真实网络（RESEARCH Pitfall 7 红线），播放器时间轴展示只能真机验证。G-45-2 major issue 的最终关闭以此项通过为准。
+
+---
+
 _Verified: 2026-09-08T05:27:36Z_
 _Verifier: Claude (gsd-verifier)_
+_G-45-2 re-verified: 2026-09-08 (gsd-verifier-1)_
