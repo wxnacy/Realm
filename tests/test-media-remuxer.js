@@ -892,6 +892,100 @@ describe('concatFmp4ToMp4 拼接执行体（D-01/D-07 纯字节拼接）', () =>
   });
 });
 
+describe('concatFmp4ToMp4 tfdt rebase 集成（G-45-2 产物时间轴归零）', () => {
+  const EPOCH_BASE = 160000000000000; // 1.6e14（90kHz 视频轨直播绝对时刻）
+  const AUDIO_EPOCH_BASE = 85000000000000; // 8.5e13（48kHz 音频轨）
+
+  test('大数 tfdt 分片产物：首个 moof 首 tfdt == 0、后续递减排差；init 段与输入逐位一致', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-rebase-'));
+    try {
+      const initBuf = makeInit();
+      const initPath = path.join(dir, 'init');
+      fs.writeFileSync(initPath, initBuf);
+      // seg1：单文件两个 moof（B 站多 moof 形态）BASE / BASE+270000（+3s@90kHz）
+      const b1 = Buffer.concat([
+        makeFragment(1, { baseMediaDecodeTime: EPOCH_BASE }),
+        makeFragment(2, { baseMediaDecodeTime: EPOCH_BASE + 270000 }),
+      ]);
+      // seg2：单 moof BASE+540000
+      const b2 = makeFragment(3, { baseMediaDecodeTime: EPOCH_BASE + 540000 });
+      const seg1 = path.join(dir, 'seg1.m4s');
+      const seg2 = path.join(dir, 'seg2.m4s');
+      fs.writeFileSync(seg1, b1);
+      fs.writeFileSync(seg2, b2);
+      const out = path.join(dir, 'out.mp4');
+      const r = await remuxer.concatFmp4ToMp4({ initPath, segmentPaths: [seg1, seg2], outputPath: out });
+      assert.strictEqual(r.segments, 2);
+      const produced = fs.readFileSync(out);
+      // init 段逐位一致（不修 moov prohibition 的可执行断言）
+      assert.ok(
+        produced.subarray(0, initBuf.length).equals(initBuf),
+        '产物 init 段应与输入 init 文件逐位一致（不修 moov/mvhd）'
+      );
+      // 产物级主断言：walker 只读遍历逐 tfdt 断言首片归零 + 递减排差
+      const tfdts = readTfdtValues(produced);
+      assert.strictEqual(tfdts.length, 3, '产物应含 3 个 moof 的 tfdt');
+      assert.deepStrictEqual(
+        tfdts.map((t) => t.value),
+        [0n, 270000n, 540000n],
+        '首个 moof 首 tfdt == 0，后续为原值 − 该轨基线的递减排差'
+      );
+      assert.ok(tfdts.every((t) => t.version === 1), 'tfdt 均为 v1（64 位 BigInt 路径）');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('双轨产物：initSegment([video, audio]) + 双轨分片 → 两轨首 tfdt 均归 0、各自递减排差', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-rebase-dual-'));
+    try {
+      const initBuf = makeDualTrackInit();
+      const initPath = path.join(dir, 'init');
+      fs.writeFileSync(initPath, initBuf);
+      const b1 = makeDualTrackFragment(1, EPOCH_BASE, AUDIO_EPOCH_BASE);
+      const b2 = makeDualTrackFragment(2, EPOCH_BASE + 270000, AUDIO_EPOCH_BASE + 144000);
+      const seg1 = path.join(dir, 'seg1.m4s');
+      const seg2 = path.join(dir, 'seg2.m4s');
+      fs.writeFileSync(seg1, b1);
+      fs.writeFileSync(seg2, b2);
+      const out = path.join(dir, 'out.mp4');
+      await remuxer.concatFmp4ToMp4({ initPath, segmentPaths: [seg1, seg2], outputPath: out });
+      const produced = fs.readFileSync(out);
+      assert.ok(produced.subarray(0, initBuf.length).equals(initBuf), '双轨产物 init 段逐位一致');
+      const tfdts = readTfdtValues(produced);
+      assert.strictEqual(tfdts.length, 4, '两片双轨共 4 个 tfdt');
+      const byTrack = (id) => tfdts.filter((t) => t.trackId === id).map((t) => t.value);
+      assert.deepStrictEqual(byTrack(1), [0n, 270000n], '视频轨首片归零 + 排差');
+      assert.deepStrictEqual(byTrack(2), [0n, 144000n], '音频轨首片归零 + 排差（独立基线不串轨）');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('零回归恒等：零基线分片（既有夹具）产物字节 = init+seg1+seg2 精确相等', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-rebase-identity-'));
+    try {
+      const initBuf = makeInit();
+      const initPath = path.join(dir, 'init');
+      fs.writeFileSync(initPath, initBuf);
+      const b1 = makeFmp4Segment(1); // 不传 baseMediaDecodeTime → 0 值 tfdt
+      const b2 = makeFmp4Segment(3);
+      const seg1 = path.join(dir, 'seg1.m4s');
+      const seg2 = path.join(dir, 'seg2.m4s');
+      fs.writeFileSync(seg1, b1);
+      fs.writeFileSync(seg2, b2);
+      const out = path.join(dir, 'out.mp4');
+      await remuxer.concatFmp4ToMp4({ initPath, segmentPaths: [seg1, seg2], outputPath: out });
+      assert.strictEqual(
+        Buffer.compare(fs.readFileSync(out), Buffer.concat([initBuf, b1, b2])), 0,
+        'tfdt 基线为 0 的流产物应与原字节逐位一致（VOD/已对齐来源零回归）'
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('convertToMp4 fMP4 嗅探分流（D-06）', () => {
   test('fMP4 分片 + initPath → 走拼接分支 resolve，产物字节 = init+分片，probe 终检通过', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-divert-'));
