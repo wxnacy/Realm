@@ -341,12 +341,12 @@ Plans:
 **Goal:** 录制/缓存的 fMP4 分片序列（init.mp4 + moof/mdat，B 站直播流形态）可转为可播放 mp4 产物。当前 mux.js Transmuxer 仅支持 MPEG-TS 输入，fMP4 分片被 sniffContainerFormat 按设计拒转（unsupported_container）。候选路线（44-UAT Deferred Follow-Ups 记录）：① init.mp4 + moof/mdat 顺序拼接产 fMP4 容器（纯 JS，播放器兼容性折中）② 可选依赖 ffmpeg。来源：Phase 44 Deferred Follow-Up（用户 2026-09-06 拍板要做）
 **Requirements**: TBD
 **Depends on:** Phase 44
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 45-01-PLAN.md — 地基：EXT-X-MAP 解析（D-05）+ concatFmp4ToMp4 纯 JS 拼接执行体与嗅探分流（D-01/D-06/D-07），:176 冲突用例改写
+- [x] 45-01-PLAN.md — 地基：EXT-X-MAP 解析（D-05）+ concatFmp4ToMp4 纯 JS 拼接执行体与嗅探分流（D-01/D-06/D-07），:176 冲突用例改写
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

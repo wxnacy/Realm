@@ -4,17 +4,17 @@ milestone: v2.5
 milestone_name: AI 网络搜索功能
 current_phase: 45
 current_phase_name: bilibili-fmp4-transcode
-status: phase_complete
-stopped_at: Phase 44 UAT Round 4 全过（4/4），G-44-7 resolved，phase 收尾
-last_updated: "2026-09-08T03:25:55.269Z"
-last_activity: 2026-09-07
-last_activity_desc: Phase 44 complete（18/18 plans + UAT 4 rounds；AES-128 解密转换链路 + 抽屉 UI 三修复真机验收通过）
-state_head: 43f875ccf9e78d6562f31b7908c14b1e8b009450
+status: executing
+stopped_at: Completed 45-01-PLAN.md (EXT-X-MAP capture + concatFmp4ToMp4 + initPath diversion)
+last_updated: "2026-09-08T04:24:38.927Z"
+last_activity: 2026-09-08
+last_activity_desc: Phase 45 execution started
+state_head: 21f2c34e34bdaffbc9455ff0e9fd87a09478138c
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 4
   total_plans: 37
-  completed_plans: 34
+  completed_plans: 35
   percent: 67
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-26)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 44 已收尾（2026-09-07）；后续：B 站直播 fMP4 转录支持（44-UAT.md Deferred Follow-Ups，用户已拍板要做）
+**Current focus:** Phase 45 — bilibili-fmp4-transcode
 
 ## Current Position
 
-Phase: 45 (bilibili-fmp4-transcode) — READY TO EXECUTE
-Plan: 18/18 complete
-Status: UAT Round 4 全过（抽屉高度/加密源转换按钮+有效 mp4/点击收抽屉/进度实时刷新）
-Last activity: 2026-09-07 — Phase 44 complete
+Phase: 45 (bilibili-fmp4-transcode) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-09-08 — Phase 45 execution started
 
 Progress: [███████░░░] 67%
 
@@ -84,6 +84,7 @@ Progress: [███████░░░] 67%
 | Phase 44 P13 | 3min | 2 tasks | 5 files |
 | Phase 44 P17 | 3min | 2 tasks | 2 files |
 | Phase 44 P18 | 15min | 3 tasks | 8 files |
+| Phase 45-bilibili-fmp4-transcode P01 | 14min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -132,6 +133,10 @@ Recent decisions affecting current work:
 - [Phase 44]: Phase 44 P12: deleteEntry 历史删除联动收在 IPC 层（严格 === true + 缓存删除成功前置 + hex 防御三重护栏），缺省 falsy 零触达 playerHistory——D-16 仅删缓存语义逐字节不变 — G-44-8：主进程单点裁决防 renderer 伪造第二参误删观看历史
 - [Phase 44]: 44-17: convertToMp4 产物改同步 fd 创建（openSync 'w' + createWriteStream {fd}），消除异步 open/unlink 竞态（G-44-7 泄漏层）
 - [Phase 44]: 44-18：EXT-X-KEY 加密检测下沉到 m3u8 解析层；key_uris 与 segments 同源 segKey 白名单式排除，密钥不拦截播放只跳落库
+- [Phase 45]: D-05: parsePlaylist captures EXT-X-MAP mapUri/mapByterange, multi-MAP latest wins (RFC 8216 4.3.2.5), null defaults
+- [Phase 45]: D-06: sniffContainerBuffer returns internal fmp4_container signal; convertToMp4 diverts on initPath presence
+- [Phase 45]: Encrypted path (decryption) keeps unsupported_container rejection for fMP4 (D-04)
+- [Phase 45]: Final product probe reads 4MB head only (T-45-02), baseline ftyp+size fallback
 
 ### Roadmap Evolution
 
@@ -160,6 +165,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-07T14:04:55.724Z
-Stopped at: Completed 44-18-PLAN.md
+Last session: 2026-09-08T04:24:22.268Z
+Stopped at: Completed 45-01-PLAN.md (EXT-X-MAP capture + concatFmp4ToMp4 + initPath diversion)
 Resume file: None
