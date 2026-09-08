@@ -263,6 +263,9 @@ const elements = {
   mediaCacheMaxGB: document.getElementById('mediaCacheMaxGB'),
   mediaTasksListBtn: document.getElementById('mediaTasksListBtn'),
 
+  // 录制设置（Phase 44 D-19：关窗时录制处理方式）
+  recordCloseAction: document.getElementById('recordCloseAction'),
+
   // 开发者模式
   devModeToggle: document.getElementById('devModeToggle'),
   devModeSection: document.getElementById('devModeSection'),
@@ -1384,6 +1387,14 @@ function setupEventListeners() {
       window.open('realm://tasks', '_blank');
     });
   }
+
+  // 关闭播放器窗口时的录制处理方式（Phase 44 D-19；值语义与关窗确认对话框
+  // 的「记住我的选择」一致：ask 每次弹窗 / keep-recording 直接关窗 / stop-save 停止并保存）
+  if (elements.recordCloseAction) {
+    elements.recordCloseAction.addEventListener('change', () => {
+      saveSettings('recordCloseAction', elements.recordCloseAction.value);
+    });
+  }
 }
 
 // ==================== 开发者模式 ====================
@@ -1666,6 +1677,13 @@ async function loadMultimediaSettings() {
 
     updateMediaPlayerUI(state.mediaPlayer.enabled);
     renderWhitelistTags();
+
+    // 关闭播放器窗口时的录制处理方式（Phase 44 D-19；默认每次询问）
+    if (elements.recordCloseAction) {
+      const closeAction = settings.recordCloseAction;
+      elements.recordCloseAction.value =
+        (closeAction === 'keep-recording' || closeAction === 'stop-save') ? closeAction : 'ask';
+    }
   } catch (error) {
     console.error('[Realm] 加载多媒体设置失败:', error);
     showToast('加载多媒体设置失败');

@@ -590,6 +590,22 @@
             <button class="btn btn-secondary btn-sm media-task-list-btn" id="mediaTasksListBtn">打开任务列表</button>
           </div>
         </div>
+
+        <!-- 录制（Phase 44 D-19） -->
+        <div class="settings-group">
+          <h3 class="settings-group-title">录制</h3>
+          <div class="settings-item">
+            <div class="setting-info">
+              <span class="setting-label">关闭播放器窗口时</span>
+              <span class="setting-description">有正在进行的录制任务时，关闭播放器窗口的处理方式</span>
+            </div>
+            <select class="settings-select" id="recordCloseAction">
+              <option value="ask">每次询问</option>
+              <option value="keep-recording">继续后台录制</option>
+              <option value="stop-save">停止并保存</option>
+            </select>
+          </div>
+        </div>
       </section>
 
       <!-- 自动填充设置页面 -->
