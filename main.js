@@ -3271,11 +3271,17 @@ app.whenReady().then(async () => {
           mediaSequence: info.mediaSequence || 0,
         };
       }
+      // fMP4 缓存条目（45-03，D-03 第二链路）：清单含 EXT-X-MAP 但 init 分片未
+      // 留存（45-03 前的历史条目 / BYTERANGE 不支持形态）→ 早拒引导重播（重播后
+      // init 经 /proxy 留存即可转换，自愈路径与 key_unavailable 同款；文案
+      // CONVERT_FAIL_TEXT.init_missing 已于 45-02 注册）
+      if (info.hasFmp4Map && !info.initPath) return { ok: false, reason: 'init_missing' };
       if (info.completeness === null || info.completeness < 100) {
         return { ok: false, reason: 'segments_incomplete' };
       }
       return startConvertTask({
         segmentPaths: info.segmentPaths,
+        initPath: info.initPath,
         title: info.title || '',
         containerId: '',
         playbackKey: info.playbackKey || null,
