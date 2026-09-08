@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 3
+open_count: 4
 waived_count: 0
 fixed_count: 0
-total_count: 3
-last_updated: 2026-09-08T04:53:56.959Z
+total_count: 4
+last_updated: 2026-09-08T08:22:05.689Z
 ---
 
 # Broken Windows Ledger
@@ -18,6 +18,7 @@ last_updated: 2026-09-08T04:53:56.959Z
 | 1 | 44 | stub | ipc-handlers.js |  | player:drawer:list 的 completeness 字段暂置 null：分片总数需 44-02 media-task-manager 提供后才能计算完整度百分比（D-14 后半），抽屉 UI 在 44-02/03 渲染时处理 | open |  | 2026-09-06T11:13:37.059Z |  |
 | 2 | 44 | stub | src/tasks-page.js |  | 「已落盘部分续转」按钮先渲染，POST /api/tasks/convert-resume 由 44-05 实现前返回 404（计划明确不算缺陷） | open |  | 2026-09-06T11:49:45.824Z |  |
 | 3 | 45 | unrun-verify | main.js |  | 45-03 human-check 未跑：缓存链路 fMP4 转换 + QuickTime A1 真机复验（留 end-of-phase UAT） | open |  | 2026-09-08T04:53:56.959Z |  |
+| 4 | 45 | unrun-verify | .planning/phases/45-bilibili-fmp4-transcode/45-04-SUMMARY.md |  | 45-04 human-check 真实 B 站直播流 UAT 复测（两链路产物 mpv/VLC 时间轴从 0 开始）留待 end-of-phase UAT | open |  | 2026-09-08T08:22:05.689Z |  |
 
 ````json
 [
@@ -55,6 +56,18 @@ last_updated: 2026-09-08T04:53:56.959Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-08T04:53:56.959Z",
+    "resolved_at": null
+  },
+  {
+    "id": 4,
+    "kind": "unrun-verify",
+    "phase": "45",
+    "file": ".planning/phases/45-bilibili-fmp4-transcode/45-04-SUMMARY.md",
+    "line": null,
+    "description": "45-04 human-check 真实 B 站直播流 UAT 复测（两链路产物 mpv/VLC 时间轴从 0 开始）留待 end-of-phase UAT",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-08T08:22:05.689Z",
     "resolved_at": null
   }
 ]

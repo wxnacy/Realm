@@ -5,16 +5,16 @@ milestone_name: AI 网络搜索功能
 current_phase: 45
 current_phase_name: bilibili-fmp4-transcode
 status: verifying
-stopped_at: Completed 45-03-PLAN.md (cache MAP registration + init retention + initPath pass-through)
-last_updated: "2026-09-08T04:53:30.973Z"
+stopped_at: Completed 45-04-PLAN.md (tfdt rebase walker + concat integration, G-45-2 automated closure; human UAT pending)
+last_updated: "2026-09-08T08:22:33.795Z"
 last_activity: 2026-09-08
 last_activity_desc: Phase 45 execution started
-state_head: 9a6818c73b10106596d77a16cee5eebab921676e
+state_head: d41e759f736ad7c8cf46f8c00359479e95ff561d
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 37
-  completed_plans: 37
+  total_plans: 38
+  completed_plans: 38
   percent: 67
 ---
 
@@ -87,6 +87,7 @@ Progress: [███████░░░] 67%
 | Phase 45-bilibili-fmp4-transcode P01 | 14min | 2 tasks | 4 files |
 | Phase 45 P02 | 7min | 2 tasks | 4 files |
 | Phase 45 P03 | 8min | 2 tasks | 3 files |
+| Phase 45 P04 | 20min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -143,6 +144,7 @@ Recent decisions affecting current work:
 - [Phase 45]: 45-02 编排层 initPath 两跳透传（readRecordTaskSegments→startConvertFromRecordTask→startConvertTask→convertToMp4），编排其余零改动（D-06）；CONVERT_FAIL_TEXT 补 init_missing/invalid_init（Pitfall 5）
 - [Phase 45]: [Phase 45]: 45-03 缓存链路 MAP 三件套——updatePlaylistIndex 登记 map_uris/has_fmp4_map（BYTERANGE 仅记 map_byterange 兜底 init_missing）；storeBuffer init 本体落盘 <videoDir>/init 绝不进 segments（D-05/D-07/Pitfall 2）；getConvertInfo 透出 initPath/hasFmp4Map（D-03 第二链路）
 - [Phase 45]: [Phase 45]: 45-03 startConvertFromInput init_missing 早拒（hasFmp4Map && !initPath，key_unavailable 同区段）+ initPath 透传；lookup() init 回放列入 deferred（RESEARCH Q5 Wave-2）
+- [Phase 45]: [Phase 45]: 45-04 tfdt 时间轴 rebase 单点修复——concatFmp4ToMp4 分片写出循环集成 rebaseFmp4SegmentTfdt walker（baselines Map init 写出后/循环前创建），录制 tracer 与缓存链路共用入口单点覆盖；首片 tfdt 记为轨基线改写为 0，当前值<基线保守不改写；不修 moov/不注 elst/零新依赖（G-45-2）
 
 ### Roadmap Evolution
 
@@ -171,6 +173,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-08T04:53:30.786Z
-Stopped at: Completed 45-03-PLAN.md (cache MAP registration + init retention + initPath pass-through)
+Last session: 2026-09-08T08:22:33.597Z
+Stopped at: Completed 45-04-PLAN.md (tfdt rebase walker + concat integration, G-45-2 automated closure; human UAT pending)
 Resume file: None
