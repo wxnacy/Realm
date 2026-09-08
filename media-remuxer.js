@@ -20,9 +20,11 @@
  * 仅文件名来自标题。
  *
  * Phase 45（D-01/D-06/D-07）：fMP4 分片序列（init.mp4 + moof/mdat，B 站直播
- * HLS 形态）经 concatFmp4ToMp4 纯字节拼接转出 fMP4 产物——不解析 moof/trun
- * 内部（攻击面 = 字节拷贝，零新依赖）；convertToMp4 首片嗅探命中 fMP4 box
- * 特征时按 initPath 有无分流到拼接分支或 init_missing 拒转。
+ * HLS 形态）经 concatFmp4ToMp4 拼接转出 fMP4 产物——只做 moof→traf→tfdt
+ * 定位与 tfdt 值域原位改写（G-45-2 时间轴按轨 rebase 归零，不解析
+ * trun/sample 表，攻击面 = 边界校验 walker + 字节拷贝，零新依赖）；
+ * convertToMp4 首片嗅探命中 fMP4 box 特征时按 initPath 有无分流到拼接分支
+ * 或 init_missing 拒转。
  */
 
 const fs = require('fs');
@@ -562,13 +564,17 @@ function rebaseFmp4SegmentTfdt(buf, baselines) {
 }
 
 /**
- * fMP4 分片序列纯字节拼接执行体（D-01/D-06/D-07，Phase 45）
+ * fMP4 分片序列拼接执行体（D-01/D-06/D-07，Phase 45；G-45-2 时间轴 rebase）
  *
- * init.mp4 + moof/mdat 分片按播放序原样字节拼接为 fMP4 产物——不解析
- * moof/trun 内部（攻击面 = 字节拷贝）；单文件多 moof+mdat 对（B 站直播实测
- * 形态）原样通过不拆箱。产物形态为 fMP4 容器（init 的 mvhd duration=0 是
- * RFC 8216 强制形态，不修 moov——D-02「能看就行」：mpv/IINA/VLC/QuickTime
- * 可播，不承诺剪辑软件兼容）。
+ * init.mp4 + moof/mdat 分片按播放序拼接为 fMP4 产物。分片写盘前经
+ * rebaseFmp4SegmentTfdt 轻量 walker 处理（G-45-2）：只做 moof→traf→tfdt
+ * 定位与 tfdt 值域原位改写——按轨减去首片 epoch 级基线，产物时间轴从 0
+ * 开始、总时长 = 录制时长（B 站直播分片 tfdt 为直播流绝对时刻，不改写则
+ * 十几秒录制显示 143 小时量级）；不解析 trun/sample 表、不做重打包，其余
+ * box 原样字节通过（攻击面 = 边界校验 walker + 字节拷贝）；单文件多
+ * moof+mdat 对（B 站直播实测形态）原样通过不拆箱。产物形态为 fMP4 容器
+ * （init 的 mvhd duration=0 是 RFC 8216 强制形态，不修 moov、init 段逐位
+ * 原样——D-02「能看就行」：mpv/IINA/VLC/QuickTime 可播，不承诺剪辑软件兼容）。
  *
  * 执行体契约逐项复刻 convertToMp4（G-44-7/PATTERNS 六件套）：
  * ① 入参 fail-fast（no_segments/invalid_output/segment_missing/init_missing）；
@@ -650,6 +656,9 @@ function concatFmp4ToMp4({ initPath, segmentPaths, outputPath, onProgress, shoul
         return;
       }
       stream.write(initBuf);
+      // G-45-2 时间轴 rebase：基线表跨全部分片复用——首片处理时按轨采集
+      // epoch 级 tfdt 基线（首片写出前完成采集），后续分片递减排差归零
+      const baselines = new Map();
       let processed = 0;
       for (const segPath of segmentPaths) {
         if (settled) return;
@@ -658,10 +667,14 @@ function concatFmp4ToMp4({ initPath, segmentPaths, outputPath, onProgress, shoul
           fail(remuxError('cancelled', '用户取消转换'));
           return;
         }
-        // 分片原样字节写出（init 在前 + 分片按入参播放序，D-07）；不解析
-        // moof/trun 内部，单文件多 moof+mdat 对原样通过。单分片大小受来源侧
-        // MAX_SEGMENT_BYTES 64MB 上限约束（T-45-02），不全量载入内存
-        stream.write(fs.readFileSync(segPath));
+        // 分片读入后经 tfdt rebase walker 再写出（G-45-2）：只做 moof→traf→tfdt
+        // 定位与 tfdt 值域原位改写（产物时间轴按轨归零、总时长 = 录制时长），
+        // 不解析 trun/sample 表，其余 box 原样字节通过，单文件多 moof+mdat 对
+        // 不拆箱。单分片大小受来源侧 MAX_SEGMENT_BYTES 64MB 上限约束（T-45-02），
+        // walker 只在已入内存的分片 buffer 上工作，无新增内存面
+        const segBuf = fs.readFileSync(segPath);
+        rebaseFmp4SegmentTfdt(segBuf, baselines);
+        stream.write(segBuf);
         processed++;
         // ⑤ 进度回调异常不阻断
         if (typeof onProgress === 'function') {
