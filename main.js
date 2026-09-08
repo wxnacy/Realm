@@ -3068,7 +3068,14 @@ app.whenReady().then(async () => {
       .map((s) => (s && typeof s.file === 'string' ? path.join(recordDir, 'segments', s.file) : null))
       .filter((p) => p && fs.existsSync(p));
     if (segmentPaths.length === 0) return null;
-    return { segmentPaths, meta };
+    // 45-02（D-05）：fMP4 录制任务的 init 分片路径——meta.initFile 缺字段（旧 meta
+    // 或 TS 录制）/ 文件缺失 → null，转换走 init_missing 兜底（45-01 分流）
+    let initPath = null;
+    if (typeof meta.initFile === 'string' && meta.initFile) {
+      const p = path.join(recordDir, meta.initFile);
+      if (fs.existsSync(p)) initPath = p;
+    }
+    return { segmentPaths, meta, initPath };
   }
 
   /**
@@ -3080,7 +3087,7 @@ app.whenReady().then(async () => {
    * @returns {Promise<{ok: boolean, taskId?: string, reason?: string}>}
    */
   async function startConvertTask(input) {
-    const { segmentPaths, title, containerId, playbackKey, hasDiscontinuity, hasEncryption, decryption } = input || {};
+    const { segmentPaths, title, containerId, playbackKey, hasDiscontinuity, hasEncryption, decryption, initPath } = input || {};
     // G-44-7：加密源（EXT-X-KEY METHOD≠NONE）无解密材料时早拒——record 录制链路
     // 不留存密钥，加密录制任务不可转换；缓存链路带 decryption（keyHex/ivHex/seq）
     // 走 AES-128 解密转换，不放行本分支
@@ -3140,6 +3147,8 @@ app.whenReady().then(async () => {
       hasDiscontinuity: false,
       shouldCancel: () => convertCancelled,
       decryption: decryption || undefined,
+      // 45-02（D-06）：fMP4 init 分片路径透传（录制 TS 条目为 null，不影响既有 TS 路径）
+      initPath: initPath || undefined,
       onProgress: (done, total) => {
         const pct = Math.max(1, Math.min(99, Math.round((done / total) * 100)));
         if (pct === lastPct) return;
@@ -3197,6 +3206,7 @@ app.whenReady().then(async () => {
     if (!bundle) return { ok: false, reason: 'no_segments' };
     return startConvertTask({
       segmentPaths: bundle.segmentPaths,
+      initPath: bundle.initPath,
       title: bundle.meta.title || task.title,
       containerId: bundle.meta.containerId || task.containerId || '',
       playbackKey: bundle.meta.playbackKey || task.playbackKey || null,

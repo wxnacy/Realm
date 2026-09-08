@@ -116,6 +116,9 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
       consecutiveFailures: 0,
       firstRound: true,
       hasDiscontinuity: false,    // 清单含 EXT-X-DISCONTINUITY（Pitfall 5：转封装拒转）
+      mapUri: null,               // 45-02（D-05）：已处理的 EXT-X-MAP URI（变化即重下 init）
+      mapByterange: null,         // EXT-X-MAP BYTERANGE 属性（非空 = 整资源形态以外，不支持）
+      initFile: null,             // init 已落盘则 "init"（固定常量文件名，T-44-11 远端 URI 不进路径）
     };
     active.set(taskId, st);
 
@@ -184,6 +187,11 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
       hasDiscontinuity: !!st.hasDiscontinuity,
       // G-44-7：加密流（EXT-X-KEY METHOD≠NONE）无解密链路，转换入口早拒
       hasEncryption: !!st.hasEncryption,
+      // 45-02（D-05）：fMP4 EXT-X-MAP 捕获——附加字段不升版本（44 先例），
+      // 旧 meta 缺字段 = fMP4 能力缺省关闭；initFile 为已落盘 init 的固定文件名
+      mapUri: st.mapUri || null,
+      initFile: st.initFile || null,
+      mapByterange: st.mapByterange || null,
       finishedAt: new Date().toISOString(),
     };
     try {
@@ -215,6 +223,35 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
           st.hasEncryption = true;
         }
         st.consecutiveFailures = 0;
+
+        // 45-02（D-05，Pitfall 1 最高危）：fMP4 init 分片留存检查点——在首轮/追新
+        // 分支之外每轮执行（init 不是媒体分片，D-21 首轮 baseline 语义只豁免分片
+        // 回溯不豁免 init，首轮也必须下载）；首次见到或变化即下载（实测 B 站 MAP
+        // 恒定只触发一次，变化重下分支按 RFC 语义保留——Pitfall 8）
+        if (pl.mapUri && st.mapUri !== pl.mapUri) {
+          if (pl.mapByterange) {
+            // RESEARCH Route D：BYTERANGE 形态（init 为大资源字节区间）不支持——
+            // 不下载 init，后续转换落 init_missing 兜底（不静默产坏产物）；仅登记一次
+            console.warn(`[Realm] EXT-X-MAP BYTERANGE 形态暂不支持，init 不下载 (${st.taskId}): ${pl.mapUri}`);
+            st.mapUri = pl.mapUri;
+            st.mapByterange = pl.mapByterange;
+          } else {
+            try {
+              const absUrl = resolveUri(pl.mapUri, st.url);
+              const buf = await fetchPage(absUrl, { referer: st.referer, containerId: st.containerId });
+              // 固定常量文件名 "init"（T-44-11：远端 URI 不进路径）；不进 st.seen/
+              // st.recorded、不占 seq 命名（init 不是分片，不污染完整性判定）
+              fs.writeFileSync(path.join(recordRoot, st.taskId, 'init'), buf);
+              st.mapUri = pl.mapUri;
+              st.mapByterange = null;
+              st.initFile = 'init';
+            } catch (err) {
+              // 容忍当轮失败下轮重试（不记 consecutiveFailures——init 缺失只影响
+              // 后续转换不影响录制本体）；st.mapUri 不登记故下轮自然重试
+              console.warn(`[Realm] fMP4 init 分片下载失败 (${st.taskId}):`, err.message);
+            }
+          }
+        }
 
         if (st.firstRound) {
           // D-21 从直播边缘开始：首轮清单只记基线不落盘（历史分片不回溯）
