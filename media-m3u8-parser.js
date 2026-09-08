@@ -15,7 +15,7 @@ const DEFAULT_TARGET_DURATION = 6;
 /**
  * 解析 m3u8 清单文本
  * @param {string} text - 原始清单文本
- * @returns {{ mediaSequence: number, targetDuration: number, ended: boolean, isLive: boolean, hasEncryption: boolean, keyUris: string[], keyIv: string|null, segments: Array<{ uri: string, seq: number, duration: number|null }> }}
+ * @returns {{ mediaSequence: number, targetDuration: number, ended: boolean, isLive: boolean, hasEncryption: boolean, keyUris: string[], keyIv: string|null, mapUri: string|null, mapByterange: string|null, segments: Array<{ uri: string, seq: number, duration: number|null }> }}
  *   mediaSequence — 滑动窗口基线序号（缺省 0）；segments[].seq = mediaSequence + 分片序位
  *   ended — 是否含 EXT-X-ENDLIST；isLive — 播放中清单（!ended）
  *   duration — 紧邻 EXTINF 标签的时长（秒），无对应标签时为 null
@@ -25,6 +25,11 @@ const DEFAULT_TARGET_DURATION = 6;
  *     METHOD=NONE 行不收集
  *   keyIv — 首个加密 KEY 行的 IV=0x... 属性值（hex 字符串，不带 0x 前缀），无 IV 属性
  *     时为 null（按 HLS 规范此时 IV = 分片 media sequence 的 16 字节大端序）
+ *   mapUri — 当前生效 #EXT-X-MAP 的 URI 属性原始值（fMP4 init 分片，D-05；缺省 null）。
+ *     多 MAP 取最新一个（覆盖语义 = RFC 8216 §4.3.2.5「applies until the next
+ *     EXT-X-MAP」）；fMP4 清单必有 MAP，反之有 MAP 即应按 fMP4 处理
+ *   mapByterange — 当前生效 #EXT-X-MAP 的 BYTERANGE 属性原样字符串（备用；
+ *     无 BYTERANGE 或无 MAP 时为 null）
  */
 function parsePlaylist(text) {
   const result = {
@@ -35,6 +40,8 @@ function parsePlaylist(text) {
     hasEncryption: false,
     keyUris: [],
     keyIv: null,
+    mapUri: null,
+    mapByterange: null,
     segments: [],
   };
   if (typeof text !== 'string' || !text) return result;
@@ -69,6 +76,16 @@ function parsePlaylist(text) {
             if (ivMatch) result.keyIv = ivMatch[1].toLowerCase();
           }
         }
+        continue;
+      }
+      // EXT-X-MAP（D-05）：fMP4 init 分片 URI 捕获，同款 44-18 EXT-X-KEY 行级加法。
+      // 多 MAP 覆盖取最新（RFC 8216 §4.3.2.5 作用域语义）；BYTERANGE 原样捕获备用
+      if (trimmed.startsWith('#EXT-X-MAP:')) {
+        const attrs = trimmed.slice('#EXT-X-MAP:'.length);
+        const uriMatch = attrs.match(/(?:^|,)URI="([^"]*)"/);
+        if (uriMatch) result.mapUri = uriMatch[1];
+        const brMatch = attrs.match(/(?:^|,)BYTERANGE="([^"]*)"/);
+        result.mapByterange = brMatch ? brMatch[1] : null;
         continue;
       }
       const seqMatch = trimmed.match(/^#EXT-X-MEDIA-SEQUENCE:(\d+)/);
