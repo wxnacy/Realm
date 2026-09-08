@@ -23,6 +23,54 @@ const path = require('path');
 const crypto = require('crypto');
 
 const remuxer = require('../media-remuxer');
+const muxjs = require('mux.js');
+
+// ---------------------------------------------------------------------------
+// fMP4 测试夹具（mux.js mp4.generator 确定性生成，仓库无 fixtures 目录先例——
+// Phase 45 RESEARCH Q6）：makeInit() 生成 ftyp+moov init 分片（probe 可解析）；
+// makeFmp4Segment() 生成单文件内两个 moof+mdat 对、无 styp/ftyp 的分片文件
+// （复刻 B 站直播实测的多 moof 形态）。
+// ---------------------------------------------------------------------------
+
+/** 夹具视频轨（mux.js generator initSegment 需要合法 sps/pps 字节） */
+const FMP4_VIDEO_TRACK = {
+  id: 1,
+  type: 'video',
+  codec: 'avc',
+  width: 640,
+  height: 360,
+  timescale: 90000,
+  duration: 0,
+  pps: [new Uint8Array([0x68, 0xee, 0x3c, 0x80])],
+  sps: [new Uint8Array([0x67, 0x64, 0x00, 0x1f, 0xac, 0xd9, 0x40, 0x50, 0x05, 0xbb, 0x01, 0x10, 0x00, 0x00, 0x03, 0x00, 0x10, 0x00, 0x00, 0x03, 0x03, 0x20, 0xf1, 0x83, 0x19, 0x60])],
+};
+
+/** init 分片夹具：ftyp + moov（mux.js probe 可解析，~676 字节） */
+function makeInit() {
+  return Buffer.from(muxjs.mp4.generator.initSegment([FMP4_VIDEO_TRACK]));
+}
+
+/** 单个 moof+mdat 对（payload 100 字节） */
+function makeFragment(seq) {
+  const track = Object.assign({}, FMP4_VIDEO_TRACK, {
+    samples: [{
+      size: 100,
+      duration: 3000,
+      compositionTimeOffset: 0,
+      flags: { isLeading: 0, dependsOn: 2, isDependedOn: 0, hasRedundancy: 0, degradationPriority: 0, isNonSyncSample: 0 },
+    }],
+  });
+  const payload = new Uint8Array(100).fill(seq & 0xff);
+  return Buffer.concat([
+    Buffer.from(muxjs.mp4.generator.moof(seq, [track])),
+    Buffer.from(muxjs.mp4.generator.mdat(payload)),
+  ]);
+}
+
+/** fMP4 分片文件夹具：单文件内两个 moof+mdat 对、无 styp/ftyp（B 站实测多 moof 形态） */
+function makeFmp4Segment(seq) {
+  return Buffer.concat([makeFragment(seq), makeFragment(seq + 1)]);
+}
 
 describe('sanitizeFilename 白名单替换（T-44-15 路径注入面）', () => {
   test('路径分隔符替换为 _', () => {
@@ -173,7 +221,7 @@ describe('convertToMp4 格式嗅探（G-44-4b）', () => {
     assert.ok(sniffIdx < pushIdx, '嗅探必须先于 push（不可转容器在进入 mux.js 前拒绝）');
   });
 
-  test('fMP4 box 分片拒转 reason=unsupported_container 且产物清理', async () => {
+  test('fMP4 box 分片 + 无 initPath → reason=init_missing 且产物清理（D-06 分流语义）', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-fmp4-'));
     try {
       // 手工构造 fMP4 分片：4 字节 size + 'ftyp' + 'isom' + 填充（首字节 0x00 非同步字节）
@@ -186,7 +234,7 @@ describe('convertToMp4 格式嗅探（G-44-4b）', () => {
       const out = path.join(dir, 'out.mp4');
       await assert.rejects(
         () => remuxer.convertToMp4({ segmentPaths: [seg], outputPath: out }),
-        (err) => err.reason === 'unsupported_container'
+        (err) => err.reason === 'init_missing'
       );
       assert.strictEqual(fs.existsSync(out), false, '拒转后半成品 mp4 应被清理');
     } finally {
@@ -440,6 +488,181 @@ describe('AES-128 解密转换（加密 HLS 缓存条目，G-44-7 后续）', ()
         src.includes(`${reason}: '`),
         `main.js CONVERT_FAIL_TEXT 缺少 ${reason} 文案映射`
       );
+    }
+  });
+});
+describe('concatFmp4ToMp4 拼接执行体（D-01/D-07 纯字节拼接）', () => {
+  test('init + 两多 moof 分片 → 产物字节 = init+seg1+seg2 精确相等；probe 检出 moov 且 moof 计数 ≥4；onProgress 异常不阻断', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-concat-'));
+    try {
+      const initBuf = makeInit();
+      const initPath = path.join(dir, 'init');
+      fs.writeFileSync(initPath, initBuf);
+      const b1 = makeFmp4Segment(1);
+      const b2 = makeFmp4Segment(3);
+      const seg1 = path.join(dir, 'seg1.m4s');
+      const seg2 = path.join(dir, 'seg2.m4s');
+      fs.writeFileSync(seg1, b1);
+      fs.writeFileSync(seg2, b2);
+      const out = path.join(dir, 'out.mp4');
+      const r = await remuxer.concatFmp4ToMp4({
+        initPath,
+        segmentPaths: [seg1, seg2],
+        outputPath: out,
+        // 进度回调异常不阻断拼接（执行体契约第⑤件）
+        onProgress: () => { throw new Error('progress boom'); },
+      });
+      assert.strictEqual(r.outputPath, out);
+      assert.strictEqual(r.segments, 2);
+      const produced = fs.readFileSync(out);
+      assert.strictEqual(
+        Buffer.compare(produced, Buffer.concat([initBuf, b1, b2])), 0,
+        '产物 = init 在前 + 分片按播放序原样字节拼接（不解析 moof/trun 内部）'
+      );
+      // 终检同款的 mux.js probe 断言：moov 存在 + moof 计数 ≥ 分片内 moof 总数（4）
+      assert.ok(muxjs.mp4.probe.findBox(produced, ['moov']).length >= 1, '产物应含 moov');
+      assert.ok(muxjs.mp4.probe.findBox(produced, ['moof']).length >= 4, '产物 moof 计数应 ≥ 分片内 moof 总数');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('单分片文件内含多个 moof+mdat 对（B 站实测形态）→ 原样通过不解析不拆箱', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-concat-multi-'));
+    try {
+      const initBuf = makeInit();
+      const initPath = path.join(dir, 'init');
+      fs.writeFileSync(initPath, initBuf);
+      const b1 = makeFmp4Segment(1); // 单文件两个 moof+mdat 对
+      const seg1 = path.join(dir, 'seg1.m4s');
+      fs.writeFileSync(seg1, b1);
+      const out = path.join(dir, 'out.mp4');
+      await remuxer.concatFmp4ToMp4({ initPath, segmentPaths: [seg1], outputPath: out });
+      assert.strictEqual(Buffer.compare(fs.readFileSync(out), Buffer.concat([initBuf, b1])), 0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('initPath 缺失/不可读 → reason=init_missing 且不创建产物', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-concat-noinit-'));
+    try {
+      const seg = path.join(dir, 'seg.m4s');
+      fs.writeFileSync(seg, makeFmp4Segment(1));
+      const out = path.join(dir, 'out.mp4');
+      await assert.rejects(
+        () => remuxer.concatFmp4ToMp4({ initPath: path.join(dir, 'no-such-init'), segmentPaths: [seg], outputPath: out }),
+        (err) => err.reason === 'init_missing'
+      );
+      await assert.rejects(
+        () => remuxer.concatFmp4ToMp4({ segmentPaths: [seg], outputPath: out }),
+        (err) => err.reason === 'init_missing'
+      );
+      assert.strictEqual(fs.existsSync(out), false, 'init_missing 拒转不得残留产物');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('init 前 8 字节非 size+ftyp → reason=invalid_init 且产物清理', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-concat-badinit-'));
+    try {
+      const initPath = path.join(dir, 'init');
+      fs.writeFileSync(initPath, Buffer.from('not-an-init-segment-at-all'));
+      const seg = path.join(dir, 'seg.m4s');
+      fs.writeFileSync(seg, makeFmp4Segment(1));
+      const out = path.join(dir, 'out.mp4');
+      await assert.rejects(
+        () => remuxer.concatFmp4ToMp4({ initPath, segmentPaths: [seg], outputPath: out }),
+        (err) => err.reason === 'invalid_init'
+      );
+      assert.strictEqual(fs.existsSync(out), false, 'invalid_init 拒转后产物清理');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('空分片列表 → reason=no_segments', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-concat-noseg-'));
+    try {
+      const initPath = path.join(dir, 'init');
+      fs.writeFileSync(initPath, makeInit());
+      await assert.rejects(
+        () => remuxer.concatFmp4ToMp4({ initPath, segmentPaths: [], outputPath: path.join(dir, 'out.mp4') }),
+        (err) => err.reason === 'no_segments'
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('shouldCancel 中途为 true → reason=cancelled 且半成品清理', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-concat-cancel-'));
+    try {
+      const initPath = path.join(dir, 'init');
+      fs.writeFileSync(initPath, makeInit());
+      const seg1 = path.join(dir, 'seg1.m4s');
+      const seg2 = path.join(dir, 'seg2.m4s');
+      fs.writeFileSync(seg1, makeFmp4Segment(1));
+      fs.writeFileSync(seg2, makeFmp4Segment(3));
+      const out = path.join(dir, 'out.mp4');
+      let calls = 0;
+      await assert.rejects(
+        () => remuxer.concatFmp4ToMp4({
+          initPath,
+          segmentPaths: [seg1, seg2],
+          outputPath: out,
+          shouldCancel: () => ++calls > 1,
+        }),
+        (err) => err.reason === 'cancelled'
+      );
+      assert.strictEqual(fs.existsSync(out), false, '取消后半成品产物应被清理');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('convertToMp4 fMP4 嗅探分流（D-06）', () => {
+  test('fMP4 分片 + initPath → 走拼接分支 resolve，产物字节 = init+分片，probe 终检通过', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-divert-'));
+    try {
+      const initBuf = makeInit();
+      const initPath = path.join(dir, 'init');
+      fs.writeFileSync(initPath, initBuf);
+      const b1 = makeFmp4Segment(1);
+      const b2 = makeFmp4Segment(3);
+      const seg1 = path.join(dir, 'seg1.m4s');
+      const seg2 = path.join(dir, 'seg2.m4s');
+      fs.writeFileSync(seg1, b1);
+      fs.writeFileSync(seg2, b2);
+      const out = path.join(dir, 'out.mp4');
+      const r = await remuxer.convertToMp4({ initPath, segmentPaths: [seg1, seg2], outputPath: out });
+      assert.strictEqual(r.segments, 2);
+      const produced = fs.readFileSync(out);
+      assert.strictEqual(Buffer.compare(produced, Buffer.concat([initBuf, b1, b2])), 0, '分流后产物 = init+分片原样拼接');
+      assert.ok(muxjs.mp4.probe.findBox(produced, ['moov']).length >= 1, '产物应含 moov');
+      assert.ok(muxjs.mp4.probe.findBox(produced, ['moof']).length >= 4, '产物 moof 计数应 ≥4');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('TS 分片零回归：0x47 分片即使传 initPath 仍走 mux.js 既有路径（错误语义落 empty_output）', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-divert-ts-'));
+    try {
+      const initPath = path.join(dir, 'init');
+      fs.writeFileSync(initPath, makeInit());
+      const seg = path.join(dir, 'seg.ts');
+      fs.writeFileSync(seg, Buffer.alloc(188, 0x47));
+      const out = path.join(dir, 'out.mp4');
+      await assert.rejects(
+        () => remuxer.convertToMp4({ initPath, segmentPaths: [seg], outputPath: out }),
+        (err) => err.reason === 'empty_output'
+      );
+      assert.strictEqual(fs.existsSync(out), false, 'TS 路径失败产物清理');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });
