@@ -430,6 +430,25 @@ class MediaCacheManager {
         console.debug(`[Realm] 密钥 URI 跳过落盘: ${finalUrl}`);
         return { ok: true, skipped: true, reason: 'key_uri' };
       }
+      // D-05/D-07（45-03）：EXT-X-MAP init 分片 URI——排除时序前提继承 key_uris
+      //（hls.js 先请求清单后请求 init/分片，map_uris 必然先行就绪），但留存形态
+      // 不同：init 本体是 fMP4 拼接必需品，必须写盘 <videoDir>/init（固定常量
+      // 文件名不进远端输入，T-44-11；路径经 _safePath 双基准校验，T-45-05）并
+      // 登记 meta.init_segment。绝不进 segments map（Pitfall 2；D-07 完整性口径：
+      // init 不计入完整度分母）。同 uri_key 重复请求不重写（首 init 为准，D-10
+      // 增量语义）；MAP 轮换（uri_key 变化）则覆盖为新 init（Pitfall 8）。
+      if (Array.isArray(mMeta.map_uris) && mMeta.map_uris.includes(segKey)) {
+        const existingInit = mMeta.init_segment;
+        if (!existingInit || existingInit.uri_key !== segKey) {
+          const initFile = this._safePath(videoId, 'init');
+          fs.writeFileSync(initFile, buffer);
+          const initSha = crypto.createHash('sha256').update(buffer).digest('hex');
+          mMeta.init_segment = { size: buffer.length, sha256: initSha, uri_key: segKey };
+          this._writeMeta(videoId, mMeta);
+        }
+        console.debug(`[Realm] MAP init URI 留存（不进 segments）: ${finalUrl}`);
+        return { ok: true, skipped: true, reason: 'map_uri' };
+      }
 
       const file = this._safePath(videoId, 'segments', segKey);
       fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -634,6 +653,21 @@ class MediaCacheManager {
       } catch { /* 非法 URI 跳过 */ }
     }
     meta.key_uris = keyUris;
+    // D-05/D-07（45-03）：EXT-X-MAP（fMP4 init 分片 URI）标记与键集合——与 key_uris
+    // 同源的 segKey，数组形态容忍 MAP 轮换（Pitfall 8）。供 storeBuffer O(1) 成员
+    // 判定：init 本体留存 <videoDir>/init 但绝不进 segments（Pitfall 2：混入会污染
+    // playlist_order 对齐判定与完整度分母）。BYTERANGE 形态 MAP（整资源字节区间）
+    // 不支持：仅记 map_byterange 不登记 map_uris，后续转换落 init_missing 兜底
+    //（RESEARCH Route D）。附加字段不升 META_VERSION（旧条目缺字段 = fMP4 能力关闭）。
+    meta.has_fmp4_map = !!pl.mapUri;
+    if (pl.mapUri && !pl.mapByterange) {
+      const mapUris = [];
+      try {
+        mapUris.push(segmentKeyOf(resolveUri(pl.mapUri, m3u8Url)));
+      } catch { /* 非法 URI 跳过 */ }
+      meta.map_uris = mapUris;
+    }
+    meta.map_byterange = pl.mapByterange || null;
     // 解密材料（AES-128 转换链路）：IV 属性（无则按 HLS 规范用分片 seq 推导）
     // 与清单 media sequence 基线。附加字段向后兼容（旧 meta 缺字段 = 无法解密转换，
     // 入口按 key_unavailable 处理），不升 META_VERSION。
@@ -651,9 +685,11 @@ class MediaCacheManager {
    * 播放（无 key_uris）的历史污染条目过滤为 no-op——该情形由转换入口
    * has_encryption 早拒 + 44-17 无 0 字节残留兜底，读取侧不做静默改动。
    * @param {string} videoId - 视频目录 ID（16 位 hex）
-   * @returns {{ title: string, m3u8Url: string, playbackKey: string, segmentPaths: string[], completeness: number|null, totalSegments: number|null, hasDiscontinuity: boolean, hasEncryption: boolean, keyHex: string|null, keyIvHex: string|null, mediaSequence: number }|null}
+   * @returns {{ title: string, m3u8Url: string, playbackKey: string, segmentPaths: string[], completeness: number|null, totalSegments: number|null, hasDiscontinuity: boolean, hasEncryption: boolean, keyHex: string|null, keyIvHex: string|null, mediaSequence: number, initPath: string|null, hasFmp4Map: boolean }|null}
    *   completeness=null 表示分片总数未知（无法确认齐全，D-17 按不齐全处理）；
-   *   keyHex/keyIvHex/mediaSequence 为 AES-128 解密材料（keyHex=null 时加密条目不可转换）
+   *   keyHex/keyIvHex/mediaSequence 为 AES-128 解密材料（keyHex=null 时加密条目不可转换）；
+   *   initPath/hasFmp4Map 为 fMP4 转换材料（45-03：hasFmp4Map=true 且 initPath=null 时
+   *   入口按 init_missing 早拒引导重播）
    */
   getConvertInfo(videoId) {
     this._assertVideoId(videoId);
@@ -661,8 +697,13 @@ class MediaCacheManager {
     if (!meta) return null;
     const segs = meta.segments || {};
     const keyUris = Array.isArray(meta.key_uris) ? meta.key_uris : null;
-    const allKeys = keyUris
-      ? Object.keys(segs).filter((k) => !keyUris.includes(k))
+    const mapUris = Array.isArray(meta.map_uris) ? meta.map_uris : null;
+    // 剔除集 = 密钥键 + MAP init 键（45-03：init 绝不计入完整性判定，读取侧
+    // 过滤与 key_uris 同款——修复后落库的条目 init 本就不进 segments，过滤对
+    // 正常条目为 no-op，仅兜底异常污染形态）
+    const excluded = keyUris || mapUris ? [...(keyUris || []), ...(mapUris || [])] : null;
+    const allKeys = excluded
+      ? Object.keys(segs).filter((k) => !excluded.includes(k))
       : Object.keys(segs);
     let keys = null;
     if (Array.isArray(meta.playlist_order) && meta.playlist_order.length === allKeys.length) {
@@ -708,6 +749,16 @@ class MediaCacheManager {
         } catch { /* 回读失败跳过 */ }
       }
     }
+    // fMP4 init 分片路径（45-03，D-03 缓存链路）：meta.init_segment 已登记且
+    // <videoDir>/init 文件存在才透出；历史无 init_segment 的 fMP4 条目 initPath=null
+    //（转换入口 init_missing 早拒引导重播，重播后 init 经 /proxy 留存即可转换）。
+    let initPath = null;
+    if (meta.init_segment && typeof meta.init_segment === 'object') {
+      try {
+        const f = this._safePath(videoId, 'init');
+        if (fs.existsSync(f)) initPath = f;
+      } catch { /* 路径校验失败保持 null */ }
+    }
     return {
       title: meta.title || '',
       m3u8Url: meta.m3u8_url || '',
@@ -720,6 +771,8 @@ class MediaCacheManager {
       keyHex,
       keyIvHex: typeof meta.key_iv === 'string' ? meta.key_iv : null,
       mediaSequence: typeof meta.media_sequence === 'number' ? meta.media_sequence : 0,
+      initPath,
+      hasFmp4Map: !!meta.has_fmp4_map,
     };
   }
 
