@@ -4,17 +4,17 @@ milestone: v2.5
 milestone_name: AI 网络搜索功能
 current_phase: 45
 current_phase_name: bilibili-fmp4-transcode
-status: executing
-stopped_at: Completed 45-02-PLAN.md (record-engine init retention + initPath pass-through + CONVERT_FAIL_TEXT)
-last_updated: "2026-09-08T04:37:51.991Z"
+status: verifying
+stopped_at: Completed 45-03-PLAN.md (cache MAP registration + init retention + initPath pass-through)
+last_updated: "2026-09-08T04:53:30.973Z"
 last_activity: 2026-09-08
 last_activity_desc: Phase 45 execution started
-state_head: 489af57905741419762b6baa6bafcecbbea5b58a
+state_head: 9a6818c73b10106596d77a16cee5eebab921676e
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 37
-  completed_plans: 36
+  completed_plans: 37
   percent: 67
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 
 Phase: 45 (bilibili-fmp4-transcode) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-08 — Phase 45 execution started
 
 Progress: [███████░░░] 67%
@@ -86,6 +86,7 @@ Progress: [███████░░░] 67%
 | Phase 44 P18 | 15min | 3 tasks | 8 files |
 | Phase 45-bilibili-fmp4-transcode P01 | 14min | 2 tasks | 4 files |
 | Phase 45 P02 | 7min | 2 tasks | 4 files |
+| Phase 45 P03 | 8min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -140,6 +141,8 @@ Recent decisions affecting current work:
 - [Phase 45]: Final product probe reads 4MB head only (T-45-02), baseline ftyp+size fallback
 - [Phase 45]: 45-02 录制引擎 init 留存——pollLoop 检查点在首轮/追新分支之外（首轮 baseline 也下，Pitfall 1）；固定常量 'init' 文件名不进 seen/recorded；BYTERANGE 不下载落 init_missing 兜底；下载失败不记 consecutiveFailures 下轮自然重试（D-05）
 - [Phase 45]: 45-02 编排层 initPath 两跳透传（readRecordTaskSegments→startConvertFromRecordTask→startConvertTask→convertToMp4），编排其余零改动（D-06）；CONVERT_FAIL_TEXT 补 init_missing/invalid_init（Pitfall 5）
+- [Phase 45]: [Phase 45]: 45-03 缓存链路 MAP 三件套——updatePlaylistIndex 登记 map_uris/has_fmp4_map（BYTERANGE 仅记 map_byterange 兜底 init_missing）；storeBuffer init 本体落盘 <videoDir>/init 绝不进 segments（D-05/D-07/Pitfall 2）；getConvertInfo 透出 initPath/hasFmp4Map（D-03 第二链路）
+- [Phase 45]: [Phase 45]: 45-03 startConvertFromInput init_missing 早拒（hasFmp4Map && !initPath，key_unavailable 同区段）+ initPath 透传；lookup() init 回放列入 deferred（RESEARCH Q5 Wave-2）
 
 ### Roadmap Evolution
 
@@ -168,6 +171,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-08T04:37:31.908Z
-Stopped at: Completed 45-02-PLAN.md (record-engine init retention + initPath pass-through + CONVERT_FAIL_TEXT)
+Last session: 2026-09-08T04:53:30.786Z
+Stopped at: Completed 45-03-PLAN.md (cache MAP registration + init retention + initPath pass-through)
 Resume file: None
