@@ -243,6 +243,77 @@ describe('parsePlaylist 加密检测（EXT-X-KEY，G-44-7）', () => {
   });
 });
 
+describe('parsePlaylist EXT-X-MAP 捕获（D-05，fMP4 init 分片）', () => {
+  test('URI 属性 → mapUri 捕获，BYTERANGE 缺省 null', () => {
+    const text = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:7',
+      '#EXT-X-TARGETDURATION:1',
+      '#EXT-X-MAP:URI="init.m4s"',
+      '#EXTINF:1.00,',
+      '1788796260.m4s',
+    ].join('\n');
+    const r = parser.parsePlaylist(text);
+    assert.strictEqual(r.mapUri, 'init.m4s');
+    assert.strictEqual(r.mapByterange, null);
+  });
+
+  test('BYTERANGE 属性 → mapByterange 原样字符串捕获备用', () => {
+    const text = [
+      '#EXTM3U',
+      '#EXT-X-MAP:URI="init.mp4",BYTERANGE="720@0"',
+      '#EXTINF:1.00,',
+      'seg0.m4s',
+    ].join('\n');
+    const r = parser.parsePlaylist(text);
+    assert.strictEqual(r.mapUri, 'init.mp4');
+    assert.strictEqual(r.mapByterange, '720@0');
+  });
+
+  test('无 MAP 标签清单 → mapUri=null、mapByterange=null（向后兼容）', () => {
+    const text = ['#EXTM3U', '#EXTINF:5.0,', 'seg0.ts'].join('\n');
+    const r = parser.parsePlaylist(text);
+    assert.strictEqual(r.mapUri, null);
+    assert.strictEqual(r.mapByterange, null);
+  });
+
+  test('清单含两个 MAP 标签 → 取后一个（RFC 8216 §4.3.2.5 作用域覆盖语义）', () => {
+    const text = [
+      '#EXTM3U',
+      '#EXT-X-MAP:URI="init-old.m4s"',
+      '#EXTINF:1.00,',
+      'seg0.m4s',
+      '#EXT-X-MAP:URI="init-new.m4s",BYTERANGE="720@0"',
+      '#EXTINF:1.00,',
+      'seg1.m4s',
+    ].join('\n');
+    const r = parser.parsePlaylist(text);
+    assert.strictEqual(r.mapUri, 'init-new.m4s');
+    assert.strictEqual(r.mapByterange, '720@0');
+  });
+
+  test('B 站实测形态：EXT-BILI-AUX 等未知标签混合 → 安全忽略，mapUri 捕获不受影响', () => {
+    const text = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:7',
+      '#EXT-X-START:TIME-OFFSET=0',
+      '#EXT-X-MEDIA-SEQUENCE:1788796260',
+      '#EXT-X-TARGETDURATION:1',
+      '#EXT-X-MAP:URI="h1788488973.m4s"',
+      '#EXT-BILI-AUX:1250faff|K|1cdf5|a9a7bf95',
+      '#EXTINF:1.00,1cdf5|a9a7bf95',
+      '1788796260.m4s',
+    ].join('\n');
+    const r = parser.parsePlaylist(text);
+    assert.strictEqual(r.mapUri, 'h1788488973.m4s');
+    assert.strictEqual(r.mapByterange, null);
+    assert.deepStrictEqual(
+      r.segments.map((s) => s.uri),
+      ['1788796260.m4s']
+    );
+  });
+});
+
 describe('resolveUri 相对 URI 解析', () => {
   test('相对路径以清单 URL 为 base 解析为绝对 URL', () => {
     assert.strictEqual(
