@@ -344,7 +344,14 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
+**Wave 1**
 
 - [ ] 45-01-PLAN.md — 地基：EXT-X-MAP 解析（D-05）+ concatFmp4ToMp4 纯 JS 拼接执行体与嗅探分流（D-01/D-06/D-07），:176 冲突用例改写
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 45-02-PLAN.md — 录制链路 tracer：引擎 init 留存（首轮 baseline 也下）+ 编排透传 initPath + CONVERT_FAIL_TEXT 新 reason 文案（D-03/D-05）
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 45-03-PLAN.md — 缓存链路：MAP 排除 + init 留存 + getConvertInfo 透出 + 历史条目 init_missing 早拒（D-03/D-07）
