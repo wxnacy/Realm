@@ -177,3 +177,15 @@ hls.js 后续请求全部走代理（绝对 URL，无需自定义 loader）
 - **独立播放器窗口**（媒体面板打开，file:// 加载）：hls.js 仍是跨域直连，同样的 CORS/防盗链失败风险存在；如需修复要把 port/token 经 IPC 传给独立窗口并复用 `proxiedUrl`。
 - mpegts（flv）/dash（mpd）未走代理（本次只拦截 .m3u8 导航）；DRM（FairPlay `skd://`）不支持。
 - `/proxy` 无超时与客户端断连清理：hls.js 中止请求后上游 fetch 完成前会短暂占用连接（localhost 场景可接受）。
+
+---
+
+## 八、回归：webview 直连后 http 源被 CSP 拦截（2026-09-09 修复）
+
+**现象**：webview tab 播放 `http://` 开头的 m3u8（如本地服务 `http://localhost:8005/...`）显示「HLS 播放失败」，https 源正常。上个正式版发布后出现的回归。
+
+**根因**：44-09（5716f7a）把 webview tab 模式从 /proxy 改为直连后，hls.js 直接 XHR 源站；但 `player.html` 的 CSP 是 `connect-src 'self' blob: data: https:`——**没有 `http:`**。走代理时请求全部同源（'self' 覆盖），直连后 http 源被 CSP 拦截，hls.js 拿到致命网络错误。https 源不受影响所以当时 UAT 没暴露。
+
+**修复**：`player.html` CSP `connect-src` 增加 `http:`。已用 playwright 驱动 dev 应用实测：readyState 4、时长解析正常、持续播放无错误。
+
+**教训**：改「传输层语义」（代理 ↔ 直连）时必须核对此页面的 CSP 各指令（connect-src/media-src/img-src）是否覆盖新的请求目标。

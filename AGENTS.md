@@ -557,6 +557,7 @@ npm run debug
 - [部分网站整页漆黑排查实录](docs/debug/webview-transparent-background-dark-page.md) — webview guest 默认背景透明，不显式设背景的网页（如部分 Docusaurus 站点）会透出窗口深色底色 `backgroundColor: '#1a1a1a'` 导致正文漆黑；修复：`.browser-view webview { background: #fff }` 兜底白画布，网站自身背景不透明时不受影响
 - [多窗口关闭标签误关整个窗口排查实录](docs/debug/close-tab-closes-whole-window.md) — 三条成因链：restoreTabs"不恢复"全局清空误删其他窗口 Tab 元数据、菜单 role:'close'（Cmd+W）与 closeTab 双重绑定竞态、次级窗口未挂关闭处理器留幽灵 Tab；修复：tab:clear-all 按窗口清空 + 命中快捷键无条件 preventDefault + setWindowCloseSetup 统一挂载 + 拖出新窗口时序对齐
 - [Twitch 直播转录 mp4 预览打不开排查实录](docs/debug/twitch-record-avfoundation-hang-audio-first-moof.md) — mux.js 产物三处 AVF 不兼容：音频 moof 在前死等、mvhd 0xFFFFFFFF 时长累加显示 13.3 小时（改真实值双倍拉伸，唯一正确值是 0）、mfhd seq 跨轨重复致播 2s 即卡；修复：reorderVideoFirst + zeroFragmentedMovieDurations + renumberFragmentSequence 三处等长原位改写；判别签名：qlmanage 挂起/13h 时长/卡首个分片边界
+- [webview 播放 m3u8「HLS 播放失败」排查实录](docs/debug/m3u8-webview-player-route-a.md) — 路线 A（tab 内 /player 页 + hls.js）全记录；两处根因：外部源 CORS/防盗链（曾用 /proxy 同源代理修复，44-09 后 webview 改直连、仅独立窗口走代理）、**改传输层后 player.html CSP `connect-src` 未覆盖 `http:` 源**（2026-09-09 修复）；教训：改「代理 ↔ 直连」传输语义必须核对页面 CSP 各指令是否覆盖新请求目标
 
 ### 查看容器数据
 ```javascript
