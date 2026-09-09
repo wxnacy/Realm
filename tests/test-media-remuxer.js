@@ -1094,3 +1094,207 @@ describe('convertToMp4 fMP4 嗅探分流（D-06）', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// AVF 兼容（2026-09-09）：mux.js 把音频 moof 排在视频前，AVFoundation 对首
+// moof 为音频轨的 fMP4 死等（mac 预览/QuickTime 打不开）。convertToMp4 经
+// reorderVideoFirst 重排为视频 moof+mdat 组在前；concatFmp4ToMp4 终检附
+// 非阻断 warn 诊断。
+// ---------------------------------------------------------------------------
+
+/** 音频 traf 在前的双轨 moof+mdat 对（异常形态夹具：traf 序 = 音频,视频） */
+function makeAudioFirstDualTrackFragment(seq) {
+  const videoTrack = Object.assign({}, FMP4_VIDEO_TRACK, {
+    samples: [makeVideoSample()],
+  });
+  const audioTrack = Object.assign({}, FMP4_AUDIO_TRACK, {
+    samples: [{ size: 80, duration: 2048 }],
+  });
+  const payload = new Uint8Array(180).fill(seq & 0xff);
+  return Buffer.concat([
+    Buffer.from(muxjs.mp4.generator.moof(seq, [audioTrack, videoTrack])),
+    Buffer.from(muxjs.mp4.generator.mdat(payload)),
+  ]);
+}
+
+describe('AVF 兼容：extractVideoTrackId / reorderVideoFirst / readFirstMoofTrackId', () => {
+  test('extractVideoTrackId：双轨 init 解析出视频轨 id=1', () => {
+    assert.strictEqual(remuxer.extractVideoTrackId(makeDualTrackInit()), 1);
+    assert.strictEqual(remuxer.extractVideoTrackId(makeInit()), 1, '纯视频 init 同样解析');
+  });
+
+  test('extractVideoTrackId：畸形/空输入返回 null（调用方按无需重排处理）', () => {
+    assert.strictEqual(remuxer.extractVideoTrackId(Buffer.alloc(0)), null);
+    assert.strictEqual(remuxer.extractVideoTrackId(Buffer.from('not an mp4 at all, garbage bytes')), null);
+    assert.strictEqual(remuxer.extractVideoTrackId(null), null);
+  });
+
+  test('reorderVideoFirst：音频组在前 → 重排为视频组在前（字节精确）', () => {
+    const audioGroup = makeFragment(1, { track: 'audio' });
+    const videoGroup = makeFragment(1);
+    const combined = Buffer.concat([audioGroup, videoGroup]);
+    const reordered = remuxer.reorderVideoFirst(combined, 1);
+    assert.strictEqual(
+      Buffer.compare(reordered, Buffer.concat([videoGroup, audioGroup])), 0,
+      '产物应为视频 moof+mdat 组在前'
+    );
+  });
+
+  test('reorderVideoFirst：已是视频在前 → 字节不变（幂等）', () => {
+    const videoGroup = makeFragment(1);
+    const audioGroup = makeFragment(1, { track: 'audio' });
+    const combined = Buffer.concat([videoGroup, audioGroup]);
+    const reordered = remuxer.reorderVideoFirst(combined, 1);
+    assert.strictEqual(Buffer.compare(reordered, combined), 0);
+  });
+
+  test('reorderVideoFirst：单 moof/无视频轨/轨不在其中/畸形 → 原样返回不搞挂', () => {
+    const videoGroup = makeFragment(1);
+    // 单 moof 组（纯视频流形态）
+    assert.strictEqual(Buffer.compare(remuxer.reorderVideoFirst(videoGroup, 1), videoGroup), 0);
+    // videoTrackId = null（无视频轨）
+    const av = Buffer.concat([makeFragment(1, { track: 'audio' }), makeFragment(1)]);
+    assert.strictEqual(Buffer.compare(remuxer.reorderVideoFirst(av, null), av), 0);
+    // videoTrackId 不在组中
+    assert.strictEqual(Buffer.compare(remuxer.reorderVideoFirst(av, 999), av), 0);
+    // 畸形：非 box 字节
+    const garbage = Buffer.from('definitely not mp4 boxes........');
+    assert.strictEqual(Buffer.compare(remuxer.reorderVideoFirst(garbage, 1), garbage), 0);
+    // 尾部游离字节（组外数据）→ 原样
+    const withTrailing = Buffer.concat([av, Buffer.from('trailing')]);
+    assert.strictEqual(Buffer.compare(remuxer.reorderVideoFirst(withTrailing, 1), withTrailing), 0);
+  });
+
+  test('readFirstMoofTrackId：首 moof 首 traf 轨 ID 读取', () => {
+    // 视频 traf 在前的双轨 moof（B 站形态）
+    assert.strictEqual(remuxer.readFirstMoofTrackId(makeDualTrackFragment(1, 0, 0)), 1);
+    // 音频 traf 在前（异常形态）
+    assert.strictEqual(remuxer.readFirstMoofTrackId(makeAudioFirstDualTrackFragment(1)), 2);
+    // 无 moof / 畸形 → null
+    assert.strictEqual(remuxer.readFirstMoofTrackId(makeDualTrackInit()), null);
+    assert.strictEqual(remuxer.readFirstMoofTrackId(Buffer.from('garbage garbage')), null);
+  });
+});
+
+describe('AVF 兼容：zeroFragmentedMovieDurations / renumberFragmentSequence', () => {
+  test('zeroFragmentedMovieDurations：init 段 mvhd/tkhd/mdhd 时长归零（mux.js 默认 0xFFFFFFFF）', () => {
+    const init = makeDualTrackInit();
+    // mux.js generator：mvhd 固定 0xffffffff；track.duration || 0xffffffff（夹具
+    // 传 0 也回落 0xffffffff——0 是 falsy）→ 双轨 init 共 5 个 0xFFFFFFFF 时长字段
+    const count = remuxer.zeroFragmentedMovieDurations(init);
+    assert.strictEqual(count, 5, 'mvhd×1 + tkhd×2 + mdhd×2 共 5 个时长字段');
+    // 归零后 probe 仍可解析
+    assert.ok(muxjs.mp4.probe.findBox(init, ['moov']).length >= 1, '归零后 moov 仍可解析');
+    // 逐 box 断言时长为 0：ASCII 定位 box type，v0 布局 duration 在 type 后第 20 字节
+    // （version/flags(4)+创建(4)+修改(4)+timescale(4) 之后）
+    const mvhdAt = init.indexOf('mvhd');
+    assert.ok(mvhdAt > 0 && init.readUInt32BE(mvhdAt + 20) === 0, 'mvhd duration 已归零');
+    let mdhdCount = 0;
+    let scanFrom = 0;
+    while (true) {
+      const at = init.indexOf('mdhd', scanFrom);
+      if (at < 0) break;
+      assert.strictEqual(init.readUInt32BE(at + 20), 0, 'mdhd duration 已归零');
+      mdhdCount++;
+      scanFrom = at + 4;
+    }
+    assert.strictEqual(mdhdCount, 2, '双轨各一个 mdhd');
+  });
+
+  test('zeroFragmentedMovieDurations：非 Buffer/畸形输入返回 0 不 throw', () => {
+    assert.strictEqual(remuxer.zeroFragmentedMovieDurations(null), 0);
+    assert.strictEqual(remuxer.zeroFragmentedMovieDurations('not buffer'), 0);
+    assert.strictEqual(remuxer.zeroFragmentedMovieDurations(Buffer.from('garbage bytes here!!')), 0);
+  });
+
+  test('renumberFragmentSequence：moof seq 原位改写为全局递增（等长改写其余字节不动）', () => {
+    const fragA = makeFragment(0, { track: 'audio' }); // moof seq=0
+    const fragV = makeFragment(0); // moof seq=0（跨轨重复，复刻 mux.js 产物形态）
+    const blob = Buffer.concat([fragA, fragV]);
+    const next = remuxer.renumberFragmentSequence(blob, 1);
+    assert.strictEqual(next, 3, '两个 moof 后下一序号为 3');
+    // 读回两个 moof 的 mfhd seq（moof hdr(8)+mfhd hdr(8)+version/flags(4)=偏移 20）
+    const seqs = [];
+    let off = 0;
+    while (off + 8 <= blob.length) {
+      const size = blob.readUInt32BE(off);
+      const type = blob.toString('ascii', off + 4, off + 8);
+      if (type === 'moof') seqs.push(blob.readUInt32BE(off + 20));
+      off += size;
+    }
+    assert.deepStrictEqual(seqs, [1, 2], 'seq 改写为 1,2');
+    // 等长改写：mdat 区域逐位一致（其余字节不动）
+    const mdatOff = fragA.length - 108; // mdat(8+100)
+    assert.strictEqual(
+      Buffer.compare(blob.subarray(mdatOff, fragA.length), fragA.subarray(mdatOff)), 0,
+      'mdat 内容未被改写'
+    );
+    // 接续第二批：序号延续
+    const blob2 = makeFragment(0);
+    assert.strictEqual(remuxer.renumberFragmentSequence(blob2, next), 4);
+  });
+
+  test('renumberFragmentSequence：非法入参保守返回原序号不 throw', () => {
+    assert.strictEqual(remuxer.renumberFragmentSequence(null, 1), 1);
+    assert.strictEqual(remuxer.renumberFragmentSequence(Buffer.alloc(4), 0), 0, 'startSeq<1 不改写');
+    assert.strictEqual(remuxer.renumberFragmentSequence(Buffer.from('garbage!!'), 1), 1);
+  });
+});
+
+describe('AVF 兼容：concatFmp4ToMp4 终检 warn 诊断（非阻断）', () => {
+  /** 捕获 console.warn 执行 fn，恢复后返回 warn 消息列表 */
+  async function captureWarns(fn) {
+    const messages = [];
+    const original = console.warn;
+    console.warn = (...args) => messages.push(args.join(' '));
+    try {
+      await fn();
+    } finally {
+      console.warn = original;
+    }
+    return messages;
+  }
+
+  test('视频 traf 在前（B 站正常形态）→ 不 warn，产物 resolve 正常', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-avf-ok-'));
+    try {
+      const initPath = path.join(dir, 'init');
+      fs.writeFileSync(initPath, makeDualTrackInit());
+      const seg = path.join(dir, 'seg.m4s');
+      fs.writeFileSync(seg, makeDualTrackFragment(1, 0, 0));
+      const out = path.join(dir, 'out.mp4');
+      const warns = await captureWarns(() =>
+        remuxer.concatFmp4ToMp4({ initPath, segmentPaths: [seg], outputPath: out })
+      );
+      assert.strictEqual(
+        warns.filter((m) => m.includes('首 moof 首 traf 非视频轨')).length, 0,
+        '正常形态不应触发 AVF 兼容 warn'
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('音频 traf 在前（异常形态）→ console.warn 观测点命中，产物仍正常 resolve', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-remux-avf-warn-'));
+    try {
+      const initPath = path.join(dir, 'init');
+      fs.writeFileSync(initPath, makeDualTrackInit());
+      const seg = path.join(dir, 'seg.m4s');
+      fs.writeFileSync(seg, makeAudioFirstDualTrackFragment(1));
+      const out = path.join(dir, 'out.mp4');
+      let result;
+      const warns = await captureWarns(async () => {
+        result = await remuxer.concatFmp4ToMp4({ initPath, segmentPaths: [seg], outputPath: out });
+      });
+      assert.strictEqual(result.segments, 1, '诊断不阻断：产物正常 resolve');
+      assert.ok(fs.existsSync(out), '诊断不阻断：产物存在');
+      assert.strictEqual(
+        warns.filter((m) => m.includes('首 moof 首 traf 非视频轨')).length, 1,
+        '异常形态应恰好触发一次 AVF 兼容 warn'
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

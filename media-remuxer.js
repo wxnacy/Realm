@@ -25,6 +25,17 @@
  * trun/sample 表，攻击面 = 边界校验 walker + 字节拷贝，零新依赖）；
  * convertToMp4 首片嗅探命中 fMP4 box 特征时按 initPath 有无分流到拼接分支
  * 或 init_missing 拒转。
+ *
+ * AVF 兼容（2026-09-09，三处结构缺陷，详见
+ * docs/debug/twitch-record-avfoundation-hang-audio-first-moof.md）：
+ * ① mux.js 为绕 Chrome 75 MSE bug 把音频 moof 排在视频前，AVFoundation
+ *    对首 moof 为音频轨的 fMP4 死等（预览打不开）→ reorderVideoFirst；
+ * ② mvhd/tkhd/mdhd duration=0xFFFFFFFF 被 AVF 与分片时长累加（预览显示
+ *    13.3 小时；改真实值同样累加成双倍）→ zeroFragmentedMovieDurations；
+ * ③ mfhd seq 音/视频各自从 0 起跨轨重复，AVF 分片索引丢弃重复序号分片
+ *   （6s 产物只播前 2s）→ renumberFragmentSequence 全局递增重编号。
+ * concatFmp4ToMp4（B 站 fMP4 形态天然无三缺陷）产物终检附同结构非阻断
+ * warn 诊断（readFirstMoofTrackId）。
  */
 
 const fs = require('fs');
@@ -222,6 +233,239 @@ function decryptSegment(buf, key, iv) {
 }
 
 /**
+ * 顶层 box 遍历（AVF 兼容重排/诊断用）：区间 [start, end) 内逐个 box 回调。
+ * 边界校验失败（size 越界/截断）即停止并返回 false——远端/三方字节不可信，
+ * 重排与诊断只做保守只读遍历，任何畸形都回落「原样通过」。
+ * @param {Buffer} buf
+ * @param {number} start
+ * @param {number} end
+ * @param {Function} onBox - (boxStart, boxEnd, type, headerSize)
+ * @returns {boolean} true = 完整遍历无畸形
+ */
+function walkTopBoxes(buf, start, end, onBox) {
+  let offset = start;
+  while (offset + 8 <= end) {
+    let size = buf.readUInt32BE(offset);
+    const type = buf.toString('ascii', offset + 4, offset + 8);
+    let headerSize = 8;
+    if (size === 1) {
+      if (offset + 16 > end) return false;
+      const large = buf.readBigUInt64BE(offset + 8);
+      if (large > BigInt(end - offset)) return false;
+      size = Number(large);
+      headerSize = 16;
+    } else if (size === 0) {
+      size = end - offset;
+    }
+    if (size < headerSize || offset + size > end) return false;
+    onBox(offset, offset + size, type, headerSize);
+    offset += size;
+  }
+  return true;
+}
+
+/**
+ * 读取 moof 内首个 traf 的首个 tfhd 的 track_ID（只读遍历，取不到返回 null）。
+ * @param {Buffer} buf - 含完整 moof 的缓冲
+ * @param {number} moofStart - moof box 起始偏移
+ * @param {number} moofEnd - moof box 结束偏移
+ * @param {number} headerSize - moof 头宽（8 或 16）
+ * @returns {number|null}
+ */
+function readMoofFirstTrafTrackId(buf, moofStart, moofEnd, headerSize) {
+  let trackId = null;
+  walkTopBoxes(buf, moofStart + headerSize, moofEnd, (trafStart, trafEnd, type, trafHeader) => {
+    if (type !== 'traf' || trackId !== null) return;
+    walkTopBoxes(buf, trafStart + trafHeader, trafEnd, (tfhdStart, tfhdEnd, innerType, innerHeader) => {
+      // version(1B)+flags(3B) 之后固定 4 字节 track_ID（flags 只影响其后可选字段）
+      if (innerType === 'tfhd' && trackId === null && tfhdStart + innerHeader + 8 <= tfhdEnd) {
+        trackId = buf.readUInt32BE(tfhdStart + innerHeader + 4);
+      }
+    });
+  });
+  return trackId;
+}
+
+/**
+ * 从 fMP4 init 段（ftyp+moov）解析视频轨 track_ID：moov→trak→(tkhd track_ID,
+ * mdia→hdlr='vide')。一次性解析（convertToMp4 首次写 init 时调用缓存）。
+ * 解析失败/无视频轨/畸形输入一律返回 null（调用方按无需重排处理）。
+ * @param {Buffer|Uint8Array} initData - init 段字节
+ * @returns {number|null} 视频轨 track_ID
+ */
+function extractVideoTrackId(initData) {
+  const buf = Buffer.isBuffer(initData) ? initData : Buffer.from(initData || []);
+  let videoTrackId = null;
+  walkTopBoxes(buf, 0, buf.length, (moovStart, moovEnd, type, headerSize) => {
+    if (type !== 'moov' || videoTrackId !== null) return;
+    walkTopBoxes(buf, moovStart + headerSize, moovEnd, (trakStart, trakEnd, trakType, trakHeader) => {
+      if (trakType !== 'trak' || videoTrackId !== null) return;
+      let trackId = null;
+      let isVideo = false;
+      walkTopBoxes(buf, trakStart + trakHeader, trakEnd, (childStart, childEnd, childType, childHeader) => {
+        if (childType === 'tkhd') {
+          const version = buf[childStart + childHeader];
+          const idOffset = childStart + childHeader + 4 + (version === 1 ? 16 : 8);
+          if (idOffset + 4 <= childEnd) {
+            trackId = buf.readUInt32BE(idOffset);
+          }
+        } else if (childType === 'mdia') {
+          walkTopBoxes(buf, childStart + childHeader, childEnd, (hdlrStart, hdlrEnd, hdlrType, hdlrHeader) => {
+            if (hdlrType === 'hdlr' && hdlrStart + hdlrHeader + 12 <= hdlrEnd) {
+              isVideo = buf.toString('ascii', hdlrStart + hdlrHeader + 8, hdlrStart + hdlrHeader + 12) === 'vide';
+            }
+          });
+        }
+      });
+      if (isVideo && trackId !== null) videoTrackId = trackId;
+    });
+  });
+  return videoTrackId;
+}
+
+/**
+ * 读取缓冲中首个 moof 的首个 traf track_ID（concatFmp4ToMp4 终检诊断用）。
+ * 取不到（无 moof/畸形）返回 null。
+ * @param {Buffer} buf - 产物头部缓冲（含 moov + 首个 moof 即可）
+ * @returns {number|null}
+ */
+function readFirstMoofTrackId(buf) {
+  let trackId = null;
+  walkTopBoxes(buf, 0, buf.length, (boxStart, boxEnd, type, headerSize) => {
+    if (type === 'moof' && trackId === null) {
+      trackId = readMoofFirstTrafTrackId(buf, boxStart, boxEnd, headerSize);
+    }
+  });
+  return trackId;
+}
+
+/**
+ * mux.js combined data 事件重排为视频 moof+mdat 组在前（AVF 兼容，D-44 后续修复）
+ *
+ * 背景：mux.js CoalesceStream 为绕 Chrome 75 MSE bug 故意把音频 boxes unshift
+ * 到视频前（pendingBoxes 注释自述）——产物文件内 moof 序为 音频,视频,音频,视频…。
+ * AVFoundation 打开「首 moof 为音频轨」的 fMP4 会陷入死等（mac 预览/QuickTime/
+ * QuickLook 全部打不开；mpv/ffmpeg 系容错可播）。实测同一批字节只把 moof+mdat
+ * 组重排为视频在前，qlmanage 即秒出缩略图。
+ *
+ * 安全性：每组 moof+mdat 自洽——trun data_offset 相对自身 moof 起点（tfhd 无
+ * base-data-offset 字段时 spec 默认 base = 所在 moof 位置），整组平移不影响
+ * 组内偏移语义；只做整组字节块重排，不改任何 box 内容。
+ *
+ * 防御（远端/三方字节不可信，重排绝不搞挂转封装）：
+ * - 单 moof（纯音频/纯视频流）、无视频轨、视频轨不在其中 → 原样返回；
+ * - 任何 box 畸形、首 box 非 moof、尾部游离字节 → 原样返回。
+ * @param {Buffer|Uint8Array} data - mux.js data 事件的 segment.data
+ * @param {number|null} videoTrackId - extractVideoTrackId 解析结果（null → 原样返回）
+ * @returns {Buffer} 重排后字节（无需重排时返回共享内存的 Buffer 视图，零拷贝）
+ */
+function reorderVideoFirst(data, videoTrackId) {
+  if (videoTrackId === null || videoTrackId === undefined || !data || data.length < 8) {
+    return Buffer.isBuffer(data) ? data : Buffer.from(data || []);
+  }
+  const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  // 切组：每个 moof 起到下一个 moof 前（组 = moof + 其后 mdat/其他 box）
+  const groups = [];
+  let current = null;
+  const clean = walkTopBoxes(buf, 0, buf.length, (boxStart, boxEnd, type, headerSize) => {
+    if (type === 'moof') {
+      current = { start: boxStart, end: boxEnd, trackId: readMoofFirstTrafTrackId(buf, boxStart, boxEnd, headerSize) };
+      groups.push(current);
+    } else if (current) {
+      current.end = boxEnd;
+    }
+  });
+  if (!clean || groups.length < 2) return buf;
+  // 全部字节必须落在组内：首 box 须为 moof、结尾无游离数据
+  if (groups[0].start !== 0 || groups[groups.length - 1].end !== buf.length) return buf;
+  const video = groups.filter((g) => g.trackId === videoTrackId);
+  const others = groups.filter((g) => g.trackId !== videoTrackId);
+  if (video.length === 0 || others.length === 0) return buf;
+  const out = Buffer.alloc(buf.length);
+  let offset = 0;
+  for (const g of [...video, ...others]) {
+    buf.copy(out, offset, g.start, g.end);
+    offset += g.end - g.start;
+  }
+  return out;
+}
+
+/**
+ * fMP4 init 段的 moov 时长字段归零（AVF 兼容，实测结论 2026-09-09）
+ *
+ * mux.js 生成的 init 段把 mvhd/tkhd/mdhd duration 写为 0xFFFFFFFF（"未知时长"
+ * 惯例），但 AVFoundation 把它当作 moov 声明的**实体媒体段时长**，与后续分片
+ * 时长**累加**：0xFFFFFFFF@90000 ≈ 47721s → mac 预览总时长显示 13.3 小时
+ * （moof 里的 6s 媒体排在 47721s 之后）。原地改写为真实总时长同样错误——
+ * 实测 AVF 时间轴变为 声明时长+分片时长（6.05+6.04 ≈ 12.1s，双倍拉伸）。
+ * 唯一正确值是 0（B 站 init 段形态/RFC 8216 §3.3 直播强制形态）：播放器
+ * 从分片推导时长。本函数对 init 段原位归零 mvhd/tkhd/mdhd 的 duration 字段
+ * （等长改写，v0/v1 均处理；畸形结构保守跳过——输入为 mux.js 生成的规范
+ * init，实际不会触发）。
+ * @param {Buffer} initBuf - init 段字节（原位修改）
+ * @returns {number} 归零的时长字段计数（供测试断言与诊断）
+ */
+function zeroFragmentedMovieDurations(initBuf) {
+  if (!Buffer.isBuffer(initBuf)) return 0;
+  let zeroed = 0;
+  const walkRange = (start, end) => {
+    walkTopBoxes(initBuf, start, end, (boxStart, boxEnd, type, headerSize) => {
+      const version = initBuf[boxStart + headerSize];
+      if (type === 'mvhd' || type === 'mdhd') {
+        const durOffset = boxStart + headerSize + 4 + (version === 1 ? 20 : 12);
+        if (durOffset + (version === 1 ? 8 : 4) <= boxEnd) {
+          if (version === 1) initBuf.writeBigUInt64BE(0n, durOffset);
+          else initBuf.writeUInt32BE(0, durOffset);
+          zeroed++;
+        }
+      } else if (type === 'tkhd') {
+        const durOffset = boxStart + headerSize + 4 + (version === 1 ? 28 : 16);
+        if (durOffset + (version === 1 ? 8 : 4) <= boxEnd) {
+          if (version === 1) initBuf.writeBigUInt64BE(0n, durOffset);
+          else initBuf.writeUInt32BE(0, durOffset);
+          zeroed++;
+        }
+      } else if (type === 'moov' || type === 'trak' || type === 'mdia') {
+        walkRange(boxStart + headerSize, boxEnd);
+      }
+    });
+  };
+  walkRange(0, initBuf.length);
+  return zeroed;
+}
+
+/**
+ * data 事件字节流内全部 moof 的 mfhd sequence_number 全局重编号（AVF 兼容，
+ * 实测结论 2026-09-09）
+ *
+ * mux.js 音/视频轨各自维护从 0 起的 fragment 计数——产物文件内 mfhd seq 为
+ * 0(A) 0(V) 1(A) 1(V)…，跨轨重复且从 0 起（spec 要求自 1 严格递增）。
+ * AVFoundation 按 sequence_number 建分片索引，重复序号导致后到的同序号分片
+ * 被丢弃：实测 6s 产物 AVAssetReader 只读出前 2s（首个分片）即停。本函数
+ * 按写盘顺序把每个 moof 的 seq 原位改写为全局递增序号（等长 4 字节改写，
+ * 其余字节不动；moof 外的 box 与畸形结构保守跳过）。
+ * @param {Buffer} buf - data 事件字节（原位修改；须为 moof 起头的 box 序列）
+ * @param {number} startSeq - 本批第一个 moof 的序号（跨事件累乘计数）
+ * @returns {number} 下一可用序号（startSeq + 改写的 moof 数）
+ */
+function renumberFragmentSequence(buf, startSeq) {
+  if (!Buffer.isBuffer(buf) || !Number.isInteger(startSeq) || startSeq < 1) {
+    return startSeq;
+  }
+  let seq = startSeq;
+  walkTopBoxes(buf, 0, buf.length, (boxStart, boxEnd, type, headerSize) => {
+    if (type !== 'moof') return;
+    walkTopBoxes(buf, boxStart + headerSize, boxEnd, (childStart, childEnd, childType, childHeader) => {
+      // mfhd：version+flags(4B) 之后固定 4 字节 sequence_number
+      if (childType === 'mfhd' && childStart + childHeader + 8 <= childEnd) {
+        buf.writeUInt32BE(seq++, childStart + childHeader + 4);
+      }
+    });
+  });
+  return seq;
+}
+
+/**
  * TS 分片序列 → fMP4 转封装（D-22/D-24 convert 任务执行体）
  *
  * 时序契约（RESEARCH Pattern 3）：
@@ -332,15 +576,31 @@ function convertToMp4({ segmentPaths, outputPath, onProgress, hasDiscontinuity, 
 
     // ⚠️ mux.js README 硬约束：必须先注册 'data' 监听，再 push——
     // 监听晚于 push 会丢事件（首个 initSegment 丢失则产物不可播）
+    let videoTrackId = null; // AVF 兼容重排用（首次写 init 时解析缓存）
+    let fragmentSeq = 1; // mfhd sequence_number 全局重编号计数（跨事件递增，spec 要求自 1 严格递增）
     transmuxer.on('data', (segment) => {
       if (settled) return;
       try {
         if (!wroteInit) {
-          stream.write(Buffer.from(segment.initSegment));
+          // AVF 兼容（QuickTime/预览，实测 2026-09-09 三处结构缺陷）：
+          // ① mux.js 为绕 Chrome 75 MSE bug 把音频 moof 排在视频前，AVF 对首
+          //    moof 为音频的 fMP4 死等 → reorderVideoFirst 重排视频组在前；
+          // ② mvhd/tkhd/mdhd duration=0xFFFFFFFF 被 AVF 与分片时长累加（预览
+          //    显示 13.3 小时；改真实值同样被累加成双倍）→ init 写盘前归零；
+          // ③ mfhd seq 音/视频轨各自从 0 起跨轨重复，AVF 分片索引丢弃重复
+          //    序号分片（6s 产物只读出前 2s）→ renumberFragmentSequence 全局
+          //    严格递增重编号。
+          videoTrackId = extractVideoTrackId(segment.initSegment);
+          const initBuf = Buffer.from(segment.initSegment);
+          zeroFragmentedMovieDurations(initBuf);
+          stream.write(initBuf);
           wroteInit = true;
         }
-        // moof/mdat 顺序拼接即合法 fMP4（流式写盘，T-44-17 不全量入内存）
-        stream.write(Buffer.from(segment.data));
+        // moof/mdat 顺序拼接即合法 fMP4（流式写盘，T-44-17 不全量入内存）；
+        // reorderVideoFirst 对单轨/无需重排输入零拷贝原样返回
+        const out = reorderVideoFirst(segment.data, videoTrackId);
+        fragmentSeq = renumberFragmentSequence(out, fragmentSeq);
+        stream.write(out);
       } catch (err) {
         fail(remuxError('write_failed', err.message));
       }
@@ -749,6 +1009,18 @@ function concatFmp4ToMp4({ initPath, segmentPaths, outputPath, onProgress, shoul
           reject(remuxError('empty_output', '转封装产物为空（无有效媒体数据）'));
           return;
         }
+        // AVF 兼容诊断（非阻断）：产物存在视频轨时首 moof 首 traf 应为视频轨——
+        // 音频在前的 fMP4 让 AVFoundation 死等（mac 预览/QuickTime 打不开）。
+        // B 站 moof 内视频 traf 天然在前；命中 warn 说明新来源形态异常，需评估
+        // traf 级重排（当前不做 traf 字节交换——data_offset 依赖 base-data-offset
+        // 语义，风险大于收益，先留观测点）。诊断异常绝不阻断转封装。
+        try {
+          const videoTrackId = extractVideoTrackId(initBuf);
+          const firstTrackId = readFirstMoofTrackId(head);
+          if (videoTrackId !== null && firstTrackId !== null && firstTrackId !== videoTrackId) {
+            console.warn(`[Realm] fMP4 产物首 moof 首 traf 非视频轨（track ${firstTrackId}，视频轨 ${videoTrackId}），mac 预览/QuickTime 可能无法打开: ${outputPath}`);
+          }
+        } catch { /* 诊断异常不阻断 */ }
         settled = true;
         resolve({ outputPath, segments: processed, skipped });
       });
@@ -758,4 +1030,4 @@ function concatFmp4ToMp4({ initPath, segmentPaths, outputPath, onProgress, shoul
   });
 }
 
-module.exports = { convertToMp4, concatFmp4ToMp4, sanitizeFilename, buildOutputName, rebaseFmp4SegmentTfdt, isFmp4Fragment };
+module.exports = { convertToMp4, concatFmp4ToMp4, sanitizeFilename, buildOutputName, rebaseFmp4SegmentTfdt, isFmp4Fragment, extractVideoTrackId, reorderVideoFirst, readFirstMoofTrackId, zeroFragmentedMovieDurations, renumberFragmentSequence };
