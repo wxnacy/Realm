@@ -30,6 +30,10 @@ const DEFAULT_TARGET_DURATION = 6;
  *     EXT-X-MAP」）；fMP4 清单必有 MAP，反之有 MAP 即应按 fMP4 处理
  *   mapByterange — 当前生效 #EXT-X-MAP 的 BYTERANGE 属性原样字符串（备用；
  *     无 BYTERANGE 或无 MAP 时为 null）
+ *   segments[].keyframe — #EXT-BILI-AUX 第二个 `|` 字段的 K/N 标记（B 站直播
+ *     实测形态 `#EXT-BILI-AUX:<hex>|K|<hex>|<hex>`，K = 该分片以关键帧起步）：
+ *     K→true、N→false、无 EXT-BILI-AUX 标签→null（未知，不做关键帧假设）。
+ *     录制引擎据此把首个落盘分片对齐关键帧（mid-GOP 起点产物头部不可解码）
  */
 function parsePlaylist(text) {
   const result = {
@@ -47,6 +51,7 @@ function parsePlaylist(text) {
   if (typeof text !== 'string' || !text) return result;
 
   let pendingDuration = null;
+  let pendingKeyframe = null;
 
   const lines = text.split('\n');
   for (const line of lines) {
@@ -57,6 +62,14 @@ function parsePlaylist(text) {
       if (trimmed.includes('EXT-X-ENDLIST')) {
         result.ended = true;
         result.isLive = false;
+        continue;
+      }
+      // EXT-BILI-AUX：B 站私有标签，归属下一条分片（同 EXTINF 挂接语义）；
+      // 第二个 `|` 字段 K/N 标记分片是否以关键帧起步
+      if (trimmed.startsWith('#EXT-BILI-AUX:')) {
+        const fields = trimmed.slice('#EXT-BILI-AUX:'.length).split('|');
+        if (fields[1] === 'K') pendingKeyframe = true;
+        else if (fields[1] === 'N') pendingKeyframe = false;
         continue;
       }
       // EXT-X-KEY：METHOD ≠ NONE 即加密流（容忍引号与属性顺序）；
@@ -111,8 +124,10 @@ function parsePlaylist(text) {
       uri: trimmed,
       seq: result.mediaSequence + result.segments.length,
       duration: pendingDuration,
+      keyframe: pendingKeyframe,
     });
     pendingDuration = null;
+    pendingKeyframe = null;
   }
 
   return result;

@@ -92,7 +92,8 @@ describe('G-44-4 运行中时长（本地挂钟差值）', () => {
 
 describe('G-44-4 终态口径不变（meta.json EXTINF 累计）', () => {
   test('stopRecord 后 totalDuration = EXTINF 累计（非挂钟值）', async () => {
-    // 首轮基线只含 seq1（D-21 不落盘），第二轮清单追 seq2/seq3（各 EXTINF 3s）
+    // 首轮仅含 seq1（2026-09-09 起点策略：无 K 标记 → 最新分片 seq1 落盘），
+    // 第二轮清单追 seq2/seq3（各 EXTINF 3s）
     let call = 0;
     const seg = { uri: 'https://cdn.example.com/seg.ts', duration: 3 };
     const plBaseline = { targetDuration: 2, ended: false, segments: [{ ...seg, seq: 1 }] };
@@ -112,8 +113,8 @@ describe('G-44-4 终态口径不变（meta.json EXTINF 累计）', () => {
       assert.ok(stop.ok, 'stopRecord 应成功');
 
       const meta = metaOf(h.recordRoot, r.taskId);
-      assert.strictEqual(meta.segments.length, 2, '基线 seq1 不落盘，仅追 seq2/seq3');
-      assert.strictEqual(meta.totalDuration, 6, 'EXTINF 累计 3+3=6（非挂钟 ~3s）');
+      assert.strictEqual(meta.segments.length, 3, '首轮起点 seq1 落盘 + 追新 seq2/seq3');
+      assert.strictEqual(meta.totalDuration, 9, 'EXTINF 累计 3+3+3=9（非挂钟 ~3s）');
     } finally {
       h.cleanup();
     }
@@ -139,8 +140,8 @@ describe('G-44-4 终态口径不变（meta.json EXTINF 累计）', () => {
       assert.ok(stop.ok);
 
       const meta = metaOf(h.recordRoot, r.taskId);
-      assert.strictEqual(meta.segments.length, 2);
-      assert.strictEqual(meta.totalDuration, 4, '兜底累计 targetDuration 2 × 2 分片 = 4');
+      assert.strictEqual(meta.segments.length, 3);
+      assert.strictEqual(meta.totalDuration, 6, '兜底累计 targetDuration 2 × 3 分片 = 6');
     } finally {
       h.cleanup();
     }
@@ -243,7 +244,8 @@ describe('fMP4 init 留存（D-05，45-02 tracer 端到端）', () => {
       assert.strictEqual(meta.mapByterange, null);
 
       // ③ init 不进 segments（st.recorded 无 init 条目，不污染完整性判定）
-      assert.strictEqual(meta.segments.length, 2, '基线 seq1 不落盘，仅追 seq2/seq3');
+      //    （2026-09-09 起点策略：首轮无 K 标记 → 最新分片 seq1 落盘 + 追新 seq2/seq3）
+      assert.strictEqual(meta.segments.length, 3, '首轮起点 seq1 落盘 + 追 seq2/seq3');
       assert.ok(
         meta.segments.every((s) => typeof s.file === 'string' && s.file.endsWith('.ts')),
         'segments 不含 init 条目'
@@ -255,10 +257,10 @@ describe('fMP4 init 留存（D-05，45-02 tracer 端到端）', () => {
       const out = path.join(h.recordRoot, 'out.mp4');
       const result = await convertToMp4({ initPath, segmentPaths, outputPath: out });
       assert.strictEqual(result.outputPath, out);
-      assert.strictEqual(result.segments, 2);
+      assert.strictEqual(result.segments, 3);
       const outBuf = fs.readFileSync(out);
       assert.ok(muxjs.mp4.probe.findBox(outBuf, ['moov']).length >= 1, '产物 probe 应检出 moov');
-      assert.strictEqual(muxjs.mp4.probe.findBox(outBuf, ['moof']).length, 4, '两分片各 2 个 moof');
+      assert.strictEqual(muxjs.mp4.probe.findBox(outBuf, ['moof']).length, 6, '三分片各 2 个 moof');
     } finally {
       h.cleanup();
     }

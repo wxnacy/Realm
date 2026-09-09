@@ -100,3 +100,9 @@ Error while decoding frame!（×N，约前 2 秒）
 
 可选增强（未做）：B 站清单 `EXT-BILI-AUX ...|K|...` 标记关键帧分片，录制
 引擎可让首个落盘分片必须带 K 标记，产物即从关键帧起步。
+
+> **2026-09-09 已实施**：`media-record-engine.js` 首轮起点策略——带
+> `EXT-BILI-AUX K` 标记的清单从窗口内最新 K 分片起录（解析见
+> `media-m3u8-parser.js` 的 `segments[].keyframe`），产物从关键帧起步
+> （实测零解码错误、首帧 key_frame=1 @0.000s）；同时轮询间隔改为
+> `min(targetDuration, EXTINF 中位数)`（Twitch 6s→2s），启动损耗收窄。

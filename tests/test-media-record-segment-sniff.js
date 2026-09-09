@@ -124,8 +124,12 @@ describe('录制集成：毒应答分片不落盘、下轮重试补回', () => {
       const sr = await engine.stopRecord(r.taskId);
       assert.ok(sr.ok);
       const meta = JSON.parse(fs.readFileSync(path.join(recordRoot, r.taskId, 'meta.json'), 'utf8'));
-      assert.strictEqual(meta.segments.length, 1, 'meta 只含成功落盘的 seg102');
-      assert.strictEqual(meta.segments[0].file, '00000102.ts');
+      // 2026-09-09 首轮起点策略：首轮最新分片 seg101 落盘 + 重试成功的 seg102
+      assert.deepStrictEqual(
+        meta.segments.map((s) => s.file),
+        ['00000101.ts', '00000102.ts'],
+        'meta 含首轮起点的 seg101 与重试补回的 seg102（毒分片不入列）'
+      );
     } finally {
       fs.rmSync(recordRoot, { recursive: true, force: true });
     }

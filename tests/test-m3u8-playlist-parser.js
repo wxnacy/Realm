@@ -343,3 +343,40 @@ describe('resolveUri 相对 URI 解析', () => {
     );
   });
 });
+
+describe('EXT-BILI-AUX 关键帧标记（segments[].keyframe）', () => {
+  test('K→true、N→false，逐分片归属（B 站直播实测形态）', () => {
+    const text = [
+      '#EXTM3U',
+      '#EXT-X-TARGETDURATION:1',
+      '#EXT-X-MEDIA-SEQUENCE:100',
+      '#EXT-BILI-AUX:23cb5881|K|22beb|96fbd8f8',
+      '#EXTINF:1.00,22beb|96fbd8f8',
+      'seg100.m4s',
+      '#EXT-BILI-AUX:23cb5c69|N|f96a|c64d1acc',
+      '#EXTINF:1.00,f96a|c64d1acc',
+      'seg101.m4s',
+      '#EXT-BILI-AUX:23cb6439|K|230da|cdaa1e7a',
+      '#EXTINF:1.00,230da|cdaa1e7a',
+      'seg102.m4s',
+    ].join('\n');
+    const r = parser.parsePlaylist(text);
+    assert.deepStrictEqual(
+      r.segments.map((s) => s.keyframe),
+      [true, false, true],
+      'EXT-BILI-AUX 第二字段 K/N 逐分片归属'
+    );
+  });
+
+  test('无 EXT-BILI-AUX 标签 → keyframe=null（未知，不做关键帧假设）', () => {
+    const text = '#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2.00,\nseg1.ts\n#EXTINF:2.00,\nseg2.ts\n';
+    const r = parser.parsePlaylist(text);
+    assert.deepStrictEqual(r.segments.map((s) => s.keyframe), [null, null]);
+  });
+
+  test('未知字段值 → keyframe=null（不产生误判）', () => {
+    const text = '#EXTM3U\n#EXT-BILI-AUX:abc|X|def\n#EXTINF:1.00,\nseg1.m4s\n';
+    const r = parser.parsePlaylist(text);
+    assert.deepStrictEqual(r.segments.map((s) => s.keyframe), [null]);
+  });
+});

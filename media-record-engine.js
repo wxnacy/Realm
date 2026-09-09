@@ -7,11 +7,20 @@
  * 仅消费注入的 fetchPage + media-m3u8-parser。
  *
  * 语义要点：
- * - D-21 首轮清单只记基线（现有分片 seq 进 seen 集合）不落盘——从直播边缘开始
+ * - D-21 首轮只从策略起点落盘（历史分片不回溯）：带 EXT-BILI-AUX K 标记
+ *   的清单（B 站 fMP4）从窗口内最新 K 分片起录（产物从关键帧起步——
+ *   mid-GOP 起点头部引用录制前参考帧不可解码，见
+ *   docs/debug/twitch-record-avfoundation-hang-audio-first-moof.md 伴生问题）；
+ *   无 K 标记（Twitch TS 等，分片天然关键帧对齐）从最新分片起录；
+ *   起点之前的分片记 seen 基线。2026-09-09 起替代旧「首轮纯基线不落盘」
+ *   （启动损耗 0~1 个分片时长 + 拉取延迟 + 轮询等待）
  * - D-18 并发上限（默认 2）、同 playbackKey 去重拒绝、连续失败 maxRetries 次
  *   停录标 failed（已落盘分片与索引保留）
  * - D-20 按 seq 去重落盘，文件名仅 `<seq 补零>.ts` 纯数字（T-44-11，无远端输入入路径）
- * - T-44-13 轮询间隔下限钳制 ≥2s（防恶意 targetDuration 极小致轮询风暴）
+ * - T-44-13 轮询间隔下限钳制 ≥2s（防恶意 targetDuration 极小致轮询风暴）；
+ *   间隔取 min(targetDuration, 窗口分片 EXTINF 中位数)——Twitch
+ *   TARGETDURATION=6 与 EXTINF=2s 脱节，按 targetDuration 轮询每个新分片
+ *   平均多等 ~3s（实测启动损耗 2.2~5.1s 的主因之一）
  * - 停止 → 写分片索引 meta.json → completeTask({ outputPath })（D-22 接力
  *   由 44-05 经 taskManager.onTaskCompleted 消费）
  *
@@ -63,6 +72,49 @@ function isPlausibleSegment(buf, expectFmp4) {
 }
 
 
+
+/**
+ * 轮询间隔计算（纯函数导出供测试）：取 min(targetDuration, segDuration)，
+ * 下限钳制 MIN_POLL_INTERVAL_MS（T-44-13）。
+ * @param {number} targetDuration - 清单 EXT-X-TARGETDURATION
+ * @param {number} segDuration - 窗口分片 EXTINF 中位数（0/非法 → 只用 targetDuration）
+ * @returns {number} 轮询间隔毫秒
+ */
+function computePollIntervalMs(targetDuration, segDuration) {
+  const td = typeof targetDuration === 'number' && targetDuration > 0 ? targetDuration : 6;
+  const sd = typeof segDuration === 'number' && segDuration > 0 ? segDuration : td;
+  return Math.max(MIN_POLL_INTERVAL_MS, Math.min(td, sd) * 1000);
+}
+
+/**
+ * 窗口分片 EXTINF 中位数（轮询间隔依据；防单分片异常时长带偏）
+ * @param {Array<{duration: number|null}>} segments
+ * @returns {number} 中位数秒数；无有效时长返回 0
+ */
+function medianSegmentDuration(segments) {
+  if (!Array.isArray(segments)) return 0;
+  const durs = segments
+    .map((s) => (s && typeof s.duration === 'number' ? s.duration : 0))
+    .filter((d) => d > 0)
+    .sort((a, b) => a - b);
+  return durs.length > 0 ? durs[Math.floor(durs.length / 2)] : 0;
+}
+
+/**
+ * 首个落盘分片下标（首轮起点策略，纯函数导出供测试）：
+ * 窗口内最新 keyframe===true（EXT-BILI-AUX K）分片；无 K 标记回退最新分片；
+ * 空窗口返回 -1。
+ * @param {Array<{keyframe: boolean|null}>} segments
+ * @returns {number} 落盘起点下标（含），-1 = 无可落盘分片
+ */
+function firstRoundStartIndex(segments) {
+  if (!Array.isArray(segments) || segments.length === 0) return -1;
+  let lastK = -1;
+  for (let i = 0; i < segments.length; i++) {
+    if (segments[i] && segments[i].keyframe === true) lastK = i;
+  }
+  return lastK >= 0 ? lastK : segments.length - 1;
+}
 
 /**
  * 创建直播录制引擎
@@ -149,6 +201,7 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
       stopped: false,             // stopRecord 置位后轮询循环退出且不再触发终态流转
       consecutiveFailures: 0,
       firstRound: true,
+      segDuration: 0,           // 窗口分片 EXTINF 中位数（轮询间隔依据，每轮刷新）
       hasDiscontinuity: false,    // 清单含 EXT-X-DISCONTINUITY（Pitfall 5：转封装拒转）
       mapUri: null,               // 45-02（D-05）：已处理的 EXT-X-MAP URI（变化即重下 init）
       mapByterange: null,         // EXT-X-MAP BYTERANGE 属性（非空 = 整资源形态以外，不支持）
@@ -252,6 +305,9 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
         const buf = await fetchPage(st.url, { referer: st.referer, containerId: st.containerId });
         const pl = parse(buf.toString('utf8'));
         if (pl.targetDuration > 0) st.targetDuration = pl.targetDuration;
+        // 窗口分片 EXTINF 中位数 → 轮询间隔依据（见 computePollIntervalMs）
+        const segMedian = medianSegmentDuration(pl.segments);
+        if (segMedian > 0) st.segDuration = segMedian;
         // D-17/Pitfall 5：任一版清单出现过 EXT-X-DISCONTINUITY 即记录（整行匹配，
         // 不误中 DISCONTINUITY-SEQUENCE）——转封装直接拒转
         if (/(^|\r?\n)#EXT-X-DISCONTINUITY(\r?\n|$)/.test(buf.toString('utf8'))) {
@@ -294,10 +350,14 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
         }
 
         if (st.firstRound) {
-          // D-21 从直播边缘开始：首轮清单只记基线不落盘（历史分片不回溯）
-          for (const seg of pl.segments) st.seen.add(seg.seq);
+          // 首轮起点策略（2026-09-09，替代旧 D-21 纯基线不落盘）：
+          // firstRoundStartIndex 选定首个落盘分片（K 标记对齐/最新分片），
+          // 起点之前记 seen 基线不回溯；起点起落入下方统一追新下载循环
           st.firstRound = false;
-        } else {
+          const startIdx = firstRoundStartIndex(pl.segments);
+          for (let i = 0; i < startIdx; i++) st.seen.add(pl.segments[i].seq);
+        }
+        {
           for (const seg of pl.segments) {
             if (st.stopped) return;
             if (st.seen.has(seg.seq)) continue;
@@ -335,8 +395,10 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
       }
 
       if (st.stopped) return;
-      // T-44-13：轮询间隔 = targetDuration，下限钳制 ≥2s
-      const interval = Math.max(MIN_POLL_INTERVAL_MS, st.targetDuration * 1000);
+      // T-44-13：轮询间隔下限钳制 ≥2s；间隔取 min(targetDuration, 窗口分片
+      // EXTINF 中位数)——Twitch TARGETDURATION=6 与 EXTINF=2s 脱节时按实际
+      // 分片节奏轮询（2s 而非 6s），每个新分片平均等待从 ~3s 压到 ~1s
+      const interval = computePollIntervalMs(st.targetDuration, st.segDuration);
       await new Promise((resolve) => setTimeout(resolve, interval));
     }
   }
@@ -437,4 +499,4 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
   return { startRecord, stopRecord, getRecordStatus, getActiveRecordings, stopAll };
 }
 
-module.exports = { createRecordEngine, isPlausibleSegment };
+module.exports = { createRecordEngine, isPlausibleSegment, computePollIntervalMs, medianSegmentDuration, firstRoundStartIndex };
