@@ -1519,6 +1519,21 @@ contextBridge.exposeInMainWorld('mediaAPI', {
   reportMediaDetected: (webContentsId, videos) => ipcRenderer.invoke('media:report-detected', webContentsId, videos),
 
   /**
+   * 上报页面级媒体信息（og:image）到主进程 MediaSniffer
+   * @param {number} webContentsId - webview 的 webContents ID
+   * @param {Object} pageInfo - 页面级媒体信息（{ thumbnail }）
+   * @returns {Promise<{success: boolean}>}
+   */
+  reportMediaPageInfo: (webContentsId, pageInfo) => ipcRenderer.invoke('media:report-page-info', webContentsId, pageInfo),
+
+  /**
+   * 清空主进程页面级媒体信息缓存（SPA 站内导航路径变化时调用）
+   * @param {number} webContentsId - webview 的 webContents ID
+   * @returns {Promise<{success: boolean}>}
+   */
+  clearMediaPageInfo: (webContentsId) => ipcRenderer.invoke('media:clear-page-info', webContentsId),
+
+  /**
    * 监听媒体列表更新事件
    * @param {Function} callback - 回调函数，参数为 { webContentsId, items }
    * @returns {Function} 取消监听的清理函数

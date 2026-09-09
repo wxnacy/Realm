@@ -2584,6 +2584,44 @@ function registerHandlers() {
     return { success: true };
   });
 
+  /**
+   * 页面级媒体信息上报（og:image），给网络拦截条目补缩略图
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('media:report-page-info', (event, webContentsId, pageInfo) => {
+    assertTrustedSender(event);
+    if (typeof webContentsId !== 'number') {
+      throw new Error('无效的 webContentsId');
+    }
+    if (!pageInfo || typeof pageInfo !== 'object') {
+      return { success: false };
+    }
+    // 与 media:report-detected 同款白名单防御纵深
+    const whitelist = configStore.get('settings.mediaPlayer.whitelist', []);
+    const wc = webContents.fromId(webContentsId);
+    if (!wc || wc.isDestroyed()) {
+      return { success: false };
+    }
+    if (!mediaSniffer.isDomainWhitelisted(wc.getURL(), whitelist)) {
+      return { success: false };
+    }
+    mediaSniffer.setPageInfo(webContentsId, pageInfo);
+    return { success: true };
+  });
+
+  /**
+   * 清空页面级媒体信息缓存（SPA 站内导航路径变化时由 renderer 调用）
+   * @returns {Promise<{success: boolean}>}
+   */
+  ipcMain.handle('media:clear-page-info', (event, webContentsId) => {
+    assertTrustedSender(event);
+    if (typeof webContentsId !== 'number') {
+      throw new Error('无效的 webContentsId');
+    }
+    mediaSniffer.clearPageInfo(webContentsId);
+    return { success: true };
+  });
+
   // ==================== 应用设置 ====================
   // 与 main.js handleSettingsApi 的 get 路由共享默认值，新增 key 时两处必须同步
 

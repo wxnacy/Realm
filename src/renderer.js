@@ -1435,16 +1435,48 @@ function bindWebviewEvents(tabId, webview) {
   }
 
   /**
+   * 读取页面 og:image（video 无 poster 时的缩略图兜底，页面级语义）
+   * @returns {string} og:image URL，无则空串
+   */
+  function getOgImage() {
+    var meta = document.querySelector('meta[property="og:image"]')
+      || document.querySelector('meta[name="og:image"]');
+    return (meta && meta.content) || '';
+  }
+
+  /**
+   * 从视频/源元素提取媒体信息（含标题/时长/缩略图）
+   * @param {Element} el - video 或 source 元素
+   * @param {string} source - 检测来源（script/dom）
+   * @returns {Object|null} 媒体信息对象，无有效 URL 时返回 null
+   */
+  function extractVideoInfo(el, source) {
+    var url = el.src || el.currentSrc;
+    if (!url || url.startsWith('blob:') || url.startsWith('data:')) return null;
+    // MSE 站点 duration 常为 NaN/Infinity，须过滤
+    var duration = (typeof el.duration === 'number' && isFinite(el.duration) && el.duration > 0)
+      ? Math.round(el.duration) : 0;
+    return {
+      url: url,
+      type: classifyUrl(url),
+      source: source,
+      title: el.title || document.title || '',
+      duration: duration,
+      // 只取元素自身 poster；og:image 走页面级通道（sendMediaPageInfo），
+      // 由主进程打 thumbnailFromPage 标记，保证 SPA 导航后可被更新
+      thumbnail: el.poster || ''
+    };
+  }
+
+  /**
    * 扫描现有视频元素（per SNIFF-02）
    * @returns {Array<Object>} 检测到的视频数组
    */
   function scanExistingVideos() {
     var results = [];
     document.querySelectorAll('video, source').forEach(function(el) {
-      var url = el.src || el.currentSrc;
-      if (url && !url.startsWith('blob:') && !url.startsWith('data:')) {
-        results.push({ url: url, type: classifyUrl(url), source: 'script' });
-      }
+      var info = extractVideoInfo(el, 'script');
+      if (info) results.push(info);
     });
     return results;
   }
@@ -1455,6 +1487,53 @@ function bindWebviewEvents(tabId, webview) {
     window.__realmBridge.sendMediaDetected(initialVideos);
   }
 
+  // 页面级 og:image 上报（无论有无 video 元素）：
+  // MSE/直播站点的 video src 为 blob 被过滤，extractVideoInfo 的 og:image
+  // 兜底永远走不到，须页面级通道让主进程给网络拦截条目补缩略图
+  var lastOgImage = getOgImage();
+  if (lastOgImage && window.__realmBridge && window.__realmBridge.sendMediaPageInfo) {
+    window.__realmBridge.sendMediaPageInfo({ thumbnail: lastOgImage });
+  }
+
+  // og:image 变更监听：SPA 站内导航（如 Twitch 切频道）不刷新页面、
+  // 脚本不重跑，meta og:image 由站点 JS 异步更新，须监听 head 变化重报
+  var ogObserver = new MutationObserver(function() {
+    var og = getOgImage();
+    if (og && og !== lastOgImage) {
+      lastOgImage = og;
+      if (window.__realmBridge && window.__realmBridge.sendMediaPageInfo) {
+        window.__realmBridge.sendMediaPageInfo({ thumbnail: og });
+      }
+    }
+  });
+  if (document.head) {
+    ogObserver.observe(document.head, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['content']
+    });
+  }
+
+  // metadata 就绪后重报：初始扫描时 duration 常为 NaN（metadata 未加载），
+  // 须等 loadedmetadata/durationchange 补采；元素级记录上次值，不变不重报。
+  // 直播 MSE 的 src 为 blob:，在 extractVideoInfo 内被过滤，不产生 IPC。
+  var lastReportedDuration = new WeakMap();
+  function onMetadataReady(e) {
+    var el = e.target;
+    if (!el || el.tagName !== 'VIDEO') return;
+    var d = (typeof el.duration === 'number' && isFinite(el.duration) && el.duration > 0)
+      ? Math.round(el.duration) : 0;
+    if (!d || lastReportedDuration.get(el) === d) return;
+    lastReportedDuration.set(el, d);
+    var info = extractVideoInfo(el, 'dom');
+    if (info && window.__realmBridge) {
+      window.__realmBridge.sendMediaDetected([info]);
+    }
+  }
+  document.addEventListener('loadedmetadata', onMetadataReady, true);
+  document.addEventListener('durationchange', onMetadataReady, true);
+
   // MutationObserver 监听动态加载的视频元素（per D-04/SNIFF-03）
   var observer = new MutationObserver(function(mutations) {
     var newVideos = [];
@@ -1463,18 +1542,14 @@ function bindWebviewEvents(tabId, webview) {
       mutation.addedNodes.forEach(function(node) {
         if (node.nodeType === 1) {
           if (node.tagName === 'VIDEO' || node.tagName === 'SOURCE') {
-            var url = node.src || node.currentSrc;
-            if (url && !url.startsWith('blob:') && !url.startsWith('data:')) {
-              newVideos.push({ url: url, type: classifyUrl(url), source: 'dom' });
-            }
+            var info = extractVideoInfo(node, 'dom');
+            if (info) newVideos.push(info);
           }
           // 检查子元素中的视频
           if (node.querySelectorAll) {
             node.querySelectorAll('video, source').forEach(function(el) {
-              var url = el.src || el.currentSrc;
-              if (url && !url.startsWith('blob:') && !url.startsWith('data:')) {
-                newVideos.push({ url: url, type: classifyUrl(url), source: 'dom' });
-              }
+              var info = extractVideoInfo(el, 'dom');
+              if (info) newVideos.push(info);
             });
           }
         }
@@ -1482,10 +1557,8 @@ function bindWebviewEvents(tabId, webview) {
       // 属性变化（src/currentSrc 改变）
       if (mutation.type === 'attributes' &&
           (mutation.target.tagName === 'VIDEO' || mutation.target.tagName === 'SOURCE')) {
-        var url = mutation.target.src || mutation.target.currentSrc;
-        if (url && !url.startsWith('blob:') && !url.startsWith('data:')) {
-          newVideos.push({ url: url, type: classifyUrl(url), source: 'dom' });
-        }
+        var info = extractVideoInfo(mutation.target, 'dom');
+        if (info) newVideos.push(info);
       }
     });
     if (newVideos.length > 0 && window.__realmBridge) {
@@ -1518,6 +1591,15 @@ function bindWebviewEvents(tabId, webview) {
       }
       // 转发到主进程 MediaSniffer
       window.mediaAPI.reportMediaDetected(webContentsId, e.args[0]);
+    } else if (e.channel === 'media:page-info') {
+      // 页面级媒体信息（og:image），供主进程给网络拦截条目补缩略图
+      let webContentsId;
+      try {
+        webContentsId = webview.getWebContentsId();
+      } catch (err) {
+        return;
+      }
+      window.mediaAPI.reportMediaPageInfo(webContentsId, e.args[0]);
     } else if (e.channel === 'media:outside-click') {
       if (state.mediaPanelOpen) toggleMediaPanel();
       if (state.downloadPanelOpen) handleDownloadOutsideClick();
@@ -1634,6 +1716,18 @@ function bindWebviewEvents(tabId, webview) {
       tab.url = displayUrl;
       // 回写主进程持久化（WR-3），与 did-navigate 同理
       window.realmAPI.updateTab(tabId, { url: displayUrl });
+
+      // SPA 路径变化（如 Twitch 切频道）：旧页面 og:image 缓存对新页面无效，
+      // 清空 pageInfoMap——新页面条目先无封面，待新 og:image 上报后回填；
+      // 旧页面残留条目由 pageUrl 隔离保护，封面不受影响。
+      // 纯 hash/query 变化（锚点、参数）不清，页面内容未实质切换
+      try {
+        if (new URL(previousUrl).pathname !== new URL(e.url).pathname) {
+          const navWebContentsId = webview.getWebContentsId();
+          window.mediaAPI.clearMediaPageInfo(navWebContentsId);
+        }
+      } catch { /* URL 解析失败时不清，保守处理 */ }
+
       if (tabId === state.activeTabId) {
         elements.urlInput.value = displayUrl;
         // 仅域名变化时刷新快速保存按钮（同域 hash/参数变化无需重新比较）
@@ -10409,15 +10503,23 @@ function renderMediaList() {
 
   elements.mediaList.innerHTML = state.mediaItems.map((item, index) => {
     const type = ALLOWED_MEDIA_TYPES.has(item.type) ? item.type : 'unknown';
-    const name = item.name || item.url.split('/').pop() || 'video';
+    const name = item.title || item.url.split('/').pop() || 'video';
     const urlPreview = formatMediaUrl(item.url);
+    const durationText = item.duration > 0 ? formatMediaDuration(item.duration) : '';
+    const thumbHtml = item.thumbnail
+      ? `<img class="media-item-thumb" src="${escapeHtml(item.thumbnail)}" loading="lazy" alt="">`
+      : '';
+    const durationHtml = durationText
+      ? `<span class="media-item-duration">${durationText}</span>`
+      : '';
 
     return `
       <div class="media-item" data-url="${escapeHtml(item.url)}" data-index="${index}">
+        ${thumbHtml}
         <span class="media-type-badge media-type-${type}">${type}</span>
         <div class="media-item-info">
           <div class="media-item-name" title="${escapeHtml(item.url)}">${escapeHtml(name)}</div>
-          <div class="media-item-url">${escapeHtml(urlPreview)}</div>
+          <div class="media-item-url">${durationHtml}${escapeHtml(urlPreview)}</div>
         </div>
         <div class="media-item-actions">
           <button class="btn-icon media-play-btn" data-index="${index}" title="在新标签页播放">
@@ -10435,6 +10537,12 @@ function renderMediaList() {
       </div>
     `;
   }).join('');
+
+  // 缩略图加载失败（跨域/失效常见）时移除图块，布局回退为无图样式
+  // 注意：CSP script-src 'self' 禁止内联 onerror，须在渲染后绑定
+  elements.mediaList.querySelectorAll('.media-item-thumb').forEach((img) => {
+    img.addEventListener('error', () => img.remove());
+  });
 }
 
 /**
@@ -10462,6 +10570,21 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+/**
+ * 格式化媒体时长（秒 → mm:ss，超 1 小时为 h:mm:ss）
+ * @param {number} seconds - 时长（秒）
+ * @returns {string} 格式化后的时长
+ */
+function formatMediaDuration(seconds) {
+  const total = Math.floor(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
 /**

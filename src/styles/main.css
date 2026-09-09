@@ -8158,6 +8158,27 @@ textarea::placeholder {
   background: var(--bg-hover);
 }
 
+/* 缩略图（有 poster 时渲染在条目最左侧） */
+.media-item-thumb {
+  width: 96px;
+  height: 54px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+  background: var(--bg-hover);
+}
+
+/* 时长标签（URL 预览行内前缀） */
+.media-item-duration {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.media-item-duration::after {
+  content: '·';
+  margin: 0 4px;
+}
+
 /* 类型徽标 */
 .media-type-badge {
   flex-shrink: 0;

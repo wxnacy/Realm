@@ -111,6 +111,56 @@ class MediaSniffer {
      * @type {Map<number, Array<{url: string, type: string, source: string}>>}
      */
     this.pendingByWcId = new Map();
+    /**
+     * 页面级媒体信息缓存（webContentsId → { thumbnail }）
+     * og:image 由注入脚本页面级上报，给无元素上下文的网络拦截条目补缩略图
+     * @type {Map<number, {thumbnail: string}>}
+     */
+    this.pageInfoMap = new Map();
+  }
+
+  /**
+   * 清空指定页面的页面级媒体信息缓存
+   * SPA 站内导航（路径变化）时调用：旧页面 og:image 对
+   * 新页面不再有效，新页面条目先无封面，待新 og:image 上报后回填
+   * @param {number} webContentsId - webview 的 webContents ID
+   */
+  clearPageInfo(webContentsId) {
+    this.pageInfoMap.delete(webContentsId);
+  }
+
+  /**
+   * 缓存页面级媒体信息（og:image），并回填该页面已有的空 thumbnail 条目
+   * @param {number} webContentsId - webview 的 webContents ID
+   * @param {Object} pageInfo - 页面级媒体信息
+   * @param {string} [pageInfo.thumbnail] - og:image URL
+   */
+  setPageInfo(webContentsId, pageInfo) {
+    if (!webContentsId || !pageInfo || typeof pageInfo.thumbnail !== 'string'
+        || !pageInfo.thumbnail.startsWith('http')) return;
+    this.pageInfoMap.set(webContentsId, { thumbnail: pageInfo.thumbnail });
+
+    // 回填/更新已有条目（网络嗅探通常先于页面上报到达）：
+    // 空 thumbnail 直接补；thumbnailFromPage 标记的旧页面级缩略图随 og:image
+    // 变更被覆盖（SPA 站内导航场景，如 Twitch 切频道）；poster 来源不覆盖；
+    // pageUrl 与当前页面不一致的跨页面残留条目不动（旧频道保留旧封面）
+    const mediaList = this.mediaMap.get(webContentsId);
+    if (!mediaList) return;
+    const currentUrl = this._getPageContext(webContentsId).url;
+    let updated = false;
+    for (const item of mediaList) {
+      if (item.pageUrl && currentUrl && item.pageUrl !== currentUrl) continue;
+      if (!item.thumbnail || item.thumbnailFromPage) {
+        if (item.thumbnail !== pageInfo.thumbnail) {
+          item.thumbnail = pageInfo.thumbnail;
+          item.thumbnailFromPage = true;
+          updated = true;
+        }
+      }
+    }
+    if (updated) {
+      this.notifyRenderer(webContentsId);
+    }
   }
 
   /**
@@ -165,7 +215,8 @@ class MediaSniffer {
    * @param {string} [item.title] - 页面标题
    * @param {number} [item.duration] - 视频时长（秒）
    * @param {string} [item.thumbnail] - 缩略图 URL
-   * @returns {boolean} 是否为新增记录（false 表示重复）
+   * @returns {boolean|string} true=新增记录；'updated'=同 URL 已存在但合并了新字段；
+   *   false=重复且无字段变化（或入参无效/被过滤）
    */
   addMedia(webContentsId, item) {
     if (!webContentsId || !item || !item.url) return false;
@@ -187,26 +238,72 @@ class MediaSniffer {
     const dedupSet = this.dedupSets.get(webContentsId);
     const mediaList = this.mediaMap.get(webContentsId);
 
-    // URL 去重检查（per D-05）
+    // URL 去重检查（per D-05）：已存在时合并非空补充字段
+    // （网络拦截先发现的条目无 title/duration/thumbnail，DOM 方式后可补齐）
     if (dedupSet.has(item.url)) {
-      return false;
+      const existing = mediaList.find((m) => m.url === item.url);
+      if (!existing) return false;
+      let updated = false;
+      if (item.title && !existing.title) {
+        existing.title = item.title;
+        updated = true;
+      }
+      if (item.duration && !existing.duration) {
+        existing.duration = item.duration;
+        updated = true;
+      }
+      // 元素 poster 是真封面，可顶掉页面级 og:image 兜底
+      if (item.thumbnail && (!existing.thumbnail || existing.thumbnailFromPage)) {
+        existing.thumbnail = item.thumbnail;
+        existing.thumbnailFromPage = false;
+        updated = true;
+      }
+      return updated ? 'updated' : false;
     }
 
     // 创建 MediaItem 记录（per D-06）
+    // title 页面级兜底：网络拦截发现的条目无元素上下文，用页面标题顶替
+    // thumbnail 页面级兜底：video 无 poster 时用 og:image（setPageInfo 缓存），
+    // 打 thumbnailFromPage 标记，SPA 站内导航 og:image 变更时可被覆盖更新；
+    // pageUrl 记录所属页面，跨页面残留条目不被新页面 og:image 回填/覆盖
+    const pageCtx = this._getPageContext(webContentsId);
+    const pageInfo = this.pageInfoMap.get(webContentsId);
+    const pageThumbnail = pageInfo ? pageInfo.thumbnail : '';
     const mediaItem = {
       url: item.url,
       type: item.type || this.classifyUrl(item.url),
       source: item.source || 'unknown',
       timestamp: Date.now(),
-      title: item.title || '',
+      title: item.title || pageCtx.title,
       duration: item.duration || 0,
-      thumbnail: item.thumbnail || '',
+      thumbnail: item.thumbnail || pageThumbnail,
+      thumbnailFromPage: !item.thumbnail && !!pageThumbnail,
+      pageUrl: pageCtx.url,
     };
 
     dedupSet.add(item.url);
     mediaList.push(mediaItem);
 
     return true;
+  }
+
+  /**
+   * 获取 webview 页面上下文（标题 + URL）
+   * 标题用于网络拦截条目的 title 兜底；URL 标记条目所属页面代际，
+   * 供 setPageInfo 区分 SPA 跨页面残留条目
+   * @param {number} webContentsId - webview 的 webContents ID
+   * @returns {{title: string, url: string}} 页面上下文，获取失败返回空串
+   * @private
+   */
+  _getPageContext(webContentsId) {
+    try {
+      const { webContents } = require('electron');
+      const wc = webContents.fromId(webContentsId);
+      if (!wc || wc.isDestroyed()) return { title: '', url: '' };
+      return { title: wc.getTitle() || '', url: wc.getURL() || '' };
+    } catch {
+      return { title: '', url: '' };
+    }
   }
 
   /**
@@ -226,6 +323,7 @@ class MediaSniffer {
   clearMediaList(webContentsId) {
     this.mediaMap.delete(webContentsId);
     this.dedupSets.delete(webContentsId);
+    this.pageInfoMap.delete(webContentsId);
   }
 
   /**
@@ -237,6 +335,7 @@ class MediaSniffer {
     this.mediaMap.clear();
     this.dedupSets.clear();
     this.pendingByWcId.clear();
+    this.pageInfoMap.clear();
   }
 
   /**
@@ -294,7 +393,7 @@ class MediaSniffer {
       type,
       source: 'network',
     });
-    if (added) {
+    if (added === true) {
       console.log(`[Realm MediaSniffer] 嗅探到 [wc:${details.webContentsId}] ${type}: ${details.url.slice(0, 120)}`);
     }
 
@@ -369,7 +468,14 @@ class MediaSniffer {
    * @private
    */
   notifyRenderer(webContentsId) {
-    const { BrowserWindow } = require('electron');
+    let BrowserWindow;
+    try {
+      ({ BrowserWindow } = require('electron'));
+    } catch {
+      return;
+    }
+    // 纯 Node 环境（单测）require('electron') 返回二进制路径字符串，无 BrowserWindow
+    if (!BrowserWindow) return;
 
     const items = this.getMediaList(webContentsId);
     const payload = { webContentsId, items };

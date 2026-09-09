@@ -25,9 +25,23 @@ contextBridge.exposeInMainWorld('__realmBridge', {
    * @param {string} videos[].url - 视频 URL
    * @param {string} [videos[].type] - 视频类型
    * @param {string} [videos[].source] - 检测来源（script/dom）
+   * @param {string} [videos[].title] - 视频标题（元素 title 或页面标题）
+   * @param {number} [videos[].duration] - 时长（秒，无法获取时为 0）
+   * @param {string} [videos[].thumbnail] - 缩略图 URL（video poster）
    */
   sendMediaDetected: (videos) => {
     ipcRenderer.sendToHost('media:detected', videos);
+  },
+
+  /**
+   * 发送页面级媒体信息（og:image 等）到 renderer 进程
+   * 供主进程给无元素上下文的网络拦截条目补缩略图
+   *
+   * @param {Object} pageInfo - 页面级媒体信息
+   * @param {string} [pageInfo.thumbnail] - 页面 og:image URL
+   */
+  sendMediaPageInfo: (pageInfo) => {
+    ipcRenderer.sendToHost('media:page-info', pageInfo);
   },
 
   /**
