@@ -3,9 +3,14 @@ status: fixed
 trigger: "AI 当前标签页打开链接有成功回复但网页实际未加载（幽灵 Tab）"
 created: 2026-08-02T08:11:00.000Z
 updated: 2026-08-02T08:11:00.000Z
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: fixed
 ---
 
 ## Current Focus
+
 <!-- OVERWRITE on each update - reflects NOW -->
 
 hypothesis: 【已确认】navigate 工具幽灵 Tab + newTab 参数被忽略 + 系统提示词工具职责重叠导致 AI 误选
@@ -14,6 +19,7 @@ expecting: —
 next_action: 返回 ROOT CAUSE FOUND 结构化诊断（goal: find_root_cause_only，不修复）
 
 ## Symptoms
+
 <!-- Written during gathering, then IMMUTABLE -->
 
 expected: AI 调用打开链接工具后，目标网页在当前标签页（或新标签页）真实加载，用户可看到页面内容
@@ -23,9 +29,11 @@ reproduction: Test 4 in UAT（.planning/phases/22-cdp/22-UAT.md）
 started: Discovered during Phase 22 UAT
 
 ## Eliminated
+
 <!-- APPEND only - prevents re-investigating -->
 
 ## Evidence
+
 <!-- APPEND only - facts discovered -->
 
 - timestamp: 2026-07-29T00:05:00.000Z
@@ -64,6 +72,7 @@ started: Discovered during Phase 22 UAT
   implication: 根因三重确认：① navigate 实现 = Phase 22 已在 open_link 修复并留有注释的同款幽灵 Tab 缺陷；② newTab 参数被解构但从未使用，宣称的「当前标签导航」语义完全未实现；③ REALM_SYSTEM_PROMPT 工具职责重叠致 AI 在用户要求「当前标签打开」时误选 navigate
 
 ## Resolution
+
 <!-- OVERWRITE as understanding evolves -->
 
 root_cause: |

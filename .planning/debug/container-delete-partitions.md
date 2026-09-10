@@ -1,3 +1,10 @@
+---
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: unknown
+---
+
 # 容器删除时 Partitions 目录未完全清理
 
 **状态：** 已修复（待 UAT 回归验证）

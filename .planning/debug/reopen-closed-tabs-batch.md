@@ -3,9 +3,14 @@ status: fixed
 trigger: "Investigate issue: reopen-closed-tabs-batch — \"关闭右侧标签页\"批量关闭多个 Tab 后，\"重新打开已关闭标签页\"只恢复了最右侧一个，未一次性恢复多个"
 created: 2026-07-29T00:00:00Z
 updated: 2026-07-29T00:05:00Z
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: fixed
 ---
 
 ## Current Focus
+
 <!-- OVERWRITE on each update - reflects NOW -->
 
 hypothesis: 【已确认】非实现缺陷——实现与 Phase 13 全部设计文档（DISCUSSION-LOG/UI-SPEC/PLAN/VERIFICATION）一致：每次恢复仅 pop 一条（LIFO 逐条）；UAT gap truth 要求"一次性恢复整批"是 UAT 阶段新引入的、与设计文档冲突的需求
@@ -14,6 +19,7 @@ expecting: 批量关闭后栈含全部 N 条，每次恢复取栈顶一条（最
 next_action: 诊断完成，返回 ROOT CAUSE FOUND（find_root_cause_only 模式，不修复）
 
 ## Symptoms
+
 <!-- Written during gathering, then IMMUTABLE -->
 
 expected: 使用"关闭右侧标签页"批量关闭的多个 Tab，通过"重新打开已关闭标签页"可以恢复（LIFO 连续恢复，或一次性恢复整批——以 Phase 13 讨论结论 UI-SPEC/PLAN 为准）
@@ -23,6 +29,7 @@ reproduction: Test 5 in Phase 13 UAT：开 3+ Tab → 右键中间 Tab → 关�
 started: Discovered during Phase 13 UAT
 
 ## Eliminated
+
 <!-- APPEND only - prevents re-investigating -->
 
 - hypothesis: 批量关闭（close-right-tabs 等）未将每个被关闭的 Tab 逐个 push 进 closedTabsStack，导致栈里只有一条可恢复
@@ -34,6 +41,7 @@ started: Discovered during Phase 13 UAT
   timestamp: 2026-07-29T00:04:30Z
 
 ## Evidence
+
 <!-- APPEND only - facts discovered -->
 
 - timestamp: 2026-07-29T00:00:00Z
@@ -67,6 +75,7 @@ started: Discovered during Phase 13 UAT
   implication: 根因在需求层：UAT 用户报告引入了新的"整批恢复"期望，与 Phase 13 既定设计冲突。实现无缺陷——需要一个产品决策（保持逐条 LIFO / 改为整批恢复），由 plan-phase --gaps 处理
 
 ## Resolution
+
 <!-- OVERWRITE as understanding evolves -->
 
 root_cause: 需求/设计层偏差，非实现缺陷。Phase 13 全部设计文档（DISCUSSION-LOG、UI-SPEC、13-02-PLAN、VERIFICATION）定义的恢复语义为"每次操作恢复最近关闭的一个（LIFO 逐条）"；实现与此精确一致：批量关闭时每个 tab 均同步入栈（renderer.js:515→494-498，在首个 await 前；主进程经 notifyClosedTab 镜像），恢复时主进程 popClosedTab() 与渲染进程 closedTabsStack.pop() 各取一条（context-menu-manager.js:372 + renderer.js:1197），栈条目 {containerId,url,title} 无批次标记，也无整批恢复的 IPC 路径。因此批量关闭 N 个后首次恢复只得到最后关闭者（close-right 场景即最右侧 tab）——正是用户观测到的行为。剩余 N-1 个仍在栈中，连续恢复 N 次可全部找回（Node 复现验证）。UAT gap truth"一次性恢复整批"是 UAT 阶段新引入、与设计文档冲突的期望。

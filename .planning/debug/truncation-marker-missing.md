@@ -3,9 +3,14 @@ status: fixed
 trigger: "大页面 read_page_content 5 秒内返回但用户未感知 100KB 截断中文标记"
 created: 2026-08-02T00:00:00Z
 updated: 2026-08-02T00:00:00Z
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: fixed
 ---
 
 ## Current Focus
+
 <!-- OVERWRITE on each update - reflects NOW -->
 
 hypothesis: B 确认 — 截断未触发（提取后正文 99,630 chars < 阈值 102,400），标记从未生成
@@ -14,6 +19,7 @@ expecting: 已达成 — data.content.length (99630) > MAX_CONTENT_SIZE (102400)
 next_action: 返回 ROOT CAUSE FOUND（find_root_cause_only 模式，不修复）
 
 ## Symptoms
+
 <!-- Written during gathering, then IMMUTABLE -->
 
 expected: 打开 >1MB 大页面（zh.wikipedia.org/wiki/第二次世界大战）调用 read_page_content，内容在 100KB（MAX_CONTENT_SIZE）处截断并追加中文截断标记（如「内容过长，已截断」），用户可感知截断发生
@@ -23,6 +29,7 @@ reproduction: Test 7 in UAT（.planning/phases/22-cdp/22-UAT.md）
 started: Discovered during UAT
 
 ## Eliminated
+
 <!-- APPEND only - prevents re-investigating -->
 
 - hypothesis: A) 截断触发了，标记在工具返回 JSON 中，但 AI 生成回复时未转述（呈现层问题）
@@ -33,6 +40,7 @@ started: Discovered during UAT
   timestamp: 2026-08-02
 
 ## Evidence
+
 <!-- APPEND only - facts discovered -->
 
 - timestamp: 2026-08-02
@@ -61,6 +69,7 @@ started: Discovered during UAT
   implication: 用例前提与截断触发条件错配；换用提取后正文确定超阈值的页面即可观察到标记
 
 ## Resolution
+
 <!-- OVERWRITE as understanding evolves -->
 
 root_cause: 截断未触发（假设 B 确认）。UAT 测试页原始 HTML 1.36MB 满足「>1MB 大页面」前提，但经项目真实 readability-bundle 提取后正文 textContent 为 99,630 UTF-16 字符，恰低于 MAX_CONTENT_SIZE=102,400（差 2.7%），ai-manager.js:1049 条件为 false，截断分支不执行，工具返回 JSON 中不存在截断标记。AI 收到完整正文并生成完整总结是符合当前实现的正确行为——不存在「标记生成了但未转述」的呈现层问题。两个放大因素：① 单位语义错位（IN-01）——按 UTF-8 字节该页 173,889 bytes > 100KiB「该截」，按 UTF-16 字符 99,630「不该截」，契约文案写 bytes 实现按字符；② UAT 用例前提错配——以原始 HTML 大小推断提取后文本量，该页恰为阈值边缘案例。

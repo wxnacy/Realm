@@ -3,6 +3,10 @@ status: investigating
 trigger: "vim-keys-no-response: Phase 39 vimium 所有 Vim 快捷键（f hint mode、/ search）在 npm run dev 真实应用中完全无响应"
 created: 2026-08-08
 updated: 2026-08-08
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: investigating
 ---
 
 ## Current Focus

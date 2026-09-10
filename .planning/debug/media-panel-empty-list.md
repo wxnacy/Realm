@@ -5,9 +5,14 @@ goal: find_root_cause_only
 bug_class: Bohrbug (deterministic)
 created: 2026-08-05T00:00:00Z
 updated: 2026-08-05T00:10:00Z
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: fixed
 ---
 
 ## Current Focus
+
 <!-- OVERWRITE on each update - reflects NOW -->
 
 reasoning_checkpoint:
@@ -29,6 +34,7 @@ reasoning_checkpoint:
 known_pattern_candidate: 无（.planning/debug/knowledge-base.md 不存在）
 
 ## Symptoms
+
 <!-- Written during gathering, then IMMUTABLE -->
 
 expected: 媒体面板应在有数据时正确渲染媒体列表
@@ -38,6 +44,7 @@ reproduction: 打开含 m3u8/mp4/flv/webm 媒体的页面（容器 xiao），打
 started: phase 27 新增媒体面板后（UAT gap G-27-2, severity major）
 
 ## Eliminated
+
 <!-- APPEND only - prevents re-investigating -->
 
 - hypothesis: 媒体数据未写入 MediaSniffer（嗅探管线失效）
@@ -48,6 +55,7 @@ started: phase 27 新增媒体面板后（UAT gap G-27-2, severity major）
   timestamp: 2026-08-05T00:08:00Z
 
 ## Evidence
+
 <!-- APPEND only - facts discovered -->
 
 - timestamp: 2026-08-05T00:02:00Z
@@ -76,6 +84,7 @@ started: phase 27 新增媒体面板后（UAT gap G-27-2, severity major）
   implication: 同一根因还切断实时推送路径（badge/面板不自动刷新），并非仅首次拉取为空
 
 ## Resolution
+
 <!-- OVERWRITE as understanding evolves -->
 
 root_cause: "面板读取路径（src/renderer.js:5133 loadMediaList）调 getMediaList() 不传 containerId，主进程回退到窗口级 windowContainerMap（ipc-handlers.js:1296-1297 → window-manager.js:66-68）；该 map 只在建窗/显式切容器时更新，switchTab 跨容器切换不同步（renderer.js:588-591 只改渲染端 state.currentContainer；tab:switch handler 也不更新），于是解析到 stale 容器（如 'default'）→ mediaSniffer.getMediaList('default') 返回 [] → 渲染空态。写入路径按 webview partition 正确存到 'xiao'，故手动 getMediaList('xiao') 有数据。同一 stale map 还使 notifyRenderer（media-sniffer.js:324-325）把 'xiao' 的更新推送过滤掉，实时更新路径同样失效。"

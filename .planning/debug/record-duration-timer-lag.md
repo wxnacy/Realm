@@ -3,6 +3,10 @@ status: diagnosed
 trigger: "录制中红色按钮 hover 显示的录制时长更新不及时：有时长时间不变，有时突然一次跳好几秒"
 created: 2026-09-07T00:00:00+08:00
 updated: 2026-09-07T00:00:00+08:00
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: diagnosed
 ---
 
 ## Current Focus

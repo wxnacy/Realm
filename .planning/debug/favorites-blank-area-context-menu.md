@@ -3,9 +3,14 @@ status: fixed
 trigger: "收藏夹页面（realm://favorites）中，右键点击收藏列表/文件夹面板的空白区域时，显示的是网页默认右键菜单，而非应用自定义的上下文菜单（新建文件夹/粘贴/按名称排序），导致无法在空白区域粘贴已剪切的收藏项。"
 created: 2026-07-29T00:00:00Z
 updated: 2026-07-29T00:30:00Z
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: fixed
 ---
 
 ## Current Focus
+
 <!-- OVERWRITE on each update - reflects NOW -->
 
 hypothesis: CONFIRMED — 空白区域 contextmenu 监听绑在 #favoritesContent（favorites-page.js:1347），该元素无 CSS 规则、作为 flex 子项高度坍缩为内容高度，列表下方大面积空白实际属于父容器 .favorites-content-area；事件冒泡路径不经过 #favoritesContent，处理器永不触发 → 无 preventDefault → webview context-menu 事件透传到主进程弹出 Phase-13 网页通用菜单。左侧面板 #folderTree 则根本没有绑定空白区域监听
@@ -14,6 +19,7 @@ expecting: 与观察一致（已确认）；可证伪预测：空文件夹中右
 next_action: 已诊断（goal: find_root_cause_only）— 返回 ROOT CAUSE FOUND 给编排层
 
 ## Symptoms
+
 <!-- Written during gathering, then IMMUTABLE -->
 
 expected: 右键点击收藏列表空白区域显示新建菜单（新建文件夹/粘贴/按名称排序）；剪切收藏项后，在目标文件夹空白区域右键可选择"粘贴"完成移动
@@ -23,6 +29,7 @@ reproduction: Test 5 and Test 7 in UAT (.planning/phases/15-ui/15-UAT.md) — �
 started: Discovered during UAT of Phase 15 (ui) — 2026-07-28
 
 ## Eliminated
+
 <!-- APPEND only - prevents re-investigating -->
 
 - hypothesis: 空白区域监听未绑定（绑定缺失）
@@ -38,6 +45,7 @@ started: Discovered during UAT of Phase 15 (ui) — 2026-07-28
   timestamp: 2026-07-29T00:18:00Z
 
 ## Evidence
+
 <!-- APPEND only - facts discovered -->
 
 - timestamp: 2026-07-29T00:05:00Z
@@ -61,6 +69,7 @@ started: Discovered during UAT of Phase 15 (ui) — 2026-07-28
   implication: 完整失败链确认：空白右键 → guest 无 preventDefault → Chromium 通知 embedder → renderer 无差别转发 → 主进程弹"正常网页"菜单。收藏页是 http://localhost:PORT/favorites 的 webview guest，与正常网页走同一条管线
 
 ## Resolution
+
 <!-- OVERWRITE as understanding evolves -->
 
 root_cause: 空白区域右键菜单的事件覆盖缺口（双重）：(1) 右侧面板 — 空白区域 contextmenu 监听绑在 #favoritesContent（favorites-page.js:1347），但该元素无 CSS 规则、作为 .favorites-content-area（flex column）的子项高度坍缩为内容高度，列表下方大面积可见空白 + 16px padding 环实际属于父容器；contextmenu 事件只向祖先冒泡，点击父容器区域时传播路径不经过 #favoritesContent，处理器永不触发。(2) 左侧文件夹面板 — #folderTree 虽有 flex:1 铺满面板，但从未绑定任何空白区域 contextmenu 监听。两处空白点击都没有 preventDefault，Chromium 遂将右键透传给 embedder：webview 'context-menu' 事件（renderer.js:833，不过滤内部页面）→ IPC show-web-context-menu → 主进程弹出 Phase-13 通用网页菜单 —— 即用户看到的"正常网页空白出现的菜单"。Test 5（右侧空白无新建菜单）与 Test 7（无法在空白处粘贴）同根因

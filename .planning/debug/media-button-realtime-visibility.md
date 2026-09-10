@@ -3,6 +3,10 @@ status: fixed
 trigger: "UAT Test 6: 切换多媒体功能开关后，主界面地址栏旁的媒体播放按钮不能实时显示/隐藏，必须重启才生效"
 created: 2026-08-10T00:00:00Z
 updated: 2026-08-10T00:00:00Z
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: fixed
 ---
 
 ## Current Focus

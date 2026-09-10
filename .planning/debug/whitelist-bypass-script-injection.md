@@ -1,3 +1,10 @@
+---
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: unknown
+---
+
 # 白名单过滤被脚本注入路径绕过 — 调试记录
 
 **日期**: 2026-08-08

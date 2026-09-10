@@ -21,7 +21,7 @@ covered_files:
   - tests/test-media-cache.js
   - tests/test-media-record-duration.js
   - tests/test-media-remuxer.js
-covered_digest: "v1:sha256:ef4c19001b39afd542f63538766fd18b84e09797f6ab7f4acd5f3df0a47f6489"
+covered_digest: "v1:sha256:341330e9a206e81541e0303463a2334cff296e5bad9aed6eb6a66808135efc74"
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
@@ -37,6 +37,7 @@ human_verification:
 
 **Phase Goal:** 录制/缓存的 fMP4 分片序列（init.mp4 + moof/mdat，B 站直播流形态）可转为可播放 mp4 产物（路线①：init.mp4 + moof/mdat 顺序拼接产 fMP4 容器，纯 JS）
 **Verified:** 2026-09-08T08:51:19Z
+**Fingerprint refresh（2026-09-10）:** `covered_digest` 重算（`v1:sha256:341330e9…`）。原因：Phase 44 技术债修复（提交 a168cf2/c2f02ce）改动了本阶段的覆盖输入——`main.js`、`media-remuxer.js`（IN-05 首分片读取失败按 ENOENT 分流，新增 `sniff_read_failed` reason）、`media-cache-manager.js`（WR-A 水位淘汰退避、D-08 缓存告警出口）、`media-record-engine.js`（IN-11 单调时钟）及 4 个测试文件。两阶段结论无冲突：`test-media-remuxer` 66/66、`test-media-cache` 35/35 实跑复验通过，45-01 的嗅探分流与 45-02 的 init 留存语义未被触碰。
 **Status:** passed（human_needed 两项 UAT 已于 2026-09-08 真机通过：Test 2 修复后复测时间轴从 0 开始、总时长 ≈ 录制时长，G-45-2 关闭）
 **Re-verification:** Yes — G-45-2 gap-closure re-verification（见文末专节）
 

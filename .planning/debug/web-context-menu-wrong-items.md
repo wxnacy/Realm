@@ -3,9 +3,14 @@ status: fixed
 trigger: "网页空白处右键菜单只有 5 项（检查元素/后退/前进/刷新/复制），与 Phase 13 规格（13 项通用菜单）差距很大；图片/链接右键也显示相同菜单"
 created: 2026-07-29T00:00:00.000Z
 updated: 2026-07-29T00:10:00.000Z
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: fixed
 ---
 
 ## Current Focus
+
 <!-- OVERWRITE on each update - reflects NOW -->
 
 hypothesis: CONFIRMED — main.js:167-178 遗留 webContents 级 context-menu handler（commit 884a58f 引入）在 Phase 13 接入新管线时未被移除；它在主进程同步抢先弹出旧 5 项菜单，新管线（完整接线无静态缺陷）的 popup 经渲染进程往返后到达时已无菜单可取代，用户永远只见旧菜单
@@ -14,6 +19,7 @@ expecting: 与观察一致（已确认）
 next_action: 已诊断（goal: find_root_cause_only）— 返回 ROOT CAUSE FOUND 给编排层
 
 ## Symptoms
+
 <!-- Written during gathering, then IMMUTABLE -->
 
 expected: 空白处右键 = 13 项通用菜单（后退/前进/重新加载/强制刷新/复制页面地址/添加到收藏/在新标签页打开/在后台打开/检查元素/查看页面源代码/撤销/剪切/复制/粘贴/全选，按 UI-SPEC 分组分隔）；图片右键 = 图片专属 4 项 + 通用菜单；链接右键 = 链接专属 4 项（含"在容器中打开"子菜单）+ 通用菜单
@@ -23,6 +29,7 @@ reproduction: Tests 7/8/9 in Phase 13 UAT：网页空白/图片/链接上分别�
 started: Discovered during Phase 13 UAT
 
 ## Eliminated
+
 <!-- APPEND only - prevents re-investigating -->
 
 - hypothesis: webview 的 context-menu 事件未绑定/未触发（管线断在起点）
@@ -42,6 +49,7 @@ started: Discovered during Phase 13 UAT
   timestamp: 2026-07-29T00:05:00Z
 
 ## Evidence
+
 <!-- APPEND only - facts discovered -->
 
 - timestamp: 2026-07-29T00:01:00Z
@@ -80,6 +88,7 @@ started: Discovered during Phase 13 UAT
   implication: 修复不能只删旧 handler —— 还需补 editFlags/pageURL 才能通过 UAT test 7/10
 
 ## Resolution
+
 <!-- OVERWRITE as understanding evolves -->
 
 root_cause: main.js:167-178 遗留 webContents 级 context-menu handler（早期 commit 884a58f 引入，作用于所有 webview guest）在 Phase 13 接入新菜单管线时未被移除（Phase 13 提交 0aa582f 纯新增 +45/-0）。webview 右键时两个 handler 同时触发：旧 handler 在主进程同步弹出 5 项旧菜单（检查元素/后退/前进/刷新/复制，与 UAT 截图逐项一致，且不读 mediaType/linkURL —— 故空白/图片/链接菜单全同，tests 7/8/9 同根因）；新管线（renderer.js:784 → preload.js:535 → main.js:1045 → context-menu-manager.buildWebMenu）接线完整无静态缺陷，但其 popup 需渲染进程 IPC 往返，到达时旧菜单已打开，macOS 上后到的 popup 不取代正在跟踪的菜单 —— 用户永远只看到旧菜单。规划/实现/静态验证（13-VERIFICATION.md 仅代码审查）三个环节都未发现遗留 handler 的存在

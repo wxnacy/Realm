@@ -3,9 +3,14 @@ status: fixed
 trigger: "在 https://www.baidu.com/ 页面打开 Cookie 管理面板（容器名为 xiao），点击\"保存到文件\"按钮保存了 65 个 Cookie，但该域名实际只有 6 个 Cookie。预期只保存当前域名及其子域名的 Cookie。"
 created: 2026-07-27T00:00:00Z
 updated: 2026-07-27T00:00:00Z
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: fixed
 ---
 
 ## Current Focus
+
 <!-- OVERWRITE on each update - reflects NOW -->
 
 hypothesis: 【已确认】handleSaveToFile 中 querySelector('.webview-container[data-tab-id=...]') 永远返回 null → domain 恒为 '' → 走 fallback 分支 saveCookie → saveCookies() 无过滤保存全部 65 个 session Cookie
@@ -24,6 +29,7 @@ reasoning_checkpoint:
   blind_spots: "未实际运行 app 观察 toast；但 querySelector 对不存在 class 必然返回 null，代码路径确定。另有次级隐患：saveDomainCookies 过滤方向（匹配子域名 cookie）与 UI subdomain 过滤（匹配父域名 cookie）语义相反，修复主因后保存数可能仍少于 UI 显示的 6 个"
 
 ## Symptoms
+
 <!-- Written during gathering, then IMMUTABLE -->
 
 expected: 点击保存按钮后，只保存当前域名及其子域名的 Cookie 到文件，不保存其他域名的 Cookie。在 baidu.com 下应只保存约 6 个 Cookie。
@@ -33,6 +39,7 @@ reproduction: UAT Test 6 — 打开百度页面 → Cookie 管理面板 → 切�
 started: UAT Phase 10 测试时发现
 
 ## Eliminated
+
 <!-- APPEND only - prevents re-investigating -->
 
 - hypothesis: cookie:save IPC 通道本身过滤错误（saveCookies 不过滤域名）
@@ -43,6 +50,7 @@ started: UAT Phase 10 测试时发现
   timestamp: 2026-07-27T00:00:00Z
 
 ## Evidence
+
 <!-- APPEND only - facts discovered -->
 
 - timestamp: 2026-07-27T00:00:00Z
@@ -75,6 +83,7 @@ started: UAT Phase 10 测试时发现
   implication: 即使选择器存在，getAttribute('src') 也只会拿到初始 URL；修复时不应沿用此方式
 
 ## Resolution
+
 <!-- OVERWRITE as understanding evolves -->
 
 root_cause: handleSaveToFile（src/renderer.js:2275-2290）用 document.querySelector('.webview-container[data-tab-id="..."]') 获取当前 webview，但应用中从未存在带 webview-container class 的元素（webview 是裸元素直挂 browserView），选择器永远返回 null → domain 恒为 '' → 落入 fallback 分支 window.realmAPI.saveCookie() → cookie:save → saveCookies() 无过滤保存容器内全部 session Cookie（65 个）。正确域名提取模式就在同文件 showCookiesModal 中：state.tabs.get(state.activeTabId).url。

@@ -3,6 +3,10 @@ status: diagnosed
 trigger: "UAT Test 4 (Phase 42 AI 历史对话管理): 从对话历史切换回某个历史对话后，继续提问时 AI 不能衔接该对话之前的上下文（历史消息未参与 LLM 上下文）——尽管消息列表 UI 已加载历史消息（且以未格式化 JSON 展示）"
 created: 2026-09-01T00:00:00+08:00
 updated: 2026-09-01T12:30:00+08:00
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: diagnosed
 ---
 
 ## Current Focus
@@ -74,14 +78,18 @@ files_changed: []
 
 hypothesis: "switchConversation 未 await 异步 _recreateAgent() 导致注入时 this.agent 为 null，历史从未进入 agent.state.messages，下一条 prompt 由空上下文 Agent 应答"
 confirming_evidence:
+
   - "ai-manager.js:1561/:1567/:1570-1572 的执行顺序（直读）：agent 置 null → 无 await 调 async 重建 → null 守卫注入"
   - "ai-manager.js:1750-1771：_recreateAgent 为 async，this.agent 赋值位于 await import 之后，无同步赋值路径"
   - "pi-agent-core agent.js:26-50（新 Agent messages 为空）、:280-286（prompt 快照现有 state，不重置、不从 DB 回种）"
+
 falsification_test: "若假设错误，则 this.agent 在 ：1570 处应为非 null（即存在同步赋值路径），或 prompt 路径存在其他 DB 回种入口——两者均被源码直读排除；运行时断言（切换后立即检查 agent.state.messages.length === 0 且 UI 有历史）可直接证伪"
 fix_rationale: "await 重建后注入直接命中根因（注入点存在但被 null 守卫短路），而非在 renderer 或 prompt 层绕过；AgentMessage 形状转换解决注入数据的契约匹配，属同一链路的必要配套"
 blind_spots: "未运行时验证（diagnose-only 模式未启动应用复现）；未核实 pi-agent-core 对 toolResult 角色消息反序列化的完整要求（字段名映射的具体形态留待修复阶段确认）；saveMessages 重复插入（G-42-2）对回种数据的具体污染程度未量化"
 candidate_causes:
+
   - "code: 同步方法无 await 调用 async 重建函数，注入被 null 守卫短路（已确认，主因）"
   - "data: DB 行形状 ≠ AgentMessage 契约（content JSON 字符串、snake_case 字段，已确认，次要共存缺口）"
   - "config/environment: 无（provider/model 配置在 _recreateAgent 守卫内正常，用户能收到回复即为证）"
+
 and_gate: "no——单一 code 缺陷即可完整解释「上下文全空」；data 形状缺陷单独只会降质（user 消息纯字符串仍可达模型），不会造成全新对话。二者非本症状的必要联合条件"

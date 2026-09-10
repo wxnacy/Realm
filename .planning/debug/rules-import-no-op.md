@@ -3,9 +3,14 @@ status: fixed
 trigger: "设置页面「分配规则」的导入功能失效——用户选择文件后没有任何反应，规则未导入。"
 created: 2026-02-01T00:00:00Z
 updated: 2026-02-01T00:00:00Z
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: fixed
 ---
 
 ## Current Focus
+
 <!-- OVERWRITE on each update - reflects NOW -->
 
 hypothesis: CONFIRMED - 设置页导入客户端把「整个解析后的文件内容」再包一层 {rules: ...} 发给 /api/rules/import，导致服务端拿到的 rules 是对象而非数组，importRules 直接拒绝；客户端又不检查 result.success，显示「已导入 undefined 条规则」的 2 秒 toast 后列表无变化 → 用户感知「没反应」
@@ -14,6 +19,7 @@ expecting: N/A - 已通过代码阅读确认数据格式双重包裹
 next_action: 返回 ROOT CAUSE FOUND（find_root_cause_only 模式，不修复）
 
 ## Symptoms
+
 <!-- Written during gathering, then IMMUTABLE -->
 
 expected: 打开设置页面（CmdOrCtrl+,）→ 左侧边栏切换到「分配规则」→ 点击「导入」按钮 → 选择 JSON 规则文件 → 规则成功导入并显示在规则列表中
@@ -23,6 +29,7 @@ reproduction: Test 2 in UAT（设置页面 → 分配规则 → 导入按钮 →
 started: Discovered during UAT (Phase 11 设置页面重构)
 
 ## Eliminated
+
 <!-- APPEND only - prevents re-investigating -->
 
 - hypothesis: 事件监听未绑定（importRulesBtn / rulesFileInput）
@@ -39,6 +46,7 @@ started: Discovered during UAT (Phase 11 设置页面重构)
   timestamp: 2026-02-01T00:00:00Z
 
 ## Evidence
+
 <!-- APPEND only - facts discovered -->
 
 - timestamp: 2026-02-01T00:00:00Z
@@ -67,6 +75,7 @@ started: Discovered during UAT (Phase 11 设置页面重构)
   implication: 两条路径格式预期不一致；HTTP 路径的客户端封装是唯一的 bug 点
 
 ## Resolution
+
 <!-- OVERWRITE as understanding evolves -->
 
 root_cause: 设置页导入存在「数据格式双重包裹 + 失败响应被静默吞掉」两个叠加缺陷。(1) 主因：settings-page.js handleFileSelect 把 JSON.parse 后的整个文件内容（导出产物本身就是 {rules:[...], exportedAt} 对象）再次包装为 {rules: rulesData} POST 到 /api/rules/import；服务端 main.js:647 解构出的是对象而非数组，assignment-rules.js:244 的 Array.isArray 校验失败，返回 {success:false, message:'规则数据格式不正确'}，0 条导入。(2) 次因：服务端以 HTTP 200 返回失败，客户端 settings-page.js:572-573 不检查 result.success，反而弹出「已导入 undefined 条规则」的 2 秒 toast 并刷新出无变化的列表，用户感知为「没反应」。唯一能被接受的文件是裸 JSON 数组，而应用自身导出不产生该格式，导出→导入往返必然失败。

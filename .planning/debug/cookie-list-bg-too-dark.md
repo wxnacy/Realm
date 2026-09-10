@@ -3,6 +3,10 @@ status: fixed
 trigger: "Cookie 管理面板中 Cookie 列表显示区域背景色过深（接近纯黑），文字颜色也是深色调，导致文字与背景对比度不足，文字难以阅读。"
 created: 2026-07-27T00:10:00Z
 updated: 2026-07-27T00:20:00Z
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: fixed
 ---
 
 ## Current Focus

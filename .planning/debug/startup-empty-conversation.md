@@ -3,6 +3,10 @@ status: diagnosed
 trigger: "Every app startup automatically creates an empty '新对话' conversation record (0 messages) in AI conversation history. The user says this must not happen."
 created: 2026-09-01T00:00:00
 updated: 2026-09-01T08:30:00
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: diagnosed
 ---
 
 ## Current Focus

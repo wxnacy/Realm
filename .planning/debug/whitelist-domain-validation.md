@@ -3,6 +3,10 @@ status: fixed
 trigger: "UAT Test 4: 白名单输入 test 也通过了，基本的域名格式应该校验下"
 created: 2026-08-10T00:00:00Z
 updated: 2026-08-10T00:00:00Z
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: fixed
 ---
 
 ## Current Focus

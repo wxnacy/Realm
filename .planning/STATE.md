@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v2.5
 milestone_name: AI 网络搜索功能
-current_phase: 45
-current_phase_name: B 站直播 fMP4 转录支持
-status: completed
+status: Awaiting next milestone
 stopped_at: All phases complete — start a new milestone
-last_updated: "2026-09-10T12:54:13.392Z"
+last_updated: "2026-09-10T14:12:01.501Z"
 last_activity: 2026-09-10
-last_activity_desc: Phase 44 complete — all 6 phases complete
-state_head: a168cf209df4bc079ad7f68838e05ee37e448542
+last_activity_desc: Milestone v2.5 completed and archived
+state_head: c2f02ce6affd4776113d6d68ad26eda76551e793
 progress:
   total_phases: 6
   completed_phases: 6
   total_plans: 38
   completed_plans: 38
   percent: 100
+current_phase: 45
+current_phase_name: B 站直播 fMP4 转录支持
 ---
 
 # Project State: Realm Browser
@@ -29,12 +29,10 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 
 ## Current Position
 
-Phase: 45 — B 站直播 fMP4 转录支持（已完成）
-Plan: 4/4
-Status: All phases complete
-Last activity: 2026-09-10 — Phase 44 complete（阶段 40-45 全部完成）
-
-Progress: [██████████] 100%
+Phase: Milestone v2.5 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-09-10 — Milestone v2.5 completed and archived
 
 ## Performance Metrics
 
@@ -173,8 +171,59 @@ Items acknowledged and carried forward from previous milestone close:
 | debug | 20 个已诊断 debug session 未修复 | Carried | v2.3 |
 | review | Phase 23 代码审查遗留 19 项（6 Critical） | Carried | v2.1 |
 
+### v2.5 收官 acknowledge 明细（2026-09-10，40 项）
+
+`audit-open` 在 v2.5 关闭时报 40 项开启，用户选择全部确认归档（`closeout_type=override_closeout`）。如下为逐项披露；确认后审计已清零（后续扫描由 `audit_acknowledged` 标记抑制）。
+
+| Category | Item | Status | Deferred At | Milestone |
+|----------|------|--------|-------------|-----------|
+| debug_sessions | ai-reply-renders-raw-json | diagnosed | 2026-09-10 | v2.5 |
+| debug_sessions | cold-start-url-input-no-response | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | container-delete-partitions | unknown | 2026-09-10 | v2.5 |
+| debug_sessions | conversation-delete-not-effective | diagnosed | 2026-09-10 | v2.5 |
+| debug_sessions | conversation-list-not-refreshed | diagnosed | 2026-09-10 | v2.5 |
+| debug_sessions | conversation-rename-no-response | diagnosed | 2026-09-10 | v2.5 |
+| debug_sessions | convert-mp4-zero-bytes | diagnosed | 2026-09-10 | v2.5 |
+| debug_sessions | cookie-list-bg-too-dark | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | delete-dialog-top-left-position | diagnosed | 2026-09-10 | v2.5 |
+| debug_sessions | favorites-blank-area-context-menu | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | fmp4-timeline-not-rebased | diagnosed | 2026-09-10 | v2.5 |
+| debug_sessions | media-button-realtime-visibility | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | media-panel-empty-list | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | media-panel-interaction | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | open-link-ghost-tab | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | pinned-tab-favicon | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | progress-bar-wrong-position | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | realm-newtab-star-not-persistent | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | record-duration-timer-lag | diagnosed | 2026-09-10 | v2.5 |
+| debug_sessions | refresh-button-no-stop-icon | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | reopen-closed-tabs-batch | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | rules-import-no-op | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | save-cookie-wrong-domain-filter | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | startup-empty-conversation | diagnosed | 2026-09-10 | v2.5 |
+| debug_sessions | stop-record-sigsegv | diagnosed | 2026-09-10 | v2.5 |
+| debug_sessions | switch-conversation-context-lost | diagnosed | 2026-09-10 | v2.5 |
+| debug_sessions | tool-card-empty-bubble | diagnosed | 2026-09-10 | v2.5 |
+| debug_sessions | truncation-marker-missing | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | url-input-enter-no-response | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | vim-keys-no-response | investigating | 2026-09-10 | v2.5 |
+| debug_sessions | watch-time-icon-replaced | diagnosed | 2026-09-10 | v2.5 |
+| debug_sessions | web-context-menu-wrong-items | fixed | 2026-09-10 | v2.5 |
+| debug_sessions | whitelist-bypass-script-injection | unknown | 2026-09-10 | v2.5 |
+| debug_sessions | whitelist-domain-validation | fixed | 2026-09-10 | v2.5 |
+| uat_gaps | Phase 38 (v2.4 归档): 38-UAT-ISSUES.md | unknown | 2026-09-10 | v2.5 |
+| uat_gaps | Phase 27 (v2.2 归档): 27-UAT.md | completed | 2026-09-10 | v2.5 |
+| uat_gaps | Phase 29 (v2.2 归档): 29-UAT.md | diagnosed | 2026-09-10 | v2.5 |
+| uat_gaps | Phase 06 (v1.1 归档): 06-UAT.md | passed | 2026-09-10 | v2.5 |
+| verification_gaps | Phase 30 (v2.4 归档): 30-VERIFICATION.md | human_needed | 2026-09-10 | v2.5 |
+| verification_gaps | Phase 35 (v2.4 归档): 35-VERIFICATION.md | human_needed | 2026-09-10 | v2.5 |
+
 ## Session Continuity
 
 Last session: 2026-09-08T08:22:33.597Z
 Stopped at: All 6 phases complete（40-45）— next: /gsd:new-milestone
 Resume file: None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

@@ -3,6 +3,10 @@ status: diagnosed
 trigger: "点击重命名后列表消失后，没有任何其他反应 — UAT Test 6 (Phase 42 AI 历史对话管理): right-click conversation item in AI history dropdown, choose 重命名; dropdown closes, no inline edit input appears"
 created: 2026-09-01T00:00:00+08:00
 updated: 2026-09-01T12:00:00+08:00
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: diagnosed
 ---
 
 ## Current Focus

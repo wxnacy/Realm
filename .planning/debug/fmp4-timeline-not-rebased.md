@@ -5,6 +5,10 @@ created: 2026-09-08T00:00:00Z
 updated: 2026-09-08T00:00:00Z
 goal: find_root_cause_only
 symptoms_prefilled: true
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: diagnosed
 ---
 
 ## Current Focus

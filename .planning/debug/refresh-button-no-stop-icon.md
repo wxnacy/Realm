@@ -3,9 +3,14 @@ status: fixed
 trigger: "刷新按钮没有变成 x 图标，其他正常 (UAT Phase 02 Test 8)"
 created: 2026-07-24T00:00:00Z
 updated: 2026-07-24T00:00:00Z
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: fixed
 ---
 
 ## Current Focus
+
 <!-- OVERWRITE on each update - reflects NOW -->
 
 hypothesis: #reloadBtn 的 loading class 被 JS 正确切换，但 CSS 中从未实现 .loading 状态的 × 图标样式，按钮内也只有一个静态刷新 SVG
@@ -25,6 +30,7 @@ reasoning_checkpoint:
   blind_spots: "未实测运行应用观察 class 是否真的加上（但进度条出现间接证明 handler 执行）；未检查 webviewTag 修复后 did-start-loading 在所有导航路径都触发（但 UAT 称'其他正常'）"
 
 ## Symptoms
+
 <!-- Written during gathering, then IMMUTABLE -->
 
 expected: 刷新按钮在页面加载过程中图标切换为停止（×）图标，点击可中断加载；URL 输入框下方出现 2px 蓝色加载进度条，加载完成后自动消失。
@@ -34,9 +40,11 @@ reproduction: UAT Phase 02 Test 8 — 在加载页面时观察工具栏刷新按
 started: Discovered during UAT retest (2026-07-24), after webviewTag fix landed
 
 ## Eliminated
+
 <!-- APPEND only - prevents re-investigating -->
 
 ## Evidence
+
 <!-- APPEND only - facts discovered -->
 
 - timestamp: 2026-07-24T00:05:00Z
@@ -65,6 +73,7 @@ started: Discovered during UAT retest (2026-07-24), after webviewTag fix landed
   implication: 排除"事件未触发"和"activeTabId 守卫拦截"假设；问题精确定位在视觉层
 
 ## Resolution
+
 <!-- OVERWRITE as understanding evolves -->
 
 root_cause: renderer.js 在 did-start-loading / did-stop-loading 时正确切换 #reloadBtn 的 loading class（行 421/429/495/499），click handler 也能依据该 class 执行 stop()（行 1381-1385）——但视觉层从未实现：src/styles/main.css 中不存在任何 #reloadBtn.loading / .btn-icon.loading 规则（仅有 .loading-bar 进度条规则，行 1002-1036），且 index.html:77-82 的按钮内只有一个静态刷新图标 SVG、没有可切换显示的 × 图标元素。因此加载期间 class 虽被正确添加，图标视觉上永远不变。

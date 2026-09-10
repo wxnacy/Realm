@@ -3,6 +3,10 @@ status: diagnosed
 trigger: "After sending a message and receiving the AI reply, clicking the conversation-history button does NOT show the new conversation record in the dropdown list. The record only appears after clicking the '新对话' (new conversation) button, which apparently triggers a list reload."
 created: 2026-09-01T09:00:00
 updated: 2026-09-01T09:45:00
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: diagnosed
 ---
 
 ## Current Focus

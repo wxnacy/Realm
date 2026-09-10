@@ -7,6 +7,7 @@ behavior_unverified: 4
 overrides_applied: 0
 re_verification: false
 behavior_unverified_items:
+
   - truth: "用户点击下载链接时弹出系统原生保存对话框（NSSavePanel），可选择保存位置"
     test: "在浏览器中点击一个文件下载链接"
     expected: "弹出 macOS 原生保存对话框，可选择保存路径，点击取消可阻止下载"
@@ -24,6 +25,7 @@ behavior_unverified_items:
     expected: "容器 A 的下载记录不出现在容器 B 的查询结果中"
     why_human: "getDownloads 使用 WHERE container_id = ? 过滤（download-manager.js:510-514），schema 中 container_id TEXT NOT NULL 存在，但需要跨容器实际下载才能验证隔离"
 human_verification:
+
   - test: "在浏览器中点击一个文件下载链接"
     expected: "弹出 macOS 原生保存对话框，可选择保存路径"
     why_human: "dialog.showSaveDialog 调用存在于代码中，但需要实际 Electron 应用运行时触发"
@@ -43,6 +45,10 @@ human_verification:
   - test: "在不同容器中下载文件，分别查询下载列表"
     expected: "每个容器只能看到自己的下载记录，container_id 隔离生效"
     why_human: "WHERE container_id = ? 过滤存在，但需要跨容器实际下载验证"
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: human_needed
 ---
 
 # Phase 30: 下载管理器 — 核心引擎 Verification Report

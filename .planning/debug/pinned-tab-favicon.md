@@ -3,9 +3,14 @@ status: fixed
 trigger: "固定标签页后样式不正确：标题消失，只显示底部一个小点，应显示网站图标（favicon）"
 created: 2026-07-29T00:00:00Z
 updated: 2026-07-29T00:10:00Z
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: fixed
 ---
 
 ## Current Focus
+
 <!-- OVERWRITE on each update - reflects NOW -->
 
 hypothesis: 【已确认】favicon 功能从未实现 —— CSS 按"有 .tab-favicon 元素"设计（隐藏标题），但三处 Tab DOM 创建点均不创建该元素，也无 page-favicon-updated 事件监听，固定后 40px 宽度内只剩 ::after 底部小点
@@ -14,6 +19,7 @@ expecting: N/A — 诊断完成
 next_action: 返回 ROOT CAUSE FOUND 结构化诊断（find_root_cause_only 模式，不修复）
 
 ## Symptoms
+
 <!-- Written during gathering, then IMMUTABLE -->
 
 expected: Tab 固定后移到 Tab 栏最左侧，以 favicon 形式显示（类似 Chrome 固定标签），有 .tab-pinned class 及对应 CSS 样式
@@ -23,6 +29,7 @@ reproduction: Test 6 in Phase 13 UAT：任意 Tab 右键 → 固定标签页，�
 started: Phase 13 UAT（2026-07-28）发现；13-02-SUMMARY Known Stubs 自述 "CSS for .tab-pinned class needs to be added in a future CSS change"
 
 ## Eliminated
+
 <!-- APPEND only - prevents re-investigating -->
 
 - hypothesis: .tab-pinned CSS 完全缺失（13-02 Known Stubs 自述的原始状态）
@@ -30,6 +37,7 @@ started: Phase 13 UAT（2026-07-28）发现；13-02-SUMMARY Known Stubs 自述 "
   timestamp: 2026-07-29T00:05:00Z
 
 ## Evidence
+
 <!-- APPEND only - facts discovered -->
 
 - timestamp: 2026-07-29T00:00:00Z
@@ -78,6 +86,7 @@ started: Phase 13 UAT（2026-07-28）发现；13-02-SUMMARY Known Stubs 自述 "
   implication: 修复时需一并考虑 `.tab-pinned .tab-close` 的显示策略
 
 ## Resolution
+
 <!-- OVERWRITE as understanding evolves -->
 
 root_cause: favicon 功能从未实现。commit 186429b 补的 .tab-pinned CSS 按"DOM 中存在 .tab-favicon 元素"设计（隐藏标题 display:none、预留 .tab-pinned .tab-favicon 规则），但 renderer.js 三处 Tab DOM 创建点（createTab L380-407、restoreTabs L1090-1117、renderTabs 重建分支 L1324-1351）都只创建 colorLine/title/closeBtn，从不创建 favicon 元素；且 createWebviewForTab 无 page-favicon-updated 事件监听，tab state 无 faviconUrl 字段。结果：固定后标题被隐藏、40px 宽度内无任何内容，唯一可见元素是 .tab-pinned::after 的 4px 底部圆点 —— 即用户看到的"底部一个小点的空块"。属功能缺失（13-02 Known Stubs 仅延后 CSS，favicon 数据流从未进入任何 plan），非 regression。

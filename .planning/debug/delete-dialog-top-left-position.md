@@ -3,6 +3,10 @@ status: diagnosed
 trigger: "G-42-7 (UAT Phase 42 Test 8): 删除框又出现在左上角，应该出现在中央，并且点击删除后没有真的删除。这次修复后应该记录到 AGENTS.md 中，以后弹框都应该显示在中央 — the delete confirm dialog (and all modals) render pinned to the top-left corner of the window instead of centered"
 created: 2026-09-01T20:40:00+08:00
 updated: 2026-09-01T21:20:00+08:00
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: diagnosed
 ---
 
 ## Current Focus

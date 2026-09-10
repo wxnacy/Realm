@@ -3,9 +3,14 @@ status: fixed
 trigger: "url-input-enter-no-response: URL 输入框回车后 webview 无任何反应（UAT Phase 02 Test 5 & 6）"
 created: 2026-05-20T00:00:00Z
 updated: 2026-05-20T00:00:00Z
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: fixed
 ---
 
 ## Current Focus
+
 <!-- OVERWRITE on each update - reflects NOW -->
 
 hypothesis: BrowserWindow webPreferences 缺少 `webviewTag: true`，导致 `<webview>` 元素是 inert HTMLUnknownElement，不会触发导航 / did-navigate 事件
@@ -26,6 +31,7 @@ reasoning_checkpoint:
   blind_spots: "未实际运行 Electron 应用验证（无法在此环境启动 GUI）；未检查 DevTools console 是否有 webview 相关报错（如 'webview is not allowed'）；次级 bug（newTabPage 未隐藏、webview visibility 未切到 visible）独立于主因，但其存在意味着仅修 webviewTag 不足以让 Test 5 完全通过"
 
 ## Symptoms
+
 <!-- Written during gathering, then IMMUTABLE -->
 
 expected: 输入 "github.com" 回车后 webview 加载 GitHub；输入 "realm browser" 回车后跳 Google 搜索
@@ -35,6 +41,7 @@ reproduction: UAT Phase 02 Test 5 & 6 — 启动应用，点击任一容器快�
 started: Phase 02 完成后 UAT 阶段发现
 
 ## Eliminated
+
 <!-- APPEND only -->
 
 - hypothesis: "URL 输入框 keydown 事件监听器未绑定（setupEventListeners 未被调用）"
@@ -50,6 +57,7 @@ started: Phase 02 完成后 UAT 阶段发现
   timestamp: 2026-05-20T00:00:00Z
 
 ## Evidence
+
 <!-- APPEND only -->
 
 - timestamp: 2026-05-20T00:00:00Z
@@ -93,6 +101,7 @@ started: Phase 02 完成后 UAT 阶段发现
   implication: "症状与 webviewTag=false 完美吻合"
 
 ## Resolution
+
 <!-- OVERWRITE as understanding evolves -->
 
 root_cause: "BrowserWindow webPreferences 缺少 `webviewTag: true`。Electron 自 v5 起将 webviewTag 默认值改为 false，项目使用 Electron 32.3.3，window-manager.js (唯一的 BrowserWindow 创建点) 未显式启用。结果：渲染进程 document.createElement('webview') 返回的是 HTMLUnknownElement —— 不支持 src 属性导航、不触发 did-navigate/did-start-loading 等任何 webview 事件、webview.loadURL 方法不存在。URL 输入框 Enter 处理器本身逻辑正确（事件已绑定，分支覆盖完整，normalizeUrl 工作正常，IPC 链路通畅），但创建的 'webview' 是无功能的伪元素，因此用户感知完全无反应，URL 输入框值也因无 did-navigate 事件而不更新。"

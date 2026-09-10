@@ -3,6 +3,10 @@ status: diagnosed
 trigger: "UAT gap G-44-2（Phase 44）：点播 m3u8/mp4 直连源开始录制后点击停止录制，主进程 SIGSEGV 闪退"
 created: 2026-09-07T00:00:00+08:00
 updated: 2026-09-07T00:00:00+08:00
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: diagnosed
 ---
 
 ## Current Focus

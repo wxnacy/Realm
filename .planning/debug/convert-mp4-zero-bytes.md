@@ -3,6 +3,10 @@ status: diagnosed
 trigger: "G-44-7: https://hn.bfvvs.com/play/b2k7JoJd/index.m3u8 缓存完成转录 mp4 还是0字节"
 created: 2026-09-07T20:47:28+08:00
 updated: 2026-09-07T21:05:00+08:00
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: diagnosed
 ---
 
 ## Current Focus

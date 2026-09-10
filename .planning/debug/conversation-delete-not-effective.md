@@ -3,6 +3,10 @@ status: diagnosed
 trigger: "点击删除后没有真的删除 — UAT Test 8 (Phase 42 AI 历史对话管理): right-click conversation item, choose 删除, confirm dialog appears, click 删除; conversation is NOT removed — still in the list"
 created: 2026-09-01T00:00:00+08:00
 updated: 2026-09-01T00:00:00+08:00
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: diagnosed
 ---
 
 ## Current Focus

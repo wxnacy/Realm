@@ -3,6 +3,10 @@ status: diagnosed
 trigger: "重启后点击历史对话查看消息记录，AI 消息回复以 markdown 格式渲染并正常展示工具调用，而非原始 JSON 文本"
 created: 2026-09-01T00:00:00+08:00
 updated: 2026-09-01T20:10:00+08:00
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: diagnosed
 ---
 
 ## Current Focus
@@ -85,6 +89,8 @@ files_changed: []
 ### Suggested Fix Direction (for plan-phase --gaps)
 
 二选一（推荐 b，可一并恢复工具调用/thinking 展示）：
+
 1. save 端规范化：saveMessages 写库前对块数组提取 type:'text' 文本（复用/镜像 _extractText 逻辑），content 列只存纯 markdown 文本；
 2. load 端规范化：getMessages 检测 content 为 JSON 块数组时解析，提取 text 块为展示文本，并把 toolCall 块映射为渲染端可用的工具卡片结构（或解析回 SDK 消息形状再交 renderer 转换）。
+
 注意联动：saveMessages 同时服务于 G-42-2 的重复 INSERT 缺陷（id 不稳定），修复计划应合并处理；历史已存 JSON 行需要迁移或读时兼容，否则老对话仍显示 JSON。

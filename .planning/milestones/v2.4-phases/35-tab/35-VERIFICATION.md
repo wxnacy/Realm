@@ -7,6 +7,7 @@ behavior_unverified: 5
 overrides_applied: 0
 
 behavior_unverified_items:
+
   - truth: "关闭窗口时，窗口内所有 Tab 的 webContents 被显式销毁"
     test: "打开多个 Tab，关闭窗口，检查进程是否清理"
     expected: "所有 Tab webContents 被销毁，无残留进程"
@@ -29,6 +30,7 @@ behavior_unverified_items:
     why_human: "需要运行 Electron 应用查看视觉效果"
 
 human_verification:
+
   - test: "打开多个 Tab，关闭窗口，检查所有 Tab 是否被销毁"
     expected: "所有 Tab webContents 被销毁，无内存泄漏"
     why_human: "需要 Electron 运行时验证进程行为"
@@ -45,9 +47,14 @@ human_verification:
 gaps: []
 
 deferred:
+
   - truth: "Tab 拖拽过程中保留 URL、容器、标题、favicon 等状态信息"
     addressed_in: "Phase 36"
     evidence: "Phase 36 goal: Tab 拖拽与跨窗口移动，包含拖拽过程中保留状态信息"
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: human_needed
 ---
 
 # Phase 35: Tab 窗口关联 Verification Report

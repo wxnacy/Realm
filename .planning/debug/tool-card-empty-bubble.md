@@ -3,6 +3,10 @@ status: diagnosed
 trigger: "UAT 测试 3（第 2 轮）：如果有工具调用，AI回复内容跑到了工具标签下边，然后工具标签上边出现一个空的消息气泡"
 created: 2026-09-01T00:00:00+08:00
 updated: 2026-09-01T21:30:00+08:00
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: diagnosed
 ---
 
 ## Current Focus

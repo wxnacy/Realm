@@ -1,3 +1,10 @@
+---
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  gap_snapshot: "unknown::scenarios=0"
+---
+
 # Phase 38 UAT 问题排查记录
 
 ## 问题概述
@@ -9,22 +16,26 @@ Phase 38 实现了 AI 助手多供应商管理功能，但 UAT 测试中发现�
 ## 问题 18：下拉打开/键盘导航不停留在激活模型位置（2026-08-22 用户反馈）
 
 **现象：** 激活的模型不在列表前排时：
+
 1. 点击模型选择按钮打开下拉，显示的是列表第一页（顶部），看不到当前聚焦项
 2. 按上下键选择后视口也会跳回第一页
 
 **根因：**
+
 1. `renderModelDropdown` 给激活项加了 focused class，但**没有滚动下拉容器**——
    激活项在列表深处时停留在视口外
 2. 键盘导航用 `scrollIntoView({ block: 'nearest' })`——它会**连带滚动所有祖先
    可滚动容器**（包括外层页面），行为不可控，视口被拽回顶部
 
 **修复（renderer.js）：**
+
 - 新增 `scrollModelDropdownToOption(optionEl, center)`：手动计算并设置下拉容器的
   `scrollTop`，只滚动下拉自身，完全避开 scrollIntoView 的跨容器副作用
 - `renderModelDropdown` 渲染后把激活项滚动到容器**中央**（打开即见）
 - 键盘导航改为贴边滚动（nearest 等价语义，仅作用于下拉容器）
 
 **实测验证（290 个模型的大列表）：**
+
 - 打开下拉 scrollTop=599，激活项「glm-5.2-fast-preview」居中可见
 - ↓↑ 连续移动，焦点项始终在视口内，scrollTop 平滑不跳页
 
@@ -35,14 +46,17 @@ Phase 38 实现了 AI 助手多供应商管理功能，但 UAT 测试中发现�
 **现象：** 点击「添加自定义供应商」按钮无任何反应
 
 **根因：** `main.js` 中 `POST /api/ai/providers` 端点验证逻辑要求 `apiKey` 非空：
+
 ```javascript
 if (!config || !config.provider || !config.apiKey) {
   sendJson(res, 400, { error: '提供商和 API Key 不能为空' });
 }
 ```
+
 但自定义供应商创建时 `apiKey` 为空字符串，被服务端拒绝返回 400。
 
 **修复：**
+
 - `main.js` 第 1149 行：验证改为只检查 `provider`，移除 `apiKey` 必填要求
 - `settings-page.js`：添加自定义供应商按钮增加 try-catch 错误提示
 
@@ -63,6 +77,7 @@ if (!config || !config.provider || !config.apiKey) {
 **现象：** 内置供应商 xiaomi 点击检测模型报错 `提供商 xiaomi 没有默认端点，请手动指定 base URL`
 
 **根因：** `ai-manager.js` 的 `detectModels` 函数检查 `provider.baseURL`（大写 U），但 pi-ai 目录库使用 `baseUrl`（小写 u）：
+
 ```javascript
 // xiaomi.js
 createProvider({
@@ -73,6 +88,7 @@ createProvider({
 ```
 
 **修复：** `ai-manager.js` 第 1313 行：改为同时检查两种写法：
+
 ```javascript
 const providerBaseURL = provider && (provider.baseURL || provider.baseUrl);
 ```
@@ -84,12 +100,15 @@ const providerBaseURL = provider && (provider.baseURL || provider.baseUrl);
 **现象：** 添加自定义供应商后，左侧列表不显示该供应商
 
 **根因：** `settings-page.js` 的 `loadAISettings` 函数过滤条件过严：
+
 ```javascript
 aiProvidersList = aiProvidersCatalog.filter(p => p.configured);
 ```
+
 只显示已配置 `apiKey` 的供应商，新建的自定义供应商（无 apiKey）被过滤掉。
 
 **修复：** 改为包含自定义供应商：
+
 ```javascript
 aiProvidersList = aiProvidersCatalog.filter(p => p.configured || p.isBuiltin === false);
 ```
@@ -105,6 +124,7 @@ aiProvidersList = aiProvidersCatalog.filter(p => p.configured || p.isBuiltin ===
 前端从未拿到完整 Key，显隐切换按钮对着空输入框失去意义。
 
 **修复：**
+
 - `main.js`：新增 `GET /api/ai/providers/:id/api-key` 端点，按需返回完整 Key
   （不随列表请求下发，收窄暴露面）
 - `ai-manager.js`：新增 `getProviderApiKey(providerId)` 从 configStore 读取
@@ -129,6 +149,7 @@ password 遮蔽 → 点「显示」明文可见 → 再点恢复遮蔽。
 另外打开下拉时没有任何初始聚焦项，第一次按键的起点也不直观。
 
 **修复：**
+
 - `main.css`：新增 `.ai-model-option.focused` 样式（hover 底色 + accent 描边）
 - `renderer.js`：`renderModelDropdown` 给当前激活项同时加 `focused`，
   打开下拉即以当前模型为键盘导航起点
@@ -141,17 +162,20 @@ Esc 关闭，全部正常。同轮验证：点击外部（pointerdown）关闭�
 ## 问题 15：新对话按钮只清 UI 不清上下文（2026-08-22 用户反馈）
 
 **现象：** 点击「新对话」后消息列表看似清空，但再次发送时：
+
 1. 之前的聊天内容重新出现在列表中
 2. 旧内容仍在 LLM 上下文中（AI 记得之前的对话）
 
 **根因（双层）：** `handleNewConversation` 只做了 DOM 清空（`innerHTML = ''`），
 但消息有两个真实的存储层都未重置：
+
 1. **主进程 Agent transcript**（`agent.state.messages`）——LLM 请求的消息来源，
    未清空所以旧内容仍在上下文
 2. **renderer 的 `state.aiMessages` 数组**——`renderAIMessages()` 的渲染数据源，
    未清空所以下次渲染时旧消息全部复现
 
 **修复（完整链路四处）：**
+
 - `ai-manager.js`：新增 `newConversation()`，调 pi-agent-core Agent 的 `reset()`
   （清空 transcript/流式状态/消息队列，保留 systemPrompt/model/tools）
 - `ipc-handlers.js`：新增 `ai:new-conversation` 通道（assertTrustedSender）
@@ -159,6 +183,7 @@ Esc 关闭，全部正常。同轮验证：点击外部（pointerdown）关闭�
 - `renderer.js`：`handleNewConversation` 改为 async，清空 `state.aiMessages` + 调 IPC 重置主进程
 
 **实测验证（暗号测试法）：**
+
 1. 告知 AI 暗号「蓝莓7492」→ 回复「记住了」
 2. 点新对话 → 消息列表清空 + 主进程 transcript 重置
 3. 问「我刚才告诉你的暗号是什么」→ AI 明确回答「这是我们本次会话的第一条消息」，
@@ -191,10 +216,12 @@ Esc 关闭，全部正常。同轮验证：点击外部（pointerdown）关闭�
 ## 问题 13：自定义供应商切换模型报「未知提供商」+ 发送报「AI 助手未初始化」（2026-08-22 用户反馈）
 
 **现象：** 添加自定义供应商、检测模型都成功，但从模型选择器下拉选择该供应商的模型后：
+
 1. renderer 报 `切换模型失败: 未知提供商: custom-xxx`
 2. 发送消息报「AI 助手未初始化」
 
 **根因（四层叠加）：**
+
 1. `selectModel`（renderer.js）调 configureProviders 时未传 `isBuiltin: false`，
    后端按内置供应商校验，catalog 找不到 custom id → 抛「未知提供商」
 2. 更根本：`init()` 只用 `builtinModels`（内置目录），自定义 provider 从未注册进 Models，
@@ -205,6 +232,7 @@ Esc 关闭，全部正常。同轮验证：点击外部（pointerdown）关闭�
    `getAvailableModels` 误判其为内置（isBuiltin: true），selectModel 又把它传回后端走内置校验
 
 **修复（ai-manager.js / renderer.js）：**
+
 1. `init()` 中对 `getProvider(id)` 查不到的已配置供应商，用 `createProvider` 按 OpenAI 兼容协议
    动态构造并 `setProvider` 注册（baseUrl/apiKey/customModels 来自 configStore；
    判定按「id 是否在内置目录」而非 configStore 的 isBuiltin 字段，历史脏数据自愈）
@@ -224,6 +252,7 @@ Esc 关闭，全部正常。同轮验证：点击外部（pointerdown）关闭�
 但发送消息报 `401 Invalid API Key`。
 
 **根因（三层叠加）：**
+
 1. configStore 中残留着早前保存的**已失效 Key**
 2. 检测模型走 main.js 端点的环境变量回退（用真 Key，成功）
 3. 但保存时前端传 `__keep__` 哨兵（输入框为空 + configured=true），
@@ -234,6 +263,7 @@ Esc 关闭，全部正常。同轮验证：点击外部（pointerdown）关闭�
 证明 Key 对两个端点都有效，问题出在 Agent 使用了旧 Key。
 
 **修复：**
+
 - `ai-manager.js`：`__keep__` 解析优先级改为 **环境变量 > 已保存 Key**
   （与 UI 提示语义对齐：显式输入 > 环境变量 > 已保存）
 - `settings-page.js`：已 configured 供应商的环境变量提示改为
@@ -264,6 +294,7 @@ Esc 关闭，全部正常。同轮验证：点击外部（pointerdown）关闭�
 **现象：** 聊天面板工具栏点击模型选择器按钮，下拉菜单不出现，按钮永远显示「选择模型 ▾」。
 
 **根因（双层）：**
+
 1. `renderer.js` 的 `loadModelSelectorData` 使用**单引号**字符串：
    ```javascript
    fetch('http://localhost:${location.port}/api/ai/providers')
@@ -291,9 +322,11 @@ Esc 关闭，全部正常。同轮验证：点击外部（pointerdown）关闭�
 **现象：** 修改环境变量名输入框后，检测提示不更新（不变红/绿）。
 
 **根因：** `settings-page.js` 把查询参数直接拼进 route 字符串：
+
 ```javascript
 settingsApi(`ai/providers/${id}/env-var?customName=${name}`)
 ```
+
 而 `settingsApi` 内部再拼 `?token=...`，最终 URL 变成
 `/api/settings/ai/providers/x/env-var?customName=YYY?token=ZZZ`——
 第二个 `?` 成为 customName 值的一部分，token 参数丢失 → 403 → catch 静默忽略 → 提示不更新。
@@ -311,12 +344,14 @@ settingsApi(`ai/providers/${id}/env-var?customName=${name}`)
 删除模型标签后保存，重新打开也恢复原样。
 
 **根因：** 数据保存与回显走了两个字段：
+
 - 检测/删除的结果保存在 `customModels`（已正确持久化到 configStore）
 - 但 `getAvailableModels()` 返回内置供应商时，`models` 字段永远取 catalog 默认列表（`p.getModels()`），
   `customModels` 只作为附加字段返回，UI 渲染用的是 `models`
 - 保存后 `loadAISettings()` 重新拉取 → `renderModelTags(provider)` 渲染默认列表 → 用户的修改"看起来没生效"
 
 **修复（ai-manager.js）：**
+
 1. `getAvailableModels`：内置供应商 `models` 字段改为——`customModels` 非空时优先用它
   （视为用户确认过的列表），名称从 catalog 补全；为空时才回退 catalog 默认列表
 2. `configureProviders`：`validModel` 校验的可选集合同样优先 `customModels`
@@ -324,6 +359,7 @@ settingsApi(`ai/providers/${id}/env-var?customName=${name}`)
    自定义供应商 model 为空时回退 `customModels[0]`
 
 **实测验证（playwright _electron）：**
+
 - xiaomi 默认 5 个模型 → 删除 2 个 → 保存 → 重载后仍显示删减后的 3 个，重新选中也是 3 个
 - Agent 初始化模型正确落到删减后列表的第一个（xiaomi/mimo-v2.5-pro）
 
@@ -336,11 +372,13 @@ API Key 输入框 placeholder 也显示「环境变量 XIAOMI_API_KEY 已配置�
 但点击「检测模型」和「保存配置」时焦点跳到 API Key 输入框，操作未执行。
 
 **根因：** 前端守卫只认输入框的值，与后端环境变量回退逻辑脱节：
+
 - `detectModels` 的 `if (!apiKey && !provider.configured)` 直接拦截，请求根本没发出去
 - `saveProviderConfig` 的内置供应商空 key 检查同理
 - 而后端两个端点早已实现环境变量回退（main.js detect-models / ai-manager.js configureProviders），前端拦截使它永远不会被触发
 
 **修复（settings-page.js / main.js）：**
+
 1. 删除 `detectModels` 和 `saveProviderConfig` 的前端空 key 硬拦截，放行请求由后端回退环境变量；
    环境变量也没有时后端返回明确错误（「API Key 不能为空，请在输入框填写或设置环境变量」）
 2. `settingsApi` 错误处理增强：HTTP 非 200 时解析响应体 `error` 字段作为异常消息，
@@ -348,6 +386,7 @@ API Key 输入框 placeholder 也显示「环境变量 XIAOMI_API_KEY 已配置�
 3. detect-models 请求体现在携带 `envVarName`，main.js 回退检测时优先使用用户自定义环境变量名
 
 **实测验证（playwright _electron + XIAOMI_API_KEY=假key 启动 dev）：**
+
 - 空输入框点检测模型 → 「检测中...」→ 环境变量回退发请求至 xiaomi 端点 → 401 → 显示「API Key 无效」，焦点不再被劫持
 - 空输入框点保存 → 「保存中...」→ 后端从 XIAOMI_API_KEY 取 key → 保存成功 → AI Manager 初始化完成 → 状态栏「已连接 (xiaomi / mimo-v2-flash, 13 个工具)」
 
@@ -358,6 +397,7 @@ API Key 输入框 placeholder 也显示「环境变量 XIAOMI_API_KEY 已配置�
 **现象：** 自定义供应商点击保存报错
 
 **根因：** `ai-manager.js` 的 `configureProviders` 函数要求 `apiKey` 非空：
+
 ```javascript
 if (!apiKey) {
   throw new Error('API Key 不能为空');
@@ -365,6 +405,7 @@ if (!apiKey) {
 ```
 
 **修复：** 增加环境变量回退 + 自定义供应商允许首次创建无 apiKey：
+
 ```javascript
 if (!apiKey) {
   // 尝试从环境变量检测
@@ -399,6 +440,7 @@ if (!apiKey && isBuiltin === false) {
 **结论：问题 1-6 的代码修复全部生效，按钮链路正常。**
 
 实测结果：
+
 - 自定义供应商（无 key）点保存 → 按钮变「保存中...」→ POST 200 → 保存成功（pending 分支）
 - 内置供应商（deepseek + 假 key）点检测模型 → 按钮变「检测中...」→ 请求发出 → 401 → 页面显示「模型检测失败：API Key 无效」
 - 四个猜测原因全部排除：Base URL 显示/隐藏逻辑正常、事件绑定时机正常、无 JS 语法/运行时错误、settingsApi 路由匹配正常
@@ -411,6 +453,7 @@ if (!apiKey && isBuiltin === false) {
 且 `showToast` 第二参数 `'error'` 原本被忽略（函数只接收 message），错误提示无视觉区分。
 
 **已修复（settings-page.js）：**
+
 1. `showToast(message, type)` 支持 `'error'` 类型：加 `toast-error` class（红色左边条，CSS 已有），显示时长从 2s 延长到 4s
 2. ~~无 key 拦截时自动 focus() 到 API Key 输入框~~（后续被问题 7 的修复取代：前端拦截整体删除，
    空 key 放行给后端走环境变量回退，见下文「问题 7」）

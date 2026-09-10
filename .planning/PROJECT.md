@@ -4,6 +4,8 @@
 
 Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独立的 Cookie、Session、LocalStorage、IndexedDB 和缓存隔离。用户可以通过工具栏按钮管理容器，在同一窗口内以多 Tab 形式运行不同容器的页面，实现类似 Firefox Multi-Account Containers 的隔离体验。
 
+在此之上内置 AI 助手（可联网搜索 / 抓取网页 / 历史对话管理 / 三层持久记忆 / 文件与 Bash 工具 / CDP 页面操控）与本地媒体库（视频嗅探、独立播放器、分片磁盘缓存、直播录制与 mp4 转封装）。
+
 ## Core Value
 
 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
@@ -132,16 +134,24 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ CONV-02: 对话管理 UI（历史列表/切换/删除/确认框居中） — Phase 42
 - ✓ CONV-03: 对话历史全局共享（跨容器，无 container_id） — Phase 42
 - ✓ CONV-04: 对话标题管理（D-04 自动命名 + 行内重命名） — Phase 42
+- ✓ MEM-01~06: AI 三层条目记忆（USER.md / 全局 MEMORY.md 冻结快照注入 / 容器 memories + memory·memory_read 工具 + 写入威胁扫描 + 容器删除联动清理 + /api/ai-memory 设置页三 tab 分区） — Phase 43
+- ✓ SEARCH-01~04 / TOOL-01~04 / FETCH-01~04 / CONFIG-01~04（16 项，归档 `.planning/milestones/v2.5-REQUIREMENTS.md`）：search-manager.js（provider 注册表 + 速率限制器 + SSRF 防护 + 结果标准化）、web_search 工具（4 家 API provider + Auto Fallback + 诊断 attempts）、web_fetch 工具（fetchUrl + turndown 转 Markdown + 逐跳 SSRF 校验）、设置页「网络搜索」配置区（Provider 选择 + API Key 管理与验证 + IPC/preload 通道） — v2.5
+- ✓ 边播边缓存（Deferred from v2.3）：/proxy 分片级磁盘缓存（按视频组织目录 + FIFO 淘汰 + 强淘 + 哈希校验 + 断网降级照播） — Phase 44（需求未注册）
+- ✓ 本地媒体库：观看历史精确续播（key = origin+pathname，query 时效 token 不参与）+ 独立播放窗口 localhost 化收口 /proxy — Phase 44（需求未注册）
+- ✓ 媒体任务中心：直播录制（m3u8 轮询追分片 + 关窗/退出两级确认）+ mux.js TS→fMP4 转封装 + realm://tasks 任务页 + 主窗口角标 — Phase 44（需求未注册）
+- ✓ AES-128 加密 HLS 解密转封装（EXT-X-KEY IV 捕获 + key/IV/media_sequence 留存与历史条目自愈 + 逐分片解密） — Phase 44（需求未注册）
+- ✓ B 站直播 fMP4 转录（EXT-X-MAP init 留存 + 纯 JS 字节拼接 + tfdt rebase 时间轴归零） — Phase 45（需求未注册）
 
 ### Active
 
-<!-- 当前需要构建的功能（v2.5 里程碑） -->
+<!-- 当前需要构建的功能（下一里程碑定义中；v2.5 需求已全部验证并归档） -->
 
-- 边播边缓存 (Deferred from v2.3)
 - 增强功能 (ENH-01~06: 截图/画中画/播放列表/字幕/DASH/RTMP)
 - 书签导出
 - 全屏模式
 - 无痕/隐私浏览
+- 浏览器搜索 Provider（Bing/Google/DDG DOM 解析）+ 中文搜索质量优化（v2.5 Future Requirements 顺延）
+- 搜索结果高亮 / 搜索历史建议（v2.5 Future Requirements 顺延）
 
 ### Out of Scope
 
@@ -153,34 +163,22 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - **收藏栏多行显示** — 仅支持单行显示
 - **DASH (.mpd) 播放** — v2.2 暂缓：嗅探/renderer/CSS 已补 dash 支持但复验仍失败，二层根因未诊断（UAT G-28-2，2026-08-08 用户决定，走 /gsd-plan-phase 28 --gaps 续查）
 
-## Current Milestone: v2.5 AI 网络搜索功能
+## Current Milestone: v2.6（待定义）
 
-**Goal:** 为 AI 助手添加网络搜索能力，使其能够搜索互联网获取实时信息
+v2.5 AI 网络搜索功能已于 2026-09-10 收官并归档（见 `.planning/milestones/v2.5-ROADMAP.md` / `v2.5-REQUIREMENTS.md`）。下一个里程碑经 `/gsd-new-milestone` 定义（questioning → research → requirements → roadmap）。
 
-**参考实现:** OpenHanako 项目 web_search 功能
-- 文档: `/Volumes/ZhiTai/Projects/github/openhanako/.docs/web-search-implementation.md`
-- 源码: `/Volumes/ZhiTai/Projects/github/openhanako/lib/tools/web-search.ts`
-- 速率限制器: `/Volumes/ZhiTai/Projects/github/openhanako/lib/tools/search-rate-limiter.ts`
-- Provider 定义: `/Volumes/ZhiTai/Projects/github/openhanako/shared/search-providers.ts`
-- 浏览器解析: `/Volumes/ZhiTai/Projects/github/openhanako/lib/browser/browser-search-extractors.cjs`
-- web_fetch: `/Volumes/ZhiTai/Projects/github/openhanako/lib/tools/web-fetch.ts`
-
-**Target features:**
-- web_search 工具（API Provider: tavily/brave/serper/anysearch）
-- web_search 工具（免费 Provider: anysearch_free）
-- web_search 工具（浏览器 Provider: bing_browser/google_browser/duckduckgo_browser）
-- Auto 智能 Fallback 策略
-- 速率限制器
-- web_fetch 工具（URL 内容抓取 + SSRF 防护）
-- 搜索配置 UI（设置页面集成）
+**候选方向（来自 Active 列表）:**
+- 增强功能 ENH-01~06（截图/画中画/播放列表/字幕/DASH/RTMP）
+- 书签导出 / 全屏模式 / 无痕浏览
+- 搜索能力补全（浏览器 Provider DOM 解析 + 中文搜索质量优化）
 
 ## Current State
 
-**Shipped:** v2.4 (2026-08-16)
-- 36 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0 + 4 v2.1 + 4 v2.2 + 4 v2.3 + 3 v2.4)
+**Shipped:** v2.5 (2026-09-10)
+- 45 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0 + 4 v2.1 + 4 v2.2 + 4 v2.3 + 6 v2.4 + 6 v2.5)
 - 所有里程碑已完成归档
-- v2.4 Phase 34-36 complete — 多窗口支持（窗口管理 + Tab 拖拽 + 跨窗口移动）
-- 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core + nodejieba
+- v2.5 交付：AI 联网搜索与网页抓取（web_search/web_fetch + 配置 UI）+ AI 历史对话管理 + AI 三层条目记忆 + 播放器视频缓存与本地媒体库 + B 站直播 fMP4 转录
+- 技术栈：Electron 43.6.0（Chromium 150）+ better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core + hls.js / dashjs / mpegts.js / mux.js + nodejieba
 
 **Key features delivered:**
 - 多容器隔离浏览器（Cookie/Session/Storage/缓存完全隔离）
@@ -205,21 +203,29 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - 窗口位置持久化（electron-store + 越界检测 + 多显示器支持）
 - 右键菜单"在新窗口中打开"（move/copy 模式）
 - 多窗口架构（windowManager Map + Set 双重注册 + broadcast 广播）
+- AI 联网搜索与网页抓取（search-manager + 4 家 API provider + Auto Fallback + 速率限制 + SSRF 防护 + turndown 转 Markdown）
+- AI 历史对话管理（独立 SQLite 存储 + 一对话一 Agent + 列表/切换/删除/重命名 + 消息归一化双形状）
+- AI 三层条目记忆（USER.md / 全局 MEMORY.md 快照注入 / 容器 memories + 写入威胁扫描）
+- 本地媒体库（/proxy 分片磁盘缓存 + FIFO 淘汰 + 观看历史精确续播 + 断网降级照播）
+- 媒体任务中心（直播录制 + mux.js 转封装 + realm://tasks 任务页 + 主窗口角标 + 关窗/退出确认）
+- AES-128 加密 HLS 解密转封装 + B 站直播 fMP4 转录（EXT-X-MAP init 拼接 + tfdt rebase）
 
 **Known gaps:**
-- 20 个 debug session（18 个已 fixed，2 个 unknown — container-delete-partitions 和 whitelist-bypass-script-injection 已确认修复待 UAT 回归）
-- 2 个 Verification gaps（Phase 30 和 Phase 35 需 human 验证）
+- v2.5 收官时 40 项 `audit-open` 开启项经用户决策全部 acknowledge 归档（含 34 个 debug session 状态记录、4 个历史阶段 UAT、2 个历史阶段 VERIFICATION `human_needed`）——逐项清单见 `STATE.md ## Deferred Items`
+- Phase 44 代码审查剩余已接受技术债：WR-07（嗅探首字节判定前提未确证，暂缓）；44-UI-REVIEW 3 项 minor 记入 `Acknowledged Gaps`
+- Phase 30 / Phase 35（均已归档 v2.4）的 VERIFICATION 仍为 `human_needed`（历史遗留）
+- Phase 28 DASH (.mpd) 播放 gap 暂缓（第二层根因未诊断）
 
-**Current milestone:** v2.5 (planned)
+**Current milestone:** v2.6（待定义）
 
 ## Next Milestone Goals
 
 **v2.6** (planned)
-- 边播边缓存 (Deferred from v2.3)
 - 增强功能 (ENH-01~06: 截图/画中画/播放列表/字幕/DASH/RTMP)
 - 书签导出
 - 全屏模式
 - 无痕/隐私浏览
+- 搜索能力补全（浏览器 Provider DOM 解析 + 中文搜索质量优化）
 
 **Future Features:**
 - 浏览器扩展支持
@@ -233,7 +239,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 ## Context
 
 **技术环境：**
-- Electron 32.x + Node.js
+- Electron 43.6.0（Chromium 150）+ Node.js
 - 主进程管理 Session 和窗口
 - 渲染进程通过 contextBridge 暴露 IPC 接口
 - electron-store 持久化容器配置
@@ -243,13 +249,14 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - AutoBrowser 项目的 Cookie 持久化方案（JSON 文件格式，支持 domain 前缀点号保留）
 
 **代码库状态：**
-- v2.4 已 shipped，包含完整的多容器浏览器功能 + 历史记录 + 收藏夹 + 常用网站 + 设置 + 开发者模式 + 右键菜单 + 收藏夹文件夹 + Chrome 导入 + 收藏栏 + AI Agent + 多媒体播放器 + 下载管理器 + 自动填充 + 多窗口支持
-- 36 个阶段完成，所有计划完成
-- 技术栈：Electron 32.x + better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core + hls.js + mpegts.js + dashjs + nodejieba
+- v2.5 已 shipped，在 v2.4（多窗口支持）基础上新增 AI 联网搜索与网页抓取、AI 历史对话管理、AI 三层条目记忆、播放器视频缓存与本地媒体库、B 站直播 fMP4 转录
+- 45 个阶段完成（v2.5 含 6 phases / 38 plans / 76 tasks），所有计划完成
+- 规模：应用源码约 81k 行（根目录 JS + `src/` 下 js/css/html）；v2.5 里程碑区间 610 文件变更 / +85709 −7204 行
+- 技术栈：Electron 43.6.0（Chromium 150）+ better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core + hls.js + mpegts.js + dashjs + mux.js + turndown + nodejieba
 
 ## Constraints
 
-- **Tech Stack**: Electron 32.x — 项目已选定，不可更改
+- **Tech Stack**: Electron 43.6.0（Chromium 150）— 项目已选定；升级须同步 UA/CH 常量（4 处）并重编原生模块
 - **Platform**: macOS — 主要开发和测试平台
 - **Compatibility**: Chromium 内核 — 需兼容主流网站
 - **Performance**: 容器切换不能有明显延迟
@@ -317,6 +324,15 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | 窗口控制 IPC 信任断言按窗口身份分离（assertTrustedSender / assertPlayerSender） | 主窗口断言拒绝播放器窗口的合法调用；播放器通道校验来源==当前 playerWindow 更准确 | ✓ 已验证 — Phase 28 UAT（G-28-6） |
 | 非主窗口快捷键不派发主窗口；closeTab(Cmd+W) 转为关闭来源窗口自身 | before-input-event 全局监听会截获播放器窗口按键误派主窗口；webview guest 经 fromWebContents 解析回宿主不受影响 | ✓ 已验证 — Phase 28 UAT（Test 13/14） |
 | HLS 自动播放挂 MANIFEST_PARSED 回调 | HLS 分支漏调 video.play() 导致打开默认暂停 + 切换不续播；play 事件联动刷新图标/覆盖层/隐藏定时器 | ✓ 已验证 — Phase 28 UAT（G-28-3） |
+| web_search 走 Auto Fallback（付费 API → anysearch_free → 浏览器 Provider） | 单 provider 失败不应让搜索整体不可用；失败状态分类（rate_limited/auth/empty/low_quality/blocked）指导降级 | ✓ 已验证 — v2.5 |
+| SSRF 防护收敛在 search-manager（isPrivateIp + 逐跳重定向校验），web_fetch 复用 | 抓取与搜索共用同一份内网地址判据，避免两处判据漂移 | ✓ 已验证 — Phase 40/41 |
+| AI 记忆三层模型（USER.md / 全局 MEMORY.md 冻结快照注入 / 容器 memories 按需 memory_read） | 全局快照为静态文本，冻结注入不破坏前缀缓存；容器记忆不进 prompt，避免跨容器泄漏 | ✓ 已验证 — Phase 43（eval:memory 14/14） |
+| 记忆规则统一收在 ai-memory-manager.buildGlobalSnapshot | 规则文本分裂两处会导致部分会话缺失规则 | ✓ 已验证 — Phase 43 |
+| 对话创建惰性化（启动/打开面板不建行，首条消息或显式新建才产生对话行） | 启动自动产生的 0 消息「新对话」垃圾行违反用户预期 | ✓ 已验证 — Phase 42 UAT（G-42-1） |
+| 播放器视频缓存仅独立窗口（webview tab 流量不进缓存分支） | tab 模式保持既有行为，缓存/代理链路的复杂度隔离在独立窗口 | ✓ 已验证 — Phase 44 |
+| 直播录制采用「显式后台任务」模型（并发上限 / 同 URL 去重 / 关窗与退出两级确认） | 录制是长任务，需要可预期的心智模型与丢失防护 | ✓ 已验证 — Phase 44 UAT |
+| fMP4 转录走纯 JS 字节拼接而非可选依赖 ffmpeg | 零新依赖、跨平台一致；代价是 QuickTime 需要 tfdt rebase 补偿时间轴 | ✓ 已验证 — Phase 45（UAT 2/2） |
+| Electron 43.3.0 上游键盘 ACK use-after-free：延迟销毁 + 补丁线升级双层防御 | 上游 heisenbug 无确定性修复，结构性收窄触发窗口与版本升级并用 | ✓ 已验证 — Phase 44（44-14 / 44-15） |
 
 ## Evolution
 
@@ -336,4 +352,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-02 after Phase 42 completion (AI 历史对话管理)*
+*Last updated: 2026-09-10 after v2.5 milestone (AI 网络搜索功能 — 已归档)*

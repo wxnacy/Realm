@@ -3,9 +3,14 @@ status: fixed
 trigger: "正常地址收藏显示正常，realm://newtab 这类内置的可以收藏，列表也可以看到，但是页面刷新星标不是实心的"
 created: 2025-12-06T00:00:00.000Z
 updated: 2025-12-06T00:01:00.000Z
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: fixed
 ---
 
 ## Current Focus
+
 <!-- OVERWRITE on each update - reflects NOW -->
 
 hypothesis: CONFIRMED — checkBookmarkStatus (renderer.js:219) early-returns for realm:// URLs, never querying DB
@@ -25,6 +30,7 @@ reasoning_checkpoint:
   blind_spots: "未运行时复现（纯代码证据，但路径确定性 100%）；favorites 列表双击打开 realm:// 条目会被 handleOpenUrlInTab 拒绝（renderer.js:1761 仅放行 http(s)）— 属相邻问题，非本 bug 根因"
 
 ## Symptoms
+
 <!-- Written during gathering, then IMMUTABLE (prefilled from UAT test 9) -->
 
 expected: |
@@ -37,12 +43,15 @@ actual: |
   The favorite IS in the database (visible in realm://favorites list).
 errors: None reported
 reproduction: |
+
   - Open realm://newtab in any container
   - Click star → toast「已收藏」appears, star fills
   - Refresh page → star returns to hollow (expected: stays filled)
+
 started: Discovered during UAT (post 09-03 gap closure); possibly introduced by Phase 09 favorites refactor (per-container → global table)
 
 ## Eliminated
+
 <!-- APPEND only - prevents re-investigating -->
 
 - hypothesis: URL normalization mismatch (save path vs check path use different URL strings)
@@ -62,6 +71,7 @@ started: Discovered during UAT (post 09-03 gap closure); possibly introduced by 
   timestamp: 2025-12-06T00:01:00.000Z
 
 ## Evidence
+
 <!-- APPEND only - facts discovered -->
 
 - timestamp: 2025-12-06T00:00:30.000Z
@@ -94,6 +104,7 @@ started: Discovered during UAT (post 09-03 gap closure); possibly introduced by 
   implication: 相邻问题（内置收藏条目无法从列表打开），非本 bug 根因；修复内置页面收藏时应一并考虑
 
 ## Resolution
+
 <!-- OVERWRITE as understanding evolves -->
 
 root_cause: |

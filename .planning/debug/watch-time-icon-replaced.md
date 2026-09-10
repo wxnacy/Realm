@@ -3,6 +3,10 @@ status: diagnosed
 trigger: "删除功能没问题，但是图标替换理解有误，我只想替换『最近观看』四个字，时间还是要有的，现在只有一个图标没有时间了"
 created: 2026-09-07T00:00:00Z
 updated: 2026-09-07T00:00:00Z
+audit_acknowledged:
+  milestone: v2.5
+  at: 2026-09-10
+  status: diagnosed
 ---
 
 ## Current Focus
