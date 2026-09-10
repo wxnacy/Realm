@@ -41,19 +41,21 @@ blocked: 0
 
 ## Tests (Round 3 — gap closure 复验，44-14/44-15/44-16)
 
-### 1. 真机 5 轮「开始录制→停止→关窗（含 Cmd+W）」无 SIGSEGV（G-44-2 复验）
+> 归档记录：本轮条目加 `[Round 3]` 前缀，不参与 phase 完成门禁（`uat-predicate` 只把无前缀的 `### N.` 当当前检查点）。结果与正文原样保留，供追溯。
+
+### [Round 3] 1. 真机 5 轮「开始录制→停止→关窗（含 Cmd+W）」无 SIGSEGV（G-44-2 复验）
 expected: 连续 5 轮录制→停止→关窗（Cmd+W 与点关闭混用）全程无 SIGSEGV；dev 环境可见 webContents destroyed 诊断日志，生产版零输出（44-14 延迟销毁规避 + 44-15 Electron 43.6.0 双层防御）
 result: pass
 
-### 2. 红点时长每秒平滑 +1（G-44-4 复验）
+### [Round 3] 2. 红点时长每秒平滑 +1（G-44-4 复验）
 expected: 录制中红点 hover 时长每秒平滑推进 +1s，0 分片落盘（弱网）时也在走表，不再出现「半天不动/突然跳几秒」；停止后任务页时长口径不变
 result: pass
 
-### 3. 抽屉「时钟图标+时间」并排常显（G-44-6 复验）
+### [Round 3] 3. 抽屉「时钟图标+时间」并排常显（G-44-6 复验）
 expected: 缓存抽屉条目 meta 行为「时钟图标 + 时间」并排常显（时间文本非仅 hover 可见），title 保留完整「最近观看 时间」提示
 result: pass
 
-### 4. 缓存完成后转录 MP4 产物非 0 字节（G-44-7，Round 3 追加）
+### [Round 3] 4. 缓存完成后转录 MP4 产物非 0 字节（G-44-7，Round 3 追加）
 expected: 播放 https://hn.bfvvs.com/play/b2k7JoJd/index.m3u8 缓存完成后点「转换为 MP4」，产物为可播放的非 0 字节 mp4；不可转格式应显式报错且不留 0 字节半成品
 result: issue
 reported: "现在还有问题，https://hn.bfvvs.com/play/b2k7JoJd/index.m3u8 播放视频时，缓存完成转录 mp4 还是0字节"
@@ -70,43 +72,45 @@ blocked: 0
 
 ## Tests (Round 2 — archived, 2026-09-07 上午)
 
-### 1. webview 直连真实源站（CR-06 收紧版，唯一实质新风险）
+> 归档记录：本轮条目加 `[Round 2]` 前缀，不参与 phase 完成门禁（同 Round 3）。本轮 3 个 issue 分别由 G-44-2/G-44-4/G-44-6 修复并在 Round 3 复验通过；2 个 skipped 为延期/用户跳过，已记录在 `## Deferred Follow-Ups` 与 Gaps。
+
+### [Round 2] 1. webview 直连真实源站（CR-06 收紧版，唯一实质新风险）
 expected: webview tab 内用「无 ACAO + Referer 校验 + Cookie 门控」真实源站直连播放 m3u8，可识别为多媒体且与 Phase 43 行为一致；若不可用则按 CR-06 方案①/②/③建新 gap
 result: pass
 
-### 2. 录制按钮停止图标目检（UAT 4.1）
+### [Round 2] 2. 录制按钮停止图标目检（UAT 4.1）
 expected: 录制中显示停止方块图标、停止后恢复描边圆点、title 切换「停止录制/开始录制」（红点闪烁之外按钮图标可辨识）
 result: issue
 reported: "直播按钮切换点击都没问题，点播视频 m3u8 点击停止录制后程序闪退了。日志末尾：Electron exited with signal SIGSEGV"
 severity: blocker
 
-### 3. 直播录制/转换全链路（UAT 4.2/6，真实源）
+### [Round 2] 3. 直播录制/转换全链路（UAT 4.2/6，真实源）
 expected: B 站直播（fMP4 流）停止录制后任务页显示「MP4 转换失败：分片格式暂不支持转换（仅支持 MPEG-TS）」且无 0 字节产物；正常 TS 源转换产物在播放器播放、时长/音画正常
 result: skipped
 reason: "Deferred follow-up: 失败提示按预期出现（无 0 字节产物）；fMP4 转录支持为后续工作，本 phase 完成后开始介入"
 
-### 4. 终态 toast + 点击定位（UAT 5）
+### [Round 2] 4. 终态 toast + 点击定位（UAT 5）
 expected: 「MP4 转换完成：{文件名}」/「录制已保存」toast 出现约 5s，点击在 Finder 定位产物；失败任务弹 error toast
 result: issue
 reported: "可以有 toast，但是现在播放器右上角红色按钮，鼠标放上去显示时间更新不及时，有时半天不改变时间，有时又突然增加好几秒"
 severity: minor
 
-### 5. 任务角标 running/归零/跳转（UAT 7）
+### [Round 2] 5. 任务角标 running/归零/跳转（UAT 7）
 expected: 录制进行中主窗口工具栏角标出现（数字=running 数）、停止后归零消失、点击跳 realm://tasks
 result: pass
 
-### 6. 抽屉删除两路径 + 时钟图标（UAT 8）
+### [Round 2] 6. 抽屉删除两路径 + 时钟图标（UAT 8）
 expected: 默认不勾删除 → 条目变「未缓存」；勾选「同时删除条目」删除 → 条目消失且重开抽屉不再出现；文案随勾选联动、确认框居中、meta 行时钟图标 hover 显示「最近观看 时间」
 result: issue
 reported: "删除功能没问题，但是图标替换理解有误，我只想替换「最近观看」四个字，时间还是要有的，现在只有一个图标没有时间了"
 severity: major
 
-### 7. 任务页失败反馈（UAT 9）
+### [Round 2] 7. 任务页失败反馈（UAT 9）
 expected: 对无 meta.json 的中断任务点「已落盘部分续转」→ 反馈条显示「录制中崩溃的任务暂无分片索引，暂不支持续转」约 4s 消失；停止/定位失败同样有可见反馈
 result: skipped
 reason: "用户选择跳过，以后遇到再说"
 
-### 8. 关窗/应用退出两级确认（D-19，前轮 #12 保持）
+### [Round 2] 8. 关窗/应用退出两级确认（D-19，前轮 #12 保持）
 expected: 窗口级确认弹一次并记忆默认；取消退出后确认不被永久跳过（WR-05 观察）
 result: pass
 

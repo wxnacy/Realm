@@ -1,8 +1,8 @@
 ---
 phase: 44-player-video-cache-and-local-media-library
 verified: 2026-09-07T11:49:14Z
-status: human_needed
-score: 10/11 must-haves verified
+status: passed
+score: 11/11 must-haves verified
 covered_files:
   - .planning/phases/44-/44-01-PLAN.md
   - .planning/phases/44-/44-01-SUMMARY.md
@@ -36,8 +36,13 @@ covered_files:
   - .planning/phases/44-/44-15-SUMMARY.md
   - .planning/phases/44-/44-16-PLAN.md
   - .planning/phases/44-/44-16-SUMMARY.md
+  - .planning/phases/44-/44-17-PLAN.md
+  - .planning/phases/44-/44-17-SUMMARY.md
+  - .planning/phases/44-/44-18-PLAN.md
+  - .planning/phases/44-/44-18-SUMMARY.md
   - .planning/phases/44-/44-UAT.md
   - .planning/phases/44-/44-REVIEW.md
+  - .planning/phases/44-/44-UI-REVIEW.md
   - .planning/REQUIREMENTS.md
   - ipc-handlers.js
   - src/renderer.js
@@ -47,8 +52,8 @@ covered_files:
   - src/player.css
   - package.json
   - ua-ch-manager.js
-covered_digest: "v1:sha256:871dc6f9bcbc81227c95aa57dcd1c44a679103b0223c1e2c8046e9d77f055029"
-behavior_unverified: 1
+covered_digest: "v1:sha256:59332c1f16415c9fda1a3400b166bd685719290f544f8a7062dbfecc17c7cbec"
+behavior_unverified: 0
 overrides_applied: 0
 re_verification:
   previous_status: human_needed
@@ -80,8 +85,10 @@ human_verification:
 
 **Phase Goal:** 独立播放器的 HLS 本地媒体库能力（webview tab 模式保持现状不做缓存）：① 独立窗口收口 /proxy；② 分片级磁盘缓存 + FIFO 淘汰 + 设置页配置；③ 观看历史精确续播；④ 统一媒体任务中心（直播录制 + mux.js 转封装）；⑤ realm://tasks 任务页 + 角标。
 **Verified:** 2026-09-07T11:49:14Z
-**Status:** human_needed（代码层 0 失败 gap；10/11 核实，1 项 PRESENT_BEHAVIOR_UNVERIFIED；3 项 human-only 待真机）
+**Status:** passed（代码层 0 失败 gap；11/11 核实——原 1 项 PRESENT_BEHAVIOR_UNVERIFIED 与 2 项视觉项已由 UAT Round 3/4 真机验收通过，证据见 44-UAT.md）
 **Re-verification:** Yes — 第三轮 gap-closure 后复验（UAT 第二轮发现 G-44-2/4/6 三 gap；本轮 44-14/44-15/44-16 三计划闭合，commit 334adc3..855f048）
+**Fingerprint refresh（2026-09-10）:** `covered_files` 回填后补的 44-17/44-18 PLAN·SUMMARY 与 44-UI-REVIEW.md，`covered_digest` 按当前字节重算（`v1:sha256:18414eb2…`）。此前状态为 stale 属**指纹陈旧**（gaps 计划后补未入清单），非验证结论变化。
+**Human verification（UAT Round 3/4，2026-09-07）:** 原 3 项 human-only 全部通过 —— Round 3 #1（G-44-2 真机 5 轮「开始录制→停止→关窗」无 SIGSEGV）、#2（红点时长每秒平滑 +1）、#3（抽屉「时钟图标+时间」并排常显）；Round 4 收官 4/4 全过（含 G-44-7 加密源真机转出有效 mp4 复验）。`behavior_unverified` 由 1 归 0。
 
 ## Goal Achievement
 
@@ -103,9 +110,9 @@ human_verification:
 | 8 | 【禁止】录制引擎/任务注册表停止语义零改动（44-14 prohibition） | ✓ VERIFIED | diff 范围审计（a9b3e47..HEAD）：media-task-manager.js **不在改动集**；media-record-engine.js 改动仅为 G-44-4 时长口径（:299/:335 查询侧），stopRecord/failTask/轮询终态流转零 diff |
 | 9 | 【禁止】关窗设置项与 D-19 确认链路零改动（44-14/44-16 prohibition） | ✓ VERIFIED | ipc-handlers.js diff 31 行全部在 finish() 延迟放行区（:2109-2135），确认分支（:2149-2188）零改动；settings.html / src/settings-page.js 不在本轮任何 commit 中（工作树未提交改动系 44-15 之前既有，44-15 SUMMARY 明示保留） |
 | 10 | 【禁止】指纹伪装其余逻辑零改动（44-15 prohibition：品牌表顺序/GREASE/CDP 链路/44 禁跨大版本） | ✓ VERIFIED | ua-ch-manager.js diff 10 行 = 3 个全版本号值 + 注释；品牌表顺序（Not;A=Brand → Chromium → Google Chrome）与 GREASE（"Not;A=Brand" v"8"）grep 确认原样；package.json electron = ^43.6.0（43 线内，未跨 44/Chromium 152） |
-| 11 | G-44-2 规避后真机「停止录制→关窗」链路无 SIGSEGV（端到端） | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | 两处销毁窗口的延迟化代码结构已核实（#1/#2），44-15 补丁线升级已落地（#4）——但上游 UAF 竞态消除效果是行为断言，heisenbug 无自动化测试可复现（44-14 计划 verification 第 4 项即 human-check）。归 human 第 1 项：真机 5 轮录制→停止→关窗验收。规避定位诚实（计划明示「收窄而非确定性修复」，若复发有 destroyed 日志二分路径） |
+| 11 | G-44-2 规避后真机「停止录制→关窗」链路无 SIGSEGV（端到端） | ✓ VERIFIED | 两处销毁窗口的延迟化代码结构已核实（#1/#2），44-15 补丁线升级已落地（#4）；**真机验收已通过**——2026-09-07 UAT Round 3 #1「真机 5 轮『开始录制→停止→关窗（含 Cmd+W）』无 SIGSEGV（G-44-2 复验）」result: pass（44-UAT.md），Round 4 收官 4/4 全过。上游 UAF 竞态消除效果为行为断言，heisenbug 无自动化测试可复现，仍保留 destroyed 日志二分路径（.planning/debug/stop-record-sigsegv.md） |
 
-**Score:** 10/11 truths verified（0 failed，1 PRESENT_BEHAVIOR_UNVERIFIED = #11）
+**Score:** 11/11 truths verified（0 failed；#11 由 UAT Round 3 真机验收闭合）
 
 ### Deferred Items
 
