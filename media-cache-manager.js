@@ -824,12 +824,15 @@ class MediaCacheManager {
 
   /**
    * 进度同步（D-11/D-13）：player:progress 上报时按 playbackKey 找到缓存条目，
-   * 刷新 last_position / last_watched（观看历史由 player-history-manager 独立落盘）
+   * 刷新 last_position / last_watched（观看历史由 player-history-manager 独立落盘）；
+   * 顺带同步真实标题（非空覆盖，与 player_history 同语义——touchVideo/store 链路
+   * 拿不到标题，此处是缓存 meta.title 唯一的生产写入点，转码命名依赖它）
    * @param {string} rawUrl - 视频 URL（m3u8，query 不参与匹配）
    * @param {number} position - 播放位置（秒）
+   * @param {string} [title] - 视频标题（空串不覆盖已有值）
    * @returns {boolean} 是否命中并更新了缓存条目
    */
-  updateProgress(rawUrl, position) {
+  updateProgress(rawUrl, position, title) {
     try {
       const key = playbackKeyOf(rawUrl);
       for (const e of this.listEntries()) {
@@ -838,6 +841,7 @@ class MediaCacheManager {
           if (meta) {
             meta.last_position = Number(position) || 0;
             meta.last_watched = Date.now();
+            if (typeof title === 'string' && title) meta.title = title;
             this._writeMeta(e.videoId, meta);
           }
           return true;

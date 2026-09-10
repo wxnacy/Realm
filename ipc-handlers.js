@@ -2245,7 +2245,7 @@ function registerHandlers() {
           lastWatched: Date.now(),
         });
       }
-      if (mediaCache) mediaCache.updateProgress(data.url, position);
+      if (mediaCache) mediaCache.updateProgress(data.url, position, title);
     } catch (err) {
       console.error('[Realm] 播放进度落盘失败:', err.message);
     }

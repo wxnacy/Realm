@@ -85,6 +85,30 @@ describe('playbackKey / videoId 续播 key 语义（D-12）', () => {
   });
 });
 
+describe('updateProgress 进度与标题同步（D-13）', () => {
+  test('按 playbackKey 命中并刷新 last_position，非空 title 覆盖写入 meta', () => {
+    const root = makeCacheRoot();
+    const c = new MediaCacheManager({ cacheRoot: root });
+    const vid = c.touchVideo('https://a.com/x.m3u8');
+
+    // query 时效 token 不参与匹配（playbackKey = origin+pathname）
+    const hit = c.updateProgress('https://a.com/x.m3u8?token=abc', 12.5, '大唐妖探');
+    assert.strictEqual(hit, true);
+    const meta = JSON.parse(fs.readFileSync(path.join(root, vid, 'meta.json'), 'utf8'));
+    assert.strictEqual(meta.last_position, 12.5);
+    assert.strictEqual(meta.title, '大唐妖探');
+
+    // 空 title 不覆盖已有值
+    c.updateProgress('https://a.com/x.m3u8?token=def', 30, '');
+    const meta2 = JSON.parse(fs.readFileSync(path.join(root, vid, 'meta.json'), 'utf8'));
+    assert.strictEqual(meta2.last_position, 30);
+    assert.strictEqual(meta2.title, '大唐妖探');
+
+    // 未命中返回 false
+    assert.strictEqual(c.updateProgress('https://b.com/other.m3u8', 1, 'x'), false);
+  });
+});
+
 describe('store / lookup 读写闭环（D-05）', () => {
   test('落盘后命中，内容与索引一致', () => {
     const root = makeCacheRoot();

@@ -161,13 +161,16 @@ async function initPlayer(url) {
   // D-10 重试计数随新流归零
   state.hlsRetryCount = 0;
 
-  // 更新窗口标题为 {容器名} - {文件名}（肉眼可验证 D-22 容器隔离）
+  // 标题优先取嗅探列表项 title（用户「传过去的名称」），无匹配/空标题回落 URL 文件名
+  const matched = state.mediaList.find((item) => item.url === url);
   const fileName = decodeURIComponent(url.split('/').pop().split('?')[0]);
-  const displayTitle = state.containerName ? `${state.containerName} - ${fileName}` : fileName;
+  const baseTitle = (matched && matched.title) || fileName;
+  // 窗口标题栏保留容器名前缀（肉眼可验证 D-22 容器隔离）
+  const displayTitle = state.containerName ? `${state.containerName} - ${baseTitle}` : baseTitle;
   titleText.textContent = displayTitle;
   document.title = `Realm Player - ${displayTitle}`;
-  // 进度上报 title 来源（D-13）
-  state.currentTitle = displayTitle;
+  // 进度上报/录制任务/转码命名的 title 来源（D-13）：纯标题，不带容器前缀
+  state.currentTitle = baseTitle;
 
   console.log('[Realm Player] 初始化播放, 格式:', format, 'URL:', url);
 
@@ -1015,6 +1018,16 @@ function syncDrawerConvertButton(el, item) {
 }
 
 /**
+ * 抽屉条目标题（renderDrawer 初始渲染与 refreshDrawerProgress 就地刷新共用同一
+ * fallback 语义：嗅探/上报标题 → URL 文件名 → 未知视频）
+ * @param {Object} item - 抽屉条目
+ * @returns {string}
+ */
+function drawerItemTitle(item) {
+  return item.title || decodeURIComponent((item.url || '').split('/').pop().split('?')[0]) || '未知视频';
+}
+
+/**
  * 渲染抽屉列表（缓存库 + 观看历史合并、最近观看优先——44-01 player:drawer:list 契约）
  */
 async function renderDrawer() {
@@ -1035,7 +1048,7 @@ async function renderDrawer() {
 
     const title = document.createElement('div');
     title.className = 'drawer-item-title';
-    title.textContent = item.title || decodeURIComponent((item.url || '').split('/').pop().split('?')[0]) || '未知视频';
+    title.textContent = drawerItemTitle(item);
     title.title = title.textContent;
     el.appendChild(title);
 
@@ -1102,6 +1115,13 @@ async function refreshDrawerProgress() {
   for (const el of drawerList.querySelectorAll('.drawer-item')) {
     const item = byKey.get(el.dataset.playbackKey || '');
     if (!item) continue;
+    // 标题也要就地刷新——起播后 player:progress 才会把真实标题落进历史/缓存，
+    // 开着的抽屉不更新标题会一直显示旧名（文件名兜底或上次会话残值）
+    const titleEl = el.querySelector('.drawer-item-title');
+    if (titleEl) {
+      titleEl.textContent = drawerItemTitle(item);
+      titleEl.title = titleEl.textContent;
+    }
     const meta = el.querySelector('.drawer-item-meta');
     if (meta) fillDrawerMeta(meta, item);
     const fill = el.querySelector('.drawer-item-progress-fill');
