@@ -1,10 +1,14 @@
 ---
 gsd_state_version: "1.0"
 milestone: v2.6
-milestone_name: AI 助手技能能力
+milestone_name: AI 助手技能（Skill）能力
+current_phase: 46
 status: planning
-last_updated: "2026-09-10T23:54:00.000Z"
+stopped_at: Phase 46 context gathered
+last_updated: "2026-09-10T16:24:23.283Z"
 last_activity: 2026-09-10
+last_activity_desc: v2.6 路线图创建完成（47 项需求 → 6 阶段，S1 门禁按阶段归属）
+state_head: 6c086625471e579800d3fcd9c80b7bb9b217f088
 progress:
   total_phases: 6
   completed_phases: 0
@@ -169,6 +173,7 @@ None yet.
 ### Blockers/Concerns
 
 **v2.6 需要 plan 期先拍板的开放决策（research Open Decisions）：**
+
 - O1（47）：find-skills 去 CLI 化程度——产品决策，判定标准是内置技能文本里不得出现任何"执行外部安装"动词
 - O2（51）：zip 多技能包语义——v1 定为"恰好一个技能根"，多技能勾选留 v1.x
 - O3（47/51）：`allowed-tools` 解析但必须带免责标注；执行层门禁明确 Out of Scope，不得让 UI 制造虚假安全感
@@ -179,11 +184,13 @@ None yet.
 - O9（51）：既有沙箱 `writeFile` ENOENT symlink 缺口列为本期加固项（SEC-10）
 
 **v2.6 待实测风险（plan 期验证，research Gaps）：**
+
 - yauzl 的 Promise API 形态与四处错误处理面（callback err / promise rejection / `ZipFile.error` / read stream error）需真实打包 + 解压 + 恶意样本（zip-slip / symlink / 炸弹）验证
 - GitHub `contents` 列一层分支与 403/429 处理未发真实网络请求验证（codeload 直连与顶层前缀剥离已 curl 实测）
 - `npx skills` CLI 行为细节未实测（LOW；P1 论证不依赖该细节）
 
 **历史遗留（v2.5 及更早）：**
+
 - DNS rebinding 绕过 SSRF 防护需要额外验证（Phase 41 风险）
 - AnySearch 免费 Provider 可用性未验证（Phase 40 风险）
 - turndown XSS 风险需与 DOMPurify 集成确认（Phase 41 风险）
@@ -246,9 +253,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-10T23:54:00.000Z
-Stopped at: v2.6 ROADMAP.md + STATE.md 写入完成（Phase 46-51），REQUIREMENTS.md traceability 已填充 47/47
-Resume file: None
+Last session: 2026-09-10T16:24:23.272Z
+Stopped at: Phase 46 context gathered
+Resume file: .planning/phases/46-prompt/46-CONTEXT.md
 
 ## Operator Next Steps
 
