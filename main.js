@@ -685,8 +685,11 @@ app.on('web-contents-created', (event, contents) => {
       console.log(`[Realm] m3u8 导航拦截，转播放器页面: ${url}`);
       if (realmPort) {
         // 携带容器与 token（webview tab 播放器页面直连拉流，44-09 G-44-2、D-01：
-        // 仅独立播放器窗口走 /proxy；container/token 参数保留供页面上下文使用）
-        // 及来源页面 referer（防盗链站点校验，独立窗口 /proxy 链路使用）
+        // 仅独立播放器窗口走 /proxy；container/token 参数保留供页面上下文使用）。
+        // CR-06 限制：直连下 hls.js 以 XHR 拉清单/分片（CORS 门控），跨源不带容器
+        // Cookie、Referer 为 localhost——「无 ACAO / 校验 Referer / Cookie 门控」的
+        // 源站可能不可用。下方 referer 参数仅独立窗口 /proxy 链路消费（本链路
+        // proxiedUrl 不构造代理 URL，参数被忽略）
         const params = new URLSearchParams({ url });
         const guestContainer = getGuestContainerId(contents);
         if (guestContainer) params.set('container', guestContainer);
@@ -2201,9 +2204,10 @@ app.whenReady().then(async () => {
             return;
           }
           if (existing.status !== 'running') {
-            // 非 running 取消请求：维持旧语义——cancelTask 抛非法流转 → 400（行为不回归）
-            const task = mediaTaskManager.cancelTask(taskId, '用户取消');
-            sendJson(res, 200, { success: true, task });
+            // 非 running 取消请求：cancelTask 内部 requireRunning 必抛（非法流转）。
+            // WR-B：原实现写了一个 sendJson(200) 分支，但它不可达（cancelTask 抛错后
+            // 直接落外层 catch → 400）——显式 400，语义即「已终态任务不可取消」。
+            sendJson(res, 400, { success: false, error: `任务当前状态为 ${existing.status}，不可取消` });
             return;
           }
           if (existing.type === 'record') {
@@ -2301,7 +2305,10 @@ app.whenReady().then(async () => {
         }
         const r = await startConvertFromRecordTask(task);
         if (!r.ok) {
-          sendJson(res, 400, { success: false, error: r.reason === 'cancelled' ? '已取消转换' : (r.reason === 'encrypted' ? '加密视频暂不支持转换' : (r.reason === 'no_segments' ? '录制中崩溃的任务暂无分片索引，暂不支持续转' : (r.reason || '续转失败'))) });
+          // IN-08/WR-C：no_segments 覆盖两种成因——硬崩溃无 meta.json（WR-C 记债，
+          // 不动引擎落盘时机）或 meta 存在但未录到有效分片，文案取中性表述
+          const noSegText = '该任务没有可转换的分片索引（录制中崩溃或未录到有效分片），暂不支持续转';
+          sendJson(res, 400, { success: false, error: r.reason === 'cancelled' ? '已取消转换' : (r.reason === 'encrypted' ? '加密视频暂不支持转换' : (r.reason === 'no_segments' ? noSegText : (r.reason || '续转失败'))) });
           return;
         }
         sendJson(res, 200, { success: true, taskId: r.taskId });
@@ -2965,6 +2972,15 @@ app.whenReady().then(async () => {
           return false;
         }
       },
+      // UI Top1（D-08）：缓存告警出口——磁盘满强淘成功/写入失败广播到主窗口
+      //（renderer 按 type 映射契约文案并 toast；文案单一来源在 UI 层）
+      onCacheWarning: (type) => {
+        try {
+          windowManager.broadcast('cache:warning', { type });
+        } catch (err) {
+          console.warn('[Realm] 缓存告警广播失败:', err.message);
+        }
+      },
     };
   }
 
@@ -3027,6 +3043,8 @@ app.whenReady().then(async () => {
     no_segments: '无可转换的分片',
     invalid_output: '产物路径无效',
     unsupported_container: '分片格式暂不支持转换（仅支持 MPEG-TS）',
+    // IN-05：嗅探读首分片失败（非 ENOENT 的 IO 错误，如权限）——与 segment_missing 区分
+    sniff_read_failed: '分片读取失败（文件不可读）',
     encrypted_stream: '分片为加密数据，暂不支持转换',
     // G-44-7：转换入口早拒的统一文案（纵深防御——万一某入口漏判进了 mux，失败文案也是本句）
     encrypted: '加密视频暂不支持转换',
@@ -3192,9 +3210,8 @@ app.whenReady().then(async () => {
       .finally(() => {
         // 终态注销令牌（完成/失败/取消路径均收敛；竞态窗口：循环越过最后检查点后
         // 到达的取消信号不生效——任务按 completeTask 收尾为 completed，接受该竞态）
-        try {
-          convertCancelTokens.delete(taskId);
-        } catch { /* 忽略注销异常 */ }
+        // IN-02：Map.delete 不会抛错，无需 try/catch 包裹
+        convertCancelTokens.delete(taskId);
       });
     return { ok: true, taskId };
   }
@@ -3221,12 +3238,41 @@ app.whenReady().then(async () => {
   }
 
   /**
+   * 转换发起层（startConvertFromInputRaw 早拒）专属失败文案（UI Top2）——
+   * 执行层 reason 的文案见 CONVERT_FAIL_TEXT；两层由 wrapper 统一补 error，
+   * renderer 直接展示，不再自建 reason→文案表
+   */
+  const CONVERT_INPUT_FAIL_TEXT = {
+    invalid_input: '转换参数无效',
+    not_ready: '媒体服务未就绪，请稍后重试',
+    task_not_found: '录制任务不存在',
+    not_record: '仅录制任务支持转换',
+    not_resumable: '该任务状态不支持转换',
+    invalid_entry: '缓存条目无效或已失效',
+    segments_incomplete: '分片尚未缓存完整，请完整播放后再转换',
+  };
+
+  /**
    * 转换发起 IPC/弹框桥（player:convert/start 数据源，D-17 服务端复校——
    * 前端已隐藏按钮属纵深防御）：entryId（缓存条目）或 taskId（record 任务）
+   * 失败时统一补中文 error（UI Top2：renderer 直接展示，避免自建文案表）
+   * @param {{ entryId?: string, taskId?: string }} input
+   * @returns {Promise<{ok: boolean, taskId?: string, reason?: string, error?: string}>}
+   */
+  async function startConvertFromInput(input) {
+    const r = await startConvertFromInputRaw(input);
+    if (r && r.ok === false && !r.error) {
+      return { ...r, error: CONVERT_FAIL_TEXT[r.reason] || CONVERT_INPUT_FAIL_TEXT[r.reason] || '转换发起失败' };
+    }
+    return r;
+  }
+
+  /**
+   * 转换发起层实现（早拒；文案补齐见外层 startConvertFromInput）
    * @param {{ entryId?: string, taskId?: string }} input
    * @returns {Promise<{ok: boolean, taskId?: string, reason?: string}>}
    */
-  async function startConvertFromInput(input) {
+  async function startConvertFromInputRaw(input) {
     if (!input || typeof input !== 'object') return { ok: false, reason: 'invalid_input' };
     if (typeof input.taskId === 'string' && input.taskId) {
       if (!mediaTaskManager) return { ok: false, reason: 'not_ready' };

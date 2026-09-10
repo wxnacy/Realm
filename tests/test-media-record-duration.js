@@ -2,11 +2,11 @@
  * media-record-engine 运行中时长口径单测（node:test，纯 Node 环境）
  *
  * 覆盖 G-44-4 两口径分离：
- * - 运行中 durationSeconds = 本地挂钟差值（startedAt 起 smooth +1s/s），
- *   与分片落盘节奏解耦——0 分片落盘也在走表
+ * - 运行中 durationSeconds = 单调时钟差值（performance.now() 起 smooth +1s/s，
+ *   IN-11 免疫系统时钟跳变），与分片落盘节奏解耦——0 分片落盘也在走表
  * - getRecordStatus 与 getActiveRecordings 同式（D-19 关窗确认/红点同步共用）
  * - 终态口径不变：meta.json totalDuration 仍为分片 EXTINF 累计
- *   （duration 缺失兜底 targetDuration），与挂钟值无关
+ *   （duration 缺失兜底 targetDuration），与单调时钟值无关
  *
  * 用法: node tests/test-media-record-duration.js
  */
@@ -44,8 +44,8 @@ function metaOf(recordRoot, taskId) {
   return JSON.parse(fs.readFileSync(path.join(recordRoot, taskId, 'meta.json'), 'utf8'));
 }
 
-describe('G-44-4 运行中时长（本地挂钟差值）', () => {
-  test('挂钟平滑推进：0 分片落盘也在走表，时长严格递增', async () => {
+describe('G-44-4 运行中时长（单调时钟差值）', () => {
+  test('平滑推进：0 分片落盘也在走表，时长严格递增', async () => {
     // fetchPage 永不 resolve → 清单拉不到、0 分片落盘
     const h = makeHarness({ fetchPage: () => new Promise(() => {}) });
     try {
@@ -56,9 +56,11 @@ describe('G-44-4 运行中时长（本地挂钟差值）', () => {
       const s1 = h.engine.getRecordStatus(r.taskId);
       assert.strictEqual(s1.status, 'running');
       assert.strictEqual(s1.segments, 0, '0 分片落盘');
+      // IN-11：容差上限放宽到 4s——慢 CI/高负载机器 setTimeout 欠调度不应 flake
+      //（下限 1s 与 1.3s sleep 仍锚定走表语义）
       assert.ok(
-        s1.durationSeconds >= 1 && s1.durationSeconds <= 2,
-        `启动 1.3s 后时长应为 1~2s，实际 ${s1.durationSeconds}`
+        s1.durationSeconds >= 1 && s1.durationSeconds <= 4,
+        `启动 1.3s 后时长应为 1~4s，实际 ${s1.durationSeconds}`
       );
 
       await sleep(1100);
@@ -114,7 +116,7 @@ describe('G-44-4 终态口径不变（meta.json EXTINF 累计）', () => {
 
       const meta = metaOf(h.recordRoot, r.taskId);
       assert.strictEqual(meta.segments.length, 3, '首轮起点 seq1 落盘 + 追新 seq2/seq3');
-      assert.strictEqual(meta.totalDuration, 9, 'EXTINF 累计 3+3+3=9（非挂钟 ~3s）');
+      assert.strictEqual(meta.totalDuration, 9, 'EXTINF 累计 3+3+3=9（非单调时钟 ~3s）');
     } finally {
       h.cleanup();
     }

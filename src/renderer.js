@@ -395,7 +395,9 @@ function httpUrlToRealm(url) {
 /**
  * 若 URL 为 m3u8 视频文件，转换为播放器页面 URL（在当前 webview tab 内播放）
  * 携带容器与 token：播放器页面直连拉流（44-09 G-44-2，D-01：仅独立播放器
- * 窗口走 /proxy）；container/token 参数保留供页面上下文
+ * 窗口走 /proxy）；container/token 参数保留供页面上下文。
+ * CR-06 限制：直连受 CORS / Cookie / Referer 约束（详见 src/player.js 传输层
+ * 语义注释），「无 ACAO / 校验 Referer / Cookie 门控」的源站可能不可用
  * @param {string} url - 原始 URL
  * @param {string} [containerId] - 容器 ID
  * @returns {string} 播放器页面 URL 或原 URL
@@ -1970,6 +1972,9 @@ function showWebview(tabId) {
  * 无 Node 全局。
  * 判定标准：凡是用户交互瞬间触发的 guest webContents 销毁都走延迟；
  * 程序化静默销毁（错误恢复/tab 回收）与跨窗口移动语境不延迟。
+ * IN-10：delayMs 默认值与主进程 ipc-handlers.js 的 PLAYER_CLOSE_DESTROY_DELAY_MS
+ * 是同一规避窗口的跨进程两份副本（renderer 移除 webview / 主进程 destroy 播放器窗口
+ * 各一份），无共享常量是客观限制——改任一处必须同步另一处，规避效果以两端较小者为准。
  * @param {HTMLElement} webviewEl - webview 元素
  * @param {number} [delayMs=300] - 延迟毫秒数
  */
@@ -4410,6 +4415,7 @@ async function init() {
 
   // 初始化媒体任务终态 toast（Phase 44 G-44-5：convert/record 终态应用内提示）
   initMediaTaskToast();
+  initCacheWarningToast();
 
   // 初始化下载管理 UI
   initDownloads();
@@ -11008,6 +11014,8 @@ function initMediaTaskToast() {
     if (task.status === 'completed') {
       if (task.type === 'convert') {
         // 与 showTaskNotification 契约一致：MP4 转换完成：{文件名}
+        // IN-07：basename 提取与 main.js showTaskNotification 的 path.basename 是两份
+        // 实现（POSIX 下等价）——改任一处须同步另一处
         const base = task.outputPath
           ? task.outputPath.split('/').pop()
           : task.title;
@@ -11015,8 +11023,12 @@ function initMediaTaskToast() {
       } else {
         message = '录制已保存';
       }
+    } else if (task.type === 'record') {
+      // IN-07：record 的 task.error 不带前缀，与 showTaskNotification 的
+      // `录制失败：${task.error}` 契约对齐补前缀；convert 的 error 已带
+      // 「MP4 转换失败：」前缀（44-05），走下方分支不重复拼接
+      message = `录制失败：${task.error || '未知原因'}`;
     } else {
-      // failed：task.error 已带「MP4 转换失败：」等前缀（44-05），不重复拼接
       message = task.error || '任务失败';
     }
 
@@ -11029,6 +11041,29 @@ function initMediaTaskToast() {
 
     // 终态提示停留 5s，久于普通 3s toast
     showToast(message, type, { onClick, duration: 5000 });
+  });
+}
+
+/**
+ * 缓存告警 toast（UI Top1 / D-08 契约文案出口）
+ * 主进程 cache:warning 广播 → 契约文案：
+ * - auto_evicted：磁盘空间不足，已自动清理最久未看的缓存
+ * - disk_full：缓存写入失败：磁盘空间不足
+ * 文案单一来源在本函数（主进程只传 type，不持文案）；主进程侧已按 type 60s 节流
+ */
+function initCacheWarningToast() {
+  if (!(window.mediaAPI && window.mediaAPI.onCacheWarning)) return;
+
+  /** D-08 契约文案（UI-SPEC Copywriting，逐字一致） */
+  const CACHE_WARNING_TEXT = {
+    auto_evicted: '磁盘空间不足，已自动清理最久未看的缓存',
+    disk_full: '缓存写入失败：磁盘空间不足',
+  };
+
+  window.mediaAPI.onCacheWarning((payload) => {
+    const message = CACHE_WARNING_TEXT[payload && payload.type];
+    if (!message) return;
+    showToast(message, 'error', { duration: 5000 });
   });
 }
 

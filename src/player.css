@@ -473,16 +473,29 @@ body.fullscreen #title-bar {
    独立于 title-bar 显隐——录制中始终可见（D-20 与播放状态解耦） */
 #record-dot {
   position: absolute;
-  top: 9px;
-  right: 12px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #EF4444;
+  top: 2px;
+  right: 5px;
+  /* UI Top3：可点击热区 ≥24×24（原 10×10 远低于最小可点尺寸）；视觉红圆由
+     ::before 保持 10px，父盒仅承载热区与命中测试 */
+  width: 24px;
+  height: 24px;
   cursor: pointer;
   -webkit-app-region: no-drag;
   z-index: 101;
   display: none;
+}
+
+/* 视觉红点：10px 圆，居中于 24px 热区（闪烁动画随视觉层，不随热区） */
+#record-dot::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: #EF4444;
   animation: record-dot-blink 1s ease-in-out infinite;
 }
 
@@ -498,8 +511,10 @@ body.fullscreen #title-bar {
 /* 红点 hover tooltip：「已录 mm:ss · xxxMB」（tabular-nums） */
 #record-dot-tooltip {
   position: absolute;
-  top: 18px;
-  right: -4px;
+  /* UI Top3：父盒从 10px 扩到 24px 热区，补偿定位保持 tooltip 与旧布局同视觉位
+     （绝对 top 27px = 2 + 25；右边缘距窗口 8px = 5 + 3） */
+  top: 25px;
+  right: 3px;
   background: rgba(0, 0, 0, 0.85);
   color: var(--player-text);
   font-size: 13px;
@@ -691,14 +706,14 @@ body.fullscreen #drawer-panel {
    位于删除按钮左侧（CTA 用 accent 描边——UI-SPEC Primary CTA 语义） */
 .drawer-item-convert {
   position: absolute;
-  top: 8px;
+  top: 10px;
   right: 36px;
-  padding: 3px 10px;
+  padding: 4px 10px;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--player-accent);
-  background: rgba(59, 130, 246, 0.12);
-  border: 1px solid rgba(59, 130, 246, 0.45);
+  background: color-mix(in srgb, var(--player-accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--player-accent) 45%, transparent);
   border-radius: 6px;
   cursor: pointer;
   display: none;
@@ -773,7 +788,7 @@ body.fullscreen #drawer-panel {
 .drawer-delete-option {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin-top: 12px;
   font-size: 13px;
   color: var(--player-text-secondary);

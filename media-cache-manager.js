@@ -35,6 +35,15 @@ const VIDEO_ID_RE = /^[a-f0-9]{16}$/;
 /** 默认容量上限 10GB（D-06，设置页可改后经 constructor 注入覆盖） */
 const DEFAULT_CAPACITY_BYTES = 10 * 1024 * 1024 * 1024;
 
+// WR-A：写路径水位淘汰退避窗——单视频超容量等「当前可淘汰集合无法收敛」的形态下，
+// 每分片都触发一次全库扫描纯属浪费（自身被豁免 + 其余条目全活跃/已删空 → 结果恒不变）。
+// 一轮淘汰后 total 仍 > capacity 即设退避，窗内跳过水位全扫，到期后再试一次。
+const WATERMARK_EVICT_BACKOFF_MS = 60 * 1000;
+
+// UI Top1（D-08）：缓存告警上报节流窗——同一 type 在该窗内只上报一次
+//（disk_full 可能逐片失败、强淘可能连续命中，不节流会刷屏 toast）
+const CACHE_WARNING_THROTTLE_MS = 60 * 1000;
+
 /**
  * 单分片缓存大小上限（T-44-03 DoS：恶意超大分片不落盘，只透传不缓存）
  * @type {number}
@@ -80,8 +89,11 @@ class MediaCacheManager {
    * @param {Function} [opts.isVideoActive] - 淘汰豁免回调（D-07）：
    *   (playbackKey: string) => boolean，44-03 集成时注入 mediaTaskManager.isVideoActive，
    *   本模块不得直接 require media-task-manager（解耦靠注入）
+   * @param {Function} [opts.onCacheWarning] - 缓存告警回调（D-08 UI 出口）：
+   *   (type: 'auto_evicted'|'disk_full') => void，由 main.js 注入转 IPC 广播到主窗口
+   *   toast；文案在 UI 层按 type 映射，本模块不持文案
    */
-  constructor({ cacheRoot, capacityBytes, isVideoActive }) {
+  constructor({ cacheRoot, capacityBytes, isVideoActive, onCacheWarning }) {
     if (!cacheRoot || typeof cacheRoot !== 'string') {
       throw new Error('MediaCacheManager 需要 cacheRoot 参数');
     }
@@ -90,11 +102,17 @@ class MediaCacheManager {
       ? capacityBytes
       : DEFAULT_CAPACITY_BYTES;
     this.isVideoActive = typeof isVideoActive === 'function' ? isVideoActive : () => false;
+    // UI Top1（D-08 契约文案出口）：disk_full 写入失败 / 强淘成功经此上报
+    this.onCacheWarning = typeof onCacheWarning === 'function' ? onCacheWarning : () => {};
+    /** @type {Object<string, number>} type → 上次上报时间戳（节流，防每片刷屏） */
+    this._cacheWarningAt = {};
     this._rootRealCache = null;
     // CR-02 容量水位：null = 未初始化（进程内首次写盘前以磁盘实际总量惰性初始化）。
     // 此后每片 O(1) 加法累计，仅水位越过 capacityBytes 才触发一次全库扫描淘汰
     // （避免 storeBuffer 每片写盘后无条件全库扫描的性能回归——prohibition）。
     this._trackedTotal = null;
+    // WR-A：水位淘汰退避到期时间戳（0 = 无退避）；见 storeBuffer 写路径水位检查
+    this._watermarkEvictBackoffUntil = 0;
   }
 
   /** @see playbackKeyOf */
@@ -329,7 +347,7 @@ class MediaCacheManager {
    * 注意：本方法消费 readable（tee 出 passthrough），调用方拿返回值 pipe 给响应。
    * 调用契约（CR-05）：本方法内部处理 readable 的 'error'（destroy 双 tee + warn），
    * 调用方无需再给源流挂监听——只需在返回值（passthrough）上挂 'error' 收尾响应。
-   * @param {string} finalUrl - 分片最终 URL（重定向后，缓存 key）
+   * @param {string} finalUrl - 分片最终 URL（重定向后；缓存 key = sha256(本 URL) hex，非本值本身）
    * @param {string} videoId - 视频目录 ID
    * @param {import('stream').Readable} readable - 回源流（Readable.fromWeb(resp.body)）
    * @param {Object} [meta] - 附加元数据（如 title / contentType）
@@ -483,12 +501,17 @@ class MediaCacheManager {
       } else {
         this._trackedTotal += size;
       }
-      if (this._trackedTotal > this.capacityBytes) {
+      if (this._trackedTotal > this.capacityBytes && Date.now() >= this._watermarkEvictBackoffUntil) {
         try {
           // exempt 传正在写入的 videoId（防误删自己目录，与 _writeWithEvictRetry
           // ENOSPC 强淘同款豁免）；D-07 isVideoActive 活跃豁免在 evictIfNeeded 内部保持
           const r = this.evictIfNeeded(new Set([videoId]));
           this._trackedTotal = r.total;
+          // WR-A 退避：一轮淘汰后仍超容量 = 当前可淘汰集合无法收敛（单视频超限、
+          // 其余条目全活跃或已删空），继续逐片全扫结果恒不变——设退避窗跳过后续扫描
+          this._watermarkEvictBackoffUntil = r.total > this.capacityBytes
+            ? Date.now() + WATERMARK_EVICT_BACKOFF_MS
+            : 0;
         } catch (err) {
           console.warn('[Realm] 写路径容量淘汰失败:', err.message);
         }
@@ -497,6 +520,21 @@ class MediaCacheManager {
     } catch (err) {
       console.warn('[Realm] 分片写盘失败:', err.message);
       return { ok: false, reason: err.message };
+    }
+  }
+
+  /**
+   * 上报缓存告警（UI Top1 / D-08 UI 出口，按 type 节流）
+   * @param {'auto_evicted'|'disk_full'} type - 告警类型
+   */
+  _emitCacheWarning(type) {
+    const now = Date.now();
+    if (now - (this._cacheWarningAt[type] || 0) < CACHE_WARNING_THROTTLE_MS) return;
+    this._cacheWarningAt[type] = now;
+    try {
+      this.onCacheWarning(type);
+    } catch (err) {
+      console.warn('[Realm] 缓存告警上报失败:', err.message);
     }
   }
 
@@ -519,9 +557,13 @@ class MediaCacheManager {
       console.log(`[Realm] 强制淘汰释放 ${freed.freed} 字节，重试写盘`);
       try {
         fs.writeFileSync(file, buffer);
+        // D-08 强淘成功：上报 UI 展示「磁盘空间不足，已自动清理最久未看的缓存」
+        this._emitCacheWarning('auto_evicted');
         return { ok: true };
       } catch (retryErr) {
         console.error('[Realm] 强制淘汰后仍写盘失败:', retryErr.message);
+        // D-08 写入失败：上报 UI 展示「缓存写入失败：磁盘空间不足」
+        this._emitCacheWarning('disk_full');
         return { ok: false, reason: 'disk_full' };
       }
     }

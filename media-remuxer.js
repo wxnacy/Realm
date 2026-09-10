@@ -124,7 +124,11 @@ function sniffContainerFormat(filePath) {
     const bytesRead = fs.readSync(fd, buf, 0, SNIFF_READ_BYTES, 0);
     buf = buf.subarray(0, bytesRead);
   } catch (err) {
-    return remuxError('unsupported_container', `分片读取失败: ${err.message}`);
+    // IN-05：读取失败按成因分流——ENOENT 复用 segment_missing（已有「分片文件缺失」
+    // 文案，覆盖 existsSync 校验与嗅探之间的 TOCTOU 窗口：文件被淘汰/清理），
+    // 其他 IO 错误（权限等）用独立 reason，避免一律报「格式不支持」误导排查
+    const reason = err.code === 'ENOENT' ? 'segment_missing' : 'sniff_read_failed';
+    return remuxError(reason, `分片读取失败: ${err.message}`);
   } finally {
     if (fd !== undefined) {
       try { fs.closeSync(fd); } catch { /* 关闭失败忽略 */ }

@@ -1593,6 +1593,19 @@ contextBridge.exposeInMainWorld('mediaAPI', {
   },
 
   /**
+   * 监听缓存告警（UI Top1 / D-08 契约文案出口）
+   * 磁盘满强淘成功 / 缓存写入失败时主进程广播；主窗口据此 toast 契约文案
+   * （文案映射在 renderer，本通道只传 type，主进程不持文案）
+   * @param {Function} callback - 回调，参数 { type: 'auto_evicted'|'disk_full' }
+   * @returns {Function} 取消监听的清理函数
+   */
+  onCacheWarning: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('cache:warning', handler);
+    return () => ipcRenderer.removeListener('cache:warning', handler);
+  },
+
+  /**
    * 弹出系统目录选择对话框选取媒体缓存目录（Phase 44 D-05，T-44-08：
    * 缓存目录仅经 dialog 选取，不手输）
    * @returns {Promise<{success: boolean, path: string|null}>}

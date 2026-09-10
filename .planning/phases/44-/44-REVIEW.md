@@ -144,6 +144,8 @@ if (playerWindow && !playerWindow.isDestroyed()) {
 **Issue:** 判定① `buf[0] === 0x47` 只认第一个字节。部分 HLS 分片器会在 TS 流首部前置 ID3/timed-metadata PES 包（Apple HLS 的 TIMED-METADATA 惯例，mux.js 自身支持解析 TS 内 ID3），此时首字节是 `'I'`（0x49）而非 0x47——这类**完全合法且此前可正常转封装**的 TS 分片会落到判定②/④：若 64KB 内恰好含 box 特征 ASCII（如 ID3 文本帧内容）误判 `unsupported_container`（fMP4），否则被判定④「未知分片格式，仅支持 MPEG-TS」一律拒转。44-11 之前无嗅探，这些分片都能转换；本改动对它们是纯回归。test-media-remuxer 的「0x47 放行」用例只覆盖了首字节恰为 0x47 的形态，未覆盖 ID3 前导形态。
 **Fix:** 判定①放宽为 188 字节周期同步字节扫描：在缓冲区前 ~2×188 字节内寻找满足 `buf[i] === 0x47 && (i % 188 === 0)` 或连续两个 0x47 间隔 188 的位置即放行；同时判定②的 box 特征检索应限定在 box 起始偏移（`buf.readUInt32BE(0) === 期望size` 且 `buf.subarray(4,8)` 命中 tag），而不是全缓冲 `indexOf`，降低 payload ASCII 误报。补一条「ID3 前导 TS 放行」用例。
 
+**状态注记（2026-09-10，暂缓修复/记债）：** 逐行复核后确认代码事实成立（判定①仅 `buf[0] === 0x47`、判定②全缓冲 `indexOf`），但「首字节非 0x47 的 ID3 前导**合法** TS 分片」这一前提**未找到真实源站样本佐证**——TS 是 188 字节定长包，ID3/timed-metadata 通常作为 PES 仍在 0x47 包内，首字节游离于同步字节之外属罕见形态。故按**理论回归风险**而非确证缺陷处理，用户 2026-09-10 决定暂缓修复（与 Phase 28 DASH gap 同款 deferred 记法）。判定①的宽松语义与判定②的 payload ASCII 误报面**保持不变**；若后续出现真实误拒样本，按上方 Fix 修复并补「ID3 前导 TS 放行」用例。
+
 ### Info（前轮）
 
 #### IN-05: 首分片读取失败被映射为 `unsupported_container`，与既有 `segment_missing` 语义重叠且误导

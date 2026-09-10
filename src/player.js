@@ -310,10 +310,14 @@ function showError(message) {
 const urlParams = new URLSearchParams(window.location.search);
 const paramUrl = urlParams.get('url');
 
-// 传输层语义（44-09 G-44-2，D-01）：webview tab 模式播放器直连拉流——像网页自身
-// 播放一样直接访问源站，不经 /proxy；防盗链/Cookie 由 webview 容器 session 天然携带。
-// 仅独立窗口经 /proxy 同源代理：token 鉴权、Referer 可控，分片缓存仅此链路
-// （m3u8 清单由代理重写，分片/密钥请求同样走代理）
+// 传输层语义（44-09 G-44-2，D-01）：webview tab 模式播放器直连拉流，不经 /proxy；
+// 仅独立窗口经 /proxy 同源代理（token 鉴权、Referer 可控、分片缓存仅此链路，
+// m3u8 清单由代理重写，分片/密钥请求同样走代理）。
+// CR-06 限制（修正原注释「像网页自身播放一样 / Cookie 由 session 天然携带」的错误声明）：
+// 直连请求由 hls.js 以 XHR 发出，受 CORS 门控——webview 仅 contextIsolation=yes、
+// webSecurity 默认开启，源站不返回 ACAO 即被拦；跨源 XHR 默认不带凭据，容器 Cookie
+// 不会随之发送；Referer 为播放器页 localhost 而非源页面，防盗链站点会拒。故
+// 「无 ACAO / 校验 Referer / Cookie 门控」的源站可能不可用（UAT 仅覆盖开放 CORS 源）。
 
 // Phase 44 D-02：独立窗口 localhost 化后出现第三形态——http: 加载的独立窗口。
 // mode=independent 参数区分：保留标题栏与红绿灯（不进 webview tab 的隐藏标题栏
@@ -1002,12 +1006,13 @@ function syncDrawerConvertButton(el, item) {
     convert.disabled = true;
     try {
       const r = await window.playerAPI.startConvert({ entryId: item.playbackKey });
-      // cancelled = 用户在弹框取消，静默即可；其余失败原因主进程已记录日志
-      if (r && r.ok === false && r.reason && r.reason !== 'cancelled') {
-        console.warn('[Realm Player] 转换发起失败:', r.reason);
+      // cancelled = 用户在弹框取消，静默即可；其余失败主进程已补中文 error（UI Top2：
+      // 主 CTA 不能无声失败，用户点了按钮必须看到反馈）
+      if (r && r.ok === false && r.reason !== 'cancelled') {
+        showError(`MP4 转换失败：${r.error || '未知原因'}`);
       }
     } catch (err) {
-      console.warn('[Realm Player] 转换发起异常:', err);
+      showError(`MP4 转换失败：${err && err.message ? err.message : '未知原因'}`);
     } finally {
       convert.disabled = false;
     }
@@ -1195,9 +1200,15 @@ btnDrawerDeleteConfirm.addEventListener('click', async () => {
   if (!key || !window.playerAPI || !window.playerAPI.deleteCacheEntry) return;
   try {
     // G-44-8：第二参透传勾选态（缺省/false = 仅删缓存 D-16 原语义；true = 连观看历史条目删除）
-    await window.playerAPI.deleteCacheEntry(key, deleteEntry);
+    const r = await window.playerAPI.deleteCacheEntry(key, deleteEntry);
+    // IN-06：IPC 已把 historyDeleted 计入返回值——勾选「同时删除条目」却未删成功
+    //（db 异常等）时不能静默，否则确认框承诺未兑现且续播进度会「复活」
+    if (deleteEntry && r && r.historyDeleted === false) {
+      showError('观看历史删除失败');
+    }
   } catch (e) {
-    console.error('[Realm Player] 删除缓存失败:', e);
+    // UI Top2：删除缓存失败不能在 UI 上静默（文件占用等 IPC 失败用户无感知）
+    showError(`删除缓存失败：${e && e.message ? e.message : '未知原因'}`);
   }
   renderDrawer();
 });

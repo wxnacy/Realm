@@ -18,20 +18,22 @@
     <!-- 操作失败反馈条（G-44-9：textContent 写入、CSS 类初始隐藏、约 4s 自动消失） -->
     <div class="task-feedback hidden" id="taskFeedback" role="alert"></div>
 
+    <!-- 三个分区初始 hidden（CSS 类，非内联 style）：首次 loadTasks 网络往返期间不得
+         闪现空分区标题；loadTasks 返回后 renderZone 按有无任务 remove/add hidden -->
     <!-- 进行中 -->
-    <section class="tasks-section" id="tasksRunningSection">
+    <section class="tasks-section hidden" id="tasksRunningSection">
       <h2 class="tasks-section-title">进行中</h2>
       <div class="tasks-zone-list" id="tasksRunningList"></div>
     </section>
 
     <!-- 已完成 -->
-    <section class="tasks-section" id="tasksCompletedSection">
+    <section class="tasks-section hidden" id="tasksCompletedSection">
       <h2 class="tasks-section-title">已完成</h2>
       <div class="tasks-zone-list" id="tasksCompletedList"></div>
     </section>
 
     <!-- 失败已中断 -->
-    <section class="tasks-section" id="tasksFailedSection">
+    <section class="tasks-section hidden" id="tasksFailedSection">
       <h2 class="tasks-section-title">失败已中断</h2>
       <div class="tasks-zone-list" id="tasksFailedList"></div>
     </section>

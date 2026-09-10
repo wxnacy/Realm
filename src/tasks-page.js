@@ -17,6 +17,9 @@ let pollTimer = null;
 /** @type {number|null} 反馈条自动消失定时器（新操作覆盖重挂） */
 let feedbackTimer = null;
 
+/** @type {boolean} 是否已成功加载过一次任务列表（首次失败提示去重：5s 轮询失败不反复弹） */
+let hasLoadedOnce = false;
+
 // ==================== 主题同步 ====================
 
 /**
@@ -132,13 +135,28 @@ async function loadTasks() {
     const data = await response.json();
 
     if (data.success) {
+      hasLoadedOnce = true;
       renderTasks(data.tasks || []);
     } else {
       console.error('[Tasks Page] 获取任务列表失败:', data.error);
+      notifyFirstLoadFailure();
     }
   } catch (error) {
     console.error('[Tasks Page] 请求任务列表失败:', error);
+    notifyFirstLoadFailure();
   }
+}
+
+/**
+ * 首次加载失败的一次性提示
+ *
+ * 三区在 HTML 中初始 hidden（防首帧闪现空分区），加载失败时页面无内容——
+ * 复用 G-44-9 操作失败反馈条告知原因，仅首次（成功加载前）提示一次：
+ * 成功后置 hasLoadedOnce，5s 轮询的后续失败不再反复弹条
+ */
+function notifyFirstLoadFailure() {
+  if (hasLoadedOnce) return;
+  showTaskFeedback('任务列表加载失败，请稍后重试');
 }
 
 // ==================== 渲染 ====================

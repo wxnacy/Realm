@@ -31,6 +31,9 @@ const { playbackKeyOf, videoIdOf } = require('./media-cache-manager');
 // ACK 留出送达时间（Electron 43.3.0 上游 UAF——键盘 ACK 经
 // InputRouterImpl::KeyboardEventHandled 委派给已被同步销毁的
 // InspectableWebContents，触发条件即同步销毁窗口）
+// IN-10：本值与 renderer 侧 deferredRemoveWebview（src/renderer.js）的 delayMs 默认值
+// 是同一规避窗口的跨进程两份副本（主进程 destroy / renderer webview 移除各一份），
+// 无共享常量是客观限制——改任一处必须同步另一处，规避效果以两端较小者为准。
 const PLAYER_CLOSE_DESTROY_DELAY_MS = 300;
 
 // AI Manager 实例（由 main.js 通过 setAIManager 注入）
@@ -1983,6 +1986,8 @@ function registerHandlers() {
   let playerContainerId = null;
   /** @type {boolean} close 拦截放行标记（Pitfall 6 最终进度索取后二次 close） */
   let playerClosing = false;
+  /** @type {NodeJS.Timeout|null} 延迟销毁定时器句柄（IN-09：保存句柄以便复用分支撤销待定销毁） */
+  let pendingPlayerCloseTimer = null;
 
   /**
    * 校验播放器窗口 IPC 来源：仅接受来自当前播放器窗口的调用。
@@ -2049,6 +2054,21 @@ function registerHandlers() {
 
     // D-20: 窗口复用 -- 已有播放器窗口时替换播放
     if (playerWindow && !playerWindow.isDestroyed()) {
+      // WR-09：关窗序列已进入延迟销毁（hide 后 PLAYER_CLOSE_DESTROY_DELAY_MS 内）时
+      // 仍有用户点播到达——此时窗口已被判死刑，直接 send+focus 会随后的 close 一起
+      // 静默丢失（用户点了没反应）。撤销待定销毁并恢复显示，本次点播复用该窗口。
+      if (playerClosing) {
+        if (pendingPlayerCloseTimer) {
+          clearTimeout(pendingPlayerCloseTimer);
+          pendingPlayerCloseTimer = null;
+        }
+        playerClosing = false;
+        try {
+          if (!playerWindow.isVisible()) playerWindow.show();
+        } catch (err) {
+          console.warn('[Realm] 播放器窗口恢复显示失败:', err.message);
+        }
+      }
       playerContainerId = containerId;
       const mediaList = mediaSniffer.getMediaListByContainer(containerId);
       playerWindow.webContents.send('media:play-url', { url, mediaList, containerId, containerName });
@@ -2118,19 +2138,26 @@ function registerHandlers() {
           if (settled) return;
           settled = true;
           clearTimeout(finishTimer);
-          // G-44-2 诊断：留存本次销毁的 webContents id 与最近 URL
+          // G-44-2 诊断（WR-08：仅 dev/debug，与 main.js web-contents-created 销毁
+          // 诊断同款门控）：留存本次销毁的 webContents id 与最近 URL。生产/Nightly
+          // 零输出——URL 含媒体地址与签名 token，不得随 stdout 落系统日志
           //（销毁前后 getURL 可能抛错，try/catch 包裹）
-          try {
-            if (playerWindow && !playerWindow.isDestroyed()) {
-              console.log(`[Realm] 播放器窗口关闭销毁 webContents id=${playerWindow.webContents.id} url=${playerWindow.webContents.getURL()}`);
+          if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'debug') {
+            try {
+              if (playerWindow && !playerWindow.isDestroyed()) {
+                console.log(`[Realm] 播放器窗口关闭销毁 webContents id=${playerWindow.webContents.id} url=${playerWindow.webContents.getURL()}`);
+              }
+            } catch (diagErr) {
+              console.warn('[Realm] 播放器窗口销毁诊断日志失败:', diagErr.message);
             }
-          } catch (diagErr) {
-            console.warn('[Realm] 播放器窗口销毁诊断日志失败:', diagErr.message);
           }
           // G-44-2 规避：先隐藏再延迟销毁（PLAYER_CLOSE_DESTROY_DELAY_MS），
           // 关闭瞬时不再有同步销毁窗口，给在途键盘事件 ACK 留出送达时间。
           // playerClosing 必须在此同步置位（早于定时器回调触发的 close 事件），
           // 保证延迟 close 经 'close' handler 旁路判断直接放行、不重入确认序列。
+          // IN-09 语义提示：playerClosing 同时承担「防重入确认」与「旁路放行」两职，
+          // 意味着 player:close IPC 与退出 teardown 的 close 事件都会经此标志同步销毁
+          // （放弃延迟规避）——这是可接受取舍（窗口此时已 hide，用户无输入入口）。
           // 延迟期间窗口若已被销毁，静默跳过
           playerClosing = true;
           try {
@@ -2138,7 +2165,9 @@ function registerHandlers() {
           } catch (err) {
             console.warn('[Realm] 播放器窗口关闭隐藏失败:', err.message);
           }
-          setTimeout(() => {
+          // IN-09：保存句柄，供复用分支（WR-09）撤销待定销毁
+          pendingPlayerCloseTimer = setTimeout(() => {
+            pendingPlayerCloseTimer = null;
             try {
               if (playerWindow && !playerWindow.isDestroyed()) playerWindow.close();
             } catch (err) {
@@ -2206,6 +2235,11 @@ function registerHandlers() {
       playerWindow = null;
       playerContainerId = null;
       playerClosing = false;
+      // IN-09：窗口已销毁，残留的待定销毁定时器无意义——清理防悬挂
+      if (pendingPlayerCloseTimer) {
+        clearTimeout(pendingPlayerCloseTimer);
+        pendingPlayerCloseTimer = null;
+      }
     });
 
     // 全屏状态变化时通知渲染进程（Electron setFullScreen 不会触发 DOM fullscreenchange）
@@ -2520,6 +2554,10 @@ function registerHandlers() {
 
   /**
    * 关闭播放器窗口（per D-04）
+   * IN-09：常规调用（窗口可见、playerClosing=false）经 'close' handler 正常进入
+   * hide+延迟销毁序列；仅当已处于延迟销毁窗口内（playerClosing=true、窗口已 hide）
+   * 时，本通道会经旁路判断**同步**销毁——该形态可达性极低（隐藏窗口无 renderer
+   * 输入入口），作为 playerClosing 承载「防重入 + 旁路放行」双语义的已知取舍记录。
    */
   ipcMain.handle('player:close', (event) => {
     const win = assertPlayerSender(event);
