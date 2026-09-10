@@ -291,6 +291,16 @@ function isManagedWindow(winId) {
 }
 
 /**
+ * 获取指定 ID 的窗口实例
+ * @param {number} windowId - 窗口 ID
+ * @returns {Electron.BrowserWindow|null} 窗口实例（不存在或已销毁返回 null）
+ */
+function getWindow(windowId) {
+  const win = windows.get(windowId);
+  return win && !win.isDestroyed() ? win : null;
+}
+
+/**
  * 向所有未销毁的窗口广播 IPC 消息
  * 替代原来 mainWindow.webContents.send() 的单窗口发送模式，
  * 确保多窗口场景下所有窗口都能收到事件通知（如容器切换、书签刷新等）
@@ -396,6 +406,7 @@ module.exports = {
   getCurrentContainer,
   switchContainer,
   isManagedWindow,
+  getWindow,
   broadcast,
   closeWindowWithTabs,
   getWindowCount,

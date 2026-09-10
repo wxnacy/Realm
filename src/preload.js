@@ -219,6 +219,15 @@ contextBridge.exposeInMainWorld('realmAPI', {
   },
 
   /**
+   * 监听 AI 工具发起的关闭标签页请求
+   * 主进程 close_tab 工具向标签页所属窗口推送，渲染进程复用完整 closeTab 生命周期
+   * @param {Function} callback - 回调函数，参数为 { tabId }
+   */
+  onTabAiClose: (callback) => {
+    ipcRenderer.on('tab:ai-close', (event, data) => callback(data));
+  },
+
+  /**
    * 监听 Tab 创建事件（跨窗口移动/新窗口创建时，主进程通知目标窗口）
    * @param {Function} callback - 回调函数，参数为 { tab }
    * @returns {Function} 取消监听函数

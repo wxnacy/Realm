@@ -1138,6 +1138,47 @@ function handleTabRecycled(data) {
 }
 
 /**
+ * 处理 AI 工具发起的关闭标签页请求（tab:ai-close）
+ * 主进程 close_tab / close_tabs 工具向标签页所属窗口推送此事件。
+ * 支持三种载荷：
+ * - { tabId }：关闭单个标签页
+ * - { tabIds: [...] }：批量关闭显式列表（主进程已按窗口分组）
+ * - { action: 'others'|'left'|'right', tabId }：锚点式批量关闭，
+ *   复用右键菜单同款切分逻辑（窗口内顺序权威在渲染端 state.tabs）
+ * 均复用完整 closeTab 生命周期（入已关闭栈、清媒体列表、销毁 webview、切换活动 tab）
+ * @param {{tabId?: string, tabIds?: string[], action?: string}} data - 关闭请求数据
+ */
+function handleAiCloseTab(data) {
+  if (!data) return;
+
+  // 批量显式列表：逐个关闭（与右键菜单 close-other-tabs 的 forEach 一致）
+  if (Array.isArray(data.tabIds)) {
+    data.tabIds.forEach(id => {
+      if (typeof id === 'string') closeTab(id);
+    });
+    return;
+  }
+
+  if (typeof data.tabId !== 'string') return;
+
+  // 锚点式批量关闭：映射到右键菜单处理器的对应 case
+  if (data.action && data.action !== 'list') {
+    const channelMap = {
+      others: 'context-menu:close-other-tabs',
+      left: 'context-menu:close-left-tabs',
+      right: 'context-menu:close-right-tabs',
+    };
+    const channel = channelMap[data.action];
+    if (channel) {
+      handleContextMenuAction(channel, { tabId: data.tabId });
+      return;
+    }
+  }
+
+  closeTab(data.tabId);
+}
+
+/**
  * 获取容器颜色
  * @param {string} containerId - 容器 ID
  * @returns {string} 颜色值
@@ -4093,6 +4134,9 @@ async function init() {
 
   // 监听主进程的 Tab 回收事件（WR-4）
   window.realmAPI.onTabRecycled(handleTabRecycled);
+
+  // 监听 AI 工具发起的关闭标签页请求（close_tab 工具）
+  window.realmAPI.onTabAiClose(handleAiCloseTab);
 
   // 注册右键菜单动作回调
   window.realmAPI.onContextMenuAction(handleContextMenuAction);
