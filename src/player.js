@@ -771,7 +771,8 @@ if (window.playerAPI && window.playerAPI.onRequestFinalProgress) {
 /** 降级提示条元素（动态创建，避免改 player.html） */
 const cacheFallbackBanner = document.createElement('div');
 cacheFallbackBanner.className = 'cache-fallback-banner';
-cacheFallbackBanner.textContent = '部分分片加载失败，已缓存部分可继续观看';
+// 文案由 showCacheFallbackBanner 按「当前视频是否真有缓存」逐次决定（UI 评审：
+// 零缓存的新视频首次遇网络错误时不得声称「已缓存部分可继续观看」）
 cacheFallbackBanner.style.display = 'none';
 playerContainer.appendChild(cacheFallbackBanner);
 
@@ -782,7 +783,28 @@ let bannerTimer = null;
  * 显示降级提示条：断网/源站失效时告知用户已缓存部分可继续观看，
  * 约 4 秒自动消失，不打断播放
  */
-function showCacheFallbackBanner() {
+/**
+ * 显示缓存降级提示条（D-10）
+ *
+ * UI 评审：原实现固定文案「部分分片加载失败，已缓存部分可继续观看」，但对**未缓存过
+ * 的新视频**首次播放遇网络错误同样显示，此时并没有任何缓存可看——文案与真实状态矛盾。
+ * 改为按当前视频是否已有缓存分档（复用既有 playerAPI.getDrawerList 的 cacheSize，
+ * 不新增通道）；查询失败按「无缓存」处理（更保守，不声称有缓存）。
+ */
+async function showCacheFallbackBanner() {
+  let hasCache = false;
+  try {
+    if (window.playerAPI && window.playerAPI.getDrawerList && state.currentUrl) {
+      const key = playbackKeyOfUrl(state.currentUrl);
+      const items = (await window.playerAPI.getDrawerList()) || [];
+      const item = items.find((it) => it.playbackKey === key);
+      hasCache = !!(item && item.cacheSize > 0);
+    }
+  } catch { /* 查询失败按无缓存处理 */ }
+
+  cacheFallbackBanner.textContent = hasCache
+    ? '部分分片加载失败，已缓存部分可继续观看'
+    : '网络不稳定，部分分片加载失败，正在重试…';
   cacheFallbackBanner.style.display = 'flex';
   clearTimeout(bannerTimer);
   bannerTimer = setTimeout(() => {

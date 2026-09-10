@@ -67,6 +67,7 @@ Exceptions: 进度条 track 高度 3px/5px（hover 变高，与 player.css 现�
 | Display（任务页页面标题） | 20px | 600 | 1.2 |
 
 - 字重只用 400 + 600 两档（player.css 现行惯例：控制按钮 600、时间显示 400）
+- **徽标档例外（UI 评审定档）**：状态徽标/胶囊内的短文本可用 12px、纯数字胶囊（`min-width:16px` 容器内）可用 10px——徽标是受限容器内的微排版，套用正文档会溢出或撑破形状；正文类元素（如抽屉「转换为 MP4」CTA）一律不低于 13px。已按此收敛 `player.css` 的 CTA 字号（12→13px），`.task-badge`（12px）/`.media-task-badge`（10px）保留。
 - 时间/时长/大小一律 `font-variant-numeric: tabular-nums`（沿用 `.time-display` 现值），录制红点旁的已录时长同此
 - 抽屉条目标题单行截断：`white-space: nowrap; overflow: hidden; text-overflow: ellipsis`（沿用 `.title-bar-text` 惯例）
 
@@ -117,7 +118,7 @@ Exceptions: 进度条 track 高度 3px/5px（hover 变高，与 player.css 现�
 | Empty state body（抽屉列表） | 「播放过的视频会出现在这里，重开可从上次位置继续」 |
 | Empty state heading（任务页） | 「暂无媒体任务」 |
 | Empty state body（任务页） | 「直播录制和 MP4 转换任务会在这里显示进度」（D-26：入口在设置页多媒体分区，空态需可直达） |
-| Error state（断网/源站失效降级，D-10） | 「部分分片加载失败，已缓存部分可继续观看」 |
+| Error state（断网/源站失效降级，D-10） | 有缓存：「部分分片加载失败，已缓存部分可继续观看」；**无缓存（新视频首次遇错）**：「网络不稳定，部分分片加载失败，正在重试…」——按当前视频 `cacheSize > 0` 分档（UI 评审修订：原固定文案在零缓存场景与事实矛盾） |
 | Error state（磁盘满，D-08） | 「磁盘空间不足，已自动清理最久未看的缓存」→ 仍失败：「缓存写入失败：磁盘空间不足」 |
 | Error state（录制失败） | 「录制失败：{原因}。已录部分仍可转换为 MP4」 |
 | Error state（转封装失败） | 「MP4 转换失败：{原因}」 |

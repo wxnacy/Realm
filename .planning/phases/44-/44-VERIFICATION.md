@@ -52,7 +52,7 @@ covered_files:
   - src/player.css
   - package.json
   - ua-ch-manager.js
-covered_digest: "v1:sha256:59332c1f16415c9fda1a3400b166bd685719290f544f8a7062dbfecc17c7cbec"
+covered_digest: "v1:sha256:1f09ed166ac9abbd82cad4c4e37210e7c4d5332f7aff996b25fe64f014dfc5ab"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
@@ -87,7 +87,7 @@ human_verification:
 **Verified:** 2026-09-07T11:49:14Z
 **Status:** passed（代码层 0 失败 gap；11/11 核实——原 1 项 PRESENT_BEHAVIOR_UNVERIFIED 与 2 项视觉项已由 UAT Round 3/4 真机验收通过，证据见 44-UAT.md）
 **Re-verification:** Yes — 第三轮 gap-closure 后复验（UAT 第二轮发现 G-44-2/4/6 三 gap；本轮 44-14/44-15/44-16 三计划闭合，commit 334adc3..855f048）
-**Fingerprint refresh（2026-09-10）:** `covered_files` 回填后补的 44-17/44-18 PLAN·SUMMARY 与 44-UI-REVIEW.md，`covered_digest` 按当前字节重算（`v1:sha256:18414eb2…`）。此前状态为 stale 属**指纹陈旧**（gaps 计划后补未入清单），非验证结论变化。
+**Fingerprint refresh（2026-09-10）:** `covered_files` 回填后补的 44-17/44-18 PLAN·SUMMARY 与 44-UI-REVIEW.md，`covered_digest` 按当前字节重算（最终值 `v1:sha256:1f09ed16…`，期间因 UAT 归档改写与 UI 评审 minor 收敛两次重算）。此前状态为 stale 属**指纹陈旧**（gaps 计划后补未入清单），非验证结论变化。
 **Human verification（UAT Round 3/4，2026-09-07）:** 原 3 项 human-only 全部通过 —— Round 3 #1（G-44-2 真机 5 轮「开始录制→停止→关窗」无 SIGSEGV）、#2（红点时长每秒平滑 +1）、#3（抽屉「时钟图标+时间」并排常显）；Round 4 收官 4/4 全过（含 G-44-7 加密源真机转出有效 mp4 复验）。`behavior_unverified` 由 1 归 0。
 
 ## Goal Achievement
@@ -287,6 +287,18 @@ re_verification:
 ### 第四轮 Gaps Summary
 
 **代码层 0 failed gap。** G-44-7 双因链闭合：44-17 把产物创建从异步 open 改为同步 fd（openSync 'w' → createWriteStream {fd}），失败清理从「竞态」变「确定」——凡 encrypted_stream/unsupported_container/cancelled/早期 transmux 异常路径均不再泄漏 0 字节文件，回归测试两例延迟 ≥100ms 存在性断言行为性锁定；44-18 把加密检测下沉到清单解析层（hasEncryption/keyUris），缓存层排除密钥 URI 落库（enc.key 53>52 失配根治），转换双入口弹框前早拒 + 抽屉按钮隐藏，历史污染条目读取侧自愈带前提钉死。三个测试套件实跑 69 用例零失败；锁定文件（settings 两文件）零触碰；7 个提交全部存在。**状态：代码层通过，端到端真机 2 项留 UAT 第四轮（并入前轮 human 清单）。**
+
+---
+
+## Acknowledged Gaps（2026-09-10 用户决策「记录即可，不改」）
+
+44-UI-REVIEW.md 的下列 3 项 minor 经用户评估后**接受不改**（改动会碰结构或关闭时序，成本/风险不成比例，且评审自述「可辩护 / 已记录偏离理由」）。其余 UI minor 已修（见 44-UI-SPEC 的 Copywriting/Typography 修订与组件收敛）：
+
+| # | UI 评审项 | 位置 | 接受理由 |
+|---|-----------|------|----------|
+| 1 | 主窗口媒体角标形态偏离 Component #9（实现为「图标按钮 + 16px 数字胶囊」而非 spec 的「8px 圆点」） | `src/index.html:277-283` + `main.css` + `src/renderer.js` | 评审自述「视觉可辩护（与其他工具栏按钮同构）」；改形态需动 DOM 结构 + 点击跳转 + `running===0` 隐藏逻辑，收益低 |
+| 2 | 关窗确认实现偏离 Component #6（主进程 `dialog.showMessageBox` 而非渲染层原生 `<dialog>`） | `ipc-handlers.js:2155` | 44-04 已记录偏离理由（与 close 拦截同层、销毁时序可控）；该段正是 G-44-2（SIGSEGV）刚收窄的时序，动它风险不成比例 |
+| 3 | 任务页无 loading 指示、5s 轮询失败不可见 | `src/tasks-page.js` | 首次加载失败已补一次性反馈条（本次）；剩余「加载中指示」「连续失败提示」为体验增强，非缺陷 |
 
 ---
 

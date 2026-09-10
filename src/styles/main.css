@@ -1336,7 +1336,7 @@ textarea::placeholder {
 }
 
 .btn-danger-icon:hover {
-  background-color: rgba(239, 68, 68, 0.1);
+  background-color: color-mix(in srgb, var(--danger-color) 10%, transparent);
 }
 
 .cookie-edit-modal {
@@ -3424,7 +3424,7 @@ textarea::placeholder {
 
 .devmode-domain-list .domain-remove:hover {
   color: var(--danger-color);
-  background: rgba(239, 68, 68, 0.1);
+  background: color-mix(in srgb, var(--danger-color) 10%, transparent);
 }
 
 .devmode-domain-list .domain-empty {
@@ -4965,7 +4965,7 @@ textarea::placeholder {
 }
 
 .ai-env-var-hint.env-not-found {
-  background: rgba(239, 68, 68, 0.08);
+  background: color-mix(in srgb, var(--danger-color) 8%, transparent);
   color: var(--text-secondary);
 }
 
@@ -5310,7 +5310,7 @@ textarea::placeholder {
   font-size: 14px;
   color: var(--danger-color, #ef4444);
   padding: 8px;
-  background: rgba(239, 68, 68, 0.08);
+  background: color-mix(in srgb, var(--danger-color) 8%, transparent);
   border-radius: 4px;
 }
 
@@ -6420,7 +6420,7 @@ textarea::placeholder {
 }
 
 .ai-send-btn-toolbar.stop-mode:hover {
-  background-color: rgba(239, 68, 68, 0.1);
+  background-color: color-mix(in srgb, var(--danger-color) 10%, transparent);
 }
 
 /* 模型选择器下拉框 */
@@ -7206,7 +7206,7 @@ textarea::placeholder {
 
 /* 高风险 */
 .risk-high {
-  background: rgba(239, 68, 68, 0.15);
+  background: color-mix(in srgb, var(--danger-color) 15%, transparent);
   color: #EF4444;
 }
 
@@ -7654,7 +7654,7 @@ textarea::placeholder {
 /* 错误 */
 .script-step-item.step-error {
   border-left: 3px solid var(--danger-color);
-  background: rgba(239, 68, 68, 0.05);
+  background: color-mix(in srgb, var(--danger-color) 5%, transparent);
   padding-left: 8px;
 }
 
@@ -7685,8 +7685,8 @@ textarea::placeholder {
 .step-error-panel {
   margin-top: 8px;
   padding: 8px;
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: color-mix(in srgb, var(--danger-color) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger-color) 20%, transparent);
   border-radius: 6px;
   font-size: 12px;
 }
@@ -7734,7 +7734,7 @@ textarea::placeholder {
 }
 
 .step-abort-btn:hover {
-  background: rgba(239, 68, 68, 0.1) !important;
+  background: color-mix(in srgb, var(--danger-color) 10%, transparent) !important;
 }
 
 /* ==================== 步骤内联编辑器 ==================== */
@@ -7960,7 +7960,7 @@ textarea::placeholder {
 
 .tab-group-section-actions button:hover {
   color: var(--danger-color);
-  background: rgba(239, 68, 68, 0.1);
+  background: color-mix(in srgb, var(--danger-color) 10%, transparent);
 }
 
 /* 标签页列表 */
@@ -8438,7 +8438,7 @@ textarea::placeholder {
 
 .whitelist-tag-remove:hover {
   color: var(--danger-color);
-  background: rgba(239, 68, 68, 0.1);
+  background: color-mix(in srgb, var(--danger-color) 10%, transparent);
 }
 
 /* 白名单空提示 */
@@ -8594,7 +8594,7 @@ textarea::placeholder {
 }
 
 .find-close-btn:hover {
-  background-color: rgba(239, 68, 68, 0.2);
+  background-color: color-mix(in srgb, var(--danger-color) 20%, transparent);
   color: #EF4444;
 }
 
@@ -8834,7 +8834,7 @@ textarea::placeholder {
 
 .download-panel-clear-btn:hover {
   color: var(--danger-color);
-  background: rgba(239, 68, 68, 0.1);
+  background: color-mix(in srgb, var(--danger-color) 10%, transparent);
 }
 
 .download-panel-view-all {
@@ -9374,7 +9374,7 @@ textarea::placeholder {
   padding: 8px 12px;
   font-size: 13px;
   color: var(--danger-color);
-  background: rgba(239, 68, 68, 0.08);
+  background: color-mix(in srgb, var(--danger-color) 8%, transparent);
   border: 1px solid var(--danger-color);
   border-radius: 6px;
   word-break: break-all;

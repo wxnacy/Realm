@@ -175,7 +175,7 @@ body.webview-player #player {
   align-items: center;
   padding: 8px 16px;
   border-radius: 6px;
-  background: rgba(20, 20, 20, 0.85);
+  background: rgba(0, 0, 0, 0.85);
   color: var(--player-text-secondary);
   font-size: 14px;
   line-height: 1.4;
@@ -709,7 +709,7 @@ body.fullscreen #drawer-panel {
   top: 10px;
   right: 36px;
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--player-accent);
   background: color-mix(in srgb, var(--player-accent) 12%, transparent);
@@ -765,7 +765,7 @@ body.fullscreen #drawer-panel {
 /* 原生 dialog + showModal()：全局 * { margin: 0 } 会清掉 UA 居中，必须显式 margin: auto */
 #drawer-delete-dialog {
   margin: auto;
-  background: rgba(20, 20, 20, 0.95);
+  background: rgba(0, 0, 0, 0.85);
   color: var(--player-text);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 8px;

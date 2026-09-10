@@ -20,6 +20,9 @@ let feedbackTimer = null;
 /** @type {boolean} 是否已成功加载过一次任务列表（首次失败提示去重：5s 轮询失败不反复弹） */
 let hasLoadedOnce = false;
 
+/** @type {boolean} 是否有任务操作请求在途（防重复点击，见 apiAction） */
+let actionInFlight = false;
+
 // ==================== 主题同步 ====================
 
 /**
@@ -103,22 +106,32 @@ function bindZoneActions() {
       if (!target) return;
       e.stopPropagation();
 
-      // 停止/取消任务
-      if (target.classList.contains('task-cancel-btn')) {
-        await apiAction(`/api/tasks/cancel`, { taskId: target.dataset.id });
-        return;
-      }
+      // UI 评审：防重复点击——立即禁用触发按钮（视觉反馈），请求结束后恢复。
+      // 恢复必须显式做：失败路径不重建列表（catch 分支不调 loadTasks），
+      // 不恢复会让按钮一直禁用；列表被轮询重建时元素已脱离文档，跳过即可。
+      // 在途期间的重复提交由 apiAction 的请求级守卫兜底。
+      if (target.disabled) return;
+      target.disabled = true;
+      try {
+        // 停止/取消任务
+        if (target.classList.contains('task-cancel-btn')) {
+          await apiAction(`/api/tasks/cancel`, { taskId: target.dataset.id });
+          return;
+        }
 
-      // 定位产物
-      if (target.classList.contains('task-show-folder-btn')) {
-        await apiAction(`/api/tasks/show-in-folder`, { taskId: target.dataset.id });
-        return;
-      }
+        // 定位产物
+        if (target.classList.contains('task-show-folder-btn')) {
+          await apiAction(`/api/tasks/show-in-folder`, { taskId: target.dataset.id });
+          return;
+        }
 
-      // 已落盘部分续转（44-05 落地前端点返回 404，此处仅透传错误）
-      if (target.classList.contains('task-resume-convert-btn')) {
-        await apiAction(`/api/tasks/convert-resume`, { taskId: target.dataset.id });
-        return;
+        // 已落盘部分续转（44-05 落地前端点返回 404，此处仅透传错误）
+        if (target.classList.contains('task-resume-convert-btn')) {
+          await apiAction(`/api/tasks/convert-resume`, { taskId: target.dataset.id });
+          return;
+        }
+      } finally {
+        if (target.isConnected) target.disabled = false;
       }
     });
   }
@@ -307,6 +320,10 @@ function renderActions(task) {
  * @param {Object} body - 请求体
  */
 async function apiAction(path, body = {}) {
+  // UI 评审：停止/续转等操作未防重复点击。以**请求级守卫**拦截在途期间的重复提交——
+  // 按钮 disabled 只是即时反馈，5s 轮询会重建列表 DOM 冲掉禁用态，故真正生效的是本守卫
+  if (actionInFlight) return false;
+  actionInFlight = true;
   try {
     const response = await fetch(`${path}?token=${realmToken}`, {
       method: 'POST',
@@ -326,6 +343,8 @@ async function apiAction(path, body = {}) {
     console.error(`[Tasks Page] API 请求失败: ${path}`, error);
     showTaskFeedback('请求失败，请重试');
     return false;
+  } finally {
+    actionInFlight = false;
   }
 }
 
