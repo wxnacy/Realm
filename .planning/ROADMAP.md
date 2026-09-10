@@ -136,6 +136,7 @@ v2.6 把 AI 助手推进到**可扩展能力体系**：接入 pi-agent-core 原�
 **Granularity note:** `granularity: coarse` 允许合并 46+47 与 48+49；本路线图**刻意保留 6 个阶段**，因为每个 S1 门禁需要独立归属与独立验收面（P1 归 47、P2/P4 归 51、P3 拆到 46 与 51），合并会让门禁与"同阶段交付"的硬约束互相遮蔽。
 
 **Hard ordering（不可调换）:**
+
 1. 技能目录必须先落入 agent 工作区沙箱（46）——否则模型看得到 `location` 却永远 `read` 不到，静默失效。
 2. `manage_skill`（49）必须先于任何其他写入路径（设置页 50 / 导入 51）——name / description / 大小 / 注入校验只能有一份实现。
 3. bash「包管理器安装」档必须与内置技能播种同阶段（47）——否则 P1 门禁形同虚设。
@@ -151,36 +152,53 @@ v2.6 把 AI 助手推进到**可扩展能力体系**：接入 pi-agent-core 原�
 ## Phase Details
 
 ### Phase 46: 技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）
+
 **Goal**: AI 助手每次请求都能看到位于硬沙箱内、可被 `read` 工具读取的技能清单；技能集变更即时生效，同名冲突与加载诊断不静默。
 **Depends on**: Nothing (v2.6 首个阶段)
 **Requirements**: SKILL-01, SKILL-02, SKILL-03, SKILL-04, SKILL-05, SKILL-06, SKILL-07, SKILL-08, DOC-01
 **Success Criteria** (what must be TRUE):
+
   1. 应用启动后 `agent-workspace/skills/` 与 `agent-workspace/managed-skills/` 自动存在，且 AI 的 `read` 工具能在沙箱内成功读取其中任意 `SKILL.md`（不再出现"看到 location 却读不到文件"的静默失效）。
   2. 技能集非空时 system prompt 含 `<available_skills>`（name / description / location）；无技能时该段完全为空（不注入空标签）。
   3. 安装 / 卸载 / 启用禁用 / `manage_skill` 变更后，无需重启应用或重建 Agent，下一条消息即按新技能集生效，且变更经广播同步到其他窗口。
   4. 用户技能与 managed 技能同名时 user 版本胜出、managed 版本被遮蔽，冲突对用户可见（不静默去重）。
   5. 非法 name / 超长 description / YAML 解析失败 / 超限的技能不静默消失：产出含"哪个限额、当前值"的可读诊断，可被上层读出。
+
 **Plans:** 4 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 46-01-PLAN.md — tracer 端到端纵切（目录 → 沙箱加载 → 缓存 → prompt 第 4 段 → 可 read）+ 加载面收窄薄 env + SKILL-01/02/03 断言
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 46-02-PLAN.md — 加载后管线：契约布局过滤 / 名称目录名权威重写（杜绝冒名）/ 同名遮蔽去重（SKILL-05/06）
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 46-03-PLAN.md — 诊断合并与双层降级 / 三限额生效与确定性定序 / 启停只过滤不删文件（SKILL-06/07/08）
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 46-04-PLAN.md — Agent prompt 回写（D-03）与 P8 失效链 / P8 门禁映射表 / DOC-01 产品文档骨架
 
-**Security gate**: P8（S2，阻断门禁）技能缓存失效链。**本阶段只存在并交付其中 3 个触发点**：① `init()` Agent 创建点、② `_recreateAgent()` Agent 创建点、⑥ bash/write 工具直改 `skills/`（以"每次 Agent 重建都无条件重扫一次"兜底）。其余 3 点（`/` 面板列表 → 48、设置页导入/卸载 → 50/51、`manage_skill` 三动作 → 49）在本阶段**尚无写路径**，按 46-04 的 `<p8_gate_mapping>` 逐点交接给对应阶段，**不得声称 6 点全覆盖**。本阶段的机制断言：`ai-manager.js` 每个 `new Agent(` 之前 60 行内必须存在 `refreshSkills(`，且两者计数相等（漏接线即红）。
+**Security gate**: P8（S2，阻断门禁）技能缓存失效链。**本阶段只存在并交付其中 3 个触发点**：① `init()` Agent 创建点、② `_recreateAgent()` Agent 创建点、⑥ bash/write 工具直改 `skills/`（以"每次 Agent 重建都无条件重扫一次"兜底）。其余 3 点（`/` 面板列表 → 48、设置页导入/卸载 → 50/51、`manage_skill` 三动作 → 49）在本阶段**尚无写路径**，按 46-04 的 `<p8_gate_mapping>` 逐点交接给对应阶段，**不得声称 6 点全覆盖**。本阶段的机制断言：`ai-manager.js` 每个 `new Agent(` 之前 60 行内必须存在 `refreshSkills(`（**创建点覆盖断言**；`syncAgentSystemPrompt()` 等非创建点调用不参与判定 —— **不得**改写成「`refreshSkills(` 与 `new Agent(` 调用次数相等」）。漏接线即红。
 **Doc sync**: 本阶段新建 `docs/product/ai-skills.md`（能力 / 双目录 / 优先级 / 限额 / 沙箱边界 / 已知限制骨架）；后续阶段按 AGENTS.md 维护约定增量补齐各自章节。
 
 ### Phase 47: 内置技能播种 + bash 策略加固
+
 **Goal**: 随包分发的两个内置技能可用且不含任何"执行外部安装"语义；包管理器安装命令不再可能被白名单免确认。
 **Depends on**: Phase 46
 **Requirements**: SKILL-09, SEED-01, SEED-02, SEED-03, SEED-04, SEED-05, SEC-01, DOC-02
 **Success Criteria** (what must be TRUE):
+
   1. 首次启动后 `managed-skills/` 出现 find-skills 与 skill-creator 两个技能，技能加载器识别其 name / description 且零诊断；重启不重复播种、不覆盖用户修改（版本戳登记表幂等）。
   2. 内置技能全文不含 `npx` / `npm i` / `curl | sh` / `-y` / `-g` 等"执行外部安装"语义；find-skills 只输出候选清单并引导用户到设置页一键导入。
   3. `npx` / `npm i` / `pnpm add` / `pip install` / `brew install` 无论是否在白名单内，执行前都必须弹出确认卡片（白名单不可越过）。
   4. 技能自带 `scripts/` 可以在沙箱内经既有 bash 工具执行（复用既有白名单 + 确认卡片，零新增权限机制）。
   5. 打包后正式 .app 中两个内置技能可被正确加载（`asarUnpack` + `app.isPackaged` 路径分支生效），且 `THIRD_PARTY_NOTICES` 记录来源仓库 + 固定 commit SHA + 许可证 + 是否修改及修改说明。
+
 **Plans**: TBD
 
 **Security gate**: P1（S1，阻断门禁）npx RCE 向量；P10（发布门禁）内置技能许可证归属义务。
@@ -188,43 +206,52 @@ Plans:
 **Doc sync**: `docs/product/ai-agent-workspace.md` 与 `AGENTS.md` 明确写出「技能不构成额外权限」「`allowed-tools` 当前运行时不被强制，仅供参考」；`docs/product/ai-skills.md` 补内置技能与 bash 档章节。
 
 ### Phase 48: 技能发现与调用（`/` 面板 + `/skill:name`）
+
 **Goal**: 用户可在聊天输入框用 `/` 发现技能、以 `/skill:name` 调用；模型也能按 description 自动匹配技能并读取其正文。
 **Depends on**: Phase 46（Phase 47 播种的内置技能经同一技能集自动进入列表）
 **Requirements**: DISC-01, DISC-02, DISC-03, DISC-04, DISC-05, DISC-06, DISC-07
 **Success Criteria** (what must be TRUE):
+
   1. 输入 `/` 后面板同时列出既有本地命令与全部已启用技能，可按键名实时过滤。
   2. 选择技能以 `/skill:name [args]` 调用后，技能正文作为 `<skill>` 块注入对话、进入对话历史并触发 LLM 回复（与本地 `clear` / `compact` 语义明确区分，是第二命令源而非本地 handler）。
   3. 列表按来源（user / managed / seeded）打徽标，被遮蔽的同名技能可见。
   4. 模型可仅凭 description 自动匹配技能并通过 `read` 打开其正文（用户不显式调用也能生效）。
   5. 调用不存在的技能给出明确错误提示（不出现"点了没反应"）；`disable-model-invocation` 技能不进 system prompt 但可经 `/skill:` 显式调用且在 UI 有标记。
+
 **Plans**: TBD
 **UI hint**: yes
 **Doc sync**: `docs/product/ai-skills.md` 补发现与调用章节。
 
 ### Phase 49: `manage_skill` 工具（AI 自建技能）
+
 **Goal**: AI 可自主创建、更新、删除自己的技能，且无法覆盖或删除随包内置技能。
 **Depends on**: Phase 46
 **Requirements**: MGMT-01, MGMT-02, MGMT-03, MGMT-04, MGMT-05, MGMT-06
 **Success Criteria** (what must be TRUE):
+
   1. AI 经 `manage_skill` 的 create / update / delete 创建、修改、删除 managed 技能后，新技能集在下一条消息即对模型可见。
   2. 工具不接受 `path` 参数，只接受 `name`（`^[a-z0-9-]+$`）与 `content` / `description`；服务端二次校验（LLM 参数不可信），非法 name / 超长 description / 超限正文被拒绝并说明原因。
   3. 对 seeded 内置技能的覆盖或删除请求被拒绝（按**播种登记表**判定，而非按目录位置），并给出可读原因。
   4. 写入为原子操作（经沙箱 `env.renameFile` 获得双基准路径校验），失败不留半成品文件，且不触及 `ai-memory/`、`attachments/` 等其他工作区路径。
   5. 工具描述引导 AI 优先增强已有技能，而非创建近乎重复的新技能。
+
 **Plans**: TBD
 
 **Security gate**: P3 前半（S1）name 二次校验与名称冲突判定——本阶段产出的校验器是 50 / 51 唯一可复用的那一份。
 
 ### Phase 50: 设置页技能管理区 + `/api/skills/*`
+
 **Goal**: 用户可在设置页看到全部技能的名称 / 描述 / 来源 / 体积 / 文件数 / 诊断，并启用、禁用、卸载自己的技能。
 **Depends on**: Phase 49（复用同一份 name / description / 大小 / 注入校验器，避免第二份实现漂移）
 **Requirements**: USER-01, USER-02, USER-06, USER-07, SEC-09
 **Success Criteria** (what must be TRUE):
+
   1. 设置页 AI 分区出现「技能管理」区，逐条列出名称 / 描述 / 来源 / 体积 / 文件数 / 诊断。
   2. 用户可对单个技能启用 / 禁用：禁用只过滤不删文件，禁用后该技能不再进 system prompt 与 `/` 列表，重新启用即恢复。
   3. 卸载仅允许 `source === 'user'` 的技能；对内置 / 托管技能的卸载请求被拒绝（手改 URL 直接调端点也不例外）。
   4. 设置页（realm:// guest）走 `/api/skills/*` + token，主窗口走 `realmAPI` IPC，两入口读同一权威数据；任一入口的变更跨窗口即时同步。
   5. 超过体积上限的请求体（如未压缩 zip 的 base64）在 `/api/*` 层被拒绝并返回明确错误，不无上限读入内存。
+
 **Plans**: TBD
 **UI hint**: yes
 
@@ -232,15 +259,18 @@ Plans:
 **Doc sync**: `allowed-tools` 在列表展示时必须带「当前运行时不被强制，仅供参考」免责标注；`docs/product/ai-skills.md` 补管理面章节。
 
 ### Phase 51: 用户技能导入管线（zip + 网络地址）
+
 **Goal**: 用户可从本地 zip 包或网络地址安全导入技能，导入前看清将写入什么；恶意或畸形包整包拒绝且工作区外零写入。
 **Depends on**: Phase 50（导入 UI 承载面）+ Phase 46 / 49（目录与统一校验器）
 **Requirements**: USER-03, USER-04, USER-05, USER-08, SEC-02, SEC-03, SEC-04, SEC-05, SEC-06, SEC-07, SEC-08, SEC-10
 **Success Criteria** (what must be TRUE):
+
   1. 导入为两阶段：先展示预览（名称 / description 原文 / 目录树 / 字节数 / 脚本清单标红 / 威胁扫描结论），用户确认后才落盘。
   2. zip 按**单技能包**语义处理（0 个或多个技能根 → 报错并提示）；网络地址自动分流 GitHub 仓库 / 目录 与 SKILL.md 直链。
   3. 恶意或畸形包整包被拒并说明原因：含 symlink entry、路径逃逸族（`..` / 绝对路径 / 盘符 / UNC / 反斜杠 / NTFS ADS / 控制字符 / 尾随空格与点）、大小写或 NFC-NFD 重名、超限额（单 entry / 累计字节 / entry 数 / 压缩比 / 嵌套深度）。
   4. 解压只在 `fs.mkdtempSync` 新建的空目录内进行，落盘前用**最近已存在祖先的 realpath** 复核；导入完成后工作区外不产生任何文件（含 `~` 下敏感位置），且既有沙箱 `writeFile` 的 ENOENT symlink 缺口一并加固。
   5. 网络导入 https-only + 主机白名单 + 逐跳内网地址校验 + 流式字节上限 + magic bytes 校验；扫描同时覆盖 `description` 与 body（复用 `scanInjectionPatterns` + 新增 `SKILL_THREAT_PATTERNS`）；与内置同名拒绝导入、与已有用户技能同名需显式选择（覆盖 / 改名 / 取消）；失败按"命中哪个限额 / 扫描结论 / 校验错误"给出真实原因。
+
 **Plans**: TBD
 **UI hint**: yes
 
