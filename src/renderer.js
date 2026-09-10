@@ -6939,6 +6939,18 @@ function setupEventListeners() {
   if (elements.aiMessageList) {
     elements.aiMessageList.addEventListener('scroll', handleAIMessageScroll);
 
+    // 图片解码完成后补一次贴底：内联附件图（数据经 IPC 异步拉取）与 AI 回复中的
+    // Markdown 图片在 renderAIMessages 贴底时高度只有占位（.ai-attachment-image-loading
+    // min-height 60px），解码后按原始比例撑高列表，会把刚发出的用户气泡与 AI 等待
+    // 气泡挤出视口（长对话下表现为「发送后消息框没第一时间完整展示」，直到流式
+    // 事件触发下一次贴底才可见）。img 的 load/error 不冒泡，必须捕获阶段监听
+    elements.aiMessageList.addEventListener('load', (e) => {
+      if (state.aiAutoScroll && e.target && e.target.tagName === 'IMG') scrollToBottom();
+    }, true);
+    elements.aiMessageList.addEventListener('error', (e) => {
+      if (state.aiAutoScroll && e.target && e.target.tagName === 'IMG') scrollToBottom();
+    }, true);
+
     // 拦截 AI 消息中的链接点击，在新标签页打开（统一导航入口，含分配规则匹配）
     elements.aiMessageList.addEventListener('click', (e) => {
       const link = e.target.closest('a[href]');
