@@ -58,7 +58,7 @@
 
 - 本阶段**明确不研究不规划**：Phase 47（播种 + bash 加固）、48（`/` 面板 + `/skill:`）、49（`manage_skill`）、50（设置页 + `/api/skills/*`）、51（zip / 网络导入）
 - `AGENTS.md`：asarUnpack / 原生模块发布规则、`realm://` CSP `style-src 'self'`（内联 style 被拦）、弹框居中约定、产品文档同步维护约定
-- `docs/product/ai-agent-workspace.md` 是工作区/沙箱边界的权威产品文档；本阶段新增技能目录后需同步（CONTEXT.md 指 DOC-02 在 47 补齐，但目录结构段落属本阶段产出）
+- `docs/product/ai-agent-workspace.md` 是工作区/沙箱边界的权威产品文档；本阶段新增技能目录后需同步（CONTEXT.md 指 DOC-02 在 47 补齐，但目录结构段落属本阶段产出）。**注（已被 ROADMAP 覆盖）**：ROADMAP §Phase 46 Doc sync 与 REQUIREMENTS DOC-02 把该文档的目录树同步明确归 **Phase 47**；本阶段**不得**改动该文档，只新建 `docs/product/ai-skills.md` 并做说明性互引（见 46-04 Task 3 item 5 与 `git status --porcelain` gate）。
 </user_constraints>
 
 <phase_requirements>
@@ -932,11 +932,13 @@ async syncAgentSystemPrompt() {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 > **本次研究已闭环的九项 plan 级未知数**（原任务清单 1–9）全部回答于 §SDK Loader & Prompt API Contract 各小节（A: 签名；D: 递归语义与 `includeRootFiles`；B: `Skill` 字段表与 source 形状；E: `agent.state` 可写性含行号；F: 与沙箱 env 的关系 → **零适配**；C: 诊断形状；§Runtime State Inventory: 建目录与迁移影响；§Validation Architecture: 测试策略）。另加 §Wiring Points 给出两处创建点精确行号。**下列为研究过程中新暴露、必须由 plan 期拍板的问题。**
 
 ### 1. 禁用技能是否保留在 `skills[]` 内？（D-09 的"加载后过滤"语义边界）
+
+- **RESOLVED:** 采用本节的 Recommendation —— 禁用技能**保留在 `skills[]` 内**并标 `disabled: true`，过滤只发生在 prompt 段组装与未来 `/skill:` 解析两处（落点 46-03 Task 3，`must_haves.truths` 与 `describe('启停状态（SKILL-08）')`）。
 
 - **What we know:** D-06 明确遮蔽技能**保留在技能集内**（标 `shadowed`）；D-09 只说"加载后过滤、不删文件"，未说明数组语义。
 - **What's unclear:** 若禁用技能被**移出** `skills[]`，Phase 50 的设置页就无法列出它来重新启用（列表来自 `skills[]`）——用户禁用后技能永久消失，只能手改配置文件。
@@ -944,17 +946,23 @@ async syncAgentSystemPrompt() {
 
 ### 2. 深度过滤丢弃项的诊断严重度
 
+- **RESOLVED:** 采用本节的 Recommendation —— `level: 'warning'` + `code: 'realm_layout_violation'`，message 含实际的 `filePath` 与正确的目标路径建议，属 D-05 第 1 层「正常态跳过」（落点 46-02 Task 1）。
+
 - **What we know:** §Pitfall 3 确认深嵌套会被加载（无深度上限）。D-05 第 1 层定义"单技能失败 = 正常态：诊断 + 跳过"。
 - **What's unclear:** 深嵌套是"该技能不存在于契约布局"还是"存在但布局错误"？前者用 `warning`（正常态），后者可能该用更高严重度。
 - **Recommendation:** `level: 'warning'`，`code: 'realm_layout_violation'`，message 含**实际的 `filePath`**与**正确的目标路径建议**（`skills/<dirname>/SKILL.md`）。理由：这是"正常态跳过"（D-05 第 1 层），不阻断其余技能。
 
 ### 3. `SKILLS_PROMPT_CHAR_BUDGET` 是否包含 SDK 前言 3 行？
 
+- **RESOLVED:** 采用本节的 Recommendation —— **整段预算**（`fixedOverhead` 计入，理由：`getContextUsage()` 按 `buildSystemPrompt().length / 4` 估 token）（落点 46-03 Task 2 item 4：`fixedOverhead` / `entryCost` 差量测量 + 贪心填充）。
+
 - **What we know:** D-11 锁定数值 8000；实测 SDK 前言 + `<available_skills>` 包裹 + 一条空条目脚手架约 400 字符（`formatSkillsForSystemPrompt([dummy]).length`，本次实测 `block chars` 量级在数百）。
 - **What's unclear:** 8000 是"整段预算"还是"仅条目预算"。
 - **Recommendation:** **整段预算**（`fixedOverhead` 计入），因为 `getContextUsage()`（`ai-manager.js:2588`）按 `buildSystemPrompt().length / 4` 估算 system token——整段限制才是对 token 占用的真实约束。差量法已天然支持这个语义（§Code Examples）。
 
 ### 4. P8 门禁在 Phase 46 的可验证形态（**最重要**）
+
+- **RESOLVED:** 采用本节的 Recommendation —— **可断言双轨验收**：① 机制断言（导出面 + 「每个 `new Agent(` 前 60 行内存在 `refreshSkills(`」的**覆盖**扫描 + 改磁盘→重扫→`buildSkillsPrompt()` 反映新集合的行为测试）；② 门禁映射表写进 PLAN.md 并逐点交接 48/49/50/51。落点 46-04 Task 2 与本计划文件的 `<p8_gate_mapping>`；扫描断言的口径是**创建点覆盖**，不是 `refreshSkills(` 与 `new Agent(` 的调用次数相等。
 
 - **What we know:** ROADMAP 把 P8 定为 Phase 46 的**阻断门禁**，列出 6 个触发点。但 Phase 46 的范围内只有 2 个真实存在（两处 Agent 创建点）+ 1 条兜底（每次重建重扫，覆盖第 6 条 bash/write 直改）。`/` 面板（48）、设置页导入/卸载（50）、`manage_skill` 三动作（49）**在本阶段尚不存在**。
 - **What's unclear:** 门禁验收应断言"6 条路径都通"还是"机制就位且已覆盖可触发的路径"。
@@ -964,6 +972,8 @@ async syncAgentSystemPrompt() {
   - 若用户/验收方要求 46 就"全覆盖"，则需把 `/api/skills/*` 的**最小空壳**（仅 uninstall 或仅 refresh 端点）提前到 46——这会越出 CONTEXT.md 的 scope boundary，需显式确认。
 
 ### 5. `MAX_USER_SKILLS` 超限时的行为（D-11 只锁了数值）
+
+- **RESOLVED:** 采用本节的 Recommendation —— 实现为**加载期诊断而非拒绝**：按 D-10 优先序排序后前 50 个可注入，其余标 `overLimit: true` 并产 `level:'error'` 诊断（含 `limit` + `currentValue`），数据层**不剔除、不删文件**（落点 46-03 Task 2 item 3）。
 
 - **What we know:** D-11 锁定 `MAX_USER_SKILLS = 50`；P7/O11 要求"到顶时给出可操作提示（先卸载）"。
 - **What's unclear:** 本阶段无导入路径（Phase 51），"超限"如何触发？用户手动往 `skills/` 拷第 51 个目录是唯一途径。
