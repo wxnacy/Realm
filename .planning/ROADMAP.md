@@ -160,9 +160,15 @@ v2.6 把 AI 助手推进到**可扩展能力体系**：接入 pi-agent-core 原�
   3. 安装 / 卸载 / 启用禁用 / `manage_skill` 变更后，无需重启应用或重建 Agent，下一条消息即按新技能集生效，且变更经广播同步到其他窗口。
   4. 用户技能与 managed 技能同名时 user 版本胜出、managed 版本被遮蔽，冲突对用户可见（不静默去重）。
   5. 非法 name / 超长 description / YAML 解析失败 / 超限的技能不静默消失：产出含"哪个限额、当前值"的可读诊断，可被上层读出。
-**Plans**: TBD
+**Plans:** 4 plans
 
-**Security gate**: P8（S2，阻断门禁）技能缓存失效链 6 个触发点全覆盖——两处 Agent 创建点、`/` 面板列表、设置页导入/卸载、`manage_skill` 三动作、以及 bash/write 工具直改 `skills/`（以"每次 Agent 重建都重扫一次"兜底）。
+Plans:
+- [ ] 46-01-PLAN.md — tracer 端到端纵切（目录 → 沙箱加载 → 缓存 → prompt 第 4 段 → 可 read）+ 加载面收窄薄 env + SKILL-01/02/03 断言
+- [ ] 46-02-PLAN.md — 加载后管线：契约布局过滤 / 名称目录名权威重写（杜绝冒名）/ 同名遮蔽去重（SKILL-05/06）
+- [ ] 46-03-PLAN.md — 诊断合并与双层降级 / 三限额生效与确定性定序 / 启停只过滤不删文件（SKILL-06/07/08）
+- [ ] 46-04-PLAN.md — Agent prompt 回写（D-03）与 P8 失效链 / P8 门禁映射表 / DOC-01 产品文档骨架
+
+**Security gate**: P8（S2，阻断门禁）技能缓存失效链。**本阶段只存在并交付其中 3 个触发点**：① `init()` Agent 创建点、② `_recreateAgent()` Agent 创建点、⑥ bash/write 工具直改 `skills/`（以"每次 Agent 重建都无条件重扫一次"兜底）。其余 3 点（`/` 面板列表 → 48、设置页导入/卸载 → 50/51、`manage_skill` 三动作 → 49）在本阶段**尚无写路径**，按 46-04 的 `<p8_gate_mapping>` 逐点交接给对应阶段，**不得声称 6 点全覆盖**。本阶段的机制断言：`ai-manager.js` 每个 `new Agent(` 之前 60 行内必须存在 `refreshSkills(`，且两者计数相等（漏接线即红）。
 **Doc sync**: 本阶段新建 `docs/product/ai-skills.md`（能力 / 双目录 / 优先级 / 限额 / 沙箱边界 / 已知限制骨架）；后续阶段按 AGENTS.md 维护约定增量补齐各自章节。
 
 ### Phase 47: 内置技能播种 + bash 策略加固
