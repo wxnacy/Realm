@@ -484,6 +484,7 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - apply_tab_groups: 提交结构化的标签分组结果。完成语义分组后必须调用此工具提交分组，分组会以卡片形式展示给用户确认，用户点击「应用分组」后标签页才会实际重排。
 - close_tab: 关闭指定 ID 的标签页。先用 get_tabs 获取标签页 ID，再调用此工具关闭。
 - close_tabs: 批量关闭标签页。action=list 按 tabIds 列表关闭（可跨窗口）；action=others/left/right 以 tabId 为锚点关闭同窗口内其他/左侧/右侧全部标签页（如"关闭其他标签页"、"关闭右侧所有标签页"）。
+- switch_tab: 切换到指定 ID 的已打开标签页。先用 get_tabs 获取标签页 ID，再调用此工具切换；目标是其他窗口的标签页时，该窗口会被带到前台。
 
 使用指南：
 - 当用户询问"当前页面是什么"、"读取页面内容"等，使用 read_page_content
@@ -514,7 +515,8 @@ const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮�
 - 你不需要也不能直接移动标签页——实际重排由用户在分组卡片上点击「应用分组」后执行，你的职责是完成分组并调用 apply_tab_groups 提交，不要认为或声称自己没有整理标签页的权限
 - 当用户要求关闭标签页（如"关掉这个页面"、"关闭 XX 网站的标签页"、"把多余的标签页都关了"）时，使用 close_tab：先用 get_tabs 核对目标标签页的 id 再关闭。仅关闭用户明确要求关闭的标签页，不要自行批量关闭；若用户按网站/主题描述目标，先列出匹配的标签页让用户确认再关闭
 - 当用户要求批量关闭（如"关闭其他标签页"、"关闭右侧全部"、"把这两个页面都关了"）时，使用 close_tabs："关闭其他"用 action=others；"关闭左侧/右侧全部"用 action=left/right（锚点 tabId 为用户所指的那个标签页）；用户明确列出多个标签页时用 action=list。锚点式批量关闭会波及大量标签页，若用户未明确范围（如只说"关掉一些"），先确认范围再执行
-- 批量关闭必须收敛为一次 close_tabs 调用：把全部待关标签页放进一次请求（tabIds 一次列全，或一次 others/left/right），不要拆成多次 close_tab/close_tabs 分批关闭；向用户确认时也只确认一次——一次性列出全部待关标签页让用户确认，确认后直接执行，不要确认后再二次确认、也不要边关边问
+- 批量关闭必须收敛为一次 close_tabs 调用：把全部待关标签页放进一次请求（tabIds 一次列全，或一次 others/left/right），不要拆成多次 close_tab/close_tabs 分批关闭。close_tabs 会自动弹出确认卡片列出全部待关标签页，用户在卡片上点「确认执行」才会关闭——不要在聊天里打字询问确认，也不要确认后二次确认；用户取消时告知操作未执行即可。若用户未明确范围（如只说"关掉一些"），先在聊天里问清范围再调用
+- 当用户要求切换标签页（如"切到 XX 网站那个标签页"、"回到刚才打开的页面"）时，使用 switch_tab：先用 get_tabs 按标题/URL 匹配目标标签页，再切换；用户描述模糊且有多个候选时，列出候选让用户选择
 - 当用户要求整理收藏夹、归类收藏时，使用 organize_favorites。默认 root 范围 + domain 策略可由工具直接生成方案；category 策略会返回收藏数据（bookmarks），你必须根据标题和 URL 语义分类，完成后调用 organize_favorites(action=apply) 提交 plan（数组，每组 { folderName, parentId: 0, bookmarkIds: [收藏id] }，id 取自返回数据）
 - 收藏整理的实际移动由用户在整理卡片上点击「应用整理」后执行，你的职责是生成并提交方案，不要声称自己没有整理收藏夹的权限
 - 删除整个收藏夹文件夹（其中收藏和子文件夹会被一并删除）前会弹出确认卡片，必须由用户在确认卡片上确认，确认被取消时不要口头二次询问
@@ -4811,8 +4813,12 @@ ${content}
         },
         execute: async (toolCallId, params) => {
           const { action = 'list', tabId, tabIds } = params;
+          const allTabs = tabManager.getTabs() || [];
+          const tabById = new Map(allTabs.map(t => [t.id, t]));
 
-          // 锚点式批量关闭：转发动作与锚点，渲染端按窗口内顺序切分
+          // 1. 计算待关清单（用于确认卡片预览；锚点式的实际关闭列表
+          //    仍由渲染端按权威顺序切分，主进程顺序仅用于预览）
+          let targetTabs = [];
           if (action === 'others' || action === 'left' || action === 'right') {
             if (!tabId || typeof tabId !== 'string') {
               throw new Error(`action=${action} 时必须提供锚点 tabId`);
@@ -4821,73 +4827,185 @@ ${content}
             if (!anchorTab) {
               throw new Error('锚点标签页不存在或已关闭，请先调用 get_tabs 核对当前标签页 ID');
             }
-            const win = windowManager.getWindow(anchorTab.windowId);
-            if (!win) {
-              throw new Error('标签页所属窗口不存在或已销毁，无法关闭');
+            const windowTabIds = allTabs.filter(t => t.windowId === anchorTab.windowId).map(t => t.id);
+            const anchorIndex = windowTabIds.indexOf(anchorTab.id);
+            let scopeIds = [];
+            if (action === 'others') {
+              scopeIds = windowTabIds.filter(id => id !== anchorTab.id);
+            } else if (action === 'left') {
+              scopeIds = windowTabIds.slice(0, anchorIndex);
+            } else {
+              scopeIds = windowTabIds.slice(anchorIndex + 1);
             }
-            try {
-              win.webContents.send('tab:ai-close', { action, tabId });
-            } catch (err) {
-              console.warn('[Realm AI] close_tabs 发送批量关闭请求失败:', err.message);
-              throw new Error('批量关闭标签页失败，请检查窗口状态');
+            targetTabs = scopeIds.map(id => tabById.get(id)).filter(Boolean);
+            if (targetTabs.length === 0) {
+              const nothing = action === 'others' ? '锚点所在窗口没有其他标签页'
+                : action === 'left' ? '锚点左侧没有标签页' : '锚点右侧没有标签页';
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({ success: false, message: nothing }, null, 2),
+                }],
+                details: { action, tabId, nothingToClose: true },
+              };
             }
+          } else if (action === 'list') {
+            if (!Array.isArray(tabIds) || tabIds.length === 0) {
+              throw new Error('tabIds 必须是非空字符串数组（action=list 时）');
+            }
+            const invalidIds = [];
+            for (const id of tabIds) {
+              if (typeof id === 'string' && tabById.has(id)) {
+                targetTabs.push(tabById.get(id));
+              } else {
+                invalidIds.push(id);
+              }
+            }
+            if (targetTabs.length === 0) {
+              throw new Error('所有 tabId 均无效，请先调用 get_tabs 核对当前标签页 ID');
+            }
+          } else {
+            throw new Error(`未知 action: ${action}（应为 list/others/left/right）`);
+          }
 
-            const actionDesc = action === 'others' ? '其他全部标签页'
-              : action === 'left' ? '左侧全部标签页' : '右侧全部标签页';
+          // 2. 确认卡片：列出待关清单，用户点「确认执行」才真正关闭
+          const actionId = `close_tabs_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const MAX_PREVIEW = 8;
+          const previewLines = targetTabs.slice(0, MAX_PREVIEW)
+            .map((t, i) => `${i + 1}. ${t.title || '(无标题)'}${t.url ? ` — ${t.url}` : ''}`);
+          if (targetTabs.length > MAX_PREVIEW) {
+            previewLines.push(`……等共 ${targetTabs.length} 个标签页`);
+          }
+          const confirmation = await requestActionConfirmation({
+            actionId,
+            type: 'close_tab',
+            title: '批量关闭标签页',
+            description: `即将关闭 ${targetTabs.length} 个标签页：\n${previewLines.join('\n')}`,
+            riskLevel: 'medium',
+          });
+
+          if (!confirmation.confirmed) {
             return {
               content: [{
                 type: 'text',
                 text: JSON.stringify({
-                  success: true,
-                  action,
-                  anchorTabId: tabId,
-                  anchorTitle: anchorTab.title || '',
-                  containerId: anchorTab.containerId,
-                  message: `已请求关闭锚点${actionDesc}，可通过 get_tabs 确认结果`,
+                  success: false,
+                  cancelled: true,
+                  message: '用户取消了批量关闭操作',
                 }, null, 2),
               }],
-              details: { action, tabId },
+              details: { cancelled: true, action },
             };
           }
 
-          // 显式列表批量关闭：主进程按窗口分组发送（可跨窗口）
-          if (!Array.isArray(tabIds) || tabIds.length === 0) {
-            throw new Error('tabIds 必须是非空字符串数组（action=list 时）');
-          }
-          const allTabs = tabManager.getTabs() || [];
-          const tabById = new Map(allTabs.map(t => [t.id, t]));
-          const invalidIds = [];
-          const validTabs = [];
-          for (const id of tabIds) {
-            if (typeof id === 'string' && tabById.has(id)) {
-              validTabs.push(tabById.get(id));
+          // 3. 执行：锚点式转发动作与锚点（渲染端切分）；list 按窗口分组发送
+          const closedTabIds = [];
+          try {
+            if (action === 'others' || action === 'left' || action === 'right') {
+              const anchorTab = tabManager.getTab(tabId);
+              const win = anchorTab ? windowManager.getWindow(anchorTab.windowId) : null;
+              if (!win) {
+                throw new Error('标签页所属窗口不存在或已销毁，无法关闭');
+              }
+              win.webContents.send('tab:ai-close', { action, tabId });
             } else {
-              invalidIds.push(id);
+              const byWindow = new Map();
+              for (const t of targetTabs) {
+                if (!byWindow.has(t.windowId)) byWindow.set(t.windowId, []);
+                byWindow.get(t.windowId).push(t.id);
+              }
+              for (const [winId, ids] of byWindow) {
+                const win = windowManager.getWindow(winId);
+                if (!win) continue;
+                win.webContents.send('tab:ai-close', { tabIds: ids });
+                closedTabIds.push(...ids);
+              }
+              if (closedTabIds.length === 0) {
+                throw new Error('批量关闭失败，所有标签页所属窗口均不可用');
+              }
             }
-          }
-          if (validTabs.length === 0) {
-            throw new Error('所有 tabId 均无效，请先调用 get_tabs 核对当前标签页 ID');
+          } catch (err) {
+            notifyActionSettled(actionId, 'error', err.message);
+            throw err;
           }
 
-          // 按窗口分组，逐窗口发送
-          const byWindow = new Map();
-          for (const t of validTabs) {
-            if (!byWindow.has(t.windowId)) byWindow.set(t.windowId, []);
-            byWindow.get(t.windowId).push(t.id);
+          // 4. 卡片终态 + 返回结果（关闭异步生效，AI 可经 get_tabs 确认）
+          notifyActionSettled(actionId, 'success',
+            `已请求关闭 ${action === 'list' ? closedTabIds.length : targetTabs.length} 个标签页`);
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                action,
+                anchorTabId: action !== 'list' ? tabId : undefined,
+                requested: targetTabs.length,
+                closed: action === 'list' ? closedTabIds.length : targetTabs.length,
+                invalidIds: action === 'list'
+                  ? tabIds.filter(id => !targetTabs.some(t => t.id === id))
+                  : [],
+                message: '已请求批量关闭，可通过 get_tabs 确认结果',
+              }, null, 2),
+            }],
+            details: { action, closed: closedTabIds.length },
+          };
+        },
+      },
+
+      // ==================== switch_tab 工具 ====================
+      /**
+       * 切换到指定标签页工具
+       *
+       * AI 传入 tabId 激活对应已打开标签页。主进程先 tabManager.switchTab
+       * 更新权威活动 Tab 表（含 lastActiveAt 持久化），再向 tab 所属窗口发送
+       * tab:ai-switch 事件，渲染端走完整 switchTab 链路（webview 显隐、
+       * Vim 状态清理、容器指示器跟随等）；跨窗口时把目标窗口带到前台。
+       */
+      {
+        name: 'switch_tab',
+        label: '切换标签页',
+        description: '切换到指定 ID 的已打开标签页。先用 get_tabs 获取标签页列表及其 ID，再调用此工具切换。',
+        parameters: {
+          type: 'object',
+          properties: {
+            tabId: {
+              type: 'string',
+              description: '要切换到的标签页 ID（取自 get_tabs 返回的 id）',
+            },
+          },
+          required: ['tabId'],
+        },
+        execute: async (toolCallId, params) => {
+          const { tabId } = params;
+          if (!tabId || typeof tabId !== 'string') {
+            throw new Error('tabId 不能为空');
           }
-          const closedTabIds = [];
-          for (const [winId, ids] of byWindow) {
-            const win = windowManager.getWindow(winId);
-            if (!win) continue;
-            try {
-              win.webContents.send('tab:ai-close', { tabIds: ids });
-              closedTabIds.push(...ids);
-            } catch (err) {
-              console.warn('[Realm AI] close_tabs 向窗口发送批量关闭失败:', err.message);
+
+          const tab = tabManager.getTab(tabId);
+          if (!tab) {
+            throw new Error('标签页不存在或已关闭，请先调用 get_tabs 核对当前标签页 ID');
+          }
+
+          if (!tabManager.switchTab(tabId)) {
+            throw new Error('切换标签页失败');
+          }
+
+          const win = windowManager.getWindow(tab.windowId);
+          if (win) {
+            // 跨窗口场景：目标窗口不是当前聚焦窗口时带到前台，
+            // 让用户能看到切换结果
+            const focusedWin = BrowserWindow.getFocusedWindow();
+            if (!focusedWin || focusedWin.id !== win.id) {
+              win.show();
+              win.focus();
             }
-          }
-          if (closedTabIds.length === 0) {
-            throw new Error('批量关闭失败，所有标签页所属窗口均不可用');
+            try {
+              win.webContents.send('tab:ai-switch', { tabId });
+            } catch (err) {
+              console.warn('[Realm AI] switch_tab 发送切换请求失败:', err.message);
+              throw new Error('切换标签页失败，请检查窗口状态');
+            }
           }
 
           return {
@@ -4895,14 +5013,14 @@ ${content}
               type: 'text',
               text: JSON.stringify({
                 success: true,
-                action: 'list',
-                requested: tabIds.length,
-                closed: closedTabIds.length,
-                invalidIds,
-                message: '已请求批量关闭，可通过 get_tabs 确认结果',
+                tabId,
+                title: tab.title || '',
+                url: tab.url || '',
+                containerId: tab.containerId,
+                windowId: tab.windowId,
               }, null, 2),
             }],
-            details: { action: 'list', closed: closedTabIds.length, invalidIds },
+            details: { tabId },
           };
         },
       },

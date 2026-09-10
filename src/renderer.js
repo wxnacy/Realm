@@ -1179,6 +1179,18 @@ function handleAiCloseTab(data) {
 }
 
 /**
+ * 处理 AI 工具发起的切换标签页请求（tab:ai-switch）
+ * 主进程 switch_tab 工具向标签页所属窗口推送此事件，
+ * 复用完整 switchTab 链路（webview 显隐、Vim 状态清理、容器指示器跟随、
+ * tab:switch 回同步主进程权威活动表）
+ * @param {{tabId: string}} data - 切换请求数据
+ */
+function handleAiSwitchTab(data) {
+  if (!data || typeof data.tabId !== 'string') return;
+  switchTab(data.tabId);
+}
+
+/**
  * 获取容器颜色
  * @param {string} containerId - 容器 ID
  * @returns {string} 颜色值
@@ -4137,6 +4149,9 @@ async function init() {
 
   // 监听 AI 工具发起的关闭标签页请求（close_tab 工具）
   window.realmAPI.onTabAiClose(handleAiCloseTab);
+
+  // 监听 AI 工具发起的切换标签页请求（switch_tab 工具）
+  window.realmAPI.onTabAiSwitch(handleAiSwitchTab);
 
   // 注册右键菜单动作回调
   window.realmAPI.onContextMenuAction(handleContextMenuAction);
@@ -10852,6 +10867,10 @@ function getActionIcon(type) {
     </svg>`,
     click: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5"></path>
+    </svg>`,
+    close_tab: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18"></line>
+      <line x1="6" y1="6" x2="18" y2="18"></line>
     </svg>`,
   };
   return icons[type] || `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

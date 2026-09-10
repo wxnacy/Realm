@@ -7043,14 +7043,15 @@ textarea::placeholder {
   line-height: 1.4;
 }
 
-/* 操作描述 */
+/* 操作描述（pre-line 支持多行清单，如批量关闭的标签页列表） */
 .action-confirm-description {
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.4;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: pre-line;
+  word-break: break-all;
+  max-height: 14em;
 }
 
 /* 风险等级标签 */
