@@ -1850,6 +1850,18 @@ function registerHandlers() {
   });
 
   /**
+   * 获取 AI 上下文用量统计（圆环按钮 + 弹框数据源）
+   * @returns {Promise<{contextWindow: number, usedTokens: number, percent: number, breakdown: Array}>}
+   */
+  ipcMain.handle('ai:get-context-usage', async (event) => {
+    assertTrustedSender(event);
+    if (!aiManager || !aiManager.isInitialized) {
+      return { contextWindow: 0, usedTokens: 0, percent: 0, breakdown: [] };
+    }
+    return aiManager.getContextUsage();
+  });
+
+  /**
    * 开始新对话：重置 Agent 的消息 transcript 和流式状态
    * @returns {{success: boolean}}
    */

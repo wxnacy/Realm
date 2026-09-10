@@ -132,6 +132,14 @@ const elements = {
   aiToolbar: document.getElementById('aiToolbar'),
   aiNewChatBtn: document.getElementById('aiNewChatBtn'),
   aiModelSelector: document.getElementById('aiModelSelector'),
+  aiContextBtn: document.getElementById('aiContextBtn'),
+  aiContextRing: document.getElementById('aiContextRing'),
+  aiContextPopover: document.getElementById('aiContextPopover'),
+  aiContextCloseBtn: document.getElementById('aiContextCloseBtn'),
+  aiContextPercent: document.getElementById('aiContextPercent'),
+  aiContextSub: document.getElementById('aiContextSub'),
+  aiContextBar: document.getElementById('aiContextBar'),
+  aiContextBreakdown: document.getElementById('aiContextBreakdown'),
 
   // 对话历史管理
   aiHistoryBtn: document.getElementById('aiHistoryBtn'),
@@ -4375,6 +4383,9 @@ async function init() {
   // 初始化 AI 事件流监听
   handleAIStream();
 
+  // 初始拉取一次上下文用量（圆环按钮显示当前对话状态）
+  refreshContextUsage();
+
   // 恢复 AI 面板开关状态（D-04：electron-store 持久化；默认收起）
   try {
     const settings = await window.realmAPI.getSettings();
@@ -6821,6 +6832,14 @@ function setupEventListeners() {
     elements.aiModelSelector.addEventListener('keydown', handleModelSelectorKeydown);
   }
 
+  // AI 上下文用量按钮与弹框
+  if (elements.aiContextBtn) {
+    elements.aiContextBtn.addEventListener('click', toggleContextPopover);
+  }
+  if (elements.aiContextCloseBtn) {
+    elements.aiContextCloseBtn.addEventListener('click', closeContextPopover);
+  }
+
   // 对话历史按钮
   if (elements.aiHistoryBtn) {
     elements.aiHistoryBtn.addEventListener('click', (e) => {
@@ -7011,6 +7030,8 @@ let aiModelSelectorOpen = false;
  */
 async function handleNewConversation() {
   await createNewConversation();
+  // 新对话上下文清空，立即刷新圆环与弹框数据（不等下一次 agent_end）
+  refreshContextUsage();
 }
 
 // ==================== 对话管理功能 ====================
@@ -7505,6 +7526,167 @@ function handleModelDropdownOutsideClick(e) {
   const dropdown = document.querySelector('.ai-model-dropdown');
   if (dropdown && !dropdown.contains(e.target) && !elements.aiModelSelector.contains(e.target)) {
     closeModelDropdown();
+  }
+}
+
+// ==================== AI 上下文用量显示 ====================
+
+/** 上下文圆环周长（r=15） */
+const CONTEXT_RING_CIRCUMFERENCE = 2 * Math.PI * 15;
+/** 上下文用量数据缓存（agent_end 事件与主动拉取共用） */
+let contextUsageData = null;
+/** 上下文弹框是否打开 */
+let contextPopoverOpen = false;
+/** 分类明细色板（分段条与明细色点共用） */
+const CONTEXT_BREAKDOWN_COLORS = {
+  system: '#a78bfa',
+  tools: '#4ade80',
+  messages: '#f59e0b',
+  attachments: '#f472b6',
+};
+
+/**
+ * token 数格式化（93500 → 93.5K，620 → 620）
+ * @param {number} n - token 数
+ * @returns {string} 格式化文本
+ */
+function formatContextTokens(n) {
+  if (!n || n <= 0) return '0';
+  if (n >= 1000) {
+    const k = n / 1000;
+    return (k >= 100 ? Math.round(k) : Math.round(k * 10) / 10) + 'K';
+  }
+  return String(n);
+}
+
+/**
+ * 应用上下文用量数据到圆环按钮与弹框
+ * @param {Object} usage - { contextWindow, usedTokens, percent, breakdown }
+ */
+function applyContextUsage(usage) {
+  if (!usage) return;
+  contextUsageData = usage;
+
+  const percent = usage.percent || 0;
+  const level = percent >= 90 ? 'level-crit' : percent >= 70 ? 'level-warn' : 'level-ok';
+
+  // 圆环按钮
+  if (elements.aiContextBtn && elements.aiContextRing) {
+    elements.aiContextBtn.classList.remove('level-ok', 'level-warn', 'level-crit');
+    elements.aiContextBtn.classList.add(level);
+    const filled = CONTEXT_RING_CIRCUMFERENCE * Math.min(100, percent) / 100;
+    elements.aiContextRing.setAttribute('stroke-dasharray', `${filled} 999`);
+  }
+
+  // 弹框（隐藏时也更新，打开即所见即最新）
+  if (elements.aiContextPopover) {
+    elements.aiContextPopover.classList.remove('level-ok', 'level-warn', 'level-crit');
+    elements.aiContextPopover.classList.add(level);
+  }
+  if (elements.aiContextPercent) {
+    elements.aiContextPercent.textContent = percent + '%';
+  }
+  if (elements.aiContextSub) {
+    elements.aiContextSub.textContent =
+      `已使用 ${formatContextTokens(usage.usedTokens)} / ${formatContextTokens(usage.contextWindow)}`;
+  }
+
+  // 分段条 + 明细列表
+  if (elements.aiContextBar) {
+    elements.aiContextBar.innerHTML = '';
+    (usage.breakdown || []).forEach(item => {
+      if (!item.tokens || item.tokens <= 0) return;
+      const seg = document.createElement('div');
+      seg.className = 'ai-context-bar-segment';
+      // 占总上下文窗口的比例，剩余宽度保持灰色背景（未使用部分）
+      const ratio = usage.contextWindow > 0 ? item.tokens / usage.contextWindow : 0;
+      seg.style.width = (ratio * 100) + '%';
+      seg.style.minWidth = ratio > 0 ? '2px' : '0';
+      seg.style.background = CONTEXT_BREAKDOWN_COLORS[item.key] || 'var(--border-color)';
+      elements.aiContextBar.appendChild(seg);
+    });
+  }
+  if (elements.aiContextBreakdown) {
+    elements.aiContextBreakdown.innerHTML = '';
+    (usage.breakdown || []).forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'ai-context-breakdown-row';
+
+      const dot = document.createElement('span');
+      dot.className = 'ai-context-breakdown-dot';
+      dot.style.background = CONTEXT_BREAKDOWN_COLORS[item.key] || 'var(--border-color)';
+      row.appendChild(dot);
+
+      const name = document.createElement('span');
+      name.textContent = item.label;
+      row.appendChild(name);
+
+      const pct = document.createElement('span');
+      pct.className = 'ai-context-breakdown-pct';
+      pct.textContent = (item.percent || 0) + '%';
+      row.appendChild(pct);
+
+      elements.aiContextBreakdown.appendChild(row);
+    });
+  }
+}
+
+/**
+ * 从主进程拉取上下文用量并刷新 UI
+ */
+async function refreshContextUsage() {
+  if (!window.realmAPI.ai || !window.realmAPI.ai.getContextUsage) return;
+  try {
+    const usage = await window.realmAPI.ai.getContextUsage();
+    applyContextUsage(usage);
+  } catch (err) {
+    console.error('[ContextUsage] 获取上下文用量失败:', err);
+  }
+}
+
+/**
+ * 切换上下文用量弹框
+ */
+function toggleContextPopover() {
+  if (contextPopoverOpen) {
+    closeContextPopover();
+  } else {
+    openContextPopover();
+  }
+}
+
+/**
+ * 打开上下文用量弹框（每次打开主动拉取最新数据）
+ */
+function openContextPopover() {
+  if (!elements.aiContextPopover) return;
+  contextPopoverOpen = true;
+  elements.aiContextPopover.style.display = 'block';
+  refreshContextUsage();
+  setTimeout(() => {
+    document.addEventListener('pointerdown', handleContextPopoverOutsideClick);
+  }, 0);
+}
+
+/**
+ * 关闭上下文用量弹框
+ */
+function closeContextPopover() {
+  contextPopoverOpen = false;
+  if (elements.aiContextPopover) {
+    elements.aiContextPopover.style.display = 'none';
+  }
+  document.removeEventListener('pointerdown', handleContextPopoverOutsideClick);
+}
+
+/**
+ * 点击弹框与按钮之外的区域时关闭弹框
+ * @param {MouseEvent} e - 指针按下事件
+ */
+function handleContextPopoverOutsideClick(e) {
+  if (!elements.aiContextPopover || !elements.aiContextBtn) return;
+  if (!elements.aiContextPopover.contains(e.target) && !elements.aiContextBtn.contains(e.target)) {
+    closeContextPopover();
   }
 }
 
@@ -8851,6 +9033,12 @@ function handleAIStream() {
             }
             renderToolCards(state.aiCurrentMessageId);
           }
+          break;
+        }
+
+        case 'context_usage': {
+          // 回复结束后的上下文用量推送（圆环按钮 + 弹框刷新）
+          applyContextUsage(event.usage);
           break;
         }
 

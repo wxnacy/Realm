@@ -663,6 +663,8 @@ class AIManager {
     this._sdkFileTools = null;
     /** @type {Object|null} 沙箱 ExecutionEnv（文件/Bash 工具共用） */
     this.sandboxEnv = null;
+    /** @type {Object|null} SDK compaction 工具缓存（calculateContextTokens/estimateTokens，init 动态 import） */
+    this._contextUsageFns = null;
   }
 
   /**
@@ -709,6 +711,9 @@ class AIManager {
       // openAICompletionsApi 不从主入口导出，需从子路径导入（同内置 provider 的用法）
       const { openAICompletionsApi } = await import('@earendil-works/pi-ai/api/openai-completions.lazy');
       const { Agent } = await import('@earendil-works/pi-agent-core');
+      // 上下文用量统计工具（compaction 模块导出，getContextUsage 同步用，init 缓存）
+      const { calculateContextTokens, estimateTokens } = await import('@earendil-works/pi-agent-core');
+      this._contextUsageFns = { calculateContextTokens, estimateTokens };
       // SDK 内置文件/Bash 工具工厂（AgentHarnessTool，经 _adaptHarnessTool 适配）
       const { createReadTool, createWriteTool, createEditTool, createBashTool } =
         await import('@earendil-works/pi-agent-core');
@@ -1472,6 +1477,9 @@ ${content}
             sendNow({ type: 'message_update', content: finalText });
           }
           sendNow({ type: 'turn_end' });
+
+          // 回复结束后推送最新上下文用量（圆环按钮实时刷新）
+          sendNow({ type: 'context_usage', usage: this.getContextUsage() });
 
           // 保存当前对话消息到数据库（per D-11）
           try {
@@ -2537,6 +2545,108 @@ ${content}
       activeProvider: this.activeProvider || null,
       conversationId: this.currentConversationId || null,
     };
+  }
+
+  /**
+   * 获取当前对话的上下文用量统计（聊天框圆环按钮 + 弹框数据源）
+   *
+   * 口径：
+   * - contextWindow：当前模型上下文窗口（模型元数据缺失时兜底 128000）
+   * - usedTokens：优先取最近一条 assistant 消息的 provider usage
+   *   （calculateContextTokens = input + cacheRead + cacheWrite，即下次请求的
+   *   上下文占用近似值）；无 usage（新对话/纯本地操作）时退化为消息字符启发式估算
+   * - breakdown 四类（估算值，有真实 usage 时按比例归一化到 usedTokens）：
+   *   系统提示词 / 工具定义 / 对话消息 / 附件（消息内 image 内容块，1200 tokens/图）
+   *
+   * @returns {{contextWindow: number, usedTokens: number, percent: number,
+   *   breakdown: Array<{key: string, label: string, tokens: number, percent: number}>}} 用量统计
+   */
+  getContextUsage() {
+    const contextWindow = (this.agent && this.agent.state && this.agent.state.model
+      && this.agent.state.model.contextWindow) || 128000;
+
+    const { estimateTokens } = this._contextUsageFns || {};
+    const messages = (this.agent && this.agent.state && this.agent.state.messages) || [];
+
+    // ---- 真实用量：最近一条带 usage 的 assistant 消息 ----
+    let usedTokens = 0;
+    let hasRealUsage = false;
+    const calculateContextTokens = this._contextUsageFns && this._contextUsageFns.calculateContextTokens;
+    if (calculateContextTokens) {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg && msg.role === 'assistant' && msg.usage) {
+          usedTokens = calculateContextTokens(msg.usage);
+          hasRealUsage = usedTokens > 0;
+          break;
+        }
+      }
+    }
+
+    // ---- 分类估算（字符启发式，≈ tokens）----
+    // 系统提示词
+    const systemTokens = Math.ceil(buildSystemPrompt().length / 4);
+    // 工具定义（name + description + 参数 schema）
+    let toolChars = 0;
+    for (const tool of (this.tools || [])) {
+      toolChars += (tool.name || '').length + (tool.description || '').length
+        + JSON.stringify(tool.parameters || {}).length;
+    }
+    const toolTokens = Math.ceil(toolChars / 4);
+    // 附件：user 消息中 image 内容块（SDK 估算口径 4800 chars = 1200 tokens/图）
+    const IMAGE_TOKENS = 1200;
+    let imageCount = 0;
+    for (const msg of messages) {
+      if (msg && Array.isArray(msg.content)) {
+        for (const block of msg.content) {
+          if (block && block.type === 'image') imageCount++;
+        }
+      }
+    }
+    const attachmentTokens = imageCount * IMAGE_TOKENS;
+    // 对话消息：逐条估算后扣除附件部分（estimateTokens 已把 image 计入 user 消息，不重复计）
+    let messageTokens = 0;
+    if (estimateTokens) {
+      for (const msg of messages) {
+        if (msg && (msg.role === 'user' || msg.role === 'assistant' || msg.role === 'toolResult')) {
+          messageTokens += estimateTokens(msg);
+        }
+      }
+    } else {
+      // SDK 工具不可用时退化为自有字符估算
+      messageTokens = this._estimateMessagesTokens(messages);
+    }
+    messageTokens = Math.max(0, messageTokens - attachmentTokens);
+
+    const breakdownRaw = [
+      { key: 'system', label: '系统提示词', tokens: systemTokens },
+      { key: 'tools', label: '工具定义', tokens: toolTokens },
+      { key: 'messages', label: '对话消息', tokens: messageTokens },
+      { key: 'attachments', label: '附件', tokens: attachmentTokens },
+    ];
+
+    // ---- 归一化：有真实 usage 时把估算分类缩放到真实总量 ----
+    const estimateTotal = breakdownRaw.reduce((sum, b) => sum + b.tokens, 0);
+    const scale = hasRealUsage && estimateTotal > 0 ? usedTokens / estimateTotal : 1;
+    if (!hasRealUsage) {
+      usedTokens = estimateTotal;
+    }
+    const breakdown = breakdownRaw.map(b => {
+      const tokens = Math.round(b.tokens * scale);
+      return {
+        key: b.key,
+        label: b.label,
+        tokens,
+        // 百分比口径 = 占总上下文窗口（明细总和 ≈ usedTokens percent，对齐 WorkBuddy）
+        percent: contextWindow > 0 ? Math.round((tokens / contextWindow) * 1000) / 10 : 0,
+      };
+    });
+
+    const percent = contextWindow > 0
+      ? Math.min(100, Math.round((usedTokens / contextWindow) * 1000) / 10)
+      : 0;
+
+    return { contextWindow, usedTokens, percent, breakdown };
   }
 
   /**

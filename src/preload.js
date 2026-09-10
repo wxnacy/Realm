@@ -1069,6 +1069,12 @@ contextBridge.exposeInMainWorld('realmAPI', {
     getState: () => ipcRenderer.invoke('ai:get-state'),
 
     /**
+     * 获取上下文用量统计（圆环按钮 + 弹框数据源）
+     * @returns {Promise<{contextWindow: number, usedTokens: number, percent: number, breakdown: Array<{key: string, label: string, tokens: number, percent: number}>}>}
+     */
+    getContextUsage: () => ipcRenderer.invoke('ai:get-context-usage'),
+
+    /**
      * 开始新对话：重置主进程 Agent 的消息 transcript 和流式状态
      * @returns {Promise<{success: boolean}>}
      */
