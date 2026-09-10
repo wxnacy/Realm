@@ -1,21 +1,16 @@
 ---
 gsd_state_version: "1.0"
-milestone: v2.5
-milestone_name: AI 网络搜索功能
-status: Awaiting next milestone
-stopped_at: All phases complete — start a new milestone
-last_updated: "2026-09-10T14:12:01.501Z"
+milestone: v2.6
+milestone_name: AI 助手技能能力
+status: planning
+last_updated: "2026-09-10T15:32:55.365Z"
 last_activity: 2026-09-10
-last_activity_desc: Milestone v2.5 completed and archived
-state_head: c2f02ce6affd4776113d6d68ad26eda76551e793
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 38
-  completed_plans: 38
-  percent: 100
-current_phase: 45
-current_phase_name: B 站直播 fMP4 转录支持
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State: Realm Browser
@@ -29,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 
 ## Current Position
 
-Phase: Milestone v2.5 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-09-10 — Milestone v2.5 completed and archived
+Status: Defining requirements
+Last activity: 2026-09-10 — Milestone v2.6 started
 
 ## Performance Metrics
 

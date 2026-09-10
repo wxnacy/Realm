@@ -144,12 +144,13 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 ### Active
 
-<!-- 当前需要构建的功能（下一里程碑定义中；v2.5 需求已全部验证并归档） -->
+<!-- 当前需要构建的功能（v2.6 里程碑；需求细节见 .planning/REQUIREMENTS.md） -->
 
-- 增强功能 (ENH-01~06: 截图/画中画/播放列表/字幕/DASH/RTMP)
-- 书签导出
-- 全屏模式
-- 无痕/隐私浏览
+- AI 助手技能（Skill）能力 — v2.6 进行中
+- 增强功能 (ENH-01~06: 截图/画中画/播放列表/字幕/DASH/RTMP) — 顺延
+- 书签导出 — 顺延
+- 全屏模式 — 顺延
+- 无痕/隐私浏览 — 顺延
 - 浏览器搜索 Provider（Bing/Google/DDG DOM 解析）+ 中文搜索质量优化（v2.5 Future Requirements 顺延）
 - 搜索结果高亮 / 搜索历史建议（v2.5 Future Requirements 顺延）
 
@@ -163,14 +164,16 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - **收藏栏多行显示** — 仅支持单行显示
 - **DASH (.mpd) 播放** — v2.2 暂缓：嗅探/renderer/CSS 已补 dash 支持但复验仍失败，二层根因未诊断（UAT G-28-2，2026-08-08 用户决定，走 /gsd-plan-phase 28 --gaps 续查）
 
-## Current Milestone: v2.6（待定义）
+## Current Milestone: v2.6 AI 助手技能（Skill）能力
 
-v2.5 AI 网络搜索功能已于 2026-09-10 收官并归档（见 `.planning/milestones/v2.5-ROADMAP.md` / `v2.5-REQUIREMENTS.md`）。下一个里程碑经 `/gsd-new-milestone` 定义（questioning → research → requirements → roadmap）。
+**Goal:** 让 Realm AI 助手具备符合 Anthropic Agent Skills 开放规范的技能发现、调用、创建与管理能力——用户可 `/` 唤出技能、可导入自己的技能，AI 可自主查找与创建技能。
 
-**候选方向（来自 Active 列表）:**
-- 增强功能 ENH-01~06（截图/画中画/播放列表/字幕/DASH/RTMP）
-- 书签导出 / 全屏模式 / 无痕浏览
-- 搜索能力补全（浏览器 Provider DOM 解析 + 中文搜索质量优化）
+**Target features:**
+- Skill 发现与调用（pi-agent-core 原生 `loadSkills` / `formatSkillsForSystemPrompt` 接线；`/` 斜杠命令面板并入 skill 列表，支持 `/skill:name args`；模型按 description 自动匹配）
+- 内置 find-skills（vercel-labs）+ skill-creator（anthropics）两个技能，完整打包目录并首次启动播种到 `managed-skills/`
+- `manage_skill` 工具（create/update/delete + 名称校验 + 大小限制 + 原子写 + managed 边界保护），AI 可自主创建技能
+- 用户技能管理：设置页 AI 分区新增技能管理区，支持 zip 包与网络地址（GitHub 仓库/目录 与 SKILL.md 直链自动分流）导入，保存在 `skills/`
+- `agent-workspace.js` 新增 `skills/` 与 `managed-skills/` 子目录并纳入硬沙箱
 
 ## Current State
 
@@ -216,15 +219,20 @@ v2.5 AI 网络搜索功能已于 2026-09-10 收官并归档（见 `.planning/mil
 - Phase 30 / Phase 35（均已归档 v2.4）的 VERIFICATION 仍为 `human_needed`（历史遗留）
 - Phase 28 DASH (.mpd) 播放 gap 暂缓（第二层根因未诊断）
 
-**Current milestone:** v2.6（待定义）
+**Current milestone:** v2.6 AI 助手技能（Skill）能力（进行中）
 
 ## Next Milestone Goals
 
-**v2.6** (planned)
+**v2.6** (in progress) — AI 助手技能（Skill）能力
+- Skill 发现与调用 + `/` 命令并入 skill 列表 + 模型自动匹配
+- 内置 find-skills / skill-creator 技能（完整目录播种到 managed-skills/）
+- manage_skill 工具（AI 自主创建技能）
+- 用户技能导入（zip 包 / 网络地址）+ 设置页技能管理区
+- agent-workspace 新增 skills/ 与 managed-skills/ 双目录 + 沙箱覆盖
+
+**v2.7+** (候选)
 - 增强功能 (ENH-01~06: 截图/画中画/播放列表/字幕/DASH/RTMP)
-- 书签导出
-- 全屏模式
-- 无痕/隐私浏览
+- 书签导出 / 全屏模式 / 无痕浏览
 - 搜索能力补全（浏览器 Provider DOM 解析 + 中文搜索质量优化）
 
 **Future Features:**
@@ -247,6 +255,11 @@ v2.5 AI 网络搜索功能已于 2026-09-10 收官并归档（见 `.planning/mil
 **参考实现：**
 - Firefox Multi-Account Containers 的交互模式
 - AutoBrowser 项目的 Cookie 持久化方案（JSON 文件格式，支持 domain 前缀点号保留）
+- oh-my-pi 的 skill 管理（双目录 + 多来源优先级 + SKILL.md frontmatter + 路径安全/符号链接防护），见 `.planning/research/`
+
+**v2.6 关键发现：**
+- pi-agent-core 0.84.3 **原生支持 skill** —— `loadSkills(env, dirs)`、`loadSourcedSkills`（source-tagged，天然适配双目录）、`formatSkillsForSystemPrompt`（`<available_skills>` 注入）、`formatSkillInvocation`（`<skill>` 块注入）均可直接调用；Realm 用 `Agent`（非 AgentHarness）需自行接线
+- 复用资产：`/` 斜杠命令面板（renderer.js `SLASH_COMMANDS`）、`ai-attachments-manager` 的 zip 快照导入先例、`aiBashWhitelist` tag 式设置 UI、`createSandboxEnv` 硬沙箱
 
 **代码库状态：**
 - v2.5 已 shipped，在 v2.4（多窗口支持）基础上新增 AI 联网搜索与网页抓取、AI 历史对话管理、AI 三层条目记忆、播放器视频缓存与本地媒体库、B 站直播 fMP4 转录
@@ -352,4 +365,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-10 after v2.5 milestone (AI 网络搜索功能 — 已归档)*
+*Last updated: 2026-09-10 after starting v2.6 milestone (AI 助手技能能力)*
