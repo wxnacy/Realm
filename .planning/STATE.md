@@ -22,10 +22,10 @@ current_phase_name: B 站直播 fMP4 转录支持
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-26)
+See: .planning/PROJECT.md (updated 2026-09-10)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 45 — bilibili-fmp4-transcode
+**Current focus:** Planning next milestone（v2.6，待定义）
 
 ## Current Position
 
