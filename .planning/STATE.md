@@ -3,10 +3,10 @@ gsd_state_version: "1.0"
 milestone: v2.6
 milestone_name: AI 助手技能能力
 status: planning
-last_updated: "2026-09-10T15:32:55.365Z"
+last_updated: "2026-09-10T23:54:00.000Z"
 last_activity: 2026-09-10
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-10)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Planning next milestone（v2.6，待定义）
+**Current focus:** Phase 46 — 技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-09-10 — Milestone v2.6 started
+Phase: 46 of 51（v2.6 里程碑 6 个阶段：46-51）
+Plan: — （待 /gsd-plan-phase 46）
+Status: Ready to plan
+Last activity: 2026-09-10 — v2.6 路线图创建完成（47 项需求 → 6 阶段，S1 门禁按阶段归属）
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -91,6 +93,12 @@ Last activity: 2026-09-10 — Milestone v2.6 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [v2.6 路线图]: 技能双目录 tier 只有 2 层（`agent-workspace/skills/` user > `managed-skills/` managed），不引入 oh-my-pi 的 7 层 provider priority；同名去重 user 胜出且冲突必须对用户可见 — Realm 只有 2 类来源，7 层机制引入即纯负担
+- [v2.6 路线图]: 6 阶段刻意不合并（granularity coarse 允许 46+47 / 48+49 合并）——每个 S1 门禁需要独立归属与独立验收面（P1→47、P2/P4→51、P3 拆 46+51），合并会让门禁与"同阶段交付"硬约束互相遮蔽
+- [v2.6 路线图]: 硬排序不可调换——技能目录先入沙箱（46，否则模型可见 location 却 read 不到，静默失效）→ 播种+bash 加固同阶段（47）→ `manage_skill`（49）先于设置页（50）与导入（51），保证 name/description/大小/注入校验只有一份实现 → 导入管线最后（51）
+- [v2.6 路线图]: `manage_skill` 工具绝不吃 `path` 参数（只吃 `name` + `content`/`description`，路径由 manager `path.join` 计算）——两个技能目录都在沙箱 root 内，`resolveInside` 会放行工作区任意路径，接口设计本身才是边界
+- [v2.6 路线图]: zip 解压库选 `yauzl@^3.4.0`（唯一新增运行时依赖）——它从不写盘（落盘 100% 由 Realm 决定），adm-zip CVE-2026-76845 那类"库自己跟随预置 symlink 写出根目录"在架构上不可能发生；明确不用 extract-zip（CVE-2026-56876 无补丁）/ adm-zip
+- [v2.6 路线图]: DOC-01 归 Phase 46（新建 `docs/product/ai-skills.md` 骨架）、DOC-02 归 Phase 47（`ai-agent-workspace.md` + `AGENTS.md` 的权限与免责声明）——按 AGENTS.md 约定随行为变更阶段同步，不设独立文档阶段、不回填到最后
 - [Phase 38]: AI 配置按提供商存储（ai.providers.{id}.{apiKey,model}）
 - [Phase 38]: AI 消息 Markdown 渲染必须 DOMPurify 消毒
 - [Research]: search-manager.js 独立模块，委托 ai-manager 工具注册
@@ -146,6 +154,13 @@ Recent decisions affecting current work:
 - Phase 42 added: AI 历史对话功能调研与 pi-agent 集成方案
 - Phase 43 added: AI 记忆系统集成（条目记忆 MVP），方案定稿见 docs/plan/ai-memory-system.md
 - Phase 44 added: 播放器视频缓存与本地媒体库（独立窗口 proxy 收口、分片缓存+观看历史续播、直播录制+媒体任务中心，方案定稿 2026-09-06 讨论完成）
+- v2.6 路线图创建（2026-09-10）：Phase 46-51 六阶段，47 项需求 100% 映射（SKILL 9 / DISC 7 / MGMT 6 / USER 8 / SEED 5 / SEC 10 / DOC 2）；依据 `.planning/research/SUMMARY.md`（HIGH confidence）
+- Phase 46 added: 技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）
+- Phase 47 added: 内置技能播种 + bash 策略加固（P1 门禁）
+- Phase 48 added: 技能发现与调用（`/` 面板 + `/skill:name`）
+- Phase 49 added: `manage_skill` 工具（AI 自建技能）
+- Phase 50 added: 设置页技能管理区 + `/api/skills/*`
+- Phase 51 added: 用户技能导入管线（zip + 网络地址，P2/P4/P9 门禁）
 
 ### Pending Todos
 
@@ -153,6 +168,22 @@ None yet.
 
 ### Blockers/Concerns
 
+**v2.6 需要 plan 期先拍板的开放决策（research Open Decisions）：**
+- O1（47）：find-skills 去 CLI 化程度——产品决策，判定标准是内置技能文本里不得出现任何"执行外部安装"动词
+- O2（51）：zip 多技能包语义——v1 定为"恰好一个技能根"，多技能勾选留 v1.x
+- O3（47/51）：`allowed-tools` 解析但必须带免责标注；执行层门禁明确 Out of Scope，不得让 UI 制造虚假安全感
+- O4（47）：seeded 技能升级策略——版本戳登记表 + 未修改才覆盖，绝不静默覆盖用户修改
+- O5（51）：frontmatter 是否显式 require `yaml`——若 require 必须提升为直接 `dependencies`（否则换 pnpm 立刻 MODULE_NOT_FOUND）
+- O7（46/50）：`MAX_SKILL_MD_BYTES` / `MAX_USER_SKILLS` / prompt 段字符预算具体数值需结合实测用量定
+- O8（46）：`/compact` 不保留技能正文，须写进 `docs/product/ai-skills.md` 已知限制（否则会被当成 bug）
+- O9（51）：既有沙箱 `writeFile` ENOENT symlink 缺口列为本期加固项（SEC-10）
+
+**v2.6 待实测风险（plan 期验证，research Gaps）：**
+- yauzl 的 Promise API 形态与四处错误处理面（callback err / promise rejection / `ZipFile.error` / read stream error）需真实打包 + 解压 + 恶意样本（zip-slip / symlink / 炸弹）验证
+- GitHub `contents` 列一层分支与 403/429 处理未发真实网络请求验证（codeload 直连与顶层前缀剥离已 curl 实测）
+- `npx skills` CLI 行为细节未实测（LOW；P1 论证不依赖该细节）
+
+**历史遗留（v2.5 及更早）：**
 - DNS rebinding 绕过 SSRF 防护需要额外验证（Phase 41 风险）
 - AnySearch 免费 Provider 可用性未验证（Phase 40 风险）
 - turndown XSS 风险需与 DOMPurify 集成确认（Phase 41 风险）
@@ -215,10 +246,11 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-08T08:22:33.597Z
-Stopped at: All 6 phases complete（40-45）— next: /gsd:new-milestone
+Last session: 2026-09-10T23:54:00.000Z
+Stopped at: v2.6 ROADMAP.md + STATE.md 写入完成（Phase 46-51），REQUIREMENTS.md traceability 已填充 47/47
 Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- 从 Phase 46 开始：`/gsd-plan-phase 46`（技能基础设施，P8 门禁）
+- Phase 47 与 Phase 51 建议先走 research（find-skills 改造方案 + 许可证复核 / yauzl 实测与 GitHub 分流语义）

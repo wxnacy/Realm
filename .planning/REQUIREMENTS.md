@@ -117,19 +117,72 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SKILL-01..09 | TBD | Pending |
-| DISC-01..07 | TBD | Pending |
-| MGMT-01..06 | TBD | Pending |
-| USER-01..08 | TBD | Pending |
-| SEED-01..05 | TBD | Pending |
-| SEC-01..10 | TBD | Pending |
-| DOC-01..02 | TBD | Pending |
+| SKILL-01 | Phase 46 | Pending |
+| SKILL-02 | Phase 46 | Pending |
+| SKILL-03 | Phase 46 | Pending |
+| SKILL-04 | Phase 46 | Pending |
+| SKILL-05 | Phase 46 | Pending |
+| SKILL-06 | Phase 46 | Pending |
+| SKILL-07 | Phase 46 | Pending |
+| SKILL-08 | Phase 46 | Pending |
+| SKILL-09 | Phase 47 | Pending |
+| DISC-01 | Phase 48 | Pending |
+| DISC-02 | Phase 48 | Pending |
+| DISC-03 | Phase 48 | Pending |
+| DISC-04 | Phase 48 | Pending |
+| DISC-05 | Phase 48 | Pending |
+| DISC-06 | Phase 48 | Pending |
+| DISC-07 | Phase 48 | Pending |
+| MGMT-01 | Phase 49 | Pending |
+| MGMT-02 | Phase 49 | Pending |
+| MGMT-03 | Phase 49 | Pending |
+| MGMT-04 | Phase 49 | Pending |
+| MGMT-05 | Phase 49 | Pending |
+| MGMT-06 | Phase 49 | Pending |
+| USER-01 | Phase 50 | Pending |
+| USER-02 | Phase 50 | Pending |
+| USER-03 | Phase 51 | Pending |
+| USER-04 | Phase 51 | Pending |
+| USER-05 | Phase 51 | Pending |
+| USER-06 | Phase 50 | Pending |
+| USER-07 | Phase 50 | Pending |
+| USER-08 | Phase 51 | Pending |
+| SEED-01 | Phase 47 | Pending |
+| SEED-02 | Phase 47 | Pending |
+| SEED-03 | Phase 47 | Pending |
+| SEED-04 | Phase 47 | Pending |
+| SEED-05 | Phase 47 | Pending |
+| SEC-01 | Phase 47 | Pending |
+| SEC-02 | Phase 51 | Pending |
+| SEC-03 | Phase 51 | Pending |
+| SEC-04 | Phase 51 | Pending |
+| SEC-05 | Phase 51 | Pending |
+| SEC-06 | Phase 51 | Pending |
+| SEC-07 | Phase 51 | Pending |
+| SEC-08 | Phase 51 | Pending |
+| SEC-09 | Phase 50 | Pending |
+| SEC-10 | Phase 51 | Pending |
+| DOC-01 | Phase 46 | Pending |
+| DOC-02 | Phase 47 | Pending |
 
 **Coverage:**
 - v1 requirements: 47 total
-- Mapped to phases: 0
-- Unmapped: 47 ⚠️（roadmap 阶段填充）
+- Mapped to phases: 47
+- Unmapped: 0 ✓
+
+**阶段分布：**
+
+| Phase | Requirements | Count |
+|-------|--------------|-------|
+| Phase 46 技能基础设施 | SKILL-01..08, DOC-01 | 9 |
+| Phase 47 内置技能播种 + bash 加固 | SKILL-09, SEED-01..05, SEC-01, DOC-02 | 8 |
+| Phase 48 技能发现与调用 | DISC-01..07 | 7 |
+| Phase 49 `manage_skill` 工具 | MGMT-01..06 | 6 |
+| Phase 50 设置页技能管理区 + `/api/skills/*` | USER-01, USER-02, USER-06, USER-07, SEC-09 | 5 |
+| Phase 51 用户技能导入管线 | USER-03, USER-04, USER-05, USER-08, SEC-02..08, SEC-10 | 12 |
+
+**S1 门禁归属（不得跨阶段滑落）：** P1→Phase 47、P2/P4→Phase 51、P3→Phase 46（名称/冲突策略）+ Phase 51（description + body 扫描）、P8→Phase 46、P9→Phase 51、P10→Phase 47。
 
 ---
 *Requirements defined: 2026-09-10*
-*Last updated: 2026-09-10 after initial definition*
+*Last updated: 2026-09-10 after v2.6 roadmap creation (Phases 46-51)*
