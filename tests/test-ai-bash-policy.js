@@ -589,3 +589,118 @@ describe('install 档逃逸形态与边界（SEC-01 / D-14 / D-16）', () => {
     assert.ok(doc.includes('apt'), '应记录发行版包管理器不在本表的范围限制');
   });
 });
+
+// ---------------------------------------------------------------------------
+// P1 门禁信号（47-VALIDATION.md 的 Gate → Acceptance Signal Map）
+//
+// 用例名直接带信号号，便于门禁审计逐条对照：P1-b-1（白名单不可越过，门禁核心）、
+// P1-b-2（D-13 家族覆盖）、P1-b-3（D-16 只读反例）、P1-b-4（ai-manager 源码三分支）。
+// P1-b-5（既有 32 例不回归）不写断言，由 <verify> 的 `# fail 0` 观测口径承载。
+// ---------------------------------------------------------------------------
+
+/**
+ * D-13 家族覆盖表（13 族，逐族 ≥1 条正例；未来新增家族只需加一行）
+ *
+ * `evaluateReason` 缺省为 'install'；`python -m pip` 一行显式标 'danger' ——
+ * `python` / `python3` 已在 DANGEROUS_INTERPRETERS 里，danger 分支按设计先于 install 返回
+ * （计划文本的「13 族全部 reason === 'install'」对这两条自相矛盾，以 D-14 的 danger 优先为准）。
+ * 该族仍必须命中 matchInstall（表条目对 `python3.11 -m pip install x` 这类
+ * 解释器名不在危险集合内的形态照样生效），且裁决仍是 confirm（绝不因 danger 而降级）。
+ */
+const INSTALL_FAMILIES = [
+  { family: 'npx（包执行器）', commands: ['npx create-app', 'npx skills add -g -y'] },
+  { family: 'npm', commands: ['npm i x', 'npm install', 'npm ci', 'npm exec x', 'npm add x'] },
+  { family: 'pnpm', commands: ['pnpm add x', 'pnpm install', 'pnpm i x', 'pnpm dlx x', 'pnpm exec x'] },
+  { family: 'yarn', commands: ['yarn add x', 'yarn install', 'yarn dlx x', 'yarn exec x'] },
+  { family: 'bun', commands: ['bun add x', 'bun install', 'bun x foo', 'bun i x'] },
+  { family: 'pip / pip3', commands: ['pip install x', 'pip3 install x'] },
+  { family: 'python -m pip', commands: ['python3 -m pip install x', 'python -m pip install x'], evaluateReason: 'danger' },
+  { family: 'uv', commands: ['uv pip install x', 'uv add x', 'uv tool install x', 'uv sync'] },
+  { family: 'uvx', commands: ['uvx foo'] },
+  { family: 'brew', commands: ['brew install wget', 'brew upgrade', 'brew reinstall x'] },
+  { family: 'cargo', commands: ['cargo install x'] },
+  { family: 'go', commands: ['go install x'] },
+  { family: 'gem', commands: ['gem install x'] },
+];
+
+/** D-16 只读反例表（命令名 + 子命令粒度；未来新增只读子命令只需加一行） */
+const READONLY_NEGATIVES = [
+  { family: 'npm 只读子命令', commands: ['npm run dev', 'npm test', 'npm ls', 'npm view x', 'npm audit', 'npm outdated', 'npm init', 'npm --version'] },
+  { family: 'pnpm 只读子命令', commands: ['pnpm run build', 'pnpm ls'] },
+  { family: 'yarn 只读子命令', commands: ['yarn run dev'] },
+  { family: 'brew 只读子命令', commands: ['brew info wget', 'brew list', 'brew search x'] },
+  { family: 'pip 只读子命令', commands: ['pip list', 'pip show x'] },
+  { family: 'cargo / go 只读子命令', commands: ['cargo search x', 'go list ./...'] },
+  { family: '裸命令名（无子命令）', commands: ['npm', 'pnpm', 'yarn', 'bun', 'brew', 'pip', 'uv'] },
+  { family: '近似串（词边界）', commands: ['npm runx', 'brewx'] },
+];
+
+describe('P1 门禁信号（SEC-01 / P1-b-1..b-5）', () => {
+  test('P1-b-1：白名单含 npm * / npx / brew * 时对应安装命令仍 confirm/install（门禁核心）', () => {
+    const cases = [
+      { command: 'npm i x', whitelist: ['npm *'] },
+      { command: 'npm i x', whitelist: ['npm'] },
+      { command: 'npx foo', whitelist: ['npx'] },
+      { command: 'brew install wget', whitelist: ['brew *'] },
+      { command: 'pip install x', whitelist: ['pip *'] },
+      { command: 'uvx foo', whitelist: ['uvx *'] },
+    ];
+    for (const { command, whitelist } of cases) {
+      const verdict = policy.evaluateBashCommand(command, whitelist);
+      assert.strictEqual(verdict.level, 'confirm', command);
+      assert.strictEqual(verdict.reason, 'install', command);
+      assert.ok(verdict.installNames.length > 0, command);
+    }
+  });
+
+  test('P1-b-2：D-13 的 13 个家族各 ≥1 条正例命中 install 档（表驱动）', () => {
+    assert.ok(INSTALL_FAMILIES.length >= 13, `家族表应 ≥13 族，实际 ${INSTALL_FAMILIES.length}`);
+    for (const { family, commands, evaluateReason = 'install' } of INSTALL_FAMILIES) {
+      assert.ok(commands.length > 0, `${family} 应至少有一条正例`);
+      for (const command of commands) {
+        assert.notStrictEqual(policy.matchInstall(command), null, `${family}: ${command}`);
+        const verdict = policy.evaluateBashCommand(command, []);
+        assert.strictEqual(verdict.level, 'confirm', `${family}: ${command}`);
+        assert.strictEqual(verdict.reason, evaluateReason, `${family}: ${command}`);
+      }
+    }
+  });
+
+  test('P1-b-3：D-16 的只读反例全部不命中 install 档，且仍按既有白名单语义裁决（表驱动）', () => {
+    const total = READONLY_NEGATIVES.reduce((n, row) => n + row.commands.length, 0);
+    assert.ok(total >= 14, `只读反例应 ≥14 条，实际 ${total}`);
+    for (const { family, commands } of READONLY_NEGATIVES) {
+      for (const command of commands) {
+        assert.strictEqual(policy.matchInstall(command), null, `${family}: ${command}`);
+        const verdict = policy.evaluateBashCommand(command, []);
+        assert.notStrictEqual(verdict.reason, 'install', `${family}: ${command}`);
+        assert.strictEqual(verdict.level, 'confirm', `${family}: ${command}`);
+        assert.strictEqual(verdict.reason, 'default', `${family}: ${command}`);
+        // 同一命令进了白名单后应回到 allow —— 证明只读命令未误伤
+        assert.strictEqual(policy.evaluateBashCommand(command, [command]).level, 'allow', `${family}: ${command}`);
+      }
+    }
+  });
+
+  test('P1-b-4：ai-manager.js 的 _createBashToolWithPolicy 含 install 专属高风险三分支', () => {
+    const body = methodBody(readSource('ai-manager.js'), '_createBashToolWithPolicy');
+    assert.ok(body.includes("reason === 'install'"), '应含 reason === install 判定');
+    assert.ok(body.includes("'high'"), '应含 riskLevel high');
+    assert.ok(body.includes('包管理器'), 'install 分支应点名包管理器安装');
+    assert.ok(body.includes('AI 请求安装第三方软件包'), 'install 分支应有专属 title');
+    assert.ok(body.includes('不会因为加入白名单而免确认'), 'install 分支文案应说明白名单无效');
+    assert.ok(body.includes("AI 请求执行高危 Bash 命令"), 'danger 分支 title 应保持独立（不拉平）');
+  });
+
+  test('P1-b 影子断言：表完整性三项 + 导出面（47-04 文档与下游阶段的契约）', () => {
+    const table = policy.PACKAGE_MANAGER_INSTALL_PATTERNS;
+    assert.ok(table.length >= 13, `表条目应 ≥13，实际 ${table.length}`);
+    for (const entry of table) {
+      assert.ok(typeof entry.name === 'string' && entry.name.trim().length > 0, '每条 name 应是非空字符串');
+      assert.doesNotThrow(() => new RegExp(entry.pattern.source), `${entry.name} 的 pattern 应可构造 RegExp`);
+    }
+    assert.ok(Array.isArray(policy.PACKAGE_MANAGER_INSTALL_PATTERNS), 'PACKAGE_MANAGER_INSTALL_PATTERNS 应已导出');
+    assert.strictEqual(typeof policy.matchInstall, 'function', 'matchInstall 应已导出');
+    assert.strictEqual(policy.evaluateBashCommand('npm i x', []).reason, 'install');
+  });
+});
