@@ -107,6 +107,19 @@ function getAgentWorkspaceLazy() {
   return require('./agent-workspace');
 }
 
+/**
+ * 惰性 require AI 技能管理模块（技能集唯一数据权威）
+ *
+ * ai-skills-manager 无 electron 依赖、无顶层 SDK import（SDK 在 refreshSkills
+ * 内动态 import），纯 Node 环境下可直接加载与测试。此处按同款惰性模式引用
+ * （与 getAgentWorkspaceLazy 一致），避开模块加载顺序问题。
+ *
+ * @returns {object} ai-skills-manager 模块导出
+ */
+function getAiSkillsManagerLazy() {
+  return require('./ai-skills-manager');
+}
+
 // Bash 三档权限策略（纯函数零依赖，可直接顶层 require）
 const bashPolicy = require('./ai-bash-policy');
 
@@ -549,18 +562,26 @@ function buildWorkspacePrompt() {
 }
 
 /**
- * 构建完整 system prompt（REALM_SYSTEM_PROMPT + workspace 段 + 全局两层记忆冻结快照）
+ * 构建完整 system prompt（REALM_SYSTEM_PROMPT + workspace 段 + 全局两层记忆冻结快照 + 技能段）
  *
  * 快照在 Agent 创建时一次性拼入（D-04 冻结语义：会话内不变，保前缀缓存）。
- * buildGlobalSnapshot 为同步函数——Agent 创建路径上不可异步化（G-42-4 实录）。
+ * buildGlobalSnapshot / buildSkillsPrompt 均为同步函数——Agent 创建路径上
+ * 不可异步化（G-42-4 实录）。
  * init() 与 _recreateAgent() 两处 Agent 创建点都必须经此函数（漏一处即
- * 部分会话无记忆快照）。
+ * 部分会话无记忆快照 / 无技能段）。
+ *
+ * 段顺序（D-01）：技能段**固定在末段**，前三段全静态——技能集变更只影响
+ * 末尾，冻结记忆段的前缀缓存边界不受影响。空技能集时整段不追加（D-02：
+ * 不产生空标签、不留多余空行）。技能段文本原样使用 SDK
+ * formatSkillsForSystemPrompt 的返回值，不加中文前缀。
  *
  * @returns {string} 完整 system prompt
  */
 function buildSystemPrompt() {
-  return REALM_SYSTEM_PROMPT + '\n\n' + buildWorkspacePrompt() + '\n\n'
+  const base = REALM_SYSTEM_PROMPT + '\n\n' + buildWorkspacePrompt() + '\n\n'
     + getAiMemoryManagerLazy().buildGlobalSnapshot();
+  const skillsBlock = getAiSkillsManagerLazy().buildSkillsPrompt();
+  return skillsBlock ? base + '\n\n' + skillsBlock : base;
 }
 
 /** 上下文裁剪：保留最近的消息数量 */
@@ -806,6 +827,16 @@ class AIManager {
 
       // 创建沙箱 ExecutionEnv（文件/Bash 工具共用；cwd = agent 工作区根目录）
       this.sandboxEnv = await getAgentWorkspaceLazy().createSandboxEnv();
+
+      // 刷新技能集（D-04：每次 Agent 创建前无条件重扫；managed 先、user 后）
+      // configStore 注入式读取（manager 侧零 configStore 依赖）
+      await getAiSkillsManagerLazy().refreshSkills(this.sandboxEnv, {
+        disabled: this.configStore ? this.configStore.get('settings.aiSkills.disabled', []) : [],
+        rootDirs: [
+          getAgentWorkspaceLazy().getManagedSkillsDir(),
+          getAgentWorkspaceLazy().getSkillsDir(),
+        ],
+      });
 
       // 构建工具列表
       this.tools = this._buildRealmTools();
@@ -5649,3 +5680,4 @@ module.exports = AIManager;
 module.exports.executeScript = executeScript;
 module.exports.sanitizeInput = sanitizeInput;
 module.exports.validateScriptForSteps = validateScriptForSteps;
+module.exports.buildSystemPrompt = buildSystemPrompt;

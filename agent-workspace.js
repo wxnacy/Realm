@@ -5,6 +5,8 @@
  * 所有 AI 落盘数据统一收纳于此：
  * - ai-memory/   AI 记忆（由 ai-memory-manager 消费，启动时一次性迁入）
  * - .tmp/        bash 输出截断全量落盘等临时文件（SandboxExecutionEnv 重定向目标）
+ * - skills/      用户技能目录（source='user'，布局 <name>/SKILL.md）
+ * - managed-skills/  managed 技能目录（source='managed'，同名时被 user 技能遮蔽）
  *
  * 沙箱：createSandboxEnv 包装 SDK 的 NodeExecutionEnv，对全部 FileSystem
  * 方法做路径硬校验——resolve + realpath 后必须落在工作区内，越界返回
@@ -91,12 +93,36 @@ function getAttachmentsDir() {
 }
 
 /**
- * 启动时建目录（幂等）：根目录 + .tmp/ + attachments/
+ * 解析用户技能目录（source='user'；与 managed-skills 同名时 user 优先）
+ *
+ * 必须由 getWorkspaceDir() 派生 —— 这是「技能目录落在硬沙箱 root 内」的
+ * 唯一保证：模型从 prompt 的 <location> 拿到路径后要能 read 到文件。
+ * @returns {string} 用户技能目录绝对路径
+ */
+function getSkillsDir() {
+  return path.join(getWorkspaceDir(), 'skills');
+}
+
+/**
+ * 解析 managed 技能目录（source='managed'；被同名 user 技能遮蔽，文件不删）
+ *
+ * 与 getSkillsDir 同款：由 getWorkspaceDir() 派生，不引入第二个沙箱 root
+ * 或只读挂载（否则与 resolveInside 的双基准 + realpath 判据漂移）。
+ * @returns {string} managed 技能目录绝对路径
+ */
+function getManagedSkillsDir() {
+  return path.join(getWorkspaceDir(), 'managed-skills');
+}
+
+/**
+ * 启动时建目录（幂等）：根目录 + .tmp/ + attachments/ + skills/ + managed-skills/
  */
 function ensureWorkspaceDir() {
   fs.mkdirSync(getWorkspaceDir(), { recursive: true });
   fs.mkdirSync(getTmpDir(), { recursive: true });
   fs.mkdirSync(getAttachmentsDir(), { recursive: true });
+  fs.mkdirSync(getSkillsDir(), { recursive: true });
+  fs.mkdirSync(getManagedSkillsDir(), { recursive: true });
 }
 
 /**
@@ -356,6 +382,8 @@ module.exports = {
   getAiMemoryDir,
   getTmpDir,
   getAttachmentsDir,
+  getSkillsDir,
+  getManagedSkillsDir,
   ensureWorkspaceDir,
   migrateAiMemory,
   resolveInside,
