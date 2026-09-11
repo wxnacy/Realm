@@ -142,7 +142,7 @@ v2.6 把 AI 助手推进到**可扩展能力体系**：接入 pi-agent-core 原�
 3. bash「包管理器安装」档必须与内置技能播种同阶段（47）——否则 P1 门禁形同虚设。
 4. 导入管线排最后（51）——攻击面最大、耦合最小，风险不外溢。
 
-- [ ] **Phase 46: 技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）** - 双目录进沙箱 + `<available_skills>` 注入 + 技能集变更即时生效
+- [x] **Phase 46: 技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）** - 双目录进沙箱 + `<available_skills>` 注入 + 技能集变更即时生效 (completed 2026-09-11)
 - [ ] **Phase 47: 内置技能播种 + bash 策略加固** - find-skills / skill-creator 去 CLI 化随包分发 + 包管理器安装档强制确认
 - [ ] **Phase 48: 技能发现与调用（`/` 面板 + `/skill:name`）** - `/` 面板并入技能列表 + 显式调用进对话历史 + 模型按 description 自动匹配
 - [ ] **Phase 49: `manage_skill` 工具（AI 自建技能）** - create / update / delete + 不吃 `path` 参数 + seeded 边界保护
@@ -164,7 +164,7 @@ v2.6 把 AI 助手推进到**可扩展能力体系**：接入 pi-agent-core 原�
   4. 用户技能与 managed 技能同名时 user 版本胜出、managed 版本被遮蔽，冲突对用户可见（不静默去重）。
   5. 非法 name / 超长 description / YAML 解析失败 / 超限的技能不静默消失：产出含"哪个限额、当前值"的可读诊断，可被上层读出。
 
-**Plans:** 4/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -296,7 +296,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 46. 技能基础设施 | 4/4 | In Progress|  |
+| 46. 技能基础设施 | 4/4 | Complete | 2026-09-11 |
 | 47. 内置技能播种 + bash 策略加固 | TBD | Not started | - |
 | 48. 技能发现与调用 | TBD | Not started | - |
 | 49. `manage_skill` 工具 | TBD | Not started | - |

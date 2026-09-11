@@ -2,45 +2,45 @@
 gsd_state_version: "1.0"
 milestone: v2.6
 milestone_name: AI 助手技能（Skill）能力
-current_phase: 46
-current_phase_name: 技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）
-status: verifying
-stopped_at: Completed 46-04-PLAN.md
-last_updated: "2026-09-11T02:22:10.438Z"
+current_phase: 47
+current_phase_name: 内置技能播种 + bash 策略加固
+status: planning
+stopped_at: Phase 46 complete, ready to plan Phase 47
+last_updated: "2026-09-11T03:59:37.417Z"
 last_activity: 2026-09-11
-last_activity_desc: Phase 46 execution started
-state_head: 9cc4d6ef4efee3fcc770ea35a7441655ad252526
+last_activity_desc: Phase 46 complete, transitioned to Phase 47
+state_head: 341ae8441416789f48a4011f54d7a95966ebd819
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
   completed_plans: 4
-  percent: 0
+  percent: 17
 ---
 
 # Project State: Realm Browser
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-10)
+See: .planning/PROJECT.md (updated 2026-09-11)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 46 — 技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）
+**Current focus:** Phase 47 — 内置技能播种 + bash 策略加固
 
 ## Current Position
 
-Phase: 46 (技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
-Last activity: 2026-09-11 — Phase 46 execution started
+Phase: 47 — 内置技能播种 + bash 策略加固
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-09-11 — Phase 46 complete, transitioned to Phase 47
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 17%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 47+ (v1.0 through v2.4)
+- Total plans completed: 51+ (v1.0 through v2.4)
 - Previous milestones: 39 phases complete
 
 **By Phase:**
@@ -56,6 +56,7 @@ Progress: [░░░░░░░░░░] 0%
 | 43 | 5 | - | - |
 | 45 | 4 | - | - |
 | 44 | 18 | - | - |
+| 46 | 4 | - | - |
 
 *Updated after each plan completion*
 **Per-Plan Metrics:**
@@ -195,8 +196,11 @@ None yet.
 - O3（47/51）：`allowed-tools` 解析但必须带免责标注；执行层门禁明确 Out of Scope，不得让 UI 制造虚假安全感
 - O4（47）：seeded 技能升级策略——版本戳登记表 + 未修改才覆盖，绝不静默覆盖用户修改
 - O5（51）：frontmatter 是否显式 require `yaml`——若 require 必须提升为直接 `dependencies`（否则换 pnpm 立刻 MODULE_NOT_FOUND）
-- O7（46/50）：`MAX_SKILL_MD_BYTES` / `MAX_USER_SKILLS` / prompt 段字符预算具体数值需结合实测用量定
-- O8（46）：`/compact` 不保留技能正文，须写进 `docs/product/ai-skills.md` 已知限制（否则会被当成 bug）
+- ~~O7（46/50）：`MAX_SKILL_MD_BYTES` / `MAX_USER_SKILLS` / prompt 段字符预算具体数值需结合实测用量定~~ — **已在 Phase 46 落定**（`ai-skills-manager.js LIMITS`：64 KiB / 50 / 8000）。Phase 50 只负责把这些数值渲染给用户，不得重新定义
+- ~~O8（46）：`/compact` 不保留技能正文，须写进 `docs/product/ai-skills.md` 已知限制~~ — **已在 Phase 46 落定**（文档「六、已知限制」）
+- ⚠️ [Phase 48/49/50/51] `syncAgentSystemPrompt()` **本阶段无生产调用方** —— 技能集写路径（`/` 面板 48 / `manage_skill` 49 / 设置页启停卸载 50 / 导入 51）落地时**必须**把「写成功后调用 `syncAgentSystemPrompt()`」写成显式交付项与验收项；P8 失效链本阶段只闭合 3/6
+- ⚠️ [Phase 48] `/skill:name` **显式调用必须实时读盘**（用户 2026-09-11 UAT 明确要求）—— 技能正文当场从磁盘读取，不得依赖 prompt 快照或对话历史里的旧回答。背景：46-UAT Test 3 实测「切回老对话看不到磁盘改动」，根因是模型复读自身历史答案（两次回答 1801 字符逐字相同），非重扫失效
+- ⚠️ [Phase 48] prompt 未区分「工具 / 技能」两个概念 —— 模型被问「你有哪些技能」时会把 27 个 tool 也称作技能（仅 demo 是真技能）；无历史污染时模型自行区分正确。做 `/` 面板时可考虑补一句措辞
 - O9（51）：既有沙箱 `writeFile` ENOENT symlink 缺口列为本期加固项（SEC-10）
 
 **v2.6 待实测风险（plan 期验证，research Gaps）：**
@@ -269,11 +273,12 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T02:22:10.421Z
-Stopped at: Completed 46-04-PLAN.md
+Last session: 2026-09-11T04:05:00.000Z
+Stopped at: Phase 46 complete (UAT 3/3, security 0 open), ready to discuss/plan Phase 47
 Resume file: None
 
 ## Operator Next Steps
 
-- 从 Phase 46 开始：`/gsd-plan-phase 46`（技能基础设施，P8 门禁）
-- Phase 47 与 Phase 51 建议先走 research（find-skills 改造方案 + 许可证复核 / yauzl 实测与 GitHub 分流语义）
+- Phase 47 建议先走 discuss / research：`/gsd-discuss-phase 47` —— find-skills 彻底去 CLI 化属产品决策 + 许可证需法务式复核（O1/O3/O4）
+- 用户已定：Phase 48 的 `/skill:name` 必须实时读盘（写路径接线 + 实时正文两条都是显式验收项）
+- 遗留验证待办：Phase 46 的 P8 失效链 3/6 需在 48/49/50/51 逐点闭合

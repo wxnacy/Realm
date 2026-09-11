@@ -141,6 +141,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ 媒体任务中心：直播录制（m3u8 轮询追分片 + 关窗/退出两级确认）+ mux.js TS→fMP4 转封装 + realm://tasks 任务页 + 主窗口角标 — Phase 44（需求未注册）
 - ✓ AES-128 加密 HLS 解密转封装（EXT-X-KEY IV 捕获 + key/IV/media_sequence 留存与历史条目自愈 + 逐分片解密） — Phase 44（需求未注册）
 - ✓ B 站直播 fMP4 转录（EXT-X-MAP init 留存 + 纯 JS 字节拼接 + tfdt rebase 时间轴归零） — Phase 45（需求未注册）
+- ✓ SKILL-01..08 + DOC-01: AI 技能基础设施（`agent-workspace/skills/` 与 `managed-skills/` 双目录入硬沙箱 + SDK 加载接线 + `<available_skills>` 注入 system prompt 第 4 段 + 契约布局过滤/目录名权威/同名遮蔽去重 + 三限额与诊断不静默 + 启停只标记不删文件 + 不重建 Agent 的 prompt 回写与 `skills:changed` 跨窗口广播 + `docs/product/ai-skills.md` 骨架） — Phase 46
 
 ### Active
 
@@ -218,6 +219,8 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - Phase 44 代码审查剩余已接受技术债：WR-07（嗅探首字节判定前提未确证，暂缓）；44-UI-REVIEW 3 项 minor 记入 `Acknowledged Gaps`
 - Phase 30 / Phase 35（均已归档 v2.4）的 VERIFICATION 仍为 `human_needed`（历史遗留）
 - Phase 28 DASH (.mpd) 播放 gap 暂缓（第二层根因未诊断）
+- Phase 46 UAT 3/3 通过（含用临时 IPC 钩子取得 SKILL-04/SC3 端到端可达性证据，钩子已删）；安全审查 23 威胁 / 23 closed / 0 open
+- Phase 46 遗留（非阻断）：技能集写路径未落地 —— `syncAgentSystemPrompt()` **无生产调用方**，P8 失效链本阶段只闭合 3/6，其余 3 点交接 48/49/50/51；`/skill:name` 的**实时读盘**要求已记入 STATE.md 待办
 
 **Current milestone:** v2.6 AI 助手技能（Skill）能力（进行中）
 
@@ -346,6 +349,12 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | 直播录制采用「显式后台任务」模型（并发上限 / 同 URL 去重 / 关窗与退出两级确认） | 录制是长任务，需要可预期的心智模型与丢失防护 | ✓ 已验证 — Phase 44 UAT |
 | fMP4 转录走纯 JS 字节拼接而非可选依赖 ffmpeg | 零新依赖、跨平台一致；代价是 QuickTime 需要 tfdt rebase 补偿时间轴 | ✓ 已验证 — Phase 45（UAT 2/2） |
 | Electron 43.3.0 上游键盘 ACK use-after-free：延迟销毁 + 补丁线升级双层防御 | 上游 heisenbug 无确定性修复，结构性收窄触发窗口与版本升级并用 | ✓ 已验证 — Phase 44（44-14 / 44-15） |
+| 技能段固定为 system prompt 第 4 段（末段），前三段（身份/工作区/记忆快照）全静态 | 技能集变更只影响末尾，冻结记忆段的前缀缓存边界不受影响；空技能集时整段不追加（不产空标签、不留多余空行） | ✓ 已验证 — Phase 46（UAT Test 1 实测 prompt 8989→9200） |
+| 加载面收窄必须在 SDK 遍历**之前**（薄 env 覆写 `listDir`/`readTextFile`） | SDK 加载器有「根层黑天鹅」：根层直接放 `SKILL.md` 会短路整个技能集，根层散落带 description 的 `*.md` 会变成幽灵技能；事后过滤救不回，只能前置介入 | ✓ 已验证 — Phase 46 |
+| 技能目录一律由 `getWorkspaceDir()` 派生；**不为 `managed-skills/` 加第二个沙箱 root 或只读挂载** | 「AI 不可删改内置技能」是**工具层不变式，不是沙箱不变式**（沙箱只有一个 root）；用第二 root 表达会引入第二套路径判据 | ✓ 已验证 — Phase 46（文档「五、沙箱边界」+ T-46-01-02） |
+| 名称权威取目录名（`enforceDirNameAuthority` 就地重写 `skill.name`），重写 ≠ 丢弃 | frontmatter `name` 可声明任意值冒名顶替内置技能（P3/S1）；丢弃则等于静默删除用户从 GitHub 导入的合法技能 | ✓ 已验证 — Phase 46（T-46-02-01） |
+| 同名遮蔽的**败者保留在数据层**（标 `shadowed`/`shadowedBy`）而非剔除，仅在 prompt 组装处过滤 | 48 要来源徽标、50 要列表与诊断；剔除会让两阶段需同时改数据源与展示层 | ✓ 已验证 — Phase 46（UAT Test 1 未见重复条目） |
+| prompt 段预算的 entryCost 用**边际成本**（`format([dummy, skill]) - format([dummy])`）而非差值口径 | 计划原文差值口径让每条重复计入一次前言，k 条时累计比真实段长少 (k-1) 倍前言，会把贪心放行到超预算（实测 40 条技能段 9404 > 8000） | ✓ 已验证 — Phase 46（46-03） |
 
 ## Evolution
 
@@ -365,4 +374,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-10 after starting v2.6 milestone (AI 助手技能能力)*
+*Last updated: 2026-09-11 after Phase 46 (技能基础设施) complete*
