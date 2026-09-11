@@ -26,6 +26,46 @@ const REPO_ROOT = path.join(__dirname, '..');
 /** 真实的随包内置技能源目录（端到端纵切必须用真源，不用合成目录） */
 const REAL_BUILTIN_SRC = path.join(REPO_ROOT, 'skills-builtin');
 
+/** skill-creator 的随包目录（47-03 落地） */
+const SKILL_CREATOR_DIR = path.join(REAL_BUILTIN_SRC, 'skill-creator');
+
+/**
+ * 上游 skill-creator 的 **17 个逐字快照文件**与字节数
+ *
+ * 字节数来自 47-RESEARCH.md §B-5 的实测清单（固定 SHA
+ * `b0cbd3df1533b396d281a6886d5132f623393a9c`）。这 17 个文件**不得有任何改动**，
+ * 因此字节数必须**精确**相等 —— 它是「快照没取错版本」的护栏。
+ *
+ * **计数口径（唯一）**：17（下表）+ 1（`SKILL.md`，唯一被受控改写的上游文件）= **18 个上游文件**。
+ * `scripts/check_env.mjs` 由 **Task 2** 产出、**不属于**本表；全量 19 项的核对由 Task 2 补齐。
+ */
+const UPSTREAM_SKILL_CREATOR_FILES = [
+  { rel: 'LICENSE.txt', bytes: 11357 },
+  { rel: 'agents/analyzer.md', bytes: 10376 },
+  { rel: 'agents/comparator.md', bytes: 7287 },
+  { rel: 'agents/grader.md', bytes: 9049 },
+  { rel: 'assets/eval_review.html', bytes: 7058 },
+  { rel: 'eval-viewer/generate_review.py', bytes: 16365 },
+  { rel: 'eval-viewer/viewer.html', bytes: 44998 },
+  { rel: 'references/schemas.md', bytes: 12061 },
+  // 上游就是 0 字节的空 `__init__.py`（仅作包标记）→ 只断言精确字节数，不断言「非空」
+  { rel: 'scripts/__init__.py', bytes: 0 },
+  { rel: 'scripts/aggregate_benchmark.py', bytes: 14386 },
+  { rel: 'scripts/generate_report.py', bytes: 12847 },
+  { rel: 'scripts/improve_description.py', bytes: 11116 },
+  { rel: 'scripts/package_skill.py', bytes: 4234 },
+  { rel: 'scripts/quick_validate.py', bytes: 3972 },
+  { rel: 'scripts/run_eval.py', bytes: 11464 },
+  { rel: 'scripts/run_loop.py', bytes: 13605 },
+  { rel: 'scripts/utils.py', bytes: 1661 },
+];
+
+/**
+ * `SKILL.md` 是唯一被改写的上游文件（六处受控改动 + `## Reference files` 清单同步）
+ * → 字节数**不可能**再等于上游的 33,168，只能用**区间**护栏（不得被清理成空壳）。
+ */
+const UPSTREAM_SKILL_MD_BYTES = { min: 30000, max: 40000 };
+
 /**
  * 零安装语义禁用模式表（逐字照抄 47-RESEARCH.md §A-4，不要重新设计正则）
  *
@@ -149,6 +189,34 @@ function collectFiles(dir) {
 /** glob 式收集 skills-builtin 下指定 basename 的文件（扫描面的权威口径） */
 function globBuiltinByBasename(basename) {
   return collectFiles(REAL_BUILTIN_SRC).filter((f) => path.basename(f) === basename);
+}
+
+/**
+ * 解析 `SKILL.md` 的 `## Reference files` 章，抽出清单里列出的**相对路径**
+ *
+ * 只认「反引号包裹 + 无空白 + 已知扩展名」的 token —— 这样正文里提到目录名
+ * （`scripts/`）或 `python -m scripts.<name>` 这类片段不会被误当成清单条目。
+ */
+function parseReferenceFileList(markdown) {
+  const anchor = markdown.indexOf('\n## Reference files');
+  assert.ok(anchor > 0, 'SKILL.md 应含 `## Reference files` 章');
+  const rest = markdown.slice(anchor + 1);
+  // 章边界取「下一个 ## 标题」与「下一条 --- 分隔线」里更靠前的那个 —— 只取前者会在
+  // `## Reference files` 是最后一章时一路吞到文件尾，把尾部散文也算进清单。 
+  const nextHeading = rest.indexOf('\n## ', 1);
+  const nextRule = rest.indexOf('\n---\n');
+  const bounds = [nextHeading, nextRule].filter((idx) => idx > 0);
+  const end = bounds.length > 0 ? Math.min(...bounds) : -1;
+  const section = end > 0 ? rest.slice(0, end) : rest;
+
+  const paths = [];
+  for (const match of section.matchAll(/`([^`\n]+)`/g)) {
+    const token = match[1];
+    if (/\s/.test(token)) continue;
+    if (!/\.(md|py|mjs|html|txt)$/.test(token)) continue;
+    paths.push(token);
+  }
+  return { section, paths: [...new Set(paths)].sort() };
 }
 
 /** 把一个目录树复制到目标（测试内造合成源用） */
@@ -685,12 +753,29 @@ describe('零安装语义扫描（SEED-03 / P1 门禁字面判据）', () => {
 
   test('第 2 段（带行级豁免）扫描器就位：排除法覆盖第 1 段之外的全部内容', () => {
     const files = stage2Files();
-    assert.deepStrictEqual(
-      files,
-      [],
-      '本计划期 skills-builtin/ 只有 find-skills 的 SKILL.md + LICENSE.txt（均属第 1 段）→ 第 2 段集合为空'
+    assert.ok(
+      files.length > 0,
+      '47-03 落地 skill-creator 的 scripts/ / agents/ / assets/ / eval-viewer/ / references/ 之后，第 2 段集合不再是空集'
     );
-    assert.deepStrictEqual(scanFiles(files, FORBIDDEN_PATTERNS, EXEMPTIONS), []);
+    // 排除法的覆盖面证据：不列举目录名，只断言这些目录类确实落进了第 2 段
+    const rels = files.map((f) => path.relative(REPO_ROOT, f));
+    for (const prefix of [
+      'skills-builtin/skill-creator/scripts/',
+      'skills-builtin/skill-creator/agents/',
+      'skills-builtin/skill-creator/assets/',
+      'skills-builtin/skill-creator/eval-viewer/',
+      'skills-builtin/skill-creator/references/',
+    ]) {
+      assert.ok(
+        rels.some((r) => r.startsWith(prefix)),
+        `第 2 段应覆盖 ${prefix}（排除法而非列举 scripts/ + resources/）`
+      );
+    }
+    assert.deepStrictEqual(
+      scanFiles(files, FORBIDDEN_PATTERNS.concat(INSTALL_IMPERATIVES), EXEMPTIONS),
+      [],
+      '第 2 段在豁免生效下应零命中'
+    );
 
     assert.ok(EXEMPTIONS.length > 0, '豁免清单必须是非空表（47-03 的 check_env.mjs 反向语义条目已预登记）');
     for (const e of EXEMPTIONS) {
@@ -749,5 +834,196 @@ describe('门禁断言（SEED-04 / D-11 / SKILL-09 反向证据）', () => {
     const policy = require('../ai-bash-policy');
     assert.ok(policy.DANGEROUS_INTERPRETERS.has('node'), 'node 仍须在 DANGEROUS_INTERPRETERS 内');
     assert.ok(policy.DANGEROUS_INTERPRETERS.has('python3'), 'python3 仍须在 DANGEROUS_INTERPRETERS 内');
+  });
+});
+
+describe('内置技能上游快照与归属（SEED-01 / SEED-05 / P10）', () => {
+  test('两个技能都被加载：播种零诊断 → 零诊断零错误识别 → 均 source === managed', async (t) => {
+    const root = withTempRoot(t);
+    const managedDir = path.join(root, 'managed-skills');
+    seeder.setBuiltinDepsForTest({ srcDir: REAL_BUILTIN_SRC, managedDir });
+
+    seeder.seedBuiltinSkills();
+    assert.deepStrictEqual(
+      seeder.getSeedDiagnostics(),
+      [],
+      '首次播种应为零诊断 —— skill-creator 的 LICENSE.txt / scripts/ / agents/ / eval-viewer/ 不得产生诊断（Pitfall 7）'
+    );
+
+    for (const name of ['find-skills', 'skill-creator']) {
+      assert.ok(fs.existsSync(path.join(managedDir, name, 'SKILL.md')), `${name}/SKILL.md 应落盘`);
+      assert.ok(fs.existsSync(path.join(managedDir, name, 'LICENSE.txt')), `${name}/LICENSE.txt 应随整目录复制落盘（P10-5 的前置）`);
+    }
+    // 嵌套资源也要完整落盘：整目录复制天然携带，不是只复制 SKILL.md
+    for (const rel of [
+      'scripts/quick_validate.py',
+      'scripts/__init__.py',
+      'agents/grader.md',
+      'references/schemas.md',
+      'eval-viewer/viewer.html',
+      'assets/eval_review.html',
+    ]) {
+      assert.ok(fs.existsSync(path.join(managedDir, 'skill-creator', rel)), `skill-creator/${rel} 应落盘`);
+    }
+
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    await aiSkills.refreshSkills(env, {
+      rootDirs: [workspace.getManagedSkillsDir(), workspace.getSkillsDir()],
+    });
+
+    const snapshot = aiSkills.getSkillsSnapshot();
+    for (const name of ['find-skills', 'skill-creator']) {
+      const entry = snapshot.skills.find((e) => e.skill.name === name);
+      assert.ok(entry, `技能加载器应零诊断识别 ${name}`);
+      assert.strictEqual(entry.source, 'managed', `${name} 的来源应为 managed`);
+    }
+    assert.deepStrictEqual(snapshot.diagnostics, [], '加载应零诊断（LICENSE.txt 与嵌套 scripts/ 不产生诊断）');
+    assert.deepStrictEqual(snapshot.errors, [], '加载应零错误');
+  });
+
+  test('两个都不进 prompt：buildSkillsPrompt() === ""（disable-model-invocation 对两个技能都生效）', async (t) => {
+    const root = withTempRoot(t);
+    seeder.setBuiltinDepsForTest({ srcDir: REAL_BUILTIN_SRC, managedDir: path.join(root, 'managed-skills') });
+    seeder.seedBuiltinSkills();
+
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    await aiSkills.refreshSkills(env, {
+      rootDirs: [workspace.getManagedSkillsDir(), workspace.getSkillsDir()],
+    });
+
+    const snapshot = aiSkills.getSkillsSnapshot();
+    assert.strictEqual(snapshot.skills.length, 2, '两个内置技能都应被识别');
+    assert.strictEqual(
+      aiSkills.buildSkillsPrompt(),
+      '',
+      'SEED-04：两个内置技能都有 disable-model-invocation: true → prompt 段为空（skill-creator 的英文 description 不得无条件进入每次请求）'
+    );
+  });
+
+  test('18 个上游文件全部存在且逐字节等于固定 SHA 快照（SKILL.md 例外，用区间）', () => {
+    assert.strictEqual(
+      UPSTREAM_SKILL_CREATOR_FILES.length + 1,
+      18,
+      '计数口径唯一为 18 = 17 个逐字快照文件 + SKILL.md（本计划唯一被改写的上游文件）；scripts/check_env.mjs 由 Task 2 产出，不属于本表'
+    );
+
+    for (const { rel, bytes } of UPSTREAM_SKILL_CREATOR_FILES) {
+      const abs = path.join(SKILL_CREATOR_DIR, rel);
+      assert.ok(fs.existsSync(abs), `上游文件 ${rel} 应存在`);
+      assert.strictEqual(
+        fs.statSync(abs).size,
+        bytes,
+        `${rel} 字节数应精确等于上游实测值 ${bytes}（不符即说明取错了版本、或该文件被改动过）`
+      );
+    }
+
+    const skillMd = path.join(SKILL_CREATOR_DIR, 'SKILL.md');
+    assert.ok(fs.existsSync(skillMd), 'skill-creator/SKILL.md 应存在');
+    const size = fs.statSync(skillMd).size;
+    assert.ok(
+      size >= UPSTREAM_SKILL_MD_BYTES.min && size <= UPSTREAM_SKILL_MD_BYTES.max,
+      `SKILL.md 字节数应落在 [${UPSTREAM_SKILL_MD_BYTES.min}, ${UPSTREAM_SKILL_MD_BYTES.max}]（上游 33,168 加减受控改动），实际 ${size}`
+    );
+
+    // D-47-03-a：agents/ 随包 —— `## Advanced: Blind comparison` 章对它们的三处引用不得断链
+    for (const rel of ['agents/analyzer.md', 'agents/comparator.md', 'agents/grader.md']) {
+      assert.ok(fs.existsSync(path.join(SKILL_CREATOR_DIR, rel)), `${rel} 必须随包（否则正文引用断链）`);
+    }
+  });
+
+  test('LICENSE.txt 是上游 Apache-2.0 全文逐字副本（精确 11,357 字节，不得摘要化）', () => {
+    const license = path.join(SKILL_CREATOR_DIR, 'LICENSE.txt');
+    assert.ok(fs.existsSync(license), 'skills-builtin/skill-creator/LICENSE.txt 应随包');
+
+    const text = fs.readFileSync(license, 'utf8');
+    assert.strictEqual(Buffer.byteLength(text, 'utf8'), 11357, 'LICENSE.txt 必须精确等于上游 11,357 字节');
+    assert.ok(text.includes('Apache License'), 'LICENSE.txt 开头应是 Apache License');
+    assert.ok(text.includes('Version 2.0, January 2004'), 'LICENSE.txt 应含 Apache-2.0 版本行');
+    assert.ok(
+      text.includes('APPENDIX: How to apply the Apache License to your work'),
+      'LICENSE.txt 必须是完整全文（含 APPENDIX），不是自写摘要'
+    );
+  });
+
+  test('SKILL.md 的六处受控改动与「英文正文 × 中文 description」边界（D-06 × D-04）', () => {
+    const markdown = fs.readFileSync(path.join(SKILL_CREATOR_DIR, 'SKILL.md'), 'utf8');
+    const parts = markdown.split(/^---$/m);
+    const frontmatter = parts[1] || '';
+    const body = parts.slice(2).join('---');
+
+    // ① Apache-2.0 §4(b) 的显著修改声明，点名来源 SHA 并列出改动类别
+    assert.ok(markdown.includes('Modified for Realm Browser'), '文首必须有显著的修改声明（Apache-2.0 §4(b)）');
+    assert.ok(
+      markdown.includes('b0cbd3df1533b396d281a6886d5132f623393a9c'),
+      '修改声明必须点名来源固定 SHA（否则归属表述无法与 THIRD_PARTY_NOTICES.md 对齐）'
+    );
+
+    // ② 新增 Environment Preflight 章
+    assert.ok(markdown.includes('## Environment Preflight'), '应新增 `## Environment Preflight` 章');
+
+    // ③ 三章已删除（Realm 无 present_files 工具、也不是 Claude.ai / Cowork）
+    for (const gone of ['present_files', 'Claude.ai-specific', 'Cowork-Specific']) {
+      assert.ok(!markdown.includes(gone), `已删除的三章不得残留标题子串：${gone}`);
+    }
+
+    // ④ 两处评测章各加了前置句
+    for (const anchor of [
+      '## Running and evaluating test cases\n\nThis section is an optional evaluation path',
+      '## Description Optimization\n\nThis section is an optional evaluation path',
+    ]) {
+      assert.ok(markdown.includes(anchor), `评测章开头应加「可选路径 + 先跑 check_env.mjs」的前置句（锚点：${anchor.split('\n')[0]}）`);
+    }
+
+    // ⑤ frontmatter 新增 disable-model-invocation（SEED-04）
+    assert.ok(
+      /^disable-model-invocation:\s*true\s*$/m.test(frontmatter),
+      'SEED-04：frontmatter 应含 disable-model-invocation: true（否则约 350 字符的英文 description 会无条件进 system prompt）'
+    );
+
+    // ⑥ frontmatter 的 description 改中文，且 ≤1024 字符（SDK 的 MAX_DESCRIPTION_LENGTH）
+    const descMatch = frontmatter.match(/^description:\s*(.+)$/m);
+    assert.ok(descMatch, 'frontmatter 应有 description');
+    assert.ok(
+      /[\u4e00-\u9fff]/.test(descMatch[1]),
+      'D-04：内置技能的 description 应为中文（面向 / 面板与设置页的人眼可读性）'
+    );
+    assert.ok(descMatch[1].length <= 1024, `description 长度须 ≤1024 字符，实际 ${descMatch[1].length}`);
+
+    // D-06 的机械边界：中文只在 description，正文（frontmatter 之后）必须保持上游英文
+    const cjkLines = body
+      .split('\n')
+      .map((line, i) => (/[\u3400-\u9FFF\uF900-\uFAFF]/.test(line) ? `第 ${i + 1} 行: ${line.slice(0, 60)}` : null))
+      .filter(Boolean);
+    assert.deepStrictEqual(
+      cjkLines,
+      [],
+      'D-06：正文必须保持上游英文原文（新增章节与前置句也要用英文写）—— 中文只允许出现在 frontmatter 的 description'
+    );
+  });
+
+  test('`## Reference files` 清单与随包文件集同步（逐项存在性核对，不止匹配一个字符串）', () => {
+    const markdown = fs.readFileSync(path.join(SKILL_CREATOR_DIR, 'SKILL.md'), 'utf8');
+    const { section, paths } = parseReferenceFileList(markdown);
+
+    assert.ok(paths.includes('scripts/check_env.mjs'), '清单必须包含 Realm 自研的 scripts/check_env.mjs');
+    for (const deleted of ['present_files', 'Claude.ai', 'Cowork']) {
+      assert.ok(!section.includes(deleted), `Reference files 清单不得再引用已删除的三章（命中 ${deleted}）`);
+    }
+    assert.strictEqual(
+      paths.length,
+      18,
+      `清单应列出 18 个随包相对路径（SKILL.md 自身不计入），实际 ${paths.length} 个：${paths.join(', ')}`
+    );
+
+    // **逐项**存在性核对 —— 不是只看清单里有没有 check_env.mjs 这一个字符串
+    for (const rel of paths) {
+      // 显式跳过：scripts/check_env.mjs 由 Task 2 产出，Task 1 阶段它还不存在。
+      // 全量核对（含它）由 Task 2 在文件落地后补齐 —— 否则 Task 1 会因「清单引用了一个还没写的文件」假红。
+      if (rel === 'scripts/check_env.mjs') continue;
+      assert.ok(
+        fs.existsSync(path.join(SKILL_CREATOR_DIR, rel)),
+        `## Reference files 列出的 ${rel} 必须真实存在（清单断链会让模型按清单找文件落空）`
+      );
+    }
   });
 });
