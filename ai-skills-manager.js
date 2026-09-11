@@ -429,8 +429,8 @@ function bySkillPriority(a, b) {
  * - 诊断一律经 toRealmDiag 显式映射为 Realm 形状（type → level，D-07）
  * - 单技能失败（frontmatter 解析 / description 不可用 / 布局违约）跳过该技能，
  *   其余照常注入，且 refreshSkills **不抛错**（D-05 第 1 层）
- * - 整批失败：**保留上一次成功快照**（skills / promptBlock / diagnostics 一行不碰）
- *   + 往 errors[] 记 error 诊断，不清空、不静默（D-05 第 2 层）
+ * - 整批失败：**整体回滚**到上一次成功快照（skills / promptBlock / diagnostics 三件套一起，
+ *   避免撕裂快照）+ 往 errors[] 记 error 诊断，不清空、不静默（D-05 第 2 层）
  *
  * @param {object} env - 沙箱 ExecutionEnv（agent-workspace.createSandboxEnv 的返回值）
  * @param {{disabled?: string[], rootDirs?: string[]}} [opts]
@@ -442,6 +442,14 @@ async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
   const inputs = [];
   if (rootDirs[0]) inputs.push({ path: rootDirs[0], source: 'managed' });
   if (rootDirs[1]) inputs.push({ path: rootDirs[1], source: 'user' });
+
+  // 快照上一次成功态：整批失败时**整体**回滚（WR-05 —— 若只在 catch 里不动 _cache，
+  // 而本轮已把 diagnostics 换成新值，就会暴露「新诊断 + 旧技能集」的撕裂快照）
+  const prev = {
+    skills: _cache.skills,
+    promptBlock: _cache.promptBlock,
+    diagnostics: _cache.diagnostics,
+  };
 
   // 每轮刷新建一个语义 env（零持久状态）；被滤掉的根层 entry 收集于此
   const droppedNotices = [];
@@ -603,8 +611,11 @@ async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
     _cache.digest = computeDigest(_cache.skills, _cache.promptBlock);
     _cache.refreshedAt = Date.now();
   } catch (err) {
-    // D-05 第 2 层：整批失败保留上一次成功快照（skills / promptBlock / diagnostics
-    // 一行都不碰），只往 errors[] 追加一条 error 诊断，不静默。
+    // D-05 第 2 层：整批失败**整体回滚**到上一次成功快照（skills / promptBlock /
+    // diagnostics 三件套一起回滚，避免撕裂快照），只往 errors[] 追加 error 诊断，不静默。
+    _cache.skills = prev.skills;
+    _cache.promptBlock = prev.promptBlock;
+    _cache.diagnostics = prev.diagnostics;
     pushError({
       level: 'error',
       code: 'realm_refresh_failed',

@@ -11,9 +11,19 @@
 
 > **诊断数据形状（供下游阶段只依赖这一处）**：诊断位于**缓存条目的 diagnostics**
 > （`getSkillsSnapshot().skills[i].diagnostics`），**不在 `Skill` 对象上** —— `Skill` 本体
-> 保持 SDK 五字段形状，仅 `name` 按目录名重写。模块级 `errors[]` 另有分工：它只承载
-> 「无对应技能」的整批 / 环境级失败（刷新失败、扫描根缺失），条目级 `diagnostics[]` 承载
-> 与该技能相关的一切诊断（布局违规、名称重写、遮蔽、超限等）。
+> 保持 SDK 五字段形状，仅 `name` 按目录名重写。
+>
+> 两级分工（照实测，**勿按直觉推断**）：
+>
+> | 容器 | 承载什么 | 当前取值 |
+> |------|---------|---------|
+> | 条目级 `skills[i].diagnostics[]` | 只承载「该条目**仍然存在**」的诊断 | `realm_name_rewritten`、`realm_shadowed`，以及 SDK 侧与该文件相关的告警透传 |
+> | 模块级 `_cache.diagnostics` | **全集**：条目级之外，还含「条目已被丢弃 / 未被注入」的诊断 | 上述两者 + `realm_layout_violation`、`realm_skill_md_too_large`、`realm_user_skill_limit_exceeded`、`realm_prompt_budget_exceeded`、`realm_root_entry_skipped` |
+> | 模块级 `_cache.errors` | 无对应技能的整批 / 环境级失败 | `realm_refresh_failed`、`realm_skills_dir_missing` |
+>
+> 注意：布局违规与超限类诊断**没有存活条目可挂**（违约条目已被丢弃、超限条目根本不带诊断），
+> 因此**只在模块级可见**。要拿全量诊断读 `_cache.diagnostics`；要拿「某个存活技能的诊断」
+> 读条目 `diagnostics[]`。
 
 ## 一、能力
 
@@ -73,6 +83,7 @@
 - **同名技能共享启用 / 禁用状态**：禁用键是技能名、不区分来源 —— 先禁用 `managed` 的 `foo`、之后新增的 `user` 的 `foo` 也会随之禁用。
 - **深嵌套与根层散落文件不会被加载**：`<目录>/a/b/SKILL.md` 与扫描根下的散落 `*.md` 都会被跳过（会有诊断说明正确布局）。
 - **技能正文上限按字节、prompt 段预算按字符**：两条独立限额、互不换算，见第四节。
+- **本基础设施阶段尚未提供技能集的变更入口**：技能段「变更 → 下一次请求即生效」的机制与跨窗口通知已就绪，但实际变更入口（技能面板、设置页的启用/禁用与卸载、AI 自建技能、导入）在后续阶段陆续提供。当前管理技能的方式是**直接操作两个技能目录下的文件**。
 
 ## 七、测试与验证
 

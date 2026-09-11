@@ -881,6 +881,10 @@ class AIManager {
         transformContext: this._compactContext.bind(this),
       });
 
+      // 新 Agent 的 systemPrompt 已包含当前技能段 —— 记录对应 digest，使首次
+      // syncAgentSystemPrompt() 走「无变化」早退，不做无意义的改写与广播（WR-03）
+      this._skillsPromptDigest = getAiSkillsManagerLazy().getSkillsSnapshot().digest;
+
       this.isInitialized = true;
       this.activeProvider = activeProvider;
       this.activeModelId = model.id;
@@ -1262,7 +1266,9 @@ class AIManager {
         try {
           await this.syncAgentSystemPrompt();
         } catch (err) {
-          console.warn('[Realm AI] 延迟刷新技能 prompt 失败:', err.message);
+          // 失败恢复脏标记：下一次 idle 边界重试，避免变更被静默丢弃（WR-04）
+          this._skillsPromptDirty = true;
+          console.warn('[Realm AI] 延迟刷新技能 prompt 失败（将于下次空闲重试）:', err.message);
         }
       }
 
@@ -2484,11 +2490,6 @@ ${content}
   }
 
   /**
-   * 重新创建 Agent 实例
-   * 复用现有 init 逻辑中的 Agent 创建代码
-   * @private
-   */
-  /**
    * 刷新技能集并把新的 system prompt 落到**当前 Agent 实例**上（D-03 / SKILL-04）
    *
    * **不重建 Agent** —— 直接改写 `agent.state.systemPrompt`，保留 `state.messages`
@@ -2540,6 +2541,11 @@ ${content}
     windowManager.broadcast('skills:changed');
   }
 
+  /**
+   * 重新创建 Agent 实例
+   * 复用现有 init 逻辑中的 Agent 创建代码
+   * @private
+   */
   async _recreateAgent() {
     if (!this.models || !this.isInitialized) {
       console.warn('[Realm AI] 无法重建 Agent：Models 未初始化');
@@ -2587,6 +2593,10 @@ ${content}
         },
         transformContext: this._compactContext.bind(this),
       });
+
+      // 新 Agent 的 systemPrompt 已包含当前技能段 —— 记录对应 digest（同 init()），
+      // 使首次 syncAgentSystemPrompt() 走「无变化」早退（WR-03）
+      this._skillsPromptDigest = getAiSkillsManagerLazy().getSkillsSnapshot().digest;
 
       // 重新设置事件广播
       this._setupEventBroadcasting();

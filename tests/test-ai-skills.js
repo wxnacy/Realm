@@ -322,7 +322,8 @@ describe('契约布局过滤（SKILL-06）', () => {
     assert.ok(body.includes('path.relative('), 'inContractLayout 必须以 path.relative 判定归属深度');
     assert.ok(body.includes('=== 2'), '必须以相对段数 === 2 判定（非字符数、非绝对段数）');
 
-    const codes = [...src.matchAll(/code: '(realm_[a-z_]+)'/g)].map((m) => m[1]);
+    // 用**宽口径**捕获（不做 realm_ 前缀预筛），否则 startsWith 断言恒真、检不出回归
+    const codes = [...src.matchAll(/code:\s*'([a-zA-Z_]+)'/g)].map((m) => m[1]);
     assert.ok(codes.includes('realm_layout_violation'), '源码中应存在 realm_layout_violation 诊断码');
     const SDK_CODES = ['file_info_failed', 'list_failed', 'read_failed', 'parse_failed', 'invalid_metadata'];
     for (const code of codes) {
@@ -672,6 +673,29 @@ describe('诊断与限额（SKILL-06/07）', () => {
     );
   });
 
+  test('源码：整批失败的 catch 分支整体回滚三件套（WR-05 撕裂快照）', () => {
+    // refreshSkills 是模块级 async function，收尾为行首 `}` —— 用 `\n}\n` 精确切体
+    const src = readSource('ai-skills-manager.js');
+    const start = src.indexOf('async function refreshSkills(');
+    assert.ok(start >= 0, '应存在 async function refreshSkills(');
+    const body = src.slice(start, src.indexOf('\n}\n', start));
+
+    assert.ok(body.includes('const prev = {'), '须在管线开始前捕获上一次成功态');
+    const catchIdx = body.indexOf('} catch (err) {');
+    assert.ok(catchIdx >= 0, 'refreshSkills 必须含 catch 分支');
+    const catchBody = body.slice(catchIdx);
+    // 若只在 catch 里「不动」_cache，而本轮已把 diagnostics 换成新值，就会暴露
+    // 「新诊断 + 旧技能集」的撕裂快照 —— 必须三件套一起回滚
+    for (const line of [
+      '_cache.skills = prev.skills',
+      '_cache.promptBlock = prev.promptBlock',
+      '_cache.diagnostics = prev.diagnostics',
+    ]) {
+      assert.ok(catchBody.includes(line), `catch 分支必须回滚 ${line}`);
+    }
+    assert.ok(catchBody.includes('realm_refresh_failed'), '整批失败仍须记 error 诊断（不静默）');
+  });
+
   test('源码：toRealmDiag 是 type → level 的唯一映射点（显式三元，非字段想当然）', () => {
     const src = readSource('ai-skills-manager.js');
     const body = functionBody(src, 'toRealmDiag');
@@ -852,7 +876,9 @@ describe('诊断与限额（SKILL-06/07）', () => {
     ]) {
       assert.ok(src.includes(code), `应存在 ${code} 诊断码`);
     }
-    const budgetDiagCodes = [...src.matchAll(/code: '(realm_[a-z_]+)'/g)].map((m) => m[1]);
+    // 宽口径捕获（不预筛 realm_ 前缀），使前缀断言可证伪 —— 预筛会让它恒真
+    const budgetDiagCodes = [...src.matchAll(/code:\s*'([a-zA-Z_]+)'/g)].map((m) => m[1]);
+    assert.ok(budgetDiagCodes.length > 0, '应能捕获到诊断码字面量');
     for (const c of budgetDiagCodes) {
       assert.ok(c.startsWith('realm_'), `诊断码必须以 realm_ 前缀：${c}`);
     }
@@ -1273,6 +1299,21 @@ describe('Agent prompt 回写（SKILL-04）', () => {
     assert.ok(body.includes('this._skillsPromptDirty'), 'promptWithContext 必须含 idle 补刷块');
     assert.ok(body.includes('this._skillsPromptDirty = false;'), '补刷前须先复位脏标记');
     assert.ok(body.includes('await this.syncAgentSystemPrompt()'), '补刷须复用同一个方法');
+    assert.ok(
+      body.indexOf('this._skillsPromptDirty = true;') > body.indexOf('await this.syncAgentSystemPrompt()'),
+      '补刷失败时必须恢复脏标记（WR-04：否则变更被静默丢弃且无重试）'
+    );
+  });
+
+  test('源码：两处 Agent 创建后都初始化 _skillsPromptDigest（WR-03：否则首次同步必然伪广播）', () => {
+    const src = readSource('ai-manager.js');
+    const seeded = [...src.matchAll(
+      /this\._skillsPromptDigest = getAiSkillsManagerLazy\(\)\.getSkillsSnapshot\(\)\.digest;/g
+    )].length;
+    assert.strictEqual(
+      seeded, 2,
+      `init() 与 _recreateAgent() 各需一行 digest 初始化，实际 ${seeded} 行`
+    );
   });
 });
 
