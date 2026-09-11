@@ -70,6 +70,19 @@
       "node_modules/nodejieba/**",
       "skills-builtin/**"
     ],
+    "files": [
+      "!.planning/**",
+      "!.claude/**",
+      "!.gsd/**",
+      "!.wzsh/**",
+      "!.zcode/**",
+      "!test/**",
+      "!tests/**",
+      "!scripts/**",
+      "!**/*.bak",
+      "!CLAUDE.md",
+      "!CODEBUDDY.md"
+    ],
     "publish": null
   }
 }

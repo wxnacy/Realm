@@ -1591,3 +1591,79 @@ describe('P1-a 门禁信号（SEED-03，两技能口径）', () => {
     assert.ok(src.includes('未被自动化覆盖'), '应明确说明该信号没有被自动化断言覆盖');
   });
 });
+
+/**
+ * 打包排除项的**配置级护栏**（47-04 Task 1 / T-47-04-01 · T-47-04-01b · T-47-04-02）
+ *
+ * **这不是打包证据本身** —— 真正的证据是构建后的 asar 清单（改前 / 改后两份对比），
+ * 见 `.planning/phases/47-bash/47-04-SUMMARY.md` 的「仓库根审查与 asar 清单取证」一节。
+ * 本组断言的作用是：日后有人删掉排除项、加进正向 allowlist、或把排除项写宽到命中自家
+ * 交付物时，测试**立刻变红** —— 而不是等到打包产物泄漏之后才发现。
+ *
+ * **前提（必须记住，三处落点之一）**：`build.files` 里**只允许有 `!` 排除项、不允许有
+ * 正向条目**。`!` 排除只在「没有正向 `files` 条目」的语义下保留「默认全量包含」的行为；
+ * 一旦有人加上任何正向 allowlist 条目，全部 `!` 排除会**静默变成 no-op**，
+ * `.planning/**`（含逐字记录 `npx skills add -g -y` 的 `.planning/research/PITFALLS.md`）
+ * 会重新进包，而只断言「排除项存在」的护栏仍然会通过。下面第 2 条断言
+ * （每一项都以 `!` 开头）就是这条前提的机械编码。
+ *
+ * `package.json` 是 JSON、**不能写注释**，因此这条前提同时在 `AGENTS.md` 的维护约定
+ * （`### AI 工作区与 Bash 权限` 的第 4 条维护约定）与 47-04-SUMMARY.md 里写明 ——
+ * **三处落点缺一不可**。
+ */
+const REQUIRED_BUILD_FILES_EXCLUDES = [
+  '!.planning/**',
+  '!.claude/**',
+  '!.gsd/**',
+  '!.wzsh/**',
+  '!.zcode/**',
+  '!test/**',
+  '!tests/**',
+  '!scripts/**',
+  '!**/*.bak',
+  '!CLAUDE.md',
+  '!CODEBUDDY.md',
+];
+
+/** 排除项**不得**命中的自家交付物（按路径段比对，不是全文 includes） */
+const MUST_SURVIVE_EXCLUDES = ['skills-builtin', 'THIRD_PARTY_NOTICES.md'];
+
+describe('打包排除项配置护栏（47-04 Task 1）', () => {
+  const pkg = JSON.parse(readSource('package.json'));
+  const buildFiles = pkg.build.files || [];
+
+  test('11 条排除项全部存在（表驱动 —— 不用 files.length 计数，计数会随审查结论变化）', () => {
+    const missing = REQUIRED_BUILD_FILES_EXCLUDES.filter((x) => !buildFiles.includes(x));
+    assert.deepStrictEqual(missing, [], `缺少排除项：${missing.join(', ')}`);
+  });
+
+  test('build.files 的每一项都以「!」开头（无正向 allowlist —— 否则排除项静默失效）', () => {
+    const positive = buildFiles.filter((x) => !x.startsWith('!'));
+    assert.deepStrictEqual(
+      positive,
+      [],
+      `出现正向 allowlist 条目，全部「!」排除会静默变成 no-op：${positive.join(', ')}`
+    );
+  });
+
+  test('无任何排除项命中自家交付物（skills-builtin / THIRD_PARTY_NOTICES.md，路径段粒度）', () => {
+    const hits = [];
+    for (const entry of buildFiles) {
+      const segments = entry
+        .replace(/^!/, '')
+        .split('/')
+        .map((s) => s.replace(/[*?[\]{}]/g, ''))
+        .filter(Boolean);
+      for (const must of MUST_SURVIVE_EXCLUDES) {
+        if (segments.includes(must)) hits.push(`${entry} 命中 ${must}`);
+      }
+    }
+    assert.deepStrictEqual(hits, [], `排除项写宽了会同时让 SEED-05 与 P10 失效：${hits.join('; ')}`);
+  });
+
+  test('build.asarUnpack 两侧成对（nodejieba 保留 + skills-builtin 新增）', () => {
+    const unpack = pkg.build.asarUnpack || [];
+    assert.ok(unpack.includes('node_modules/nodejieba/**'), 'nodejieba 的 asarUnpack 条目不得被删');
+    assert.ok(unpack.includes('skills-builtin/**'), 'skills-builtin 的 asarUnpack 条目不得被删');
+  });
+});
