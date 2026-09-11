@@ -199,7 +199,7 @@ Plans:
   4. 技能自带 `scripts/` 可以在沙箱内经既有 bash 工具执行（复用既有白名单 + 确认卡片，零新增权限机制）。
   5. 打包后正式 .app 中两个内置技能可被正确加载（`asarUnpack` + `app.isPackaged` 路径分支生效），且 `THIRD_PARTY_NOTICES` 记录来源仓库 + 固定 commit SHA + 许可证 + 是否修改及修改说明。
 
-**Plans**: TBD
+**Plans**: 6 plans
 **Wave 1**
 
 - [x] 47-01-PLAN.md
@@ -214,6 +214,10 @@ Plans:
 - [x] 47-04-PLAN.md — ✅ **完成（3/3 任务）**：打包排除项 + DOC-02 文档同步（`22774ca` / `3b3940b`）+ **打包后正式环境实跑验证（SEED-05 收口）**。Task 3 经用户显式授权走 Nightly 路线（`make install-nightly`，不触碰生产 bundle），实测取得：unpacked 面（两个 `SKILL.md`）、安装产物 asar 清单面（`.planning`/`.claude`/`.gsd`/`.wzsh`/`.zcode`/`test`/`tests`/`scripts` 全 0、无 `*.bak`、`skills-builtin/` 与 `THIRD_PARTY_NOTICES.md` 在列）、运行期播种面（`realm-nightly/.../managed-skills/` 两技能齐备）、进程内加载面（`isPackaged:true`、`_cache.diagnostics/errors` 均空、`buildSkillsPrompt()===''`）+ 幂等（`detectDiff==='same'`、无覆盖诊断）+ 自愈（手删重播）。research 假设 A2 实测结论：`make install-nightly` **继承**（不覆盖）`package.json` 的 `build.asarUnpack`。`47-04-SUMMARY.md` 的 `status: complete`
 
 **Security gate**: P1（S1，阻断门禁）npx RCE 向量；P10（发布门禁）内置技能许可证归属义务。
+**Gap closure**（`47-VERIFICATION.md` 判 `gaps_found` 68/71 后的收敛计划，`gap_closure: true`）
+
+- [ ] 47-05-PLAN.md — **GAP 1 / CR-01（blocker）**：安装档从「子命令黑名单」改为「首 token 是包管理器 → 默认强制确认，仅显式只读子命令降级」+ 两侧共用词法归一化（去引号 + 去反斜杠转义），关闭 `brew "install" wget` 等词法改写与 `npm update` / `cargo add` / `go get` / `yarn workspace … add` / `brew cask install` 两个绕过家族；补齐 `bunx` / `pipx`；三份文档 + `AGENTS.md` 的「白名单不可越过安装档 / 漏检 ≠ 免确认」改为**有前提且为真**的表述（含 REVIEW WR-01 的 `['*']` 条目护栏）
+- [ ] 47-06-PLAN.md — **GAP 2/3/4**（播种健壮性）：`diff === 'same'` 跳过重写（不再每次启动整目录重建 / 白算 sha256 / 制造 `rename` 空窗）+ 目录项参与差异判定（空目录仍自愈）；启动级清扫 `.tmp_*` / `.bak_*` 残留（消除被加载成永久幽灵技能的路径）；播种诊断按级别统一 `console.error` / `console.warn` 输出（含源缺失的早退路径，消除正式版静默失败）
 **Research needed**: find-skills 彻底去 CLI 化的改写方案需产品决策 + 许可证文本法务式复核——每一行都要按"这段文字被模型执行后会做什么"逐句评审。
 **Doc sync**: `docs/product/ai-agent-workspace.md` 与 `AGENTS.md` 明确写出「技能不构成额外权限」「`allowed-tools` 当前运行时不被强制，仅供参考」；`docs/product/ai-skills.md` 补内置技能与 bash 档章节。
 
