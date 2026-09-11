@@ -66,7 +66,7 @@ bash 是任意 shell，工作目录固定为工作区根目录，但**不受路�
 |----|------|------|
 | ① 免确认 | 所有段命中白名单 | 自动执行 |
 | ② 默认确认 | 未命中白名单 | 弹确认卡片（中风险），卡片完整展示命令原文 |
-| ③ 强制确认 | 任一段命中**危险命令表**或**包管理器安装表** | 弹确认卡片（高风险），**加入白名单也无效** |
+| ③ 强制确认 | 任一段命中**危险命令表**，或**首 token 是包管理器且子命令不在该工具的显式只读清单内**（包管理器安装档，**默认拒绝**） | 弹确认卡片（高风险），**加入白名单也无效** |
 
 **危险命令表**（强制确认，语义是「必须用户点头」而非「拒绝」）：rm 全系、sudo、su、dd/mkfs、kill/killall/pkill、shutdown/reboot/halt、hdiutil/diskutil/launchctl 等系统配置工具、chmod/chown/chflags、defaults write、重定向覆盖系统路径（`> /非tmp`），以及管道/组合中把任意文本当代码执行的解释器（sh/bash/zsh/eval/source/osascript/python/node/ruby/perl）。
 
@@ -77,12 +77,17 @@ bash 是任意 shell，工作目录固定为工作区根目录，但**不受路�
 | 触发源 | 语义 | `reason` | 内容 |
 |--------|------|----------|------|
 | **危险命令表** | 本机破坏 | `danger` | rm 全系 / sudo / dd / kill / chmod / 重定向覆盖系统路径等，以及管道右侧的解释器 |
-| **包管理器安装表** | 网络取第三方代码 | `install` | npx / npm i·install·ci·exec·add / pnpm·yarn·bun 的 add·dlx·install·exec / pip·pip3 install / python·python3 -m pip install / uv·uvx / brew install·upgrade·reinstall / cargo·go·gem install |
+| **包管理器安装档** | 网络取第三方代码 | `install` | 首 token 命中包管理器工具集（`npx` / `bunx` / `npm` / `pnpm` / `yarn` / `bun` / `pip` / `pip3` / `pipx` / `uv` / `uvx` / `brew` / `cargo` / `go` / `gem`）时，**只有该工具的显式只读子命令**会降级为普通处理；**未列入清单的子命令一律强制确认**（如 `npm update` / `npm rebuild` / `yarn workspace <name> add` / `cargo add` / `go get` / `brew cask install`） |
 
-- 两者**进白名单也无效** —— 免确认的粒度是「可信的构建类命令」，不是「可信的包管理器」。
+- 两者**进白名单也无效** —— 免确认的粒度是「可信的构建类命令」，不是「可信的包管理器」。**机制**：安装档判定**短路先于**白名单匹配（`evaluateBashCommand` 里 install 先于 `matchesWhitelist` 返回），因此「白名单命中」不再蕴含「免确认」。
+- **判定前做一次词法归一化**：shell 的引号与反斜杠只影响 argv 的**词法拼装**、不影响 argv 本身，因此匹配前会去掉引号与反斜杠转义 —— `brew "install" wget`、`brew \install wget`、`brew ins""tall wget` 与 `brew install wget` 的判定结果**完全相同**（都是一张高风险安装卡片）。这让「不改首 token 的纯词法改写」不再有安全后果。
 - 确认卡片按触发源区分标题与文案（危险 → 「AI 请求执行高危 Bash 命令」；安装 → 「AI 请求安装第三方软件包」并点名命中的家族），让用户一眼看出风险类型。
-- **不在表内的只读子命令**（照旧走普通确认或白名单）：`npm run` / `test` / `ls` / `view` / `audit` / `outdated` / `init` / `--version`、`pnpm run` / `ls`、`yarn run`、`brew info` / `list` / `search`、`pip list` / `show`、`cargo search`、`go list` 等 —— 它们不取新代码。
-- 完整的产品说明（家族清单、`npm ci` 为何也在表内、残余风险与确认成本）见 [ai-skills.md](ai-skills.md) 第九节。
+- **显式只读清单**（清单内走普通确认或白名单；清单外一律强制确认，即**默认拒绝**）：`npm run` / `test` / `ls` / `view` / `audit` / `outdated` / `init` / `--version`，`pnpm run` / `ls` / `audit`，`yarn run`，`bun run`，`brew info` / `list` / `search`，`pip list` / `show` / `freeze` / `check`，**`pipx list`**（与 `pip list` / `brew list` 同族：只列出已装的隔离应用，不取新代码、不执行第三方代码），`cargo search`，`go list`，`uv tree` / `lock` / `export` / `uv pip list` 等 —— 它们不取新代码。
+- **只读清单有三处必须写准的限定**（否则会变成虚假保证）：
+  1. **形态限定的词条**：`npm init` **只在后不接位置参数时**只读（`npm init` / `npm init -y` / `npm init --yes`）；`npm init <initializer>` 等价于 `npx create-<initializer>`，会**联网下载并执行第三方代码**，属安装档。`npm` / `pnpm` 的 `audit` 只在**不含 `fix` 形态**时只读（`npm audit` / `npm audit --json`）；`npm audit fix` / `npm audit --fix`（`pnpm` 同形）会安装修复版本，属安装档。
+  2. **生命周期的同族别名**：`npm start` / `npm stop` / `npm restart` / `npm run-script` 与 `npm run` / `npm test` **同族**（跑项目自身定义的脚本）→ 只读。
+  3. **纵深优先**：只读判定前会**先跑既有的安装模式表**，命中即强制确认 —— 因此 `npm -g install list`（= `npm install list`）、`brew --quiet install info` 这类「旗标 + 安装动词 + 同名词」的真实安装命令**仍属安装档**，不会被只读清单吞掉。
+- 完整的产品说明（家族清单、`npm ci` 为何也在档内、残余风险与确认成本）见 [ai-skills.md](ai-skills.md) 第九节。
 
 **确认超时**：bash 确认卡片 120 秒未处理自动取消（其他场景确认卡仍为 30 秒）。取消后工具返回「已取消」，AI 不会自动重试。
 
@@ -90,8 +95,8 @@ bash 是任意 shell，工作目录固定为工作区根目录，但**不受路�
 
 - **匹配语义（主流前缀式）**：裸条目按命令前缀匹配——`brew` 覆盖 `brew` 本身与 `brew info wget` 等一切 `brew ` 开头的命令（空格边界，不误中 `brewx`）；`npm run *` 为显式通配写法，等价于前缀 `npm run `
 - **即改即存**：增删条目立即生效，下一条命令即按新白名单裁决（AI 执行时实时读取，无缓存）
-- **服务端校验**：条目必须是非空字符串、≤200 字符、无换行/控制字符
-- **使用建议**：白名单的粒度是**命令前缀，不是路径**。只加构建类可信命令（`npm run`、`git status`、`brew` 等）；**不要加 `cat`/`less` 这类能读任意路径的通用命令**——加了之后它们读任何文件都免确认。注意：白名单**不再覆盖**包管理器安装语义 —— 裸条目 `brew` 仍免确认 `brew` 本身与 `brew info` / `brew list` / `brew search` 等**只读**子命令，但 `brew install` / `brew upgrade` / `brew reinstall` 属强制确认档（第 ③ 档），**加入白名单也无效**；`npm run` 与 `npm i` / `npm install` / `npm ci` / `npm exec` 同理
+- **服务端校验**：条目必须是非空字符串、≤200 字符、无换行/控制字符；**不支持单独使用 `*`**（`*` / ` *` 去掉通配符后没有剩余前缀，不是命令前缀——否则空前缀会使整份白名单变成全放行）
+- **使用建议**：白名单的粒度是**命令前缀，不是路径**。只加构建类可信命令（`npm run`、`git status`、`brew` 等）；**不要加 `cat`/`less` 这类能读任意路径的通用命令**——加了之后它们读任何文件都免确认。注意：白名单**不再能放开任何非只读的包管理器子命令** —— 裸条目 `brew` 仍免确认 `brew info` / `brew list` / `brew search` 等**只读**子命令，但 `brew install` / `brew upgrade` / `brew cask install` 属强制确认档（第 ③ 档），**加入白名单也无效**（install 判定短路先于白名单）；`npm run` 与 `npm i` / `npm install` / `npm ci` / `npm exec` / `npm update` / `npm rebuild` 同理。`npm run` 族（含 `start` / `stop` / `restart` / `test` / `run-script`）与 `npm audit`（**不含 `fix`**）、`npm init -y`（**不带位置参数**）仍是**只读**，而 `npm init <initializer>`（≡ `npx create-<initializer>`）与 `npm audit fix` 与安装档同档。
 
 ## 六、确认卡片行为
 
@@ -106,11 +111,15 @@ bash 是任意 shell，工作目录固定为工作区根目录，但**不受路�
 - **bash**：能力等同终端（确认后什么都行），安全依赖「卡片所见即所确认」；静态拆段无法覆盖全部 shell 语法（进程替换、命令替换 `$()` 等），白名单判定是「降低误执行概率」的启发式，**不是安全边界**
 - **提示注入下的人因风险**：恶意网页诱导 AI 执行的 bash 命令同样会弹卡，但用户若不看内容直接点确认则防线失效——请养成读卡片上命令原文的习惯
 - **OS 级隔离**（macOS sandbox-exec 限制 bash 可访问路径）为预留的后续增强方向，当前未实施
-- **（第 5 条）安装档只审一级 bash 命令**：策略引擎看的是用户在卡片上看到的那条命令。若该命令内部再 `spawn` 子进程（如技能自带的 `check_env.mjs` 内部 `spawnSync` 调 `python3`），二次调用不在策略视野内 —— 由用户对第一条命令的确认承担。同类残余：取值旗标形态与命令替换 / 变量间接构造不被检测，`echo "npm install"` 类字面量会误报。**漏检 ≠ 免确认**：未被识别的形态仍退化为普通确认卡片
+- **（第 5 条）安装档只审一级 bash 命令**：策略引擎看的是用户在卡片上看到的那条命令。若该命令内部再 `spawn` 子进程（如技能自带的 `check_env.mjs` 内部 `spawnSync` 调 `python3`），二次调用不在策略视野内 —— 由用户对第一条命令的确认承担。**「漏检 ≠ 免确认」成立，但要带前提**：安装档的漏检类别只剩**一条**——「首 token 不是包管理器」（如变量间接 `NPM=npm $NPM i x`）；这类命令**不以包管理器开头 → 天然不命中白名单前缀** → 仍退化为**普通确认卡片**（不会零卡片）。改前那些「命中白名单前缀的漏检形态」（子命令词法改写 `brew "install" wget`、中间 token `brew cask install`、未收录子命令 `npm update`）已被**默认拒绝**规则消除。
+- **（第 5 条附）三条具名残余**（如实告知，不给绝对保证）：
+  1. **大小写形态**（`NPM i x` / `RM -rf x`）：macOS 解析不区分大小写，这类写法**不命中**包管理器工具集与危险命令表 → 降级为**普通确认卡片**而非高风险卡片。这是卡片**风险等级标注**的残余，**不是免确认**。
+  2. **旗标取值与子命令在词法上不可区分**：既有行为要求 `pnpm --filter a run build` 判只读（`a` 是 `--filter` 的取值），同一机制使 `npm -g <未知动词> <只读同名词>`（如 `npm -g update ls`）仍可能被判只读。已用**纵深优先**（先跑安装模式表）把可识别面压到最小 —— `npm -g install list` / `brew --quiet install info` 已被收回安装档 —— 剩余部分作为残余如实告知。
+  3. **`pnpm` / `yarn` / `bun` 的同类别名（`start` / `stop` / `restart`）未收录**：各 CLI 的别名语义未逐一核验，按「存疑一律不收」处理 → `pnpm start` / `yarn start` / `bun start` 落强制确认档，卡片文案「将从网络下载并运行第三方代码」对这族命令**不准确**。这是**已接受的保守误报**（方向安全：多一次卡片），与 `npm` 族的理由（`start` / `stop` / `restart` / `run-script` 与 `run` / `test` 同族故只读）并列。
 - **（第 6 条）技能不构成额外权限，`allowed-tools` 当前运行时不被强制**：技能正文里的任何「请执行某某命令」都要走同一套三档策略与确认卡片；SDK 的 `Skill` 接口只有五个字段（`name` / `description` / `content` / `filePath` / `disableModelInvocation`），**没有工具授权字段**，当前运行时也**不强制**任何「按技能授权工具集」的语义 —— 任何展示 `allowed-tools` 的地方**仅供参考**，是虚假安全感，不要在技能文本里依赖它。详见 [ai-skills.md](ai-skills.md) 第五、六节
 
 ## 八、测试与验证
 
-- 单元测试：`node tests/test-agent-workspace.js`（沙箱/迁移）、`node tests/test-ai-bash-policy.js`（策略引擎：三档裁决 / 危险表 / 包管理器安装档 / 白名单语义）
+- 单元测试：`node tests/test-agent-workspace.js`（沙箱/迁移）、`node tests/test-ai-bash-policy.js`（策略引擎：三档裁决 / 危险表 / 包管理器安装档**默认拒绝语义与词法改写形态** / 白名单语义与 WR-01 通配条目护栏）
 - 内置技能播种与零安装语义：`node tests/test-builtin-skills-seeder.js`
 - 端到端：对话中让 AI 执行各类命令观察三档行为；读工作区外路径应得沙箱拒绝；让 AI 执行 `npm install` / `brew install` 类命令，即使已加入白名单也应弹高风险确认卡片

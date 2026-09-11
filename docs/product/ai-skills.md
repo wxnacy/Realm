@@ -114,6 +114,18 @@ Realm 随包分发两个内置技能，启动时自动播种进 `agent-workspace
 
 - **粒度是单个技能目录**：每次启动按技能逐目录同步，**无条件覆盖** `managed-skills/<name>/`，
   不为「该技能已存在」提前返回 —— 否则日后新增的内置技能永不播种。
+  **精度补充：内容一致时跳过重建** —— `detectDiff` 判为 `same`（相对路径集合、文件大小、
+  sha256 三层全部相同）时**不写盘、不产诊断**，目标目录与其文件 inode 保持不变；
+  只有**缺失**（`missing`）或**内容不一致**（`different`）时才写盘。因此稳定态的每次启动
+  不会反复重建技能目录，也不会刷出「已覆盖」诊断。
+- **崩溃残留自愈**：播种进入逐技能循环**之前**，先清扫 `managed-skills/` 下形如
+  `<name>.tmp_<时间戳>` / `<name>.bak_<时间戳>` 的残留目录。原子替换（tmp → rename → bak 回滚）
+  刻意让这些兄弟目录与目标**同父目录**以保证同卷，因此它们**落在技能扫描根内** ——
+  上一轮崩溃 / 被杀留下的残留若不清扫，会被当成技能加载（永久幽灵技能 + 多条诊断）。
+- **播种诊断有 console 兜底**：`getSeedDiagnostics()` 目前**没有生产消费方**
+  （Phase 50 接入技能面板之前），因此播种结束会把本轮累积的诊断按级别经
+  `console.error` / `console.warn` 输出 —— 保证「一个都没播种成功」在**正式版**里也可见，
+  而不是静默无声。
 - **覆盖前先产诊断，不静默**：若目标目录内容与随包版本有差异（按相对路径集合 → 大小 →
   sha256 逐层判内容，**不用时间戳**），先产 `realm_builtin_seed_overwritten`（`warning` 级）
   诊断**再**覆盖。诊断可见但不阻断覆盖。
@@ -145,27 +157,57 @@ Realm 随包分发两个内置技能，启动时自动播种进 `agent-workspace
 | 触发源 | 语义 | `reason` |
 |--------|------|----------|
 | 危险命令表 | **本机破坏**（删文件、改系统、提权） | `danger` |
-| 包管理器安装表 | **网络取第三方代码**（安装/执行任意包） | `install` |
+| 包管理器安装档 | **网络取第三方代码**（安装/执行任意包） | `install` |
 
 两者同为 `riskLevel: high` 的强制确认，**加入白名单也无效**。
 
-**覆盖的包管理器家族**：`npx`；`npm i` / `install` / `ci` / `exec` / `add`；`pnpm` / `yarn` /
-`bun` 的 `add` / `dlx` / `install` / `exec` / `x` / `i`；`pip` / `pip3 install`；
-`python` / `python3 -m pip install`；`uv` / `uvx`；`brew install` / `upgrade` / `reinstall`；
-`cargo` / `go` / `gem install`。
+**覆盖的包管理器家族**（**首 token 默认拒绝**）：`npx`；`bunx`；`npm`；`pnpm`；`yarn`；`bun`；
+`pip` / `pip3`；`pipx`；`uv` / `uvx`；`brew`；`cargo`；`go`；`gem`。判定规则是
+**默认拒绝** —— 首 token 命中上述工具集时，**只有该工具的显式只读子命令**会降级，
+**其余子命令一律强制确认**（不依赖子命令黑名单的枚举完整性）。匹配前会做一次
+**词法归一化**（去引号 + 去反斜杠转义），因此 `brew "install" wget` / `brew \install wget` /
+`brew ins""tall wget` 与 `brew install wget` 判定相同。
 
 - **白名单不可越过安装档**：`settings.aiBashWhitelist` 里就算写了 `npm *` / `npx` / `brew *`，
   这些安装命令**仍然弹确认卡片** —— 免确认的粒度是「可信的构建类命令」，不是「可信的包管理器」。
+  **机制**：安装档判定**短路先于**白名单匹配（install 先于 `matchesWhitelist` 返回），
+  所以「白名单命中」不再蕴含「免确认」。**可自证**：把裸 `brew` 加进白名单后，
+  `brew install wget` **与** `brew "install" wget` 都仍然弹卡片。
 - **`riskLevel: high` 与专属文案**：确认卡片的标题是「AI 请求安装第三方软件包」并点名命中的
   家族，与危险命令卡片的「AI 请求执行高危 Bash 命令」区分开 —— 让用户一眼看出风险类型。
-- **只读子命令不在表内**（照旧走普通确认或白名单）：`npm run` / `test` / `ls` / `view` /
-  `audit` / `outdated` / `init` / `--version`、`pnpm run` / `ls`、`yarn run`、`brew info` /
-  `list` / `search`、`pip list` / `show`、`cargo search`、`go list` 等 —— 它们不取新代码。
+- **显式只读清单**（清单内走普通确认或白名单；清单之外一律强制确认）：`npm run` / `test` /
+  `ls` / `view` / `audit` / `outdated` / `init` / `--version`，`pnpm run` / `ls` / `audit`，
+  `yarn run`，`bun run`，`brew info` / `list` / `search`，`pip list` / `show` / `freeze` / `check`，
+  **`pipx list`**（与 `pip list` / `brew list` 同族：只列出已装的隔离应用，不取新代码、
+  不执行第三方代码 —— 它的可达前提是纵深层的 pipx 条目**动词限定**，故 `pipx list` 是只读，
+  而 `pipx install black` 属安装档），`cargo search`，`go list`，`uv tree` / `lock` / `export` /
+  `uv pip list` 等 —— 它们不取新代码。
+- **只读清单的三处限定（必须逐条为真，否则即为虚假保证）**：
+  1. **形态限定的词条**：`npm init` 只在**不带位置参数**时只读（`npm init` / `npm init -y` /
+     `npm init --yes`）；`npm init <initializer>` 等价于 `npx create-<initializer>`，会**联网
+     下载并执行第三方代码**，属安装档。`npm` / `pnpm` 的 `audit` 只在**不含 `fix` 形态**时只读
+     （`npm audit` / `npm audit --json` / `pnpm audit`）；`npm audit fix` / `npm audit --fix` /
+     `pnpm audit --fix` 会安装修复版本，属安装档。
+  2. **生命周期的同族别名**：`npm start` / `stop` / `restart` / `run-script` 与 `npm run` /
+     `test` **同族**（跑项目自身定义的脚本）→ 只读。
+  3. **纵深优先**：只读判定前**先跑安装模式表**，命中即强制确认 —— 因此 `npm -g install list`
+     （= `npm install list`）与 `brew --quiet install info`（= `brew install info`）这类
+     「旗标 + 安装动词 + 只读同名词」的真实安装命令**仍属安装档**，不会被只读清单吞掉。
 - **`npm ci` 也在安装档内**：`npm ci` 虽不解析新版本（只按 lockfile 装），但会**执行所有依赖的
-  `postinstall` 脚本** —— 那实质是任意代码执行，因此同样强制确认。表内其它 `install` 系命令同理。
+  `postinstall` 脚本** —— 那实质是任意代码执行，因此同样强制确认。档内其它 `install` 系命令同理。
 - **技能脚本执行的确认成本**：内置技能的脚本入口是 `node` / `python3`，两者都在危险解释器表内
   → **每次跑技能脚本都会弹确认卡片**。这是「技能不构成额外权限机制」的必然结果，是设计而非缺陷。
-- **残余风险（诚实声明）**：安装档只审**一级 bash 命令**。取值旗标形态与命令替换/变量间接构造
-  不被完全检测；`echo "npm install"` 这类字面量会误报（只多一次确认）。**漏检 ≠ 免确认** ——
-  未被识别的形态仍会退化成普通确认卡片，不会免确认。详见
+- **残余风险（诚实声明，带前提）**：安装档只审**一级 bash 命令**。**「漏检 ≠ 免确认」成立，
+  但前提是漏检类别只剩「首 token 不是包管理器」这一条**（如变量间接 `NPM=npm $NPM i x`）——
+  这类命令不以包管理器开头，**天然不命中白名单前缀**，仍退化为**普通确认卡片**，不会免确认。
+  改前那些「命中白名单前缀的漏检形态」（子命令词法改写、中间 token `brew cask install`、
+  未收录子命令 `npm update`）已被**默认拒绝**规则消除。`echo "npm install"` 这类字面量仍会误报
+  （只多一次确认，方向安全）。**另有两条具名残余**：
+  (a) **旗标取值与子命令在词法上不可区分** —— 既有行为要求 `pnpm --filter a run build` 判只读
+  （`a` 是 `--filter` 的取值），同一机制使 `npm -g <未知动词> <只读同名词>`（如 `npm -g update ls`）
+  仍可能被判只读；已用**纵深优先**把可识别面压到最小，剩余部分如实告知；
+  (b) **`pnpm` / `yarn` / `bun` 的同类别名（`start` / `stop` / `restart`）未收录** ——
+  各 CLI 的别名语义未逐一核验，按「存疑一律不收」处理 → `pnpm start` / `yarn start` / `bun start`
+  落强制确认档，卡片文案「将从网络下载并运行第三方代码」对这族命令**不准确**；这是**已接受的
+  保守误报**（方向安全：多一次卡片）。详见
   [ai-agent-workspace.md](ai-agent-workspace.md) 第七节第 5 条。
