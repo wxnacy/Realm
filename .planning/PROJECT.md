@@ -142,12 +142,15 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ AES-128 加密 HLS 解密转封装（EXT-X-KEY IV 捕获 + key/IV/media_sequence 留存与历史条目自愈 + 逐分片解密） — Phase 44（需求未注册）
 - ✓ B 站直播 fMP4 转录（EXT-X-MAP init 留存 + 纯 JS 字节拼接 + tfdt rebase 时间轴归零） — Phase 45（需求未注册）
 - ✓ SKILL-01..08 + DOC-01: AI 技能基础设施（`agent-workspace/skills/` 与 `managed-skills/` 双目录入硬沙箱 + SDK 加载接线 + `<available_skills>` 注入 system prompt 第 4 段 + 契约布局过滤/目录名权威/同名遮蔽去重 + 三限额与诊断不静默 + 启停只标记不删文件 + 不重建 Agent 的 prompt 回写与 `skills:changed` 跨窗口广播 + `docs/product/ai-skills.md` 骨架） — Phase 46
+- ✓ SKILL-09 + SEED-01~05 + SEC-01 + DOC-02: 内置技能随包播种与 bash 策略加固（`skills-builtin/` 两技能 + 播种模块自愈式播种/差异诊断/原子替换 + 打包排除项与 `asarUnpack` 成对 + 打包后正式环境实跑验证 + bash 安装档改「首 token 默认拒绝 + 显式只读清单」+ 共用词法归一化 `stripShellQuoting` + 只读豁免三条承重墙（空只读清单不生成动词式正则 / 纵深优先 / `init`·`audit` 形态化）+ WR-01 白名单 `*` 条目双向关闭 + 三份文档逐句为真） — Phase 47
+  > **收尾方式**：SC3 的**普遍性**表述（「不再可能被白名单免确认」）由用户裁定以 **override** 收尾 —— CR-01（旗标取值槽吞末尾子命令：`npm -g update`）与 CR-02（`audit` 与 `fix` 之间夹旗标：`npm audit --json fix`）两条**零卡片残余**在阶段基线 `0bbb6c4` 即存在（非本阶段回归），已由三份文档具名披露并记入 `47-REVIEW.md` 技术债，根治走 argv 级分词（见 Active）
 
 ### Active
 
 <!-- 当前需要构建的功能（v2.6 里程碑；需求细节见 .planning/REQUIREMENTS.md） -->
 
 - AI 助手技能（Skill）能力 — v2.6 进行中
+- **bash 安装档只读豁免的 argv 级分词根治** — Phase 47 复审 CR-01/CR-02 与残余 ③：`matchInstall` 的只读判定用「整段正则 + `FLAG_TOLERANCE` 取值槽」，导致 `npm -g update` / `npm --global rebuild` / `npm audit --json fix` / `npm -g update ls` 在白名单含裸工具名时**零卡片**。根治 = 显式声明「带值旗标」清单（`--prefix` / `-w` / `--filter` / `-C` / `--registry` …）+ argv 级分词后比对只读清单；可一次消除三条残余并使 `pnpm --filter a run build` 不再依赖取值槽实现（修法见 `.planning/phases/47-bash/47-REVIEW.md`）
 - 增强功能 (ENH-01~06: 截图/画中画/播放列表/字幕/DASH/RTMP) — 顺延
 - 书签导出 — 顺延
 - 全屏模式 — 顺延
@@ -355,6 +358,12 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | 名称权威取目录名（`enforceDirNameAuthority` 就地重写 `skill.name`），重写 ≠ 丢弃 | frontmatter `name` 可声明任意值冒名顶替内置技能（P3/S1）；丢弃则等于静默删除用户从 GitHub 导入的合法技能 | ✓ 已验证 — Phase 46（T-46-02-01） |
 | 同名遮蔽的**败者保留在数据层**（标 `shadowed`/`shadowedBy`）而非剔除，仅在 prompt 组装处过滤 | 48 要来源徽标、50 要列表与诊断；剔除会让两阶段需同时改数据源与展示层 | ✓ 已验证 — Phase 46（UAT Test 1 未见重复条目） |
 | prompt 段预算的 entryCost 用**边际成本**（`format([dummy, skill]) - format([dummy])`）而非差值口径 | 计划原文差值口径让每条重复计入一次前言，k 条时累计比真实段长少 (k-1) 倍前言，会把贪心放行到超预算（实测 40 条技能段 9404 > 8000） | ✓ 已验证 — Phase 46（46-03） |
+| bash 安装档改「**首 token 默认拒绝 + 显式只读清单**」而非继续枚举安装动词 | 白名单是**文本前缀**匹配、黑名单式子命令匹配必然可被同前缀的中间 token / 词法改写击穿（GAP 1 / CR-01 的成因）；默认拒绝把漏检面收敛到「首 token 不是包管理器」这一条天然不命中白名单前缀的边界，D-14 的「install 短路先于白名单」才真正成立 | ✓ 已验证 — Phase 47（47-05） |
+| 词法归一化 **只落在 `matchInstall` 内**（`stripShellQuoting`），不提到 `normalizeSegment` / `matchesWhitelist` / `matchDangerous` 层 | 后三者的口径由既有 32 例断言锁定；提到共用层会同时移动白名单与危险判定的语义，超出 GAP 1 的必要范围 | ✓ 已验证 — Phase 47（47-05） |
+| 只读豁免的三条承重墙：**空 `readOnly` 不生成动词式正则** / **纵深优先** / **`init`·`audit` 形态化**；且纵深条目**不得遮蔽它自己的只读清单**（pipx 动词限定） | 空捕获组 `\b()\b` 匹配空串 ⇒ 该工具带参形态全放行；`FLAG_TOLERANCE` 取值槽与子命令不可区分 ⇒ 只读正则会把 `npm -g install list` 读成只读；裸纵深条目会让 pipx 的非空只读清单整个不可达 | ✓ 已验证 — Phase 47（47-05） |
+| 播种 `detectDiff === 'same'` 时**不写盘**（D-08 的精度化），目录项以 `rel + '/'` 参与差异判定、size/sha256 层只遍历文件条目 | 内容一致仍整目录重建会每次启动白算最贵的 sha256 层并制造 `rename(dst → bak)` 空窗（崩溃残留的触发源）；目录条目不进哈希层则 `readFileSync(dir)` 抛 EISDIR 被 fail-safe 吞成 different，本 gap 以更隐蔽的形式复发 | ✓ 已验证 — Phase 47（47-06，inode 不变实测） |
+| 播种失败的三条**并列**可见面：顶层 `catch` 的 `console.error` + `finally { _flushDiagnostics() }` + 结构化 `getSeedDiagnostics()` | `finally` 只输出 `_diagnostics`，而顶层 catch 覆盖循环之外、早于任何诊断 push 的异常（此时诊断为空、flush 零输出）；删掉 catch 的 console.error 会让该路径彻底静默 | ✓ 已验证 — Phase 47（47-06，ENOTDIR 注入用例） |
+| Phase 47 的 SC3 普遍性表述以 **override** 收尾，CR-01/CR-02 记技术债 | 两条零卡片残余在阶段基线即存在（非回归）、修复需改判定核心与既有锁定断言（`:847` 把该形态钉成期望的 `allow`），属独立计划规模；用户 2026-09-11 裁定「只修文档面」，文档已逐条具名披露残余 | ✓ 用户裁定 — Phase 47（`47-REVIEW.md` Disposition） |
 
 ## Evolution
 
@@ -374,4 +383,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-11 after Phase 46 (技能基础设施) complete*
+*Last updated: 2026-09-11 after Phase 47 (内置技能播种 + bash 策略加固) complete*

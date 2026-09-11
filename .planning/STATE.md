@@ -25,7 +25,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-11)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 47 — 内置技能播种 + bash 策略加固
+**Current focus:** Phase 48 — 技能发现与调用（`/` 面板 + `/skill:name`）
 
 ## Current Position
 
@@ -129,6 +129,12 @@ Recent decisions affecting current work:
 - [Phase 42]: 主窗口弹框统一原生 dialog + showModal()/close() + 类规则显式 margin:auto + ::backdrop 遮罩；禁止全屏 div 遮罩类用于 dialog；realm:// 页面 CSP 豁免——已沉淀 AGENTS.md「弹框居中约定」小节（G-42-7 用户明确要求） — 全局 * { margin: 0 } 会清掉 UA 的 dialog margin:auto 居中；width/height:100% 撑满方案已被 Electron 43 实测否决（UA max 尺寸截断致 19px 偏心），与 .modal/下载弹窗项目惯例一致
 - [Phase 42]: G-42-8 双层修复：getMessages 同回合相邻 assistant 行合并（仅显示形状：纯工具行卡片追加/文本采纳进空 content 前条/双文本行保守不合并，锚定回合首行 id/timestamp）+ renderAIMessages 空 content 气泡守卫（流式末条占位豁免，不以工具卡片存在为前提）；getAgentMessages 注入形状零变化（D-14/CR-01 行级结构保持） — pi-agent-core 工具回合落库三行 assistant(''+tool_calls) → toolResult → assistant(text)，行级 1:1 映射产出空气泡 + 文本跑到卡片下方；显示/注入双形状分离（冒烟 48 断言证明互不渗漏）
 - [Phase 43]: BUDGETS 预算数值只在 ai-memory-manager.js 一处（1375/2200/2200）；memory 工具 parameters 不写数值，预算语义由 description 承载
+- [Phase 47]: 安装档改「首 token 默认拒绝 + 显式只读清单」（非继续枚举安装动词）—— 白名单是文本前缀匹配、黑名单式子命令匹配必被同前缀的中间 token / 词法改写击穿；默认拒绝把漏检面收敛到「首 token 不是包管理器」这一条天然不命中白名单前缀的边界
+- [Phase 47]: 词法归一化 `stripShellQuoting` 只落在 `matchInstall` 内，不提到 `normalizeSegment` / `matchesWhitelist` / `matchDangerous` 层 —— 后三者口径由既有 32 例断言锁定，提到共用层会同时移动白名单与危险判定语义
+- [Phase 47]: 只读豁免三条承重墙（空 `readOnly` 不生成动词式正则 / 纵深优先 / `init`·`audit` 形态化）+ 纵深条目不得遮蔽自身只读清单（pipx 动词限定）—— 空捕获组与旗标取值槽都会反向击穿默认拒绝
+- [Phase 47]: 播种 `detectDiff === 'same'` 不写盘（目录项以 `rel + '/'` 参与差异判定、size/sha256 只遍历文件条目）—— 消掉每次启动的最贵哈希层与 `rename(dst → bak)` 空窗（崩溃残留的触发源）
+- [Phase 47]: 播种失败保留三条**并列**可见面（顶层 catch 的 `console.error` + `finally` 的 `_flushDiagnostics` + 结构化 `getSeedDiagnostics`）—— `finally` 覆盖不了循环外、零诊断的异常
+- [Phase 47]: SC3 普遍性表述以 **override** 收尾，CR-01/CR-02 两条零卡片残余记技术债（基线即存在、非回归；根治走 argv 级分词），文档逐条具名披露 —— 用户 2026-09-11 裁定「只修文档面」
 - [Phase 43]: containerId 强制 /^[\w-]+$/ 校验防路径穿越；test:memory 用 node --test glob（Node 22 目录尾斜杠会被当模块解析）
 - [Phase 43]: [Phase 43]: 删除钩子惰性 require + await（删除方保证原子性）；harness 复用 ai-manager 工具链经 Module._load 拦截 tab-manager mock；expect 扩展 assistantSays/anyOf 支持二择一行为断言，安全不变式恒在顶层
 - [Phase 43]: 43-03：/api/ai-memory 预算数值单源自 manager BUDGETS（端点与前端零字面量）；POST 空 content 400，清空整层记忆暂不可经 UI 完成
@@ -206,10 +212,10 @@ None yet.
 
 **v2.6 需要 plan 期先拍板的开放决策（research Open Decisions）：**
 
-- O1（47）：find-skills 去 CLI 化程度——产品决策，判定标准是内置技能文本里不得出现任何"执行外部安装"动词
+- ~~O1（47）：find-skills 去 CLI 化程度~~ — **已在 Phase 47 落定**（find-skills 改写为零安装候选清单技能 + 二段式零安装语义静态扫描器；skill-creator 按固定 SHA 随包并受控改写三处平台专有内容）
 - O2（51）：zip 多技能包语义——v1 定为"恰好一个技能根"，多技能勾选留 v1.x
-- O3（47/51）：`allowed-tools` 解析但必须带免责标注；执行层门禁明确 Out of Scope，不得让 UI 制造虚假安全感
-- O4（47）：seeded 技能升级策略——版本戳登记表 + 未修改才覆盖，绝不静默覆盖用户修改
+- O3（47/51）：`allowed-tools` 解析但必须带免责标注；执行层门禁明确 Out of Scope —— **Phase 47 半边已落定**（`ai-agent-workspace.md` §七第 6 条 + `ai-skills.md` §六 的免责标注；IN-04 交叉引用已修正为第 6 条），51 半边（导入时解析该字段）待办
+- ~~O4（47）：seeded 技能升级策略——版本戳登记表 + 未修改才覆盖~~ — **已被 Phase 47 取代**：ROADMAP 判据 1 改写为「内容一致时 `detectDiff` 判 `same` → 零差异、零诊断，重启不重复写」，由 47-06 实现（内容比对而非版本戳表；零状态文件、零硬编码）；用户手改 → `realm_builtin_seed_overwritten` warning 后覆盖，手删 → 自愈重播
 - O5（51）：frontmatter 是否显式 require `yaml`——若 require 必须提升为直接 `dependencies`（否则换 pnpm 立刻 MODULE_NOT_FOUND）
 - ~~O7（46/50）：`MAX_SKILL_MD_BYTES` / `MAX_USER_SKILLS` / prompt 段字符预算具体数值需结合实测用量定~~ — **已在 Phase 46 落定**（`ai-skills-manager.js LIMITS`：64 KiB / 50 / 8000）。Phase 50 只负责把这些数值渲染给用户，不得重新定义
 - ~~O8（46）：`/compact` 不保留技能正文，须写进 `docs/product/ai-skills.md` 已知限制~~ — **已在 Phase 46 落定**（文档「六、已知限制」）
@@ -217,6 +223,7 @@ None yet.
 - ⚠️ [Phase 48] `/skill:name` **显式调用必须实时读盘**（用户 2026-09-11 UAT 明确要求）—— 技能正文当场从磁盘读取，不得依赖 prompt 快照或对话历史里的旧回答。背景：46-UAT Test 3 实测「切回老对话看不到磁盘改动」，根因是模型复读自身历史答案（两次回答 1801 字符逐字相同），非重扫失效
 - ⚠️ [Phase 48] prompt 未区分「工具 / 技能」两个概念 —— 模型被问「你有哪些技能」时会把 27 个 tool 也称作技能（仅 demo 是真技能）；无历史污染时模型自行区分正确。做 `/` 面板时可考虑补一句措辞
 - O9（51）：既有沙箱 `writeFile` ENOENT symlink 缺口列为本期加固项（SEC-10）
+- ⚠️ [技术债 · 无归属阶段] **bash 安装档只读豁免的结构性根因** —— `matchInstall` 用「整段正则 + `FLAG_TOLERANCE` 取值槽」判只读，使三条形态在白名单含裸工具名时**零卡片**：CR-01（`npm -g update` / `npm --global rebuild`）、CR-02（`npm audit --json fix`）、残余 ③（`npm -g update ls`）。三者均在 Phase 47 基线即存在（非回归），已具名写进两份产品文档的残余段与 `47-REVIEW.md`。**根治 = argv 级分词 + 显式「带值旗标」清单**；修的时候须同步改 `tests/test-ai-bash-policy.js:847`（它当前把 CR-01 的词法形态钉成期望的 `allow`）与三份文档口径。另两条同源技术债：`ai-bash-policy.js:249` 的 JSDoc 称旗标容忍「不会吞掉子命令本身」（与 CR-01 矛盾）、`docs` 只读枚举缺机械漂移护栏
 
 **v2.6 待实测风险（plan 期验证，research Gaps）：**
 
@@ -289,12 +296,14 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T13:34:40.493Z
-Stopped at: Phase 47 complete, ready to plan Phase 48
+Last session: 2026-09-11T14:52:46.868Z
+Stopped at: Phase 47 complete（override 收尾，113/113），ready to plan Phase 48
 Resume file: None
 
 ## Operator Next Steps
 
-- Phase 47 建议先走 discuss / research：`/gsd-discuss-phase 47` —— find-skills 彻底去 CLI 化属产品决策 + 许可证需法务式复核（O1/O3/O4）
+- **Phase 47 已收尾**（override 收尾：SC3 普遍性表述 + CR-01/CR-02 记技术债）。技术债与建议修法见 `.planning/phases/47-bash/47-REVIEW.md` 的 Disposition 与处置补记：CR-01（`npm -g update` 类旗标取值槽吞子命令）、CR-02（`npm audit --json fix` 类）、残余 ③（`npm -g update ls`）、`matchDangerous` 未同源归一化、`sweepSeedResidue` 缺陈旧性判据、`npm version` 被列只读、`ai-bash-policy.js:249` JSDoc 不准确、docs 只读枚举缺漂移护栏 —— 根治走 **argv 级分词 + 显式「带值旗标」清单**（可一次消除 CR-01/CR-02/残余 ③）
+- ⚠ **发布前必办**：生产包 `/Applications/Realm.app` 仍是 2026-09-10 构建（无 `skills-builtin/` 与 `THIRD_PARTY_NOTICES.md`、仍含 `.planning`/`tests`）；SC5 的打包面证据经 47-04 的 Nightly 路线取得，**正式发布前必须重跑 `make install`**
 - 用户已定：Phase 48 的 `/skill:name` 必须实时读盘（写路径接线 + 实时正文两条都是显式验收项）
 - 遗留验证待办：Phase 46 的 P8 失效链 3/6 需在 48/49/50/51 逐点闭合
+- Phase 47 收尾时 `phase.complete` 报两条非阻断警告：① 各 SUMMARY 的「files referenced」误报（把代码块里的命令当文件路径）；② `REQUIREMENTS.md` 正文含 `ECO-01..06` 但 Traceability 表未登记（属后续阶段的 ID，收尾时未擅自补录）
