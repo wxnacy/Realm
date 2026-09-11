@@ -49,7 +49,10 @@ const EMPTY_CACHE = () => ({
  * 模块级技能快照（唯一权威）
  *
  * 形状：{ skills, promptBlock, digest, diagnostics, errors, refreshedAt }
- * - skills：缓存条目 `{ skill, source }`，source 取 'user' | 'managed'
+ * - skills：缓存条目 `{ skill, source, diagnostics }`，source 取 'user' | 'managed'
+ *   （遮蔽败者额外带 `shadowed: true` 与 `shadowedBy`）；条目级 `diagnostics`
+ *   即 D-07 语境中的 `skill.diagnostics[]` —— 诊断挂在**缓存条目**上，
+ *   `Skill` 本体保持 SDK 五字段形状不被注入私有字段
  * - promptBlock：SDK formatSkillsForSystemPrompt 的返回值（空集为 ''）
  * - digest：技能集稳定序列化后的短摘要（技能集是否变化的快速判定主键）
  * - diagnostics：加载期诊断（SDK 原样形状 + Realm 自建，code 以 realm_ 前缀区分）
@@ -151,11 +154,76 @@ function createSkillsEnv(sandboxEnv, opts = {}, droppedNotices = []) {
 }
 
 /**
+ * 契约布局判定：`<scannedDir>/<name>/SKILL.md` —— 相对扫描根的段数**恰为 2**
+ *
+ * 用 `path.relative` 的**相对段数**判定，不是字符数也不是绝对路径段数
+ * （绝对路径段数会随临时目录/用户名长度漂移）。
+ *
+ * **这是加载后的兜底过滤，不能替代 46-01 `createSkillsEnv.listDir` 的遍历前
+ * 收窄**：根层 `SKILL.md` 一旦短路，SDK 只会返回根层那一个结果，事后过滤
+ * 救不回来（过滤后技能集变空集，虽然好过被顶替，但仍需那条 `realm_root_entry_skipped`
+ * 诊断说明原因）。两条防护互补、不可互相替代。
+ *
+ * @param {string} scannedDir - 扫描根绝对路径
+ * @param {string} filePath - 技能文件（SKILL.md）绝对路径
+ * @returns {boolean} 是否符合契约布局
+ */
+function inContractLayout(scannedDir, filePath) {
+  return path.relative(scannedDir, filePath).split(path.sep).filter(Boolean).length === 2;
+}
+
+/**
+ * 取条目所属的扫描根（`rootDirs` 中作为 `filePath` 前缀的那一项）
+ *
+ * 无归属（路径不在任何扫描根之下）时返回 null —— 调用方按「不可判定则不丢弃」
+ * 处理（数据层优先，宁可保留也不静默剔除）。
+ *
+ * @param {string[]} rootDirs - 扫描根列表
+ * @param {string} filePath - 技能文件绝对路径
+ * @returns {string|null} 所属扫描根（已 resolve）或 null
+ */
+function scanRootOf(rootDirs, filePath) {
+  const target = path.resolve(filePath);
+  for (const root of rootDirs) {
+    if (!root) continue;
+    const resolved = path.resolve(root);
+    const rel = path.relative(resolved, target);
+    if (rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)) {
+      return resolved;
+    }
+  }
+  return null;
+}
+
+/**
+ * 把一条 Realm 自建诊断同时写入「条目级 `diagnostics[]`」与「模块级 `_cache.diagnostics`」
+ *
+ * **口径声明（D-07）**：D-07 所说的 `skill.diagnostics[]` 落在**缓存条目**上
+ * （条目即 D-07 语境中的「技能」）；`Skill` 本体保持 SDK 的五字段形状、不被
+ * 注入私有字段（仅 `name` 按 D-08 被重写），避免向 SDK 类型污染 ——
+ * 否则 SDK 侧消费者会看到非契约字段。
+ *
+ * 调用前提：`_cache.diagnostics` 已被本轮刷新初始化（见 refreshSkills）。
+ *
+ * @param {{diagnostics?: object[]}} entry - 缓存条目
+ * @param {object} diag - 诊断对象（level / code / message / path / source）
+ */
+function pushEntryDiag(entry, diag) {
+  if (entry && Array.isArray(entry.diagnostics)) entry.diagnostics.push(diag);
+  _cache.diagnostics.push(diag);
+}
+
+/**
  * 异步刷新技能集（唯一加载入口，D-04）
  *
  * 每次 Agent 创建/重建之前无条件调用一次：这是唯一能自动覆盖「模型经
  * write / bash 工具直接改写 skills/<name>/SKILL.md」这条无事件可挂失效
  * 路径的机制。
+ *
+ * 加载后管线（顺序不可调换）：
+ *   ① 契约布局过滤（inContractLayout）—— 深嵌套技能不进集合 + realm_layout_violation
+ *   ② 目录名权威重写（enforceDirNameAuthority，D-08）
+ *   ③ 同名遮蔽判定（applyShadowing，D-06）—— 依赖 ② 之后的 name 唯一性
  *
  * 契约：
  * - managed 先、user 后加载 —— 顺序不是装饰，同名遮蔽判定据此（D-06）
@@ -186,7 +254,7 @@ async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
     const { loadSourcedSkills, formatSkillsForSystemPrompt } =
       await import('@earendil-works/pi-agent-core');
 
-    const { skills: entries, diagnostics } = await loadSourcedSkills(skillsEnv, inputs);
+    const { skills: loadedEntries, diagnostics } = await loadSourcedSkills(skillsEnv, inputs);
 
     // 加载面收窄产生的 Realm 自建诊断（code 以 realm_ 前缀与 SDK 枚举区分）
     const droppedDiags = droppedNotices.map((n) => ({
@@ -196,8 +264,35 @@ async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
       path: n.path,
     }));
 
-    _cache.skills = entries;
+    // 诊断容器先就位：管线的每一步都往这里追加（禁止静默失败，SKILL-06）
     _cache.diagnostics = diagnostics.concat(droppedDiags);
+
+    // ① 契约布局过滤：SDK 递归无深度上限，从 GitHub 拷来的多一层目录包会
+    //    加载出一个「不该存在」的技能。违约条目不进集合，但必须产可读诊断。
+    const roots = rootDirs.filter(Boolean);
+    const entries = [];
+    for (const entry of loadedEntries) {
+      entry.diagnostics = [];
+      const root = scanRootOf(roots, entry.skill.filePath);
+      if (root && !inContractLayout(root, entry.skill.filePath)) {
+        const suggested = path.join(
+          root,
+          path.basename(path.dirname(entry.skill.filePath)),
+          'SKILL.md'
+        );
+        _cache.diagnostics.push({
+          level: 'warning',
+          code: 'realm_layout_violation',
+          message: `技能 "${entry.skill.name}" 的布局不符合契约：实际 ${entry.skill.filePath}；技能必须放在 <扫描根>/<技能名>/SKILL.md，不能有中间层目录（正确位置示例：${suggested}）`,
+          path: entry.skill.filePath,
+          source: entry.source,
+        });
+        continue;
+      }
+      entries.push(entry);
+    }
+
+    _cache.skills = entries;
     _cache.promptBlock = formatSkillsForSystemPrompt(
       entries
         .filter((e) => e.skill.disableModelInvocation !== true)

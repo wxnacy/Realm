@@ -214,10 +214,109 @@ describe('加载面收窄（回归守卫）', () => {
   });
 });
 
+/** 在任意布局路径写一个技能文件（供深嵌套 / 冒名 / 同名遮蔽用例使用） */
+function writeSkillAt(filePath, { name, description = '技能描述', body = '# skill\n\n正文内容\n' }) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}`);
+  return filePath;
+}
+
 /** 两个扫描根（managed 先、user 后 —— 顺序即遮蔽判定依据 D-06） */
 function scanRoots() {
   return [workspace.getManagedSkillsDir(), workspace.getSkillsDir()];
 }
+
+describe('契约布局过滤（SKILL-06）', () => {
+  test('反深嵌套：skills/a/b/SKILL.md 被跳过，诊断同时给出实际路径与目标布局建议', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    const deepFile = writeSkillAt(path.join(workspace.getSkillsDir(), 'a', 'b', 'SKILL.md'), {
+      name: 'b',
+      description: '深嵌套技能',
+    });
+    writeSkill(workspace.getSkillsDir(), 'alpha'); // 同批次里的契约布局技能（不误伤）
+
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    assert.strictEqual(
+      snap.skills.some((e) => e.skill.name === 'b'), false,
+      '深嵌套技能（相对深度 3）不应进集合'
+    );
+    assert.ok(
+      snap.skills.some((e) => e.skill.name === 'alpha'),
+      '同批次的契约布局技能不受影响'
+    );
+
+    const diag = snap.diagnostics.find((d) => d.code === 'realm_layout_violation');
+    assert.ok(diag, '被跳过的深嵌套技能必须产 realm_layout_violation 诊断（禁止静默）');
+    assert.strictEqual(diag.level, 'warning', '属 D-05 第 1 层「正常态跳过」');
+    assert.strictEqual(diag.path, deepFile, '诊断应指向实际文件路径');
+    assert.ok(diag.message.includes(deepFile), '诊断 message 须含实际路径');
+    assert.ok(
+      diag.message.includes(path.join(workspace.getSkillsDir(), 'b', 'SKILL.md')),
+      '诊断 message 须含正确的目标路径建议（<扫描根>/<技能名>/SKILL.md）'
+    );
+  });
+
+  test('契约布局（<dir>/<name>/SKILL.md）的技能一个不少：user 与 managed 各一层均保留', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    writeSkill(workspace.getManagedSkillsDir(), 'beta');
+
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    assert.strictEqual(snap.skills.length, 2, `相对深度恰为 2 的技能不得被误伤，实际 ${snap.skills.length}`);
+    for (const name of ['alpha', 'beta']) {
+      assert.ok(snap.skills.some((e) => e.skill.name === name), `${name} 应在集合内`);
+    }
+    assert.strictEqual(
+      snap.diagnostics.some((d) => d.code === 'realm_layout_violation'), false,
+      '契约布局不得产生布局违规诊断（不误报）'
+    );
+  });
+
+  test('不误报：空目录与「一层目录内散落 md」不产生 realm_layout_violation', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    fs.mkdirSync(path.join(workspace.getSkillsDir(), 'emptyone'), { recursive: true });
+    // 一层目录内的散落 md 不是技能（SDK 只对扫描根层 includeRootFiles=true）
+    fs.mkdirSync(path.join(workspace.getSkillsDir(), 'loose'), { recursive: true });
+    fs.writeFileSync(path.join(workspace.getSkillsDir(), 'loose', 'notes.md'), '---\ndescription: 散落说明\n---\n\n# notes\n');
+
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    assert.strictEqual(snap.skills.length, 0, '空目录与散落 md 不产生技能');
+    assert.strictEqual(
+      snap.diagnostics.filter((d) => d.code === 'realm_layout_violation').length, 0,
+      '没有技能条目被深度过滤时不得产生布局违规诊断'
+    );
+  });
+
+  test('源码：inContractLayout 以相对段数 === 2 判定；Realm 诊断码前缀正确且与 SDK 五枚举不重叠', () => {
+    const src = readSource('ai-skills-manager.js');
+    const body = functionBody(src, 'inContractLayout');
+    assert.ok(body.includes('path.relative('), 'inContractLayout 必须以 path.relative 判定归属深度');
+    assert.ok(body.includes('=== 2'), '必须以相对段数 === 2 判定（非字符数、非绝对段数）');
+
+    const codes = [...src.matchAll(/code: '(realm_[a-z_]+)'/g)].map((m) => m[1]);
+    assert.ok(codes.includes('realm_layout_violation'), '源码中应存在 realm_layout_violation 诊断码');
+    const SDK_CODES = ['file_info_failed', 'list_failed', 'read_failed', 'parse_failed', 'invalid_metadata'];
+    for (const code of codes) {
+      assert.ok(code.startsWith('realm_'), `Realm 自建诊断码必须以 realm_ 前缀：${code}`);
+      assert.strictEqual(SDK_CODES.includes(code), false, `诊断码不得与 SDK 枚举重名：${code}`);
+    }
+  });
+});
 
 describe('技能目录与沙箱可达（SKILL-01）', () => {
   test('ensureWorkspaceDir 后两目录存在，且技能路径在 resolveInside 放行范围内', (t) => {
