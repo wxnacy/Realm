@@ -2144,6 +2144,23 @@ describe('DOC-02 文档同步（47-04 Task 2）', () => {
       !workspaceDoc.includes('不会零卡片的同源残余'),
       '不得把旗标取值残余写成「不会零卡片」（实测 npm -g update ls @ [npm] → allow）'
     );
+    // 计数自洽：残余段写「三类」，则 §五 的指代也必须是「三类」（verifier 第二轮发现的一致性缺陷）
+    assert.ok(
+      workspaceDoc.includes('**三类**具名残余除外'),
+      '§五 的残余计数应与 §七 残余段一致（三类）'
+    );
+    assert.ok(
+      !workspaceDoc.includes('两类具名残余除外'),
+      '不得残留「两类具名残余除外」的旧计数'
+    );
+    assert.ok(
+      skillsDoc.includes('三类**具名残余'),
+      'ai-skills.md §九 开头的残余计数应与本节残余段一致（三类）'
+    );
+    assert.ok(
+      !skillsDoc.includes('但有两类具名残余'),
+      '不得残留「但有两类具名残余」的旧计数'
+    );
     assert.ok(
       workspaceDoc.includes('`brew install` / `brew upgrade` / `brew cask install`'),
       '应给 brew 的只读/安装对照'

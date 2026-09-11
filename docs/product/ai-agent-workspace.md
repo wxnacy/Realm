@@ -110,7 +110,7 @@ bash 是任意 shell，工作目录固定为工作区根目录，但**不受路�
 - **即改即存**：增删条目立即生效，下一条命令即按新白名单裁决（AI 执行时实时读取，无缓存）
 - **服务端校验**：条目必须是非空字符串、≤200 字符、无换行/控制字符；**不支持单独使用 `*`**（`*` / ` *` 去掉通配符后没有剩余前缀，不是命令前缀——否则空前缀会使整份白名单变成全放行）
 - **使用建议**：白名单的粒度是**命令前缀，不是路径**。只加构建类可信命令（`npm run`、`git status`、`brew` 等）；**不要加 `cat`/`less` 这类能读任意路径的通用命令**——加了之后它们读任何文件都免确认。注意：包管理器安装档的判定**短路先于**白名单，因此 `brew install` / `brew upgrade` / `brew cask install`、`npm i` / `npm install` / `npm ci` / `npm exec` / `npm update` / `npm rebuild` 等**非只读**子命令**加入白名单也无效**（仍弹高风险卡片）；裸条目 `brew` 能免确认的只是上表列出的**只读**子命令（`brew info` / `brew list` / `brew search` 等）。`npm run` 族（含 `start` / `stop` / `restart` / `test` / `run-script`）与 `npm audit`（**不含 `fix`**）、`npm init -y`（**不带位置参数**）仍是**只读**，而 `npm init <initializer>`（≡ `npx create-<initializer>`）与 `npm audit fix` 与安装档同档。
-  **但存在具名残余**（见§七第 5 条附 ①②）：`npm -g update` 这类「**旗标 + 未知子命令**」形态与 `npm audit --json fix` 这类「**`audit` 与 `fix` 之间夹旗标**」形态会被判为**只读**，因白名单前缀命中而**零卡片** —— 因此本句的准确表述是「白名单**不能**放开上表之外的**常规**非只读子命令；两类具名残余除外」。
+  **但存在具名残余**（见§七第 5 条附 ①②③）：`npm -g update` 这类「**旗标 + 未知子命令**」形态、`npm audit --json fix` 这类「**`audit` 与 `fix` 之间夹旗标**」形态，以及 `npm -g update ls` 这类「**旗标取值与子命令不可区分**」形态都会被判为**只读**，因白名单前缀命中而**零卡片** —— 因此本句的准确表述是「白名单**不能**放开上表之外的**常规**非只读子命令；**三类**具名残余除外」。
 
 ## 六、确认卡片行为
 
@@ -129,7 +129,7 @@ bash 是任意 shell，工作目录固定为工作区根目录，但**不受路�
 - **（第 5 条附）五条具名残余**（如实告知，不给绝对保证）：
   1. **（零卡片 · 高优先）旗标取值槽吞掉末尾子命令**：裸形式只读正则的旗标容忍片段可把**唯一**末尾 token 吞成「旗标取值」，于是 `npm -g update` / `npm -q update` / `npm --prefix=./app update` / `npm --global rebuild` 这类**真实联网安装命令**被判**只读**；白名单含裸 `npm` 时即**零卡片**（实测 `npm -g update` @ `['npm']` → `allow`）。对照 `npm update -g` 仍正确判安装档 —— 差异只在旗标位置。这是本条残余中**最需要优先修复**的一类。
   2. **（零卡片）`audit` 与 `fix` 之间夹旗标**：`audit` 的守卫用负向先行断言拒掉紧跟的 `fix` / `--fix`，但不跨越中间旗标，因此 `npm audit --json fix` / `pnpm audit --registry=x fix` 被判**只读**，而 npm 实际会执行 fix 安装（取新代码）。白名单命中时零卡片。
-  3. **（零卡片）旗标取值与子命令在词法上不可区分**：既有行为要求 `pnpm --filter a run build` 判只读（`a` 是 `--filter` 的取值），同一机制使 `npm -g <未知动词> <只读同名词>`（如 `npm -g update ls`）仍判只读 —— 而 `npm -g update ls` **同样会命中白名单前缀**（`matchesWhitelist('npm -g update ls', ['npm']) === true`），因此裸 `npm` 在白名单里时它与残余 ①② 一样是**零卡片**（实测 @ `['npm']` → `allow`）。已用**纵深优先**（先跑安装模式表）把可识别面压到最小 —— `npm -g install list` / `brew --quiet install info` 已被收回安装档；剩余部分与 ①② 同属「旗标取值槽」这一条结构性成因。
+  3. **（零卡片）旗标取值与子命令在词法上不可区分**：既有行为要求 `pnpm --filter a run build` 判只读（`a` 是 `--filter` 的取值），同一机制使 `npm -g <未知动词> <只读同名词>`（如 `npm -g update ls`）仍判只读 —— 而 `npm -g update ls` **同样会命中白名单前缀**（`matchesWhitelist('npm -g update ls', ['npm']) === true`），因此裸 `npm` 在白名单里时它与残余 ①② 一样是**零卡片**（实测 @ `['npm']` → `allow`）。已用**纵深优先**（先跑安装模式表）把可识别面压到最小 —— `npm -g install list` / `brew --quiet install info` 已被收回安装档；剩余部分与 ① 同属「**旗标取值槽**」这一条结构性成因（② 的成因不同：它是 `audit` 守卫的负向先行断言只看向后**紧邻**位置、不跨越中间旗标 —— 实测 `npm --json audit fix` 仍正确判安装档，而 `npm audit --json fix` 判只读）。
   4. **大小写形态**（`NPM i x` / `RM -rf x`）：macOS 解析不区分大小写，这类写法**不命中**包管理器工具集与危险命令表 → 降级为**普通确认卡片**而非高风险卡片。这是卡片**风险等级标注**的残余，**不是免确认**。
   5. **`pnpm` / `yarn` / `bun` 的同类别名（`start` / `stop` / `restart`）未收录**：各 CLI 的别名语义未逐一核验，按「存疑一律不收」处理 → `pnpm start` / `yarn start` / `bun start` 落强制确认档，卡片文案「将从网络下载并运行第三方代码」对这族命令**不准确**。这是**已接受的保守误报**（方向安全：多一次卡片），与 `npm` 族的理由（`start` / `stop` / `restart` / `run-script` 与 `run` / `test` 同族故只读）并列。
   > 残余 ①②（零卡片类）由代码审查在 gap-closure 复审中具名记录（`47-REVIEW.md` 的 CR-01 / CR-02），本阶段选择**只修文档面**、把代码洞留作技术债 —— 因此这两条必须如实写明，不得省略。
