@@ -164,7 +164,7 @@ v2.6 把 AI 助手推进到**可扩展能力体系**：接入 pi-agent-core 原�
   4. 用户技能与 managed 技能同名时 user 版本胜出、managed 版本被遮蔽，冲突对用户可见（不静默去重）。
   5. 非法 name / 超长 description / YAML 解析失败 / 超限的技能不静默消失：产出含"哪个限额、当前值"的可读诊断，可被上层读出。
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans executed
 
 Plans:
 **Wave 1**
@@ -181,7 +181,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 46-04-PLAN.md — Agent prompt 回写（D-03）与 P8 失效链 / P8 门禁映射表 / DOC-01 产品文档骨架
+- [x] 46-04-PLAN.md — Agent prompt 回写（D-03）与 P8 失效链 / P8 门禁映射表 / DOC-01 产品文档骨架
 
 **Security gate**: P8（S2，阻断门禁）技能缓存失效链。**本阶段只存在并交付其中 3 个触发点**：① `init()` Agent 创建点、② `_recreateAgent()` Agent 创建点、⑥ bash/write 工具直改 `skills/`（以"每次 Agent 重建都无条件重扫一次"兜底）。其余 3 点（`/` 面板列表 → 48、设置页导入/卸载 → 50/51、`manage_skill` 三动作 → 49）在本阶段**尚无写路径**，按 46-04 的 `<p8_gate_mapping>` 逐点交接给对应阶段，**不得声称 6 点全覆盖**。本阶段的机制断言：`ai-manager.js` 每个 `new Agent(` 之前 60 行内必须存在 `refreshSkills(`（**创建点覆盖断言**；`syncAgentSystemPrompt()` 等非创建点调用不参与判定 —— **不得**改写成「`refreshSkills(` 与 `new Agent(` 调用次数相等」）。漏接线即红。
 **Doc sync**: 本阶段新建 `docs/product/ai-skills.md`（能力 / 双目录 / 优先级 / 限额 / 沙箱边界 / 已知限制骨架）；后续阶段按 AGENTS.md 维护约定增量补齐各自章节。
@@ -296,7 +296,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 46. 技能基础设施 | 3/4 | In Progress|  |
+| 46. 技能基础设施 | 4/4 | In Progress|  |
 | 47. 内置技能播种 + bash 策略加固 | TBD | Not started | - |
 | 48. 技能发现与调用 | TBD | Not started | - |
 | 49. `manage_skill` 工具 | TBD | Not started | - |
