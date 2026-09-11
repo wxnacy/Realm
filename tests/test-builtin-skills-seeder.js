@@ -1336,3 +1336,138 @@ describe('check_env.mjs 环境预检（D-05 / D-07 / SKILL-09）', () => {
     );
   });
 });
+
+describe('P10 归属门禁（THIRD_PARTY_NOTICES.md）', () => {
+  /** 读归属声明全文（P10 的判据是「归属完整」，所以断言都落在文档内容上） */
+  function notices() {
+    return readSource('THIRD_PARTY_NOTICES.md');
+  }
+
+  test('P10-1：文件位于 repo 根，且同时含 find-skills 与 skill-creator 两节', () => {
+    assert.ok(fs.existsSync(path.join(REPO_ROOT, 'THIRD_PARTY_NOTICES.md')), 'repo 根应有 THIRD_PARTY_NOTICES.md');
+    const text = notices();
+    assert.ok(text.includes('find-skills'), '应含 find-skills 一节');
+    assert.ok(text.includes('skill-creator'), '应含 skill-creator 一节');
+    assert.ok(/^## 1\. find-skills/m.test(text), 'find-skills 应是编号小节');
+    assert.ok(/^## 2\. skill-creator/m.test(text), 'skill-creator 应是编号小节');
+  });
+
+  test('P10-4：两个固定 SHA 逐字出现（防手误抄错，且必须与下载源一致）', () => {
+    const text = notices();
+    // 这两个值必须与制造快照时用的 raw.githubusercontent.com/<repo>/<sha>/... 完全一致，
+    // 否则归属记录与实际分发物不符（T-47-03-04 / T-47-03-05）
+    assert.ok(text.includes('773fb2c7bbf16781670a3520affc4abd0c6151ae'), 'find-skills 的固定 SHA 应逐字出现');
+    assert.ok(text.includes('b0cbd3df1533b396d281a6886d5132f623393a9c'), 'skill-creator 的固定 SHA 应逐字出现');
+    assert.ok(text.includes('2026-07-10'), 'find-skills 的 SHA 时点应记录');
+    assert.ok(text.includes('2026-03-06'), 'skill-creator 的 SHA 时点应记录');
+  });
+
+  test('P10-3：两个技能都标 modified，且文档不出现把已修改说成未修改的措辞', () => {
+    const text = notices();
+    assert.ok(!text.includes('unmodified'), 'fail-safe：文档不得出现把已修改说成未修改的措辞');
+    const modifiedCount = (text.match(/modified/g) || []).length;
+    assert.ok(modifiedCount >= 2, `两个技能条目都应变标 modified（实际出现 ${modifiedCount} 次）`);
+    assert.ok(text.includes('Realm 化改写版'), 'find-skills 的修改说明应具体到「Realm 化改写」');
+    for (const item of ['移除全部 CLI 与安装语义', 'disable-model-invocation', 'web_fetch']) {
+      assert.ok(text.includes(item), `find-skills 的修改说明应逐项写明：${item}`);
+    }
+  });
+
+  test('P10-2：五要素关键词齐备（来源仓库 / 固定 SHA / 许可证 / 是否修改 / 修改说明）', () => {
+    const text = notices();
+    for (const token of [
+      'https://github.com/vercel-labs/skills',
+      'https://github.com/anthropics/skills',
+      '773fb2c7bbf16781670a3520affc4abd0c6151ae',
+      'b0cbd3df1533b396d281a6886d5132f623393a9c',
+      'MIT',
+      'Apache License 2.0',
+      'modified',
+      '来源仓库',
+      '固定 commit SHA',
+      '许可证',
+      '是否修改',
+      '修改说明',
+      'skills-builtin/find-skills/LICENSE.txt',
+      'skills-builtin/skill-creator/LICENSE.txt',
+    ]) {
+      assert.ok(text.includes(token), `五要素关键词缺失：${token}`);
+    }
+    // skill-creator 的修改说明必须逐条列出（①..⑪ 的编号形式）
+    for (const marker of ['环境预检', 'Environment Preflight', 'Reference files', 'agents/', 'check_env.mjs']) {
+      assert.ok(text.includes(marker), `skill-creator 的修改说明应覆盖：${marker}`);
+    }
+  });
+
+  test('P10-5：两个 LICENSE.txt 随播种逐字节落到 managed-skills/<name>/，skill-creator 精确 11,357 字节', async (t) => {
+    const root = withTempRoot(t);
+    const managedDir = path.join(root, 'managed-skills');
+    seeder.setBuiltinDepsForTest({ srcDir: REAL_BUILTIN_SRC, managedDir });
+    seeder.seedBuiltinSkills();
+
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    await aiSkills.refreshSkills(env, {
+      rootDirs: [workspace.getManagedSkillsDir(), workspace.getSkillsDir()],
+    });
+
+    for (const name of ['find-skills', 'skill-creator']) {
+      const seeded = path.join(managedDir, name, 'LICENSE.txt');
+      const source = path.join(REAL_BUILTIN_SRC, name, 'LICENSE.txt');
+      // 「LICENSE.txt 不产生诊断」这条断言**不能**证明文件存在（文件缺失同样无诊断），
+      // 所以这里直接断言落盘内容逐字节相同 —— 否则 P10 的自家信号行不可绑定。
+      assert.ok(fs.existsSync(seeded), `${name}/LICENSE.txt 应随播种落盘`);
+      assert.strictEqual(
+        fs.readFileSync(seeded, 'utf8'),
+        fs.readFileSync(source, 'utf8'),
+        `${name}/LICENSE.txt 应与随包源逐字节相同`
+      );
+    }
+
+    assert.strictEqual(
+      fs.statSync(path.join(managedDir, 'skill-creator', 'LICENSE.txt')).size,
+      11357,
+      'skill-creator 的 Apache-2.0 全文落盘后仍应精确 11,357 字节（不得被摘要化）'
+    );
+    assert.deepStrictEqual(seeder.getSeedDiagnostics(), [], '许可证文件不得产生播种诊断');
+  });
+
+  test('易错事实说明三处齐备（上游无独立 LICENSE / ThirdPartyNoticeText 不随包 / spdx_id 为 null）', () => {
+    const text = notices();
+    for (const token of ['没有独立 LICENSE', 'ThirdPartyNoticeText', '不随包', 'spdx_id']) {
+      assert.ok(text.includes(token), `易错事实说明缺失关键词：${token}`);
+    }
+    assert.ok(text.includes('license.spdx_id'), '应点名 GitHub API 的 license.spdx_id 字段');
+    assert.ok(text.includes('vercel-labs'), 'find-skills 的补录版权行应记 vercel-labs');
+  });
+
+  test('Python 运行时依赖单列一节并声明不由 Realm 分发', () => {
+    const text = notices();
+    assert.ok(text.includes('不由 Realm 分发'), '应有「不由 Realm 分发」的明确声明');
+    assert.ok(text.includes('pyyaml'), '应点名 pyyaml');
+    assert.ok(text.includes('anthropic'), '应点名 anthropic');
+    assert.ok(text.includes('run-eval') && text.includes('run-loop'), '应说明 capability 面已去掉 run-eval / run-loop');
+  });
+
+  test('最后更新日期字段（YYYY-MM-DD）与升级上游版本检查清单（≥4 步）', () => {
+    const text = notices();
+    assert.ok(/最后更新日期[:：]\s*\d{4}-\d{2}-\d{2}/.test(text), '应有「最后更新日期」字段且为 YYYY-MM-DD 形态');
+
+    const anchor = text.indexOf('升级上游版本时的检查清单');
+    assert.ok(anchor > 0, '应有「升级上游版本时的检查清单」一节');
+    const section = text.slice(anchor);
+    const steps = (section.match(/^\d+\.\s/gm) || []).length;
+    assert.ok(steps >= 4, `检查清单应至少 4 步，实际 ${steps} 步`);
+    // 这四步有机械兜底：改 SHA 不同步文档 / 改文档不同步文件集，P10 断言都会红
+    assert.ok(section.includes('node tests/test-builtin-skills-seeder.js'), '检查清单应写明重跑 P10 断言组');
+    assert.ok(section.includes('机械兜底'), '应写明这四步有测试层面的机械兜底，而非仅文档承诺');
+  });
+
+  test('check_env.mjs 的自研条目同时写明「自研」与「MIT」（不会被读成「没有许可证」）', () => {
+    const text = notices();
+    const paragraph = text
+      .split(/\n{2,}/)
+      .find((block) => block.includes('check_env.mjs') && block.includes('自研'));
+    assert.ok(paragraph, '应有一处同时提到 check_env.mjs 与「自研」的段落');
+    assert.ok(paragraph.includes('MIT'), '该段必须写明它以 MIT 许可证随 Realm Browser 分发');
+  });
+});
