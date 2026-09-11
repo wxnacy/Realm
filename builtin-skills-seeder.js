@@ -285,6 +285,34 @@ function safeCopyDir(src, dst) {
 }
 
 /**
+ * 扫描随包源目录，找出**缺少 SKILL.md** 的子目录（`realm_builtin_src_invalid` 的触发面）
+ *
+ * **为什么必须是独立扫描而不是复用 getSeededSkillNames() 的返回**：后者已经用
+ * `fs.existsSync(path.join(dir, 'SKILL.md'))` 把缺 SKILL.md 的子目录过滤掉了 ——
+ * 若该诊断的唯一上游是它的返回，这条 code 永远收不到输入（不可达的保留 code）。
+ * 二者是「**先报（本函数扫描）后滤（getSeededSkillNames 筛选）**」的串行关系，
+ * **不是**互为表里。
+ *
+ * @param {string} srcDir - 随包技能源目录
+ * @returns {string[]} 缺 SKILL.md 的子目录绝对路径；源目录不可读时返回 []
+ */
+function collectInvalidSrcDirs(srcDir) {
+  const invalid = [];
+  let entries;
+  try {
+    entries = fs.readdirSync(srcDir, { withFileTypes: true });
+  } catch {
+    return invalid;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+    const dir = path.join(srcDir, entry.name);
+    if (!fs.existsSync(path.join(dir, 'SKILL.md'))) invalid.push(dir);
+  }
+  return invalid;
+}
+
+/**
  * 播种随包内置技能到 managed 技能目录（同步，启动期一次性调用）
  *
  * 启动链路位置：`main.js` 的 `migrateAiMemory()` 之后、`new AIManager()` 之前
@@ -296,6 +324,7 @@ function safeCopyDir(src, dst) {
  *
  * 诊断 code：
  * - `realm_builtin_src_missing`（error）：源目录不存在或无任何含 SKILL.md 的子目录
+ * - `realm_builtin_src_invalid`（error）：源目录下某个子目录缺 SKILL.md（独立扫描先于过滤）
  * - `realm_builtin_seed_overwritten`（**warning**）：磁盘内容与随包内容不一致，覆盖前报出
  * - `realm_builtin_seed_failed`（error）：单技能目录播种失败（含 symlink 拒绝）
  */
@@ -303,6 +332,17 @@ function seedBuiltinSkills() {
   _diagnostics = [];
   try {
     const srcDir = resolveBuiltinSkillsSrc();
+    // 先报：独立源目录扫描（必须早于 getSeededSkillNames() 的过滤）
+    for (const badDir of collectInvalidSrcDirs(srcDir)) {
+      _diagnostics.push({
+        level: 'error',
+        code: 'realm_builtin_src_invalid',
+        message: `随包内置技能目录缺少 SKILL.md，已跳过：${path.basename(badDir)}`
+          + '（内置技能必须是 <name>/SKILL.md 的目录布局）',
+        path: badDir,
+      });
+    }
+    // 后滤：可播种技能名（seeded 身份的权威来源）
     const names = getSeededSkillNames();
     if (names.length === 0) {
       _diagnostics.push({

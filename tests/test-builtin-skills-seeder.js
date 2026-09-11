@@ -81,6 +81,25 @@ function copyTree(src, dst) {
   fs.cpSync(src, dst, { recursive: true });
 }
 
+/**
+ * 造一个只含 find-skills 的合成源目录
+ *
+ * 恒等于真实随包内容（真源复制），但落点可控 —— 后续用例要往里塞坏目录，
+ * 不能动仓库里的 `skills-builtin/`。
+ */
+function makeSyntheticSrc(root) {
+  const srcDir = path.join(root, 'src');
+  fs.mkdirSync(srcDir, { recursive: true });
+  copyTree(path.join(REAL_BUILTIN_SRC, 'find-skills'), path.join(srcDir, 'find-skills'));
+  return srcDir;
+}
+
+/** 列出目录下残留的临时/备份目录（断言原子性用） */
+function listResidue(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).filter((n) => n.includes('.tmp_') || n.includes('.bak_'));
+}
+
 describe('端到端纵切（tracer）', () => {
   test('真实随包 skills-builtin → 播种 → managed-skills → 零诊断加载 → 不进 prompt', async (t) => {
     const root = withTempRoot(t);
@@ -284,5 +303,207 @@ describe('源码不变式（导出面 / 惰性 electron require / 零硬编码�
     const boundaryIdx = md.indexOf('绝不执行任何安装');
     const firstH2 = md.search(/^## /m);
     assert.ok(boundaryIdx > firstH2 && boundaryIdx < md.indexOf('\n## ', firstH2 + 1), '禁令段应是最靠前的章节');
+  });
+});
+
+describe('播种原子性与差异诊断（SEED-02 / D-08 / D-09 / D-10）', () => {
+  test('幂等：连续两次播种，第二次零差异零诊断，产物字节不变', (t) => {
+    const root = withTempRoot(t);
+    const srcDir = makeSyntheticSrc(root);
+    const managedDir = path.join(root, 'managed-skills');
+    seeder.setBuiltinDepsForTest({ srcDir, managedDir });
+
+    seeder.seedBuiltinSkills();
+    assert.deepStrictEqual(seeder.getSeedDiagnostics(), [], '首次播种（missing）应零诊断');
+    const target = path.join(managedDir, 'find-skills', 'SKILL.md');
+    const before = fs.readFileSync(target, 'utf8');
+
+    seeder.seedBuiltinSkills();
+    const second = seeder.getSeedDiagnostics();
+    assert.ok(
+      !second.some((d) => d.code === 'realm_builtin_seed_overwritten'),
+      'detectDiff === same → 重启不重复写、不得产 realm_builtin_seed_overwritten'
+    );
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), before, '产物字节不得变化');
+  });
+
+  test('不静默覆盖：手改后重跑 → warning 诊断「且」目标被覆盖为随包版本', (t) => {
+    const root = withTempRoot(t);
+    const srcDir = makeSyntheticSrc(root);
+    const managedDir = path.join(root, 'managed-skills');
+    seeder.setBuiltinDepsForTest({ srcDir, managedDir });
+
+    seeder.seedBuiltinSkills();
+    const target = path.join(managedDir, 'find-skills', 'SKILL.md');
+    fs.writeFileSync(target, '---\nname: find-skills\ndescription: 被手改过\n---\n\n手改正文\n');
+
+    seeder.seedBuiltinSkills();
+    const hit = seeder.getSeedDiagnostics().find((d) => d.code === 'realm_builtin_seed_overwritten');
+    assert.ok(hit, 'D-09：手改后必须产 realm_builtin_seed_overwritten');
+    assert.strictEqual(hit.level, 'warning', 'D-09：覆盖诊断是 warning 不是 error');
+    assert.strictEqual(hit.skillName, 'find-skills');
+    assert.ok(hit.message.includes('已被随包版本覆盖'), 'message 必须说明已被覆盖');
+    assert.ok(hit.message.includes('禁用'), 'warning 必须给出正确做法（停用走设置页）');
+    assert.strictEqual(
+      fs.readFileSync(target, 'utf8'),
+      fs.readFileSync(path.join(srcDir, 'find-skills', 'SKILL.md'), 'utf8'),
+      '诊断与覆盖同时发生（D-09 与 O4 的分野：不静默，但不阻断覆盖）'
+    );
+  });
+
+  test('自愈重播：手删目录后重跑 → 目录重现且不产覆盖诊断（missing 语义）', (t) => {
+    const root = withTempRoot(t);
+    const srcDir = makeSyntheticSrc(root);
+    const managedDir = path.join(root, 'managed-skills');
+    seeder.setBuiltinDepsForTest({ srcDir, managedDir });
+
+    seeder.seedBuiltinSkills();
+    fs.rmSync(path.join(managedDir, 'find-skills'), { recursive: true, force: true });
+    assert.ok(!fs.existsSync(path.join(managedDir, 'find-skills')));
+
+    seeder.seedBuiltinSkills();
+    const target = path.join(managedDir, 'find-skills', 'SKILL.md');
+    assert.ok(fs.existsSync(target), 'D-10：手删后下次播种应自愈重播');
+    assert.strictEqual(
+      fs.readFileSync(target, 'utf8'),
+      fs.readFileSync(path.join(srcDir, 'find-skills', 'SKILL.md'), 'utf8')
+    );
+    assert.ok(
+      !seeder.getSeedDiagnostics().some((d) => d.code === 'realm_builtin_seed_overwritten'),
+      "detectDiff === missing 是「本来就没有」，不算「覆盖了用户的修改」，不得产该诊断"
+    );
+  });
+
+  test('原子性：safeCopyDir 失败不留半成品，也不残留 .tmp_* / .bak_*', (t) => {
+    const root = withTempRoot(t);
+    const src = path.join(root, 'src');
+    fs.mkdirSync(src, { recursive: true });
+    fs.writeFileSync(path.join(src, 'SKILL.md'), 'new-content');
+
+    // 场景 A：dst 已存在且完整 → 失败后必须仍是旧的完整技能（不是半成品）
+    const roParent = path.join(root, 'ro-existing');
+    const dstA = path.join(roParent, 'skill-a');
+    fs.mkdirSync(dstA, { recursive: true });
+    fs.writeFileSync(path.join(dstA, 'SKILL.md'), 'old-content');
+    fs.chmodSync(roParent, 0o555);
+    try {
+      assert.throws(() => seeder.safeCopyDir(src, dstA), '只读父目录下替换必须失败');
+    } finally {
+      fs.chmodSync(roParent, 0o755);
+    }
+    assert.strictEqual(
+      fs.readFileSync(path.join(dstA, 'SKILL.md'), 'utf8'),
+      'old-content',
+      '失败后目标必须保持旧的完整内容（不留半成品）'
+    );
+    assert.deepStrictEqual(listResidue(roParent), [], '不得残留 .tmp_* / .bak_*');
+
+    // 场景 B：dst 不存在 → 失败后必须仍然不存在（不是「有目录但缺 SKILL.md」）
+    const roParent2 = path.join(root, 'ro-missing');
+    fs.mkdirSync(roParent2, { recursive: true });
+    const dstB = path.join(roParent2, 'skill-b');
+    fs.chmodSync(roParent2, 0o555);
+    try {
+      assert.throws(() => seeder.safeCopyDir(src, dstB), '只读父目录下新建必须失败');
+    } finally {
+      fs.chmodSync(roParent2, 0o755);
+    }
+    assert.ok(!fs.existsSync(dstB), '失败后目标目录不得存在');
+    assert.deepStrictEqual(listResidue(roParent2), [], '不得残留 .tmp_* / .bak_*');
+  });
+
+  test('symlink fail-closed：含 symlink 的技能被跳过并产 seed_failed，同批其余技能照常播种', (t) => {
+    const root = withTempRoot(t);
+    const srcDir = makeSyntheticSrc(root);
+    const evil = path.join(srcDir, 'evil-skill');
+    fs.mkdirSync(evil, { recursive: true });
+    fs.writeFileSync(path.join(evil, 'SKILL.md'), '---\nname: evil-skill\ndescription: x\n---\n');
+    fs.symlinkSync('/etc/hosts', path.join(evil, 'leak.txt'));
+
+    const managedDir = path.join(root, 'managed-skills');
+    seeder.setBuiltinDepsForTest({ srcDir, managedDir });
+    assert.doesNotThrow(() => seeder.seedBuiltinSkills(), 'symlink 不得让播种整体抛出');
+
+    const diags = seeder.getSeedDiagnostics();
+    assert.ok(
+      diags.some((d) => d.code === 'realm_builtin_seed_failed' && d.skillName === 'evil-skill'),
+      '含 symlink 的技能应产 realm_builtin_seed_failed'
+    );
+    assert.ok(!fs.existsSync(path.join(managedDir, 'evil-skill')), '含 symlink 的技能不得落盘');
+    assert.ok(
+      fs.existsSync(path.join(managedDir, 'find-skills', 'SKILL.md')),
+      '同批其余技能仍应正常播种（单技能失败不 abort）'
+    );
+  });
+
+  test('realm_builtin_src_invalid 真实触发：缺 SKILL.md 的源子目录 → error 诊断且不阻断其余技能', (t) => {
+    const root = withTempRoot(t);
+    const srcDir = makeSyntheticSrc(root);
+    const broken = path.join(srcDir, 'broken-skill');
+    fs.mkdirSync(broken, { recursive: true });
+    fs.writeFileSync(path.join(broken, 'README.md'), 'this dir has no SKILL.md');
+
+    const managedDir = path.join(root, 'managed-skills');
+    seeder.setBuiltinDepsForTest({ srcDir, managedDir });
+    seeder.seedBuiltinSkills();
+
+    const hit = seeder.getSeedDiagnostics().find((d) => d.code === 'realm_builtin_src_invalid');
+    assert.ok(hit, '评审裁决项 1：该 code 必须真实可达（独立源目录扫描先于过滤）');
+    assert.strictEqual(hit.level, 'error');
+    assert.strictEqual(hit.path, broken, 'path 应指向缺 SKILL.md 的那个源子目录');
+    assert.ok(
+      fs.existsSync(path.join(managedDir, 'find-skills', 'SKILL.md')),
+      '该诊断不得阻断同批合法技能的播种'
+    );
+  });
+});
+
+describe('诊断 code 与源码不变式（Task 2）', () => {
+  test('4 个诊断 code 齐备，realm_builtin_seed_overwritten 的 level 是 warning', () => {
+    const src = readSource('builtin-skills-seeder.js');
+    for (const code of [
+      'realm_builtin_src_missing',
+      'realm_builtin_seed_overwritten',
+      'realm_builtin_seed_failed',
+      'realm_builtin_src_invalid',
+    ]) {
+      assert.ok(src.includes(code), `源码应含诊断 code ${code}`);
+    }
+    const idx = src.indexOf("code: 'realm_builtin_seed_overwritten'");
+    assert.ok(idx > 0);
+    const block = src.slice(Math.max(0, idx - 200), idx);
+    assert.ok(block.includes("level: 'warning'"), '覆盖诊断必须是 warning（不得升级为 error）');
+  });
+
+  test('剥离注释后不出现 mtime / mtimeMs / birthtime（D-09 机械不变式）', () => {
+    const stripped = stripComments(readSource('builtin-skills-seeder.js'));
+    for (const token of ['mtime', 'mtimeMs', 'birthtime']) {
+      assert.ok(
+        !stripped.includes(token),
+        `代码行不得出现 ${token}（每次启动都覆盖 → mtime 必变 → 100% 误报）；该字样只能出现在说明性注释里`
+      );
+    }
+  });
+
+  test('safeCopyDir 的 tmp/bak 基于 dst 派生（同父目录 → 同卷），不用 os.tmpdir()', () => {
+    const body = functionBody(readSource('builtin-skills-seeder.js'), 'safeCopyDir');
+    assert.ok(body.includes('.tmp_'), '应含 .tmp_ 命名');
+    assert.ok(body.includes('.bak_'), '应含 .bak_ 命名');
+    assert.ok(body.includes('${dst}.tmp_'), 'tmp 必须由 dst 派生（同父目录 / 同卷）');
+    assert.ok(body.includes('${dst}.bak_'), 'bak 必须由 dst 派生');
+    assert.ok(!body.includes('tmpdir('), '不得使用 os.tmpdir()（macOS 可能异卷 → EXDEV）');
+  });
+
+  test('ROADMAP §Phase 47 成功判据 1 已改写为 D-08/D-09/D-10/D-11 语义', () => {
+    const roadmap = readSource('.planning/ROADMAP.md');
+    const start = roadmap.indexOf('### Phase 47:');
+    const end = roadmap.indexOf('### Phase 48:');
+    assert.ok(start > 0, 'ROADMAP 应含 §Phase 47');
+    assert.ok(end > start, 'ROADMAP 应含 §Phase 48（用于截取段落边界）');
+    const section = roadmap.slice(start, end);
+    assert.ok(!section.includes('版本戳登记表'), '不得再出现「版本戳登记表」（O4 已被 D-08 取代）');
+    assert.ok(section.includes('realm_builtin_seed_overwritten'), '判据应点名覆盖诊断 code');
+    assert.ok(section.includes('settings.aiSkills.disabled'), '判据应指名停用语义的唯一存储键');
+    assert.ok(section.includes('无条件覆盖'), '判据应写明无条件覆盖语义');
   });
 });
