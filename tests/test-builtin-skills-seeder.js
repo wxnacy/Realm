@@ -29,6 +29,9 @@ const REAL_BUILTIN_SRC = path.join(REPO_ROOT, 'skills-builtin');
 /** skill-creator 的随包目录（47-03 落地） */
 const SKILL_CREATOR_DIR = path.join(REAL_BUILTIN_SRC, 'skill-creator');
 
+/** skill-creator 的环境预检探针（Realm 自研，Task 2 产出） */
+const CHECK_ENV_MJS = path.join(SKILL_CREATOR_DIR, 'scripts', 'check_env.mjs');
+
 /**
  * 上游 skill-creator 的 **17 个逐字快照文件**与字节数
  *
@@ -114,30 +117,37 @@ const INSTALL_IMPERATIVES = [
 /**
  * 行级豁免清单（只作用于**第 2 段**扫描，第 1 段零容忍、绝不消费本表）
  *
- * 三元组：`file`（相对仓库根的路径）+ `line`（匹配该行的正则）+ `why`（豁免理由，必须写死）。
+ * 三元组：`file`（相对仓库根的路径）+ `line`（匹配该行的**正则**）+ `why`（豁免理由，必须写死）。
+ *
+ * **匹配方式必须是「对该行内容做正则匹配」，绝不能用固定行号** —— 行号会随文件编辑整体
+ * 位移，用行号等于给下次改动埋一个静默失效点。正则也要匹配**整段相关文本**（而不是只匹配
+ * `install` 这个词），否则同一行里其它真正的违规内容会被一并豁免。
  *
  * 已知必须豁免的例外（来源：47-RESEARCH.md §A-4「已知需要白名单豁免的例外」）：
- * - `skill-creator/scripts/check_env.mjs` 的 `installGuidance` 字段名与
- *   `Do not auto-install dependencies from this skill.` 文案：这是**禁止**安装的声明，
- *   命中 `install` 关键词但语义与之相反（D-05）。若做成无豁免全文扫描，扫描器会被
- *   一句「请勿自动安装」直接打爆。
+ * - `skill-creator/scripts/check_env.mjs` 的 `installGuidance` 文案：缺依赖时提示**用户**
+ *   在他自己的 Python 环境里装包，并紧跟一句 `Do not auto-install dependencies from this
+ *   skill.`。这是**禁止**安装的声明，语义与 P1 门禁相反，却会被「安装技能的祈使句」模式
+ *   命中（`install the skill…` 无法区分「装这个技能」与「装这个技能的依赖」）。
  * - `skill-creator/SKILL.md` 的 `Package and Present` 段落引用 `package_skill.py`：
  *   `package` ≠ `install`，且该脚本生成 `.zip` 不安装任何东西。
- *   （注：`SKILL.md` 属第 1 段扫描面且实测 0 命中，此条仅作为 47-03 的备用登记。）
+ *   （注：`SKILL.md` 属第 1 段扫描面且实测 0 命中，此条仅作为备用登记。）
  *
- * 本计划（47-01）期 `skills-builtin/` 下只有 find-skills 的 `SKILL.md` + `LICENSE.txt`，
- * 均属第 1 段扫描面 → 第 2 段集合为空；这些条目待 47-03 落地对应文件后生效。
+ * **两类条目的性质不同，别混为一谈**：
+ * - 第 1 条是**承重**的 —— 去掉它，`check_env.mjs` 的那一行会立刻被第 2 段扫出来（见
+ *   「豁免机制精确生效」用例的反向验证与 47-03-SUMMARY 记录的错误输出原文）。
+ * - 第 2 条是**防御性登记** —— 逐字声明行当前不命中任何模式（模式表里没有裸 `install` 模式），
+ *   它登记在此是为了让「日后收紧模式表」不会静默地把一句反向声明判成违规。
  */
 const EXEMPTIONS = [
   {
     file: 'skills-builtin/skill-creator/scripts/check_env.mjs',
-    line: /installGuidance|Do not auto-install dependencies from this skill\./,
-    why: 'check_env.mjs 的 installGuidance 是「告知缺什么依赖、请用户确认后再装」的反向语义声明，且同段明确写 Do not auto-install —— 命中 install 关键词但语义相反（D-05）',
+    line: /Install the skill-creator Python dependencies yourself/,
+    why: '这是 check_env.mjs 给**用户**的安装指引（在他自己的 Python 环境里装依赖），紧跟一句 Do not auto-install —— 命中「安装技能的祈使句」模式但语义相反（D-05）。注意是让**用户**装，不是让模型装。',
   },
   {
     file: 'skills-builtin/skill-creator/scripts/check_env.mjs',
-    line: /missing_dependency/,
-    why: 'missing_dependency 是「依赖缺失」的失败码常量名，不构成任何可执行的安装路径',
+    line: /Do not auto-install dependencies from this skill\./,
+    why: '逐字保留的反向声明（本技能绝不自动安装依赖）—— P1 门禁语义的正面证据。当前不命中任何模式，登记在此防「模式表收紧后静默判违规」。',
   },
 ];
 
@@ -241,6 +251,64 @@ function makeSyntheticSrc(root) {
 function listResidue(dir) {
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir).filter((n) => n.includes('.tmp_') || n.includes('.bak_'));
+}
+
+/** check_env.mjs 探测解释器所用的环境变量名（与探针源码里的常量单源对应） */
+const ENV_VAR_NAME = 'REALM_SKILL_CREATOR_PYTHON';
+
+/**
+ * 以子进程跑一次 check_env.mjs
+ *
+ * 默认**清掉** `REALM_SKILL_CREATOR_PYTHON`，否则宿主机上的该变量会让用例结果不可复现。
+ */
+function runCheckEnv(args = [], env = {}) {
+  const childEnv = { ...process.env, ...env };
+  if (!(ENV_VAR_NAME in env)) delete childEnv[ENV_VAR_NAME];
+  return require('node:child_process').spawnSync(process.execPath, [CHECK_ENV_MJS, ...args], {
+    encoding: 'utf8',
+    env: childEnv,
+    timeout: 30000,
+  });
+}
+
+/**
+ * 造一个「假的 Python 解释器」：版本够新，但对任何包都报 `find_spec is None`
+ *
+ * 用来在**本机装了全部依赖**的情况下仍然打出 `missing_dependency` 分支 —— 该分支的
+ * `installGuidance` 文案正是第 2 段扫描豁免的对象，必须能被真实触发而不是只存在于源码里。
+ * 它只读、只打印，不安装任何东西（与真实探针的行为契约一致）。
+ */
+function makeFakePython(dir, { version = '3.11.0', packages = ['pyyaml'], packageOk = false } = {}) {
+  const file = path.join(dir, 'fake-python');
+  const [major, minor, micro] = version.split('.').map(Number);
+  const versionJson = JSON.stringify({
+    version,
+    major,
+    minor,
+    micro,
+    executable: file,
+  });
+  const packageJson = JSON.stringify({
+    packages: Object.fromEntries(
+      packages.map((name) => [
+        name,
+        { packageName: name, moduleName: name === 'pyyaml' ? 'yaml' : name, ok: packageOk },
+      ])
+    ),
+  });
+  fs.writeFileSync(
+    file,
+    [
+      '#!/bin/sh',
+      'case "$2" in',
+      `  *version_info*) printf '%s\\n' '${versionJson}' ;;`,
+      `  *) printf '%s\\n' '${packageJson}' ;;`,
+      'esac',
+      '',
+    ].join('\n')
+  );
+  fs.chmodSync(file, 0o755);
+  return file;
 }
 
 /**
@@ -1017,13 +1085,254 @@ describe('内置技能上游快照与归属（SEED-01 / SEED-05 / P10）', () =>
 
     // **逐项**存在性核对 —— 不是只看清单里有没有 check_env.mjs 这一个字符串
     for (const rel of paths) {
-      // 显式跳过：scripts/check_env.mjs 由 Task 2 产出，Task 1 阶段它还不存在。
-      // 全量核对（含它）由 Task 2 在文件落地后补齐 —— 否则 Task 1 会因「清单引用了一个还没写的文件」假红。
+      // 显式跳过：scripts/check_env.mjs 由 Task 2 产出。本用例保持 Task 1 的口径（清单其余
+      // 条目逐项核对），**全量**核对（含 check_env.mjs）在下面的「check_env.mjs 环境预检」组里。
       if (rel === 'scripts/check_env.mjs') continue;
       assert.ok(
         fs.existsSync(path.join(SKILL_CREATOR_DIR, rel)),
         `## Reference files 列出的 ${rel} 必须真实存在（清单断链会让模型按清单找文件落空）`
       );
     }
+  });
+});
+
+describe('check_env.mjs 环境预检（D-05 / D-07 / SKILL-09）', () => {
+  test('无参运行：退出 0，stdout 是可解析 JSON 且含 ok(boolean) 与 capabilities 分组', () => {
+    const run = runCheckEnv();
+    assert.strictEqual(run.status, 0, `无参运行应退出 0；stderr: ${run.stderr}`);
+    const result = JSON.parse(run.stdout);
+    assert.strictEqual(typeof result.ok, 'boolean', 'ok 必须是 boolean 而不是字符串');
+    assert.strictEqual(result.ok, true, '本机 Python ≥3.10 且无依赖要求 → 应为 ok');
+    assert.ok(result.capabilities && result.capabilities.catalog, '应含 capabilities 分组');
+    assert.deepStrictEqual(
+      Object.keys(result.capabilities.catalog).sort(),
+      ['baseline', 'description-optimize', 'eval-viewer', 'quick-validate'],
+      'capability 面收缩为 4 组（D-47-03-c：去掉依赖 claude CLI 的 run-eval / run-loop）'
+    );
+    assert.ok(result.python && result.python.version, '应报告解释器与版本');
+  });
+
+  test('--capability quick-validate 输出 pyyaml 的检查结果', () => {
+    const run = runCheckEnv(['--capability', 'quick-validate']);
+    const result = JSON.parse(run.stdout);
+    assert.ok(result.packages && 'pyyaml' in result.packages, '--capability quick-validate 应检查 pyyaml');
+    assert.strictEqual(typeof result.packages.pyyaml.ok, 'boolean');
+    assert.deepStrictEqual(result.capabilities.requested, ['quick-validate']);
+    assert.ok(
+      typeof result.capabilities.status['quick-validate'].ok === 'boolean',
+      'capability 分组应给出该组是否满足'
+    );
+  });
+
+  test('未知 --capability / --package / --command 一律 unknown_requirement 且非零退出（ASVS V5）', () => {
+    for (const args of [
+      ['--capability', 'no-such-capability'],
+      ['--package', 'no-such-package'],
+      ['--command', 'no-such-command'],
+    ]) {
+      const run = runCheckEnv(args);
+      assert.notStrictEqual(run.status, 0, `未知需求不得静默忽略：${args.join(' ')}`);
+      const result = JSON.parse(run.stdout);
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(result.code, 'unknown_requirement');
+      assert.ok(result.known.capabilities.includes('quick-validate'), '应回报已知值清单供调用方纠正');
+    }
+
+    const incomplete = runCheckEnv(['--capability']);
+    assert.notStrictEqual(incomplete.status, 0);
+    assert.strictEqual(JSON.parse(incomplete.stdout).code, 'invalid_arguments');
+  });
+
+  test('REALM_SKILL_CREATOR_PYTHON 生效时优先且跳过自动探测', (t) => {
+    const root = withTempRoot(t);
+    const fake = makeFakePython(root, { version: '3.11.0', packages: ['pyyaml'], packageOk: true });
+
+    const run = runCheckEnv([], { [ENV_VAR_NAME]: fake });
+    assert.strictEqual(run.status, 0, `指定的解释器应被直接采用；stderr: ${run.stderr}`);
+    const result = JSON.parse(run.stdout);
+    assert.strictEqual(result.python.source, ENV_VAR_NAME, 'source 应为环境变量而非 PATH');
+    assert.strictEqual(result.python.command, fake);
+    assert.strictEqual(
+      result.python.version,
+      '3.11.0',
+      '版本应来自被指定的解释器（证明确实跳过了 PATH 上的真实解释器）'
+    );
+    assert.strictEqual(result.attempted.length, 1, '指定环境变量后只应探测 1 个候选（自动探测被跳过）');
+  });
+
+  test('缺依赖路径真实可达：missing_dependency + installGuidance 的「禁止自动安装」声明', (t) => {
+    const root = withTempRoot(t);
+    const fake = makeFakePython(root, { packages: ['pyyaml'], packageOk: false });
+
+    const run = runCheckEnv(['--capability', 'quick-validate'], { [ENV_VAR_NAME]: fake });
+    assert.notStrictEqual(run.status, 0, '缺依赖必须非零退出');
+    const result = JSON.parse(run.stdout);
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.code, 'missing_dependency');
+    assert.strictEqual(result.packages.pyyaml.ok, false);
+    assert.strictEqual(result.capabilities.status['quick-validate'].ok, false);
+
+    assert.ok(Array.isArray(result.installGuidance), 'installGuidance 应是数组');
+    assert.strictEqual(result.installGuidance.length, 2, 'installGuidance 应为两行');
+    assert.ok(
+      result.installGuidance.some((line) => line.includes('Do not auto-install dependencies from this skill.')),
+      '必须逐字含 Do not auto-install dependencies from this skill.（禁止安装声明的文字体现）'
+    );
+    assert.ok(
+      result.installGuidance.some((line) => line.includes('pyyaml')),
+      '指引应点名缺失的包，用户才知道装什么'
+    );
+
+    // 空的环境变量 → invalid_environment（形态校验的真实可达路径）
+    const empty = runCheckEnv([], { [ENV_VAR_NAME]: '   ' });
+    assert.notStrictEqual(empty.status, 0);
+    assert.strictEqual(JSON.parse(empty.stdout).code, 'invalid_environment');
+  });
+
+  test('源码断言：ENV 变量名 / 4 个 capability / 8 个失败码 / find_spec / 禁止安装声明齐备', () => {
+    const src = fs.readFileSync(CHECK_ENV_MJS, 'utf8');
+    assert.ok(src.startsWith('#!/usr/bin/env node'), '应有 node shebang');
+
+    for (const token of [
+      'REALM_SKILL_CREATOR_PYTHON',
+      'baseline',
+      'quick-validate',
+      'eval-viewer',
+      'description-optimize',
+      'python_not_found',
+      'python_version_unsupported',
+      'missing_dependency',
+      'missing_command',
+      'invalid_arguments',
+      'unknown_requirement',
+      'invalid_environment',
+      'dependency_check_failed',
+      'importlib.util.find_spec',
+      'Do not auto-install dependencies from this skill.',
+    ]) {
+      assert.ok(src.includes(token), `check_env.mjs 应含 ${token}`);
+    }
+
+    for (const flag of ['--capability', '--package', '--command', '--json']) {
+      assert.ok(src.includes(flag), `check_env.mjs 应支持 ${flag}`);
+    }
+  });
+
+  test('源码断言：绝不调用任何安装命令（安装动词只出现在给用户的指引文案里）', () => {
+    const src = fs.readFileSync(CHECK_ENV_MJS, 'utf8');
+    for (const forbidden of [
+      /\bpip3?\s+install\b/i,
+      /\bnpm\s+(i|install|ci|exec|add)\b/i,
+      /\bbrew\s+(install|upgrade|reinstall)\b/i,
+      /\buv\s+(pip\s+install|add|tool\s+install)\b/i,
+      /spawnSync\(\s*['"](?:npm|pip3?|brew|uv)['"]/,
+    ]) {
+      assert.ok(!forbidden.test(src), `不得出现安装调用形态：/${forbidden.source}/`);
+    }
+    // spawnSync 的调用目标只能是「候选解释器」与「被测命令」这两种变量，绝不是包管理器
+    const spawnTargets = [...src.matchAll(/spawnSync\(([^,]+),/g)].map((m) => m[1].trim());
+    assert.ok(spawnTargets.length > 0, 'check_env.mjs 应通过 spawnSync 做只读探测');
+    for (const target of spawnTargets) {
+      assert.ok(
+        ['candidate.command', 'command'].includes(target),
+        `spawnSync 的调用目标应是候选解释器或被测命令变量，实际为 ${target}`
+      );
+    }
+  });
+
+  test('源码断言：spawnSync 失败必须「双判」，并注释说明 error 与 status 的语义差异', () => {
+    const src = fs.readFileSync(CHECK_ENV_MJS, 'utf8');
+    assert.ok(
+      /result\.error \|\| result\.status !== 0/.test(src),
+      '应含 result.error || result.status !== 0 形态的双判'
+    );
+    assert.ok(
+      src.includes('`Error` 对象'),
+      '注释应说明 result.error 是 Error 对象（超时/ENOENT 走这一支，此时 status 为 null）'
+    );
+    assert.ok(src.includes('number | null'), '注释应说明 result.status 是退出码（number | null）');
+    assert.ok(
+      src.includes('请勿「简化」成单判') || src.includes('只判其一会漏掉整整一类失败'),
+      '注释应写明为什么不能简化成单判'
+    );
+  });
+
+  test('豁免机制精确生效：第 1 条豁免是承重的（去掉它该行立刻被扫出）', () => {
+    const file = 'skills-builtin/skill-creator/scripts/check_env.mjs';
+    const abs = path.join(REPO_ROOT, file);
+    const lines = fs.readFileSync(abs, 'utf8').split('\n');
+
+    const exempted = EXEMPTIONS[0];
+    assert.ok(exempted.line instanceof RegExp, '豁免条目必须用行内容正则，不得用行号');
+    const index = lines.findIndex((l) => exempted.line.test(l));
+    assert.ok(index >= 0, `第 1 条豁免的正则应匹配到 ${file} 的某一行（否则就是死条目）`);
+
+    const patterns = FORBIDDEN_PATTERNS.concat(INSTALL_IMPERATIVES);
+    assert.deepStrictEqual(
+      scanFiles([abs], patterns, EXEMPTIONS),
+      [],
+      '第 2 段扫描在豁免生效时对 check_env.mjs 应零失败'
+    );
+
+    const withoutExemption = scanFiles([abs], patterns, []);
+    assert.ok(withoutExemption.length > 0, '去掉豁免后该文件必须被扫出命中（证明豁免机制是承重的，不是死代码）');
+    assert.ok(
+      withoutExemption.some((h) => h.line === index + 1),
+      `去掉豁免后第 ${index + 1} 行必须被报出`
+    );
+
+    // 豁免正则必须匹配整段文本，而不是 install 这一个关键词 —— 否则同行其它违规内容会被一并豁免
+    for (const entry of EXEMPTIONS) {
+      assert.ok(entry.line instanceof RegExp, '豁免条目的匹配字段必须是 RegExp（不得是 number 类型行号）');
+      assert.ok(
+        entry.line.source.length > 'install'.length,
+        `豁免正则须匹配整段文本而非单个关键词，实际 /${entry.line.source}/（${entry.line.source.length} 字符）`
+      );
+    }
+  });
+
+  test('全量文件集：skill-creator 的 19 项全部存在，Reference 清单全部条目（含 check_env.mjs）真实存在', () => {
+    const actual = collectFiles(SKILL_CREATOR_DIR)
+      .map((f) => path.relative(SKILL_CREATOR_DIR, f))
+      .sort();
+    const expected = UPSTREAM_SKILL_CREATOR_FILES.map((item) => item.rel)
+      .concat('SKILL.md', 'scripts/check_env.mjs')
+      .sort();
+
+    assert.strictEqual(
+      actual.length,
+      19,
+      `skill-creator 应为 19 个文件（18 上游 + 1 自研），实际 ${actual.length}：${actual.join(', ')}`
+    );
+    assert.deepStrictEqual(actual, expected, '18 个上游文件 + scripts/check_env.mjs，无缺失、无多余');
+
+    // 补齐 Task 1 显式跳过的条目：清单里的 scripts/check_env.mjs 现在必须真实存在
+    const markdown = fs.readFileSync(path.join(SKILL_CREATOR_DIR, 'SKILL.md'), 'utf8');
+    const { paths } = parseReferenceFileList(markdown);
+    assert.ok(paths.includes('scripts/check_env.mjs'), '全量口径下清单必须含 scripts/check_env.mjs');
+    for (const rel of paths) {
+      assert.ok(
+        fs.existsSync(path.join(SKILL_CREATOR_DIR, rel)),
+        `## Reference files 列出的 ${rel} 必须真实存在（本用例为全量口径，含 scripts/check_env.mjs）`
+      );
+    }
+  });
+
+  test('SKILL-09：脚本入口是 node/python3，两者都在 DANGEROUS_INTERPRETERS 内 → 每次执行必弹确认卡片', () => {
+    const policy = require('../ai-bash-policy');
+    const skillMd = fs.readFileSync(path.join(SKILL_CREATOR_DIR, 'SKILL.md'), 'utf8');
+
+    assert.ok(
+      skillMd.includes('node scripts/check_env.mjs'),
+      '正文应写明脚本入口是 node scripts/check_env.mjs（SKILL-09 的真实载体）'
+    );
+    assert.ok(
+      policy.DANGEROUS_INTERPRETERS.has('node'),
+      '本计划**没有**为了让技能脚本跑得顺而放宽解释器危险表：node 仍在'
+    );
+    assert.ok(
+      policy.DANGEROUS_INTERPRETERS.has('python3'),
+      '本计划**没有**为了让技能脚本跑得顺而放宽解释器危险表：python3 仍在'
+    );
   });
 });
