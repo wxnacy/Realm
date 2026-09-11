@@ -219,6 +219,24 @@ const DANGEROUS_INTERPRETERS = new Set([
  * ⑥ **表内顺序即优先级**（matchInstall 首次命中即返回）：复合家族（`python -m pip install`、
  *    `uv pip install`）必须排在通用的 `pip3? install` **之前**，否则 `uv pip install x` 会被
  *    更早的 pip 条目命中、卡片上标出错误的家族名。新增条目时把更具体的模式放在前面。
+ *
+ * ⑦ 本表**不覆盖**的形态（与文件头的「诚实边界」同一套定位：这是启发式，不是语法分析）。
+ *    每条给出频率 / 绕过难度 / 实际后果：
+ *
+ *    a) **变量间接**（`NPM=npm $NPM i x`）：**不命中**本表。
+ *       频率：低 —— 模型自发构造这种间接层的动机很弱（它要绕过的是确认卡片，而卡片由用户点击决定）；
+ *       难度：高，且失败时并不划算；后果：**仍走 confirm/default 卡片，不会免确认** ——
+ *       matchesWhitelist 对整段做前缀匹配，`NPM=npm …` 不以 `npm` 开头，白名单同样不命中。
+ *    b) **命令替换 / 子 shell**（反引号包裹的 `npm i x`、`$(npm i x)`、`sh -c "npm i x"`）：
+ *       实测**会命中**本表（`\bnpm\b` 在这些构造里仍是词边界）→ 走 install 档，属向安全侧倾斜的
+ *       偏差。即便日后模式收紧到不再命中，它也仍然不命中白名单（整段不以 `npm` 开头）→ 落到
+ *       confirm/default。**这是「漏检 ≠ 免确认」的兜底性质：本表漏判永远只会退化成普通确认卡片。**
+ *    c) **字面量误报**（`echo "npm install"`、`grep -rn "pip install" docs/`、`echo npx`、
+ *       `npm ci --dry-run`）：**会命中**。频率：中（AI 常把命令写进 echo / 注释 / 字符串）；
+ *       难度：不适用（误报不是绕过，是代价）；后果：**多一次确认**而非漏放 —— 失败方向正确。
+ *       刻意不为它加「引号内不判」的规则：那会同时放过 `sh -c "npm i x"`。
+ *    d) **发行版包管理器**（apt / pacman / dnf / zypper / apk）不在本表：本阶段目标平台为 macOS，
+ *       这些家族不涉及（属显式记录的范围限制，不是遗漏）。
  */
 const PACKAGE_MANAGER_INSTALL_PATTERNS = [
   { pattern: /\bnpx\b/, name: '包执行器（npx）' },
