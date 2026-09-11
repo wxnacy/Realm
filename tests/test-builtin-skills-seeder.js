@@ -568,7 +568,7 @@ describe('源码不变式（导出面 / 惰性 electron require / 零硬编码�
 });
 
 describe('播种原子性与差异诊断（SEED-02 / D-08 / D-09 / D-10）', () => {
-  test('幂等：连续两次播种，第二次零差异零诊断，产物字节不变', (t) => {
+  test('幂等：连续两次播种，第二次 detectDiff === same → 零差异、零诊断、不重建（inode 不变）', (t) => {
     const root = withTempRoot(t);
     const srcDir = makeSyntheticSrc(root);
     const managedDir = path.join(root, 'managed-skills');
@@ -578,6 +578,11 @@ describe('播种原子性与差异诊断（SEED-02 / D-08 / D-09 / D-10）', () 
     assert.deepStrictEqual(seeder.getSeedDiagnostics(), [], '首次播种（missing）应零诊断');
     const target = path.join(managedDir, 'find-skills', 'SKILL.md');
     const before = fs.readFileSync(target, 'utf8');
+    // inode 是「是否重建」的主判据：safeCopyDir 走 tmp → rename 覆盖，重建必然换 inode。
+    // 改前实测：SKILL.md inode 171120956→171120958、技能目录 inode 171120955→171120957。
+    const beforeFileIno = fs.statSync(target).ino;
+    const beforeDirIno = fs.statSync(path.dirname(target)).ino;
+    const beforeMtime = fs.statSync(target).mtimeMs;
 
     seeder.seedBuiltinSkills();
     const second = seeder.getSeedDiagnostics();
@@ -586,6 +591,74 @@ describe('播种原子性与差异诊断（SEED-02 / D-08 / D-09 / D-10）', () 
       'detectDiff === same → 重启不重复写、不得产 realm_builtin_seed_overwritten'
     );
     assert.strictEqual(fs.readFileSync(target, 'utf8'), before, '产物字节不得变化');
+    assert.strictEqual(
+      fs.statSync(target).ino,
+      beforeFileIno,
+      'same → 不写盘：SKILL.md inode 必须不变（改前实测 171120956→171120958 —— 重建即会被这条抓住）'
+    );
+    assert.strictEqual(
+      fs.statSync(path.dirname(target)).ino,
+      beforeDirIno,
+      'same → 不写盘：技能目录 inode 必须不变（改前实测 171120955→171120957 —— 整目录被重建）'
+    );
+    assert.strictEqual(fs.statSync(target).mtimeMs, beforeMtime, 'same → 不写盘：mtime 是第二信号，也不得变化');
+  });
+
+  test('空目录也参与差异判定：源侧新增空目录 → 判 different 并自愈到目标', (t) => {
+    const root = withTempRoot(t);
+    const srcDir = makeSyntheticSrc(root);
+    const managedDir = path.join(root, 'managed-skills');
+    seeder.setBuiltinDepsForTest({ srcDir, managedDir });
+
+    seeder.seedBuiltinSkills();
+    const emptyDirInSrc = path.join(srcDir, 'find-skills', 'empty-dir');
+    fs.mkdirSync(emptyDirInSrc, { recursive: true });
+
+    seeder.seedBuiltinSkills();
+    const emptyDirInDst = path.join(managedDir, 'find-skills', 'empty-dir');
+    // 这条用例在「目录项不参与比较」的实现下必然变红：两侧路径集合相同 → same → 跳过重建
+    // → 空目录永不出现。
+    assert.ok(fs.existsSync(emptyDirInDst), '源侧新增的空目录应自愈到目标（目录项必须参与集合比较）');
+    assert.ok(fs.statSync(emptyDirInDst).isDirectory(), '自愈产物应是目录');
+  });
+
+  test('目录条目不得进入 size / sha256 层（否则 EISDIR 让每次启动都重建）', (t) => {
+    const root = withTempRoot(t);
+    const src = path.join(root, 'src');
+    const dst = path.join(root, 'dst');
+    // 至少两层嵌套子目录：目录条目若被喂给 hashFile → readFileSync(dir) 抛 EISDIR
+    // → 被 fail-safe catch 吞成 'different' → 每次启动都重建。
+    fs.mkdirSync(path.join(src, 'a', 'b'), { recursive: true });
+    fs.writeFileSync(path.join(src, 'a', 'b', 'c.txt'), 'C');
+    copyTree(src, dst);
+    assert.strictEqual(
+      seeder.detectDiff(src, dst),
+      'same',
+      '含嵌套子目录时也须判 same（目录条目必须被 endsWith("/") 过滤掉）'
+    );
+  });
+
+  test('源码：listRelativeFiles 登记目录项；detectDiff 的 size / sha256 层前有过滤', () => {
+    const source = readSource('builtin-skills-seeder.js');
+    const listBody = functionBody(source, 'listRelativeFiles');
+    assert.ok(listBody.includes('${childRel}/'), 'listRelativeFiles 应以尾斜杠标记目录项');
+
+    const diffBody = functionBody(source, 'detectDiff');
+    const filterIdx = diffBody.indexOf("endsWith('/')");
+    const statIdx = diffBody.indexOf('statSync(');
+    const hashIdx = diffBody.indexOf('hashFile(');
+    assert.ok(filterIdx > 0, 'detectDiff 应有 endsWith("/") 过滤');
+    assert.ok(filterIdx < statIdx, '过滤必须出现在 statSync 之前');
+    assert.ok(filterIdx < hashIdx, '过滤必须出现在 hashFile 之前');
+  });
+
+  test('源码：same 分支在 safeCopyDir 之前 continue（不写盘）', () => {
+    const body = functionBody(readSource('builtin-skills-seeder.js'), 'seedBuiltinSkills');
+    const sameIdx = body.indexOf("diff === 'same'");
+    const copyIdx = body.indexOf('safeCopyDir(');
+    assert.ok(sameIdx > 0, 'seedBuiltinSkills 应含 diff === "same" 判定');
+    assert.ok(sameIdx < copyIdx, 'same 的 continue 必须出现在 safeCopyDir 调用之前（无差异不写盘）');
+    assert.ok(body.includes('continue;'), 'same 分支应 continue');
   });
 
   test('不静默覆盖：手改后重跑 → warning 诊断「且」目标被覆盖为随包版本', (t) => {
@@ -715,6 +788,281 @@ describe('播种原子性与差异诊断（SEED-02 / D-08 / D-09 / D-10）', () 
     assert.ok(
       fs.existsSync(path.join(managedDir, 'find-skills', 'SKILL.md')),
       '该诊断不得阻断同批合法技能的播种'
+    );
+  });
+});
+
+describe('崩溃残留清扫（GAP 3 / WR-02）', () => {
+  test('用例 A：预置残留 → 清扫 → 真实 refreshSkills 零幽灵技能零诊断', async (t) => {
+    const root = withTempRoot(t);
+    const srcDir = makeSyntheticSrc(root); // 只含 find-skills（跑得快）
+    const managedDir = path.join(root, 'managed-skills');
+    seeder.setBuiltinDepsForTest({ srcDir, managedDir });
+    fs.mkdirSync(managedDir, { recursive: true });
+
+    // 残留 1：find-skills.bak_<ts>（内容里的 name 与目录名不一致 → 复现诊断面）
+    const resA = path.join(managedDir, 'find-skills.bak_1700000000000');
+    fs.mkdirSync(resA, { recursive: true });
+    fs.writeFileSync(path.join(resA, 'SKILL.md'), '---\nname: find-skills\ndescription: 残留副本\n---\n');
+    // 残留 2：skill-creator.tmp_<ts>（**故意用一个不在随包源里的技能名**，证明正则
+    // 不依赖「已知播种名单」—— D-11 零硬编码）
+    const resB = path.join(managedDir, 'skill-creator.tmp_1700000000001');
+    fs.mkdirSync(resB, { recursive: true });
+    fs.writeFileSync(path.join(resB, 'SKILL.md'), '---\nname: skill-creator\ndescription: 残留副本\n---\n');
+    // 保留对照 —— **必须是「诊断干净」的 fixture**（三条缺一不可，否则同用例的零诊断
+    // 断言会因与 GAP 3 无关的原因变红）：
+    //   ① name 与目录名**逐字相同**（否则 enforceDirNameAuthority 推 realm_name_rewritten）
+    //   ② 非空 description（否则 isDescriptionUnusable 判 invalid_metadata 并跳过该技能）
+    //   ③ 目录名满足 SDK 的 /^[a-z0-9-]+$/（'.' / '_' 均非法）
+    const keptDir = path.join(managedDir, 'not-residue');
+    fs.mkdirSync(keptDir, { recursive: true });
+    const keptContent = '---\nname: not-residue\ndescription: 合法保留对照\n---\n\n正文\n';
+    fs.writeFileSync(path.join(keptDir, 'SKILL.md'), keptContent);
+    fs.writeFileSync(path.join(keptDir, 'notes.txt'), 'kept');
+
+    assert.doesNotThrow(() => seeder.seedBuiltinSkills(), '清扫不得让播种抛出');
+
+    assert.ok(!fs.existsSync(resA), 'bak 残留应被清扫');
+    assert.ok(!fs.existsSync(resB), 'tmp 残留应被清扫');
+    assert.ok(fs.existsSync(keptDir), '合法名目录不得被清扫');
+    assert.strictEqual(
+      fs.readFileSync(path.join(keptDir, 'SKILL.md'), 'utf8'),
+      keptContent,
+      '保留目录的内容不得被改动'
+    );
+    assert.deepStrictEqual(listResidue(managedDir), [], '双口径验证：listResidue 播种后应为空');
+
+    // 真实加载面（改前实测：残留不被回收 → 技能集为 find-skills /
+    // find-skills.bak_1700000000000 / skill-creator / skill-creator.tmp_1700000000001，
+    // 并伴随 invalid_metadata ×2 + realm_name_rewritten ×2 四条诊断）
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    await aiSkills.refreshSkills(env, {
+      rootDirs: [workspace.getManagedSkillsDir(), workspace.getSkillsDir()],
+    });
+    const snapshot = aiSkills.getSkillsSnapshot();
+    const ghosts = snapshot.skills.filter(
+      (e) => e.skill.name.includes('.bak_') || e.skill.name.includes('.tmp_')
+    );
+    assert.deepStrictEqual(ghosts, [], '技能集里不得有任何名字带 .bak_ / .tmp_ 的条目');
+    assert.deepStrictEqual(snapshot.diagnostics, [], '加载应零诊断');
+    assert.deepStrictEqual(snapshot.errors, [], '加载应零错误');
+    assert.ok(
+      snapshot.skills.some((e) => e.skill.name === 'not-residue'),
+      '保留对照必须仍在技能集内（证明「保留」不只是目录在）'
+    );
+    assert.ok(
+      snapshot.skills.some((e) => e.skill.name === 'find-skills'),
+      '正常播种的 find-skills 仍应在技能集内'
+    );
+  });
+
+  /**
+   * 为什么本用例与用例 A 必须分开（不要合并，合并会陷入无解）：
+   * SDK `validateName` 要求名称匹配 /^[a-z0-9-]+$/，**任何名字含 `.` 或 `_` 的目录必然产
+   * `invalid_metadata` warning** ⇒「保留一个名字含 `.bak_` 的目录」与「快照零诊断」
+   * 不可能在同一用例内同时成立；而锚定判据（`\d+$` 而非 `includes('.bak_')`）又非有
+   * 这样一个对照名不可。因此：**零诊断**归用例 A（对照名 not-residue 合法、诊断干净），
+   * **锚定正则**归本用例（只断言文件系统，不涉诊断）。
+   * **不要**用「把 user.bak_x 改名为不含 .bak_ 的名字」来合并两用例 —— 那会让锚定判据
+   * 失去对照（`user-bakx` 之类的名字根本不含 `.bak_`，宽泛匹配也不会误删它，断言变成空转）。
+   */
+  test('用例 B：清扫正则锚定 \\d+$ —— 含 .bak_/.tmp_ 但后缀非数字的目录不被误删', (t) => {
+    const root = withTempRoot(t);
+    const srcDir = makeSyntheticSrc(root);
+    const managedDir = path.join(root, 'managed-skills');
+    seeder.setBuiltinDepsForTest({ srcDir, managedDir });
+    fs.mkdirSync(managedDir, { recursive: true });
+
+    const positive = path.join(managedDir, 'find-skills.bak_1700000000000');
+    fs.mkdirSync(positive, { recursive: true });
+    fs.writeFileSync(path.join(positive, 'SKILL.md'), '---\nname: find-skills\n---\n');
+
+    const counterA = path.join(managedDir, 'user.bak_x');
+    const counterB = path.join(managedDir, 'user.tmp_x');
+    const counterC = path.join(managedDir, 'no-skill-dir');
+    fs.mkdirSync(counterA, { recursive: true });
+    fs.writeFileSync(path.join(counterA, 'SKILL.md'), 'A');
+    fs.mkdirSync(counterB, { recursive: true });
+    fs.writeFileSync(path.join(counterB, 'SKILL.md'), 'B');
+    fs.mkdirSync(counterC, { recursive: true });
+    fs.writeFileSync(path.join(counterC, 'notes.txt'), 'C');
+
+    assert.doesNotThrow(() => seeder.seedBuiltinSkills());
+
+    assert.ok(!fs.existsSync(positive), '阳性对照（后缀为数字的 .bak_<ts>）必须被清扫');
+    assert.ok(fs.existsSync(counterA), '后缀非数字的 .bak_x 不得被误删');
+    assert.strictEqual(fs.readFileSync(path.join(counterA, 'SKILL.md'), 'utf8'), 'A');
+    assert.ok(fs.existsSync(counterB), '后缀非数字的 .tmp_x 不得被误删');
+    assert.strictEqual(fs.readFileSync(path.join(counterB, 'SKILL.md'), 'utf8'), 'B');
+    assert.ok(
+      fs.existsSync(counterC),
+      '既非残留也不含 SKILL.md 的目录必须存活 —— 清扫不得退化为「删除所有不含 SKILL.md 的目录」'
+    );
+    assert.strictEqual(fs.readFileSync(path.join(counterC, 'notes.txt'), 'utf8'), 'C');
+    // 本用例**只断言文件系统状态**：不调用 refreshSkills()、不断言 diagnostics / errors。
+  });
+
+  test('源码：清扫正则锚定 \\d+$，调用点在 safeCopyDir 之前', () => {
+    const source = readSource('builtin-skills-seeder.js');
+    const sweepBody = functionBody(source, 'sweepSeedResidue');
+    assert.ok(/\\\.\(tmp\|bak\)_\\d\+\$/.test(sweepBody), '正则必须锚定 \\.(tmp|bak)_\\d+$');
+    assert.ok(!sweepBody.includes("includes('.tmp_')"), '不得用宽泛的 includes(".tmp_") 匹配');
+    assert.ok(!sweepBody.includes("includes('.bak_')"), '不得用宽泛的 includes(".bak_") 匹配');
+    assert.ok(sweepBody.includes('_cleanupDir('), '删除必须经 _cleanupDir（自身吞错语义）');
+
+    const body = functionBody(source, 'seedBuiltinSkills');
+    const sweepIdx = body.indexOf('sweepSeedResidue(');
+    const copyIdx = body.indexOf('safeCopyDir(');
+    assert.ok(sweepIdx > 0, 'seedBuiltinSkills 应调用 sweepSeedResidue');
+    assert.ok(sweepIdx < copyIdx, '清扫必须发生在逐技能循环（safeCopyDir）之前');
+  });
+});
+
+/**
+ * 捕获 console.error / console.warn 的测试脚手架
+ *
+ * 替换为收集器后**不再调用原函数**（避免污染测试输出）；在 `t.after` 里恢复。
+ * node:test 的 `t.after` 逆序执行，恢复 console 与清理临时目录互不依赖。
+ */
+function captureConsole(t) {
+  const errors = [];
+  const warns = [];
+  const origError = console.error;
+  const origWarn = console.warn;
+  console.error = (...args) => {
+    errors.push(args.map((a) => String(a)).join(' '));
+  };
+  console.warn = (...args) => {
+    warns.push(args.map((a) => String(a)).join(' '));
+  };
+  t.after(() => {
+    console.error = origError;
+    console.warn = origWarn;
+  });
+  return { errors, warns };
+}
+
+describe('播种诊断 console 兜底（GAP 4 / WR-04）', () => {
+  test('早退路径（源目录缺失）也输出：realm_builtin_src_missing 出现在 console.error', (t) => {
+    const cap = captureConsole(t);
+    const root = withTempRoot(t);
+    seeder.setBuiltinDepsForTest({
+      srcDir: path.join(root, 'no-such-builtin-src'),
+      managedDir: path.join(root, 'managed-skills'),
+    });
+    assert.doesNotThrow(() => seeder.seedBuiltinSkills(), '源缺失不得 throw');
+    assert.ok(cap.errors.length >= 1, '早退路径必须至少输出一条 console.error（本 gap 最严重的盲区）');
+    assert.ok(
+      cap.errors.some((l) => l.includes('realm_builtin_src_missing') && l.includes('[Realm] 内置技能播种 error')),
+      `应有一条同时含 code 与统一前缀的 error 行，实际：${JSON.stringify(cap.errors)}`
+    );
+    assert.strictEqual(cap.warns.length, 0, '该路径不应产生 warning');
+  });
+
+  test('顶层 catch 路径：零诊断下仍有 console.error（独立可见面）', (t) => {
+    const cap = captureConsole(t);
+    const root = withTempRoot(t);
+    makeSyntheticSrc(root);
+    // 让 managedDir 的**中间路径组件是文件** → fs.mkdirSync(..., { recursive: true }) 抛 ENOTDIR，
+    // 异常发生在任何 _diagnostics.push 之前。
+    fs.writeFileSync(path.join(root, 'blocker'), 'x');
+    seeder.setBuiltinDepsForTest({
+      srcDir: path.join(root, 'src'),
+      managedDir: path.join(root, 'blocker', 'managed-skills'),
+    });
+    assert.doesNotThrow(() => seeder.seedBuiltinSkills(), '顶层异常不得 throw');
+    assert.ok(cap.errors.length >= 1, '顶层 catch 必须输出一条 console.error');
+    assert.ok(
+      cap.errors.some((l) => l.includes('内置技能播种失败')),
+      `应含 catch 的错误行，实际：${JSON.stringify(cap.errors)}`
+    );
+    // 零诊断 + 有 console.error ⇒ 这条输出只可能来自最外层 catch。把 catch 里的
+    // console.error 删掉本用例立刻变红（finally 的 _flushDiagnostics() 在此路径零输出）。
+    assert.deepStrictEqual(
+      seeder.getSeedDiagnostics(),
+      [],
+      '诊断应为空 —— 证明该输出来自 catch 而不是 _flushDiagnostics()'
+    );
+  });
+
+  test('覆盖 warning 走 console.warn 通道（且不进 console.error）', (t) => {
+    const cap = captureConsole(t);
+    const root = withTempRoot(t);
+    const srcDir = makeSyntheticSrc(root);
+    const managedDir = path.join(root, 'managed-skills');
+    seeder.setBuiltinDepsForTest({ srcDir, managedDir });
+
+    seeder.seedBuiltinSkills();
+    assert.strictEqual(cap.errors.length, 0, '干净首次播种应零 error');
+    assert.strictEqual(cap.warns.length, 0, '干净首次播种应零 warn');
+
+    fs.writeFileSync(
+      path.join(managedDir, 'find-skills', 'SKILL.md'),
+      '---\nname: find-skills\ndescription: 被手改过\n---\n\n手改正文\n'
+    );
+    seeder.seedBuiltinSkills();
+    assert.ok(
+      cap.warns.some((l) => l.includes('realm_builtin_seed_overwritten')),
+      `覆盖诊断应走 warn 通道，实际：${JSON.stringify(cap.warns)}`
+    );
+    assert.strictEqual(cap.errors.length, 0, 'warning 不得进 error 通道');
+  });
+
+  test('symlink 拒收走 console.error 通道', (t) => {
+    const cap = captureConsole(t);
+    const root = withTempRoot(t);
+    const srcDir = makeSyntheticSrc(root);
+    const evil = path.join(srcDir, 'evil-skill');
+    fs.mkdirSync(evil, { recursive: true });
+    fs.writeFileSync(path.join(evil, 'SKILL.md'), '---\nname: evil-skill\ndescription: x\n---\n');
+    fs.symlinkSync('/etc/hosts', path.join(evil, 'leak.txt'));
+    seeder.setBuiltinDepsForTest({ srcDir, managedDir: path.join(root, 'managed-skills') });
+
+    assert.doesNotThrow(() => seeder.seedBuiltinSkills());
+    assert.ok(
+      cap.errors.some((l) => l.includes('realm_builtin_seed_failed')),
+      `symlink 拒收应走 error 通道，实际：${JSON.stringify(cap.errors)}`
+    );
+  });
+
+  test('零噪声：干净首次播种不产生任何 console.error / console.warn', (t) => {
+    const cap = captureConsole(t);
+    const root = withTempRoot(t);
+    const srcDir = makeSyntheticSrc(root);
+    seeder.setBuiltinDepsForTest({ srcDir, managedDir: path.join(root, 'managed-skills') });
+    seeder.seedBuiltinSkills();
+    // 适用边界是「无诊断且无顶层异常」—— **不要**把它升格成「零诊断 ⇒ 零 console 输出」
+    // 的不变式：顶层 catch 路径在零诊断下仍有一条 console.error（上一条用例正是钉住这点）。
+    assert.strictEqual(cap.errors.length, 0, '干净路径不得有 error');
+    assert.strictEqual(cap.warns.length, 0, '干净路径不得有 warn');
+  });
+
+  test('源码：_flushDiagnostics 存在且同时含两条通道；catch 内的 console.error 未被取代', () => {
+    const source = readSource('builtin-skills-seeder.js');
+    const flushBody = functionBody(source, '_flushDiagnostics');
+    assert.ok(flushBody.includes('console.error'), '_flushDiagnostics 应含 console.error');
+    assert.ok(flushBody.includes('console.warn'), '_flushDiagnostics 应含 console.warn');
+
+    const flushDocStart = Math.max(0, source.indexOf('function _flushDiagnostics(') - 2000);
+    const flushDoc = source.slice(flushDocStart, source.indexOf('function _flushDiagnostics('));
+    assert.ok(flushDoc.includes('Phase 50'), '_flushDiagnostics 的 JSDoc 应含 Phase 50（不得提前删除）');
+
+    const body = functionBody(source, 'seedBuiltinSkills');
+    // 用 lastIndexOf 取**最外层**的 catch / finally（函数体内有内层 try/catch，且注释里
+    // 也会提到 finally —— 首次出现都不是我们要的那对）
+    const finallyIdx = body.lastIndexOf('finally');
+    assert.ok(finallyIdx > 0, 'seedBuiltinSkills 应含 finally');
+    assert.ok(
+      body.indexOf('_flushDiagnostics()', finallyIdx) > finallyIdx,
+      'finally 内应调用 _flushDiagnostics()'
+    );
+    // catch 与 finally 之间必须仍有 console.error —— 防止「改 try/catch/finally 时顺手把 catch 清空」
+    const catchIdx = body.lastIndexOf('catch (err)');
+    assert.ok(catchIdx > 0 && catchIdx < finallyIdx, '应存在最外层 catch (err)');
+    const catchBlock = body.slice(catchIdx, finallyIdx);
+    assert.ok(
+      catchBlock.includes('console.error('),
+      'catch 块内必须保留 console.error（它是循环外异常的独立可见面，不得被 _flushDiagnostics() 取代）'
     );
   });
 });
@@ -1757,16 +2105,25 @@ describe('DOC-02 文档同步（47-04 Task 2）', () => {
   test('ai-agent-workspace.md §四：判定列含两个触发源、新增小节、标题仍为「三档权限」', () => {
     assert.ok(workspaceDoc.includes('## 四、bash：三档权限'), '§四 标题不得改动');
     assert.ok(workspaceDoc.includes('两个触发源'), '应含「两个触发源」小节');
-    assert.ok(workspaceDoc.includes('包管理器安装表'), '§四 判定列应含「包管理器安装表」');
+    // 47-05 Task 3 把「包管理器安装表」改名为「包管理器安装档」并改写为默认拒绝语义
+    assert.ok(workspaceDoc.includes('包管理器安装档'), '§四 判定列应含「包管理器安装档」');
+    assert.ok(workspaceDoc.includes('默认拒绝'), '§四 应写明默认拒绝语义');
+    assert.ok(workspaceDoc.includes('短路先于'), '§四 应写明 install 短路先于白名单的机制');
     assert.ok(workspaceDoc.includes('`reason`'), '应写明 reason 取值');
     assert.ok(workspaceDoc.includes('brew install'), '应给安装档示例');
     assert.ok(workspaceDoc.includes('brew info'), '应给只读反例');
   });
 
-  test('ai-agent-workspace.md §五：保留建议主干并补「白名单不再覆盖包管理器安装语义」', () => {
+  test('ai-agent-workspace.md §五：保留建议主干并补「白名单不再能放开非只读包管理器子命令」', () => {
     assert.ok(workspaceDoc.includes('只加构建类可信命令'), '§五 建议的原文主干应保留');
-    assert.ok(workspaceDoc.includes('白名单**不再覆盖**包管理器安装语义'), '应写明白名单不再覆盖安装语义');
-    assert.ok(workspaceDoc.includes('`brew install` / `brew upgrade` / `brew reinstall`'), '应给 brew 的只读/安装对照');
+    assert.ok(
+      workspaceDoc.includes('白名单**不再能放开任何非只读的包管理器子命令**'),
+      '应写明白名单不再能放开非只读的包管理器子命令'
+    );
+    assert.ok(
+      workspaceDoc.includes('`brew install` / `brew upgrade` / `brew cask install`'),
+      '应给 brew 的只读/安装对照'
+    );
   });
 
   test('ai-agent-workspace.md §七：新增第 5 条，既有 4 条一字未动', () => {
@@ -1790,8 +2147,11 @@ describe('DOC-02 文档同步（47-04 Task 2）', () => {
     assert.ok(section.includes('包管理器安装档'), '§八 应点明策略引擎覆盖安装档');
   });
 
-  test('AGENTS.md 含 PACKAGE_MANAGER_INSTALL_PATTERNS 与 test-builtin-skills-seeder.js', () => {
-    assert.ok(agentsDoc.includes('PACKAGE_MANAGER_INSTALL_PATTERNS'), '应点名安装表常量');
+  test('AGENTS.md 含 PACKAGE_MANAGER_TOOLS 与 test-builtin-skills-seeder.js', () => {
+    // 47-05 把安装档的主判定常量从 PACKAGE_MANAGER_INSTALL_PATTERNS 改为
+    // PACKAGE_MANAGER_TOOLS（后者退居纵深层的表仍被点名）
+    assert.ok(agentsDoc.includes('PACKAGE_MANAGER_TOOLS'), '应点名安装档工具集常量');
+    assert.ok(agentsDoc.includes('PACKAGE_MANAGER_INSTALL_PATTERNS'), '应点明纵深表仍在');
     assert.ok(agentsDoc.includes('test-builtin-skills-seeder.js'), '应补新测试文件');
     assert.ok(agentsDoc.includes('两个互不包含的触发源'), '应写「两个互不包含的触发源」');
   });

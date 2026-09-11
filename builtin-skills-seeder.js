@@ -10,12 +10,17 @@
  * - **seeded 身份** = 随包 `skills-builtin/` 的目录名集合 —— **零状态文件、零硬编码**
  *   （硬编码会让日后新增的内置技能永不播种；状态文件会跨环境分叉且可被删改）。
  * - **粒度**：按**单个技能目录**判定与同步，不为已存在的技能提前返回。
- * - **覆盖**：无条件覆盖（managed 目录是 app-owned 内容）；覆盖前若磁盘内容与
- *   随包内容不一致，先产 warning 级诊断，再覆盖（D-09「不静默」）。
+ * - **覆盖**：managed 目录是 app-owned 内容；**内容一致时跳过写盘**
+ *   （`detectDiff` 判 `same` → 不复制、不产诊断），差异或缺失时才写。
+ *   覆盖前若磁盘内容与随包内容不一致，先产 warning 级诊断，再覆盖（D-09「不静默」）。
  * - **原子性**：先写 `<dst>.tmp_<ts>` → 必要时把旧目录改名为 `<dst>.bak_<ts>` →
  *   `rename` 覆盖 → 删 bak；`rename` 失败则回滚 bak，不留半成品目录。
  * - **失败处理**：任何失败仅 `console.error` + 产诊断，**不 throw、不阻断应用启动**
- *   （照 agent-workspace.migrateAiMemory 的先例）。
+ *   （照 agent-workspace.migrateAiMemory 的先例）；**所有累积诊断在播种结束（含早退
+ *   路径）按级别统一经 `console.error` / `console.warn` 输出** —— `getSeedDiagnostics()`
+ *   目前没有生产消费方，Phase 50 接入技能面板之前这条 console 兜底不得删除；
+ *   **逐技能循环之外抛出的异常由最外层 `catch` 的 `console.error` 承接**
+ *   （此时诊断为空，该行是本路径的唯一可见面，不得删除）。
  * - **打包源**：`app.isPackaged` 时读 `process.resourcesPath/app.asar.unpacked/skills-builtin`，
  *   开发态显式回落 `__dirname/skills-builtin`（D-12；与 favorites-manager 的
  *   nodejieba 先例同构，差异点是开发态必须显式回落而不是「不设路径」）。
@@ -102,12 +107,22 @@ function getSeededSkillNames() {
 }
 
 /**
- * 递归收集目录下的相对文件路径（正斜杠分隔，已排序）
+ * 递归收集目录下的相对路径（正斜杠分隔，已排序）
+ *
+ * **目录以 `rel + '/'` 形式登记**（文件条目不带尾斜杠）—— 这是为了让**空目录**
+ * 也参与 detectDiff 的第 ② 层路径集合比较：否则「源侧新增一个空目录」在两侧
+ * 路径集合上完全相同 → 判 `same` → 跳过重建 → **该空目录永远自愈不到目标**
+ * （`same` 跳过重建落地后，空目录若不入集合就再没有任何机会被补上）。
+ *
+ * ⚠ **调用方契约**：本函数返回的数组是**混合**的（目录项以 `/` 结尾、文件项不带）。
+ * size / sha256 两层**必须先过滤掉以 `/` 结尾的条目**再 `statSync` / `hashFile` ——
+ * 目录条目喂给 `hashFile` 会让 `fs.readFileSync(dir)` 抛 `EISDIR`，被 detectDiff 的
+ * fail-safe catch 吞成 `'different'`，于是每次启动都重建（正是本 gap 要消除的现象）。
  *
  * 只读目录项，不读文件内容（供 detectDiff 的第 ② 层短路使用）。
  *
  * @param {string} dir - 目录绝对路径
- * @returns {string[]} 相对路径数组（已排序）
+ * @returns {string[]} 相对路径数组（目录项以 '/' 结尾；已排序）
  */
 function listRelativeFiles(dir) {
   const out = [];
@@ -115,8 +130,12 @@ function listRelativeFiles(dir) {
     for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
       const childAbs = path.join(abs, entry.name);
       const childRel = rel ? `${rel}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) walk(childAbs, childRel);
-      else out.push(childRel);
+      if (entry.isDirectory()) {
+        out.push(`${childRel}/`); // 目录项：尾斜杠标记，使空目录也参与集合比较
+        walk(childAbs, childRel);
+      } else {
+        out.push(childRel);
+      }
     }
   };
   walk(dir, '');
@@ -138,7 +157,7 @@ function hashFile(file) {
  *
  * 逐层短路（从便宜到贵），**绝不用 mtime**：
  *   ① 目标不存在            → 'missing'（零 IO 成本）
- *   ② 两侧相对路径集合不等  → 'different'（只读目录项）
+ *   ② 两侧相对路径集合不等  → 'different'（只读目录项，**含目录条目**）
  *   ③ 逐文件 size 不等      → 'different'（只 stat，不读内容）
  *   ④ 逐文件 sha256 不等    → 'different'（唯一读内容的一步）
  *   ⑤ 全同                  → 'same'
@@ -148,6 +167,12 @@ function hashFile(file) {
  * 这条注释是防止未来把它「优化」成时间戳比较的护栏。
  *
  * 第 ③ 层短路在前，天然保证**同一个 detectDiff 调用内每个文件至多算一次 sha256**。
+ *
+ * **第 ③④ 层只遍历文件条目**（`listRelativeFiles` 返回的是目录项以 `/` 结尾的混合
+ * 数组，故先 `endsWith('/')` 过滤）。这条过滤是**必须的**：目录条目若进入
+ * `statSync` / `hashFile`，轻则 size 比较无意义，重则 `fs.readFileSync(dir)` 抛
+ * `EISDIR` → 被本函数的 fail-safe catch 吞成 `'different'` → **每次启动都重建**，
+ * 正是本 gap 要消除的现象。
  *
  * 遍历 / statSync / hashFile 途中抛出的**任何 IO 错误**一律捕获并返回 'different'
  * （fail-safe：不确定就当作需要重新同步），错误经 console.error 记录但不向上抛 ——
@@ -163,12 +188,16 @@ function detectDiff(srcDir, dstDir) {
   // （「用户手改过」）。这条护栏请勿「优化」掉。
   try {
     if (!fs.existsSync(dstDir)) return 'missing';
-    const srcFiles = listRelativeFiles(srcDir);
-    const dstFiles = listRelativeFiles(dstDir);
-    if (srcFiles.length !== dstFiles.length) return 'different';
-    for (let i = 0; i < srcFiles.length; i += 1) {
-      if (srcFiles[i] !== dstFiles[i]) return 'different';
+    const srcEntries = listRelativeFiles(srcDir);
+    const dstEntries = listRelativeFiles(dstDir);
+    if (srcEntries.length !== dstEntries.length) return 'different';
+    for (let i = 0; i < srcEntries.length; i += 1) {
+      if (srcEntries[i] !== dstEntries[i]) return 'different';
     }
+    // 目录条目必须过滤掉：目录喂给 statSync / hashFile 毫无意义，且 readFileSync(dir)
+    // 会抛 EISDIR → 被下面 catch 吞成 'different' → 每次启动都重建（本 gap 的现象）。
+    const srcFiles = srcEntries.filter((rel) => !rel.endsWith('/'));
+    const dstFiles = dstEntries.filter((rel) => !rel.endsWith('/'));
     for (const rel of srcFiles) {
       const a = fs.statSync(path.join(srcDir, rel));
       const b = fs.statSync(path.join(dstDir, rel));
@@ -196,6 +225,43 @@ function _cleanupDir(dir) {
     fs.rmSync(dir, { recursive: true, force: true });
   } catch {
     /* best effort */
+  }
+}
+
+/**
+ * 启动级残留清扫：清掉 `safeCopyDir` 崩溃/被杀留下的 tmp / bak 兄弟目录（GAP 3 / WR-02）
+ *
+ * ① **为什么必须清**：`safeCopyDir` 的 `<dst>.tmp_<ts>` / `<dst>.bak_<ts>` 由 `dst`
+ *    派生（**D-08 的原子性契约**：与 dst 同父目录 → 必然同卷，刻意的设计），因此
+ *    它们**落在 `managed-skills/` 这个技能扫描根内**。而 `ai-skills-manager` 的
+ *    `inContractLayout` 只要求「相对扫描根恰好 2 段」——
+ *    `managed-skills/<name>.bak_<ts>/SKILL.md` 恰好 2 段 → **被当成合法技能加载**，
+ *    成为设置页删不掉的永久幽灵条目（+ 名称含 `.`/`_` 必然触发的 `invalid_metadata`
+ *    与 `realm_name_rewritten` 诊断噪声）。
+ * ② **残留的产生方式**：进程在两次 `rename` 之间被杀、`_cleanupDir(bakDst)` 失败、
+ *    复制阶段崩溃 —— 都不是正常的持久状态，属 app-owned 内容在崩溃后的自我修复。
+ * ③ **正则为何锚定 `\d+$`**：`safeCopyDir` 只用 `Date.now()` 作时间戳，且宽泛的
+ *    `includes('.bak_')` 会误删名字恰好**合法**的目录。**也正因如此不需要「已知播种
+ *    名单」**（D-11：零硬编码、零状态文件）—— 判据是命名形状而不是身份表。
+ * ④ **best-effort**：`readdirSync` 与删除都走吞错路径（复用 `_cleanupDir`），
+ *    绝不 throw、绝不阻断播种 —— 与模块头「失败仅 console.error + 产诊断」一致。
+ *
+ * **不产诊断、不打日志**：残留回收是崩溃后的自我修复，不是需要用户知晓的异常；
+ * 且 GAP 4 的 console 通道专用于**失败可见性**。若日后确需可见，Phase 50 可加一条
+ * warning 级结构化诊断 —— **不得**在本计划里加，以免与已写定的文档口径不一致。
+ *
+ * @param {string} managedDir - managed 技能目录（技能扫描根之一）
+ */
+function sweepSeedResidue(managedDir) {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(managedDir);
+  } catch {
+    return; // 目录不存在或不可读：无可清扫，也不阻断播种
+  }
+  for (const name of entries) {
+    // 成对不变式：命名形状必须与 safeCopyDir 的 `<dst>.tmp_<ts>` / `<dst>.bak_<ts>` 同步
+    if (/\.(tmp|bak)_\d+$/.test(name)) _cleanupDir(path.join(managedDir, name));
   }
 }
 
@@ -313,6 +379,31 @@ function collectInvalidSrcDirs(srcDir) {
 }
 
 /**
+ * 把本次累积的诊断按级别统一输出到 console（GAP 4 / WR-04，**D-09「不静默」的可见面**）
+ *
+ * ① **为什么必须有这条**：三条内层失败路径（`realm_builtin_src_missing` /
+ *    `realm_builtin_src_invalid` / `realm_builtin_seed_failed`）与
+ *    `realm_builtin_seed_overwritten` 原先只把诊断 push 进 `_diagnostics`，而
+ *    `getSeedDiagnostics()` **在生产代码里没有任何调用方**（全仓 grep 除本模块自身与
+ *    测试外零命中）→ 「内置技能一个都没播种成功」的正式版与一切正常的正式版在用户侧
+ *    与日志侧完全不可区分（与模块头引用的 nodejieba 事故 9a1ae11 同型）。
+ * ② **Phase 50 之前不得删除**：Phase 50 把 `getSeedDiagnostics()` 接进技能面板 /
+ *    诊断通道后，这条 console 兜底才可以降级或移除。
+ * ③ **不阻断启动**：只读 `_diagnostics` 并写 console，无 throw 路径。
+ *
+ * **与最外层 `catch` 的关系是并列、不是替代**：本函数只输出 `_diagnostics`；顶层 catch
+ * 覆盖的是逐技能循环**之外**抛出的异常（此时 `_diagnostics` 为空 → 本函数零输出），
+ * 那条路径的可见面只能由 catch 自己的 `console.error` 提供。
+ */
+function _flushDiagnostics() {
+  for (const d of _diagnostics) {
+    const line = '[Realm] 内置技能播种 ' + d.level + ' ' + d.code + ': ' + d.message;
+    if (d.level === 'error') console.error(line);
+    else console.warn(line); // warning（以及未来可能出现的其它级别）
+  }
+}
+
+/**
  * 播种随包内置技能到 managed 技能目录（同步，启动期一次性调用）
  *
  * 启动链路位置：`main.js` 的 `migrateAiMemory()` 之后、`new AIManager()` 之前
@@ -355,6 +446,11 @@ function seedBuiltinSkills() {
     }
     const managedDir = resolveManagedSkillsDir();
     fs.mkdirSync(managedDir, { recursive: true });
+    // 崩溃残留清扫（GAP 3 / WR-02）：必须在逐技能循环**之前** —— 否则本轮播种完的
+    // refreshSkills() 仍会看到残留（且清扫要下一轮才生效）。
+    // **不放在 `names.length === 0` 的早退之前**：那条路径连 managedDir 都还没解析，
+    // 且随包源缺失时清理用户目录中的任何东西都不合适。
+    sweepSeedResidue(managedDir);
     // 逐个技能目录判定与同步 —— 不得整目录一次性判定/提前返回，
     // 否则日后新增的内置技能永远播不进去（D-08）。
     for (const name of names) {
@@ -362,6 +458,11 @@ function seedBuiltinSkills() {
       const skillDst = path.join(managedDir, name);
       try {
         const diff = detectDiff(skillSrc, skillDst);
+        // D-08 的精度化：内容一致 → 不写盘、不产诊断（`realm_builtin_seed_overwritten`
+        // 只表达「磁盘内容与随包版本不一致」，`same` 与 `missing` 都不产）。
+        // 跳过重建同时消掉了两个副作用：detectDiff 最贵的 sha256 层不再被白算，
+        // 且不再每次启动都制造一次 rename(dst → bak) 空窗（那是 GAP 3 残留的触发源）。
+        if (diff === 'same') continue;
         if (diff === 'different') {
           _diagnostics.push({
             level: 'warning',
@@ -373,6 +474,7 @@ function seedBuiltinSkills() {
             skillName: name,
           });
         }
+        // 覆盖 `missing`（直接写，不产诊断 —— D-10 自愈语义）与 `different`
         safeCopyDir(skillSrc, skillDst);
       } catch (err) {
         _diagnostics.push({
@@ -385,13 +487,24 @@ function seedBuiltinSkills() {
       }
     }
   } catch (err) {
+    // 本 catch 覆盖循环之外的异常（resolveBuiltinSkillsSrc / resolveManagedSkillsDir /
+    // mkdirSync …）—— 此时 `_diagnostics` 为空，finally 里的 _flushDiagnostics() 零输出。
+    // 它的 console.error 是这条路径的**独立可见面**，不得被 _flushDiagnostics() 取代。
     console.error('[Realm] 内置技能播种失败（不影响启动）:', err && err.message);
+  } finally {
+    // 早退路径（src 缺失）也走这里 —— 不能只在循环后输出。
+    _flushDiagnostics();
   }
 }
 
 /**
  * 读取本次播种累积的诊断（形状对齐 ai-skills-manager 的 realm_ 诊断：
  * `{ level, code, message, path, skillName? }`）
+ *
+ * 调用方（Phase 50 的技能面板 / 诊断通道）接入前，`_flushDiagnostics()` 的 console
+ * 输出是打包态唯一可见面 —— 本函数目前在生产代码中无调用方，但**不得删除**
+ * （结构化诊断仍是 Phase 50 的正式接口）。
+ *
  * @returns {object[]} 诊断数组的浅拷贝
  */
 function getSeedDiagnostics() {
