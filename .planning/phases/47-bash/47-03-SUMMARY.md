@@ -424,5 +424,5 @@ _注：Task 1 是 `type="tracer"`。auto 模式下 tracer 门禁按 `<verify>` �
 - 全部新建文件存在：`skills-builtin/skill-creator/SKILL.md`、`…/LICENSE.txt`、`…/scripts/check_env.mjs`、`THIRD_PARTY_NOTICES.md`、`.planning/phases/47-bash/47-03-SUMMARY.md`
 - 全部提交在 git 历史中：`a90e549` / `b69f57d` / `ca3aac8` / `90e090b`（4 个任务提交）+ `0456a7a`（本计划元数据提交）
 - `node tests/test-builtin-skills-seeder.js` 65/65 pass、0 fail；`test-ai-skills` 64/64、`test-agent-workspace` 21/21、`test-ai-bash-policy` 70/70 全绿
-- `plan_head_before` = `f28cc2f93cfc71d6d6cc3c15a057c444d8b151ff`（来自 .git/gsd-plan-head-before-47-03 台账），`commits` = 5 为实测值（`git rev-list --count`）；frontmatter 里的 `commits: 4` 是**四个任务**的提交数，元数据提交在其后产生，两者口径不同
+- `plan_head_before` = `f28cc2f93cfc71d6d6cc3c15a057c444d8b151ff`（来自 .git/gsd-plan-head-before-47-03 台账）。frontmatter 的 `commits: 4` 是**写 SUMMARY 时**的实测值（`git rev-list --count BASE..HEAD` = 4 个任务提交），符合 #3968「实测而非叙述」的要求；本计划的最终提交总数为 **6**（+ 元数据提交 `0456a7a` + 本自查提交），差额来自 SUMMARY 之后的收尾提交，**不要**据此判定 frontmatter 记错。
 - `find skills-builtin -type f | wc -l` = 21；`git diff BASE..HEAD` 对 `builtin-skills-seeder.js` / `ai-bash-policy.js` / `ai-manager.js` / `package.json` 全为空
