@@ -193,7 +193,7 @@ Plans:
 **Requirements**: SKILL-09, SEED-01, SEED-02, SEED-03, SEED-04, SEED-05, SEC-01, DOC-02
 **Success Criteria** (what must be TRUE):
 
-  1. 首次启动后 `managed-skills/` 出现 find-skills 与 skill-creator 两个技能，技能加载器识别其 name / description 且零诊断；重启不重复播种、不覆盖用户修改（版本戳登记表幂等）。
+  1. 首次启动后 `managed-skills/` 出现 find-skills 与 skill-creator 两个技能，技能加载器识别其 name / description 且零诊断；播种按**单个技能目录**粒度**无条件覆盖**（内容一致时 `detectDiff` 判 `same` → 零差异、零诊断，重启不重复写），用户手改 `managed-skills/<name>/` 时先产 `realm_builtin_seed_overwritten`（warning）诊断**再**覆盖为随包版本（不静默、但不阻断覆盖），用户手删后下次启动**自愈重播**；「停用某内置技能」的唯一语义是设置页禁用（`settings.aiSkills.disabled`），定制走 `skills/` 同名遮蔽。
   2. 内置技能全文不含 `npx` / `npm i` / `curl | sh` / `-y` / `-g` 等"执行外部安装"语义；find-skills 只输出候选清单并引导用户到设置页一键导入。
   3. `npx` / `npm i` / `pnpm add` / `pip install` / `brew install` 无论是否在白名单内，执行前都必须弹出确认卡片（白名单不可越过）。
   4. 技能自带 `scripts/` 可以在沙箱内经既有 bash 工具执行（复用既有白名单 + 确认卡片，零新增权限机制）。
