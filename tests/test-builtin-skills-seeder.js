@@ -26,6 +26,81 @@ const REPO_ROOT = path.join(__dirname, '..');
 /** 真实的随包内置技能源目录（端到端纵切必须用真源，不用合成目录） */
 const REAL_BUILTIN_SRC = path.join(REPO_ROOT, 'skills-builtin');
 
+/**
+ * 零安装语义禁用模式表（逐字照抄 47-RESEARCH.md §A-4，不要重新设计正则）
+ *
+ * 扫描语义：任一行命中即判失败（第 1 段零容忍 / 第 2 段可经 EXEMPTIONS 豁免）。
+ */
+const FORBIDDEN_PATTERNS = [
+  // —— 英文 CLI / 包管理器形态 ——
+  { re: /\bnpx\b/i, why: 'npx 包执行器' },
+  { re: /\bnpm\s+(i|install|ci|exec|add)\b/i, why: 'npm 安装/执行（含 npm exec 即时执行别名）' },
+  { re: /\bpnpm\s+(add|install|dlx|exec)\b/i, why: 'pnpm 安装/执行' },
+  { re: /\byarn\s+(add|install|dlx|exec)\b/i, why: 'yarn 安装/执行' },
+  { re: /\bbun\s+(add|install|x)\b/i, why: 'bun 安装/执行' },
+  { re: /\bpip3?\s+install\b/i, why: 'pip 安装' },
+  { re: /\bpython3?\s+-m\s+pip\s+install\b/i, why: 'python -m pip 安装' },
+  { re: /\buv\s+(pip\s+install|add|tool\s+install)\b/i, why: 'uv 安装' },
+  { re: /\buvx\b/i, why: 'uv 包执行器（uvx）' },
+  { re: /\bbrew\s+(install|upgrade|reinstall)\b/i, why: 'Homebrew 安装' },
+  { re: /\bcargo\s+install\b/i, why: 'cargo 安装' },
+  { re: /\bgo\s+install\b/i, why: 'go 安装' },
+  { re: /\bgem\s+install\b/i, why: 'gem 安装' },
+  { re: /curl[^\n|]*\|\s*(sh|bash|zsh|python3?|node)\b/i, why: '下载并管道执行（curl）' },
+  { re: /wget[^\n|]*\|\s*(sh|bash|zsh|python3?|node)\b/i, why: '下载并管道执行（wget）' },
+  { re: /\bapt(-get)?\s+install\b/i, why: 'apt 安装' },
+  // —— 危险旗标（任何命令上下文里都禁止）——
+  { re: /(^|\s)-y(\s|$)/, why: '无需确认旗标 -y' },
+  { re: /--yes\b/, why: '无需确认旗标 --yes' },
+  { re: /(^|\s)-g(\s|$)/, why: '全局位置旗标 -g' },
+  { re: /--global\b/, why: '全局位置旗标 --global' },
+  // —— 中文语义等价写法 ——
+  { re: /安装到全局/, why: '全局安装（中文）' },
+  { re: /下载并执行/, why: '下载并执行（中文）' },
+  { re: /自动安装/, why: '自动安装（中文）' },
+  { re: /执行安装命令/, why: '执行安装命令（中文）' },
+  { re: /跳过确认/, why: '绕过确认（中文）' },
+  { re: /装到系统/, why: '装到系统（中文）' },
+];
+
+/** 执行安装的祈使句（英文 + 中文，逐字照抄 §A-4） */
+const INSTALL_IMPERATIVES = [
+  { re: /\b(install|add|update)\s+(the\s+)?skill\b/i, why: '安装技能的祈使句' },
+  { re: /\brun\s+the\s+following\s+command\b/i, why: '「运行以下命令」祈使句（英文）' },
+  { re: /请执行以下命令/, why: '「请执行以下命令」祈使句（中文）' },
+  { re: /运行以下命令/, why: '「运行以下命令」祈使句（中文）' },
+];
+
+/**
+ * 行级豁免清单（只作用于**第 2 段**扫描，第 1 段零容忍、绝不消费本表）
+ *
+ * 三元组：`file`（相对仓库根的路径）+ `line`（匹配该行的正则）+ `why`（豁免理由，必须写死）。
+ *
+ * 已知必须豁免的例外（来源：47-RESEARCH.md §A-4「已知需要白名单豁免的例外」）：
+ * - `skill-creator/scripts/check_env.mjs` 的 `installGuidance` 字段名与
+ *   `Do not auto-install dependencies from this skill.` 文案：这是**禁止**安装的声明，
+ *   命中 `install` 关键词但语义与之相反（D-05）。若做成无豁免全文扫描，扫描器会被
+ *   一句「请勿自动安装」直接打爆。
+ * - `skill-creator/SKILL.md` 的 `Package and Present` 段落引用 `package_skill.py`：
+ *   `package` ≠ `install`，且该脚本生成 `.zip` 不安装任何东西。
+ *   （注：`SKILL.md` 属第 1 段扫描面且实测 0 命中，此条仅作为 47-03 的备用登记。）
+ *
+ * 本计划（47-01）期 `skills-builtin/` 下只有 find-skills 的 `SKILL.md` + `LICENSE.txt`，
+ * 均属第 1 段扫描面 → 第 2 段集合为空；这些条目待 47-03 落地对应文件后生效。
+ */
+const EXEMPTIONS = [
+  {
+    file: 'skills-builtin/skill-creator/scripts/check_env.mjs',
+    line: /installGuidance|Do not auto-install dependencies from this skill\./,
+    why: 'check_env.mjs 的 installGuidance 是「告知缺什么依赖、请用户确认后再装」的反向语义声明，且同段明确写 Do not auto-install —— 命中 install 关键词但语义相反（D-05）',
+  },
+  {
+    file: 'skills-builtin/skill-creator/scripts/check_env.mjs',
+    line: /missing_dependency/,
+    why: 'missing_dependency 是「依赖缺失」的失败码常量名，不构成任何可执行的安装路径',
+  },
+];
+
 /** 建一次性临时根目录并在测试结束后清理 */
 function withTempRoot(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-seeder-test-'));
@@ -98,6 +173,56 @@ function makeSyntheticSrc(root) {
 function listResidue(dir) {
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir).filter((n) => n.includes('.tmp_') || n.includes('.bak_'));
+}
+
+/**
+ * 第 1 段扫描面：`skills-builtin/**` 下**全部** `SKILL.md` 与 `LICENSE.txt`
+ *
+ * **必须按 glob 递归得到，不得写死单技能路径** —— 47-03 会新增 skill-creator 的
+ * `SKILL.md` 与 `LICENSE.txt`，写死文件名会让新技能静默逃出扫描面。
+ * 本段**零容忍、零豁免**（P1 门禁的字面判据）。
+ */
+function stage1Files() {
+  return [
+    ...globBuiltinByBasename('SKILL.md'),
+    ...globBuiltinByBasename('LICENSE.txt'),
+  ].sort();
+}
+
+/**
+ * 第 2 段扫描面：`skills-builtin/**` 下**尚未被第 1 段覆盖的全部内容**
+ *
+ * **用排除法表达，而不是列举 `scripts/` + `resources/`** —— 列举法会漏掉
+ * `agents/` / `assets/` / `eval-viewer/` / `references/` 四类目录（47-03 会落地）。
+ * SEED-03 说的是「内置技能文本」，未限定文件类型。
+ */
+function stage2Files() {
+  const covered = new Set(stage1Files());
+  return collectFiles(REAL_BUILTIN_SRC).filter((f) => !covered.has(f)).sort();
+}
+
+/**
+ * 逐行扫描一组文件，返回命中记录（含文件相对路径 + 行号 + 命中模式 + 理由）
+ *
+ * @param {string[]} files - 待扫描文件绝对路径
+ * @param {Array<{re: RegExp, why: string}>} patterns - 禁用模式表
+ * @param {Array<{file: string, line: RegExp, why: string}>} [exemptions] - 行级豁免清单
+ */
+function scanFiles(files, patterns, exemptions = []) {
+  const hits = [];
+  for (const file of files) {
+    const rel = path.relative(REPO_ROOT, file);
+    const lines = fs.readFileSync(file, 'utf8').split('\n');
+    lines.forEach((line, i) => {
+      if (exemptions.some((e) => e.file === rel && e.line.test(line))) return;
+      for (const { re, why } of patterns) {
+        if (re.test(line)) {
+          hits.push({ file: rel, line: i + 1, pattern: re.source, why, text: line.trim() });
+        }
+      }
+    });
+  }
+  return hits;
 }
 
 describe('端到端纵切（tracer）', () => {
@@ -505,5 +630,124 @@ describe('诊断 code 与源码不变式（Task 2）', () => {
     assert.ok(section.includes('realm_builtin_seed_overwritten'), '判据应点名覆盖诊断 code');
     assert.ok(section.includes('settings.aiSkills.disabled'), '判据应指名停用语义的唯一存储键');
     assert.ok(section.includes('无条件覆盖'), '判据应写明无条件覆盖语义');
+  });
+});
+
+describe('零安装语义扫描（SEED-03 / P1 门禁字面判据）', () => {
+  test('第 1 段（零容忍无豁免）：SKILL.md + LICENSE.txt 全量零命中', () => {
+    const files = stage1Files();
+    assert.ok(files.length >= 2, `至少应扫到 find-skills 的两份受扫文件（实际 ${files.length}）`);
+    const hits = scanFiles(files, FORBIDDEN_PATTERNS.concat(INSTALL_IMPERATIVES));
+    if (hits.length > 0) {
+      assert.fail(
+        '零安装语义扫描命中（P1 门禁失守）：\n'
+        + hits.map((h) => `  ${h.file}:${h.line} [${h.why}] /${h.pattern}/ → ${h.text}`).join('\n')
+      );
+    }
+  });
+
+  test('扫描范围按 glob 递归（写死单技能路径会让 47-03 的新技能静默逃出扫描面）', () => {
+    const src = readSource('tests/test-builtin-skills-seeder.js');
+    assert.ok(
+      !functionBody(src, 'globBuiltinByBasename').includes('find-skills'),
+      '扫描面枚举不得写死任何技能名'
+    );
+    const stage1Body = functionBody(src, 'stage1Files');
+    assert.ok(!stage1Body.includes('find-skills'), 'stage1Files 不得写死单技能路径');
+    assert.ok(stage1Body.includes("globBuiltinByBasename('SKILL.md')"), '应按 SKILL.md basename 递归收集');
+    assert.ok(stage1Body.includes("globBuiltinByBasename('LICENSE.txt')"), '应按 LICENSE.txt basename 递归收集');
+
+    const expected = collectFiles(REAL_BUILTIN_SRC)
+      .filter((f) => ['SKILL.md', 'LICENSE.txt'].includes(path.basename(f)))
+      .sort();
+    assert.deepStrictEqual(stage1Files(), expected, '实际扫描文件数必须等于 glob 命中数');
+  });
+
+  test('PITFALLS P1 靶心：skills-builtin/** 内不存在 `npx skills` 的任意变体', () => {
+    const variant = /\bnpx\s+skills\b/i;
+    const hits = [];
+    for (const file of collectFiles(REAL_BUILTIN_SRC)) {
+      const rel = path.relative(REPO_ROOT, file);
+      fs.readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
+        if (variant.test(line)) hits.push(`${rel}:${i + 1}`);
+      });
+    }
+    assert.deepStrictEqual(hits, [], '`npx skills` 的任意变体（大小写 / 任意空白）都不得出现');
+  });
+
+  test('评审补齐项：npm 家族模式覆盖 npm exec（防止正则被「精简」掉）', () => {
+    const npmPattern = FORBIDDEN_PATTERNS.find((p) => p.why.includes('npm'));
+    assert.ok(npmPattern, 'FORBIDDEN_PATTERNS 应含 npm 家族模式');
+    for (const sample of ['npm exec x', 'npm i x', 'npm install x', 'npm ci', 'npm add x']) {
+      assert.strictEqual(npmPattern.re.test(sample), true, `npm 家族模式应覆盖: ${sample}`);
+    }
+  });
+
+  test('第 2 段（带行级豁免）扫描器就位：排除法覆盖第 1 段之外的全部内容', () => {
+    const files = stage2Files();
+    assert.deepStrictEqual(
+      files,
+      [],
+      '本计划期 skills-builtin/ 只有 find-skills 的 SKILL.md + LICENSE.txt（均属第 1 段）→ 第 2 段集合为空'
+    );
+    assert.deepStrictEqual(scanFiles(files, FORBIDDEN_PATTERNS, EXEMPTIONS), []);
+
+    assert.ok(EXEMPTIONS.length > 0, '豁免清单必须是非空表（47-03 的 check_env.mjs 反向语义条目已预登记）');
+    for (const e of EXEMPTIONS) {
+      assert.ok(typeof e.file === 'string' && e.file.length > 0, '豁免条目必须带文件相对路径');
+      assert.ok(e.line instanceof RegExp, '豁免条目必须带行匹配正则');
+      assert.ok(typeof e.why === 'string' && e.why.length > 0, '每条豁免必须写死豁免理由');
+    }
+
+    // 豁免清单不得削弱第 1 段：任何豁免条目的文件都不在第 1 段扫描面内
+    const stage1Rel = new Set(stage1Files().map((f) => path.relative(REPO_ROOT, f)));
+    for (const e of EXEMPTIONS) {
+      assert.ok(!stage1Rel.has(e.file), `豁免条目 ${e.file} 不得落在第 1 段（零容忍）扫描面内`);
+    }
+  });
+});
+
+describe('门禁断言（SEED-04 / D-11 / SKILL-09 反向证据）', () => {
+  test('SEED-04：每个内置技能 frontmatter 含 disable-model-invocation: true 且 description 含中文', () => {
+    const skillMds = globBuiltinByBasename('SKILL.md');
+    assert.ok(skillMds.length >= 1, '至少应有一个内置技能 SKILL.md');
+    for (const file of skillMds) {
+      const rel = path.relative(REPO_ROOT, file);
+      const content = fs.readFileSync(file, 'utf8');
+      assert.ok(
+        /^disable-model-invocation:\s*true\s*$/m.test(content),
+        `${rel} 的 frontmatter 应含 disable-model-invocation: true（不进 system prompt）`
+      );
+      const descMatch = content.match(/^description:\s*(.+)$/m);
+      assert.ok(descMatch, `${rel} 应有 description`);
+      assert.ok(
+        /[\u4e00-\u9fff]/.test(descMatch[1]),
+        `${rel} 的 description 应含至少一个 CJK 字符（D-04：面向 / 面板与设置页的人眼可读性）`
+      );
+    }
+  });
+
+  test('禁令段不含任何被扫 token（写禁令段时手滑引用命令名会在此定位）', () => {
+    const md = fs.readFileSync(path.join(REAL_BUILTIN_SRC, 'find-skills', 'SKILL.md'), 'utf8');
+    for (const token of ['npx', 'npm exec', '--global', '--yes']) {
+      assert.ok(!md.includes(token), `SKILL.md 不得出现字面 token: ${token}`);
+    }
+    for (const re of [/(^|\s)-g(\s|$)/m, /(^|\s)-y(\s|$)/m]) {
+      assert.ok(!re.test(md), `SKILL.md 不得出现危险旗标: /${re.source}/`);
+    }
+  });
+
+  test('D-11 零硬编码：播种模块剥离注释后不含内置技能名字面量', () => {
+    const stripped = stripComments(readSource('builtin-skills-seeder.js'));
+    for (const name of ['find-skills', 'skill-creator']) {
+      assert.ok(!stripped.includes(`'${name}'`), `builtin-skills-seeder.js 不得硬编码 '${name}'`);
+      assert.ok(!stripped.includes(`"${name}"`), `builtin-skills-seeder.js 不得硬编码 "${name}"`);
+    }
+  });
+
+  test('SKILL-09 反向证据：技能脚本经既有 bash 工具执行，零新增权限机制', () => {
+    const policy = require('../ai-bash-policy');
+    assert.ok(policy.DANGEROUS_INTERPRETERS.has('node'), 'node 仍须在 DANGEROUS_INTERPRETERS 内');
+    assert.ok(policy.DANGEROUS_INTERPRETERS.has('python3'), 'python3 仍须在 DANGEROUS_INTERPRETERS 内');
   });
 });
