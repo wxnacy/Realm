@@ -143,7 +143,7 @@ v2.6 把 AI 助手推进到**可扩展能力体系**：接入 pi-agent-core 原�
 4. 导入管线排最后（51）——攻击面最大、耦合最小，风险不外溢。
 
 - [x] **Phase 46: 技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）** - 双目录进沙箱 + `<available_skills>` 注入 + 技能集变更即时生效 (completed 2026-09-11)
-- [ ] **Phase 47: 内置技能播种 + bash 策略加固** - find-skills / skill-creator 去 CLI 化随包分发 + 包管理器安装档强制确认
+- [x] **Phase 47: 内置技能播种 + bash 策略加固** - find-skills / skill-creator 去 CLI 化随包分发 + 包管理器安装档强制确认 (completed 2026-09-11)
 - [ ] **Phase 48: 技能发现与调用（`/` 面板 + `/skill:name`）** - `/` 面板并入技能列表 + 显式调用进对话历史 + 模型按 description 自动匹配
 - [ ] **Phase 49: `manage_skill` 工具（AI 自建技能）** - create / update / delete + 不吃 `path` 参数 + seeded 边界保护
 - [ ] **Phase 50: 设置页技能管理区 + `/api/skills/*`** - 列表 / 诊断 / 启停 / 卸载 + 双入口同一权威
