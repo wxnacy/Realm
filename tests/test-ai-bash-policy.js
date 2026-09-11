@@ -11,8 +11,15 @@ const { test, describe } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const policy = require('../ai-bash-policy');
+
+/** 取 /bin/sh 对 `set -- <cmd>; printf "%s " "$@"` 的展开（argv 等价性证据用） */
+function shArgv(cmd) {
+  const result = spawnSync('/bin/sh', ['-c', `set -- ${cmd}; printf '%s ' "$@"`], { encoding: 'utf8' });
+  return result.stdout;
+}
 
 /** 读取仓库根源码（源码扫描型断言用，照 tests/test-ai-skills.js 的同名辅助） */
 function readSource(file) {
@@ -378,8 +385,12 @@ describe('matchInstall 包管理器安装判定（SEC-01 / D-13 / D-16）', () =
     }
   });
 
-  test('近似串不误伤（npm runx / brewx / npmx / echo npm）', () => {
-    assert.strictEqual(policy.matchInstall('npm runx'), null);
+  test('近似串不误伤（brewx / npmx / echo npm）+ 未知子命令 fail-safe（npm runx）', () => {
+    // 已设计变更（GAP 1 默认拒绝规则）：`npm runx` 由 `null` 变为 `'npm 安装依赖'` ——
+    // 它是 npm 的**未知子命令**，在默认拒绝规则下走强制确认（fail-safe：该命令本身会报错，
+    // 代价只是多一次卡片）。`brewx` 仍是 `null` —— 它是**另一个工具名**而不是 brew 的未知子命令，
+    // 词边界不变式在**工具名**这一层继续成立（`\bbrew\b` 在 `brewx` 里不构成边界）。
+    assert.strictEqual(policy.matchInstall('npm runx'), 'npm 安装依赖');
     assert.strictEqual(policy.matchInstall('brewx'), null);
     assert.strictEqual(policy.matchInstall('npmx i x'), null);
     assert.strictEqual(policy.matchInstall('echo npm'), null);
@@ -478,11 +489,15 @@ describe('evaluateBashCommand install 档短路（SEC-01 / D-14）', () => {
     assert.ok(!/aria2c/.test(literal), 'PACKAGE_MANAGER_INSTALL_PATTERNS 不应含 aria2c 条目');
   });
 
-  test('源码：stripLeadingQuotes 注释说明用途（引号包裹命令名）与边界（只在 matchInstall 内用）', () => {
+  test('源码：stripShellQuoting 注释说明用途（引号 / 反斜杠归一化）与边界（只在 matchInstall 内用）', () => {
     const source = readSource('ai-bash-policy.js');
-    const doc = source.slice(Math.max(0, source.indexOf('function stripLeadingQuotes(') - 1200), source.indexOf('function stripLeadingQuotes('));
-    assert.ok(doc.includes('引号'), '注释应说明用途（引号包裹命令名）');
+    const anchor = source.indexOf('function stripShellQuoting(');
+    assert.ok(anchor >= 0, '源码中应存在 function stripShellQuoting(');
+    const doc = source.slice(Math.max(0, anchor - 1600), anchor);
+    assert.ok(doc.includes('引号'), '注释应说明用途（引号与反斜杠归一化）');
     assert.ok(doc.includes('matchInstall'), '注释应说明只在 matchInstall 内使用');
+    assert.ok(doc.includes('反斜杠'), '注释应点名反斜杠转义形态');
+    assert.ok(!source.includes('function stripLeadingQuotes('), 'stripLeadingQuotes 应已被 stripShellQuoting 取代');
   });
 
   test('源码：表 JSDoc 含 npm ci 的 postinstall 理由与维护约定', () => {
@@ -498,7 +513,7 @@ describe('evaluateBashCommand install 档短路（SEC-01 / D-14）', () => {
     const untouched = ['splitCommandPipeline', 'matchesWhitelist', 'normalizeSegment', 'extractCommandName'];
     for (const name of untouched) {
       const body = functionBody(source, name);
-      for (const token of ['installNames', 'matchInstall', 'stripLeadingQuotes', 'PACKAGE_MANAGER']) {
+      for (const token of ['installNames', 'matchInstall', 'stripShellQuoting', 'PACKAGE_MANAGER']) {
         assert.ok(!body.includes(token), `${name} 函数体不应出现 ${token}`);
       }
     }
@@ -591,12 +606,327 @@ describe('install 档逃逸形态与边界（SEC-01 / D-14 / D-16）', () => {
 });
 
 // ---------------------------------------------------------------------------
-// P1 门禁信号（47-VALIDATION.md 的 Gate → Acceptance Signal Map）
-//
-// 用例名直接带信号号，便于门禁审计逐条对照：P1-b-1（白名单不可越过，门禁核心）、
-// P1-b-2（D-13 家族覆盖）、P1-b-3（D-16 只读反例）、P1-b-4（ai-manager 源码三分支）。
-// P1-b-5（既有 32 例不回归）不写断言，由 <verify> 的 `# fail 0` 观测口径承载。
+// GAP 1（REVIEW CR-01）—— 安装档从「子命令黑名单」改为「首 token 默认拒绝」
 // ---------------------------------------------------------------------------
+
+/**
+ * 词法改写形态表（GAP 1 靶心）
+ *
+ * `literal` 与 `rewritten` 经 `/bin/sh` 的 `set --` 展开得到**逐字相同**的 argv，
+ * 但白名单是**文本前缀**匹配（改写不改变前缀 → 命中），而改前的安装档是**子命令黑名单**
+ * （改写击穿 → 漏检）→ 落到 `allow` 零卡片。默认拒绝 + 共用归一化后一律进 install 档。
+ */
+const LEXICAL_REWRITES = [
+  { literal: 'brew install wget', rewritten: 'brew "install" wget', whitelist: ['brew'] },
+  { literal: 'brew install wget', rewritten: 'brew \\install wget', whitelist: ['brew'] },
+  { literal: 'brew install wget', rewritten: 'brew ins""tall wget', whitelist: ['brew'] },
+  { literal: 'npm install x', rewritten: 'npm "install" x', whitelist: ['npm'] },
+  { literal: 'npm i x', rewritten: 'npm \\i x', whitelist: ['npm'] },
+  { literal: 'pip install x', rewritten: 'pip "install" x', whitelist: ['pip'] },
+  { literal: 'cargo install ripgrep', rewritten: 'cargo "install" ripgrep', whitelist: ['cargo'] },
+  { literal: 'bun add x', rewritten: 'bun "add" x', whitelist: ['bun'] },
+];
+
+describe('GAP 1 词法改写绕过（SEC-01 / CR-01）', () => {
+  test('八条词法改写形态在文档推荐白名单下全部 confirm/install（零卡片形态不可能）', () => {
+    for (const { rewritten, whitelist } of LEXICAL_REWRITES) {
+      const verdict = policy.evaluateBashCommand(rewritten, whitelist);
+      assert.strictEqual(verdict.level, 'confirm', rewritten);
+      assert.strictEqual(verdict.reason, 'install', rewritten);
+      assert.ok(verdict.installNames.length > 0, rewritten);
+    }
+  });
+
+  test('shell 等价性证据：/bin/sh 的 set -- 展开对改写形态与字面形态逐字相同', (t) => {
+    if (process.platform === 'win32') {
+      t.skip('非 POSIX 平台无 /bin/sh');
+      return;
+    }
+    for (const { literal, rewritten } of LEXICAL_REWRITES) {
+      assert.strictEqual(shArgv(rewritten), shArgv(literal), `${rewritten} 应展开为与 ${literal} 相同的 argv`);
+    }
+    // 字面形态的基准展开（含 printf 的尾空格）
+    assert.strictEqual(shArgv('brew install wget'), 'brew install wget ');
+  });
+
+  test('第二绕过家族（真实安装子命令）在对应裸白名单下全部 confirm/install', () => {
+    const cases = [
+      { command: 'npm update', whitelist: ['npm'] }, // 拉新版本 + 跑依赖 postinstall
+      { command: 'npm rebuild', whitelist: ['npm'] }, // 执行依赖生命周期脚本
+      { command: 'yarn workspace app add lodash', whitelist: ['yarn'] }, // monorepo 真实联网安装
+      { command: 'cargo add serde', whitelist: ['cargo'] },
+      { command: 'go get github.com/x/y', whitelist: ['go'] },
+      { command: 'brew cask install wget', whitelist: ['brew'] }, // 中间 token `cask` 不再击穿
+    ];
+    for (const { command, whitelist } of cases) {
+      const verdict = policy.evaluateBashCommand(command, whitelist);
+      assert.strictEqual(verdict.level, 'confirm', command);
+      assert.strictEqual(verdict.reason, 'install', command);
+      assert.ok(verdict.installNames.length > 0, command);
+    }
+  });
+
+  test('对照形态继续成立（字面 / 显式通配 / 空白名单 / 裸 npx）', () => {
+    const cases = [
+      { command: 'brew install wget', whitelist: ['brew'] },
+      { command: 'npm i x', whitelist: ['npm *'] },
+      { command: 'npm i x', whitelist: [] },
+      { command: 'npx foo', whitelist: ['npx'] },
+    ];
+    for (const { command, whitelist } of cases) {
+      const verdict = policy.evaluateBashCommand(command, whitelist);
+      assert.strictEqual(verdict.level, 'confirm', command);
+      assert.strictEqual(verdict.reason, 'install', command);
+    }
+  });
+
+  test('白名单不变式对：白名单命中 且 仍为 confirm/install（白名单命中不再蕴含免确认）', () => {
+    const command = 'brew "install" wget';
+    // 白名单口径**未改**：仍按原始文本做前缀匹配（引号不参与归一化）
+    assert.strictEqual(policy.matchesWhitelist(command, ['brew']), true);
+    // 但 install 短路先于白名单 —— 结论是「白名单命中不再蕴含免确认」
+    assert.strictEqual(policy.evaluateBashCommand(command, ['brew']).level, 'confirm');
+  });
+});
+
+describe('GAP 1 默认拒绝语义（SEC-01）', () => {
+  const EXPECTED_TOOLS = [
+    'npx', 'bunx', 'npm', 'pnpm', 'yarn', 'bun',
+    'pip', 'pip3', 'pipx', 'uv', 'uvx', 'brew', 'cargo', 'go', 'gem',
+  ];
+
+  test('工具集完整性：覆盖 15 项（含 bunx / pipx，REVIEW IN-01），name 非空、readOnly 为数组', () => {
+    const tools = policy.PACKAGE_MANAGER_TOOLS.map((entry) => entry.tool);
+    for (const tool of EXPECTED_TOOLS) {
+      assert.ok(tools.includes(tool), `工具集应包含 ${tool}`);
+    }
+    assert.strictEqual(new Set(tools).size, tools.length, '工具集不应有重复项');
+    for (const entry of policy.PACKAGE_MANAGER_TOOLS) {
+      assert.ok(typeof entry.name === 'string' && entry.name.trim().length > 0, `${entry.tool} 的 name 应非空`);
+      assert.ok(Array.isArray(entry.readOnly), `${entry.tool} 的 readOnly 应为数组`);
+      assert.strictEqual(typeof entry.bareIsInstall, 'boolean', `${entry.tool} 的 bareIsInstall 应为布尔`);
+    }
+  });
+
+  test('表驱动只读：每条 readOnly 动词都降级，未列入清单的动词返回家族名（默认拒绝）', () => {
+    for (const entry of policy.PACKAGE_MANAGER_TOOLS) {
+      for (const verb of entry.readOnly) {
+        const command = `${entry.tool} ${verb}`;
+        assert.strictEqual(policy.matchInstall(command), null, `${entry.tool}: ${command}`);
+        // 证明「真的降级」而不只是 matchInstall 返回 null（直接调与经裁决两条路径都要看）
+        assert.notStrictEqual(policy.evaluateBashCommand(command, []).reason, 'install', `${entry.tool}: ${command}`);
+      }
+      // 复合式只读（本计划只有 uv pip …）：真实形态是 `<tool> <composite.verb> <sub>`
+      if (entry.composite) {
+        for (const sub of entry.composite.subVerbs) {
+          const command = `${entry.tool} ${entry.composite.verb} ${sub}`;
+          assert.strictEqual(policy.matchInstall(command), null, `${entry.tool}: ${command}`);
+          assert.notStrictEqual(policy.evaluateBashCommand(command, []).reason, 'install', `${entry.tool}: ${command}`);
+        }
+      }
+      // 未列入只读清单的动词 → 家族名（默认拒绝的主力断言）
+      const unknown = `${entry.tool} some-unknown-verb`;
+      assert.strictEqual(policy.matchInstall(unknown), entry.name, unknown);
+      // 裸形式的两种判据：包执行器为真（无「只读的裸形式」），其余为 null（只打印帮助）
+      if (entry.bareIsInstall) {
+        assert.notStrictEqual(policy.matchInstall(entry.tool), null, entry.tool);
+      } else {
+        assert.strictEqual(policy.matchInstall(entry.tool), null, entry.tool);
+      }
+    }
+    // 已知例外：`python3` 刻意不入工具集（首 token 已被危险解释器表强制确认），
+    // `python3 -m pip list` 只由纵深表判定 → 不命中 install 档。
+    assert.strictEqual(policy.matchInstall('python3 -m pip list'), null);
+    assert.strictEqual(policy.matchInstall('python -m pip install requests'), 'python -m pip 安装包');
+  });
+
+  test('readOnlyRes 结构断言：空 readOnly 的工具不生成动词式正则，全表无空捕获组', () => {
+    for (const tool of ['npx', 'bunx', 'uvx']) {
+      assert.strictEqual(
+        policy.PACKAGE_MANAGER_TOOL_MAP.get(tool).readOnlyRes.length,
+        0,
+        `${tool} 的 readOnly 为空 → 不应生成任何只读正则（空捕获组会放行一切带参形态）`,
+      );
+    }
+    for (const entry of policy.PACKAGE_MANAGER_TOOLS) {
+      for (const re of policy.PACKAGE_MANAGER_TOOL_MAP.get(entry.tool).readOnlyRes) {
+        assert.ok(!/\(\)/.test(re.source), `${entry.tool} 的只读正则不应含空捕获组：${re.source}`);
+      }
+    }
+  });
+
+  test('清单一致性：guarded 的每个 verb 都在 readOnly 内（单一来源，防两处漂移）', () => {
+    for (const entry of policy.PACKAGE_MANAGER_TOOLS) {
+      for (const g of entry.guarded || []) {
+        assert.ok(entry.readOnly.includes(g.verb), `${entry.tool}: guarded 词条 ${g.verb} 应同时列在 readOnly 内`);
+        assert.ok(typeof g.pattern === 'string' && g.pattern.length > 0, `${entry.tool}: ${g.verb} 应有守卫正则`);
+      }
+    }
+  });
+
+  test('pipx 双侧（blocker 1 回归哨兵）：只读清单可达 且 安装形态命中', () => {
+    // 只读侧：纵深条目**动词限定**才让 readOnly: ['list'] 可达（裸 /\bpipx\b/ 会遮蔽它）
+    assert.strictEqual(policy.matchInstall('pipx list'), null);
+    assert.strictEqual(policy.evaluateBashCommand('pipx list', ['pipx']).level, 'allow');
+    // 安装侧
+    assert.strictEqual(policy.matchInstall('pipx install black'), '包执行器（pipx）');
+    for (const whitelist of [[], ['pipx']]) {
+      const verdict = policy.evaluateBashCommand('pipx install black', whitelist);
+      assert.strictEqual(verdict.level, 'confirm');
+      assert.strictEqual(verdict.reason, 'install');
+      assert.ok(verdict.installNames.length > 0);
+    }
+    // 包执行器没有「只读的裸形式」，与 npx 同判
+    assert.strictEqual(policy.matchInstall('pipx'), '包执行器（pipx）');
+    // 裸条目（纵深层的 bunx 条目）+ 空只读清单
+    assert.strictEqual(policy.evaluateBashCommand('bunx cowsay hi', []).reason, 'install');
+  });
+
+  test('纵深层仍生效：首 token 非包管理器的形态仍被既有安装表承接', () => {
+    for (const command of ['echo "npm install"', 'echo y | npm i x', 'python3 -m pip install requests']) {
+      assert.notStrictEqual(policy.matchInstall(command), null, command);
+    }
+    assert.strictEqual(policy.matchInstall('echo npm'), null);
+  });
+});
+
+describe('只读豁免的承重墙（空清单 / 纵深优先 / 形态化 / 别名）', () => {
+  test('空 readOnly 清单的执行器仍默认拒绝（防退化行为断言）', () => {
+    const cases = [
+      { command: 'npx foo', whitelist: ['npx'] },
+      { command: 'npx create-app', whitelist: ['npx'] },
+      { command: 'npx skills add -g -y', whitelist: ['npx'] },
+      { command: 'bunx cowsay hi', whitelist: [] },
+      { command: 'uvx foo', whitelist: ['uvx *'] },
+    ];
+    for (const { command, whitelist } of cases) {
+      const verdict = policy.evaluateBashCommand(command, whitelist);
+      assert.strictEqual(verdict.level, 'confirm', command);
+      assert.strictEqual(verdict.reason, 'install', command);
+      assert.ok(verdict.installNames.length > 0, command);
+    }
+    // 防退化证据（不宣称它们单独能证明该护栏 —— 见下一条结构断言）
+    for (const command of ['npx foo', 'bunx cowsay hi', 'uvx foo']) {
+      assert.notStrictEqual(policy.matchInstall(command), null, command);
+    }
+  });
+
+  test('空捕获组的危害本身可复算（护栏理由；不需要真实工具）', () => {
+    // 空捕获组匹配空串 ⇒ 该工具**带至少一个参数**的一切形态都判只读（裸工具名不命中，式中有 \s+）。
+    // 在本计划顺序下这条隐患被纵深层的裸条目掩盖（先命中即返回）—— 所以它是**防御纵深**，
+    // 真正的判据是上一条的结构断言（readOnlyRes.length === 0 且全表无空捕获组）。
+    const unguarded = new RegExp('\\btoy\\b' + policy.FLAG_TOLERANCE + '\\s+\\b(' + [].join('|') + ')\\b');
+    assert.strictEqual(unguarded.test('toy anything'), true);
+    assert.strictEqual(unguarded.test('toy'), false);
+  });
+
+  test('纵深优先：旗标取值不得吞掉子命令（真实安装命令不被降级为只读）', () => {
+    assert.strictEqual(policy.matchInstall('npm -g install list'), 'npm 安装依赖');
+    assert.strictEqual(policy.matchInstall('npm --global install ls'), 'npm 安装依赖');
+    assert.strictEqual(policy.matchInstall('brew --quiet install info'), 'Homebrew 安装包');
+    // 同机制的第二个实例（pipx）：纵深条目旗标容忍 → 先命中；
+    // 缺纵深优先时只读正则会把 `--quiet install` 当旗标+取值吞掉、取子命令 `list` 判只读。
+    assert.strictEqual(policy.matchInstall('pipx --quiet install list'), '包执行器（pipx）');
+
+    const guarded = [
+      { command: 'npm -g install list', whitelist: ['npm'] },
+      { command: 'npm --global install ls', whitelist: ['npm'] },
+      { command: 'brew --quiet install info', whitelist: ['brew'] },
+    ];
+    for (const { command, whitelist } of guarded) {
+      const verdict = policy.evaluateBashCommand(command, whitelist);
+      assert.strictEqual(verdict.level, 'confirm', command);
+      assert.strictEqual(verdict.reason, 'install', command);
+      assert.ok(verdict.installNames.length > 0, command);
+    }
+
+    // 两侧边界（**结构性残余**，不是安全保证）：既有锁定负例要求
+    // `pnpm --filter a run build` 判只读（`a` 是 `--filter` 的取值）⇒ 取值槽必须能吞 token
+    // ⇒ `npm -g <未知动词> <只读同名词>` 可判只读（改前亦为 null，无回归）。
+    // 这里同时钉住两侧，防止未来把任一侧「优化」成另一侧。
+    assert.strictEqual(policy.matchInstall('npm -g update ls'), null);
+    assert.strictEqual(policy.matchInstall('pnpm --filter a run build'), null);
+  });
+
+  test('只读条目形态化：init / audit 的受限形态', () => {
+    // 只读形态
+    for (const command of ['npm init', 'npm init -y', 'npm init --yes', 'npm audit', 'npm audit --json', 'npm audit --production', 'pnpm audit']) {
+      assert.strictEqual(policy.matchInstall(command), null, command);
+      assert.notStrictEqual(policy.evaluateBashCommand(command, []).reason, 'install', command);
+    }
+    // 取新代码的形态 → 安装档（改前实测：`npm init react-app my-app` / `npm audit fix` /
+    // `pnpm audit --fix` 在裸白名单下均为 `allow` 零卡片；`npm init <initializer>`
+    // 文档化等价于 `npx create-<initializer>`）
+    for (const command of ['npm init react-app my-app', 'npm init -y react-app', 'npm audit fix', 'npm audit fix --force', 'npm audit --fix', 'pnpm audit --fix']) {
+      assert.notStrictEqual(policy.matchInstall(command), null, command);
+    }
+    const guarded = [
+      { command: 'npm init react-app my-app', whitelist: ['npm'] },
+      { command: 'npm audit fix', whitelist: ['npm'] },
+      { command: 'pnpm audit --fix', whitelist: ['pnpm'] },
+    ];
+    for (const { command, whitelist } of guarded) {
+      const verdict = policy.evaluateBashCommand(command, whitelist);
+      assert.strictEqual(verdict.level, 'confirm', command);
+      assert.strictEqual(verdict.reason, 'install', command);
+    }
+    // 对照：create 本就非只读
+    assert.strictEqual(policy.matchInstall('pnpm create x'), 'pnpm 安装依赖');
+    assert.strictEqual(policy.matchInstall('yarn create x'), 'yarn 安装依赖');
+  });
+
+  test('生命周期别名与 test 同族（跑项目自身定义的脚本 → 只读）', () => {
+    for (const command of ['npm start', 'npm stop', 'npm restart', 'npm run-script build']) {
+      assert.strictEqual(policy.matchInstall(command), null, command);
+      assert.strictEqual(policy.evaluateBashCommand(command, []).reason, 'default', command);
+      assert.strictEqual(policy.evaluateBashCommand(command, ['npm']).level, 'allow', command);
+    }
+    // 漏补会被标成安装档 + riskLevel:'high' + 「将从网络下载并运行第三方代码」= 事实错误标注
+    // 同族补齐的依据：`npm start` / `stop` / `restart` / `run-script` 与 `run` / `test` 同判据；
+    // `pnpm` / `yarn` / `bun` 的同类别名**未收录**（存疑不收 → 强制确认，方向安全的保守误报）。
+  });
+});
+
+describe('GAP 1 源码不变量（纵深优先位置 / 非空守卫 / JSDoc）', () => {
+  test('源码：matchInstall 内纵深表遍历出现在只读判定之前（纵深优先的位置不变量）', () => {
+    const body = functionBody(readSource('ai-bash-policy.js'), 'matchInstall');
+    const deepIdx = body.indexOf('PACKAGE_MANAGER_INSTALL_PATTERNS');
+    const readOnlyIdx = body.indexOf('readOnlyRes');
+    assert.ok(deepIdx >= 0, 'matchInstall 应遍历纵深表');
+    assert.ok(readOnlyIdx >= 0, 'matchInstall 应查只读正则');
+    assert.ok(deepIdx < readOnlyIdx, '纵深表遍历必须出现在 readOnlyRes 判定之前（纵深优先）');
+  });
+
+  test('源码：只读正则构造处含非空守卫（空捕获组硬约束）', () => {
+    const source = readSource('ai-bash-policy.js');
+    assert.ok(source.includes('const FLAG_TOLERANCE'), '应有共用旗标容忍片段常量');
+    assert.ok(source.includes('const PACKAGE_MANAGER_TOOLS = ['), '应有工具集常量');
+    assert.ok(source.includes('const PACKAGE_MANAGER_TOOL_MAP'), '应有派生只读正则表');
+    const guardIdx = source.indexOf('if (verbs.length > 0)');
+    const joinIdx = source.indexOf("verbs.join('|')");
+    assert.ok(guardIdx >= 0, '只读动词式构造处应有 verbs.length > 0 守卫');
+    assert.ok(joinIdx > guardIdx, '守卫必须出现在 verbs.join 之前');
+  });
+
+  test('源码：PACKAGE_MANAGER_TOOLS 的 JSDoc 含准入判据 / 形态化 / 纵深优先等语义', () => {
+    const source = readSource('ai-bash-policy.js');
+    const start = source.indexOf('const PACKAGE_MANAGER_TOOLS = [');
+    assert.ok(start >= 0);
+    const doc = source.slice(Math.max(0, start - 6000), start);
+    for (const token of ['准入判据', '不取新代码', '执行第三方代码', '形态化', '纵深优先', 'pnpm --filter a run build']) {
+      assert.ok(doc.includes(token), `PACKAGE_MANAGER_TOOLS 的 JSDoc 应含 ${token}`);
+    }
+  });
+
+  test('源码：纵深表 JSDoc 含 ⑦-e 的新残余记录，且既有七个子串仍在', () => {
+    const doc = installTableDoc(readSource('ai-bash-policy.js'));
+    for (const token of ['⑦-e', '不覆盖', '变量间接', '命令替换', '字面量误报', '频率', '难度', 'apt']) {
+      assert.ok(doc.includes(token), `纵深表 JSDoc 应含 ${token}`);
+    }
+    assert.ok(doc.includes('纵深'), '纵深表 JSDoc 应说明它已退居纵深层');
+  });
+});
+
 
 /**
  * D-13 家族覆盖表（13 族，逐族 ≥1 条正例；未来新增家族只需加一行）
@@ -632,7 +962,10 @@ const READONLY_NEGATIVES = [
   { family: 'pip 只读子命令', commands: ['pip list', 'pip show x'] },
   { family: 'cargo / go 只读子命令', commands: ['cargo search x', 'go list ./...'] },
   { family: '裸命令名（无子命令）', commands: ['npm', 'pnpm', 'yarn', 'bun', 'brew', 'pip', 'uv'] },
-  { family: '近似串（词边界）', commands: ['npm runx', 'brewx'] },
+  // `npm runx` 不再是只读反例：它是 npm 的**未知子命令**，在默认拒绝规则下走强制确认
+  // （fail-safe，已由「GAP 1 默认拒绝语义」组的专项断言钉住）。`brewx` 不同 —— 它是
+  // **另一个工具名**而不是 brew 的未知子命令，词边界不变式在工具名层继续成立。
+  { family: '近似串（词边界）', commands: ['brewx'] },
 ];
 
 describe('P1 门禁信号（SEC-01 / P1-b-1..b-5）', () => {

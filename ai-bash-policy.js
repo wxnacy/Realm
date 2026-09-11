@@ -6,8 +6,12 @@
  * - confirm ：强制确认，即使命中白名单也无效。本档有**两个互不包含的触发源**：
  *             ① 危险命令表（DANGEROUS_PATTERNS / DANGEROUS_INTERPRETERS）→ reason 'danger'
  *                语义：本机破坏性操作（rm / sudo / chmod …）
- *             ② 包管理器安装表（PACKAGE_MANAGER_INSTALL_PATTERNS）→ reason 'install'
- *                语义：从网络获取并执行第三方代码（npx / npm i / pip install / brew install …）
+ *             ② 包管理器安装档（PACKAGE_MANAGER_TOOLS / matchInstall）→ reason 'install'
+ *                语义：从网络获取并执行第三方代码（npx / npm i / pip install / brew install …）。
+ *                **判定规则是默认拒绝** —— 首 token（跳过 KEY=VALUE 赋值前缀、取 basename）
+ *                命中包管理器工具集时，除该工具的**显式只读子命令**外一律强制确认；
+ *                匹配前先做一次共用词法归一化（stripShellQuoting：去反斜杠转义 + 去引号），
+ *                使 `brew "install" wget` 这类 argv 与 `brew install wget` 等价的写法判定相同。
  *             默认未命中白名单 → reason 'default'
  *
  * 档位数量仍是**三档**：level 只有 'allow' / 'confirm' 两个取值，上述 ①② 是
@@ -186,7 +190,29 @@ const DANGEROUS_INTERPRETERS = new Set([
 ]);
 
 /**
+ * 旗标容忍片段（**共用**：纵深表 PACKAGE_MANAGER_INSTALL_PATTERNS 与只读正则 readOnlyRes
+ * 使用同一份定义，防止两层口径漂移）。
+ *
+ * 语义：消费零到多组「旗标 + 至多一个取值 token」，每组都以 `-` 起头 ——
+ * 因此 `npm -g i x` / `npm --prefix ./app i x` / `pnpm --filter a add b` 也能被覆盖。
+ *
+ * **结构性代价（具名残余）**：取值槽与子命令在词法上不可区分 ——
+ * `pnpm --filter a run build` 的 `a` 是取值（既有锁定负例要求它判只读），
+ * 同一机制会让 `npm -g install list` 被读成「旗标 `-g` 取值 `install`、子命令 `list`」。
+ * 缓解手段是 matchInstall 内的**纵深优先**（先跑本表，命中即返回），
+ * 残余部分写在 PACKAGE_MANAGER_TOOLS 的 JSDoc ⑤ 与三份用户文档的残余段。
+ */
+const FLAG_TOLERANCE = '(?:\\s+-\\S+(?:\\s+(?!-)\\S+)?)*';
+
+/**
  * 包管理器安装模式表（SEC-01 / D-13 / D-14 / D-16）
+ *
+ * ⚠️ **本表在默认拒绝规则落地后已退居「纵深」层**（见 PACKAGE_MANAGER_TOOLS 的 JSDoc ④）：
+ *    matchInstall 的主判定是「首 token 命中工具集 → 显式只读清单降级，否则默认拒绝」；
+ *    本表承担两类形态 —— ① 首 token **不是**包管理器但段内嵌有安装命令的形态
+ *    （`echo "npm install"`、`echo y | npm i x`、`python3 -m pip install x`）；
+ *    ② 工具命中时的**纵深优先**前置判定（既有表能识别的安装形态绝不被只读豁免降级）。
+ *    **不得删除或空置本表** —— 上述两类形态只由它承接。
  *
  * ① 定位：与 DANGEROUS_PATTERNS **平行但语义分离** —— 危险表表达「本机破坏性操作」
  *    （rm / sudo / chmod …），本表表达「从网络获取并执行第三方代码」。二者命中同样
@@ -230,13 +256,32 @@ const DANGEROUS_INTERPRETERS = new Set([
  *    b) **命令替换 / 子 shell**（反引号包裹的 `npm i x`、`$(npm i x)`、`sh -c "npm i x"`）：
  *       实测**会命中**本表（`\bnpm\b` 在这些构造里仍是词边界）→ 走 install 档，属向安全侧倾斜的
  *       偏差。即便日后模式收紧到不再命中，它也仍然不命中白名单（整段不以 `npm` 开头）→ 落到
- *       confirm/default。**这是「漏检 ≠ 免确认」的兜底性质：本表漏判永远只会退化成普通确认卡片。**
+ *       confirm/default。
+ *
+ *       本表漏判后剩下的漏检类别只有**一条**：「首 token 不是包管理器」（变量间接
+ *       `NPM=npm $NPM i x` 等）。该类**不命中白名单**（前缀不同）→ 仍走 confirm/default 卡片，
+ *       **「漏检 ≠ 免确认」在它身上成立**。改前那些「命中白名单前缀」的漏检形态
+ *       （子命令词法改写 `brew "install" wget`、中间 token `brew cask install`、
+ *       未收录子命令 `npm update`）已被 PACKAGE_MANAGER_TOOLS 的**默认拒绝**规则消除 ——
+ *       它们现在一律进 install 档，不再有「白名单命中 ⇒ 免确认」的通道。
  *    c) **字面量误报**（`echo "npm install"`、`grep -rn "pip install" docs/`、`echo npx`、
  *       `npm ci --dry-run`）：**会命中**。频率：中（AI 常把命令写进 echo / 注释 / 字符串）；
  *       难度：不适用（误报不是绕过，是代价）；后果：**多一次确认**而非漏放 —— 失败方向正确。
  *       刻意不为它加「引号内不判」的规则：那会同时放过 `sh -c "npm i x"`。
  *    d) **发行版包管理器**（apt / pacman / dnf / zypper / apk）不在本表：本阶段目标平台为 macOS，
  *       这些家族不涉及（属显式记录的范围限制，不是遗漏）。
+ *
+ *    ⑦-e) **只读豁免侧的结构性残余 —— 旗标取值与子命令词法不可区分**（本计划新增，具名记录）：
+ *       形态为 `npm -g <未知动词> <只读同名词>`，典型如 `npm -g update ls`。
+ *       频率：低 —— 需要「旗标 + 未知动词 + 名为只读动词的包名」三件事同时成立；
+ *       难度：中，且达成后并不免确认（见后果）；后果：**只可能被判只读**（该形态本身仍不命中白名单
+ *       前缀时走 confirm/default；命中白名单前缀时零卡片 —— 这是本条残余的真实代价）。
+ *       **成因不可消除**：既有锁定负例要求 `pnpm --filter a run build` 判为只读（`a` 是 `--filter`
+ *       的取值），同一 `FLAG_TOLERANCE` 取值槽必然也能吞掉子命令。已用 **纵深优先**
+ *       （matchInstall 命中工具集后先跑本表）把可识别面压到最小 —— 本表能识别的三条真实安装命令
+ *       `npm -g install list` / `npm --global install ls` / `brew --quiet install info` 均已被收回
+ *       install 档；剩余部分如实告知（三份用户文档的残余段同步记录），不给绝对保证。
+ *       诊断：改前亦为 `null`（**无回归**），两侧边界由测试同时钉住。
  */
 const PACKAGE_MANAGER_INSTALL_PATTERNS = [
   { pattern: /\bnpx\b/, name: '包执行器（npx）' },
@@ -244,6 +289,14 @@ const PACKAGE_MANAGER_INSTALL_PATTERNS = [
   { pattern: /\bpnpm\b(?:\s+-\S+(?:\s+(?!-)\S+)?)*\s+\b(add|install|i|dlx|exec)\b/, name: 'pnpm 安装依赖' },
   { pattern: /\byarn\b(?:\s+-\S+(?:\s+(?!-)\S+)?)*\s+\b(add|install|dlx|exec)\b/, name: 'yarn 安装依赖' },
   { pattern: /\bbun\b(?:\s+-\S+(?:\s+(?!-)\S+)?)*\s+\b(add|install|x|i)\b/, name: 'bun 安装依赖' },
+  // `bunx` 用**裸形式**安全：它的 PACKAGE_MANAGER_TOOLS.readOnly 为 []，
+  // 纵深层的裸条目不可能遮蔽一个不存在的只读清单（IN-01 / D-13 家族覆盖）。
+  { pattern: /\bbunx\b/, name: '包执行器（bunx）' },
+  // `pipx` **必须动词限定 + 旗标容忍**，不得用裸 /\bpipx\b/ —— 纵深优先意味着裸条目会先命中
+  // 任何含 pipx 的段，使 pipx 的非空 readOnly（['list']）整个不可达（`pipx list` 变成安装档），
+  // 与 PACKAGE_MANAGER_TOOLS 的表驱动断言、三份用户文档同时矛盾（checker blocker 1）。
+  // 词表漏掉某个安装动词不会造成漏放（未命中纵深表即落**默认拒绝**），只可能多一次确认。
+  { pattern: new RegExp('\\bpipx\\b' + FLAG_TOLERANCE + '\\s+\\b(install|install-all|reinstall|reinstall-all|upgrade|upgrade-all|inject|uninject|uninstall|uninstall-all|run|runpip|ensurepath)\\b'), name: '包执行器（pipx）' },
   { pattern: /\bpython3?\b(?:\s+-\S+(?:\s+(?!-)\S+)?)*\s+-m\s+pip\s+install\b/, name: 'python -m pip 安装包' },
   { pattern: /\buv\b(?:\s+-\S+(?:\s+(?!-)\S+)?)*\s+(pip\s+install|add|tool\s+install|sync)\b/, name: 'uv 安装包' },
   { pattern: /\buvx\b/, name: 'uv 包执行器（uvx）' },
@@ -273,31 +326,258 @@ function matchDangerous(seg) {
 }
 
 /**
- * 命令段首 token 的引号剥离（**只在 matchInstall 内部使用**）
+ * 共用词法归一化：抹平 shell 的引号与反斜杠转义（**只在 matchInstall 内部使用**）
  *
- * 用途：覆盖 `'npm' i x` / `"pip3" install x` 这类**用 shell 引号包裹命令名**的形态 ——
- * 不剥离则引号会插在命令名与子命令之间，`\bnpm\b(?:…)\s+\binstall\b` 的衔接错位，
- * 安装档会漏检。
- * 边界：只剥离开头一对引号、且引号内须是命令字形态（`[A-Za-z][\w.-]*`）；
- * `echo "npm install"` 这类字面量不会被它改写。
- * **不要**把它提到 normalizeSegment 层做统一处理 —— 那会同时移动 matchDangerous 与
- * matchesWhitelist 的匹配口径，而这两者的行为由既有断言（32 例）锁定。
+ * ① 用途：shell 的引号与反斜杠只影响 argv 的**词法拼装**，不影响 argv 本身。
+ *    `/bin/sh -c 'set -- brew "install" wget; printf "%s " "$@"'` 与
+ *    `/bin/sh -c 'set -- brew install wget; printf "%s " "$@"'` 的展开逐字相同。
+ *    抹平词法噪音后，「工具名 + 子命令」的判定与 shell 的真实 argv 一致 ——
+ *    **词法改写不再有安全后果**（GAP 1 / CR-01 的靶心）。
+ * ② 覆盖形态：`brew "install" wget`（引号包裹）/ `brew \install wget`（反斜杠转义）/
+ *    `brew ins""tall wget`（引号拼接）/ `'npm' i x`（命令名引号包裹）。
+ * ③ 边界：**只在 `matchInstall` 的判定内使用**，不得提到 `normalizeSegment` /
+ *    `matchesWhitelist` / `matchDangerous` 层做统一归一化 —— 那会同时移动白名单与危险判定的
+ *    匹配口径，而这两者的行为由既有 32 例断言锁定（install 短路先于白名单，
+ *    已足以消除词法改写的安全后果）。
  *
  * @param {string} seg - 命令段
- * @returns {string} 剥离首 token 引号后的命令段
+ * @returns {string} 抹平词法噪音后的命令段
  */
-function stripLeadingQuotes(seg) {
-  return normalizeSegment(seg).replace(/^(['"])([A-Za-z][\w.-]*)\1/, '$2');
+function stripShellQuoting(seg) {
+  return normalizeSegment(seg)
+    .replace(/\\(?=\S)/g, '') // 去反斜杠转义（`brew \install` → `brew install`）
+    .replace(/['"]/g, ''); // 去引号（覆盖包裹与拼接两种形态）
 }
 
 /**
- * 判定单个命令段是否为包管理器安装 / 包执行
+ * 包管理器工具集（「首 token 默认拒绝」规则的判定表，D-13 家族覆盖 / D-16 强化实现）
+ *
+ * ① **为什么是默认拒绝**：GAP 1（REVIEW CR-01）的成因是安装档原先用**子命令黑名单**匹配 ——
+ *    只要首 token 不变，任何中间 token（`brew cask install`）或子命令词法改写
+ *    （`brew "install"` / `brew \install` / `brew ins""tall`）都能击穿；而白名单是**文本前缀**
+ *    匹配，这些形态全部保留前缀 → 命中白名单 → `allow` 零卡片。改为「首 token 命中工具集 →
+ *    默认强制确认，仅显式只读子命令降级」后，漏检面收敛到「首 token 不是包管理器」这一条
+ *    可解释边界（该边界天然不命中白名单前缀），**D-14 的「install 短路先于 matchesWhitelist」
+ *    才真正成立**。**不得**退回子命令黑名单 / 白名单式放行（未命中即 null）的形态。
+ * ② **只读清单的准入判据**（D-16）：只收「**不取新代码** **且** **不执行第三方代码**」的子命令；
+ *    存疑一律不收（不收 = 多一次确认，方向安全）。误报的代价是多一次确认，漏报的代价是零卡片。
+ *    刻意不收的例子：`uv run`（隐式 sync 依赖）、`npm config`（`set` 可改 registry）、
+ *    `npm publish` / `pack`（跑项目自身生命周期脚本）、`npm owner` / `team` / `dist-tag`（写操作）。
+ * ③ **形态化**：一个词条若「只在部分形态下只读」，该词条必须**形态化** —— 词条留在 `readOnly`
+ *    （文档与表驱动断言的单一来源），实现走 `guarded` 的带守卫正则：
+ *      - `npm init`：`npm init <initializer>` 文档化等价于 `npx create-<initializer>`
+ *        （联网下载并执行第三方代码）→ 只有 `init` 后**不出现位置参数**（只允许旗标到段尾）时才只读；
+ *      - `npm` / `pnpm` 的 `audit`：`audit fix`（含 `--fix`）会安装修复版本（取新代码 +
+ *        跑安装生命周期）→ 只有**不含 `fix` 形态**时才只读。
+ *    **不重新审议 `run` / `test` 族**（D-16 已锁定为 read-only：误伤 `npm run dev` 会驱动用户把
+ *    `npm` 整族加白名单）：本计划只做**同族补齐** —— `start` / `stop` / `restart` / `run-script`
+ *    与 `run` / `test` 同判据（跑项目自身定义的脚本）。
+ * ④ **纵深优先**：`matchInstall` 在工具命中后**先**遍历 `PACKAGE_MANAGER_INSTALL_PATTERNS`，
+ *    命中即返回，未命中才查只读正则 —— 因为 `FLAG_TOLERANCE` 的取值槽与子命令在词法上
+ *    不可区分：只读正则会把 `npm -g install list`（=`npm install list`）读成
+ *    「旗标 `-g` 取值 `install`、子命令 `list`」而判只读。纵深优先把既有安装表能识别的
+ *    形态全部收回 install 档（`npm -g install list` / `npm --global install ls` /
+ *    `brew --quiet install info` / `pipx --quiet install list`）。
+ * ⑤ **结构性残余（具名记录）**：旗标取值与子命令不可区分是 `FLAG_TOLERANCE` 的固有代价 ——
+ *    既有锁定负例要求 `pnpm --filter a run build` 判只读（`a` 是 `--filter` 的取值），
+ *    同一机制使 `npm -g <未知动词> <只读同名词>`（如 `npm -g update ls`）仍判只读
+ *    （改前亦为 null，**无回归**）。已用纵深优先把可识别面压到最小，剩余部分如实记录在
+ *    三份用户文档的残余段，不给绝对保证。
+ * ⑥ **纵深层的条目不得遮蔽它自己的只读清单**：`pipx` 的 `readOnly` 非空（`['list']`），
+ *    因此纵深表的 pipx 条目**必须动词限定** —— 裸 `/\bpipx\b/` 会在纵深优先的位置先命中，
+ *    使该只读清单整个不可达（`pipx list` 变成安装档）。动词限定后两侧都可断言：
+ *    `pipx list` 判只读（与 `pip list` / `brew list` 同族）、`pipx install black` 判安装。
+ * ⑦ **本轮的取舍（不得静默扩散）**：`npm` 补入同族生命周期别名 `start` / `stop` / `restart` /
+ *    `run-script`；`pnpm` / `yarn` / `bun` 的同类别名**不收录**（各 CLI 的别名语义未逐一核验，
+ *    按「存疑一律不收」处理）→ `pnpm start` / `yarn start` / `bun start` 这类命令会落强制确认档，
+ *    卡片文案「将从网络下载并运行第三方代码」对这族命令**不准确**。这是**已接受的保守误报**
+ *    （方向安全：多一次卡片），不是遗漏。
+ * ⑧ `python` / `python3` **刻意不入工具集**：它们的首 token 已被 DANGEROUS_INTERPRETERS 强制确认
+ *    （danger 先于 install 返回），install 档无增量价值；`python3 -m pip install x` 的复合形态
+ *    由纵深表承接。
+ * ⑨ 残余（与本表无关，如实记录）：`NPM` / `RM` 等大写形态不命中（macOS 解析不区分大小写）——
+ *    属 REVIEW WR-05，**不在本计划范围**。
+ *
+ * 字段语义：
+ * - `tool`          首 token（`extractCommandName` 的 basename，跳过 `KEY=VALUE` 赋值前缀）
+ * - `name`          安装档家族名（卡片上展示；**逐字沿用既有断言锁定的名字**）
+ * - `readOnly`      显式只读子命令（**文档与表驱动断言的单一来源**；`guarded` 的词条同时列在此处）
+ * - `bareIsInstall` 裸命令名（含纯旗标形态）是否算安装档：四个包执行器为 true（无「只读的裸形式」），
+ *                   其余为 false（裸形式只打印帮助）
+ * - `guarded`       形态化的只读词条 `{ verb, pattern }`（pattern 是完整正则源码字符串）
+ * - `composite`     复合式只读 `{ verb, subVerbs }`（如 `uv pip list`）
+ */
+const PACKAGE_MANAGER_TOOLS = [
+  { tool: 'npx', name: '包执行器（npx）', readOnly: [], bareIsInstall: true },
+  { tool: 'bunx', name: '包执行器（bunx）', readOnly: [], bareIsInstall: true },
+  { tool: 'uvx', name: 'uv 包执行器（uvx）', readOnly: [], bareIsInstall: true },
+  { tool: 'pipx', name: '包执行器（pipx）', readOnly: ['list'], bareIsInstall: true },
+  {
+    tool: 'npm',
+    name: 'npm 安装依赖',
+    readOnly: [
+      'run', 'test', 'start', 'stop', 'restart', 'run-script',
+      'ls', 'list', 'view', 'audit', 'init', 'outdated', 'help', 'root', 'ping',
+      'doctor', 'fund', 'version', 'whoami', 'dedupe', 'prune', 'completion',
+      'search', 'docs', 'repo', 'bugs', 'explain', 'why', 'bin', 'prefix',
+    ],
+    guarded: [
+      // `npm init <initializer>` ≡ `npx create-<initializer>`（取新代码）→ 只有「init 之后
+      // 只允许旗标直到段尾」才只读；`npm init -y react-app` 因位置参数而不命中 → 默认拒绝。
+      { verb: 'init', pattern: '\\bnpm\\b' + FLAG_TOLERANCE + '\\s+\\binit\\b(?:\\s+-{1,2}\\S+)*\\s*$' },
+      // `audit fix` / `audit --fix` 安装修复版本（取新代码）→ 负向先行断言拒掉紧跟的 fix 形态。
+      { verb: 'audit', pattern: '\\bnpm\\b' + FLAG_TOLERANCE + '\\s+\\baudit\\b(?!\\s+-{0,2}fix\\b)' },
+    ],
+    bareIsInstall: false,
+  },
+  {
+    tool: 'pnpm',
+    name: 'pnpm 安装依赖',
+    readOnly: [
+      'run', 'test', 'ls', 'list', 'why', 'outdated', 'audit',
+      'licenses', 'root', 'bin', 'doctor', 'help', 'version',
+    ],
+    guarded: [
+      { verb: 'audit', pattern: '\\bpnpm\\b' + FLAG_TOLERANCE + '\\s+\\baudit\\b(?!\\s+-{0,2}fix\\b)' },
+    ],
+    bareIsInstall: false,
+  },
+  {
+    tool: 'yarn',
+    name: 'yarn 安装依赖',
+    readOnly: [
+      'run', 'test', 'ls', 'list', 'why', 'info', 'outdated',
+      'audit', 'licenses', 'bin', 'root', 'help', 'version',
+    ],
+    bareIsInstall: false,
+  },
+  {
+    tool: 'bun',
+    name: 'bun 安装依赖',
+    readOnly: ['run', 'test', 'ls', 'list', 'help', 'version', 'why', 'outdated', 'audit'],
+    bareIsInstall: false,
+  },
+  {
+    tool: 'pip',
+    name: 'pip 安装包',
+    readOnly: ['list', 'show', 'freeze', 'check', 'help', 'version', 'debug'],
+    bareIsInstall: false,
+  },
+  {
+    tool: 'pip3',
+    name: 'pip 安装包',
+    readOnly: ['list', 'show', 'freeze', 'check', 'help', 'version', 'debug'],
+    bareIsInstall: false,
+  },
+  {
+    tool: 'uv',
+    name: 'uv 安装包',
+    // 动词式只读 + 复合式只读（`uv pip <sub>`）；`uv run` 刻意不收（隐式 sync 依赖 → 取新代码）。
+    readOnly: [
+      'tree', 'lock', 'export', 'version', 'help', 'init', 'cache',
+      'list', 'show', 'freeze', 'check', 'inspect', 'debug',
+    ],
+    composite: { verb: 'pip', subVerbs: ['list', 'tree', 'show', 'freeze', 'check', 'inspect', 'debug'] },
+    bareIsInstall: false,
+  },
+  {
+    tool: 'brew',
+    name: 'Homebrew 安装包',
+    readOnly: [
+      'info', 'list', 'search', 'config', 'doctor', 'outdated',
+      'deps', 'uses', 'home', 'desc', 'cat', 'help', 'version',
+    ],
+    bareIsInstall: false,
+  },
+  {
+    tool: 'cargo',
+    name: 'cargo 安装包',
+    readOnly: ['search', 'tree', 'metadata', 'version', 'help', 'locate-project'],
+    bareIsInstall: false,
+  },
+  {
+    tool: 'go',
+    name: 'go 安装包',
+    readOnly: ['list', 'env', 'version', 'doc', 'help'],
+    bareIsInstall: false,
+  },
+  {
+    tool: 'gem',
+    name: 'gem 安装包',
+    readOnly: ['list', 'search', 'info', 'environment', 'help', 'version'],
+    bareIsInstall: false,
+  },
+];
+
+/**
+ * 工具名 → 只读正则集（模块加载时构造一次）
+ *
+ * `readOnlyRes` 的拼装次序**不可调换**，四条各司其职：
+ *   1. **动词式**：`\b<tool>\b` + FLAG_TOLERANCE + `\s+\b(verbs)\b`，其中
+ *      `verbs = readOnly.filter(v => !guardedVerbs.has(v))`。
+ *      ⚠ **硬约束：`verbs` 为空时（`npx` / `bunx` / `uvx`）必须跳过构造** ——
+ *      空捕获组 `\b()\b` 匹配空串，会让该工具**带至少一个参数**的一切形态都判只读
+ *      （裸工具名不命中，式中有 `\s+`）。空 `readOnlyRes` 的语义才是「该工具没有只读形态」
+ *      → `.some()` 恒 false → 默认拒绝。
+ *   2. **守卫式**：形态化的只读词条（`guarded`），pattern 已在表内拼好。
+ *   3. **复合式**：`uv pip list` 这类「工具 + 子工具 + 只读子命令」。
+ *   4. **裸形式**：`\b<tool>\b` + FLAG_TOLERANCE + `\s*$` —— 同时覆盖裸命令名（`npm`）与
+ *      纯旗标形态（`npm --version` / `uv --version` / `brew -v`），仅 `bareIsInstall === false`
+ *      的工具生成。
+ */
+const PACKAGE_MANAGER_TOOL_MAP = new Map(
+  PACKAGE_MANAGER_TOOLS.map((entry) => {
+    const guardedVerbs = new Set((entry.guarded || []).map((g) => g.verb));
+    const verbs = entry.readOnly.filter((v) => !guardedVerbs.has(v));
+    const readOnlyRes = [];
+    if (verbs.length > 0) {
+      readOnlyRes.push(new RegExp('\\b' + entry.tool + '\\b' + FLAG_TOLERANCE + '\\s+\\b(' + verbs.join('|') + ')\\b'));
+    }
+    for (const g of entry.guarded || []) readOnlyRes.push(new RegExp(g.pattern));
+    if (entry.composite) {
+      readOnlyRes.push(new RegExp('\\b' + entry.tool + '\\b' + FLAG_TOLERANCE + '\\s+' + entry.composite.verb + '\\s+\\b(' + entry.composite.subVerbs.join('|') + ')\\b'));
+    }
+    if (!entry.bareIsInstall) {
+      readOnlyRes.push(new RegExp('\\b' + entry.tool + '\\b' + FLAG_TOLERANCE + '\\s*$'));
+    }
+    return [entry.tool, { name: entry.name, readOnlyRes }];
+  }),
+);
+
+/**
+ * 判定单个命令段是否为包管理器安装 / 包执行（**默认拒绝**，D-13 / D-14 / D-16）
+ *
+ * 判定顺序（**顺序即语义，不得调换**）：
+ * 1. `stripShellQuoting` 抹平引号 / 反斜杠 / 引号拼接三类词法噪音
+ * 2. `extractCommandName` 取首 token（跳过 `KEY=VALUE` 赋值前缀 + 取 basename）
+ * 3. 首 token **命中工具集**：
+ *    a. **纵深优先** —— 先遍历 PACKAGE_MANAGER_INSTALL_PATTERNS，命中即返回（既有表能识别的
+ *       安装形态绝不被只读豁免降级）；
+ *    b. 未命中纵深表 → 查只读正则，命中则返回 `null`（降级为普通处理 / 白名单语义）；
+ *    c. 都不命中 → **默认拒绝**返回家族名（未列入只读清单的包管理器子命令一律强制确认）。
+ * 4. 首 token **未命中工具集**：仍按纵深表判定（`echo "npm install"` / `echo y | npm i x` /
+ *    `python3 -m pip install x` 这类首 token 非包管理器的形态）。
+ *
  * @param {string} seg - 命令段（原始文本即可，内部会规范化）
- * @returns {string|null} 命中返回安装档名称（中文），未命中返回 null
+ * @returns {string|null} 命中返回安装档家族名（中文），未命中返回 null
  */
 function matchInstall(seg) {
-  const n = stripLeadingQuotes(seg);
+  const n = stripShellQuoting(seg);
   if (!n) return null;
+  const toolName = extractCommandName(n);
+  const entry = toolName ? PACKAGE_MANAGER_TOOL_MAP.get(toolName) : undefined;
+
+  if (entry) {
+    // 纵深优先：既有安装表命中即 install（只读豁免不得降级它）
+    for (const { pattern, name } of PACKAGE_MANAGER_INSTALL_PATTERNS) {
+      if (pattern.test(n)) return name;
+    }
+    if (entry.readOnlyRes.some((re) => re.test(n))) return null;
+    // 默认拒绝：未列入只读清单的包管理器子命令一律强制确认
+    return entry.name;
+  }
+
+  // 纵深：首 token 不是包管理器时仍按既有表判定
   for (const { pattern, name } of PACKAGE_MANAGER_INSTALL_PATTERNS) {
     if (pattern.test(n)) return name;
   }
@@ -375,13 +655,17 @@ function validateWhitelistList(value) {
 
 module.exports = {
   normalizeSegment,
+  stripShellQuoting,
   splitCommandPipeline,
   extractCommandName,
   matchesWhitelist,
   matchDangerous,
   DANGEROUS_PATTERNS,
   DANGEROUS_INTERPRETERS,
+  FLAG_TOLERANCE,
   PACKAGE_MANAGER_INSTALL_PATTERNS,
+  PACKAGE_MANAGER_TOOLS,
+  PACKAGE_MANAGER_TOOL_MAP,
   matchInstall,
   evaluateBashCommand,
   validateWhitelistList,
