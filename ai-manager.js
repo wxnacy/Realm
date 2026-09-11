@@ -5634,7 +5634,7 @@ ${content}
       description: `在 AI 工作区（${workspaceDir}）内执行 bash 命令，工作目录固定为工作区根目录。`
         + '输出超过 2000 行或 50KB 会截断（全量输出存临时文件）。'
         + '命中白名单的命令自动执行；其余命令需用户在确认卡片上确认；'
-        + '危险命令（rm/sudo/kill 等）即使加入白名单也必须确认。'
+        + '危险命令（rm/sudo/kill 等）与包管理器安装命令（npx/npm i/pip install/brew install 等）即使加入白名单也必须确认。'
         + '命令失败（非零退出码、超时）会直接报错，可用较短超时试探性执行',
     });
 
@@ -5649,16 +5649,24 @@ ${content}
         let confirmedActionId = null;
         if (verdict.level === 'confirm') {
           const isDanger = verdict.reason === 'danger';
+          const isInstall = verdict.reason === 'install';
           const actionId = `bash_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
           const dangerHint = isDanger
             ? `检测到高危操作（${verdict.dangerNames.join('、')}），白名单对本命令无效`
-            : '该命令未命中白名单';
+            : isInstall
+              ? `检测到包管理器安装（${verdict.installNames.join('、')}）：`
+                + '将从网络下载并运行第三方代码；该命令不会因为加入白名单而免确认'
+              : '该命令未命中白名单';
           const confirmation = await requestActionConfirmation({
             actionId,
             type: 'execute_script',
-            title: isDanger ? 'AI 请求执行高危 Bash 命令' : 'AI 请求执行 Bash 命令',
+            title: isDanger
+              ? 'AI 请求执行高危 Bash 命令'
+              : isInstall
+                ? 'AI 请求安装第三方软件包'
+                : 'AI 请求执行 Bash 命令',
             description: `${dangerHint}\n\n$ ${params.command}`,
-            riskLevel: isDanger ? 'high' : 'medium',
+            riskLevel: (isDanger || isInstall) ? 'high' : 'medium',
             timeoutMs: 120000, // bash 命令需要用户读完再决策，30s 默认值容易误取消
           });
           if (!confirmation.confirmed) {
