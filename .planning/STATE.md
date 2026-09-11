@@ -3,18 +3,18 @@ gsd_state_version: "1.0"
 milestone: v2.6
 milestone_name: AI 助手技能（Skill）能力
 current_phase: 47
-current_phase_name: bash
+current_phase_name: 内置技能播种 + bash 策略加固
 status: executing
-stopped_at: Phase 47 context gathered
-last_updated: "2026-09-11T08:22:56.761Z"
+stopped_at: Completed 47-01-PLAN.md
+last_updated: "2026-09-11T09:36:02.668Z"
 last_activity: 2026-09-11
-last_activity_desc: Phase 46 complete, transitioned to Phase 47
-state_head: c4c58feac1aa9140cb5dc8e98f5dc927e1155f98
+last_activity_desc: Phase 47 execution started
+state_head: 02d8a936dda47288469840949fe37c110ee30d87
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 8
-  completed_plans: 4
+  completed_plans: 5
   percent: 17
 ---
 
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-09-11)
 
 ## Current Position
 
-Phase: 47 (bash) — READY TO EXECUTE
-Plan: Not started
+Phase: 47 (内置技能播种 + bash 策略加固) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-09-11 — Phase 46 complete, transitioned to Phase 47
+Last activity: 2026-09-11 — Phase 47 execution started
 
 Progress: [██░░░░░░░░] 17%
 
@@ -95,6 +95,7 @@ Progress: [██░░░░░░░░] 17%
 | Phase 46 P2 | 3min | 3 tasks | 2 files |
 | Phase 46 P3 | 12min | 3 tasks | 2 files |
 | Phase 46 P4 | 14min | 3 tasks | 3 files |
+| Phase 47 P1 | 12min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -169,6 +170,9 @@ Recent decisions affecting current work:
 - [Phase 46]: 46-03：description 类 invalid_metadata 跳过、name 类不跳过 —— 46-02 的 D-08（以目录名重写并保留）与 46-03/SKILL-06 的「非法 name 被跳过」措辞冲突，按更具体的锁定决策 D-08 调和：description 是渐进式披露下模型匹配技能的唯一依据（不可用即永不触发，必须跳过），name 不一致是可被目录名权威化解的告警（丢弃等于静默删除用户从 GitHub 导入的合法技能）
 - [Phase 46]: 46-03：prompt 段预算的 entryCost 改用边际成本 format([dummy, skill]) - format([dummy]) —— 计划原文 format([skill]) - format([dummy]) 让每条重复计入一次前言，k 条时累计口径比真实段长少 (k-1) 倍前言，会把贪心放行到超预算（实测 40 条技能段长 9404 > 8000）
 - [Phase 46]: 46-03：errors[] 在每次刷新的 try 开工处复位（目录缺失诊断需在成功路径存活；原成功路径末尾整体置空会清掉它）；bySkillPriority 是集合顺序唯一权威且排在遮蔽之后（胜负由输入顺序定，可观测顺序由比较器定，职责正交）
+- [Phase 47]: 47-01 内置技能播种：seeded 身份 = 扫随包 skills-builtin/ 目录名集合（零状态文件/零硬编码），播种按单个技能目录粒度无条件覆盖，覆盖前差异诊断固定 warning 级（D-09 可见但不阻断） — 回退到状态文件需 Phase 48/49 同步改数据源且跨环境会分叉
+- [Phase 47]: 47-01 差异检测按内容（相对路径集合 → size → sha256 逐层短路）而非 mtime —— safeCopyDir 每次同步都重写 mtime，用时间戳判差异等于每次启动 100% 误报 realm_builtin_seed_overwritten；IO 错误一律 fail-safe 判 different 重同步
+- [Phase 47]: 47-01 realm_builtin_src_invalid 必须由 seedBuiltinSkills 的独立源目录扫描产出（先报），不得挂在 getSeededSkillNames 的过滤返回上（后滤）—— 后者已把缺 SKILL.md 的子目录滤掉，会让该 code 永远不可达（评审裁决项 1）
 
 ### Roadmap Evolution
 
@@ -273,9 +277,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T05:16:42.360Z
-Stopped at: Phase 47 context gathered
-Resume file: .planning/phases/47-bash/47-CONTEXT.md
+Last session: 2026-09-11T09:36:02.646Z
+Stopped at: Completed 47-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

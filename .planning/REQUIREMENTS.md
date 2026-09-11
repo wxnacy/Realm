@@ -59,10 +59,10 @@ Requirements for v2.6. Each maps to roadmap phases.
 
 ### SEED — 内置技能播种
 
-- [ ] **SEED-01**: 随包内置 find-skills（Realm 化改写版）与 skill-creator（仅作者指南部分）两个技能
-- [ ] **SEED-02**: 首次启动幂等播种到 `managed-skills/`（版本戳登记表，沿用 `migrateAiMemory` 先例）
-- [ ] **SEED-03**: 内置技能文本**不含任何「执行外部安装」语义**（无 `npx` / `npm i` / `curl | sh` / `-y` / `-g`）；find-skills 引导模型输出候选清单 + 用户在设置页一键导入
-- [ ] **SEED-04**: 内置技能默认 `disable-model-invocation: true`（避免其名称与描述无条件占据每次请求的 system prompt）
+- [x] **SEED-01**: 随包内置 find-skills（Realm 化改写版）与 skill-creator（仅作者指南部分）两个技能
+- [x] **SEED-02**: 首次启动幂等播种到 `managed-skills/`（版本戳登记表，沿用 `migrateAiMemory` 先例）
+- [x] **SEED-03**: 内置技能文本**不含任何「执行外部安装」语义**（无 `npx` / `npm i` / `curl | sh` / `-y` / `-g`）；find-skills 引导模型输出候选清单 + 用户在设置页一键导入
+- [x] **SEED-04**: 内置技能默认 `disable-model-invocation: true`（避免其名称与描述无条件占据每次请求的 system prompt）
 - [ ] **SEED-05**: 内置技能随包分发正确（`asarUnpack` + `app.isPackaged` 路径分支），并携带各自 LICENSE 与 `THIRD_PARTY_NOTICES` 归属（来源仓库 + 固定 commit SHA + 许可证 + 是否修改 + 修改说明）
 
 ### SEC — 安全加固
@@ -148,10 +148,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | USER-06 | Phase 50 | Pending |
 | USER-07 | Phase 50 | Pending |
 | USER-08 | Phase 51 | Pending |
-| SEED-01 | Phase 47 | Pending |
-| SEED-02 | Phase 47 | Pending |
-| SEED-03 | Phase 47 | Pending |
-| SEED-04 | Phase 47 | Pending |
+| SEED-01 | Phase 47 | Complete |
+| SEED-02 | Phase 47 | Complete |
+| SEED-03 | Phase 47 | Complete |
+| SEED-04 | Phase 47 | Complete |
 | SEED-05 | Phase 47 | Pending |
 | SEC-01 | Phase 47 | Pending |
 | SEC-02 | Phase 51 | Pending |
