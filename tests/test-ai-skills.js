@@ -845,6 +845,107 @@ describe('诊断与限额（SKILL-06/07）', () => {
   });
 });
 
+describe('启停状态（SKILL-08）', () => {
+  test('禁用技能：标 disabled、仍在集合内、不进 prompt，且磁盘文件原样不动', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    const file = writeSkill(workspace.getSkillsDir(), 'alpha', { description: '可被禁用的技能' });
+    const sizeBefore = fs.statSync(file).size;
+
+    await aiSkills.refreshSkills(env, { disabled: ['alpha'], rootDirs: scanRoots() });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    const entry = snap.skills.find((e) => e.skill.name === 'alpha');
+    assert.ok(entry, '禁用不得从数据层移除条目（否则设置页无法列出它来重新启用）');
+    assert.strictEqual(entry.disabled, true, '禁用条目应标 disabled');
+    assert.strictEqual(
+      aiSkills.buildSkillsPrompt().includes('<name>alpha</name>'), false,
+      '禁用条目不得进 prompt'
+    );
+
+    // 禁用是消费侧过滤，绝不触碰磁盘
+    assert.strictEqual(fs.existsSync(file), true, '禁用不得删除 SKILL.md');
+    assert.strictEqual(fs.statSync(file).size, sizeBefore, '禁用不得改写 SKILL.md');
+    assert.strictEqual(fs.existsSync(path.dirname(file)), true, '禁用不得删除技能目录');
+  });
+
+  test('启停可逆：disabled: [] 时技能回到 prompt 输出', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    writeSkill(workspace.getSkillsDir(), 'alpha', { description: '可被禁用的技能' });
+
+    await aiSkills.refreshSkills(env, { disabled: ['alpha'], rootDirs: scanRoots() });
+    assert.strictEqual(aiSkills.buildSkillsPrompt().includes('<name>alpha</name>'), false);
+
+    await aiSkills.refreshSkills(env, { disabled: [], rootDirs: scanRoots() });
+    assert.ok(
+      aiSkills.buildSkillsPrompt().includes('<name>alpha</name>'),
+      '重新启用即恢复（无需重建任何东西）'
+    );
+    assert.strictEqual(
+      aiSkills.getSkillsSnapshot().skills.find((e) => e.skill.name === 'alpha').disabled,
+      undefined,
+      '未被禁用时不得残留 disabled 标记'
+    );
+  });
+
+  test('同名技能共享禁用状态（D-09 已知边界）：user 与 managed 同名条目同时被禁用', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    writeSkill(workspace.getManagedSkillsDir(), 'foo', { description: 'managed 版' });
+    writeSkill(workspace.getSkillsDir(), 'foo', { description: 'user 版' });
+
+    await aiSkills.refreshSkills(env, { disabled: ['foo'], rootDirs: scanRoots() });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    const fooEntries = snap.skills.filter((e) => e.skill.name === 'foo');
+    assert.strictEqual(fooEntries.length, 2, '前置：两来源同名条目都保留在集合内');
+    for (const e of fooEntries) {
+      assert.strictEqual(
+        e.disabled, true,
+        `禁用键是 name、不区分来源，两来源都应被禁用（source=${e.source}）`
+      );
+    }
+    assert.strictEqual(aiSkills.buildSkillsPrompt().includes('<name>foo</name>'), false);
+  });
+
+  test('digest 捕捉启停：不同 disabled 输入产生不同 digest（46-04 快速判定主键的前提）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    writeSkill(workspace.getSkillsDir(), 'beta');
+
+    await aiSkills.refreshSkills(env, { disabled: [], rootDirs: scanRoots() });
+    const enabled = aiSkills.getSkillsSnapshot().digest;
+    await aiSkills.refreshSkills(env, { disabled: ['alpha'], rootDirs: scanRoots() });
+    const disabledDigest = aiSkills.getSkillsSnapshot().digest;
+
+    assert.ok(enabled.length > 0);
+    assert.notStrictEqual(
+      enabled, disabledDigest,
+      '启停改变 prompt 段，digest 必须随之变化（否则 46-04 的快速判定会漏掉启停）'
+    );
+  });
+
+  test('源码：数据层不移除式过滤，disabled 只出现在消费侧过滤与标记赋值', () => {
+    const src = readSource('ai-skills-manager.js');
+    assert.ok(src.includes('!e.disabled'), 'prompt 可注入集合必须以 !e.disabled 过滤');
+    assert.ok(
+      src.includes('entry.disabled = true'),
+      '禁用必须是**就地标记**（entry.disabled = true），不是移除'
+    );
+    assert.strictEqual(
+      /_cache\.skills\s*=\s*.*\.filter\(/.test(src), false,
+      '数据层不得用 filter 重建 _cache.skills（那就是移除式过滤）'
+    );
+    assert.strictEqual(/\.splice\(/.test(src), false, '不得删除集合元素');
+  });
+});
+
 describe('技能目录与沙箱可达（SKILL-01）', () => {
   test('ensureWorkspaceDir 后两目录存在，且技能路径在 resolveInside 放行范围内', (t) => {
     const root = withTempRoot(t);

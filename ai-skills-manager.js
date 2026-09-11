@@ -75,19 +75,32 @@ function hashString(input) {
  * **唯一消费方与口径（务必保持）**：46-04 的 `syncAgentSystemPrompt()` 把
  * digest 当作「技能集是否变化」的快速判定主键 —— digest 相同**且**
  * `buildSystemPrompt()` 与 `agent.state.systemPrompt` 逐字符相同，才跳过
- * 回写与广播。因此 digest 的输入必须覆盖影响 prompt 段的全部因素。
+ * 回写与广播。因此 digest 的输入必须覆盖影响 prompt 段的全部因素：
+ *
+ * - 每条缓存条目的 `(name, description, filePath, disableModelInvocation, source)`
+ * - 决定「是否进 prompt」的消费侧状态：`disabled` / `overLimit` / `shadowed`
+ * - **截断结果**：整段 promptBlock 本身（预算截断与省略提示都会改变它）
+ *
+ * 顺序也是输入的一部分：条目已由 bySkillPriority 确定性定序，顺序变化必然改变
+ * prompt 字节序列，必须让 digest 随之变化。
  *
  * @param {Array<{skill: object, source: string}>} entries - 缓存条目数组
+ * @param {string} [promptBlock] - 本轮组装出的技能段（含预算截断结果）
  * @returns {string} 客户端摘要
  */
-function computeDigest(entries) {
-  return hashString(entries.map((e) => JSON.stringify([
+function computeDigest(entries, promptBlock = '') {
+  const rows = entries.map((e) => JSON.stringify([
     e.skill.name,
     e.skill.description,
     e.skill.filePath,
     e.skill.disableModelInvocation === true,
     e.source,
-  ])).join('\n'));
+    e.disabled === true,
+    e.overLimit === true,
+    e.shadowed === true,
+  ]));
+  rows.push(`prompt:${promptBlock}`);
+  return hashString(rows.join('\n'));
 }
 
 /**
@@ -587,7 +600,7 @@ async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
       block += `\n\nNote: ${omitted} of ${eligible.length} skills omitted to stay within the prompt budget.`;
     }
     _cache.promptBlock = block;
-    _cache.digest = computeDigest(_cache.skills);
+    _cache.digest = computeDigest(_cache.skills, _cache.promptBlock);
     _cache.refreshedAt = Date.now();
   } catch (err) {
     // D-05 第 2 层：整批失败保留上一次成功快照（skills / promptBlock / diagnostics
