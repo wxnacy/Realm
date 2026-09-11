@@ -17,7 +17,7 @@
  *
  * 依赖纪律：本模块**不得**有 electron 依赖、不得顶层 import SDK（SDK 为
  * ESM-only，一律用包根动态 import）；也不得直接引入 SDK 的传递依赖
- * （其 YAML / ignore 实现只经 SDK 往返获得，不自行引入）。
+ * （其 frontmatter 解析与忽略文件匹配实现只经 SDK 往返获得，不自行引入）。
  */
 
 const path = require('path');
@@ -101,8 +101,8 @@ function computeDigest(entries) {
  *    带 description 的 *.md 会变成 name = 目录名的幽灵技能。技能自带的
  *    references/ scripts/ assets/ 在 <name>/ 之下，不在根上，不受影响。
  * 2. readTextFile：仅当 basename === 'SKILL.md' 时先按 FileInfo.size 预筛，
- *    超过 maxSkillMdBytes 则不读盘、不进 YAML 解析直接返回 invalid；其余
- *    路径（含 .ignore / .gitignore）原样透传。
+ *    超过 maxSkillMdBytes 则不读盘、不进 frontmatter 解析直接返回 invalid；其余
+ *    路径（含忽略文件与技能自带资源）原样透传。
  *
  * 被滤掉的 entry 一律进 droppedNotices（调用方转成可读诊断）——**禁止静默**。
  *
@@ -136,7 +136,7 @@ function createSkillsEnv(sandboxEnv, opts = {}, droppedNotices = []) {
       if (path.basename(p) === 'SKILL.md') {
         const info = await sandboxEnv.fileInfo(p, abortSignal);
         if (info && info.ok && info.value.size > maxSkillMdBytes) {
-          // SDK 为 ESM-only，包根动态 import（无 harness 子路径入口）
+          // SDK 为 ESM-only，包根动态 import（exports map 无子路径入口）
           const { FileError, err } = await import('@earendil-works/pi-agent-core');
           return err(new FileError(
             'invalid',
@@ -160,7 +160,7 @@ function createSkillsEnv(sandboxEnv, opts = {}, droppedNotices = []) {
  * 契约：
  * - managed 先、user 后加载 —— 顺序不是装饰，同名遮蔽判定据此（D-06）
  * - 加载经 createSkillsEnv 收窄后的 env（每轮新建一个包装对象，零持久状态）
- * - 单技能失败（YAML / 元数据）由 SDK 记为诊断并跳过，不抛（D-05 第 1 层）
+ * - 单技能失败（frontmatter 解析 / 元数据）由 SDK 记为诊断并跳过，不抛（D-05 第 1 层）
  * - 整批失败：**保留上一次成功快照** + 记 error 诊断，不清空、不静默（D-05 第 2 层）
  *
  * @param {object} env - 沙箱 ExecutionEnv（agent-workspace.createSandboxEnv 的返回值）
@@ -182,7 +182,7 @@ async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
   );
 
   try {
-    // SDK 为 ESM-only，只能从包根动态 import（exports map 无 harness 子路径）
+    // SDK 为 ESM-only，只能从包根动态 import（exports map 只有包根与少数具名入口）
     const { loadSourcedSkills, formatSkillsForSystemPrompt } =
       await import('@earendil-works/pi-agent-core');
 

@@ -214,6 +214,176 @@ describe('加载面收窄（回归守卫）', () => {
   });
 });
 
+/** 两个扫描根（managed 先、user 后 —— 顺序即遮蔽判定依据 D-06） */
+function scanRoots() {
+  return [workspace.getManagedSkillsDir(), workspace.getSkillsDir()];
+}
+
+describe('技能目录与沙箱可达（SKILL-01）', () => {
+  test('ensureWorkspaceDir 后两目录存在，且技能路径在 resolveInside 放行范围内', (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    assert.strictEqual(fs.existsSync(workspace.getSkillsDir()), true, 'skills/ 应被自动创建');
+    assert.strictEqual(fs.existsSync(workspace.getManagedSkillsDir()), true, 'managed-skills/ 应被自动创建');
+    assert.notStrictEqual(
+      workspace.resolveInside(root, path.join(workspace.getSkillsDir(), 'alpha', 'SKILL.md')),
+      null,
+      '技能路径必须落在硬沙箱 root 内（否则模型看得到 location 却 read 不到）'
+    );
+    assert.notStrictEqual(
+      workspace.resolveInside(root, path.join(workspace.getManagedSkillsDir(), 'beta', 'SKILL.md')),
+      null,
+      'managed 技能路径同样必须在沙箱 root 内'
+    );
+  });
+
+  test('沙箱 readTextFile 可读取两目录内任意 SKILL.md', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const userFile = writeSkill(workspace.getSkillsDir(), 'alpha');
+    const managedFile = writeSkill(workspace.getManagedSkillsDir(), 'beta');
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    for (const file of [userFile, managedFile]) {
+      const result = await env.readTextFile(file);
+      assert.strictEqual(result.ok, true, `沙箱应可读取 ${file}`);
+    }
+  });
+});
+
+describe('prompt 段注入（SKILL-02）', () => {
+  test('空技能集：prompt 不含 available_skills，且与三段基线逐字符相同（不多出空行）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    aiSkills._resetCacheForTest(); // 确保基线就是「不含技能段」的前三段
+
+    const baseline = aiManager.buildSystemPrompt(); // 前三段基线（cache.promptBlock === ''）
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const prompt = aiManager.buildSystemPrompt();
+    assert.strictEqual(prompt.includes('available_skills'), false, '空技能集不得注入技能段');
+    assert.strictEqual(prompt, baseline, '空态整段不追加（不产生空标签、不留多余空行）');
+    assert.strictEqual(prompt.length, baseline.length, '空态 prompt 长度等于三段基线');
+    assert.strictEqual(prompt.endsWith('\n\n'), false, '不得留多余空行');
+  });
+
+  test('有技能：prompt 含 available_skills / name / description / location 四类标签，且技能段只出现一次', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    writeSkill(workspace.getSkillsDir(), 'alpha', { description: '端到端纵切测试技能' });
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const prompt = aiManager.buildSystemPrompt();
+    for (const tag of ['<available_skills>', '<name>', '<description>', '<location>']) {
+      assert.ok(prompt.includes(tag), `prompt 应含 ${tag}`);
+    }
+    const countOf = (needle) => prompt.split(needle).length - 1;
+    assert.strictEqual(countOf('<available_skills>'), 1, '<available_skills> 只应出现一次');
+    assert.strictEqual(countOf('</available_skills>'), 1, '</available_skills> 只应出现一次');
+    assert.strictEqual(countOf('<skill>'), 1, '恰有单项时只注入一个 <skill> 条目');
+  });
+
+  test('技能段中的 <location> 等于技能在沙箱内的绝对路径（Skill.filePath）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const file = writeSkill(workspace.getSkillsDir(), 'alpha');
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const entry = aiSkills.getSkillsSnapshot().skills.find((e) => e.skill.name === 'alpha');
+    assert.ok(entry, 'alpha 应在技能集内');
+    assert.strictEqual(entry.skill.filePath, file, 'filePath 应为 SKILL.md 绝对路径');
+    assert.ok(
+      aiManager.buildSystemPrompt().includes(`<location>${file}</location>`),
+      'prompt 的 <location> 必须指向该绝对路径'
+    );
+  });
+});
+
+describe('模块级缓存 + 同步访问器（SKILL-03）', () => {
+  test('refreshSkills 后 buildSkillsPrompt 同步返回非空字符串（非 Promise，零 IO 路径）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const value = aiSkills.buildSkillsPrompt();
+    assert.strictEqual(typeof value, 'string', 'buildSkillsPrompt 必须同步返回字符串');
+    assert.strictEqual(typeof value.then, 'undefined', '不得返回 thenable');
+    assert.ok(value.length > 0, '有技能时技能段应非空');
+    assert.strictEqual(value, aiSkills.getSkillsSnapshot().promptBlock, '与快照 promptBlock 一致');
+  });
+
+  test('getSkillsSnapshot 返回浅拷贝视图：就地改数组不污染模块级权威', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const first = aiSkills.getSkillsSnapshot();
+    const second = aiSkills.getSkillsSnapshot();
+    assert.notStrictEqual(first.skills, second.skills, '两次快照的 skills 不得是同一引用');
+    assert.deepStrictEqual(first.skills, second.skills, '两次快照内容应相同（浅拷贝语义）');
+    assert.notStrictEqual(first.diagnostics, second.diagnostics, 'diagnostics 同样应为浅拷贝');
+    assert.notStrictEqual(first.errors, second.errors, 'errors 同样应为浅拷贝');
+
+    const before = second.skills.length;
+    first.skills.push({ skill: { name: 'injected' }, source: 'user' });
+    assert.strictEqual(
+      aiSkills.getSkillsSnapshot().skills.length, before,
+      '就地改快照数组不得污染模块级权威'
+    );
+  });
+
+  test('连续两次 refreshSkills 同一目录得到相同 digest（确定性，46-04 的「无变化不动 prompt」依赖它）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    writeSkill(workspace.getSkillsDir(), 'beta');
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+    const first = aiSkills.getSkillsSnapshot();
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+    const second = aiSkills.getSkillsSnapshot();
+
+    assert.ok(first.digest.length > 0, 'digest 应非空');
+    assert.strictEqual(first.digest, second.digest, '同一技能集的 digest 必须稳定');
+    assert.strictEqual(first.promptBlock, second.promptBlock, '同一技能集的 prompt 段必须逐字节相同');
+  });
+});
+
+describe('依赖纪律（源码扫描）', () => {
+  const YAML_OR_IGNORE_REQUIRE = /require\(\s*['"](yaml|ignore)['"]\s*\)/;
+  const HARNESS_SUBPATH_RE = /pi-agent-core\/harness\//;
+
+  for (const file of ['ai-skills-manager.js', 'ai-manager.js']) {
+    test(`${file} 不含 YAML / ignore 库直接 require，也不含 SDK harness 子路径导入`, () => {
+      const src = readSource(file);
+      assert.strictEqual(
+        YAML_OR_IGNORE_REQUIRE.test(src), false,
+        `${file} 不得直接 require SDK 的传递依赖（换包管理器会 MODULE_NOT_FOUND）`
+      );
+      assert.strictEqual(
+        HARNESS_SUBPATH_RE.test(src), false,
+        `${file} 不得从 SDK 子路径导入（SDK exports map 无该入口）`
+      );
+    });
+  }
+
+  test('依赖纪律断言本身有效（自校验：能命中注入的样本）', () => {
+    assert.strictEqual(YAML_OR_IGNORE_REQUIRE.test("const y = require('yaml');"), true);
+    assert.strictEqual(YAML_OR_IGNORE_REQUIRE.test('const i = require("ignore");'), true);
+    assert.strictEqual(
+      HARNESS_SUBPATH_RE.test("import('@earendil-works/pi-agent-core/harness/skills')"), true
+    );
+  });
+});
+
 describe('接线与导出面（源码断言）', () => {
   test('agent-workspace 新增两目录访问器且均由 getWorkspaceDir() 派生', () => {
     const src = readSource('agent-workspace.js');
