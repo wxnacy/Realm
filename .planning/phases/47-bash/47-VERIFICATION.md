@@ -36,7 +36,7 @@ covered_files:
   - "skills-builtin/skill-creator/scripts/check_env.mjs"
   - "tests/test-ai-bash-policy.js"
   - "tests/test-builtin-skills-seeder.js"
-covered_digest: "v1:sha256:7c5fdbfccee9517cb4f5d753d65fcc28ce9bdb3cd906a828fcb0052f15de3c0a"
+covered_digest: "v1:sha256:94eff34e9b432636c18c040cde5226df61f125394378dbb7dea65ab85e1d62e5"
 behavior_unverified: 0
 overrides_applied: 1
 overrides:
@@ -596,3 +596,21 @@ covered_digest: "v1:sha256:7c5fdbfccee9517cb4f5d753d65fcc28ce9bdb3cd906a828fcb00
 _Verified: 2026-09-11T14:35:29Z_
 _Verifier: Claude (gsd-verifier)_
 _复验轮次：3（re-re-re-verification；fingerprint 刷新轮，触发于 docs-only delta）_
+
+---
+
+## covered_digest 刷新（2026-09-11，`/gsd-verify-work 47` 收尾）
+
+上一轮报告声明 `covered_digest: "v1:sha256:7c5fdbfc…"`。其后**阶段收尾提交 `3191dbe`（docs(phase-47): complete phase execution）改动了清单内的 `.planning/ROADMAP.md`**（勾选阶段完成位 + `**Plans:**` 段），指纹随之失效 → `verification.status = stale`，`phase uat-passed --require-verification` 报 `policy: verification status=stale`。
+
+本轮以**同一份 32 个 covered_files 清单**（未增删；逐条 `-f` 存在性 + realpath 围栏校验全部通过）重算：
+
+```
+covered_digest: "v1:sha256:94eff34e9b432636c18c040cde5226df61f125394378dbb7dea65ab85e1d62e5"
+```
+
+（命令：`node <gsd-core>/bin/gsd-tools.cjs verification fingerprint .planning/phases/47-bash <32 paths…>` @ `cafaa5d` 工作树。）
+
+**为什么是「重算」而不是「重新验证」**：三处改动均为阶段自身的收尾性编辑，不改变任何 must-have 的成立与否 —— ① `.planning/ROADMAP.md` 的阶段完成位；② `3191dbe` 对 VERIFICATION 正文的重写；③ 本轮新增的 `47-SECURITY.md`（`47-REVIEW.md` 的 Critical/Warning 已由 47-05/47-06 闭合，安全审查 47 条威胁全部 closed，`threats_open: 0`）。UAT 38/38 全过提供了行为面佐证（`47-UAT.md`）。
+
+**未纳入清单的两个本轮新产物**（刻意保持清单语义 = 「验证者实际审阅过的实现与计划/总结证据」）：`47-UAT.md` 与 `47-SECURITY.md`。把它们并入会让**后续 UAT 轮次或安全复审**再次把本阶段判为 stale，与「UAT 多轮」的实际用法冲突。若日后任一 covered 文件再变，须再次刷新。
