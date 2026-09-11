@@ -517,6 +517,160 @@ describe('去重与遮蔽（SKILL-05）', () => {
   });
 });
 
+describe('诊断与限额（SKILL-06/07）', () => {
+  /** 写入一个 YAML 解析失败的技能（未闭合引号 → SDK parse_failed） */
+  function writeBrokenSkill(scannedDir, name) {
+    const dir = path.join(scannedDir, name);
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'SKILL.md');
+    fs.writeFileSync(file, `---\nname: ${name}\ndescription: "未闭合\n---\n\n# ${name}\n`);
+    return file;
+  }
+
+  test('第 1 层降级：单技能失败（YAML / 超长 description）跳过，其余技能照常注入且不抛错', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    writeSkill(workspace.getSkillsDir(), 'alpha', { description: '合法技能' });
+    writeBrokenSkill(workspace.getSkillsDir(), 'broken');
+    writeSkill(workspace.getSkillsDir(), 'longdesc', { description: 'x'.repeat(1100) });
+
+    await assert.doesNotReject(
+      () => aiSkills.refreshSkills(env, { rootDirs: scanRoots() }),
+      '单技能失败不得让 refreshSkills 抛错（D-05 第 1 层 = 正常态）'
+    );
+
+    const snap = aiSkills.getSkillsSnapshot();
+    assert.ok(snap.skills.some((e) => e.skill.name === 'alpha'), '合法技能不得被误伤');
+    assert.ok(aiSkills.buildSkillsPrompt().includes('<name>alpha</name>'), '合法技能仍进 prompt');
+    assert.strictEqual(snap.skills.some((e) => e.skill.name === 'broken'), false, 'YAML 失败的技能应被跳过');
+    assert.strictEqual(
+      snap.skills.some((e) => e.skill.name === 'longdesc'), false,
+      'description 超限的技能应被跳过（SDK 会原样返回，Realm 必须按 isDescriptionUnusable 剔除）'
+    );
+
+    const parseDiag = snap.diagnostics.find((d) => d.code === 'parse_failed');
+    assert.ok(parseDiag, 'YAML 失败须产 parse_failed 诊断（禁止静默）');
+    assert.strictEqual(parseDiag.level, 'warning', 'type → level 显式映射必须真的执行（非 undefined）');
+    assert.ok(String(parseDiag.message).length > 0, 'code 原样保留且 message 非空');
+
+    const metaDiag = snap.diagnostics.find((d) => d.code === 'invalid_metadata');
+    assert.ok(metaDiag, 'description 超限须产 invalid_metadata 诊断');
+    assert.strictEqual(metaDiag.level, 'warning', 'invalid_metadata 映射后 level 应为 warning');
+    assert.ok(/^description\b/.test(String(metaDiag.message)), '该诊断应为 description 类（非 name 类）');
+  });
+
+  test('第 1 层不误伤：name 与目录名不一致的技能仍保留（D-08 重写而非跳过）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    writeSkillAt(path.join(workspace.getSkillsDir(), 'evil', 'SKILL.md'), {
+      name: 'find-skills',
+      description: '合法 description 的冒名技能',
+    });
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    const entry = snap.skills.find((e) => e.skill.name === 'evil');
+    assert.ok(
+      entry,
+      'name 类 invalid_metadata 不得导致技能被剔除 —— D-08 以目录名重写并保留（desc 类才跳过）'
+    );
+    assert.ok(
+      snap.diagnostics.some((d) => d.code === 'invalid_metadata'),
+      'SDK 的 name 不匹配诊断仍须透传（只是不导致剔除）'
+    );
+    assert.ok(snap.diagnostics.some((d) => d.code === 'realm_name_rewritten'));
+  });
+
+  test('第 2 层降级：批量错误不抛错、保留上一次成功快照，并往 errors[] 记 realm_refresh_failed', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+    const good = aiSkills.getSkillsSnapshot();
+    assert.strictEqual(good.skills.length, 1, '前置：一次成功刷新');
+    const goodPrompt = good.promptBlock;
+
+    // SDK 的 loadSkills 顶层无 try/catch：listDir 的 rejection 会一路上抛
+    const throwingEnv = {
+      ...env,
+      async listDir() {
+        throw new Error('simulated unreadable dir');
+      },
+    };
+    await assert.doesNotReject(
+      () => aiSkills.refreshSkills(throwingEnv, { rootDirs: scanRoots() }),
+      '批量失败不得抛错，必须降级为诊断'
+    );
+
+    const after = aiSkills.getSkillsSnapshot();
+    assert.strictEqual(after.skills.length, good.skills.length, '上一次成功快照的 skills 必须保留');
+    assert.strictEqual(after.promptBlock, goodPrompt, 'promptBlock 必须保留（不清空）');
+    const err = after.errors.find((d) => d.code === 'realm_refresh_failed');
+    assert.ok(err, '整批失败必须产 realm_refresh_failed（禁止静默）');
+    assert.strictEqual(err.level, 'error', '整批失败属 D-05 第 2 层，level 为 error');
+  });
+
+  test('目录缺失不静默：扫描根不存在时产 realm_skills_dir_missing（SDK 自身零诊断）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    const missing = path.join(root, 'not-a-skill-dir');
+
+    await aiSkills.refreshSkills(env, { rootDirs: [missing] });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    const diag = snap.errors.find((d) => d.code === 'realm_skills_dir_missing');
+    assert.ok(diag, '目录缺失必须由 Realm 补诊断（SDK 对不存在目录静默 continue）');
+    assert.strictEqual(diag.level, 'error');
+    assert.strictEqual(diag.path, missing, '诊断应指向缺失的目录路径');
+    assert.strictEqual(
+      snap.skills.length, 0,
+      '目录缺失不中断加载流程（只是没有技能可加载）'
+    );
+  });
+
+  test('空态契约：零诊断时 diagnostics 与 errors 均为长度 0 的数组（非 undefined / null）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    aiSkills._resetCacheForTest();
+
+    const empty = aiSkills.getSkillsSnapshot();
+    assert.ok(Array.isArray(empty.diagnostics), 'diagnostics 必须是数组');
+    assert.ok(Array.isArray(empty.errors), 'errors 必须是数组');
+    assert.strictEqual(empty.diagnostics.length, 0);
+    assert.strictEqual(empty.errors.length, 0);
+
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    assert.ok(Array.isArray(snap.diagnostics) && Array.isArray(snap.errors));
+    assert.strictEqual(
+      snap.errors.length, 0,
+      '成功刷新且无环境级问题时 errors 必须为空（上一次的失败态不得永远挂着）'
+    );
+  });
+
+  test('源码：toRealmDiag 是 type → level 的唯一映射点（显式三元，非字段想当然）', () => {
+    const src = readSource('ai-skills-manager.js');
+    const body = functionBody(src, 'toRealmDiag');
+    assert.ok(
+      body.includes("d.type === 'warning' ? 'warning' : 'error'"),
+      'toRealmDiag 必须显式映射 SDK 的 type 字段到 Realm 的 level'
+    );
+    assert.ok(body.includes('code: d.code'), 'code 必须原样透传');
+    assert.ok(src.includes('function pushError('), '应存在 pushError（模块级 errors[] 写入点）');
+    assert.ok(src.includes('function isDescriptionUnusable('), '应存在 description 可用性判定');
+  });
+});
+
 describe('技能目录与沙箱可达（SKILL-01）', () => {
   test('ensureWorkspaceDir 后两目录存在，且技能路径在 resolveInside 放行范围内', (t) => {
     const root = withTempRoot(t);

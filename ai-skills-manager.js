@@ -214,6 +214,71 @@ function pushEntryDiag(entry, diag) {
 }
 
 /**
+ * SDK 诊断 → Realm 诊断的**唯一**映射点（D-07）
+ *
+ * 字段口径差异（必须显式映射，不得想当然）：
+ * - SDK 的严重度字段名是 `type`（当前恒为 `'warning'`）；Realm 形状是 `level`
+ * - `code` / `message` / `path` / `source` 原样透传 —— SDK 的 `message` 天然含
+ *   限额与当前值（如 `description exceeds 1024 characters (1100)`）
+ *
+ * **禁止在任何调用点直接读 `d.level`**：SDK 没有该字段，读到的是 undefined，
+ * 会让「诊断已透传」假成立（Pitfall 4 的字段名错位）。
+ *
+ * @param {{type?: string, code: string, message: string, path?: string, source?: string}} d
+ * @returns {{level: string, code: string, message: string, path?: string, source?: string}}
+ */
+function toRealmDiag(d) {
+  return {
+    level: d.type === 'warning' ? 'warning' : 'error',
+    code: d.code,
+    message: d.message,
+    path: d.path,
+    source: d.source,
+  };
+}
+
+/**
+ * 往模块级 `errors[]` 追加一条「无对应技能」的整批 / 环境级诊断（D-05 第 2 层、D-07）
+ *
+ * 与条目级诊断（pushEntryDiag）的分工：`errors[]` 只承载刷新失败、扫描根缺失
+ * 这类不属于任何单个技能的问题，供 Phase 50 在任意时刻同步读到原因。
+ *
+ * 调用前提：`_cache.errors` 已被本轮刷新复位为数组（见 refreshSkills）。
+ *
+ * @param {object} errDiag - 诊断对象（level / code / message，限额族另带 limit / currentValue）
+ */
+function pushError(errDiag) {
+  _cache.errors.push(errDiag);
+}
+
+/**
+ * 判定一条诊断是否属于「description 不可用」→ 该技能必须跳过（D-05 第 1 层）
+ *
+ * **为什么需要这条判定**：SDK 的 `validateDescription` 只产 warning，且
+ * `loadSkillFromFile` **只对缺失 / 空 description 返回 `skill: null`** ——
+ * 超长 description 的技能会被 SDK 原样返回。而 description 是模型匹配技能的
+ * 唯一依据（渐进式披露契约只注入 name / description / location），不可用的
+ * description 意味着该技能不可能被正确触发，故属「单技能失败 = 跳过」。
+ *
+ * **为什么不连 name 类 `invalid_metadata` 一起跳过**：D-08 以**目录名**为权威
+ * 重写 name 并**保留**该技能（命名不规范在 GitHub 导入中很常见，丢弃等于静默
+ * 删除用户技能）；name ≠ 目录名 的告警在 `enforceDirNameAuthority` 之后已被化解。
+ *
+ * SDK 不导出 `validateDescription`，故按诊断模板前缀判定。升版复核点：SDK 若
+ * 改动该 message 模板，本判定与 D-08 的分工需同步复核。
+ *
+ * @param {{code?: string, message?: string}} d - 诊断（SDK 原样或经 toRealmDiag 映射均可）
+ * @returns {boolean} 是否为 description 不可用
+ */
+function isDescriptionUnusable(d) {
+  return (
+    !!d &&
+    d.code === 'invalid_metadata' &&
+    /^description\b/.test(String(d.message || ''))
+  );
+}
+
+/**
  * 名称权威重写：`skill.name` 以**所在目录名**为准（D-08）
  *
  * 理由：SDK 的名称是 `frontmatterName || parentDirName`（`skills.js:219`），
@@ -291,22 +356,28 @@ function applyShadowing(entries) {
  * 路径的机制。
  *
  * 加载后管线（顺序不可调换）：
- *   ① 契约布局过滤（inContractLayout）—— 深嵌套技能不进集合 + realm_layout_violation
+ *   ⓪ 扫描根存在性断言 —— 缺失产 realm_skills_dir_missing（SDK 对此零诊断）
+ *   ① 契约布局过滤（inContractLayout）—— 深嵌套技能不进集合 + realm_layout_violation；
+ *      同步跳过 description 不可用的技能（isDescriptionUnusable，诊断沿用 SDK 的 invalid_metadata）
  *   ② 目录名权威重写（enforceDirNameAuthority，D-08）
  *   ③ 同名遮蔽判定（applyShadowing，D-06）—— 依赖 ② 之后的 name 唯一性
  *
  * 契约：
  * - managed 先、user 后加载 —— 顺序不是装饰，同名遮蔽判定据此（D-06）
  * - 加载经 createSkillsEnv 收窄后的 env（每轮新建一个包装对象，零持久状态）
- * - 单技能失败（frontmatter 解析 / 元数据）由 SDK 记为诊断并跳过，不抛（D-05 第 1 层）
- * - 整批失败：**保留上一次成功快照** + 记 error 诊断，不清空、不静默（D-05 第 2 层）
+ * - 诊断一律经 toRealmDiag 显式映射为 Realm 形状（type → level，D-07）
+ * - 单技能失败（frontmatter 解析 / description 不可用 / 布局违约）跳过该技能，
+ *   其余照常注入，且 refreshSkills **不抛错**（D-05 第 1 层）
+ * - 整批失败：**保留上一次成功快照**（skills / promptBlock / diagnostics 一行不碰）
+ *   + 往 errors[] 记 error 诊断，不清空、不静默（D-05 第 2 层）
  *
  * @param {object} env - 沙箱 ExecutionEnv（agent-workspace.createSandboxEnv 的返回值）
  * @param {{disabled?: string[], rootDirs?: string[]}} [opts]
- *   disabled：被禁用的技能名（46-03 生效）；rootDirs：[managedDir, userDir]
+ *   disabled：被禁用的技能名（46-03 Task 3 生效）；rootDirs：[managedDir, userDir]
  * @returns {Promise<object>} 刷新后的 _cache
  */
 async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
+  const roots = rootDirs.filter(Boolean);
   const inputs = [];
   if (rootDirs[0]) inputs.push({ path: rootDirs[0], source: 'managed' });
   if (rootDirs[1]) inputs.push({ path: rootDirs[1], source: 'user' });
@@ -315,11 +386,29 @@ async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
   const droppedNotices = [];
   const skillsEnv = createSkillsEnv(
     env,
-    { rootDirs: rootDirs.filter(Boolean), maxSkillMdBytes: LIMITS.MAX_SKILL_MD_BYTES },
+    { rootDirs: roots, maxSkillMdBytes: LIMITS.MAX_SKILL_MD_BYTES },
     droppedNotices
   );
 
   try {
+    // errors[] 只承载「本次刷新」的整批 / 环境级失败 —— 开工即复位，避免上一次的
+    // 失败态永远挂着（D-05 第 2 层）。成功与失败两条路径都在此之后写入。
+    _cache.errors = [];
+
+    // 目录缺失不静默：SDK 对不存在的目录直接 continue 且零诊断，Realm 必须补上。
+    // 断言失败**不中断**加载 —— 其余目录的技能仍要有结果（D-05 第 1 层精神）。
+    for (const p of roots) {
+      const ex = await env.exists(p);
+      if (!ex || ex.ok !== true || ex.value !== true) {
+        pushError({
+          level: 'error',
+          code: 'realm_skills_dir_missing',
+          message: `技能目录不存在：${p}（应用启动时应由 ensureWorkspaceDir 创建）`,
+          path: p,
+        });
+      }
+    }
+
     // SDK 为 ESM-only，只能从包根动态 import（exports map 只有包根与少数具名入口）
     const { loadSourcedSkills, formatSkillsForSystemPrompt } =
       await import('@earendil-works/pi-agent-core');
@@ -334,27 +423,33 @@ async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
       path: n.path,
     }));
 
-    // 诊断容器先就位：管线的每一步都往这里追加（禁止静默失败，SKILL-06）
-    _cache.diagnostics = diagnostics.concat(droppedDiags);
+    // 诊断容器先就位：SDK 诊断经**显式映射**（type → level，D-07）转成 Realm 形状，
+    // 管线的每一步继续往这里追加（禁止静默失败，SKILL-06）
+    const sdkDiags = diagnostics.map(toRealmDiag);
+    _cache.diagnostics = sdkDiags.concat(droppedDiags);
 
-    // ① 契约布局过滤：SDK 递归无深度上限，从 GitHub 拷来的多一层目录包会
-    //    加载出一个「不该存在」的技能。违约条目不进集合，但必须产可读诊断。
-    const roots = rootDirs.filter(Boolean);
+    // ① 契约布局过滤 + description 可用性过滤
+    //    - 布局：SDK 递归无深度上限，从 GitHub 拷来的多一层目录包会加载出一个
+    //      「不该存在」的技能
+    //    - description：SDK 对超长 description **仍返回 skill**，Realm 需按
+    //      isDescriptionUnusable 跳过（见该函数 JSDoc）
+    //    违约条目不进集合，但必须产可读诊断（布局违约为 Realm 自建；description
+    //    沿用 SDK 的 invalid_metadata，已在 sdkDiags 中）。
     const entries = [];
     for (const entry of loadedEntries) {
       entry.diagnostics = [];
-      const root = scanRootOf(roots, entry.skill.filePath);
-      if (root && !inContractLayout(root, entry.skill.filePath)) {
-        const suggested = path.join(
-          root,
-          path.basename(path.dirname(entry.skill.filePath)),
-          'SKILL.md'
-        );
+      const entryPath = entry.skill.filePath;
+      if (sdkDiags.some((d) => d.path === entryPath && isDescriptionUnusable(d))) {
+        continue;
+      }
+      const root = scanRootOf(roots, entryPath);
+      if (root && !inContractLayout(root, entryPath)) {
+        const suggested = path.join(root, path.basename(path.dirname(entryPath)), 'SKILL.md');
         _cache.diagnostics.push({
           level: 'warning',
           code: 'realm_layout_violation',
-          message: `技能 "${entry.skill.name}" 的布局不符合契约：实际 ${entry.skill.filePath}；技能必须放在 <扫描根>/<技能名>/SKILL.md，不能有中间层目录（正确位置示例：${suggested}）`,
-          path: entry.skill.filePath,
+          message: `技能 "${entry.skill.name}" 的布局不符合契约：实际 ${entryPath}；技能必须放在 <扫描根>/<技能名>/SKILL.md，不能有中间层目录（正确位置示例：${suggested}）`,
+          path: entryPath,
           source: entry.source,
         });
         continue;
@@ -377,15 +472,15 @@ async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
         .map((e) => e.skill)
     );
     _cache.digest = computeDigest(_cache.skills);
-    _cache.errors = [];
     _cache.refreshedAt = Date.now();
   } catch (err) {
-    // D-05 第 2 层：整批失败保留上一次成功快照，不静默
-    _cache.errors = [{
+    // D-05 第 2 层：整批失败保留上一次成功快照（skills / promptBlock / diagnostics
+    // 一行都不碰），只往 errors[] 追加一条 error 诊断，不静默。
+    pushError({
       level: 'error',
       code: 'realm_refresh_failed',
       message: `技能集刷新失败，沿用上一次成功快照：${err && err.message ? err.message : String(err)}`,
-    }];
+    });
   }
   return _cache;
 }
