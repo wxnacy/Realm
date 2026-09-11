@@ -1,354 +1,281 @@
 ---
 phase: 47-bash
-reviewed: 2026-09-11T11:47:50Z
+reviewed: 2026-09-11T13:47:52Z
 depth: standard
-files_reviewed: 32
+files_reviewed: 7
 files_reviewed_list:
   - AGENTS.md
-  - THIRD_PARTY_NOTICES.md
   - ai-bash-policy.js
-  - ai-manager.js
   - builtin-skills-seeder.js
   - docs/product/ai-agent-workspace.md
   - docs/product/ai-skills.md
-  - main.js
-  - package.json
-  - skills-builtin/find-skills/LICENSE.txt
-  - skills-builtin/find-skills/SKILL.md
-  - skills-builtin/skill-creator/LICENSE.txt
-  - skills-builtin/skill-creator/SKILL.md
-  - skills-builtin/skill-creator/agents/analyzer.md
-  - skills-builtin/skill-creator/agents/comparator.md
-  - skills-builtin/skill-creator/agents/grader.md
-  - skills-builtin/skill-creator/assets/eval_review.html
-  - skills-builtin/skill-creator/eval-viewer/generate_review.py
-  - skills-builtin/skill-creator/eval-viewer/viewer.html
-  - skills-builtin/skill-creator/references/schemas.md
-  - skills-builtin/skill-creator/scripts/__init__.py
-  - skills-builtin/skill-creator/scripts/aggregate_benchmark.py
-  - skills-builtin/skill-creator/scripts/check_env.mjs
-  - skills-builtin/skill-creator/scripts/generate_report.py
-  - skills-builtin/skill-creator/scripts/improve_description.py
-  - skills-builtin/skill-creator/scripts/package_skill.py
-  - skills-builtin/skill-creator/scripts/quick_validate.py
-  - skills-builtin/skill-creator/scripts/run_eval.py
-  - skills-builtin/skill-creator/scripts/run_loop.py
-  - skills-builtin/skill-creator/scripts/utils.py
   - tests/test-ai-bash-policy.js
   - tests/test-builtin-skills-seeder.js
 findings:
-  critical: 1
-  warning: 8
+  critical: 2
+  warning: 6
   info: 3
-  total: 12
+  total: 11
 status: issues_found
 highest_severity: critical
 ---
 
-# Phase 47: Code Review Report
+# Phase 47: Code Review Report（gap-closure 复审）
 
 **Reviewed:** 2026-09-11
 **Depth:** standard
-**Files Reviewed:** 32（9 自研/文档 + 2 技能入口 + 17 上游逐字快照 + 1 自研探针 + 2 测试 + LICENSE）
-**Baseline used for diff:** `edbeff5dae4142189fba115bc626632a1e75eefd^`（与 config 一致；diff 含 47-01..47-04 全部提交，`git diff --stat` 32 文件 / +9733 −23）
-**Status:** issues_found（**1 条 Critical**；最高严重度 Critical）
+**Files Reviewed:** 7（2 源码 + 3 文档 + 2 测试）
+**Baseline used for diff:** `5c5d92912f3fdfacb472e473fae4d9ffb04a5b03`（47-05 / 47-06 两个 gap-closure 计划，`git diff --stat` 7 文件 / +1397 −86）
+**Status:** issues_found（**2 条 Critical**；最高严重度 Critical）
 
 ## Summary
 
-本阶段交付两块内容：**内置技能播种**（`builtin-skills-seeder.js` 新增、`main.js` 调用位、`package.json` 打包配置）与 **bash 包管理器安装档**（`ai-bash-policy.js` 新增第三档第二触发源、`ai-manager.js` 确认卡片三分支、三份文档同步、两份测试扩充）。
+本轮复审聚焦 diff_base 之后的两次 gap-closure：`ai-bash-policy.js` 的「首 token 默认拒绝 + 共用词法归一化 + WR-01 白名单护栏」与 `builtin-skills-seeder.js` 的「`same` 跳过重建 / 崩溃残留清扫 / 诊断 console 兜底」，以及配套的三份文档与两份测试。
 
-**对抗式验证的结论分两半：**
+**先说做对的部分（对抗式核验后仍然成立）**：`same` 跳过重建的三层差异判定（相对路径集合含目录条目 → size → sha256）实现正确，目录条目过滤与 `endsWith('/')` 过滤成对、空目录可自愈（实测复现）；残留清扫的正则锚定 `\d+$` 与调用点在循环之前均成立；`_flushDiagnostics()` 放在 `finally` 覆盖早退路径，与最外层 catch 的 `console.error` 是并列的两条可见面；WR-01 的空前缀护栏（`matchesWhitelist` 跳过 + `validateWhitelistList` 权威拒绝）实测封死了「白名单退化为全放行」；`deriveDiff` 不再用 mtime 的护栏仍在。97 例策略测试与 101 例播种测试全部通过，AGENTS.md 的「97 例」计数与实际一致。
 
-- **播种侧实现质量高，核心契约经实测成立**。我独立复核了全部关键断言而非只读断言：`detectDiff` 的四层短路与 IO fail-safe、`safeCopyDir` 的原子替换与 symlink fail-closed、`main.js` 的调用位序（`migrateAiMemory()` → `seedBuiltinSkills()` → `new AIManager()`）、`package.json` 的 `asarUnpack` 成对性均在源码与运行结果中成立。**上游快照的逐字性我也做了独立取证**（见下「独立取证」），17/17 文件与上游固定 SHA 逐字节相同 —— SEED-01 / SEED-05 的这部分是干净的。打包面我用现存的 `dist/mac-arm64/Realm Nightly.app/Contents/Resources/app.asar` 直接读 asar 清单复核：`.planning` / `.claude` / `.gsd` / `.wzsh` / `.zcode` / `test` / `tests` / `scripts` 各 0 条、`*.bak` 0 条、`skills-builtin/` 21 条在列、`THIRD_PARTY_NOTICES.md` 在列 —— 47-04 的排除项与 asarUnpack 生效。
-- **bash 策略侧存在一条 Critical**：安装档可以被**纯词法改写**绕过，且在**文档推荐的**白名单配置下绕过结果是 `allow`（**完全不弹卡片、直接执行**）。这条直接推翻了三份文档 + 代码注释共同声明的「白名单不可越过安装档」与「本表漏判永远只会退化成普通确认卡片」不变式。剩下 8 条 Warning 集中在播闭幕的残留物与静默失败路径、大小写敏感漏判、以及两份文档/归属声明的准确性上。
+**但安装档的靶心没有真正关死**：本计划把「白名单命中 + 安装档漏检 = 零卡片」定为 GAP 1 / CR-01 的判据，而新增的**只读豁免机制**自身引入了两个同类通道 —— ① 裸形式正则的「旗标取值槽」把末尾子命令吞成旗标取值（`npm -g update` 实测 `allow`）；② `audit` 守卫的负向断言不跨越中间旗标（`npm audit --json fix` 实测 `allow`，而 npm 会真的执行 fix 安装）。两者都能在白名单含裸 `npm` 时零卡片放行网络安装命令，且**测试把它们当成期望行为钉住了**（`tests/test-ai-bash-policy.js:847`）—— 修复必须同时改测试与三处 JSDoc/文档口径。
 
-**独立取证（不只是复述测试结论）：**
+另有 6 条 Warning：危险档未做同源归一化（高风险降级为中风险卡片）、权威文档两处绝对断言被实测推翻、只读清单文档枚举严重不完整、AGENTS.md 的清扫正则多一层反斜杠、残留清扫缺陈旧性判据（并发实例互删）、`npm version` 属写操作却被列为只读。
 
-| 取证项 | 方法 | 结果 |
-|--------|------|------|
-| skill-creator 17 个上游文件逐字性 | 从 `raw.githubusercontent.com/anthropics/skills@b0cbd3df…` 下载 17 文件后逐文件 sha256 比对本地 | **17/17 SAME**（含 `eval-viewer/viewer.html` 44,998 B、`LICENSE.txt` 11,357 B） |
-| 两个固定 SHA 与时点 | GitHub API `commits?path=<file>&per_page=1` | find-skills `773fb2c7…` / 2026-07-10 ✅、skill-creator `b0cbd3df…` / 2026-03-06 ✅（与归属声明逐字一致） |
-| 上游 `SKILL.md` 字节数 33,168 | `curl` 上游文件 `wc -c` | 33,168 ✅（测试区间 [30000,40000] 与注释口径自洽） |
-| 零安装语义靶心 | 独立 regex 扫全 `skills-builtin/**` | 无 `npx skills` 变体；`skills-builtin/**` 内无 `curl\|sh`、无包管理器安装形态 ✅（`docs/**` 亦无 —— docs 随包） |
-| 打包面 | 读现存 asar 头部目录 JSON | 见上 ✅ |
-| 播种残留 → 幽灵技能 | 直接构造 `.bak_<ts>` / `.tmp_<ts>` 后跑 `refreshSkills` | **残留被当成技能加载**（WR-02，实证） |
-| 无差异化覆盖 | 连续两次播种比对 inode/mtime | **内容 same 仍整目录重建**（WR-03，实证） |
+## Narrative Findings (AI reviewer)
 
-**影响面判断**：CR-01 的触发前提是「用户把裸包管理器名加进白名单」—— 而这是本阶段自己的文档给出的推荐做法（`docs/product/ai-agent-workspace.md §五`：「只加构建类可信命令（`npm run`、`git status`、`brew` 等）」）。因此它不是「需要用户乱配」的边缘假设，而是**推荐配置下的默认状态**。同理 WR-01（白名单里一个 `*`）会把除危险/安装档以外的全部命令变成免确认。
-
----
+本节全部为本轮直接读码 + 实测得到的对抗式发现（本轮未提供 `<structural_findings>`，故无 fallow 结构化前序结论）。严重度分组见下。
 
 ## Critical Issues
 
-### CR-01: 安装档可被词法改写绕过 —— 白名单前缀下命令完全免确认执行（无卡片）
+### CR-01: 只读豁免的「裸形式 + 旗标取值槽」吞掉末尾子命令 → 真实安装命令零卡片（`npm -g update`）
 
-**File:** `ai-bash-policy.js:133-156`（`matchesWhitelist`）、`ai-bash-policy.js:289-305`（`stripLeadingQuotes` / `matchInstall`）、`ai-bash-policy.js:241-255`（`PACKAGE_MANAGER_INSTALL_PATTERNS`）、`ai-bash-policy.js:327-351`（`evaluateBashCommand`）；消费点 `ai-manager.js:5650-5685`
+**File:** `ai-bash-policy.js:554-556`（裸形式正则构造）、`ai-bash-policy.js:219`（`FLAG_TOLERANCE`）、`ai-bash-policy.js:584-591`（`matchInstall` 分支）
 
-**Issue:** 白名单匹配（`matchesWhitelist`）对**原始文本**做命令前缀比对，而安装档匹配（`matchInstall`）对**同一段文本**做「命令名 + 空格 + 子命令字面量」的正则匹配。两者口径不同，于是任何**不改变首 token、但改变子命令词法形态**的写法都同时满足「命中白名单前缀」与「不命中安装档」→ 裁决落到 `4. 全部段命中白名单 → allow` → `ai-manager.js` 的 `if (verdict.level === 'confirm')` 不进入 → **命令直接执行，用户看不到任何卡片**。
-
-实测（`node` 直调策略引擎，白名单取文档推荐形态）：
-
-| 命令（真实执行语义） | 白名单 | 裁决 |
-|---|---|---|
-| `brew "install" wget` | `['brew']` | **allow（无卡片）** |
-| `brew \install wget` | `['brew']` | **allow（无卡片）** |
-| `brew ins""tall wget` | `['brew']` | **allow（无卡片）** |
-| `npm "install" x` / `npm \i x` | `['npm']` | **allow（无卡片）** |
-| `pip "install" x` | `['pip']` | **allow（无卡片）** |
-| `cargo "install" ripgrep` | `['cargo']` | **allow（无卡片）** |
-| `bun "add" x` | `['bun']` | **allow（无卡片）** |
-| `brew install wget`（对照） | `['brew']` | confirm/install ✅ |
-
-第二种绕过家族**不需要任何引号/转义**，只需在命令名与安装动词之间插一个 token（`matchesWhitelist` 只看前缀，安装档是「命令名后紧跟子命令」的**黑名单**，因此任何中间 token 都会击穿它）：
-
-| 命令 | 白名单 | 裁决 | 说明 |
-|---|---|---|---|
-| `npm update` / `npm rebuild` | `['npm']` | **allow** | 会拉新版本 / 执行依赖生命周期脚本 |
-| `yarn workspace app add lodash` | `['yarn']` | **allow** | 真实且常用的联网安装 |
-| `cargo add serde` | `['cargo']` | **allow** | 联网取依赖 |
-| `go get github.com/x/y` | `['go']` | **allow** | 联网取模块 |
-| `brew cask install wget` | `['brew']` | **allow** | 中间 token `cask` 击穿 |
-
-**为什么这是 Critical 而不是「已知的启发式边界」：**
-
-1. 它**不是漏检后降级为普通确认卡片**——这是文档与代码注释反复声明的兜底性质。`ai-bash-policy.js:233` 原文：「本表漏判永远只会退化成普通确认卡片」；`docs/product/ai-skills.md §九`：「**漏检 ≠ 免确认** —— 未被识别的形态仍会退化成普通确认卡片，不会免确认」。上述形态**一律 allow**，一个字都不弹。这条不变式的成立前提是「漏检形态也不命中白名单」，而白名单是**文本前缀**匹配，任何纯词法改写都保留前缀 —— 前提不成立。
-2. 三份文档与 `AGENTS.md` 都把「白名单不可越过安装档」当作 P1 门禁的机械结论（`AGENTS.md:261`、`docs/product/ai-agent-workspace.md` §四⑨、`docs/product/ai-skills.md` §九）。
-3. 本阶段已经识别出这一**类**问题的一半并处理了 —— `stripLeadingQuotes`（`ai-bash-policy.js:289`）就是为 `'npm' i x` 形态加的；但对称的另一半（子命令侧引号、反斜杠转义、引号拼接）没有处理，说明这是**遗漏而非设计选择**。
-4. 绕过成本极低：一次字符插入即可，且对读得懂技能文本/文档的模型（甚至被提示注入的模型）是显式可得的路径。
-
-**Fix:** 单一修法可同时覆盖两个家族 —— 把安装档从「子命令黑名单」改为「**首 token 是包管理器 → 默认强制确认；只有显式只读子命令白名单才降级**」，并在匹配前做一次**与白名单共用的规范化**（去引号 + 去反斜杠转义），使两侧口径一致：
+**Issue:**
+`PACKAGE_MANAGER_TOOL_MAP` 为 `bareIsInstall === false` 的工具生成的裸形式正则是：
 
 ```js
-// 1) 两侧共用的规范化（提到 normalizeSegment 之外的独立函数，避免动既有 32 例断言）
-function stripShellQuoting(seg) {
-  // 去掉词法层噪音：\' " 反斜杠转义 → 但保留独立 token 分隔
-  return normalizeSegment(seg).replace(/\\(?=\S)/g, '').replace(/['"]/g, '');
-}
+readOnlyRes.push(new RegExp('\\b' + entry.tool + '\\b' + FLAG_TOLERANCE + '\\s*$'));
+```
 
-// 2) 包管理器首 token 表 + 只读子命令允许表（默认拒绝，而不是默认放行）
-const PACKAGE_MANAGER_TOOLS = new Set(['npm', 'npx', 'pnpm', 'yarn', 'bun', 'bunx',
-  'pip', 'pip3', 'pipx', 'python', 'python3', 'uv', 'uvx',
-  'brew', 'cargo', 'go', 'gem']);
+而 `FLAG_TOLERANCE = '(?:\\s+-\\S+(?:\\s+(?!-)\\S+)?)*'` 的每组是「旗标 + **至多一个取值 token**」，取值槽 `(?:\s+(?!-)\S+)?` 会**贪婪吞掉紧随其后的任意非 `-` token**。当子命令恰好是段内最后一个 token 且紧跟在某个旗标之后时，裸形式正则把它读成「旗标的取值」→ 段内再无剩余 → `\s*$` 命中 → `matchInstall` 返回 `null`（只读）→ 只要白名单含该工具名就 `allow` **零卡片**。
 
-function matchInstall(seg) {
-  const n = stripShellQuoting(seg);              // ← 与 matchesWhitelist 同一口径
-  const tokens = n.split(' ').filter((t) => t && !t.startsWith('-') && !/^[A-Za-z_]\w*=/.test(t));
-  const tool = tokens[0] && tokens[0].split('/').pop();
-  if (tool && PACKAGE_MANAGER_TOOLS.has(tool)) {
-    const sub = tokens[1] || '';
-    if (!READ_ONLY_SUBCOMMANDS[tool]?.has(sub)) return `包管理器操作（${tool} ${sub || '(无子命令)'}）`;
-  }
-  for (const { pattern, name } of PACKAGE_MANAGER_INSTALL_PATTERNS) { /* 既有表保留作纵深 */ }
-  return null;
+实测（`evaluateBashCommand(cmd, ['npm','pip','gem','uv','cargo','go','brew'])`）：
+
+| 命令 | 实际语义 | 期望档 | 实测 |
+|------|---------|--------|------|
+| `npm -g update` | 升级**全部全局包**（取新代码 + 跑依赖生命周期脚本） | install（高风险卡片） | **`allow` 零卡片** |
+| `npm --global update` | 同上 | install | **`allow` 零卡片** |
+| `npm --prefix=./app update` | 升级该子项目依赖 | install | **`allow` 零卡片** |
+| `npm -q update`（`-q` → `--loglevel warn`，见 npm `@npmcli/config` shorthands） | 升级项目全部依赖 | install | **`allow` 零卡片** |
+| `npm --global rebuild` | 重跑依赖生命周期脚本 | install | **`allow` 零卡片** |
+| `npm -g update ls` | 升级全局包（`ls` 是包名） | install | **`allow` 零卡片**（已被测试钉住） |
+| `cargo -q update` / `gem --quiet update` | 更新 registry / 升级已装 gem | install | **`allow` 零卡片** |
+
+对照：不带旗标前缀的同族命令判定正确 —— `npm update -g` → `confirm/install`、`npm -g install x` → `confirm/install`、`npm -g uninstall x` → `confirm/install`（末尾有剩余 token，裸形式不命中）。也就是说，**同一个真实安装命令的判定随旗标位置翻转**。
+
+这与文档的绝对声明直接冲突：`docs/product/ai-agent-workspace.md:99`「白名单**不再能放开任何非只读的包管理器子命令** —— …`npm run` 与 `npm i` / `npm install` / `npm ci` / `npm exec` / `npm update` / `npm rebuild` 同理」；实测 `npm -g update` / `npm -q update` 正是「非只读子命令被白名单放开」。本计划 JSDoc ⑤/⑦-e 只记录了「旗标取值吞子命令 → 需三件事同时成立（旗标 + 未知动词 + 只读同名词）」的残余，**未覆盖「末尾子命令被完整吞掉」这一更宽的成因**，其成立条件只有两件事（旗标位置 + 白名单含工具名）。
+
+**Fix（两选一，推荐后者）：**
+
+(a) 最小补丁 —— 裸形式只接受「不给独立取值 token 的旗标」（取值必须以 `=` 粘连）：
+
+```js
+if (!entry.bareIsInstall) {
+  // 纯旗标/裸命令形态：取值只能以 = 粘连，避免把末尾子命令当成旗标取值吞掉
+  readOnlyRes.push(new RegExp('\\b' + entry.tool + '\\b(?:\\s+-{1,2}[\\w-]+(?:=\\S+)?)*\\s*$'));
 }
 ```
 
-同时把 `matchesWhitelist` 的口径也切到 `stripShellQuoting`（否则 `brew "install" wget` 仍会命中 `brew` 前缀 —— 但只要安装档先短路就不再有安全后果；不过为消除歧义建议两侧一致）。**回归影响**：`tests/test-ai-bash-policy.js` 的只读反例表（`READONLY_NEGATIVES`）与 34 条只读断言正是这套「默认拒绝」规则的现成护栏，改造后应全绿；`npm run dev` / `brew info` / `pip list` / `uv --version` 必须继续不命中。
+已复核该补丁与现有断言兼容：`npm --version` / `uv --version` / `pnpm --version` / `brew -v` / `npm` 仍只读；`npm -g` / `npm --prefix ./app`（无子命令）会退化为普通确认 —— 方向安全。唯一致红项是 `tests/test-ai-bash-policy.js:847` 的 `assert.strictEqual(policy.matchInstall('npm -g update ls'), null)`（该断言把漏洞钉成了契约，**必须一并改为非 null**），并同步 JSDoc ⑤ / ⑦-e、`PACKAGE_MANAGER_TOOLS` 的 JSDoc ④ 与 `docs/product/ai-agent-workspace.md:117`、`docs/product/ai-skills.md:206-208` 的残余段（「成因不可消除」的措辞不成立，见下）。
 
-**若判定「本阶段不改」**：至少必须把 `ai-bash-policy.js:230-237` 的 ⑦-b 段与三份文档里的「漏检 ≠ 免确认 / 白名单不可越过」改成有前提的表述（区分「未命中白名单的漏检」与「命中白名单前缀的漏检」），并新增一条钉住实际行为的断言，否则文档在给用户虚假的保证。
+(b) 结构性修复（可同时消除 CR-01、CR-02 与 ⑦-e）—— 放弃用「整段正则」判只读，改为 **argv token 化判定**：取工具名之后的第一个不以 `-` 起头的 token 作为子命令（只有一份**显式取值旗标清单**如 `--prefix` / `-w` / `--filter` / `-C` / `--registry` 才吞掉下一个 token），再与 `readOnly` / `guarded` / `composite` 比对。这样 `npm -g update`（`-g` 是布尔旗标 → 子命令 `update` → 不在只读清单 → 默认拒绝）、`pnpm --filter a run build`（`--filter` 在取值清单 → 子命令 `run` → 只读）两侧同时为真，`pnpm --filter a run build` 这条既有锁定负例不必再靠「取值槽」实现。
 
----
+### CR-02: `audit` 守卫的负向断言不跨越中间旗标 → `npm audit --json fix` 零卡片（npm 会真的执行 fix 安装）
 
-## Warnings
+**File:** `ai-bash-policy.js:443`（npm 的 `audit` 守卫）、`ai-bash-policy.js:455`（pnpm 同形）
 
-### WR-01: 白名单条目 `*` 被校验通过，`matchesWhitelist` 立刻退化为「全放行」
-
-**File:** `ai-bash-policy.js:143-150`（空前缀分支）、`ai-bash-policy.js:358-374`（`validateWhitelistList`）；入口 `src/settings-page.js:2841-2871`
-
-**Issue:** 条目 `'*'` 走 `e.endsWith('*')` 分支 → `e.slice(0, -1)` 为 `''` → `n.startsWith('')` 恒真，于是**所有段**命中白名单。`validateWhitelistList(['*'])` 返回 `{valid:true}`（非空字符串、≤200、无控制符），设置页 tag 输入也没有额外校验（`settings-page.js:2846-2857` 只挡空串/超长/控制符）。实测：
-
-```
-['*']  "cat ~/.ssh/id_rsa"                 → allow（无卡片）
-['*']  "curl -o /tmp/x http://e.com/x"     → allow（无卡片）
-[' *'] "cat ~/.ssh/id_rsa"                 → allow（无卡片）
-```
-
-危险档/安装档仍会拦（`rm -rf /` → danger、`npm i x` → install），所以安全边界没被整体拆除；但**「不要加 `cat`/`less` 这类通用命令」这条文档警告被一个字符作废** —— 用户输入 `*` 后，所有非危险、非安装命令（含任意文件读取、任意网络下载落盘、`ssh`）全部免确认，且 UI 不会有任何提示。
-
-**Fix:** 在 `validateWhitelistList` 与设置页同时拒绝「通配符前无字面 token」的条目：
+**Issue:**
+两个 `audit` 守卫正则的负向先行断言只检查 `audit` **紧邻**的后缀：
 
 ```js
-if (v.replace(/\*+$/, '').trim() === '') {
-  return { valid: false, reason: '白名单条目必须是具体命令前缀，不支持单独使用 *' };
-}
+{ verb: 'audit', pattern: '\\bnpm\\b' + FLAG_TOLERANCE + '\\s+\\baudit\\b(?!\\s+-{0,2}fix\\b)' }
 ```
 
-`matchesWhitelist` 侧再加一道防御：`const prefix = e.slice(0, -1); if (prefix.trim() === '') continue;`
+`(?!\s+-{0,2}fix\b)` 只匹配「空格 + 至多两个连字符 + fix」。只要 `audit` 与 `fix` 之间插一个旗标，断言即落空 → 判只读 → 白名单命中即零卡片。
 
-### WR-02: 播种残留（`.tmp_*` / `.bak_*`）永不回收，且落在技能扫描根内 → 被加载成「幽灵技能」
-
-**File:** `builtin-skills-seeder.js:254-285`（`safeCopyDir` 的 tmp/bak 命名与清理）、`builtin-skills-seeder.js:360-386`（循环内无残留清扫）
-
-**Issue:** tmp/bak 目录由 `dst` 派生（`${dst}.tmp_<ts>` / `${dst}.bak_<ts>`，同父目录以保证同卷 —— 这是刻意设计），因此它们**落在 `managed-skills/` 扫描根内**。`_cleanupDir` 是 best-effort（`catch {}`），且**没有任何启动清扫**。一旦出现下列任一情形，残留会被 `aiSkills.refreshSkills()` 当成独立技能：
-
-- 进程在 `rename(dst → bak)` 与 `rename(tmp → dst)` 之间退出（两次改名之间的窗口，SIGKILL / 崩溃 / 强制退出都可命中）；
-- `_cleanupDir(bakDst)` 失败（EPERM 等）；
-- 复制阶段崩溃留下的完整 `.tmp_*`（`SKILL.md` 已就位时）。
-
-实测（构造残留后跑真实加载）：
+实测（白名单 `['npm','pnpm']`）：
 
 ```
-加载到的技能：
-  name=find-skills.bak_1700000000000        source=managed
-  name=skill-creator.tmp_1700000000000      source=managed
-diagnostics: invalid_metadata ×2（name 与目录名不一致）、realm_name_rewritten ×2
+npm audit fix                     → confirm/install   ✓
+npm audit --fix                   → confirm/install   ✓
+npm audit --json fix              → allow（零卡片）  ✗
+npm audit --audit-level=high fix  → allow（零卡片）  ✗
+npm audit --omit=dev fix          → allow（零卡片）  ✗
+pnpm audit --json fix             → allow（零卡片）  ✗
+pnpm audit --registry=https://x fix → allow（零卡片） ✗
 ```
 
-即：技能集里多出**永久存在、无法通过设置页删除**的幽灵条目（名字带时间戳），并伴随 4 条诊断噪声；`managed-skills/` 目录会随每次崩溃缓慢堆积垃圾目录。测试只断言了「成功/失败当次不留残留」，没有覆盖「上次崩溃留下的残留」。
-
-**Fix:** 在 `seedBuiltinSkills()` 进入逐技能循环前做一次残留清扫（同父目录，天然同卷）：
-
-```js
-// 清掉上次崩溃遗留的 <name>.tmp_* / <name>.bak_*（它们落在扫描根内会被当成技能）
-let stale = [];
-try {
-  stale = fs.readdirSync(managedDir).filter((n) => /\.(tmp|bak)_\d+$/.test(n));
-} catch { /* managedDir 不存在时由下方 mkdirSync 处理 */ }
-for (const name of stale) _cleanupDir(path.join(managedDir, name));
-```
-
-并补一条断言：预置 `managed-skills/find-skills.bak_<ts>/`（含 SKILL.md）后跑播种 → 该目录消失，且 `refreshSkills` 零诊断。
-
-### WR-03: `detectDiff` 的结论不参与「是否覆盖」决策 —— 每次启动都整目录重建
-
-**File:** `builtin-skills-seeder.js:364-376`
-
-**Issue:** `diff` 只被用于决定要不要产 `realm_builtin_seed_overwritten`，`safeCopyDir(skillSrc, skillDst)` 在所有分支（`missing` / `different` **/ `same`**）都无条件执行。实测连续两次播种（第二次 `detectDiff === 'same'`）：
-
-```
-[a] SKILL.md inode:  171113209 -> 171113237  (变化 = true )
-[a] SKILL.md mtime:  ...9833.7 -> ...9858.5  (变化 = true )
-[a] 技能目录 inode:  171113208 -> 171113236  (变化 = true )
-```
-
-后果有两层：① `detectDiff` 最贵的一层（逐文件 sha256）在每次启动都白算，且注释里专门为「不用 mtime」写的护栏失去意义（反正 mtime 每次都会变，因为每次都重建）；② 每次启动都制造一次 rename 空窗（dst 先被改名为 bak，`SKILL.md` 短暂不可见），**这正是 WR-02 的触发源**。测试用例名「幂等：连续两次播种，第二次零差异零诊断，产物字节不变」只验证了字节与诊断，未验证「未重建」。另外 `detectDiff` 的 `listRelativeFiles` 不记录空目录，所以「same 时跳过复制」需同时把目录项纳入比较，否则源侧空目录的差异永远不会被自愈。
+「`fix` 是位置参数、旗标不改变它的位置」这一点有 npm 自身实现为证（`node_modules/npm/lib/commands/audit.js`）：`exec(args)` 收到的是**去掉旗标后的位置参数**，`auditAdvisories` 里 `const fix = args[0] === 'fix'`，`fix === true` 时走 `arb.audit({ fix })` + `reifyFinish(...)` —— 即按修复版本**下载并安装**（并跑依赖的安装生命周期脚本）。因此 `npm audit --json fix` 是事实上的安装命令，却拿到零卡片。
 
 **Fix:**
 
 ```js
-const diff = detectDiff(skillSrc, skillDst);
-if (diff === 'same') continue;                     // 无差异 → 不自愈重建，不产诊断
-if (diff === 'different') { /* 现有的 overwritten 诊断 */ }
-safeCopyDir(skillSrc, skillDst);
+// npm
+{ verb: 'audit', pattern: '\\bnpm\\b' + FLAG_TOLERANCE + '\\s+\\baudit\\b(?!' + FLAG_TOLERANCE + '\\s+-{0,2}fix\\b)' },
+// pnpm 同形
 ```
 
-（若要保留「空目录也能自愈」，在 `listRelativeFiles` 里对目录追加 `rel + '/'` 标记。）
+或更省事的 fail-safe 写法（`audit` 后的剩余文本里出现任何 `fix` 词即不收，多一次确认方向安全）：`...\\s+\\baudit\\b(?!.*\\bfix\\b)`。修复后请同时把 `npm audit --json fix` / `npm audit --audit-level=high fix` / `pnpm audit --registry=x fix` 加进 P1 门禁用例（`tests/test-ai-bash-policy.js` 的 `P1-b-1` 或「只读条目形态化」组），因为现有断言只覆盖了紧邻形态 `npm audit fix` / `--fix`。
 
-### WR-04: 播种失败在运行时完全静默 —— 诊断无消费方、也不打日志
+## Warnings
 
-**File:** `builtin-skills-seeder.js:331-390`（诊断只入 `_diagnostics`）、`builtin-skills-seeder.js:397-399`（`getSeedDiagnostics`）、`main.js:4048`（调用点）
+### WR-01: `matchDangerous` 未做同源词法归一化 → 高风险命令降级为中风险卡片
 
-**Issue:** 文件头把失败策略写成「任何失败仅 `console.error` + 产诊断」，但**只有最外层 catch（:387-389）与 `detectDiff` 的 IO catch 打日志**。以下路径在正式版里一点痕迹都不留：
+**File:** `ai-bash-policy.js:329-340`（`matchDangerous`）、`ai-bash-policy.js:360-364`（`stripShellQuoting`）
 
-- `names.length === 0` → `realm_builtin_src_missing`（**源目录不存在 / asarUnpack 没生效 / `.app` 装歪**）→ push 诊断后 `return`；
-- 单技能失败（symlink 拒收、复制失败）→ `realm_builtin_seed_failed` → push 诊断；
-- 源子目录缺 `SKILL.md` → `realm_builtin_src_invalid`。
-
-而 `getSeedDiagnostics()` 在**生产代码里没有任何调用方**（全仓 grep：只有 `builtin-skills-seeder.js` 自身与测试）。结果是：内置技能**一个都没播种成功**的正式版，与一切正常的正式版在用户侧与日志侧完全不可区分 —— 与 `builtin-skills-seeder.js:48-49` 自己引用的 nodejieba 事故（9a1ae11「漏一侧即在正式版静默失败」）同型。D-09 的「不静默」只在 API 层成立，没有到达任何可见面。
-
-**Fix:** 循环结束后统一输出（保持「不打断启动」的契约，但让失败可见）：
-
-```js
-if (_diagnostics.length > 0) {
-  for (const d of _diagnostics) {
-    const line = `[Realm] 内置技能播种 ${d.level} ${d.code}: ${d.message}`;
-    if (d.level === 'error') console.error(line); else console.warn(line);
-  }
-}
-```
-
-并明确记一条待办：Phase 50 把 `getSeedDiagnostics()` 接进技能面板/诊断通道之前，至少 `console` 兜底不能省。
-
-### WR-05: 危险表与安装表区分大小写，而 macOS 解析不区分 —— `RM -rf` 降级为误导性中风险卡片
-
-**File:** `ai-bash-policy.js:165-177`、`ai-bash-policy.js:241-255`（正则无 `i` 标志）、`ai-bash-policy.js:262-273`、`ai-bash-policy.js:298-305`
-
-**Issue:** 所有模式表都对规范化后的原文做大小写敏感匹配，但 macOS 文件系统默认不区分大小写，shell 能解析大写命令名（实测：`command -v RM` → `/bin/RM`，`command -v SUDO` → `/usr/bin/SUDO`，`command -v LS` → `/bin/LS`）。因此：
+**Issue:**
+本轮把 `stripShellQuoting` 接进了 `matchInstall`，但 `matchDangerous` 仍按原始文本匹配。引号/反斜杠**拼接在词内部**的形态因此绕开危险表，落 `confirm/default`（中风险卡片 + 「该命令未命中白名单」文案），而正确结果是 `confirm/danger`（高风险卡片 + 点名危险项）：
 
 ```
-"RM -rf /tmp/x"     danger=null  install=null  → confirm/default
-"SUDO ls"           danger=null  install=null  → confirm/default
+rm -rf /tmp/x        → danger（删除文件（rm））
+r""m -rf /tmp/x      → confirm/default    ✗（/bin/sh 展开后就是 rm -rf /tmp/x）
+r\m -rf /tmp/x       → confirm/default    ✗
+sudo id              → danger（提权执行（sudo））
+s\udo id             → confirm/default    ✗
+su"do" id            → confirm/default    ✗
 ```
 
-`RM -rf ~/Documents` 真的会删目录，但卡片是**中风险**、标题「AI 请求执行 Bash 命令」、提示「该命令未命中白名单」—— 与 `rm -rf` 的高风险提示「检测到高危操作（删除文件（rm）），白名单对本命令无效」形成误导性差异。`RM` 这类形态同时会绕过「危险词检测」的所有下游用途。安装档同理（`brew INSTALL wget` → 不判 install），只是 npm/brew 是否接受大写子命令未在本机验证，故只作为同源风险记录。
+无零卡片通道（拼接后的段不以白名单条目为前缀，`matchesWhitelist` 不会命中），所以这是**风险标注与危险短路的残余**，不是免确认漏洞；但文档把危险表描述为「rm 全系 / sudo / …」（`docs/product/ai-agent-workspace.md:71,79`），而用户实际看到的只是中风险卡片，卡片文案也不点名危险项。
 
-**Fix:** 在 `matchDangerous` / `matchInstall` 里对**小写副本**做匹配（不要动 `normalizeSegment` 的返回，避免影响 `matchesWhitelist` 的既有 32 例口径）：
+**Fix:** 让危险判定复用同一份归一化（危险侧只可能**增加**命中，方向安全）：
 
 ```js
 function matchDangerous(seg) {
-  const n = normalizeSegment(seg);
-  const lower = n.toLowerCase();
-  for (const { pattern, name } of DANGEROUS_PATTERNS) if (pattern.test(lower)) return name;
-  const cmdName = extractCommandName(lower);
+  const n = stripShellQuoting(seg);   // 与 matchInstall 同源
+  if (!n) return null;
   ...
 }
 ```
 
-### WR-06: `check_env.mjs` 的 capability → 依赖映射错误：声明了没人用的 `anthropic`，漏掉真正必需的 `claude` CLI
+`matchesWhitelist` **保持原始文本前缀匹配不变**（那是白名单的既定口径，且被既有断言锁定）。改完请重跑 97 例（红项即说明某条危险负例依赖了引号内的字面量，需逐条判断）。
 
-**File:** `skills-builtin/skill-creator/scripts/check_env.mjs:35-46`（`PACKAGE_SPECS`）、`:54-59`（`CAPABILITIES`）、`:68`（`KNOWN_COMMANDS`）；相关文档 `THIRD_PARTY_NOTICES.md:104-113`、`skills-builtin/skill-creator/SKILL.md:407-427`
+### WR-02: 权威文档的绝对断言被实测推翻（两文件两处）
 
-**Issue:** `description-optimize` 被声明为需要 Python 包 `anthropic`，但**没有任何脚本 import anthropic**（全目录 grep `import anthropic` / `from anthropic` → 0 命中）；而它实际调用的 `scripts/run_loop.py` → `improve_description.py:_call_claude()` 硬依赖外部 `claude` CLI：
+**File:** `docs/product/ai-agent-workspace.md:114`、`docs/product/ai-agent-workspace.md:99`、`docs/product/ai-skills.md:200-202`
 
-```python
-cmd = ["claude", "-p", "--output-format", "text"]
-result = subprocess.run(cmd, ...)   # FileNotFoundError if absent
+**Issue:**
+三处声明与实测/同文档其他段落互相矛盾：
+
+1. `ai-agent-workspace.md:114`：「安装档的漏检类别**只剩一条**——「首 token 不是包管理器」」——与**同一节**第 117 条 (a) 自述的「`npm -g <未知动词> <只读同名词>` 仍可能被判只读」直接冲突，也被本报告 CR-01 / CR-02 的实测反例推翻（漏检类别至少还有两类：旗标取值吞子命令、`audit` 与 `fix` 之间插旗标）。
+2. `ai-agent-workspace.md:99`：「白名单**不再能放开任何非只读的包管理器子命令**」——被 `npm -g update` / `npm -q update`（实测 `allow`）推翻。
+3. `ai-skills.md:200-202` 同款「漏检类别只剩「首 token 不是包管理器」这一条」+「改前那些…漏检形态已被**默认拒绝**规则消除」。
+
+文档被三份文件声明为**产品说明权威载体**（`docs/product/ai-skills.md:3-6`、`.planning` 的维护约定、AGENTS.md 的维护约定段），绝对化的安全断言属于对外承诺；「不给绝对保证」的诚实边界写在同节末尾，不能与同节的绝对断言并存。
+
+**Fix:** 先按 CR-01 / CR-02 修代码；若决定保留残余，则把三处改写为可验证的措辞，例如：「默认拒绝把漏检面压到『首 token 不是包管理器』**之外仍有两类具名残余**（① 旗标取值吞掉末尾子命令：`npm -g update`；② `audit` 与 `fix` 之间存在旗标：`npm audit --json fix`）—— 两类都只可能落**普通确认卡片或只读豁免**，后者在白名单命中时为零卡片，已在 §（残余）逐条记录」。并同步收紧 `ai-bash-policy.js` 的 JSDoc ⑤ / ⑦-e 中「**成因不可消除**」的断言（token 化判定即可消除，见 CR-01 的 (b)）。
+
+### WR-03: 只读清单的文档枚举严重不完整（把免确认面说小了）
+
+**File:** `docs/product/ai-agent-workspace.md:85`、`docs/product/ai-skills.md:178-184`
+
+**Issue:**
+两份文档以「**显式只读清单**（清单内走普通确认或白名单；**清单外一律强制确认**）」的形式给出枚举，但实现里的只读面**远大于**文档所写（实现在 `PACKAGE_MANAGER_TOOLS`，是被测试表驱动断言的单一来源）。文档未列出的只读词条包括：
+
+- `npm`：`list` / `help` / `root` / `ping` / `doctor` / `fund` / `version` / `whoami` / `dedupe` / `prune` / `completion` / `search` / `docs` / `repo` / `bugs` / `explain` / `why` / `bin` / `prefix`
+- `pnpm`：`test` / `list` / `why` / `outdated` / `licenses` / `root` / `bin` / `doctor` / `help` / `version`
+- `yarn`：`test` / `ls` / `list` / `why` / `info` / `outdated` / `audit` / `licenses` / `bin` / `root` / `help` / `version`
+- `bun`：`test` / `ls` / `list` / `help` / `version` / `why` / `outdated` / `audit`
+- `brew`：`config` / `doctor` / `outdated` / `deps` / `uses` / `home` / `desc` / `cat` / `help` / `version`
+- `pip` / `pip3`：`help` / `version` / `debug`
+- `uv`：`init` / `cache` / `list` / `show` / `freeze` / `check` / `inspect` / `debug` / `version` / `help`（文档只有「`uv tree` / `lock` / `export` / `uv pip list` 等」）
+- `cargo`：`tree` / `metadata` / `version` / `help` / `locate-project`
+- `go`：`env` / `version` / `doc` / `help`
+- **`gem` 整族缺失**：`list` / `search` / `info` / `environment` / `help` / `version` 全未出现，而 `gem` 在工具集清单里是明确列出的（同一段文字内自相矛盾）
+
+**Fix:** 两份文档的只读清单**直接从 `PACKAGE_MANAGER_TOOLS` 生成**（例如在测试里加一条「文档枚举 ⊇ 实现 readOnly」的一致性断言，照 `tests/test-builtin-skills-seeder.js` 的「三份文档口径一致」组的做法），避免以后清单漂移；至少补齐 `gem` 族与上列缺失项，并把「等」的使用收敛为明确声明（「以下清单即全部，未列出者一律强制确认」）。
+
+### WR-04: AGENTS.md 记录的清扫正则多一层反斜杠 → 照文档实现会永不命中
+
+**File:** `AGENTS.md:269`
+
+**Issue:** 文档原文（行内代码，反斜杠字面）：
+
+```
+播种前先清扫 `/\\.(tmp|bak)_\\d+$/` 的崩溃残留目录
 ```
 
-`KNOWN_COMMANDS = ['node','python3']` 又把 `claude` 刻意排除（`--command claude` 返回 `unknown_requirement`）。后果是探针**给出假阳性**：在装了 `anthropic`、没装 `claude` CLI 的机器上 `node scripts/check_env.mjs --capability description-optimize` 返回 `ok: true, capabilities.status['description-optimize'].ok === true`，而 SKILL.md 的 `## Description Optimization` 第 3 步随即指导运行 `python -m scripts.run_loop …`，必在 `_call_claude` 崩掉。这与探针自己声明的「未知输入不得静默忽略 / 缺口不会静默」以及 `THIRD_PARTY_NOTICES.md §4`「capability 面已收缩为 4 组…依赖 `claude` CLI 的 run-eval / run-loop 两组已去掉」的口径都不一致（`description-optimize` 本身就是 run_loop 那条路径）。
+实现是 `/\.(tmp|bak)_\d+$/`（`builtin-skills-seeder.js:264`）。文档里的 `\\.` / `\\d` 在 markdown 行内代码中不会被转义处理，渲染与复制都是**双反斜杠**，等价于「匹配字面反斜杠」→ 复制粘贴进代码就是一条永不命中的正则（残留清扫静默失效，正是 GAP 3 要修的现象）。AGENTS.md 是 always-applied 的项目规则文件，这类不变式被照抄的风险不低。
 
-**Fix:** 三选一并同步文档：① 把 `claude` 纳入 `KNOWN_COMMANDS` 并把 `description-optimize` 的 commands 设为 `['claude']`（如实报告缺失）；② 从 `CAPABILITIES` 删掉 `description-optimize`，并在 SKILL.md 该章写明「本技能不保证该路径可用」；③ 把 `python -m scripts.run_loop` 改为经 Realm 自身模型调用的路径。同时删掉未被任何代码使用的 `anthropic` 条目，并同步 `THIRD_PARTY_NOTICES.md §4` 的依赖表述。
+**Fix:** 改为 `` `/\.(tmp|bak)_\d+$/` ``（并让残留清扫相关断言继续以源码为唯一来源，已由 `tests/test-builtin-skills-seeder.js:905-918` 覆盖）。
 
-### WR-07: `find-skills/LICENSE.txt` 的版权行与上游现已发布的 LICENSE 不一致；`THIRD_PARTY_NOTICES.md` 的相关断言已过期
+### WR-05: `sweepSeedResidue` 缺陈旧性判据 → 并发实例会互删进行中的 tmp/bak
 
-**File:** `skills-builtin/find-skills/LICENSE.txt:3`、`THIRD_PARTY_NOTICES.md:91-100`（§3「易错事实说明」第 1 条）、`THIRD_PARTY_NOTICES.md:117-130`（升级清单）
+**File:** `builtin-skills-seeder.js:255-266`（清扫实现）、`builtin-skills-seeder.js:453`（调用点）
 
-**Issue:** 独立取证发现：**上游 `vercel-labs/skills` 现在有仓库根 `LICENSE` 文件**（2026-07-22 提交 `e173b8c88f25` "Add MIT license"，比本阶段固定的 SHA 2026-07-10 **晚 12 天**），内容为标准 MIT，版权行为 **`Copyright (c) 2026 Vercel, Inc.`**。而：
+**Issue:** 清扫只按**命名形状**判定（`/\.(tmp|bak)_\d+$/`），不判「是否陈旧」，而 `<dst>.tmp_<ts>` / `<dst>.bak_<ts>` 正是 `safeCopyDir` **当前进程进行中**的中间态。应用没有单实例锁（全仓无 `requestSingleInstanceLock`），且 `dev` 与 `debug` **共享同一个 userData 目录**（AGENTS.md 的环境隔离表）。两实例同时运行时存在这条交错：
 
-- 本仓随包的 `LICENSE.txt` 版权行是 `Copyright (c) vercel-labs` —— 与上游自己公布的版权主体不同；MIT 要求保留版权声明，随包副本应使用上游声明的权利人。
-- `THIRD_PARTY_NOTICES.md §3.1` 断言「**find-skills 的上游仓库根没有独立 LICENSE 文件**」—— 该断言在**固定 SHA 时点**成立（我在该 SHA 的 `contents` 里确认无 `LICENSE`），但文档用的是无时点限定的现在时，今天读已为**假**；P10 断言只检查关键词与 SHA 字面量，检不出这种过期。
-- §5 的升级检查清单四步里没有「上游补录许可证文本后同步随包副本」这一步，因此「换 SHA 时把版权行对齐上游」不会被任何流程触发。
+1. 实例 A 播种技能 X：`copyDirRecursive(src, X.tmp_tsA)` 完成 → `rename(X → X.bak_tsA)`；
+2. 实例 B 启动，`sweepSeedResidue` 删掉 `X.tmp_tsA` 与 `X.bak_tsA`（两者都匹配正则）；
+3. A 的 `rename(X.tmp_tsA → X)` 抛 ENOENT → 回滚 `rename(X.bak_tsA → X)` 也 ENOENT → `X` 目录**中途缺失**，A 产一条 `realm_builtin_seed_failed`（error 级，经 console.error 输出）。
 
-**Fix:** ① 把 `skills-builtin/find-skills/LICENSE.txt` 的版权行改为 `Copyright (c) 2026 Vercel, Inc.`（并在 `THIRD_PARTY_NOTICES.md` 第 1 节的修改说明里记一笔，因为它属随包内容变更）；② §3.1 改写为带时点的表述，例如「**在固定 SHA `773fb2c7…`（2026-07-10）时点**，上游仓库根没有独立 LICENSE 文件（该文件于 2026-07-22 由 `e173b8c` 加入；下一轮升级 SHA 时应改用上游原文）」；③ §5 清单加第 5 步「核对上游 LICENSE 是否已发布 → 若是则用上游原文替换补录副本并同步版权行」。
+后果有界且下一轮自愈（`missing` → 重播），但表现为「启动日志里莫名的播种失败 + 技能短暂消失」，与 GAP 4 想达成的「失败可见性即真实故障」的信噪比目标相冲。
 
-### WR-08: 随包 `generate_review.py` 的 `_kill_port()` 对 :3117 上的任意进程发 SIGTERM，且用户看不见
+**Fix（零状态文件、不破坏 D-11）：** 只清扫**陈旧**残留 —— 从目录名解析出 `\d+` 时间戳，仅当它早于「本进程启动时刻」或早于 `Date.now() - RESIDUE_TTL_MS`（如 10 分钟）时才删：
 
-**File:** `skills-builtin/skill-creator/eval-viewer/generate_review.py:288-306`（调用点 `:438-447`）
+```js
+const ts = Number(name.match(/\.(?:tmp|bak)_(\d+)$/)[1]);
+if (Number.isFinite(ts) && Date.now() - ts > RESIDUE_TTL_MS) _cleanupDir(...);
+```
 
-**Issue:** 该脚本启动前无条件 `lsof -ti :3117` 并对返回的**每一个 PID** 发 `SIGTERM`，没有归属校验（不检查是否为本技能的旧实例）。它随包分发，且 SKILL.md 的评测章会指导模型去跑这条链路，用户看到的确认卡片只有 `python3 …/generate_review.py …` 一行 —— 「会先杀掉占用 3117 端口的进程」不在卡片所见的范围里（与 `docs/product/ai-agent-workspace.md §七`「卡片所见即所确认」的安全模型冲突）。本文件是**上游逐字副本**（sha256 已比对 SAME），所以这是上游设计，但 Realm 选择随包并把它接进自动化链路，就承担了它的行为。
+（`safeCopyDir` 的时间戳来自 `Date.now()`，与本机时钟同源，判据成立；`tests/test-builtin-skills-seeder.js:869` 的用例 B 需把预置残留的时间戳改为足够旧。）
 
-**Fix:** 二选一并记录决策：① 打补丁（只杀「本脚本上次写下的 pid 文件」或改用 `HTTPServer(("127.0.0.1", 0))` 由系统分配端口），并在 `THIRD_PARTY_NOTICES.md` 第 2 节的修改说明里新增一项（Apache-2.0 §4(b) 要求落地）；② 不改代码，但在 `THIRD_PARTY_NOTICES.md §4` 与 SKILL.md 的 `## Environment Preflight` 里显式声明「eval-viewer 会终止占用 3117 端口的进程」为已接受的偏离。
+### WR-06: `npm version` / `yarn version` 属写操作，却被列入只读清单
 
----
+**File:** `ai-bash-policy.js:435`（npm 的 `readOnly` 含 `'version'`）、`ai-bash-policy.js:463`（yarn 同）、`ai-bash-policy.js:465`（yarn 的 `readOnly`）
+
+**Issue:** 实测（白名单 `['npm','yarn']`）：
+
+```
+npm version                  → allow（纯查询，合理）
+npm --version                → allow（纯旗标形态，合理）
+npm version patch            → allow（零卡片）  ✗
+npm version 2.0.0            → allow（零卡片）  ✗
+yarn version --new-version 1.1.0 → allow（零卡片） ✗
+```
+
+带位置参数的 `npm version <semver|patch>` 会**改写 package.json / package-lock.json、创建 git commit 与 tag**，并执行 package.json 里的 `preversion` / `version` / `postversion` 生命周期脚本；`yarn version --new-version` 同形。这与 D-16 自述的准入判据（「**不取新代码** **且** **不执行第三方代码**」，且明确把**写操作** `npm owner` / `team` / `dist-tag` 列为「刻意不收」）不一致 —— 实测同族写操作（`npm owner add x` / `npm dist-tag add …`）确实落 install 档，只有 `version` 例外。风险量级低于 CR-01（无网络取码），但后果是「用户以为只是查版本，AI 却打了 tag / 建了 commit」。
+
+**Fix:** 把 `version` 形态化（照 `init` 的做法）——只读仅限「不带位置参数」：
+
+```js
+readOnly: [ /* 去掉 'version' */ ],
+guarded: [
+  { verb: 'version', pattern: '\\bnpm\\b' + FLAG_TOLERANCE + '\\s+\\bversion\\b(?:\\s+-{1,2}\\S+)*\\s*$' },
+],
+```
+
+（`npm --version` 仍由裸形式覆盖，`tests/test-ai-bash-policy.js:360,972` 不受影响；`npm version patch` 落默认拒绝。）若判定为「与 `npm run` 族同判据」的已接受取舍，则请在 `PACKAGE_MANAGER_TOOLS` JSDoc ②/D-16 段落**显式记录 `version` 与 `run` 同族**，并同步两份文档的残余段 —— 当前是未记录的空白。
 
 ## Info
 
-### IN-01: 家族表未覆盖 `bunx` / `pipx` —— `npx`/`uvx` 的同位等价物
+### IN-01: `detectDiff` 的 `dstFiles` 是死变量
 
-**File:** `ai-bash-policy.js:241-255`；文档 `docs/product/ai-skills.md:150-152`
+**File:** `builtin-skills-seeder.js:200`
+**Issue:** `const dstFiles = dstEntries.filter((rel) => !rel.endsWith('/'));` 之后从未被引用（第 ③④ 层用 `srcFiles` 遍历 + `path.join(dstDir, rel)`）。第 ② 层已保证两侧路径集合逐元素相等，所以 `dstFiles` 恒等于 `srcFiles`。
+**Fix:** 删除该行，或改成 `if (dstFiles.length !== srcFiles.length) return 'different';` 的形式把它变成一次显式不变式校验（二选一，前者更简）。
 
-**Issue:** 表里 `npx` / `uvx` 是逐条列出的裸模式，但同语义的 `bunx`（`bun x` 的独立入口）与 `pipx`（Python 包执行器）没有任何条目。实测 `bunx cowsay hi` → `matchInstall null`、`evaluateBashCommand → confirm/default`；`pipx install black` 同理。**不构成绕过**（仍会弹普通确认卡片，且白名单前缀匹配不上），但与文档「覆盖 npx / uvx / bun x」的表述相比是可疑的漏检，且属可直接补的条目。
+### IN-02: `same` 跳过重建后，不再自愈「仅权限位变化」
 
-**Fix:** 追加 `{ pattern: /\bbunx\b/, name: '包执行器（bunx）' }` 与 `{ pattern: /\bpipx\b/, name: '包执行器（pipx）' }`（放在 `bun` / `pip` 条目之后），并把 `INSTALL_FAMILIES` 家族表补两行。
+**File:** `builtin-skills-seeder.js:185-217`（`detectDiff` 不比较 `mode`）、`builtin-skills-seeder.js:465`（`same` → `continue`）
+**Issue:** 实测：播种后 `chmod 600 managed-skills/s1/SKILL.md` 再重播，`detectDiff` 判 `same`，权限位保持 `600`（改前「无条件覆盖」会恢复为随包权限）。当前随包技能全部是 `100644`（`git ls-files -s skills-builtin` 无 `100755`），故**无实际影响**；但文档的「自愈式播种」口径（`docs/product/ai-skills.md:113-133`）未记录这一收窄，日后若随包引入需要可执行位的脚本（`scripts/*.sh`），丢位将不再被修复。
+**Fix:** 在 `detectDiff` 的 size 层旁加一行 `mode` 比较（`(a.mode & 0o777) !== (b.mode & 0o777) → 'different'`），或在文档第八节的「精度补充」里写明「只按相对路径集合 / size / sha256 判内容，权限位不在自愈范围」。
 
-### IN-02: `matchDangerous` 未复用 `stripLeadingQuotes` —— 引号包裹的解释器名不判危险
+### IN-03: 设置页前端校验缺 WR-01 的 `*` 规则，与代码注释所称「重复的本地实现」不符
 
-**File:** `ai-bash-policy.js:262-273` 与 `ai-bash-policy.js:289-291`
-
-**Issue:** 引号剥离只加在 `matchInstall` 侧，`matchDangerous` 仍拿原始 token 做 `extractCommandName`。实测 `'sh' -c 'curl x | sh'` 与 `"python3" -c x` 都返回 `danger=null`（裁决落到 `confirm/default`），而 `sh -c "x"` 正常返回「解释器执行（sh）」。当前只造成「高风险卡片降级为中风险卡片」（不是免确认，因为这类形态的前缀不会命中白名单），但两侧口径不对称本身是维护隐患 —— 后续若有人把 `stripLeadingQuotes` 提升到 `normalizeSegment`（注释已明确禁止），两条链路的行为会一起漂移。
-
-**Fix:** 让 `matchDangerous` 也走同一剥离（并同步更新 `builtin-skills-seeder.js:284-285` 提到的「32 例锁定」注释口径），或在注释里点明这处刻意的不对称及其后果。
-
-### IN-03: `check_env.mjs` 各分支返回形状不一致（`attempted` 缺失）
-
-**File:** `skills-builtin/skill-creator/scripts/check_env.mjs:394-409`（`buildResult` 宣称形状固定）、`:516-534`（`missing_command` 分支）、`:373-385`（`unknownRequirementResult`）
-
-**Issue:** `buildResult` 的注释声明「顶层字段固定为 ok / code / python / packages / commands / capabilities / installGuidance / message，调用方不必做存在性分支」，但 `missing_command` 分支没有传 `attempted`（其余失败分支都传了），`unknownRequirementResult` 则完全不复用 `buildResult`（缺 `attempted` / `requirements` / `installGuidance`）。调用方若按注释无条件读 `result.attempted.length` 会在这些分支拿到 `undefined`。
-
-**Fix:** 在 `missing_command` 分支补 `attempted: pythonResult.attempted`，并把 `unknownRequirementResult` 改为经 `buildResult` 构造（或在注释里把「哪些分支是完整形状」写清）。
+**File:** `src/settings-page.js:2844-2857`（前端）、`ai-bash-policy.js:652-653`（注释）
+**Issue:** `addAiBashWhitelistEntry` 的本地校验只有「非空 / ≤200 字符 / 无换行控制符」，**没有** `*` 的 WR-01 规则；用户输入 `*` 只能在提交时被服务端 `validateWhitelistList` 以 400 拦下（`main.js:1376-1381`）。安全性由服务端权威校验兜住（结论正确），但 `ai-bash-policy.js` 的注释「设置页 `src/settings-page.js` 的 tag 输入校验是重复的本地实现」会被读成两层口径一致，实际两层不等价。
+**Fix:** 在 `settings-page.js` 的校验块补一条与 `validateWhitelistList` 同形的判断（`if (!raw.replace(/\*+$/, '').trim()) { showToast('白名单条目必须是具体命令前缀，不支持单独使用 *'); return; }`），或把注释改成明确说明「前端只做形状校验，`*` 由服务端拒绝」。
 
 ---
 
-_Reviewed: 2026-09-11_
+_Reviewed: 2026-09-11T13:47:52Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
