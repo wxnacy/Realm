@@ -82,7 +82,20 @@ bash 是任意 shell，工作目录固定为工作区根目录，但**不受路�
 - 两者**进白名单也无效** —— 免确认的粒度是「可信的构建类命令」，不是「可信的包管理器」。**机制**：安装档判定**短路先于**白名单匹配（`evaluateBashCommand` 里 install 先于 `matchesWhitelist` 返回），因此「白名单命中」不再蕴含「免确认」。
 - **判定前做一次词法归一化**：shell 的引号与反斜杠只影响 argv 的**词法拼装**、不影响 argv 本身，因此匹配前会去掉引号与反斜杠转义 —— `brew "install" wget`、`brew \install wget`、`brew ins""tall wget` 与 `brew install wget` 的判定结果**完全相同**（都是一张高风险安装卡片）。这让「不改首 token 的纯词法改写」不再有安全后果。
 - 确认卡片按触发源区分标题与文案（危险 → 「AI 请求执行高危 Bash 命令」；安装 → 「AI 请求安装第三方软件包」并点名命中的家族），让用户一眼看出风险类型。
-- **显式只读清单**（清单内走普通确认或白名单；清单外一律强制确认，即**默认拒绝**）：`npm run` / `test` / `ls` / `view` / `audit` / `outdated` / `init` / `--version`，`pnpm run` / `ls` / `audit`，`yarn run`，`bun run`，`brew info` / `list` / `search`，`pip list` / `show` / `freeze` / `check`，**`pipx list`**（与 `pip list` / `brew list` 同族：只列出已装的隔离应用，不取新代码、不执行第三方代码），`cargo search`，`go list`，`uv tree` / `lock` / `export` / `uv pip list` 等 —— 它们不取新代码。
+- **显式只读清单**（清单内走普通确认或白名单；**清单外一律强制确认**，即**默认拒绝**）。以下即**全部**只读词条，与代码 `PACKAGE_MANAGER_TOOLS` 的 `readOnly` 字段一致（该字段是单一来源）：
+  - `npx` / `bunx` / `uvx`：**空** —— 包执行器没有只读形态，一律强制确认
+  - `pipx`：`list`
+  - `npm`：`run` / `test` / `start` / `stop` / `restart` / `run-script` / `ls` / `list` / `view` / `audit` / `init` / `outdated` / `help` / `root` / `ping` / `doctor` / `fund` / `version` / `whoami` / `dedupe` / `prune` / `completion` / `search` / `docs` / `repo` / `bugs` / `explain` / `why` / `bin` / `prefix`
+  - `pnpm`：`run` / `test` / `ls` / `list` / `why` / `outdated` / `audit` / `licenses` / `root` / `bin` / `doctor` / `help` / `version`
+  - `yarn`：`run` / `test` / `ls` / `list` / `why` / `info` / `outdated` / `audit` / `licenses` / `bin` / `root` / `help` / `version`
+  - `bun`：`run` / `test` / `ls` / `list` / `help` / `version` / `why` / `outdated` / `audit`
+  - `pip` / `pip3`：`list` / `show` / `freeze` / `check` / `help` / `version` / `debug`
+  - `uv`：`tree` / `lock` / `export` / `version` / `help` / `init` / `cache` / `list` / `show` / `freeze` / `check` / `inspect` / `debug`，外加复合形态 `uv pip` + `list` / `tree` / `show` / `freeze` / `check` / `inspect` / `debug`
+  - `brew`：`info` / `list` / `search` / `config` / `doctor` / `outdated` / `deps` / `uses` / `home` / `desc` / `cat` / `help` / `version`
+  - `cargo`：`search` / `tree` / `metadata` / `version` / `help` / `locate-project`
+  - `go`：`list` / `env` / `version` / `doc` / `help`
+  - `gem`：`list` / `search` / `info` / `environment` / `help` / `version`
+  （`pipx list` 与 `pip list` / `brew list` 同族：只列出已装的隔离应用，不取新代码、不执行第三方代码）
 - **只读清单有三处必须写准的限定**（否则会变成虚假保证）：
   1. **形态限定的词条**：`npm init` **只在后不接位置参数时**只读（`npm init` / `npm init -y` / `npm init --yes`）；`npm init <initializer>` 等价于 `npx create-<initializer>`，会**联网下载并执行第三方代码**，属安装档。`npm` / `pnpm` 的 `audit` 只在**不含 `fix` 形态**时只读（`npm audit` / `npm audit --json`）；`npm audit fix` / `npm audit --fix`（`pnpm` 同形）会安装修复版本，属安装档。
   2. **生命周期的同族别名**：`npm start` / `npm stop` / `npm restart` / `npm run-script` 与 `npm run` / `npm test` **同族**（跑项目自身定义的脚本）→ 只读。
@@ -96,7 +109,8 @@ bash 是任意 shell，工作目录固定为工作区根目录，但**不受路�
 - **匹配语义（主流前缀式）**：裸条目按命令前缀匹配——`brew` 覆盖 `brew` 本身与 `brew info wget` 等一切 `brew ` 开头的命令（空格边界，不误中 `brewx`）；`npm run *` 为显式通配写法，等价于前缀 `npm run `
 - **即改即存**：增删条目立即生效，下一条命令即按新白名单裁决（AI 执行时实时读取，无缓存）
 - **服务端校验**：条目必须是非空字符串、≤200 字符、无换行/控制字符；**不支持单独使用 `*`**（`*` / ` *` 去掉通配符后没有剩余前缀，不是命令前缀——否则空前缀会使整份白名单变成全放行）
-- **使用建议**：白名单的粒度是**命令前缀，不是路径**。只加构建类可信命令（`npm run`、`git status`、`brew` 等）；**不要加 `cat`/`less` 这类能读任意路径的通用命令**——加了之后它们读任何文件都免确认。注意：白名单**不再能放开任何非只读的包管理器子命令** —— 裸条目 `brew` 仍免确认 `brew info` / `brew list` / `brew search` 等**只读**子命令，但 `brew install` / `brew upgrade` / `brew cask install` 属强制确认档（第 ③ 档），**加入白名单也无效**（install 判定短路先于白名单）；`npm run` 与 `npm i` / `npm install` / `npm ci` / `npm exec` / `npm update` / `npm rebuild` 同理。`npm run` 族（含 `start` / `stop` / `restart` / `test` / `run-script`）与 `npm audit`（**不含 `fix`**）、`npm init -y`（**不带位置参数**）仍是**只读**，而 `npm init <initializer>`（≡ `npx create-<initializer>`）与 `npm audit fix` 与安装档同档。
+- **使用建议**：白名单的粒度是**命令前缀，不是路径**。只加构建类可信命令（`npm run`、`git status`、`brew` 等）；**不要加 `cat`/`less` 这类能读任意路径的通用命令**——加了之后它们读任何文件都免确认。注意：包管理器安装档的判定**短路先于**白名单，因此 `brew install` / `brew upgrade` / `brew cask install`、`npm i` / `npm install` / `npm ci` / `npm exec` / `npm update` / `npm rebuild` 等**非只读**子命令**加入白名单也无效**（仍弹高风险卡片）；裸条目 `brew` 能免确认的只是上表列出的**只读**子命令（`brew info` / `brew list` / `brew search` 等）。`npm run` 族（含 `start` / `stop` / `restart` / `test` / `run-script`）与 `npm audit`（**不含 `fix`**）、`npm init -y`（**不带位置参数**）仍是**只读**，而 `npm init <initializer>`（≡ `npx create-<initializer>`）与 `npm audit fix` 与安装档同档。
+  **但存在具名残余**（见§七第 5 条附 ①②）：`npm -g update` 这类「**旗标 + 未知子命令**」形态与 `npm audit --json fix` 这类「**`audit` 与 `fix` 之间夹旗标**」形态会被判为**只读**，因白名单前缀命中而**零卡片** —— 因此本句的准确表述是「白名单**不能**放开上表之外的**常规**非只读子命令；两类具名残余除外」。
 
 ## 六、确认卡片行为
 
@@ -111,11 +125,14 @@ bash 是任意 shell，工作目录固定为工作区根目录，但**不受路�
 - **bash**：能力等同终端（确认后什么都行），安全依赖「卡片所见即所确认」；静态拆段无法覆盖全部 shell 语法（进程替换、命令替换 `$()` 等），白名单判定是「降低误执行概率」的启发式，**不是安全边界**
 - **提示注入下的人因风险**：恶意网页诱导 AI 执行的 bash 命令同样会弹卡，但用户若不看内容直接点确认则防线失效——请养成读卡片上命令原文的习惯
 - **OS 级隔离**（macOS sandbox-exec 限制 bash 可访问路径）为预留的后续增强方向，当前未实施
-- **（第 5 条）安装档只审一级 bash 命令**：策略引擎看的是用户在卡片上看到的那条命令。若该命令内部再 `spawn` 子进程（如技能自带的 `check_env.mjs` 内部 `spawnSync` 调 `python3`），二次调用不在策略视野内 —— 由用户对第一条命令的确认承担。**「漏检 ≠ 免确认」成立，但要带前提**：安装档的漏检类别只剩**一条**——「首 token 不是包管理器」（如变量间接 `NPM=npm $NPM i x`）；这类命令**不以包管理器开头 → 天然不命中白名单前缀** → 仍退化为**普通确认卡片**（不会零卡片）。改前那些「命中白名单前缀的漏检形态」（子命令词法改写 `brew "install" wget`、中间 token `brew cask install`、未收录子命令 `npm update`）已被**默认拒绝**规则消除。
-- **（第 5 条附）三条具名残余**（如实告知，不给绝对保证）：
-  1. **大小写形态**（`NPM i x` / `RM -rf x`）：macOS 解析不区分大小写，这类写法**不命中**包管理器工具集与危险命令表 → 降级为**普通确认卡片**而非高风险卡片。这是卡片**风险等级标注**的残余，**不是免确认**。
-  2. **旗标取值与子命令在词法上不可区分**：既有行为要求 `pnpm --filter a run build` 判只读（`a` 是 `--filter` 的取值），同一机制使 `npm -g <未知动词> <只读同名词>`（如 `npm -g update ls`）仍可能被判只读。已用**纵深优先**（先跑安装模式表）把可识别面压到最小 —— `npm -g install list` / `brew --quiet install info` 已被收回安装档 —— 剩余部分作为残余如实告知。
-  3. **`pnpm` / `yarn` / `bun` 的同类别名（`start` / `stop` / `restart`）未收录**：各 CLI 的别名语义未逐一核验，按「存疑一律不收」处理 → `pnpm start` / `yarn start` / `bun start` 落强制确认档，卡片文案「将从网络下载并运行第三方代码」对这族命令**不准确**。这是**已接受的保守误报**（方向安全：多一次卡片），与 `npm` 族的理由（`start` / `stop` / `restart` / `run-script` 与 `run` / `test` 同族故只读）并列。
+- **（第 5 条）安装档只审一级 bash 命令**：策略引擎看的是用户在卡片上看到的那条命令。若该命令内部再 `spawn` 子进程（如技能自带的 `check_env.mjs` 内部 `spawnSync` 调 `python3`），二次调用不在策略视野内 —— 由用户对第一条命令的确认承担。**「漏检 ≠ 免确认」成立，但要带前提**：由默认拒绝规则消除的，是「子命令词法改写」（`brew "install" wget`）、「中间 token」（`brew cask install`）与「未收录子命令」（`npm update` / `npm rebuild`）这三类**首 token 是包管理器的改写形态**；**剩余漏检类别不止一条**，其中「首 token 不是包管理器」（如变量间接 `NPM=npm $NPM i x`）这类命令**不以包管理器开头 → 天然不命中白名单前缀 → 仍退化为普通确认卡片（不会零卡片）**；但另有两类**会因白名单前缀命中而零卡片**，逐条列在下面的具名残余里。
+- **（第 5 条附）五条具名残余**（如实告知，不给绝对保证）：
+  1. **（零卡片 · 高优先）旗标取值槽吞掉末尾子命令**：裸形式只读正则的旗标容忍片段可把**唯一**末尾 token 吞成「旗标取值」，于是 `npm -g update` / `npm -q update` / `npm --prefix=./app update` / `npm --global rebuild` 这类**真实联网安装命令**被判**只读**；白名单含裸 `npm` 时即**零卡片**（实测 `npm -g update` @ `['npm']` → `allow`）。对照 `npm update -g` 仍正确判安装档 —— 差异只在旗标位置。这是本条残余中**最需要优先修复**的一类。
+  2. **（零卡片）`audit` 与 `fix` 之间夹旗标**：`audit` 的守卫用负向先行断言拒掉紧跟的 `fix` / `--fix`，但不跨越中间旗标，因此 `npm audit --json fix` / `pnpm audit --registry=x fix` 被判**只读**，而 npm 实际会执行 fix 安装（取新代码）。白名单命中时零卡片。
+  3. **只能判只读、不会零卡片的同源残余**：既有行为要求 `pnpm --filter a run build` 判只读（`a` 是 `--filter` 的取值），同一机制使 `npm -g <未知动词> <只读同名词>`（如 `npm -g update ls`）仍判只读。已用**纵深优先**（先跑安装模式表）把可识别面压到最小 —— `npm -g install list` / `brew --quiet install info` 已被收回安装档。
+  4. **大小写形态**（`NPM i x` / `RM -rf x`）：macOS 解析不区分大小写，这类写法**不命中**包管理器工具集与危险命令表 → 降级为**普通确认卡片**而非高风险卡片。这是卡片**风险等级标注**的残余，**不是免确认**。
+  5. **`pnpm` / `yarn` / `bun` 的同类别名（`start` / `stop` / `restart`）未收录**：各 CLI 的别名语义未逐一核验，按「存疑一律不收」处理 → `pnpm start` / `yarn start` / `bun start` 落强制确认档，卡片文案「将从网络下载并运行第三方代码」对这族命令**不准确**。这是**已接受的保守误报**（方向安全：多一次卡片），与 `npm` 族的理由（`start` / `stop` / `restart` / `run-script` 与 `run` / `test` 同族故只读）并列。
+  > 残余 ①②（零卡片类）由代码审查在 gap-closure 复审中具名记录（`47-REVIEW.md` 的 CR-01 / CR-02），本阶段选择**只修文档面**、把代码洞留作技术债 —— 因此这两条必须如实写明，不得省略。
 - **（第 6 条）技能不构成额外权限，`allowed-tools` 当前运行时不被强制**：技能正文里的任何「请执行某某命令」都要走同一套三档策略与确认卡片；SDK 的 `Skill` 接口只有五个字段（`name` / `description` / `content` / `filePath` / `disableModelInvocation`），**没有工具授权字段**，当前运行时也**不强制**任何「按技能授权工具集」的语义 —— 任何展示 `allowed-tools` 的地方**仅供参考**，是虚假安全感，不要在技能文本里依赖它。详见 [ai-skills.md](ai-skills.md) 第五、六节
 
 ## 八、测试与验证

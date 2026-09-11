@@ -2079,7 +2079,12 @@ describe('DOC-02 文档同步（47-04 Task 2）', () => {
     assert.ok(section.includes('brew install'), '应列 brew install');
     assert.ok(section.includes('白名单不可越过'), '应写白名单不可越过安装档');
     assert.ok(section.includes('AI 请求安装第三方软件包'), '应写专属确认文案');
-    assert.ok(section.includes('brew info'), '应给只读子命令反例');
+    // 只读反例：47-05 gap-closure 复审（WR-03）后，§九 的只读清单改为「按工具逐项枚举 +
+    // 声明以代码 PACKAGE_MANAGER_TOOLS 的 readOnly 为单一来源」，故断言改为钉住这两点
+    // （比单个词条更强：它防的是清单与实现漂移）。
+    assert.ok(section.includes('PACKAGE_MANAGER_TOOLS'), '只读清单应声明以代码 readOnly 为单一来源');
+    assert.ok(section.includes('readOnly'), '应指向 readOnly 字段');
+    assert.ok(section.includes('brew') && section.includes('info'), '应给 brew 族的只读词条枚举');
     assert.ok(section.includes('仅') || section.includes('只读'), '应说明只读子命令不在表内');
     assert.ok(section.includes('npm ci') && section.includes('postinstall'), '应写 npm ci 在安装档内的 postinstall 论证');
     assert.ok(section.includes('技能') , '应写技能脚本执行的确认成本');
@@ -2114,11 +2119,20 @@ describe('DOC-02 文档同步（47-04 Task 2）', () => {
     assert.ok(workspaceDoc.includes('brew info'), '应给只读反例');
   });
 
-  test('ai-agent-workspace.md §五：保留建议主干并补「白名单不再能放开非只读包管理器子命令」', () => {
+  test('ai-agent-workspace.md §五：保留建议主干并补「白名单不能放开常规非只读子命令」+ 具名残余', () => {
     assert.ok(workspaceDoc.includes('只加构建类可信命令'), '§五 建议的原文主干应保留');
+    // gap-closure 复审 WR-02：原绝对断言被 CR-01/CR-02 的实测反例推翻，改为带前提表述
     assert.ok(
-      workspaceDoc.includes('白名单**不再能放开任何非只读的包管理器子命令**'),
-      '应写明白名单不再能放开非只读的包管理器子命令'
+      workspaceDoc.includes('白名单**不能**放开上表之外的**常规**非只读子命令'),
+      '应写明白名单不能放开常规非只读的包管理器子命令（带前提）'
+    );
+    assert.ok(
+      workspaceDoc.includes('npm -g update'),
+      '应具名登记「旗标取值槽吞掉末尾子命令」这条零卡片残余（CR-01）'
+    );
+    assert.ok(
+      workspaceDoc.includes('npm audit --json fix'),
+      '应具名登记「audit 与 fix 之间夹旗标」这条零卡片残余（CR-02）'
     );
     assert.ok(
       workspaceDoc.includes('`brew install` / `brew upgrade` / `brew cask install`'),

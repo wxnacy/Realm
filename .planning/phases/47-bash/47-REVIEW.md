@@ -18,6 +18,9 @@ findings:
   total: 11
 status: issues_found
 highest_severity: critical
+disposition: docs_only_fix__code_holes_accepted_as_tech_debt
+disposition_date: 2026-09-11
+disposition_note: "用户裁定：只修文档面（WR-02/WR-03/WR-04），CR-01/CR-02 与 WR-01/WR-05/WR-06 及 IN-01..03 记为技术债，不阻断阶段收尾。详见文末 Disposition 节。"
 ---
 
 # Phase 47: Code Review Report（gap-closure 复审）
@@ -279,3 +282,52 @@ guarded: [
 _Reviewed: 2026-09-11T13:47:52Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+
+---
+
+## Disposition（2026-09-11，用户裁定）
+
+**用户裁定：只修文档面（最小收口）。** 代码洞与其余发现记为**技术债**，不新增 gap 计划、不阻断本阶段收尾。
+
+### 本轮已修（文档面，消除虚假保证）
+
+| 发现 | 处置 | 落点 |
+|------|------|------|
+| **WR-02** 三处绝对断言被实测推翻 | 改为**带前提**表述 + 逐条具名残余 | `docs/product/ai-agent-workspace.md` §五 / §七第 5 条+附；`docs/product/ai-skills.md` §九「白名单不可越过」段与「残余风险」段 |
+| **WR-03** 只读清单枚举严重不完整 | 两份文档改为**按工具逐项完整枚举**，并声明以代码 `PACKAGE_MANAGER_TOOLS` 的 `readOnly` 为**单一来源**（不再用「等」） | 同上两份文档的只读清单段 |
+| **WR-04** AGENTS.md 清扫正则多一层反斜杠 | 改为 `/\.(tmp|bak)_\d+$/` | `AGENTS.md` 内置技能 bullet |
+| 交叉引用一致性 | 文档自证段补「不得读作绝对保证」的显式限定 | `ai-skills.md` §九 |
+
+> 本轮修复同时更新了 `tests/test-builtin-skills-seeder.js` 的两条 DOC-02 断言到新措辞，并新增三条
+> （具名钉住 `npm -g update` / `npm audit --json fix` 必须出现在文档里）。全部套件复跑：
+> 策略 97/97、播种 101/101、技能 64/64、其余 `tests/test-*.js` 19/19 全绿。
+
+### 记为技术债（未修，留待后续阶段）
+
+**零卡片类（安全相关，优先级最高）**
+
+| ID | 描述 | 复现 | 备注 |
+|----|------|------|------|
+| **CR-01** | 只读豁免的裸形式正则 + 旗标取值槽吞掉末尾子命令 → 真实联网安装命令**零卡片** | `evaluateBashCommand('npm -g update', ['npm'])` → `allow`；`npm -q update` / `npm --prefix=./app update` / `npm --global rebuild` 同 | 对照 `npm update -g` 仍正确判 `confirm/install`（差异只在旗标位置）。**改前 `0bbb6c4` 亦为 `allow`** —— 非本阶段引入的回归，但属本阶段目标类别（GAP 1 / CR-01 同名同族） |
+| **CR-02** | `audit` 守卫的负向先行断言不跨越中间旗标 → npm 会真的执行 fix 安装而**零卡片** | `npm audit --json fix` / `pnpm audit --registry=x fix` @ 裸白名单 → `allow` | `npm audit fix`（无中间旗标）已正确判安装档 |
+
+**结构性与一致性类**
+
+| ID | 描述 | 影响 |
+|----|------|------|
+| **WR-01** | `matchDangerous` 未做同源词法归一化 | `r""m -rf /` 从高风险卡片降级为**中风险**卡片（仍弹卡，危险档短路失效） |
+| **WR-05** | `sweepSeedResidue` 缺陈旧性判据 | 并发实例（`dev` 与 `debug` 共享 userData 且无单实例锁）可能互删进行中的 `tmp_` / `bak_` |
+| **WR-06** | `npm version` / `yarn version` 属写操作（改 package.json + 打 tag/commit）却被列为只读 | `npm version patch` @ `['npm']` → `allow` |
+| **IN-01** | `detectDiff` 的 `dstFiles` 是死变量 | 无功能影响，代码整洁 |
+| **IN-02** | `same` 跳过重建后不再自愈「仅权限位变化」 | 行为变化（有意取舍），需在文档/后续阶段说明 |
+| **IN-03** | 设置页前端校验缺 WR-01 的 `*` 规则，与代码注释所称「重复的本地实现」不符 | 文档/代码注释口径 |
+
+### 建议的结构性修法（供后续 gap 计划采用）
+
+审查给出的根治方案：把 `matchInstall` 的判定从「正则 + `FLAG_TOLERANCE` 取值槽」改为**argv 级分词**
+（显式声明哪些旗标**带值**、哪些不带值），可一次性消除 CR-01、CR-02 与文档里的 ⑦-e 残余
+（`npm -g update ls` 这类「旗标取值槽与子命令不可区分」的问题）。该改动会同时涉及
+`ai-bash-policy.js` 的判定核心、`tests/test-ai-bash-policy.js` 的期望值（当前 `:847` 一带把
+CR-01 的形态钉成了期望的 `allow`）与三份文档的口径，属需要独立计划的规模。
+
+**推进方式**：`/gsd-plan-phase 47 --gaps`（或并入后续阶段），届时读本报告的 CR-01 / CR-02 节获取完整修法。
