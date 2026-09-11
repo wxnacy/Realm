@@ -129,6 +129,14 @@ function extractCommandName(seg) {
  *   以 'brew ' 开头的命令（空格边界保证不误中 'brewx'）
  * - '' *'' 结尾的条目同样按前缀匹配（'npm run *' ≡ 前缀 'npm run '），
  *   两种写法并存兼容；条目中间的 * 按字面处理（不做 glob）
+ * - **空前缀条目一律跳过**（WR-01 设计性契约变更）：条目去掉尾部 `*` 后若只剩空白
+ *   （单独的 `*` 或 ` *`），其前缀为空串 → `startsWith('')` 恒真 → 整份白名单退化为
+ *   **全放行**（实测 `cat ~/.ssh/id_rsa` / `curl -o /tmp/x http://…` 全部 allow）。
+ *   匹配层跳过它作为最后一道防御；权威校验在 `validateWhitelistList`（服务端），
+ *   该函数直接拒绝这类条目。
+ *
+ * **变更边界**：本处只影响「前缀为空」这一退化输入；**没有**改变引号 / 反斜杠的匹配口径
+ * （仍按原始文本做前缀匹配），既有 32 例断言逐条保持通过。
  *
  * @param {string} seg - 规范化后的命令段
  * @param {string[]} list - 白名单条目列表
@@ -145,11 +153,17 @@ function matchesWhitelist(seg, list) {
     // 'xxx *' / 'xxx*' 为显式通配写法：前缀匹配（'npm run *' → 前缀 'npm run '，
     // 含尾空格所以不误中 'npm runx'；'brew*' → 前缀 'brew'，允许 brewx）
     if (e.endsWith(' *')) {
-      if (n.startsWith(e.slice(0, -1))) return true;
+      const prefix = e.slice(0, -1);
+      // WR-01：` *` 去尾 * 后只剩空白 → 空前缀 → startsWith('') 恒真 → 全放行，跳过
+      if (!prefix.trim()) continue;
+      if (n.startsWith(prefix)) return true;
       continue;
     }
     if (e.endsWith('*')) {
-      if (n.startsWith(e.slice(0, -1))) return true;
+      const prefix = e.slice(0, -1);
+      // WR-01：单独的 `*` → 空前缀 → 全放行，跳过（不做成通配一切）
+      if (!prefix.trim()) continue;
+      if (n.startsWith(prefix)) return true;
       continue;
     }
     // 裸条目：命令前缀语义——命中命令本身或「条目 + 空格」开头的一切命令
@@ -632,6 +646,12 @@ function evaluateBashCommand(command, whitelist) {
 
 /**
  * 校验白名单列表形状（设置页服务端双保险用）
+ *
+ * 除形状校验外，**拒绝空前缀条目**（WR-01）：条目去掉尾部 `*` 后 `trim()` 为空
+ * （即单独的 `*` / ` *`）不是命令前缀，`startsWith('')` 恒真会把白名单变成全放行。
+ * `matchesWhitelist` 侧的 `continue` 是最后一道防御，这里是权威校验
+ * （设置页 `src/settings-page.js` 的 tag 输入校验是重复的本地实现，不依赖它）。
+ *
  * @param {*} value - 待校验值
  * @returns {{valid: boolean, reason?: string}} 校验结果
  */
@@ -648,6 +668,10 @@ function validateWhitelistList(value) {
     }
     if (/[\r\n\0]/.test(v)) {
       return { valid: false, reason: '白名单条目不能包含换行或控制字符' };
+    }
+    // WR-01：`*` / ` *` 去掉尾部通配符后没有剩余前缀 → 空前缀 → 全放行，拒绝
+    if (!v.replace(/\*+$/, '').trim()) {
+      return { valid: false, reason: '白名单条目必须是具体命令前缀，不支持单独使用 *' };
     }
   }
   return { valid: true };

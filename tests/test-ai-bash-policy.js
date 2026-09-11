@@ -939,32 +939,44 @@ describe('GAP 1 源码不变量（纵深优先位置 / 非空守卫 / JSDoc）',
  */
 const INSTALL_FAMILIES = [
   { family: 'npx（包执行器）', commands: ['npx create-app', 'npx skills add -g -y'] },
-  { family: 'npm', commands: ['npm i x', 'npm install', 'npm ci', 'npm exec x', 'npm add x'] },
+  { family: 'bunx（包执行器）', commands: ['bunx cowsay hi'] }, // IN-01 家族覆盖（裸条目安全：readOnly 为 []）
+  { family: 'pipx（包执行器）', commands: ['pipx install black'] }, // IN-01；纵深条目动词限定，readOnly: ['list'] 可达
+  { family: 'npm', commands: ['npm i x', 'npm install', 'npm ci', 'npm exec x', 'npm add x', 'npm update', 'npm rebuild'] },
   { family: 'pnpm', commands: ['pnpm add x', 'pnpm install', 'pnpm i x', 'pnpm dlx x', 'pnpm exec x'] },
-  { family: 'yarn', commands: ['yarn add x', 'yarn install', 'yarn dlx x', 'yarn exec x'] },
+  { family: 'yarn', commands: ['yarn add x', 'yarn install', 'yarn dlx x', 'yarn exec x', 'yarn workspace app add lodash'] },
   { family: 'bun', commands: ['bun add x', 'bun install', 'bun x foo', 'bun i x'] },
   { family: 'pip / pip3', commands: ['pip install x', 'pip3 install x'] },
   { family: 'python -m pip', commands: ['python3 -m pip install x', 'python -m pip install x'], evaluateReason: 'danger' },
   { family: 'uv', commands: ['uv pip install x', 'uv add x', 'uv tool install x', 'uv sync'] },
   { family: 'uvx', commands: ['uvx foo'] },
-  { family: 'brew', commands: ['brew install wget', 'brew upgrade', 'brew reinstall x'] },
-  { family: 'cargo', commands: ['cargo install x'] },
-  { family: 'go', commands: ['go install x'] },
+  { family: 'brew', commands: ['brew install wget', 'brew upgrade', 'brew reinstall x', 'brew cask install wget'] },
+  { family: 'cargo', commands: ['cargo install x', 'cargo add serde'] },
+  { family: 'go', commands: ['go install x', 'go get github.com/x/y'] },
   { family: 'gem', commands: ['gem install x'] },
 ];
 
-/** D-16 只读反例表（命令名 + 子命令粒度；未来新增只读子命令只需加一行） */
+/**
+ * D-16 只读反例表（命令名 + 子命令粒度；未来新增只读子命令只需加一行）
+ *
+ * 表头两条勘误/扩充（47-05 Task 2）：
+ * - **`npm runx` 已移出**：它是 npm 的**未知子命令**，在默认拒绝规则下走强制确认
+ *   （fail-safe），不再是只读反例；`brewx` 不同 —— 它是**另一个工具名**而不是 brew 的
+ *   未知子命令，词边界不变式在工具名层继续成立。
+ * - **新增生命周期别名与形态化条目**：`npm start` / `stop` / `restart` / `run-script`
+ *   与 `run` / `test` 同族（跑项目自身定义的脚本 → 只读）；`npm audit`（形态化后仍只读）；
+ *   **`pipx list`** —— 纵深条目动词限定后 pipx 的非空只读清单才可达（与 `pip list` /
+ *   `brew list` 同族）。`pipx list` 同时是 blocker 1 在门禁表里的**回归哨兵**：
+ *   **不得**用「删掉 pipx 的 readOnly」的方式让它变绿。
+ */
 const READONLY_NEGATIVES = [
   { family: 'npm 只读子命令', commands: ['npm run dev', 'npm test', 'npm ls', 'npm view x', 'npm audit', 'npm outdated', 'npm init', 'npm --version'] },
-  { family: 'pnpm 只读子命令', commands: ['pnpm run build', 'pnpm ls'] },
+  { family: 'npm 生命周期别名（与 run / test 同族）', commands: ['npm start', 'npm stop', 'npm restart', 'npm run-script build'] },
+  { family: 'pnpm 只读子命令', commands: ['pnpm run build', 'pnpm ls', 'pnpm audit'] },
   { family: 'yarn 只读子命令', commands: ['yarn run dev'] },
   { family: 'brew 只读子命令', commands: ['brew info wget', 'brew list', 'brew search x'] },
-  { family: 'pip 只读子命令', commands: ['pip list', 'pip show x'] },
+  { family: 'pip / pipx 只读子命令', commands: ['pip list', 'pip show x', 'pipx list'] },
   { family: 'cargo / go 只读子命令', commands: ['cargo search x', 'go list ./...'] },
   { family: '裸命令名（无子命令）', commands: ['npm', 'pnpm', 'yarn', 'bun', 'brew', 'pip', 'uv'] },
-  // `npm runx` 不再是只读反例：它是 npm 的**未知子命令**，在默认拒绝规则下走强制确认
-  // （fail-safe，已由「GAP 1 默认拒绝语义」组的专项断言钉住）。`brewx` 不同 —— 它是
-  // **另一个工具名**而不是 brew 的未知子命令，词边界不变式在工具名层继续成立。
   { family: '近似串（词边界）', commands: ['brewx'] },
 ];
 
@@ -977,7 +989,29 @@ describe('P1 门禁信号（SEC-01 / P1-b-1..b-5）', () => {
       { command: 'brew install wget', whitelist: ['brew *'] },
       { command: 'pip install x', whitelist: ['pip *'] },
       { command: 'uvx foo', whitelist: ['uvx *'] },
+      // ---- 47-05 Task 2 新增的门禁用例（只读侧四类承重墙）----
+      // 空只读清单执行器
+      { command: 'bunx cowsay hi', whitelist: ['bunx'] },
+      { command: 'uvx foo', whitelist: ['uvx *'] },
+      // 纵深优先（旗标取值吞子命令）
+      { command: 'npm -g install list', whitelist: ['npm'] },
+      { command: 'npm --global install ls', whitelist: ['npm'] },
+      { command: 'brew --quiet install info', whitelist: ['brew'] },
+      // 只读条目形态化
+      { command: 'npm init react-app my-app', whitelist: ['npm'] },
+      { command: 'npm audit fix', whitelist: ['npm'] },
+      { command: 'pnpm audit --fix', whitelist: ['pnpm'] },
+      // pipx 纵深条目（动词限定后仍命中安装形态）
+      { command: 'pipx install black', whitelist: ['pipx'] },
     ];
+    // 说明（不得写成「全部改前实测为 allow」——它与被举的反例自相矛盾）：
+    // 改前**实测分两类**：四条是零卡片 allow（`bunx cowsay hi` @ ['bunx'] /
+    // `npm init react-app my-app` @ ['npm'] / `npm audit fix` @ ['npm'] /
+    // `pnpm audit --fix` @ ['pnpm'] —— 安装档漏检 + 白名单前缀命中）；
+    // 其余（`uvx foo` @ ['uvx *'] / `npm -g install list` 与 `npm --global install ls`
+    // @ ['npm'] / `brew --quiet install info` @ ['brew'] / `pipx install black` @ ['pipx'] 中
+    // 前三条）改前已落 install 档，属**防退化**用例。三组分别覆盖
+    // 「空只读清单 → 带参形态全放行」「旗标取值吞子命令」「只读词条被形态化」。
     for (const { command, whitelist } of cases) {
       const verdict = policy.evaluateBashCommand(command, whitelist);
       assert.strictEqual(verdict.level, 'confirm', command);
@@ -986,7 +1020,7 @@ describe('P1 门禁信号（SEC-01 / P1-b-1..b-5）', () => {
     }
   });
 
-  test('P1-b-2：D-13 的 13 个家族各 ≥1 条正例命中 install 档（表驱动）', () => {
+  test('P1-b-2：D-13/D-16 的 15 个家族各 ≥1 条正例命中 install 档（表驱动）', () => {
     assert.ok(INSTALL_FAMILIES.length >= 13, `家族表应 ≥13 族，实际 ${INSTALL_FAMILIES.length}`);
     for (const { family, commands, evaluateReason = 'install' } of INSTALL_FAMILIES) {
       assert.ok(commands.length > 0, `${family} 应至少有一条正例`);
@@ -1035,5 +1069,115 @@ describe('P1 门禁信号（SEC-01 / P1-b-1..b-5）', () => {
     assert.ok(Array.isArray(policy.PACKAGE_MANAGER_INSTALL_PATTERNS), 'PACKAGE_MANAGER_INSTALL_PATTERNS 应已导出');
     assert.strictEqual(typeof policy.matchInstall, 'function', 'matchInstall 应已导出');
     assert.strictEqual(policy.evaluateBashCommand('npm i x', []).reason, 'install');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 47-05 Task 2 —— 绕过面收敛（门禁复算）+ WR-01 白名单通配条目护栏
+// ---------------------------------------------------------------------------
+
+/**
+ * 47-VERIFICATION.md「BLOCKER」节的绕过实测表（12 行 + 1 行对照）**逐行**翻成断言。
+ *
+ * 该表是 GAP 1 的原始取证：改前这 12 行在文档推荐白名单下全部 `allow`（零卡片），
+ * 而 `/bin/sh` 证明它们与字面形态 argv 完全相同（见「GAP 1 词法改写绕过」组的
+ * `set --` 等价性用例）。默认拒绝 + 共用归一化后一律 `confirm/install`。
+ */
+const BLOCKER_BYPASS_TABLE = [
+  // 词法改写家族（7 行）
+  { command: 'brew "install" wget', whitelist: ['brew'] },
+  { command: 'brew \\install wget', whitelist: ['brew'] },
+  { command: 'brew ins""tall wget', whitelist: ['brew'] },
+  { command: 'npm "install" x', whitelist: ['npm'] },
+  { command: 'npm \\i x', whitelist: ['npm'] },
+  { command: 'pip "install" x', whitelist: ['pip'] },
+  { command: 'cargo "install" ripgrep', whitelist: ['cargo'] },
+  { command: 'bun "add" x', whitelist: ['bun'] },
+  // 第二绕过家族：真实安装子命令 + 中间 token（5 行）
+  { command: 'npm update', whitelist: ['npm'] },
+  { command: 'npm rebuild', whitelist: ['npm'] },
+  { command: 'yarn workspace app add lodash', whitelist: ['yarn'] },
+  { command: 'cargo add serde', whitelist: ['cargo'] },
+  { command: 'go get github.com/x/y', whitelist: ['go'] },
+  { command: 'brew cask install wget', whitelist: ['brew'] },
+];
+
+describe('GAP 1 绕过面收敛（SEC-01 门禁复算）', () => {
+  test('验证报告 BLOCKER 表的绕过形态逐条落 confirm/install（含对照行）', () => {
+    for (const { command, whitelist } of BLOCKER_BYPASS_TABLE) {
+      const verdict = policy.evaluateBashCommand(command, whitelist);
+      assert.strictEqual(verdict.level, 'confirm', command);
+      assert.strictEqual(verdict.reason, 'install', command);
+      assert.ok(verdict.installNames.length > 0, command);
+    }
+    // 对照行：目标字面形态（改前已成立，本组是防退化）
+    const control = policy.evaluateBashCommand('brew install wget', ['brew']);
+    assert.strictEqual(control.level, 'confirm');
+    assert.strictEqual(control.reason, 'install');
+  });
+
+  test('大小写外形态的真实边界：NPM i x 仍 confirm，但 reason 不是 install（WR-05 未修）', () => {
+    // WR-05（大小写）不在 47-05 范围：macOS 解析不区分大小写，`NPM i x` 的安装档识别
+    // 与危险档识别都会漏检。本断言把**残余风险的严重性**钉死 —— 即便漏检也**不免确认**。
+    const verdict = policy.evaluateBashCommand('NPM i x', ['npm']);
+    assert.strictEqual(verdict.level, 'confirm', '漏检不得退化为免确认');
+    assert.notStrictEqual(verdict.reason, 'install', '不应误以为它已进 install 档');
+  });
+
+  test('变量间接残余：仅剩的漏检类别仍不免确认（漏检 ≠ 免确认）', () => {
+    const command = 'NPM=npm $NPM i x';
+    assert.strictEqual(policy.matchesWhitelist(command, ['npm *']), false, '整段不以 npm 开头 → 不命中白名单前缀');
+    const verdict = policy.evaluateBashCommand(command, ['npm *']);
+    assert.strictEqual(verdict.level, 'confirm');
+    assert.notStrictEqual(verdict.reason, 'install');
+  });
+
+  test('命令替换形态在归一化后仍命中 install（向安全侧倾斜）', () => {
+    const verdict = policy.evaluateBashCommand('`npm i x`', ['npm *']);
+    assert.strictEqual(verdict.reason, 'install');
+    assert.strictEqual(verdict.level, 'confirm');
+  });
+});
+
+describe('WR-01 白名单通配条目护栏', () => {
+  test('validateWhitelistList 拒绝空前缀条目，合法通配条目不受影响', () => {
+    const single = policy.validateWhitelistList(['*']);
+    assert.strictEqual(single.valid, false, '单独的 * 必须被拒绝');
+    assert.ok(single.reason.includes('*'), `拒绝理由应点名 *，实际 ${single.reason}`);
+
+    assert.strictEqual(policy.validateWhitelistList([' *']).valid, false, '空白 + * 同属空前缀');
+    assert.strictEqual(policy.validateWhitelistList(['**']).valid, false, '纯通配符条目同属空前缀');
+
+    // 合法条目不受影响
+    assert.strictEqual(policy.validateWhitelistList(['npm run *', 'git status']).valid, true);
+    assert.strictEqual(policy.validateWhitelistList(['brew']).valid, true);
+    assert.strictEqual(policy.validateWhitelistList(['brew*']).valid, true, '有前导前缀的 * 条目合法');
+  });
+
+  test("matchesWhitelist 跳过空前缀条目；'*' 不再使白名单退化为全放行", () => {
+    assert.strictEqual(policy.matchesWhitelist('ls', ['*']), false);
+    assert.strictEqual(policy.matchesWhitelist('cat ~/.ssh/id_rsa', [' *']), false);
+    assert.strictEqual(policy.matchesWhitelist('ls', ['**']), false);
+
+    const ssh = policy.evaluateBashCommand('cat ~/.ssh/id_rsa', ['*']);
+    assert.strictEqual(ssh.level, 'confirm', '空前缀条目不得免确认');
+    assert.notStrictEqual(ssh.reason, 'install');
+
+    const curl = policy.evaluateBashCommand('curl -o /tmp/x http://e.com/x', ['*']);
+    assert.strictEqual(curl.level, 'confirm', '空前缀条目不得免确认');
+
+    // 合法通配条目与裸条目行为不变（防误伤）
+    assert.strictEqual(policy.matchesWhitelist('npm run dev', ['npm run *']), true);
+    assert.strictEqual(policy.matchesWhitelist('brew info wget', ['brew']), true);
+  });
+
+  test('源码：两个通配分支均含空前缀 continue；validateWhitelistList 含拒绝文案', () => {
+    const source = readSource('ai-bash-policy.js');
+    const whitelistBody = functionBody(source, 'matchesWhitelist');
+    const guardCount = (whitelistBody.match(/if \(!prefix\.trim\(\)\) continue;/g) || []).length;
+    assert.strictEqual(guardCount, 2, `两个通配分支各需一道空前缀护栏，实际 ${guardCount}`);
+
+    const validateBody = functionBody(source, 'validateWhitelistList');
+    assert.ok(validateBody.includes('不支持单独使用 *'), '服务端校验需含空前缀条目的拒绝文案');
   });
 });
