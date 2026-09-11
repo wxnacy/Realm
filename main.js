@@ -136,6 +136,8 @@ const searchManager = require('./search-manager');
 const aiMemoryManager = require('./ai-memory-manager');
 // AI 工作区（agent 根目录：userData/agent-workspace，AI 落盘数据统一收纳）
 const agentWorkspace = require('./agent-workspace');
+// 内置技能播种（随包 skills-builtin/ → agent-workspace/managed-skills/，Phase 47）
+const builtinSkillsSeeder = require('./builtin-skills-seeder');
 // Bash 三档权限策略（纯函数零依赖，白名单服务端校验用）
 const bashPolicy = require('./ai-bash-policy');
 // 媒体分片磁盘缓存（Phase 44 D-03：/proxy 层按视频组织的分片缓存，仅独立播放器流量）
@@ -4039,6 +4041,11 @@ app.whenReady().then(async () => {
   // （必须在 aiManager 创建之前：sandbox env 与 ai-memory 新路径都依赖目录就位）
   agentWorkspace.ensureWorkspaceDir();
   agentWorkspace.migrateAiMemory();
+
+  // 播种随包内置技能到 managed-skills（Phase 47 D-08/D-12）
+  // 必须在 aiManager 创建之前 —— 否则首轮 refreshSkills() 看不到内置技能。
+  // 同步调用、不 await：与上面两行同款同步 fs 语义；失败仅告警不阻断启动。
+  builtinSkillsSeeder.seedBuiltinSkills();
 
   // 初始化 AI Manager（per Phase 19）
   aiManager = new AIManager();

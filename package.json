@@ -67,7 +67,8 @@
       "output": "dist"
     },
     "asarUnpack": [
-      "node_modules/nodejieba/**"
+      "node_modules/nodejieba/**",
+      "skills-builtin/**"
     ],
     "publish": null
   }
