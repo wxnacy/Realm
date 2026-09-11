@@ -424,6 +424,99 @@ describe('名称权威（SKILL-06 / D-08）', () => {
   });
 });
 
+describe('去重与遮蔽（SKILL-05）', () => {
+  /** 两个来源各放一个同名技能（description 不同以便区分） */
+  async function withSameNameBothSources(t, name = 'good') {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    const managedFile = writeSkill(workspace.getManagedSkillsDir(), name, {
+      description: 'managed 版同名技能',
+    });
+    const userFile = writeSkill(workspace.getSkillsDir(), name, {
+      description: 'user 版同名技能',
+    });
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+    return { managedFile, userFile, snap: aiSkills.getSkillsSnapshot() };
+  }
+
+  test('同名遮蔽：user 版进 prompt，managed 版标 shadowed 且仍保留在集合内', async (t) => {
+    const { managedFile, userFile, snap } = await withSameNameBothSources(t);
+
+    assert.strictEqual(
+      snap.skills.length, 2,
+      '遮蔽败者必须保留在 skills[] 内（不剔除 —— D-06 costly 可逆性）'
+    );
+    const userEntry = snap.skills.find((e) => e.skill.filePath === userFile);
+    const managedEntry = snap.skills.find((e) => e.skill.filePath === managedFile);
+    assert.ok(userEntry && managedEntry, '两个来源的条目都应在集合内');
+
+    assert.notStrictEqual(userEntry.shadowed, true, 'user 版不得被遮蔽');
+    assert.strictEqual(managedEntry.shadowed, true, 'managed 版应被遮蔽');
+    assert.strictEqual(managedEntry.shadowedBy, 'user', 'shadowedBy 应为遮蔽者来源');
+
+    const prompt = aiSkills.buildSkillsPrompt();
+    assert.ok(prompt.includes('user 版同名技能'), 'user 版应进 prompt');
+    assert.strictEqual(prompt.includes('managed 版同名技能'), false, '遮蔽条目不进 prompt（D-06）');
+  });
+
+  test('去重发生在注入之前：同名技能在 prompt 段中只产出一条 <skill>', async (t) => {
+    await withSameNameBothSources(t);
+
+    const prompt = aiSkills.buildSkillsPrompt();
+    const countOf = (needle) => prompt.split(needle).length - 1;
+    assert.strictEqual(countOf('<skill>'), 1, 'SDK formatSkillsForSystemPrompt 不去重，Realm 必须去重后才能注入');
+    assert.strictEqual(countOf('</skill>'), 1, '同名条目闭合标签也只应一条');
+    assert.strictEqual(countOf('<name>good</name>'), 1, '同名技能的 name 条目只应出现一次');
+  });
+
+  test('败者带 realm_shadowed 诊断，且该条目 source === "managed"', async (t) => {
+    const { snap } = await withSameNameBothSources(t);
+
+    const loser = snap.skills.find((e) => e.shadowed === true);
+    assert.ok(loser, '应存在被遮蔽条目');
+    assert.strictEqual(loser.source, 'managed', '败者应来自 managed（user 先到不可能 —— 输入顺序即优先级）');
+
+    const diag = (loser.diagnostics || []).find((d) => d.code === 'realm_shadowed');
+    assert.ok(diag, '遮蔽必须产 realm_shadowed 诊断（禁止静默）');
+    assert.strictEqual(diag.level, 'warning');
+    assert.strictEqual(diag.path, loser.skill.filePath, '诊断应指向败者文件路径');
+    assert.strictEqual(diag.source, 'managed');
+    assert.ok(
+      snap.diagnostics.some((d) => d.code === 'realm_shadowed'),
+      '模块级诊断同样可见（D-07 双写）'
+    );
+    assert.strictEqual(
+      snap.errors.length, 0,
+      '遮蔽是正常态，不得进整批错误（D-05 第 2 层只承接无对应技能的整批失败）'
+    );
+  });
+
+  test('优先级方向以文件路径为准：被遮蔽的那一份位于 managed-skills/ 之下', async (t) => {
+    const { snap } = await withSameNameBothSources(t);
+
+    const loser = snap.skills.find((e) => e.shadowed === true);
+    assert.ok(loser, '应存在被遮蔽条目');
+    assert.ok(
+      loser.skill.filePath.startsWith(workspace.getManagedSkillsDir() + path.sep),
+      '「user 目录里的那一份永不被遮蔽」—— 输入顺序（managed → user）即优先级编码；' +
+      '调换 rootDirs 顺序或让 applyShadowing 不按输入顺序定胜负都会让本断言转红'
+    );
+  });
+
+  test('源码：applyShadowing 不剔除元素；prompt 组装处含 !e.shadowed 过滤', () => {
+    const src = readSource('ai-skills-manager.js');
+    const body = functionBody(src, 'applyShadowing');
+    assert.strictEqual(/\.splice\(/.test(body), false, 'applyShadowing 不得删除数组元素');
+    assert.strictEqual(
+      /\.filter\(/.test(body), false,
+      'applyShadowing 不得用 filter 剔除败者（返回数组必须与输入等长）'
+    );
+    assert.ok(src.includes('!e.shadowed'), 'prompt 组装处必须以 !e.shadowed 过滤');
+    assert.ok(src.includes('realm_shadowed'), '应存在 realm_shadowed 诊断码');
+  });
+});
+
 describe('技能目录与沙箱可达（SKILL-01）', () => {
   test('ensureWorkspaceDir 后两目录存在，且技能路径在 resolveInside 放行范围内', (t) => {
     const root = withTempRoot(t);

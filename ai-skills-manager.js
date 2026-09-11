@@ -245,6 +245,45 @@ function enforceDirNameAuthority(entry) {
 }
 
 /**
+ * 同名遮蔽判定（D-06）：**后到者胜出**
+ *
+ * 输入顺序（managed 先、user 后）已经编码了优先级 —— 本函数**不重新定义
+ * 优先级，只消费顺序**。SDK 自己不做 name 去重（`formatSkillsForSystemPrompt`
+ * 无条件为每条生成一个 `<skill>`），因此去重只能由 Realm 在注入之前完成。
+ *
+ * 败者**不从数组移除**（返回数组与输入等长）：只标 `shadowed = true` +
+ * `shadowedBy`，并产 `realm_shadowed` 诊断。保留是刻意设计 —— Phase 48 要
+ * 渲染来源徽标与「被遮蔽的同名技能可见」，Phase 50 要展示列表与诊断；
+ * 改为「剔除只留诊断」需要这两个阶段同时改数据源与展示层（D-06 costly）。
+ *
+ * @param {Array<{skill: {name: string, filePath: string}, source: string, diagnostics?: object[]}>} entries
+ *  已按「managed 先、user 后」排列的缓存条目
+ * @returns {Array<object>} 同长度条目数组（遮蔽败者额外带 shadowed / shadowedBy）
+ */
+function applyShadowing(entries) {
+  const winnerByName = new Map();
+  const out = [];
+  for (const entry of entries) {
+    const name = entry.skill.name;
+    const loser = winnerByName.get(name);
+    if (loser) {
+      loser.shadowed = true;
+      loser.shadowedBy = entry.source;
+      pushEntryDiag(loser, {
+        level: 'warning',
+        code: 'realm_shadowed',
+        message: `同名技能被 ${entry.source} 来源的 "${name}" 遮蔽（败者文件：${loser.skill.filePath}）`,
+        path: loser.skill.filePath,
+        source: loser.source,
+      });
+    }
+    winnerByName.set(name, entry);
+    out.push(entry);
+  }
+  return out;
+}
+
+/**
  * 异步刷新技能集（唯一加载入口，D-04）
  *
  * 每次 Agent 创建/重建之前无条件调用一次：这是唯一能自动覆盖「模型经
@@ -327,13 +366,17 @@ async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
     //    重写后单目录内 name 天然唯一，遮蔽判定才无歧义。
     for (const entry of entries) enforceDirNameAuthority(entry);
 
-    _cache.skills = entries;
+    // ③ 同名遮蔽：managed 先、user 后 → 后到者（user 版）胜出，败者标
+    //    shadowed / shadowedBy 但**保留在集合内**（D-06 costly 可逆性）。
+    _cache.skills = applyShadowing(entries);
+    // 遮蔽条目不进 prompt（D-06）—— 去重必须发生在注入之前，否则模型会看到
+    // 两个同名技能且不知道信谁。同一过滤后集合也是 46-03 预算截断的输入。
     _cache.promptBlock = formatSkillsForSystemPrompt(
-      entries
-        .filter((e) => e.skill.disableModelInvocation !== true)
+      _cache.skills
+        .filter((e) => !e.shadowed && e.skill.disableModelInvocation !== true)
         .map((e) => e.skill)
     );
-    _cache.digest = computeDigest(entries);
+    _cache.digest = computeDigest(_cache.skills);
     _cache.errors = [];
     _cache.refreshedAt = Date.now();
   } catch (err) {
