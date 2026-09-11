@@ -1471,3 +1471,123 @@ describe('P10 归属门禁（THIRD_PARTY_NOTICES.md）', () => {
     assert.ok(paragraph.includes('MIT'), '该段必须写明它以 MIT 许可证随 Realm Browser 分发');
   });
 });
+
+/**
+ * P10-6 的人工步骤归属（**显式标注，不留白**）
+ *
+ * 「打包后归属仍可读」这条信号**未被自动化覆盖** —— 它只有在真实打包产物里才成立：
+ *
+ *     make install-nightly
+ *     # 然后确认 THIRD_PARTY_NOTICES.md 在 asar 清单内
+ *     # （npx asar list /Applications/Realm\ Nightly.app/Contents/Resources/app.asar | grep THIRD_PARTY_NOTICES）
+ *
+ * 这一步**不在本计划执行**，归 **47-04** 的打包验证任务。在此标注是为了让门禁审计不会
+ * 误以为 P10-6 已被自动化覆盖 —— P10-1..P10-5 在下面的用例里都有机械断言，P10-6 没有。
+ *
+ * 前置安全纪律：执行 make install-nightly 前必须先 pgrep -fl Realm 确认无用户实例在跑
+ * （Makefile 的第一步会 rm -rf /Applications/Realm.app），且清理只按自身 PID，禁止用路径模式 pkill。
+ */
+describe('P1-a 门禁信号（SEED-03，两技能口径）', () => {
+  test('P1-a-1：两个 SKILL.md + 两个 LICENSE.txt 对禁用模式零命中（第 1 段，无豁免）', () => {
+    const files = stage1Files();
+    const rels = files.map((f) => path.relative(REPO_ROOT, f));
+    for (const expected of [
+      'skills-builtin/find-skills/SKILL.md',
+      'skills-builtin/find-skills/LICENSE.txt',
+      'skills-builtin/skill-creator/SKILL.md',
+      'skills-builtin/skill-creator/LICENSE.txt',
+    ]) {
+      assert.ok(rels.includes(expected), `P1-a-1 的扫描面应含 ${expected}`);
+    }
+
+    const hits = scanFiles(files, FORBIDDEN_PATTERNS.concat(INSTALL_IMPERATIVES));
+    if (hits.length > 0) {
+      assert.fail(
+        'P1-a-1 失守（第 1 段零容忍、零豁免）：\n'
+        + hits.map((h) => `  ${h.file}:${h.line} [${h.why}] /${h.pattern}/ → ${h.text}`).join('\n')
+      );
+    }
+  });
+
+  test('P1-a-2：skills-builtin/** 内不存在 npx skills 的任意变体（大小写不敏感、允许中间任意空白）', () => {
+    const variant = /\bnpx\s+skills\b/i;
+    const hits = [];
+    for (const file of collectFiles(REAL_BUILTIN_SRC)) {
+      const rel = path.relative(REPO_ROOT, file);
+      fs.readFileSync(file, 'utf8')
+        .split('\n')
+        .forEach((line, i) => {
+          if (variant.test(line)) hits.push(`${rel}:${i + 1}`);
+        });
+    }
+    assert.deepStrictEqual(hits, [], 'P1-a-2：`npx skills` 的任意变体都不得出现（PITFALLS P1 的靶心）');
+  });
+
+  test('P1-a-3：两个技能的 frontmatter 都含 disable-model-invocation: true，且 description 含 CJK', () => {
+    const skillMds = globBuiltinByBasename('SKILL.md');
+    assert.strictEqual(skillMds.length, 2, 'P1-a-3 的口径是两个技能');
+    for (const file of skillMds) {
+      const rel = path.relative(REPO_ROOT, file);
+      const markdown = fs.readFileSync(file, 'utf8');
+      const frontmatter = markdown.split(/^---$/m)[1] || '';
+      assert.ok(
+        /^disable-model-invocation:\s*true\s*$/m.test(frontmatter),
+        `${rel}：frontmatter 应含 disable-model-invocation: true`
+      );
+      const descMatch = frontmatter.match(/^description:\s*(.+)$/m);
+      assert.ok(descMatch, `${rel}：frontmatter 应有 description`);
+      assert.ok(/[\u4e00-\u9fff]/.test(descMatch[1]), `${rel}：description 应含 CJK（D-04）`);
+    }
+  });
+
+  test('扫描器按 glob 递归覆盖 skills-builtin/ —— 扫描范围里不写死任何技能名（SEED-03 从单技能扩到两技能的关键）', () => {
+    const src = readSource('tests/test-builtin-skills-seeder.js');
+    for (const fn of ['globBuiltinByBasename', 'stage1Files']) {
+      const body = functionBody(src, fn);
+      for (const name of ['find-skills', 'skill-creator']) {
+        assert.ok(!body.includes(name), `${fn} 的扫描范围不得写死 ${name}（写死会让新技能静默逃出扫描面）`);
+      }
+    }
+    assert.ok(functionBody(src, 'stage1Files').includes("globBuiltinByBasename('SKILL.md')"), '应按 basename 递归收集');
+    assert.ok(
+      functionBody(src, 'stage1Files').includes("globBuiltinByBasename('LICENSE.txt')"),
+      '应按 basename 递归收集'
+    );
+
+    // 覆盖面断言：扫描面就是「glob 到的全部 SKILL.md + LICENSE.txt」，两技能各贡献两份
+    assert.deepStrictEqual(
+      stage1Files(),
+      collectFiles(REAL_BUILTIN_SRC)
+        .filter((f) => ['SKILL.md', 'LICENSE.txt'].includes(path.basename(f)))
+        .sort()
+    );
+    assert.strictEqual(stage1Files().length, 4, 'P1-a 的扫描面应为 4 份文件（两技能 × SKILL.md + LICENSE.txt）');
+  });
+
+  test('最终文件集收口：skills-builtin 共 21 个文件（find-skills 2 + skill-creator 19），且 19 项与 Reference 清单一致', () => {
+    const all = collectFiles(REAL_BUILTIN_SRC).map((f) => path.relative(REPO_ROOT, f)).sort();
+    assert.strictEqual(all.length, 21, `skills-builtin 应为 21 个文件，实际 ${all.length}：${all.join(', ')}`);
+
+    const findSkills = all.filter((f) => f.startsWith('skills-builtin/find-skills/'));
+    const skillCreator = all.filter((f) => f.startsWith('skills-builtin/skill-creator/')).map((f) => f.replace('skills-builtin/skill-creator/', ''));
+    assert.strictEqual(findSkills.length, 2, 'find-skills 应为 2 个文件（SKILL.md + LICENSE.txt）');
+    assert.strictEqual(skillCreator.length, 19, 'skill-creator 应为 19 个文件（18 上游 + 1 自研）');
+
+    // 19 项与 `## Reference files` 清单一致（清单 18 项 + SKILL.md 自身）
+    const markdown = fs.readFileSync(path.join(SKILL_CREATOR_DIR, 'SKILL.md'), 'utf8');
+    const { paths } = parseReferenceFileList(markdown);
+    assert.deepStrictEqual(
+      paths.concat('SKILL.md').sort(),
+      [...skillCreator].sort(),
+      '## Reference files 清单 + SKILL.md 应恰好等于 skill-creator 的 19 项'
+    );
+  });
+
+  test('P10-6 的人工归属已在测试源码里显式标注（该信号未被自动化覆盖）', () => {
+    const src = readSource('tests/test-builtin-skills-seeder.js');
+    assert.ok(src.includes('P10-6 的人工步骤归属'), '应显式标注 P10-6 的人工步骤');
+    assert.ok(src.includes('make install-nightly'), '应写明人工步骤是 make install-nightly');
+    assert.ok(src.includes('THIRD_PARTY_NOTICES.md 在 asar 清单内'), '应写明要确认什么');
+    assert.ok(src.includes('未被自动化覆盖'), '应明确说明该信号没有被自动化断言覆盖');
+  });
+});
