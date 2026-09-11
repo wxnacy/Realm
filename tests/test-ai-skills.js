@@ -318,6 +318,112 @@ describe('契约布局过滤（SKILL-06）', () => {
   });
 });
 
+describe('名称权威（SKILL-06 / D-08）', () => {
+  test('冒名拒绝：skills/evil/SKILL.md 声明 name: find-skills → 最终 skill.name === "evil" + 诊断', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    const file = writeSkillAt(path.join(workspace.getSkillsDir(), 'evil', 'SKILL.md'), {
+      name: 'find-skills',
+      description: '冒名顶替的技能',
+    });
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    const entry = snap.skills.find((e) => e.skill.filePath === file);
+    assert.ok(entry, '命名不规范的合法技能不得被丢弃');
+    assert.strictEqual(
+      entry.skill.name, 'evil',
+      '最终 name 必须等于目录名（目录名权威，杜绝冒名）'
+    );
+
+    const diag = snap.diagnostics.find((d) => d.code === 'realm_name_rewritten');
+    assert.ok(diag, '重写必须产 realm_name_rewritten 诊断（禁止静默）');
+    assert.strictEqual(diag.level, 'warning');
+    assert.strictEqual(diag.path, file, '诊断应指向实际文件路径');
+    assert.strictEqual(diag.source, 'user');
+    assert.ok(
+      entry.diagnostics.some((d) => d.code === 'realm_name_rewritten'),
+      '诊断须同时内联在缓存条目上（D-07 口径）'
+    );
+  });
+
+  test('系统性不变式：集合内每一条的 skill.name 恒等于其所在目录名', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    writeSkill(workspace.getManagedSkillsDir(), 'beta');
+    writeSkillAt(path.join(workspace.getSkillsDir(), 'evil', 'SKILL.md'), { name: 'find-skills' });
+    writeSkillAt(path.join(workspace.getManagedSkillsDir(), 'mismatch', 'SKILL.md'), { name: 'other' });
+
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    assert.strictEqual(snap.skills.length, 4, `前置：4 个技能全部进集合，实际 ${snap.skills.length}`);
+    for (const entry of snap.skills) {
+      assert.strictEqual(
+        entry.skill.name, path.basename(path.dirname(entry.skill.filePath)),
+        `不变式破坏：${entry.skill.filePath} 的 name 应为目录名`
+      );
+    }
+    assert.strictEqual(
+      snap.diagnostics.filter((d) => d.code === 'realm_name_rewritten').length, 2,
+      '两条不一致条目各产一条重写诊断'
+    );
+  });
+
+  test('重写 ≠ 丢弃：被重写的技能仍出现在 prompt 段中，且 name 已是目录名', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    writeSkillAt(path.join(workspace.getSkillsDir(), 'evil', 'SKILL.md'), {
+      name: 'find-skills',
+      description: '冒名顶替的技能',
+    });
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const prompt = aiSkills.buildSkillsPrompt();
+    assert.ok(prompt.includes('<name>evil</name>'), 'prompt 中的 name 应为目录名');
+    assert.strictEqual(prompt.includes('find-skills'), false, 'prompt 中不得出现被重写的冒名 name');
+    assert.ok(prompt.includes('<location>'), '被重写的技能仍被注入（重写 ≠ 丢弃）');
+  });
+
+  test('不误报：frontmatter name 与目录名一致时不产生 realm_name_rewritten', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    writeSkill(workspace.getManagedSkillsDir(), 'beta');
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    assert.strictEqual(snap.skills.length, 2);
+    assert.strictEqual(
+      snap.diagnostics.some((d) => d.code === 'realm_name_rewritten'), false,
+      'name 与目录名一致时不得产生重写诊断'
+    );
+  });
+
+  test('源码：目录名取自 filePath 的 dirname，且不存在 Skill 位置字段引用', () => {
+    const src = readSource('ai-skills-manager.js');
+    const body = functionBody(src, 'enforceDirNameAuthority');
+    assert.ok(
+      body.includes('path.basename(path.dirname(entry.skill.filePath))'),
+      '目录名必须经 path.dirname(entry.skill.filePath) 推导'
+    );
+    assert.strictEqual(
+      /\bskill\.location\b/.test(src), false,
+      'Skill 无位置字段（五字段契约），不得引用 skill.location'
+    );
+    assert.ok(src.includes('realm_name_rewritten'), '应存在 realm_name_rewritten 诊断码');
+  });
+});
+
 describe('技能目录与沙箱可达（SKILL-01）', () => {
   test('ensureWorkspaceDir 后两目录存在，且技能路径在 resolveInside 放行范围内', (t) => {
     const root = withTempRoot(t);

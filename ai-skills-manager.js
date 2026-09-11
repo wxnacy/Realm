@@ -214,6 +214,37 @@ function pushEntryDiag(entry, diag) {
 }
 
 /**
+ * 名称权威重写：`skill.name` 以**所在目录名**为准（D-08）
+ *
+ * 理由：SDK 的名称是 `frontmatterName || parentDirName`（`skills.js:219`），
+ * 且 `validateName` 只产 warning、不拒绝（`skills.js:237-251`）—— 于是
+ * `skills/evil/SKILL.md` 声明 `name: find-skills` 可**合法冒名**（P3 前半，
+ * S1 门禁）。重写既杜绝冒名，又不丢弃命名不规范的合法技能（GitHub 导入常见）。
+ *
+ * 副产物不变式：重写后集合内**每一条**的 `skill.name` 恒等于
+ * `path.basename(path.dirname(skill.filePath))` —— 这既是 `/skill:name`
+ * 解析确定性的前提，也是遮蔽判定无歧义（单目录内 name 天然唯一）的前提。
+ *
+ * 注意：目录名只能经 `filePath` 推导 —— SDK 的 `Skill` 只有五字段，没有
+ * 位置字段（`<location>` 只是 `formatSkillsForSystemPrompt` 的 XML 标签名）。
+ *
+ * @param {{skill: {name: string, filePath: string}, source: string, diagnostics?: object[]}} entry
+ */
+function enforceDirNameAuthority(entry) {
+  const dirName = path.basename(path.dirname(entry.skill.filePath));
+  if (entry.skill.name === dirName) return;
+  pushEntryDiag(entry, {
+    level: 'warning',
+    code: 'realm_name_rewritten',
+    message: `frontmatter name "${entry.skill.name}" 与目录名 "${dirName}" 不一致，已按目录名生效`,
+    path: entry.skill.filePath,
+    source: entry.source,
+  });
+  // 就地重写：entry.skill 是本模块独占对象（loadSourcedSkills 的新返回）
+  entry.skill.name = dirName;
+}
+
+/**
  * 异步刷新技能集（唯一加载入口，D-04）
  *
  * 每次 Agent 创建/重建之前无条件调用一次：这是唯一能自动覆盖「模型经
@@ -291,6 +322,10 @@ async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
       }
       entries.push(entry);
     }
+
+    // ② 名称权威：以目录名重写 skill.name（D-08）—— 必须早于 ③ 遮蔽判定，
+    //    重写后单目录内 name 天然唯一，遮蔽判定才无歧义。
+    for (const entry of entries) enforceDirNameAuthority(entry);
 
     _cache.skills = entries;
     _cache.promptBlock = formatSkillsForSystemPrompt(
