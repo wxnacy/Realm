@@ -5,17 +5,17 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 47
 current_phase_name: 内置技能播种 + bash 策略加固
 status: executing
-stopped_at: Completed 47-01-PLAN.md
-last_updated: "2026-09-11T09:36:02.668Z"
+stopped_at: Completed 47-02-PLAN.md
+last_updated: "2026-09-11T09:44:44.551Z"
 last_activity: 2026-09-11
 last_activity_desc: Phase 47 execution started
-state_head: 02d8a936dda47288469840949fe37c110ee30d87
+state_head: f96a6519d10235723b17b8975d2d56e3b1fcbb16
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 0
   total_plans: 8
-  completed_plans: 5
-  percent: 17
+  completed_plans: 6
+  percent: 0
 ---
 
 # Project State: Realm Browser
@@ -30,11 +30,11 @@ See: .planning/PROJECT.md (updated 2026-09-11)
 ## Current Position
 
 Phase: 47 (内置技能播种 + bash 策略加固) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-09-11 — Phase 47 execution started
 
-Progress: [██░░░░░░░░] 17%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -96,6 +96,7 @@ Progress: [██░░░░░░░░] 17%
 | Phase 46 P3 | 12min | 3 tasks | 2 files |
 | Phase 46 P4 | 14min | 3 tasks | 3 files |
 | Phase 47 P1 | 12min | 3 tasks | 6 files |
+| Phase 47 P2 | 6min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -173,6 +174,8 @@ Recent decisions affecting current work:
 - [Phase 47]: 47-01 内置技能播种：seeded 身份 = 扫随包 skills-builtin/ 目录名集合（零状态文件/零硬编码），播种按单个技能目录粒度无条件覆盖，覆盖前差异诊断固定 warning 级（D-09 可见但不阻断） — 回退到状态文件需 Phase 48/49 同步改数据源且跨环境会分叉
 - [Phase 47]: 47-01 差异检测按内容（相对路径集合 → size → sha256 逐层短路）而非 mtime —— safeCopyDir 每次同步都重写 mtime，用时间戳判差异等于每次启动 100% 误报 realm_builtin_seed_overwritten；IO 错误一律 fail-safe 判 different 重同步
 - [Phase 47]: 47-01 realm_builtin_src_invalid 必须由 seedBuiltinSkills 的独立源目录扫描产出（先报），不得挂在 getSeededSkillNames 的过滤返回上（后滤）—— 后者已把缺 SKILL.md 的子目录滤掉，会让该 code 永远不可达（评审裁决项 1）
+- [Phase 47]: 47-02: install 档独立为 reason 'install' 且短路先于 matchesWhitelist（白名单不可越过安装档）；level 取值集不变，保持三档框架，第三档有两个互不包含的触发源（危险命令表 / 包管理器安装表）
+- [Phase 47]: 47-02: evaluateBashCommand 所有分支返回完整形状（含 installNames: []），供 Phase 48/49 直接消费；2 条既有 deepStrictEqual 已同步
 
 ### Roadmap Evolution
 
@@ -277,8 +280,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T09:36:02.646Z
-Stopped at: Completed 47-01-PLAN.md
+Last session: 2026-09-11T09:44:44.530Z
+Stopped at: Completed 47-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

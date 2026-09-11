@@ -67,7 +67,7 @@ Requirements for v2.6. Each maps to roadmap phases.
 
 ### SEC — 安全加固
 
-- [ ] **SEC-01**: `ai-bash-policy` 新增「包管理器安装」档：`npx` / `npm i` / `pnpm add` / `pip install` / `brew install` 强制确认，**白名单不可越过**
+- [x] **SEC-01**: `ai-bash-policy` 新增「包管理器安装」档：`npx` / `npm i` / `pnpm add` / `pip install` / `brew install` 强制确认，**白名单不可越过**
 - [ ] **SEC-02**: zip 解压**拒绝含 symlink entry 的整包**（读 central directory 属性判定 + 解压后递归 `lstat` 复核整棵树），而非跳过单条
 - [ ] **SEC-03**: 逐 entry 路径校验：`..` 段（`path.posix.normalize` 后判）/ 绝对路径 / 盘符 / UNC / 反斜杠 / NTFS ADS / 控制字符 / 尾随空格与点；并对全量 entry 名做 NFD+小写归一化查重（大小写与 Unicode 冲突即拒绝整包）
 - [ ] **SEC-04**: 解压先读 central directory 的 `uncompressedSize` 预检，再边解边累加；限额覆盖单 entry 字节、累计字节、entry 数、压缩比、嵌套深度
@@ -153,7 +153,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SEED-03 | Phase 47 | Complete |
 | SEED-04 | Phase 47 | Complete |
 | SEED-05 | Phase 47 | Pending |
-| SEC-01 | Phase 47 | Pending |
+| SEC-01 | Phase 47 | Complete |
 | SEC-02 | Phase 51 | Pending |
 | SEC-03 | Phase 51 | Pending |
 | SEC-04 | Phase 51 | Pending |

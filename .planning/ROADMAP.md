@@ -206,7 +206,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 47-02-PLAN.md
+- [x] 47-02-PLAN.md
 - [ ] 47-03-PLAN.md
 
 **Wave 3** *(blocked on Wave 2 completion)*
@@ -309,7 +309,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 46. 技能基础设施 | 4/4 | Complete | 2026-09-11 |
-| 47. 内置技能播种 + bash 策略加固 | 1/4 | In Progress|  |
+| 47. 内置技能播种 + bash 策略加固 | 2/4 | In Progress|  |
 | 48. 技能发现与调用 | TBD | Not started | - |
 | 49. `manage_skill` 工具 | TBD | Not started | - |
 | 50. 设置页技能管理区 + `/api/skills/*` | TBD | Not started | - |

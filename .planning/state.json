@@ -11,7 +11,7 @@
     {
       "number": "47",
       "name": "内置技能播种 + bash 策略加固",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "48",
@@ -37,7 +37,7 @@
   "next": {
     "command": "/gsd:progress --next",
     "label": "Advance to the next step",
-    "reason": "Phase 47 of 6 · 17% · executing"
+    "reason": "Phase 47 of 6 · 0% · executing"
   },
-  "updated_at": "2026-09-11T09:35:42.992Z"
+  "updated_at": "2026-09-11T09:44:43.935Z"
 }
