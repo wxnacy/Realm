@@ -1,8 +1,16 @@
 ---
 phase: 46-prompt
 verified: 2026-09-11T02:35:54Z
-status: human_needed
+status: passed
 score: 14/15 must-haves verified
+# ── 人验闭环（verify-work 归一化；原始测量值保留于下行字段之上，未改动）──
+# 上文 verified/score/behavior_unverified 是 2026-09-11T02:35:54Z 的原始测量结果（当时为 human_needed）。
+# 唯一待人工项 truth #14（SKILL-04/SC3 端到端）已由 UAT 实测通过：
+#   46-UAT.md 3/3 pass（2026-09-11），其中 Test 1 用临时 IPC 钩子取得可达性证据
+#   （agentRebuilt:false / promptChanged:true / skillNamesAfter 含新技能 / broadcasts:["skills:changed"]），
+#   钩子已删除。故 status 归一为 passed。
+human_verification_resolved: 2026-09-11T03:35:00Z
+human_verification_resolved_by: "46-UAT.md (3/3 pass)"
 covered_files:
   - ".planning/REQUIREMENTS.md"
   - ".planning/phases/46-prompt/46-01-PLAN.md"
