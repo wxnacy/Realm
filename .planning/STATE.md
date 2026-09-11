@@ -5,16 +5,16 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 46
 current_phase_name: 技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）
 status: executing
-stopped_at: Phase 46 context gathered
-last_updated: "2026-09-10T16:59:26.381Z"
-last_activity: 2026-09-10
-last_activity_desc: v2.6 路线图创建完成（47 项需求 → 6 阶段，S1 门禁按阶段归属）
-state_head: 1f66d6f5c9a906d9f63a8c4501bc96d43ee0798d
+stopped_at: Completed 46-01-PLAN.md
+last_updated: "2026-09-11T01:55:36.733Z"
+last_activity: 2026-09-11
+last_activity_desc: Phase 46 execution started
+state_head: 3090c347a6cd459110e3c7f8d8338d768e43c829
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 
 ## Current Position
 
-Phase: 46 (技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）) — READY TO EXECUTE
-Plan: — （待 /gsd-plan-phase 46）
+Phase: 46 (技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-09-10 — v2.6 路线图创建完成（47 项需求 → 6 阶段，S1 门禁按阶段归属）
+Last activity: 2026-09-11 — Phase 46 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -90,6 +90,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 45 P02 | 7min | 2 tasks | 4 files |
 | Phase 45 P03 | 8min | 2 tasks | 3 files |
 | Phase 45 P04 | 20min | 2 tasks | 2 files |
+| Phase 46 P1 | 5min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -153,6 +154,9 @@ Recent decisions affecting current work:
 - [Phase 45]: [Phase 45]: 45-03 缓存链路 MAP 三件套——updatePlaylistIndex 登记 map_uris/has_fmp4_map（BYTERANGE 仅记 map_byterange 兜底 init_missing）；storeBuffer init 本体落盘 <videoDir>/init 绝不进 segments（D-05/D-07/Pitfall 2）；getConvertInfo 透出 initPath/hasFmp4Map（D-03 第二链路）
 - [Phase 45]: [Phase 45]: 45-03 startConvertFromInput init_missing 早拒（hasFmp4Map && !initPath，key_unavailable 同区段）+ initPath 透传；lookup() init 回放列入 deferred（RESEARCH Q5 Wave-2）
 - [Phase 45]: [Phase 45]: 45-04 tfdt 时间轴 rebase 单点修复——concatFmp4ToMp4 分片写出循环集成 rebaseFmp4SegmentTfdt walker（baselines Map init 写出后/循环前创建），录制 tracer 与缓存链路共用入口单点覆盖；首片 tfdt 记为轨基线改写为 0，当前值<基线保守不改写；不修 moov/不注 elst/零新依赖（G-45-2）
+- [Phase 46]: 技能段固定为 system prompt 第 4 段（末段），前三段全静态 —— 技能集变更不影响冻结记忆段前缀缓存（D-01）
+- [Phase 46]: 加载面收窄发生在 SDK 遍历之前（薄 env 覆写 listDir/readTextFile），不导出 createSkillsEnv，测试只经公开面断言
+- [Phase 46]: 技能目录一律由 getWorkspaceDir() 派生；resolveInside/createSandboxEnv 本阶段零 diff（不为 managed-skills 加第二个沙箱 root）
 
 ### Roadmap Evolution
 
@@ -254,9 +258,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-10T16:24:23.272Z
-Stopped at: Phase 46 context gathered
-Resume file: .planning/phases/46-prompt/46-CONTEXT.md
+Last session: 2026-09-11T01:55:36.719Z
+Stopped at: Completed 46-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

@@ -164,12 +164,12 @@ v2.6 把 AI 助手推进到**可扩展能力体系**：接入 pi-agent-core 原�
   4. 用户技能与 managed 技能同名时 user 版本胜出、managed 版本被遮蔽，冲突对用户可见（不静默去重）。
   5. 非法 name / 超长 description / YAML 解析失败 / 超限的技能不静默消失：产出含"哪个限额、当前值"的可读诊断，可被上层读出。
 
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 46-01-PLAN.md — tracer 端到端纵切（目录 → 沙箱加载 → 缓存 → prompt 第 4 段 → 可 read）+ 加载面收窄薄 env + SKILL-01/02/03 断言
+- [x] 46-01-PLAN.md — tracer 端到端纵切（目录 → 沙箱加载 → 缓存 → prompt 第 4 段 → 可 read）+ 加载面收窄薄 env + SKILL-01/02/03 断言
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -296,7 +296,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 46. 技能基础设施 | TBD | Not started | - |
+| 46. 技能基础设施 | 1/4 | In Progress|  |
 | 47. 内置技能播种 + bash 策略加固 | TBD | Not started | - |
 | 48. 技能发现与调用 | TBD | Not started | - |
 | 49. `manage_skill` 工具 | TBD | Not started | - |

@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 4
+open_count: 5
 waived_count: 0
 fixed_count: 0
-total_count: 4
-last_updated: 2026-09-08T08:22:05.689Z
+total_count: 5
+last_updated: 2026-09-11T01:55:26.491Z
 ---
 
 # Broken Windows Ledger
@@ -19,6 +19,7 @@ last_updated: 2026-09-08T08:22:05.689Z
 | 2 | 44 | stub | src/tasks-page.js |  | 「已落盘部分续转」按钮先渲染，POST /api/tasks/convert-resume 由 44-05 实现前返回 404（计划明确不算缺陷） | open |  | 2026-09-06T11:49:45.824Z |  |
 | 3 | 45 | unrun-verify | main.js |  | 45-03 human-check 未跑：缓存链路 fMP4 转换 + QuickTime A1 真机复验（留 end-of-phase UAT） | open |  | 2026-09-08T04:53:56.959Z |  |
 | 4 | 45 | unrun-verify | .planning/phases/45-bilibili-fmp4-transcode/45-04-SUMMARY.md |  | 45-04 human-check 真实 B 站直播流 UAT 复测（两链路产物 mpv/VLC 时间轴从 0 开始）留待 end-of-phase UAT | open |  | 2026-09-08T08:22:05.689Z |  |
+| 5 | 46 | deviation | ai-skills-manager.js |  | Rule 2: 注释中移除被禁止的库名/子路径字面量（注释-only，无行为变更） | open |  | 2026-09-11T01:55:26.491Z |  |
 
 ````json
 [
@@ -68,6 +69,18 @@ last_updated: 2026-09-08T08:22:05.689Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-08T08:22:05.689Z",
+    "resolved_at": null
+  },
+  {
+    "id": 5,
+    "kind": "deviation",
+    "phase": "46",
+    "file": "ai-skills-manager.js",
+    "line": null,
+    "description": "Rule 2: 注释中移除被禁止的库名/子路径字面量（注释-only，无行为变更）",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-11T01:55:26.491Z",
     "resolved_at": null
   }
 ]
