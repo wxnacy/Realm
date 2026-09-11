@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 10
+open_count: 16
 waived_count: 0
 fixed_count: 0
-total_count: 10
-last_updated: 2026-09-11T09:44:39.212Z
+total_count: 16
+last_updated: 2026-09-11T09:56:18.235Z
 ---
 
 # Broken Windows Ledger
@@ -25,6 +25,12 @@ last_updated: 2026-09-11T09:44:39.212Z
 | 8 | 47 | deviation | ai-bash-policy.js |  | 47-02: PACKAGE_MANAGER_INSTALL_PATTERNS 表内把 python -m pip / uv 两族提到通用 pip3? install 之前（仅调顺序，模式文本未改）—— 否则 uv pip install x 被 pip 条目先命中，确认卡片标出错误家族名 | open |  | 2026-09-11T09:44:39.047Z |  |
 | 9 | 47 | deviation | tests/test-ai-bash-policy.js |  | 47-02: 计划假设反引号/子 shell 形态不被 install 检测，实测 \\bnpm\\b 仍是词边界故会命中（向安全侧倾斜）；断言按实际行为钉死，'漏检 ≠ 免确认' 的机械证据改由真漏检形态 NPM=npm $NPM i x 承载 | open |  | 2026-09-11T09:44:39.128Z |  |
 | 10 | 47 | deviation | tests/test-ai-bash-policy.js |  | 47-02: P1-b-2 的 python -m pip 族标注 evaluateReason danger —— python/python3 属 DANGEROUS_INTERPRETERS，D-14 的 danger 优先与计划'13 族全部 reason install'冲突，以 danger 优先为准（该族仍必须命中 matchInstall） | open |  | 2026-09-11T09:44:39.212Z |  |
+| 11 | 47 | deviation | skills-builtin/skill-creator/SKILL.md | 404 | 47-03 Task 1: 计划与 RESEARCH 都断言上游 SKILL.md 对安装语义 regex 0 命中，实测 Description Optimization 第 4 步的 update the skill's SKILL.md frontmatter 命中 INSTALL_IMPERATIVES 的安装技能祈使句模式。第 1 段扫描面按设计零容忍零豁免，故把该句改写为 set it in the skill's SKILL.md frontmatter（语义不变、仅消误报），并记入 THIRD_PARTY_NOTICES 第 11 项 | open |  | 2026-09-11T09:56:11.033Z |  |
+| 12 | 47 | deviation | tests/test-builtin-skills-seeder.js |  | 47-03 Task 2: 计划假设 installGuidance 的两行会命中禁用模式故需豁免，实测参照形状的实现对 A-4 模式表 0 命中。改为让第 1 条豁免对准真正命中的那一行（缺依赖指引句），第 2 条（Do not auto-install 逐字声明）保留为防御性登记并在注释里写明它当前不命中；反向验证对第 1 条实跑（红时报出 check_env.mjs:508） | open |  | 2026-09-11T09:56:11.111Z |  |
+| 13 | 47 | deviation | tests/test-builtin-skills-seeder.js |  | 47-03 Task 1: 47-01 期的断言第 2 段集合为空在 skill-creator 落地后过时（新增 scripts/ agents/ assets/ eval-viewer/ references/ 五类目录）。改写为断言第 2 段确实覆盖这五类目录且豁免生效下零命中，并把第 2 段扫描面从 FORBIDDEN_PATTERNS 扩到 FORBIDDEN_PATTERNS+INSTALL_IMPERATIVES（更严） | open |  | 2026-09-11T09:56:11.192Z |  |
+| 14 | 47 | deviation | tests/test-builtin-skills-seeder.js |  | 47-03 Task 1: Task 1 的验收同时要求 18 个上游文件「逐字节与上游一致」与 SKILL.md「用区间而非精确值」（它承载六处受控改动）。调和为：17 个未改动的上游文件断言精确字节数，SKILL.md 用 [30000,40000] 区间护栏 —— 两个口径都在同一个用例里，注释写明分工 | open |  | 2026-09-11T09:56:18.081Z |  |
+| 15 | 47 | deviation | tests/test-builtin-skills-seeder.js |  | 47-03 Task 2/Rule 2: 计划未列 --help 与输出里的 attempted 字段。前者是 CLI 基本可用性；后者是「REALM_SKILL_CREATOR_PYTHON 生效时自动探测被跳过」这条验收判据唯一的机械证据（成功路径下 attempted 只有 1 条），两者均为只读、无副作用 | open |  | 2026-09-11T09:56:18.158Z |  |
+| 16 | 47 | deviation | tests/test-builtin-skills-seeder.js |  | 47-03 Task 1（已知残余）: 按计划的禁令「除六处受控改动外不得有其他偏离上游正文」，上游正文里两处 Cowork 提及（Step 4 的 headless 环境回退说明、结尾的 TodoList 提醒）逐字保留，未随三章一并删除。它们不是被删三章的标题子串（验收只禁 present_files / Claude.ai-specific / Cowork-Specific），且属环境条件性说明；若后续阶段判定需要，属新的受控改动，须同步 THIRD_PARTY_NOTICES | open |  | 2026-09-11T09:56:18.235Z |  |
 
 ````json
 [
@@ -146,6 +152,78 @@ last_updated: 2026-09-11T09:44:39.212Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-11T09:44:39.212Z",
+    "resolved_at": null
+  },
+  {
+    "id": 11,
+    "kind": "deviation",
+    "phase": "47",
+    "file": "skills-builtin/skill-creator/SKILL.md",
+    "line": 404,
+    "description": "47-03 Task 1: 计划与 RESEARCH 都断言上游 SKILL.md 对安装语义 regex 0 命中，实测 Description Optimization 第 4 步的 update the skill's SKILL.md frontmatter 命中 INSTALL_IMPERATIVES 的安装技能祈使句模式。第 1 段扫描面按设计零容忍零豁免，故把该句改写为 set it in the skill's SKILL.md frontmatter（语义不变、仅消误报），并记入 THIRD_PARTY_NOTICES 第 11 项",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-11T09:56:11.033Z",
+    "resolved_at": null
+  },
+  {
+    "id": 12,
+    "kind": "deviation",
+    "phase": "47",
+    "file": "tests/test-builtin-skills-seeder.js",
+    "line": null,
+    "description": "47-03 Task 2: 计划假设 installGuidance 的两行会命中禁用模式故需豁免，实测参照形状的实现对 A-4 模式表 0 命中。改为让第 1 条豁免对准真正命中的那一行（缺依赖指引句），第 2 条（Do not auto-install 逐字声明）保留为防御性登记并在注释里写明它当前不命中；反向验证对第 1 条实跑（红时报出 check_env.mjs:508）",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-11T09:56:11.111Z",
+    "resolved_at": null
+  },
+  {
+    "id": 13,
+    "kind": "deviation",
+    "phase": "47",
+    "file": "tests/test-builtin-skills-seeder.js",
+    "line": null,
+    "description": "47-03 Task 1: 47-01 期的断言第 2 段集合为空在 skill-creator 落地后过时（新增 scripts/ agents/ assets/ eval-viewer/ references/ 五类目录）。改写为断言第 2 段确实覆盖这五类目录且豁免生效下零命中，并把第 2 段扫描面从 FORBIDDEN_PATTERNS 扩到 FORBIDDEN_PATTERNS+INSTALL_IMPERATIVES（更严）",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-11T09:56:11.192Z",
+    "resolved_at": null
+  },
+  {
+    "id": 14,
+    "kind": "deviation",
+    "phase": "47",
+    "file": "tests/test-builtin-skills-seeder.js",
+    "line": null,
+    "description": "47-03 Task 1: Task 1 的验收同时要求 18 个上游文件「逐字节与上游一致」与 SKILL.md「用区间而非精确值」（它承载六处受控改动）。调和为：17 个未改动的上游文件断言精确字节数，SKILL.md 用 [30000,40000] 区间护栏 —— 两个口径都在同一个用例里，注释写明分工",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-11T09:56:18.081Z",
+    "resolved_at": null
+  },
+  {
+    "id": 15,
+    "kind": "deviation",
+    "phase": "47",
+    "file": "tests/test-builtin-skills-seeder.js",
+    "line": null,
+    "description": "47-03 Task 2/Rule 2: 计划未列 --help 与输出里的 attempted 字段。前者是 CLI 基本可用性；后者是「REALM_SKILL_CREATOR_PYTHON 生效时自动探测被跳过」这条验收判据唯一的机械证据（成功路径下 attempted 只有 1 条），两者均为只读、无副作用",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-11T09:56:18.158Z",
+    "resolved_at": null
+  },
+  {
+    "id": 16,
+    "kind": "deviation",
+    "phase": "47",
+    "file": "tests/test-builtin-skills-seeder.js",
+    "line": null,
+    "description": "47-03 Task 1（已知残余）: 按计划的禁令「除六处受控改动外不得有其他偏离上游正文」，上游正文里两处 Cowork 提及（Step 4 的 headless 环境回退说明、结尾的 TodoList 提醒）逐字保留，未随三章一并删除。它们不是被删三章的标题子串（验收只禁 present_files / Claude.ai-specific / Cowork-Specific），且属环境条件性说明；若后续阶段判定需要，属新的受控改动，须同步 THIRD_PARTY_NOTICES",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-11T09:56:18.235Z",
     "resolved_at": null
   }
 ]

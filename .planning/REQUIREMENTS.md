@@ -25,7 +25,7 @@ Requirements for v2.6. Each maps to roadmap phases.
 - [x] **SKILL-06**: 技能加载诊断（非法 name / 超长 description / YAML 解析失败）透传到设置页，不静默失败
 - [x] **SKILL-07**: 技能资源限额集中定义并生效（SKILL.md 正文字节上限、用户技能数量上限、prompt 段字符预算），超限时给出「哪个限额 / 当前值」的可操作提示
 - [x] **SKILL-08**: 用户可对单个技能启用/禁用（存储于设置，加载后过滤，**不删文件**）
-- [ ] **SKILL-09**: 技能自带 `scripts/` 目录可通过既有 bash 工具在沙箱内执行（复用既有白名单 + 确认卡片，**零新增权限机制**）
+- [x] **SKILL-09**: 技能自带 `scripts/` 目录可通过既有 bash 工具在沙箱内执行（复用既有白名单 + 确认卡片，**零新增权限机制**）
 
 ### DISC — 技能发现与调用
 
@@ -63,7 +63,7 @@ Requirements for v2.6. Each maps to roadmap phases.
 - [x] **SEED-02**: 首次启动幂等播种到 `managed-skills/`（版本戳登记表，沿用 `migrateAiMemory` 先例）
 - [x] **SEED-03**: 内置技能文本**不含任何「执行外部安装」语义**（无 `npx` / `npm i` / `curl | sh` / `-y` / `-g`）；find-skills 引导模型输出候选清单 + 用户在设置页一键导入
 - [x] **SEED-04**: 内置技能默认 `disable-model-invocation: true`（避免其名称与描述无条件占据每次请求的 system prompt）
-- [ ] **SEED-05**: 内置技能随包分发正确（`asarUnpack` + `app.isPackaged` 路径分支），并携带各自 LICENSE 与 `THIRD_PARTY_NOTICES` 归属（来源仓库 + 固定 commit SHA + 许可证 + 是否修改 + 修改说明）
+- [x] **SEED-05**: 内置技能随包分发正确（`asarUnpack` + `app.isPackaged` 路径分支），并携带各自 LICENSE 与 `THIRD_PARTY_NOTICES` 归属（来源仓库 + 固定 commit SHA + 许可证 + 是否修改 + 修改说明）
 
 ### SEC — 安全加固
 
@@ -126,7 +126,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SKILL-06 | Phase 46 | Complete |
 | SKILL-07 | Phase 46 | Complete |
 | SKILL-08 | Phase 46 | Complete |
-| SKILL-09 | Phase 47 | Pending |
+| SKILL-09 | Phase 47 | Complete |
 | DISC-01 | Phase 48 | Pending |
 | DISC-02 | Phase 48 | Pending |
 | DISC-03 | Phase 48 | Pending |
@@ -152,7 +152,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SEED-02 | Phase 47 | Complete |
 | SEED-03 | Phase 47 | Complete |
 | SEED-04 | Phase 47 | Complete |
-| SEED-05 | Phase 47 | Pending |
+| SEED-05 | Phase 47 | Complete |
 | SEC-01 | Phase 47 | Complete |
 | SEC-02 | Phase 51 | Pending |
 | SEC-03 | Phase 51 | Pending |
