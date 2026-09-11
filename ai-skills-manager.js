@@ -107,11 +107,15 @@ function computeDigest(entries) {
  *    超过 maxSkillMdBytes 则不读盘、不进 frontmatter 解析直接返回 invalid；其余
  *    路径（含忽略文件与技能自带资源）原样透传。
  *
- * 被滤掉的 entry 一律进 droppedNotices（调用方转成可读诊断）——**禁止静默**。
+ * 被滤掉 / 被主动拒绝的 entry 一律进 droppedNotices（调用方转成可读诊断）——
+ * **禁止静默**。两种记录形状：
+ * - `{ path, kind }`：根层非目录 entry（kind 为原始 entry.kind）
+ * - `{ path, kind: 'oversize_skill_md', limit, currentValue }`：超字节上限的 SKILL.md
  *
  * @param {object} sandboxEnv - createSandboxEnv() 的返回值
  * @param {{rootDirs?: string[], maxSkillMdBytes?: number}} [opts]
- * @param {Array<{path: string, kind: string}>} [droppedNotices] - 被滤掉的非目录 entry 收集器
+ * @param {Array<{path: string, kind: string, limit?: number, currentValue?: number}>} [droppedNotices]
+ *   被滤掉 / 被拒的 entry 收集器
  * @returns {object} 叠加了语义收窄的技能 env
  */
 function createSkillsEnv(sandboxEnv, opts = {}, droppedNotices = []) {
@@ -141,6 +145,14 @@ function createSkillsEnv(sandboxEnv, opts = {}, droppedNotices = []) {
         if (info && info.ok && info.value.size > maxSkillMdBytes) {
           // SDK 为 ESM-only，包根动态 import（exports map 无子路径入口）
           const { FileError, err } = await import('@earendil-works/pi-agent-core');
+          // 带外记录限额与当前值：SDK 的 read_failed 只把这两个数写在 message 文本里，
+          // 结构化字段由 Realm 补（SKILL-07 的「哪个限额 / 当前值」）
+          droppedNotices.push({
+            path: p,
+            kind: 'oversize_skill_md',
+            limit: maxSkillMdBytes,
+            currentValue: info.value.size,
+          });
           return err(new FileError(
             'invalid',
             `SKILL.md 超过 ${maxSkillMdBytes} 字节上限（当前 ${info.value.size} 字节）`,
@@ -349,6 +361,38 @@ function applyShadowing(entries) {
 }
 
 /**
+ * 确定性全序比较器：缓存条目的**可观测顺序**（D-10 序）
+ *
+ * 排序键（依次比较，前一个相等才看下一个）：
+ *   1. 来源：user(0) 先于 managed(1)
+ *   2. 可模型调用：`disableModelInvocation !== true`(0) 先于显式禁用调用(1)
+ *   3. name 的**码点序**（`<` / `>` 直接比较，不做本地化）
+ *
+ * **禁止改用区域敏感（ICU / locale 依赖）的字符串比较**：同一技能集在不同机器上
+ * 可能排出不同顺序 —— 顺序变化会改变 system prompt 的字节序列，让 provider 的
+ * 前缀缓存命中率随机器漂移、不可预测。码点序跨机恒定。
+ *
+ * 该比较器是全序（D-08 重写后单目录内 name 唯一、跨目录同名已由遮蔽处理），
+ * 故排序结果与输入顺序无关。它是 `getSkillsSnapshot().skills` 与
+ * `buildSkillsPrompt()` 可观测顺序的**唯一**规定者。
+ *
+ * @param {{skill: {name: string, disableModelInvocation?: boolean}, source: string}} a
+ * @param {{skill: {name: string, disableModelInvocation?: boolean}, source: string}} b
+ * @returns {number} 负数 / 0 / 正数
+ */
+function bySkillPriority(a, b) {
+  const sourceRank = (e) => (e.source === 'user' ? 0 : 1);
+  const invocationRank = (e) => (e.skill.disableModelInvocation === true ? 1 : 0);
+  const bySource = sourceRank(a) - sourceRank(b);
+  if (bySource !== 0) return bySource;
+  const byInvocation = invocationRank(a) - invocationRank(b);
+  if (byInvocation !== 0) return byInvocation;
+  if (a.skill.name < b.skill.name) return -1;
+  if (a.skill.name > b.skill.name) return 1;
+  return 0;
+}
+
+/**
  * 异步刷新技能集（唯一加载入口，D-04）
  *
  * 每次 Agent 创建/重建之前无条件调用一次：这是唯一能自动覆盖「模型经
@@ -361,6 +405,10 @@ function applyShadowing(entries) {
  *      同步跳过 description 不可用的技能（isDescriptionUnusable，诊断沿用 SDK 的 invalid_metadata）
  *   ② 目录名权威重写（enforceDirNameAuthority，D-08）
  *   ③ 同名遮蔽判定（applyShadowing，D-06）—— 依赖 ② 之后的 name 唯一性
+ *   ④ 确定性定序（bySkillPriority）—— 可观测顺序的唯一规定者，跨机一致
+ *   ⑤ 启用/禁用标记（disabled，D-09）—— 只标记不剔除、不删文件（消费侧过滤）
+ *   ⑥ 数量上限（overLimit，SKILL-07）—— user 来源超 MAX_USER_SKILLS 的条目标记但不剔除
+ *   ⑦ prompt 段预算（固定开销 + 逐条差量贪心，SKILL-07）—— 超预算省略 + 段尾提示
  *
  * 契约：
  * - managed 先、user 后加载 —— 顺序不是装饰，同名遮蔽判定据此（D-06）
@@ -415,18 +463,31 @@ async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
 
     const { skills: loadedEntries, diagnostics } = await loadSourcedSkills(skillsEnv, inputs);
 
-    // 加载面收窄产生的 Realm 自建诊断（code 以 realm_ 前缀与 SDK 枚举区分）
-    const droppedDiags = droppedNotices.map((n) => ({
+    // 加载面收窄 / 字节闸产生的 Realm 自建诊断（code 以 realm_ 前缀与 SDK 枚举区分）。
+    // droppedNotices 混装两种记录，按 kind 分流：根层被滤 entry 与超字节上限的 SKILL.md。
+    const rootSkipped = droppedNotices.filter((n) => n.kind !== 'oversize_skill_md');
+    const oversize = droppedNotices.filter((n) => n.kind === 'oversize_skill_md');
+    const droppedDiags = rootSkipped.map((n) => ({
       level: 'warning',
       code: 'realm_root_entry_skipped',
       message: `技能扫描根下的 ${path.basename(n.path)} 被跳过：技能必须放在 <dir>/<name>/SKILL.md（每技能一个目录），根层散落文件不会被加载`,
       path: n.path,
     }));
+    // 字节闸的可操作诊断：与 SDK 那条 read_failed 并存（一条是 SDK 的事实记录，
+    // 一条是 Realm 的「哪个限额、当前值」），靠带外记录而非解析 SDK 消息文本
+    const oversizeDiags = oversize.map((n) => ({
+      level: 'error',
+      code: 'realm_skill_md_too_large',
+      message: `SKILL.md 超过正文上限：限额 ${n.limit} 字节，当前 ${n.currentValue} 字节（${n.path}）`,
+      path: n.path,
+      limit: n.limit,
+      currentValue: n.currentValue,
+    }));
 
     // 诊断容器先就位：SDK 诊断经**显式映射**（type → level，D-07）转成 Realm 形状，
     // 管线的每一步继续往这里追加（禁止静默失败，SKILL-06）
     const sdkDiags = diagnostics.map(toRealmDiag);
-    _cache.diagnostics = sdkDiags.concat(droppedDiags);
+    _cache.diagnostics = sdkDiags.concat(droppedDiags, oversizeDiags);
 
     // ① 契约布局过滤 + description 可用性过滤
     //    - 布局：SDK 递归无深度上限，从 GitHub 拷来的多一层目录包会加载出一个
@@ -463,14 +524,69 @@ async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
 
     // ③ 同名遮蔽：managed 先、user 后 → 后到者（user 版）胜出，败者标
     //    shadowed / shadowedBy 但**保留在集合内**（D-06 costly 可逆性）。
-    _cache.skills = applyShadowing(entries);
-    // 遮蔽条目不进 prompt（D-06）—— 去重必须发生在注入之前，否则模型会看到
-    // 两个同名技能且不知道信谁。同一过滤后集合也是 46-03 预算截断的输入。
-    _cache.promptBlock = formatSkillsForSystemPrompt(
-      _cache.skills
-        .filter((e) => !e.shadowed && e.skill.disableModelInvocation !== true)
-        .map((e) => e.skill)
+    // ④ 确定性定序：bySkillPriority 是全序，排序结果与输入顺序无关（跨机一致）。
+    //    定序必须在遮蔽之后 —— 胜负由输入顺序决定，与可观测顺序无关。
+    _cache.skills = applyShadowing(entries).sort(bySkillPriority);
+
+    // ⑤ 启用/禁用（D-09）：禁用是**消费侧过滤的下游信号** —— 数据层保留完整条目，
+    //    过滤只发生在 prompt 段组装（此处）与未来的 /skill: 解析（Phase 48）；
+    //    文件永不改动或删除（SKILL-08），否则用户禁用一次即永久失去该技能。
+    //    禁用键是 name、不区分来源，故「先禁用 managed foo、后导入 user foo，
+    //    新导入的也会随之禁用」这条已知边界自然成立（由 46-04 写进产品文档）。
+    const disabledSet = new Set(disabled);
+    for (const entry of _cache.skills) {
+      if (disabledSet.has(entry.skill.name)) entry.disabled = true;
+    }
+
+    // ⑥ 数量上限：只统计 user 来源（managed 由应用自身投递，不计入用户配额）。
+    //    超限条目标 overLimit 而**不剔除、不删文件** —— 数据层完整，只是不注入。
+    const userEntries = _cache.skills.filter((e) => e.source === 'user');
+    if (userEntries.length > LIMITS.MAX_USER_SKILLS) {
+      for (const e of userEntries.slice(LIMITS.MAX_USER_SKILLS)) e.overLimit = true;
+      _cache.diagnostics.push({
+        level: 'error',
+        code: 'realm_user_skill_limit_exceeded',
+        message: `用户技能数量超过上限：限额 ${LIMITS.MAX_USER_SKILLS} 个，当前 ${userEntries.length} 个；超出部分不进 system prompt（请先卸载不用的技能）`,
+        limit: LIMITS.MAX_USER_SKILLS,
+        currentValue: userEntries.length,
+      });
+    }
+
+    // ⑦ prompt 段预算（**整段口径**，含 SDK 前言与包裹的固定开销）：
+    //    差量测量而非自拼模板 —— 自拼等于复制 SDK 的转义与缩进，SDK 升级即漂移。
+    //    entryCost 取「在一条已有条目的段上再加一条」的**边际成本**（不能用
+    //    `format([skill]) - format([dummy])`：那样每条都重复计入一次前言，k 条时
+    //    累计口径比真实段长少 (k-1) 倍前言，会让贪心放行到超预算）。
+    const dummySkill = { name: '', description: '', filePath: '' };
+    const fixedOverhead = formatSkillsForSystemPrompt([dummySkill]).length;
+    const entryCost = (skill) =>
+      formatSkillsForSystemPrompt([dummySkill, skill]).length - fixedOverhead;
+    const eligible = _cache.skills.filter(
+      (e) => !e.shadowed && !e.disabled && !e.overLimit && e.skill.disableModelInvocation !== true
     );
+    const kept = [];
+    let used = fixedOverhead;
+    for (const e of eligible) {
+      const cost = entryCost(e.skill);
+      if (used + cost > LIMITS.SKILLS_PROMPT_CHAR_BUDGET) break;
+      kept.push(e.skill);
+      used += cost;
+    }
+    let block = kept.length ? formatSkillsForSystemPrompt(kept) : '';
+    const omitted = eligible.length - kept.length;
+    if (omitted > 0) {
+      // 省略提示追加在 SDK 技能段的**闭合标签之外**：未截断时的前缀与截断时逐字节
+      // 相同，provider 前缀缓存友好。截断绝不静默（SKILL-07）。
+      _cache.diagnostics.push({
+        level: 'warning',
+        code: 'realm_prompt_budget_exceeded',
+        message: `prompt 段预算 ${LIMITS.SKILLS_PROMPT_CHAR_BUDGET} 字符，已省略 ${omitted} 个技能（共 ${eligible.length} 个）`,
+        limit: LIMITS.SKILLS_PROMPT_CHAR_BUDGET,
+        currentValue: used,
+      });
+      block += `\n\nNote: ${omitted} of ${eligible.length} skills omitted to stay within the prompt budget.`;
+    }
+    _cache.promptBlock = block;
     _cache.digest = computeDigest(_cache.skills);
     _cache.refreshedAt = Date.now();
   } catch (err) {

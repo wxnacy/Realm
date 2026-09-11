@@ -669,6 +669,180 @@ describe('诊断与限额（SKILL-06/07）', () => {
     assert.ok(src.includes('function pushError('), '应存在 pushError（模块级 errors[] 写入点）');
     assert.ok(src.includes('function isDescriptionUnusable('), '应存在 description 可用性判定');
   });
+
+  test('字节闸：超 MAX_SKILL_MD_BYTES 的 SKILL.md 跳过，诊断带 limit 与真实 currentValue', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    const max = aiSkills.LIMITS.MAX_SKILL_MD_BYTES;
+
+    const dir = path.join(workspace.getSkillsDir(), 'huge');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'SKILL.md');
+    fs.writeFileSync(file, `---\nname: huge\ndescription: 超大技能\n---\n\n${'x'.repeat(max + 1)}`);
+    const size = fs.statSync(file).size;
+
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    assert.strictEqual(snap.skills.some((e) => e.skill.name === 'huge'), false, '超限技能不进集合');
+    const diag = snap.diagnostics.find((d) => d.code === 'realm_skill_md_too_large');
+    assert.ok(diag, '字节闸必须产 Realm 可操作诊断（不靠解析 SDK 消息文本）');
+    assert.strictEqual(diag.level, 'error');
+    assert.strictEqual(diag.limit, max, 'limit 必须是限额本身（SKILL-07 的「哪个限额」）');
+    assert.strictEqual(diag.currentValue, size, 'currentValue 必须等于实际字节数（fs.statSync 对照）');
+    assert.strictEqual(diag.path, file);
+    // SDK 的事实记录仍并存（两条各司其职）
+    assert.ok(snap.diagnostics.some((d) => d.code === 'read_failed'), 'SDK 的 read_failed 保留不删');
+  });
+
+  test('数量上限：user 技能超 MAX_USER_SKILLS 时标 overLimit 但不剔除、不删文件', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    const limit = aiSkills.LIMITS.MAX_USER_SKILLS;
+
+    for (let i = 0; i < limit + 1; i += 1) {
+      writeSkill(workspace.getSkillsDir(), `skill-${String(i).padStart(3, '0')}`);
+    }
+
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    const over = snap.skills.filter((e) => e.overLimit === true);
+    assert.strictEqual(over.length, 1, `恰有 1 条超限（限额 ${limit}，实际 ${limit + 1}）`);
+    assert.strictEqual(
+      snap.skills.length, limit + 1,
+      '超限条目必须保留在数据层（不剔除 —— 否则用户无法在设置页看到并卸载）'
+    );
+    assert.strictEqual(
+      fs.existsSync(path.join(workspace.getSkillsDir(), over[0].skill.name, 'SKILL.md')), true,
+      '禁用/超限都不得删除磁盘文件'
+    );
+
+    const diag = snap.diagnostics.find((d) => d.code === 'realm_user_skill_limit_exceeded');
+    assert.ok(diag, '超限必须产诊断');
+    assert.strictEqual(diag.limit, limit);
+    assert.strictEqual(diag.currentValue, limit + 1);
+
+    const prompt = aiSkills.buildSkillsPrompt();
+    assert.strictEqual(
+      prompt.includes(`<name>${over[0].skill.name}</name>`), false,
+      'overLimit 条目不得进 prompt'
+    );
+  });
+
+  test('prompt 段预算：超预算只保留预算内条数 + 段尾省略提示 + 诊断带 limit/currentValue', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    const budget = aiSkills.LIMITS.SKILLS_PROMPT_CHAR_BUDGET;
+
+    for (let i = 0; i < 40; i += 1) {
+      writeSkill(workspace.getSkillsDir(), `long-${String(i).padStart(3, '0')}`, {
+        description: 'y'.repeat(300),
+      });
+    }
+    // 未截断场景的对照技能（单独一个空目录用不到，这里先记盘面）
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const block = aiSkills.buildSkillsPrompt();
+    const noteIdx = block.indexOf('\n\nNote: ');
+    assert.ok(noteIdx > 0, '超预算必须出现段尾省略提示（禁止静默截断）');
+    assert.ok(
+      noteIdx <= budget,
+      `技能段本体（不含省略提示）必须在预算内，实际 ${noteIdx} > ${budget}`
+    );
+    assert.ok(block.includes('</available_skills>'), '省略提示不得替换技能段本体');
+    assert.ok(
+      block.indexOf('</available_skills>') < noteIdx,
+      '省略提示必须追加在 </available_skills> **之外**（前缀缓存友好）'
+    );
+
+    const note = block.slice(noteIdx);
+    const parsed = /Note: (\d+) of (\d+) skills omitted/.exec(note);
+    assert.ok(parsed, `省略提示句式必须可解析：${note}`);
+    const omitted = Number(parsed[1]);
+    const eligible = Number(parsed[2]);
+    assert.ok(omitted > 0, '省略数应大于 0');
+    const countOf = (needle) => block.split(needle).length - 1;
+    assert.strictEqual(
+      countOf('<skill>'), eligible - omitted,
+      '注入条数必须等于「可注入数 - 省略数」'
+    );
+
+    const diag = aiSkills.getSkillsSnapshot().diagnostics.find(
+      (d) => d.code === 'realm_prompt_budget_exceeded'
+    );
+    assert.ok(diag, '预算截断必须产诊断');
+    assert.strictEqual(diag.limit, budget);
+    assert.strictEqual(typeof diag.currentValue, 'number');
+  });
+
+  test('prompt 段预算：未超预算时省略提示完全不出现', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    writeSkill(workspace.getSkillsDir(), 'alpha', { description: '短描述' });
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const block = aiSkills.buildSkillsPrompt();
+    assert.strictEqual(block.includes('Note: '), false, '未截断时省略提示不得出现');
+    assert.strictEqual(
+      aiSkills.getSkillsSnapshot().diagnostics.some((d) => d.code === 'realm_prompt_budget_exceeded'),
+      false,
+      '未截断时不得产预算诊断（不误报）'
+    );
+    assert.ok(block.endsWith('</available_skills>'), '未截断时段尾就是 </available_skills>');
+  });
+
+  test('定序确定：连续两次刷新顺序一致，且 user 来源条目全部排在 managed 之前', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    for (const n of ['zulu', 'alpha', 'mike']) writeSkill(workspace.getSkillsDir(), n);
+    for (const n of ['yankee', 'bravo']) writeSkill(workspace.getManagedSkillsDir(), n);
+
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+    const first = aiSkills.getSkillsSnapshot().skills.map((e) => `${e.source}:${e.skill.name}`);
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+    const second = aiSkills.getSkillsSnapshot().skills.map((e) => `${e.source}:${e.skill.name}`);
+
+    assert.deepStrictEqual(first, second, '同一技能集的可观测顺序必须跨刷新稳定');
+    assert.deepStrictEqual(
+      first, ['user:alpha', 'user:mike', 'user:zulu', 'managed:bravo', 'managed:yankee'],
+      '顺序由 bySkillPriority 全序决定：user 先、再按 name 码点序'
+    );
+  });
+
+  test('源码：预算用差量测量（fixedOverhead / entryCost），定序不用 localeCompare，且不手拼可用技能段', () => {
+    const src = readSource('ai-skills-manager.js');
+    assert.ok(src.includes('fixedOverhead'), '应存在固定开销测量量');
+    assert.ok(src.includes('entryCost'), '应存在逐条差量成本函数');
+    assert.strictEqual(src.includes('localeCompare'), false, '不得用 localeCompare（跨机 ICU 漂移 → 前缀缓存漂移）');
+    assert.strictEqual(
+      src.includes('The following skills provide'), false,
+      '不得手写 SDK 的可用技能段前言（自拼等于复制 SDK 模板，升级即漂移）'
+    );
+    assert.strictEqual(
+      /<available_skills>/.test(src), false,
+      '不得手写 <available_skills> 字符串模板（必须经 formatSkillsForSystemPrompt）'
+    );
+    assert.ok(src.includes('function bySkillPriority('), '应存在确定性全序比较器');
+    for (const code of [
+      'realm_skill_md_too_large',
+      'realm_user_skill_limit_exceeded',
+      'realm_prompt_budget_exceeded',
+    ]) {
+      assert.ok(src.includes(code), `应存在 ${code} 诊断码`);
+    }
+    const budgetDiagCodes = [...src.matchAll(/code: '(realm_[a-z_]+)'/g)].map((m) => m[1]);
+    for (const c of budgetDiagCodes) {
+      assert.ok(c.startsWith('realm_'), `诊断码必须以 realm_ 前缀：${c}`);
+    }
+  });
 });
 
 describe('技能目录与沙箱可达（SKILL-01）', () => {
