@@ -5,11 +5,11 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 47
 current_phase_name: 内置技能播种 + bash 策略加固
 status: executing
-stopped_at: Completed 47-03-PLAN.md
-last_updated: "2026-09-11T09:57:17.700Z"
+stopped_at: 47-04 部分完成（Task 1-2 已提交 22774ca/3b3940b）；Task 3 打包实跑验证等待人工门禁
+last_updated: "2026-09-11T10:58:06.859Z"
 last_activity: 2026-09-11
 last_activity_desc: Phase 47 execution started
-state_head: 90e090bbcad6cf2c6c682ab67c920e6d63a4481e
+state_head: 3b3940b7166df7aaa825b40158de2f7f67e67d0e
 progress:
   total_phases: 6
   completed_phases: 0
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-09-11)
 
 Phase: 47 (内置技能播种 + bash 策略加固) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
-Last activity: 2026-09-11 — Phase 47 execution started
+Status: ⏸ **47-04 部分完成 —— Task 1（打包排除项）与 Task 2（DOC-02 文档同步）已提交（`22774ca` / `3b3940b`）；Task 3（打包后正式环境实跑验证 / SEED-05 收口）等待人工门禁，未执行。`47-04-SUMMARY.md` 的 `status: halted`，**不是** complete；`completed_plans` 保持 7/8 未计入 47-04。**
+Last activity: 2026-09-11 — Phase 47 Plan 04 执行至人工门禁（Task 1-2 完成，Task 3 阻塞）
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -222,6 +222,7 @@ None yet.
 - DNS rebinding 绕过 SSRF 防护需要额外验证（Phase 41 风险）
 - AnySearch 免费 Provider 可用性未验证（Phase 40 风险）
 - turndown XSS 风险需与 DOMPurify 集成确认（Phase 41 风险）
+- 47-04 Task 3（打包后正式环境实跑验证 / SEED-05 收口）被人工前置门禁阻塞：/Applications/Realm.app 生产实例 PID 25922 + ~10 helper 正在运行（--user-data-dir=.../Application Support/realm），而 make install 第一步是 rm -rf /Applications/Realm.app。需用户自行退出该实例（或用 Nightly 路线，D-47-04-c），再跑 Task 3 的四个面 + 幂等/自愈复核。禁路径模式 pkill。
 
 ## Deferred Items
 
@@ -281,9 +282,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T09:57:17.680Z
-Stopped at: Completed 47-03-PLAN.md
-Resume file: None
+Last session: 2026-09-11T10:58:06.718Z
+Stopped at: 47-04 部分完成（Task 1-2 已提交 22774ca/3b3940b）；Task 3 打包实跑验证等待人工门禁
+Resume file: .planning/phases/47-bash/47-04-SUMMARY.md
 
 ## Operator Next Steps
 

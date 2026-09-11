@@ -211,7 +211,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 47-04-PLAN.md
+- [ ] 47-04-PLAN.md — ⏸ **部分完成（Task 1-2 已提交 `22774ca` / `3b3940b`），Task 3「打包后正式环境实跑验证」等待人工门禁**：本机 `/Applications/Realm.app` 生产实例 PID 25922 + ~10 helper 正在运行，而 `make install` 第一步是 `rm -rf /Applications/Realm.app`，故未执行任何打包/安装命令。需用户自行退出该实例（或走 Nightly 路线，D-47-04-c），再跑 Task 3 的 unpacked 面 / asar 清单面 / 运行期面 / 加载面 + 幂等与自愈复核。`47-04-SUMMARY.md` 的 `status: halted`（**不是** complete），SEED-05 的打包面证据尚未取得
 
 **Security gate**: P1（S1，阻断门禁）npx RCE 向量；P10（发布门禁）内置技能许可证归属义务。
 **Research needed**: find-skills 彻底去 CLI 化的改写方案需产品决策 + 许可证文本法务式复核——每一行都要按"这段文字被模型执行后会做什么"逐句评审。
