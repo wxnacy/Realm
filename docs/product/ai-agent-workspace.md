@@ -66,9 +66,23 @@ bash 是任意 shell，工作目录固定为工作区根目录，但**不受路�
 |----|------|------|
 | ① 免确认 | 所有段命中白名单 | 自动执行 |
 | ② 默认确认 | 未命中白名单 | 弹确认卡片（中风险），卡片完整展示命令原文 |
-| ③ 强制确认 | 任一段命中危险命令表 | 弹确认卡片（高风险），**加入白名单也无效** |
+| ③ 强制确认 | 任一段命中**危险命令表**或**包管理器安装表** | 弹确认卡片（高风险），**加入白名单也无效** |
 
 **危险命令表**（强制确认，语义是「必须用户点头」而非「拒绝」）：rm 全系、sudo、su、dd/mkfs、kill/killall/pkill、shutdown/reboot/halt、hdiutil/diskutil/launchctl 等系统配置工具、chmod/chown/chflags、defaults write、重定向覆盖系统路径（`> /非tmp`），以及管道/组合中把任意文本当代码执行的解释器（sh/bash/zsh/eval/source/osascript/python/node/ruby/perl）。
+
+**强制确认档的两个触发源（互不包含）**
+
+第三档有两个语义不同、彼此不包含的触发源，任一命中即强制确认（`riskLevel: high`）：
+
+| 触发源 | 语义 | `reason` | 内容 |
+|--------|------|----------|------|
+| **危险命令表** | 本机破坏 | `danger` | rm 全系 / sudo / dd / kill / chmod / 重定向覆盖系统路径等，以及管道右侧的解释器 |
+| **包管理器安装表** | 网络取第三方代码 | `install` | npx / npm i·install·ci·exec·add / pnpm·yarn·bun 的 add·dlx·install·exec / pip·pip3 install / python·python3 -m pip install / uv·uvx / brew install·upgrade·reinstall / cargo·go·gem install |
+
+- 两者**进白名单也无效** —— 免确认的粒度是「可信的构建类命令」，不是「可信的包管理器」。
+- 确认卡片按触发源区分标题与文案（危险 → 「AI 请求执行高危 Bash 命令」；安装 → 「AI 请求安装第三方软件包」并点名命中的家族），让用户一眼看出风险类型。
+- **不在表内的只读子命令**（照旧走普通确认或白名单）：`npm run` / `test` / `ls` / `view` / `audit` / `outdated` / `init` / `--version`、`pnpm run` / `ls`、`yarn run`、`brew info` / `list` / `search`、`pip list` / `show`、`cargo search`、`go list` 等 —— 它们不取新代码。
+- 完整的产品说明（家族清单、`npm ci` 为何也在表内、残余风险与确认成本）见 [ai-skills.md](ai-skills.md) 第九节。
 
 **确认超时**：bash 确认卡片 120 秒未处理自动取消（其他场景确认卡仍为 30 秒）。取消后工具返回「已取消」，AI 不会自动重试。
 
@@ -77,7 +91,7 @@ bash 是任意 shell，工作目录固定为工作区根目录，但**不受路�
 - **匹配语义（主流前缀式）**：裸条目按命令前缀匹配——`brew` 覆盖 `brew` 本身与 `brew info wget` 等一切 `brew ` 开头的命令（空格边界，不误中 `brewx`）；`npm run *` 为显式通配写法，等价于前缀 `npm run `
 - **即改即存**：增删条目立即生效，下一条命令即按新白名单裁决（AI 执行时实时读取，无缓存）
 - **服务端校验**：条目必须是非空字符串、≤200 字符、无换行/控制字符
-- **使用建议**：白名单的粒度是**命令前缀，不是路径**。只加构建类可信命令（`npm run`、`git status`、`brew` 等）；**不要加 `cat`/`less` 这类能读任意路径的通用命令**——加了之后它们读任何文件都免确认
+- **使用建议**：白名单的粒度是**命令前缀，不是路径**。只加构建类可信命令（`npm run`、`git status`、`brew` 等）；**不要加 `cat`/`less` 这类能读任意路径的通用命令**——加了之后它们读任何文件都免确认。注意：白名单**不再覆盖**包管理器安装语义 —— 裸条目 `brew` 仍免确认 `brew` 本身与 `brew info` / `brew list` / `brew search` 等**只读**子命令，但 `brew install` / `brew upgrade` / `brew reinstall` 属强制确认档（第 ③ 档），**加入白名单也无效**；`npm run` 与 `npm i` / `npm install` / `npm ci` / `npm exec` 同理
 
 ## 六、确认卡片行为
 
@@ -92,8 +106,11 @@ bash 是任意 shell，工作目录固定为工作区根目录，但**不受路�
 - **bash**：能力等同终端（确认后什么都行），安全依赖「卡片所见即所确认」；静态拆段无法覆盖全部 shell 语法（进程替换、命令替换 `$()` 等），白名单判定是「降低误执行概率」的启发式，**不是安全边界**
 - **提示注入下的人因风险**：恶意网页诱导 AI 执行的 bash 命令同样会弹卡，但用户若不看内容直接点确认则防线失效——请养成读卡片上命令原文的习惯
 - **OS 级隔离**（macOS sandbox-exec 限制 bash 可访问路径）为预留的后续增强方向，当前未实施
+- **（第 5 条）安装档只审一级 bash 命令**：策略引擎看的是用户在卡片上看到的那条命令。若该命令内部再 `spawn` 子进程（如技能自带的 `check_env.mjs` 内部 `spawnSync` 调 `python3`），二次调用不在策略视野内 —— 由用户对第一条命令的确认承担。同类残余：取值旗标形态与命令替换 / 变量间接构造不被检测，`echo "npm install"` 类字面量会误报。**漏检 ≠ 免确认**：未被识别的形态仍退化为普通确认卡片
+- **（第 6 条）技能不构成额外权限，`allowed-tools` 当前运行时不被强制**：技能正文里的任何「请执行某某命令」都要走同一套三档策略与确认卡片；SDK 的 `Skill` 接口只有五个字段（`name` / `description` / `content` / `filePath` / `disableModelInvocation`），**没有工具授权字段**，当前运行时也**不强制**任何「按技能授权工具集」的语义 —— 任何展示 `allowed-tools` 的地方**仅供参考**，是虚假安全感，不要在技能文本里依赖它。详见 [ai-skills.md](ai-skills.md) 第五、六节
 
 ## 八、测试与验证
 
-- 单元测试：`node tests/test-agent-workspace.js`（沙箱/迁移）、`node tests/test-ai-bash-policy.js`（策略引擎）
-- 端到端：对话中让 AI 执行各类命令观察三档行为；读工作区外路径应得沙箱拒绝
+- 单元测试：`node tests/test-agent-workspace.js`（沙箱/迁移）、`node tests/test-ai-bash-policy.js`（策略引擎：三档裁决 / 危险表 / 包管理器安装档 / 白名单语义）
+- 内置技能播种与零安装语义：`node tests/test-builtin-skills-seeder.js`
+- 端到端：对话中让 AI 执行各类命令观察三档行为；读工作区外路径应得沙箱拒绝；让 AI 执行 `npm install` / `brew install` 类命令，即使已加入白名单也应弹高风险确认卡片

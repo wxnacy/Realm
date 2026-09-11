@@ -1667,3 +1667,202 @@ describe('打包排除项配置护栏（47-04 Task 1）', () => {
     assert.ok(unpack.includes('skills-builtin/**'), 'skills-builtin 的 asarUnpack 条目不得被删');
   });
 });
+
+/**
+ * DOC-02 文档同步断言（47-04 Task 2）
+ *
+ * **这是静态文本断言** —— 它证明「文档写了这些」，**不**证明文档表述与实际行为逐条一致
+ * （行为一致性由 47-01 / 47-02 / 47-03 的代码断言间接保证）。按 47-04-PLAN 的
+ * `<edge_coverage_ledger>` 第 2 行，该局限是显式 flagged assumption。
+ *
+ * 唯一一条**跨文件交叉校验**：`AGENTS.md` 的「测试：」行里 bash-policy 的计数必须等于
+ * 本机实跑 `node --test tests/test-ai-bash-policy.js` 的 `# tests` 值 —— 这样文档计数
+ * 永远不会随测试增长而过期（不写死任何字面量）。
+ */
+describe('DOC-02 文档同步（47-04 Task 2）', () => {
+  const skillsDoc = readSource('docs/product/ai-skills.md');
+  const workspaceDoc = readSource('docs/product/ai-agent-workspace.md');
+  const agentsDoc = readSource('AGENTS.md');
+
+  test('ai-skills.md 新增「八、内置技能」与「九、bash 包管理器安装档」两章', () => {
+    assert.ok(skillsDoc.includes('## 八、内置技能'), '应含 `## 八、内置技能`');
+    assert.ok(skillsDoc.includes('## 九、'), '应含 `## 九、` 章标题');
+    assert.ok(skillsDoc.includes('包管理器安装'), '第九章应点名「包管理器安装」');
+  });
+
+  test('章序自洽：七 → 八 → 九（位置比较，不是仅断言标题存在）', () => {
+    const i7 = skillsDoc.indexOf('## 七、测试与验证');
+    const i8 = skillsDoc.indexOf('## 八、内置技能');
+    const i9 = skillsDoc.indexOf('## 九、');
+    assert.ok(i7 > 0, '应含 `## 七、测试与验证`');
+    assert.ok(i8 > i7, `八章必须排在七章之后（实际 ${i8} <= ${i7}）—— 插在七章之前会让编号与位置矛盾`);
+    assert.ok(i9 > i8, `九章必须排在八章之后（实际 ${i9} <= ${i8}）`);
+  });
+
+  test('ai-skills.md 的既有七节标题全部仍在', () => {
+    for (const heading of [
+      '## 一、能力',
+      '## 二、双目录',
+      '## 三、优先级',
+      '## 四、限额',
+      '## 五、沙箱边界',
+      '## 六、已知限制',
+      '## 七、测试与验证',
+    ]) {
+      assert.ok(skillsDoc.includes(heading), `既有章节不得被删或改标题：${heading}`);
+    }
+  });
+
+  test('第八节要点齐备：自愈播种 / seeded 身份来源 / 设置页禁用 / skills 同名遮蔽', () => {
+    const section = skillsDoc.slice(skillsDoc.indexOf('## 八、内置技能'), skillsDoc.indexOf('## 九、'));
+    assert.ok(section.includes('自愈'), '应写自愈式播种语义');
+    assert.ok(section.includes('目录名集合'), '应写 seeded 身份来源 = 随包目录名集合');
+    assert.ok(section.includes('状态文件'), '应显式排除「状态文件」这条错误理解');
+    assert.ok(section.includes('settings.aiSkills.disabled'), '应写正确的停用通道');
+    assert.ok(section.includes('同名遮蔽'), '应写定制通道 = skills/ 同名遮蔽');
+    assert.ok(section.includes('无条件覆盖'), '应写播种是无条件覆盖');
+    assert.ok(section.includes('不静默') || section.includes('先产') , '应写覆盖前先产诊断、不静默');
+    assert.ok(section.includes('THIRD_PARTY_NOTICES.md'), '应指向归属声明载体');
+  });
+
+  test('第九节要点齐备：家族清单 / 白名单不可越过 / 专属文案 / 只读反例 / npm ci 的 postinstall', () => {
+    const section = skillsDoc.slice(skillsDoc.indexOf('## 九、'));
+    assert.ok(section.includes('npx'), '应列 npx');
+    assert.ok(section.includes('brew install'), '应列 brew install');
+    assert.ok(section.includes('白名单不可越过'), '应写白名单不可越过安装档');
+    assert.ok(section.includes('AI 请求安装第三方软件包'), '应写专属确认文案');
+    assert.ok(section.includes('brew info'), '应给只读子命令反例');
+    assert.ok(section.includes('仅') || section.includes('只读'), '应说明只读子命令不在表内');
+    assert.ok(section.includes('npm ci') && section.includes('postinstall'), '应写 npm ci 在安装档内的 postinstall 论证');
+    assert.ok(section.includes('技能') , '应写技能脚本执行的确认成本');
+  });
+
+  test('六、已知限制含 REALM_SKILL_CREATOR_PYTHON 的授权语义', () => {
+    const section = skillsDoc.slice(skillsDoc.indexOf('## 六、已知限制'), skillsDoc.indexOf('## 七、测试与验证'));
+    assert.ok(section.includes('REALM_SKILL_CREATOR_PYTHON'), '应含该环境变量名');
+    assert.ok(section.includes('授权'), '应写明「设置它等于授权执行该路径的程序」的语义');
+  });
+
+  test('七、测试与验证含新增的播种测试命令', () => {
+    const section = skillsDoc.slice(skillsDoc.indexOf('## 七、测试与验证'), skillsDoc.indexOf('## 八、内置技能'));
+    assert.ok(section.includes('tests/test-builtin-skills-seeder.js'), '应补播种测试命令');
+  });
+
+  test('ai-skills.md 文首维护约定块含 THIRD_PARTY_NOTICES（改随包技能必须同步核对归属）', () => {
+    const header = skillsDoc.slice(0, skillsDoc.indexOf('## 一、能力'));
+    assert.ok(header.includes('THIRD_PARTY_NOTICES'), '维护约定块应含 THIRD_PARTY_NOTICES');
+    assert.ok(header.includes('五要素'), '应写明要核对五要素');
+  });
+
+  test('ai-agent-workspace.md §四：判定列含两个触发源、新增小节、标题仍为「三档权限」', () => {
+    assert.ok(workspaceDoc.includes('## 四、bash：三档权限'), '§四 标题不得改动');
+    assert.ok(workspaceDoc.includes('两个触发源'), '应含「两个触发源」小节');
+    assert.ok(workspaceDoc.includes('包管理器安装表'), '§四 判定列应含「包管理器安装表」');
+    assert.ok(workspaceDoc.includes('`reason`'), '应写明 reason 取值');
+    assert.ok(workspaceDoc.includes('brew install'), '应给安装档示例');
+    assert.ok(workspaceDoc.includes('brew info'), '应给只读反例');
+  });
+
+  test('ai-agent-workspace.md §五：保留建议主干并补「白名单不再覆盖包管理器安装语义」', () => {
+    assert.ok(workspaceDoc.includes('只加构建类可信命令'), '§五 建议的原文主干应保留');
+    assert.ok(workspaceDoc.includes('白名单**不再覆盖**包管理器安装语义'), '应写明白名单不再覆盖安装语义');
+    assert.ok(workspaceDoc.includes('`brew install` / `brew upgrade` / `brew reinstall`'), '应给 brew 的只读/安装对照');
+  });
+
+  test('ai-agent-workspace.md §七：新增第 5 条，既有 4 条一字未动', () => {
+    assert.ok(workspaceDoc.includes('第 5 条'), '应含第 5 条的序号标记');
+    for (const original of [
+      '- **read/write/edit**：硬边界，模型无论被何种提示注入诱导都无法越界',
+      '- **提示注入下的人因风险**：',
+      '- **OS 级隔离**（macOS sandbox-exec 限制 bash 可访问路径）为预留的后续增强方向，当前未实施',
+    ]) {
+      assert.ok(workspaceDoc.includes(original), `§七 既有条目不得改动：${original}`);
+    }
+    assert.ok(
+      workspaceDoc.includes('静态拆段无法覆盖全部 shell 语法（进程替换、命令替换 `$()` 等）'),
+      '§七 的 bash 条（既有第 2 条）不得改动'
+    );
+  });
+
+  test('ai-agent-workspace.md §八：补播种与 install 档的测试命令', () => {
+    const section = workspaceDoc.slice(workspaceDoc.indexOf('## 八、测试与验证'));
+    assert.ok(section.includes('tests/test-builtin-skills-seeder.js'), '§八 应补播种测试命令');
+    assert.ok(section.includes('包管理器安装档'), '§八 应点明策略引擎覆盖安装档');
+  });
+
+  test('AGENTS.md 含 PACKAGE_MANAGER_INSTALL_PATTERNS 与 test-builtin-skills-seeder.js', () => {
+    assert.ok(agentsDoc.includes('PACKAGE_MANAGER_INSTALL_PATTERNS'), '应点名安装表常量');
+    assert.ok(agentsDoc.includes('test-builtin-skills-seeder.js'), '应补新测试文件');
+    assert.ok(agentsDoc.includes('两个互不包含的触发源'), '应写「两个互不包含的触发源」');
+  });
+
+  test('AGENTS.md 的「测试：」行计数与实跑输出一致（唯一权威判据，不写死字面量）', () => {
+    const line = agentsDoc.split('\n').find((l) => l.startsWith('- 测试：'));
+    assert.ok(line, 'AGENTS.md 应含「- 测试：」行');
+    assert.ok(line.includes('21 例'), '工作区测试计数应保持 21 例');
+    assert.ok(!line.includes('29 例'), '过时的 29 例必须已被替换');
+
+    const out = require('node:child_process').spawnSync(
+      process.execPath,
+      ['--test', 'tests/test-ai-bash-policy.js'],
+      { encoding: 'utf8', cwd: REPO_ROOT, timeout: 120000 }
+    ).stdout;
+    const matched = out.match(/^# tests (\d+)$/m);
+    assert.ok(matched, '应能从 node --test 的 TAP 输出解析出 `# tests`');
+    const actual = Number(matched[1]);
+    assert.ok(actual >= 62, `47-02 落地后 bash-policy 用例数应 >= 62，实际 ${actual}`);
+    assert.ok(
+      line.includes(`${actual} 例`),
+      `AGENTS.md 的 bash-policy 计数必须等于实跑值 ${actual}（当前行：${line}）`
+    );
+  });
+
+  test('AGENTS.md 含 build.files 排除语义前提的维护约定', () => {
+    assert.ok(agentsDoc.includes('build.files'), '应点名 build.files');
+    assert.ok(agentsDoc.includes('没有正向 allowlist'), '应写「没有正向 allowlist」');
+    assert.ok(agentsDoc.includes('`!` 仅在'), '应写「`!` 仅在无正向条目时生效」的前提');
+    assert.ok(agentsDoc.includes('THIRD_PARTY_NOTICES'), '应写正向 allowlist 必须同时列入的交付物');
+    assert.ok(agentsDoc.includes('.planning/research/PITFALLS.md'), '应写明排除 .planning 的原因');
+  });
+
+  test('AGENTS.md 含「技能不构成额外权限」+ allowed-tools 仅供参考的约定', () => {
+    assert.ok(agentsDoc.includes('技能不构成额外权限'), '应含该声明');
+    assert.ok(agentsDoc.includes('allowed-tools'), '应含 allowed-tools');
+    assert.ok(agentsDoc.includes('不被强制'), '应写明当前运行时不被强制');
+    assert.ok(agentsDoc.includes('仅供参考'), '应写明仅供参考');
+  });
+
+  test('三份文档口径一致：不出现「四档」（level 只有 allow / confirm 两个取值）', () => {
+    for (const [name, doc] of [
+      ['docs/product/ai-skills.md', skillsDoc],
+      ['docs/product/ai-agent-workspace.md', workspaceDoc],
+      ['AGENTS.md', agentsDoc],
+    ]) {
+      assert.ok(!/四档/.test(doc), `${name} 不得出现「四档」说法`);
+    }
+  });
+
+  test('三份文档都含 allowed-tools 与「不被强制 / 仅供参考」的免责语义（DOC-02 字面要求）', () => {
+    for (const [name, doc] of [
+      ['docs/product/ai-skills.md', skillsDoc],
+      ['docs/product/ai-agent-workspace.md', workspaceDoc],
+      ['AGENTS.md', agentsDoc],
+    ]) {
+      assert.ok(doc.includes('allowed-tools'), `${name} 应含 allowed-tools`);
+      assert.ok(
+        /不被强制|不强制|仅供参考/.test(doc),
+        `${name} 应含「不被强制 / 仅供参考」的免责语义`
+      );
+    }
+  });
+
+  test('三份文档都写明「技能不构成额外权限」', () => {
+    for (const [name, doc] of [
+      ['docs/product/ai-skills.md', skillsDoc],
+      ['docs/product/ai-agent-workspace.md', workspaceDoc],
+      ['AGENTS.md', agentsDoc],
+    ]) {
+      assert.ok(doc.includes('技能不构成额外权限'), `${name} 应含「技能不构成额外权限」`);
+    }
+  });
+});
