@@ -94,6 +94,126 @@ describe('端到端纵切（tracer）', () => {
   });
 });
 
+describe('加载面收窄（回归守卫）', () => {
+  test('反黑屏：根层 SKILL.md 存在时 skills/<name>/SKILL.md 仍被加载', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    const rootDirs = [workspace.getManagedSkillsDir(), workspace.getSkillsDir()];
+
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    await aiSkills.refreshSkills(env, { rootDirs });
+    assert.ok(
+      aiSkills.getSkillsSnapshot().skills.some((e) => e.skill.name === 'alpha'),
+      '前置：alpha 应已被加载'
+    );
+
+    // 根层放一个 SKILL.md —— SDK 原生行为会短路整组、只返回根层那一个
+    fs.writeFileSync(
+      path.join(workspace.getSkillsDir(), 'SKILL.md'),
+      '---\nname: rooty\ndescription: 根层误放的技能\n---\n\n# rooty\n'
+    );
+    await aiSkills.refreshSkills(env, { rootDirs });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    assert.ok(snap.skills.some((e) => e.skill.name === 'alpha'), '根层 SKILL.md 不应顶替整组');
+    assert.strictEqual(
+      snap.skills.some((e) => e.skill.name === 'rooty'), false,
+      '根层 SKILL.md 不应被当作技能加载'
+    );
+    assert.ok(
+      snap.diagnostics.some((d) => d.code === 'realm_root_entry_skipped'),
+      '根层被滤掉的 entry 必须产诊断（禁止静默）'
+    );
+  });
+
+  test('反幽灵：根层 README.md（带 description、无 name）不产生 name === 目录名的技能', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    // 无 name → SDK 会回落 name = parentDirName（即扫描根目录名 'skills'）
+    fs.writeFileSync(
+      path.join(workspace.getSkillsDir(), 'README.md'),
+      '---\ndescription: 随目录散落的说明文件\n---\n\n# readme\n'
+    );
+    await aiSkills.refreshSkills(env, {
+      rootDirs: [workspace.getManagedSkillsDir(), workspace.getSkillsDir()],
+    });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    assert.strictEqual(
+      snap.skills.some((e) => e.skill.name === 'skills'), false,
+      '根层散落 md 不应变成 name = 扫描根目录名的幽灵技能'
+    );
+    assert.ok(
+      snap.diagnostics.some((d) => d.code === 'realm_root_entry_skipped'),
+      '根层被滤掉的 entry 必须产诊断（禁止静默）'
+    );
+  });
+
+  test('超大 SKILL.md 在 YAML 解析前被拒（read_failed 而非 parse_failed）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    const max = aiSkills.LIMITS.MAX_SKILL_MD_BYTES;
+
+    const dir = path.join(workspace.getSkillsDir(), 'huge');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'SKILL.md');
+    fs.writeFileSync(file, `---\nname: huge\ndescription: 超大技能\n---\n\n${'x'.repeat(max + 1)}`);
+    const size = fs.statSync(file).size;
+    assert.ok(size > max, `前置：文件应超过 ${max} 字节`);
+
+    await aiSkills.refreshSkills(env, {
+      rootDirs: [workspace.getManagedSkillsDir(), workspace.getSkillsDir()],
+    });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    assert.strictEqual(
+      snap.skills.some((e) => e.skill.name === 'huge'), false,
+      '超限技能不应被加载'
+    );
+    const readFailed = snap.diagnostics.find(
+      (d) => d.code === 'read_failed' && String(d.path).endsWith('SKILL.md')
+    );
+    assert.ok(readFailed, '应有 read_failed 诊断（预筛拒绝）');
+    assert.ok(readFailed.message.includes(String(max)), `诊断须含限额值 ${max}`);
+    assert.ok(readFailed.message.includes(String(size)), `诊断须含当前字节数 ${size}`);
+    assert.strictEqual(
+      snap.diagnostics.some((d) => d.code === 'parse_failed'), false,
+      '不应进入 YAML 解析（解析前已拒绝）'
+    );
+  });
+
+  test('收窄只作用于两个扫描根：技能目录内部的枚举不受影响', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    const refDir = path.join(workspace.getSkillsDir(), 'alpha', 'references');
+    fs.mkdirSync(refDir, { recursive: true });
+    fs.writeFileSync(path.join(refDir, 'notes.md'), '参考内容');
+    fs.writeFileSync(path.join(workspace.getSkillsDir(), 'alpha', 'HELP.md'), '技能内部帮助文件');
+
+    await aiSkills.refreshSkills(env, {
+      rootDirs: [workspace.getManagedSkillsDir(), workspace.getSkillsDir()],
+    });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    assert.ok(snap.skills.some((e) => e.skill.name === 'alpha'), 'alpha 应被加载');
+    const narrowed = snap.diagnostics.filter((d) => d.code === 'realm_root_entry_skipped');
+    assert.strictEqual(
+      narrowed.length, 0,
+      `非扫描根路径不得被收窄（技能内部文件枚举原样返回），实际收窄 ${narrowed.length} 项`
+    );
+    // 技能自带资源仍可经沙箱 read
+    const read = await env.readTextFile(path.join(refDir, 'notes.md'));
+    assert.strictEqual(read.ok, true, '技能自带 references/ 仍可读');
+  });
+});
+
 describe('接线与导出面（源码断言）', () => {
   test('agent-workspace 新增两目录访问器且均由 getWorkspaceDir() 派生', () => {
     const src = readSource('agent-workspace.js');

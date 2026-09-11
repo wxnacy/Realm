@@ -20,6 +20,8 @@
  * （其 YAML / ignore 实现只经 SDK 往返获得，不自行引入）。
  */
 
+const path = require('path');
+
 /**
  * 技能限额单源（D-11）—— 端点、设置页前端与渲染层不得出现同类字面量。
  *
@@ -86,6 +88,69 @@ function computeDigest(entries) {
 }
 
 /**
+ * 技能语义 env：在沙箱 env 之上收窄加载面（不替代沙箱，只叠加）
+ *
+ * 结构纪律照抄 agent-workspace 的 createSandboxEnv —— **显式转发 + 展开**
+ * 而不是选择性只包「关键方法」或 Proxy：漏包一个方法就是静默落到非沙箱
+ * 实现（逃逸口）。这里只覆写 listDir / readTextFile 两个方法做语义收窄，
+ * 其余方法（含 createSandboxEnv 的全部路径校验）原样保留。
+ *
+ * 收窄的两处（主动防护发生在 SDK 遍历之前，事后过滤救不回来）：
+ * 1. listDir：**只作用于两个扫描根本身**。根层非目录 entry 一律不交给 SDK
+ *    —— 否则根层 SKILL.md 会短路整组（SDK 只看根层那一个）、根层散落
+ *    带 description 的 *.md 会变成 name = 目录名的幽灵技能。技能自带的
+ *    references/ scripts/ assets/ 在 <name>/ 之下，不在根上，不受影响。
+ * 2. readTextFile：仅当 basename === 'SKILL.md' 时先按 FileInfo.size 预筛，
+ *    超过 maxSkillMdBytes 则不读盘、不进 YAML 解析直接返回 invalid；其余
+ *    路径（含 .ignore / .gitignore）原样透传。
+ *
+ * 被滤掉的 entry 一律进 droppedNotices（调用方转成可读诊断）——**禁止静默**。
+ *
+ * @param {object} sandboxEnv - createSandboxEnv() 的返回值
+ * @param {{rootDirs?: string[], maxSkillMdBytes?: number}} [opts]
+ * @param {Array<{path: string, kind: string}>} [droppedNotices] - 被滤掉的非目录 entry 收集器
+ * @returns {object} 叠加了语义收窄的技能 env
+ */
+function createSkillsEnv(sandboxEnv, opts = {}, droppedNotices = []) {
+  const { rootDirs = [], maxSkillMdBytes = LIMITS.MAX_SKILL_MD_BYTES } = opts;
+  const rootKeys = rootDirs.filter(Boolean).map((d) => path.resolve(d));
+  const isScanRoot = (p) =>
+    typeof p === 'string' && p !== '' && rootKeys.includes(path.resolve(p));
+
+  return {
+    ...sandboxEnv,
+
+    async listDir(p, abortSignal) {
+      const res = await sandboxEnv.listDir(p, abortSignal);
+      if (!res || res.ok !== true) return res; // 不吞错：原样透传失败 Result
+      if (!isScanRoot(p)) return res;
+      const dirs = [];
+      for (const entry of res.value) {
+        if (entry.kind === 'directory') dirs.push(entry);
+        else droppedNotices.push({ path: entry.path, kind: entry.kind });
+      }
+      return { ok: true, value: dirs };
+    },
+
+    async readTextFile(p, abortSignal) {
+      if (path.basename(p) === 'SKILL.md') {
+        const info = await sandboxEnv.fileInfo(p, abortSignal);
+        if (info && info.ok && info.value.size > maxSkillMdBytes) {
+          // SDK 为 ESM-only，包根动态 import（无 harness 子路径入口）
+          const { FileError, err } = await import('@earendil-works/pi-agent-core');
+          return err(new FileError(
+            'invalid',
+            `SKILL.md 超过 ${maxSkillMdBytes} 字节上限（当前 ${info.value.size} 字节）`,
+            String(p)
+          ));
+        }
+      }
+      return sandboxEnv.readTextFile(p, abortSignal);
+    },
+  };
+}
+
+/**
  * 异步刷新技能集（唯一加载入口，D-04）
  *
  * 每次 Agent 创建/重建之前无条件调用一次：这是唯一能自动覆盖「模型经
@@ -94,6 +159,7 @@ function computeDigest(entries) {
  *
  * 契约：
  * - managed 先、user 后加载 —— 顺序不是装饰，同名遮蔽判定据此（D-06）
+ * - 加载经 createSkillsEnv 收窄后的 env（每轮新建一个包装对象，零持久状态）
  * - 单技能失败（YAML / 元数据）由 SDK 记为诊断并跳过，不抛（D-05 第 1 层）
  * - 整批失败：**保留上一次成功快照** + 记 error 诊断，不清空、不静默（D-05 第 2 层）
  *
@@ -107,15 +173,31 @@ async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
   if (rootDirs[0]) inputs.push({ path: rootDirs[0], source: 'managed' });
   if (rootDirs[1]) inputs.push({ path: rootDirs[1], source: 'user' });
 
+  // 每轮刷新建一个语义 env（零持久状态）；被滤掉的根层 entry 收集于此
+  const droppedNotices = [];
+  const skillsEnv = createSkillsEnv(
+    env,
+    { rootDirs: rootDirs.filter(Boolean), maxSkillMdBytes: LIMITS.MAX_SKILL_MD_BYTES },
+    droppedNotices
+  );
+
   try {
     // SDK 为 ESM-only，只能从包根动态 import（exports map 无 harness 子路径）
     const { loadSourcedSkills, formatSkillsForSystemPrompt } =
       await import('@earendil-works/pi-agent-core');
 
-    const { skills: entries, diagnostics } = await loadSourcedSkills(env, inputs);
+    const { skills: entries, diagnostics } = await loadSourcedSkills(skillsEnv, inputs);
+
+    // 加载面收窄产生的 Realm 自建诊断（code 以 realm_ 前缀与 SDK 枚举区分）
+    const droppedDiags = droppedNotices.map((n) => ({
+      level: 'warning',
+      code: 'realm_root_entry_skipped',
+      message: `技能扫描根下的 ${path.basename(n.path)} 被跳过：技能必须放在 <dir>/<name>/SKILL.md（每技能一个目录），根层散落文件不会被加载`,
+      path: n.path,
+    }));
 
     _cache.skills = entries;
-    _cache.diagnostics = diagnostics;
+    _cache.diagnostics = diagnostics.concat(droppedDiags);
     _cache.promptBlock = formatSkillsForSystemPrompt(
       entries
         .filter((e) => e.skill.disableModelInvocation !== true)
