@@ -199,7 +199,7 @@ Plans:
   4. 技能自带 `scripts/` 可以在沙箱内经既有 bash 工具执行（复用既有白名单 + 确认卡片，零新增权限机制）。
   5. 打包后正式 .app 中两个内置技能可被正确加载（`asarUnpack` + `app.isPackaged` 路径分支生效），且 `THIRD_PARTY_NOTICES` 记录来源仓库 + 固定 commit SHA + 许可证 + 是否修改及修改说明。
 
-**Plans**: 6 plans
+**Plans**: 5/6 plans executed
 **Wave 1**
 
 - [x] 47-01-PLAN.md
@@ -216,8 +216,9 @@ Plans:
 **Security gate**: P1（S1，阻断门禁）npx RCE 向量；P10（发布门禁）内置技能许可证归属义务。
 **Gap closure**（`47-VERIFICATION.md` 判 `gaps_found` 68/71 后的收敛计划，`gap_closure: true`）
 
-- [ ] 47-05-PLAN.md — **GAP 1 / CR-01（blocker）**：安装档从「子命令黑名单」改为「首 token 是包管理器 → 默认强制确认，仅显式只读子命令降级」+ 两侧共用词法归一化（去引号 + 去反斜杠转义），关闭 `brew "install" wget` 等词法改写与 `npm update` / `cargo add` / `go get` / `yarn workspace … add` / `brew cask install` 两个绕过家族；补齐 `bunx` / `pipx`；三份文档 + `AGENTS.md` 的「白名单不可越过安装档 / 漏检 ≠ 免确认」改为**有前提且为真**的表述（含 REVIEW WR-01 的 `['*']` 条目护栏）
+- [x] 47-05-PLAN.md — **GAP 1 / CR-01（blocker）**：安装档从「子命令黑名单」改为「首 token 是包管理器 → 默认强制确认，仅显式只读子命令降级」+ 两侧共用词法归一化（去引号 + 去反斜杠转义），关闭 `brew "install" wget` 等词法改写与 `npm update` / `cargo add` / `go get` / `yarn workspace … add` / `brew cask install` 两个绕过家族；补齐 `bunx` / `pipx`；三份文档 + `AGENTS.md` 的「白名单不可越过安装档 / 漏检 ≠ 免确认」改为**有前提且为真**的表述（含 REVIEW WR-01 的 `['*']` 条目护栏）
 - [ ] 47-06-PLAN.md — **GAP 2/3/4**（播种健壮性）：`diff === 'same'` 跳过重写（不再每次启动整目录重建 / 白算 sha256 / 制造 `rename` 空窗）+ 目录项参与差异判定（空目录仍自愈）；启动级清扫 `.tmp_*` / `.bak_*` 残留（消除被加载成永久幽灵技能的路径）；播种诊断按级别统一 `console.error` / `console.warn` 输出（含源缺失的早退路径，消除正式版静默失败）
+
 **Research needed**: find-skills 彻底去 CLI 化的改写方案需产品决策 + 许可证文本法务式复核——每一行都要按"这段文字被模型执行后会做什么"逐句评审。
 **Doc sync**: `docs/product/ai-agent-workspace.md` 与 `AGENTS.md` 明确写出「技能不构成额外权限」「`allowed-tools` 当前运行时不被强制，仅供参考」；`docs/product/ai-skills.md` 补内置技能与 bash 档章节。
 
@@ -313,7 +314,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 46. 技能基础设施 | 4/4 | Complete | 2026-09-11 |
-| 47. 内置技能播种 + bash 策略加固 | 4/4 | In Progress|  |
+| 47. 内置技能播种 + bash 策略加固 | 5/6 | In Progress|  |
 | 48. 技能发现与调用 | TBD | Not started | - |
 | 49. `manage_skill` 工具 | TBD | Not started | - |
 | 50. 设置页技能管理区 + `/api/skills/*` | TBD | Not started | - |

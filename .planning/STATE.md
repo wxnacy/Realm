@@ -4,17 +4,17 @@ milestone: v2.6
 milestone_name: AI 助手技能（Skill）能力
 current_phase: 47
 current_phase_name: 内置技能播种 + bash 策略加固
-status: ready_for_verification
-stopped_at: Completed 47-04-PLAN.md（Phase 47 4/4 计划全部完成，待阶段收尾验证）
-last_updated: "2026-09-11T11:22:03.436Z"
+status: executing
+stopped_at: Completed 47-05-PLAN.md（GAP 1 / CR-01 + WR-01 闭合，97 例全绿）
+last_updated: "2026-09-11T13:28:55.371Z"
 last_activity: 2026-09-11
 last_activity_desc: Phase 47 execution started
-state_head: 7e2473469af23a4c63263e4e031659fc3e32fb8d
+state_head: 9f2ab3709e8769a0cd00a4a211f85492eb1654a6
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 10
+  completed_plans: 9
   percent: 0
 ---
 
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-09-11)
 
 ## Current Position
 
-Phase: 47 (内置技能播种 + bash 策略加固) — READY FOR VERIFICATION
-Plan: 4 of 4
-Status: ✅ **47-04 已完成（3/3 任务）** —— Task 1（打包排除项）与 Task 2（DOC-02 文档同步）提交于 `22774ca` / `3b3940b`；Task 3（打包后正式环境实跑验证 / SEED-05 收口）在用户显式授权后于 2026-09-11 执行完成，取得全部打包面证据（unpacked 面 / 安装产物 asar 清单面 / 运行期播种面 / 进程内加载面 + 幂等 + 自愈）。`47-04-SUMMARY.md` 的 `status: complete`；`completed_plans` = 8/8。生产实例 PID 25922 全程存活、`/Applications/Realm.app` 未被触碰。
-Last activity: 2026-09-11 — Phase 47 Plan 04 完成（含 Nightly 打包实跑验证）
+Phase: 47 (内置技能播种 + bash 策略加固) — EXECUTING
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-09-11 — Phase 47 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -99,6 +99,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 47 P2 | 6min | 3 tasks | 3 files |
 | Phase 47 P3 | 10min | 4 tasks | 21 files |
 | Phase 47 P4 | 22min | 3 tasks | 5 files |
+| Phase 47 P5 | ~1 session | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -286,8 +287,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T11:22:03.414Z
-Stopped at: Completed 47-04-PLAN.md（Phase 47 4/4 计划全部完成，待阶段收尾验证）
+Last session: 2026-09-11T13:28:55.347Z
+Stopped at: Completed 47-05-PLAN.md（GAP 1 / CR-01 + WR-01 闭合，97 例全绿）
 Resume file: None
 
 ## Operator Next Steps
