@@ -1866,3 +1866,186 @@ describe('DOC-02 文档同步（47-04 Task 2）', () => {
     }
   });
 });
+
+/**
+ * 打包实跑验证 —— **OPT-IN**（47-04 Task 3 / SEED-05 的打包面）
+ * ============================================================================
+ *
+ * 默认**不运行**。本组会读 `/Applications/Realm Nightly.app`（安装产物）与
+ * `~/Library/Application Support/realm-nightly/agent-workspace/`（运行期 userData）——
+ * 二者都只在本机真跑过 `make install-nightly` **并启动过那个 .app** 之后才存在。
+ * 用环境变量开门，让默认的 `node tests/test-builtin-skills-seeder.js`（hermetic、
+ * 零外部依赖）保持原样：
+ *
+ *     REALM_PACKAGED_VERIFY=1 node tests/test-builtin-skills-seeder.js
+ *     REALM_PACKAGED_VERIFY=1 REALM_PACKAGED_APP="/Applications/Realm Nightly.app" node tests/...
+ *
+ * ## 三条必须记住的口径
+ *
+ * (1) **打包面的证据是「harness 驱动的真实 .app 实跑」，不是 dev 模式跑出来的。**
+ *     D-12 明文：`npm run dev` 会让 `resolveBuiltinSkillsSrc()` 走 `__dirname` 回落分支，
+ *     而 `app.isPackaged` 那条分支**在 dev 里永远为假** —— 开发态测不到它。nodejieba
+ *     词典事故（commit 9a1ae11：只在 dev 验证过、打包后启动必崩）就是同型教训。
+ *     因此本组的每一项断言都读**安装产物**（`/Applications/*.app/Contents/Resources/...`），
+ *     不读 `dist/`、不读仓库、更不读 dev 态。
+ *
+ * (2) **哪些面在本组里，哪些面仍是人工 / harness 判断：**
+ *     - **本组（机械可查 —— 只要你装过并启动过就能在任意机器上复现）**：
+ *       unpacked 面、安装产物 asar 清单面、运行期 `managed-skills/` 播种结果面。
+ *     - **仍是人工 / harness 判断（本组刻意不复制其结论，避免制造虚假的自动化）**：
+ *       ① 跑起来的进程内 `_cache.diagnostics === []` 且 `_cache.errors === []`
+ *          （加载器零诊断识别两个内置技能）；
+ *       ② `buildSkillsPrompt() === ''`（`disable-model-invocation: true` → 不占 system prompt）；
+ *       ③ 第二次启动**不产生新的** `realm_builtin_seed_overwritten` 诊断（幂等：内容一致 →
+ *          `detectDiff === 'same'`）；④ 手删 `managed-skills/<name>/` 后第三次启动自愈重播。
+ *       这四项都需要**把 .app 重新启动若干次**（或以 Node inspector 直连运行中的主进程读内部状态），
+ *       纯 Node 测试进程无法复现 —— 更不能用「读文件推断」冒充。
+ *       47-04 那一次实跑的原始输出（含 PID、userData 绝对路径、`detectDiff`、诊断数组、
+ *       幂等与自愈时序）逐条记录在 `.planning/phases/47-bash/47-04-SUMMARY.md` 的 Task 3 一节。
+ *
+ * (3) **打包排除项的前提（「三处落点」之一）**：`package.json` 的 `build.files` **只用 `!`
+ *     排除项、没有正向 allowlist**；`!` 仅在「无正向 `files` 条目」时才保留 electron-builder
+ *     的默认全量包含语义。日后若添加任何正向 allowlist 条目，**必须同时列入
+ *     `skills-builtin/**` 与 `THIRD_PARTY_NOTICES.md`**，否则 SEED-05 与 P10 会同时失效 ——
+ *     同文件里「打包排除项配置护栏（47-04 Task 1）」那条「每一项都以 `!` 开头」的断言会先变红。
+ *     另两处落点：`AGENTS.md` 的维护约定、47-04-SUMMARY.md。
+ *     （`.planning/**` 被排除的原因是它含 `.planning/research/PITFALLS.md` —— 一份逐字记录
+ *     `npx skills add <owner/repo@skill> -g -y` 的说明书，与 P1 门禁要消除的风险同源。）
+ */
+const PACKAGED_VERIFY_ENABLED = process.env.REALM_PACKAGED_VERIFY === '1';
+const PACKAGED_APP = process.env.REALM_PACKAGED_APP || '/Applications/Realm Nightly.app';
+const PACKAGED_RESOURCES = path.join(PACKAGED_APP, 'Contents', 'Resources');
+const PACKAGED_ASAR = path.join(PACKAGED_RESOURCES, 'app.asar');
+const PACKAGED_UNPACKED = path.join(PACKAGED_RESOURCES, 'app.asar.unpacked');
+/** 运行期 userData：由 `app.setName('realm-nightly')` 派生（**不是** realm-dev / realm） */
+const PACKAGED_NIGHTLY_USERDATA = path.join(
+  os.homedir(),
+  'Library',
+  'Application Support',
+  'realm-nightly'
+);
+const PACKAGED_MANAGED_SKILLS = path.join(
+  PACKAGED_NIGHTLY_USERDATA,
+  'agent-workspace',
+  'managed-skills'
+);
+const PACKAGED_SKIP_REASON = PACKAGED_VERIFY_ENABLED
+  ? false
+  : 'opt-in 未开启：设 REALM_PACKAGED_VERIFY=1 才跑（需先 make install-nightly 并启动过 .app）';
+
+/**
+ * 解析 asar 清单（读 16 字节头 → 目录 JSON → walk `files`）
+ *
+ * 与 47-04-PLAN Task 3 `<verify>` 的 snippet 同法：字节 12-15 = 目录 JSON 的总字节数，
+ * JSON 自偏移 16 起（**不是**标准 pickle 口径 —— 本仓库的 asar 走这个布局，实测如此）。
+ *
+ * @param {string} asarPath - app.asar 绝对路径
+ * @returns {string[]} 以 `/` 开头的相对路径数组（叶子条目）
+ */
+function readAsarManifest(asarPath) {
+  const fd = fs.openSync(asarPath, 'r');
+  try {
+    const head = Buffer.alloc(16);
+    fs.readSync(fd, head, 0, 16, 0);
+    const size = head.readUInt32LE(12);
+    const hdr = Buffer.alloc(size);
+    fs.readSync(fd, hdr, 0, size, 16);
+    const json = JSON.parse(hdr.toString('utf8').replace(/\0+$/, ''));
+    const out = [];
+    (function walk(node, prefix) {
+      for (const [k, v] of Object.entries(node.files || {})) {
+        const p = prefix + '/' + k;
+        if (v.files) walk(v, p);
+        else out.push(p);
+      }
+    })(json, '');
+    return out;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+describe(
+  '打包实跑验证（47-04 Task 3，opt-in / REALM_PACKAGED_VERIFY=1）',
+  { skip: PACKAGED_SKIP_REASON },
+  () => {
+    test(
+      'unpacked 面：app.asar.unpacked/skills-builtin/ 同时含两个 SKILL.md（asarUnpack 生效）',
+      { skip: PACKAGED_SKIP_REASON },
+      () => {
+        for (const rel of ['find-skills/SKILL.md', 'skill-creator/SKILL.md']) {
+          const f = path.join(PACKAGED_UNPACKED, 'skills-builtin', rel);
+          assert.ok(fs.existsSync(f), `安装产物应含解包后的 ${rel}（asarUnpack 生效的直接证据）：${f}`);
+        }
+      }
+    );
+
+    test(
+      'asarUnpack 继承面（research 假设 A2）：nodejieba 解包目录同时在（即整段继承自 package.json）',
+      { skip: PACKAGED_SKIP_REASON },
+      () => {
+        const nj = path.join(PACKAGED_UNPACKED, 'node_modules', 'nodejieba');
+        assert.ok(
+          fs.existsSync(nj),
+          `nodejieba 是 package.json 的另一条 asarUnpack，它解包即证明整段被继承（make install-nightly 只覆盖 productName/appId/icon）：${nj}`
+        );
+      }
+    );
+
+    test(
+      '安装产物 asar 清单面：11 类排除全部生效、自家交付物在列、nodejieba 零回归',
+      { skip: PACKAGED_SKIP_REASON },
+      () => {
+        assert.ok(fs.existsSync(PACKAGED_ASAR), `安装产物应含 app.asar：${PACKAGED_ASAR}`);
+        const entries = readAsarManifest(PACKAGED_ASAR);
+        const cnt = (d) => entries.filter((f) => f.startsWith('/' + d + '/')).length;
+        for (const dir of ['.planning', '.claude', '.gsd', '.wzsh', '.zcode', 'test', 'tests', 'scripts']) {
+          assert.strictEqual(cnt(dir), 0, `${dir}/ 不应再进入 asar（47-04 的 11 条 ! 排除项）`);
+        }
+        assert.strictEqual(
+          entries.filter((f) => f.endsWith('.bak')).length,
+          0,
+          'asar 里不应有 *.bak（含 make install-nightly 的构建期副产物 main.js.bak）'
+        );
+        assert.ok(entries.some((f) => f.startsWith('/skills-builtin/')), 'skills-builtin/ 必须在 asar 清单内（SEED-05）');
+        assert.ok(entries.includes('/THIRD_PARTY_NOTICES.md'), 'THIRD_PARTY_NOTICES.md 必须在 asar 清单内（P10）');
+        assert.ok(entries.some((f) => f.startsWith('/node_modules/nodejieba')), 'nodejieba 零回归');
+        assert.ok(
+          !entries.includes('/.planning/research/PITFALLS.md'),
+          'PITFALLS.md（逐字 npx skills add -g -y）不得随包 —— 这是 P1 门禁在分发面的旁路'
+        );
+      }
+    );
+
+    test(
+      '运行期播种面：realm-nightly/agent-workspace/managed-skills/ 下技能目录齐备（含 skill-creator 的 LICENSE 与脚本）',
+      { skip: PACKAGED_SKIP_REASON },
+      () => {
+        assert.ok(
+          PACKAGED_MANAGED_SKILLS.includes('/realm-nightly/'),
+          `Nightly 的 userData 必须是 realm-nightly（不是 realm-dev / realm）：${PACKAGED_MANAGED_SKILLS}`
+        );
+        // seeded 名从**安装产物的随包源目录**动态取，不硬编码 —— 日后新增内置技能自动纳入
+        const srcDir = path.join(PACKAGED_UNPACKED, 'skills-builtin');
+        const seeded = fs.existsSync(srcDir)
+          ? fs
+              .readdirSync(srcDir, { withFileTypes: true })
+              .filter((e) => e.isDirectory() && fs.existsSync(path.join(srcDir, e.name, 'SKILL.md')))
+              .map((e) => e.name)
+          : [];
+        assert.ok(
+          seeded.includes('find-skills') && seeded.includes('skill-creator'),
+          `随包源应含 find-skills 与 skill-creator，实际：${JSON.stringify(seeded)}`
+        );
+        for (const name of seeded) {
+          const dst = path.join(PACKAGED_MANAGED_SKILLS, name);
+          assert.ok(fs.existsSync(dst), `启动后应播种 ${name}/（自愈式播种）：${dst}`);
+          assert.ok(fs.existsSync(path.join(dst, 'SKILL.md')), `${name}/ 应含 SKILL.md`);
+        }
+        const sc = path.join(PACKAGED_MANAGED_SKILLS, 'skill-creator');
+        assert.ok(fs.existsSync(path.join(sc, 'LICENSE.txt')), 'skill-creator/ 应随播种落盘 LICENSE.txt（Apache-2.0）');
+        assert.ok(fs.existsSync(path.join(sc, 'scripts', 'check_env.mjs')), 'skill-creator/ 应含 scripts/check_env.mjs');
+      }
+    );
+  }
+);

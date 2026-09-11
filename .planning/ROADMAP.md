@@ -211,7 +211,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 47-04-PLAN.md — ⏸ **部分完成（Task 1-2 已提交 `22774ca` / `3b3940b`），Task 3「打包后正式环境实跑验证」等待人工门禁**：本机 `/Applications/Realm.app` 生产实例 PID 25922 + ~10 helper 正在运行，而 `make install` 第一步是 `rm -rf /Applications/Realm.app`，故未执行任何打包/安装命令。需用户自行退出该实例（或走 Nightly 路线，D-47-04-c），再跑 Task 3 的 unpacked 面 / asar 清单面 / 运行期面 / 加载面 + 幂等与自愈复核。`47-04-SUMMARY.md` 的 `status: halted`（**不是** complete），SEED-05 的打包面证据尚未取得
+- [x] 47-04-PLAN.md — ✅ **完成（3/3 任务）**：打包排除项 + DOC-02 文档同步（`22774ca` / `3b3940b`）+ **打包后正式环境实跑验证（SEED-05 收口）**。Task 3 经用户显式授权走 Nightly 路线（`make install-nightly`，不触碰生产 bundle），实测取得：unpacked 面（两个 `SKILL.md`）、安装产物 asar 清单面（`.planning`/`.claude`/`.gsd`/`.wzsh`/`.zcode`/`test`/`tests`/`scripts` 全 0、无 `*.bak`、`skills-builtin/` 与 `THIRD_PARTY_NOTICES.md` 在列）、运行期播种面（`realm-nightly/.../managed-skills/` 两技能齐备）、进程内加载面（`isPackaged:true`、`_cache.diagnostics/errors` 均空、`buildSkillsPrompt()===''`）+ 幂等（`detectDiff==='same'`、无覆盖诊断）+ 自愈（手删重播）。research 假设 A2 实测结论：`make install-nightly` **继承**（不覆盖）`package.json` 的 `build.asarUnpack`。`47-04-SUMMARY.md` 的 `status: complete`
 
 **Security gate**: P1（S1，阻断门禁）npx RCE 向量；P10（发布门禁）内置技能许可证归属义务。
 **Research needed**: find-skills 彻底去 CLI 化的改写方案需产品决策 + 许可证文本法务式复核——每一行都要按"这段文字被模型执行后会做什么"逐句评审。
@@ -309,7 +309,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 46. 技能基础设施 | 4/4 | Complete | 2026-09-11 |
-| 47. 内置技能播种 + bash 策略加固 | 3/4 | In Progress|  |
+| 47. 内置技能播种 + bash 策略加固 | 4/4 | In Progress|  |
 | 48. 技能发现与调用 | TBD | Not started | - |
 | 49. `manage_skill` 工具 | TBD | Not started | - |
 | 50. 设置页技能管理区 + `/api/skills/*` | TBD | Not started | - |

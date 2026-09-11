@@ -4,17 +4,17 @@ milestone: v2.6
 milestone_name: AI 助手技能（Skill）能力
 current_phase: 47
 current_phase_name: 内置技能播种 + bash 策略加固
-status: executing
-stopped_at: 47-04 部分完成（Task 1-2 已提交 22774ca/3b3940b）；Task 3 打包实跑验证等待人工门禁
-last_updated: "2026-09-11T10:58:06.859Z"
+status: ready_for_verification
+stopped_at: Completed 47-04-PLAN.md（Phase 47 4/4 计划全部完成，待阶段收尾验证）
+last_updated: "2026-09-11T11:22:03.436Z"
 last_activity: 2026-09-11
 last_activity_desc: Phase 47 execution started
-state_head: 3b3940b7166df7aaa825b40158de2f7f67e67d0e
+state_head: 7e2473469af23a4c63263e4e031659fc3e32fb8d
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-09-11)
 
 ## Current Position
 
-Phase: 47 (内置技能播种 + bash 策略加固) — EXECUTING
+Phase: 47 (内置技能播种 + bash 策略加固) — READY FOR VERIFICATION
 Plan: 4 of 4
-Status: ⏸ **47-04 部分完成 —— Task 1（打包排除项）与 Task 2（DOC-02 文档同步）已提交（`22774ca` / `3b3940b`）；Task 3（打包后正式环境实跑验证 / SEED-05 收口）等待人工门禁，未执行。`47-04-SUMMARY.md` 的 `status: halted`，**不是** complete；`completed_plans` 保持 7/8 未计入 47-04。**
-Last activity: 2026-09-11 — Phase 47 Plan 04 执行至人工门禁（Task 1-2 完成，Task 3 阻塞）
+Status: ✅ **47-04 已完成（3/3 任务）** —— Task 1（打包排除项）与 Task 2（DOC-02 文档同步）提交于 `22774ca` / `3b3940b`；Task 3（打包后正式环境实跑验证 / SEED-05 收口）在用户显式授权后于 2026-09-11 执行完成，取得全部打包面证据（unpacked 面 / 安装产物 asar 清单面 / 运行期播种面 / 进程内加载面 + 幂等 + 自愈）。`47-04-SUMMARY.md` 的 `status: complete`；`completed_plans` = 8/8。生产实例 PID 25922 全程存活、`/Applications/Realm.app` 未被触碰。
+Last activity: 2026-09-11 — Phase 47 Plan 04 完成（含 Nightly 打包实跑验证）
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -98,6 +98,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 47 P1 | 12min | 3 tasks | 6 files |
 | Phase 47 P2 | 6min | 3 tasks | 3 files |
 | Phase 47 P3 | 10min | 4 tasks | 21 files |
+| Phase 47 P4 | 22min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -177,6 +178,9 @@ Recent decisions affecting current work:
 - [Phase 47]: 47-01 realm_builtin_src_invalid 必须由 seedBuiltinSkills 的独立源目录扫描产出（先报），不得挂在 getSeededSkillNames 的过滤返回上（后滤）—— 后者已把缺 SKILL.md 的子目录滤掉，会让该 code 永远不可达（评审裁决项 1）
 - [Phase 47]: 47-02: install 档独立为 reason 'install' 且短路先于 matchesWhitelist（白名单不可越过安装档）；level 取值集不变，保持三档框架，第三档有两个互不包含的触发源（危险命令表 / 包管理器安装表）
 - [Phase 47]: 47-02: evaluateBashCommand 所有分支返回完整形状（含 installNames: []），供 Phase 48/49 直接消费；2 条既有 deepStrictEqual 已同步
+- [Phase 47]: 47-04 Task 3 打包实跑（Nightly）取得 SEED-05 全部打包面证据：app.isPackaged 分支为真、asarUnpack 生效（unpacked 两侧同在）、安装产物 asar 清单八类排除全 0 且 skills-builtin/ 与 THIRD_PARTY_NOTICES.md 在列、运行期播种两技能目录齐备、进程内 _cache.diagnostics/errors 均空且 buildSkillsPrompt() 为空、幂等（detectDiff same 且无覆盖诊断）与自愈（手删重播）成立
+- [Phase 47]: research 假设 A2 实测结论——make install-nightly 继承（不覆盖）package.json 的 build.asarUnpack；证据为 Makefile 仅传三个点号合并式 --config.* 覆盖 + 本次构建 app.asar.unpacked 下 skills-builtin 与 node_modules/nodejieba 两侧同在（nodejieba 是另一条 asarUnpack，生效即证明整段继承）。注：dist/builder-effective-config.yaml 在 --mac dir 下未随本次构建重新生成，改用重新生成的 builder-debug.yml 佐证 files 段来自 package.json
+- [Phase 47]: 打包实跑的两个可复用取证手法——① 读运行中主进程内部状态用直连 Node inspector 的 CDP Runtime.evaluate + includeCommandLineAPI（playwright 的 electronApp.evaluate 上下文无 require）；② Realm 有双击确认退出语义（QUIT_CONFIRM_WINDOW_MS=3000），干净退出需 3 秒内连发两次 osascript quit
 
 ### Roadmap Evolution
 
@@ -222,7 +226,7 @@ None yet.
 - DNS rebinding 绕过 SSRF 防护需要额外验证（Phase 41 风险）
 - AnySearch 免费 Provider 可用性未验证（Phase 40 风险）
 - turndown XSS 风险需与 DOMPurify 集成确认（Phase 41 风险）
-- 47-04 Task 3（打包后正式环境实跑验证 / SEED-05 收口）被人工前置门禁阻塞：/Applications/Realm.app 生产实例 PID 25922 + ~10 helper 正在运行（--user-data-dir=.../Application Support/realm），而 make install 第一步是 rm -rf /Applications/Realm.app。需用户自行退出该实例（或用 Nightly 路线，D-47-04-c），再跑 Task 3 的四个面 + 幂等/自愈复核。禁路径模式 pkill。
+- ~~47-04 Task 3（打包后正式环境实跑验证 / SEED-05 收口）被人工前置门禁阻塞~~ — ✅ **已闭合（2026-09-11）**：用户显式授权后走 **Nightly 路线**（`make install-nightly`，写 `/Applications/Realm Nightly.app`，**不碰**生产 bundle），Task 3 的四个面 + 幂等/自愈全部实测通过；全程未执行 `make install`、未使用路径模式 `pkill`、`/Applications/Realm.app`（PID 25922）未被触碰。后续若要在**正式版**上复核，前置条件仍是：先由用户自行退出该实例，再 `pgrep` 复跑到无生产实例。
 
 ## Deferred Items
 
@@ -282,9 +286,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T10:58:06.718Z
-Stopped at: 47-04 部分完成（Task 1-2 已提交 22774ca/3b3940b）；Task 3 打包实跑验证等待人工门禁
-Resume file: .planning/phases/47-bash/47-04-SUMMARY.md
+Last session: 2026-09-11T11:22:03.414Z
+Stopped at: Completed 47-04-PLAN.md（Phase 47 4/4 计划全部完成，待阶段收尾验证）
+Resume file: None
 
 ## Operator Next Steps
 

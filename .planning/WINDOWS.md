@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 17
 waived_count: 0
-fixed_count: 0
-total_count: 17
-last_updated: 2026-09-11T10:03:14.753Z
+fixed_count: 1
+total_count: 18
+last_updated: 2026-09-11T11:22:50.700Z
 ---
 
 # Broken Windows Ledger
@@ -31,7 +31,8 @@ last_updated: 2026-09-11T10:03:14.753Z
 | 14 | 47 | deviation | tests/test-builtin-skills-seeder.js |  | 47-03 Task 1: Task 1 的验收同时要求 18 个上游文件「逐字节与上游一致」与 SKILL.md「用区间而非精确值」（它承载六处受控改动）。调和为：17 个未改动的上游文件断言精确字节数，SKILL.md 用 [30000,40000] 区间护栏 —— 两个口径都在同一个用例里，注释写明分工 | open |  | 2026-09-11T09:56:18.081Z |  |
 | 15 | 47 | deviation | tests/test-builtin-skills-seeder.js |  | 47-03 Task 2/Rule 2: 计划未列 --help 与输出里的 attempted 字段。前者是 CLI 基本可用性；后者是「REALM_SKILL_CREATOR_PYTHON 生效时自动探测被跳过」这条验收判据唯一的机械证据（成功路径下 attempted 只有 1 条），两者均为只读、无副作用 | open |  | 2026-09-11T09:56:18.158Z |  |
 | 16 | 47 | deviation | tests/test-builtin-skills-seeder.js |  | 47-03 Task 1（已知残余）: 按计划的禁令「除六处受控改动外不得有其他偏离上游正文」，上游正文里两处 Cowork 提及（Step 4 的 headless 环境回退说明、结尾的 TodoList 提醒）逐字保留，未随三章一并删除。它们不是被删三章的标题子串（验收只禁 present_files / Claude.ai-specific / Cowork-Specific），且属环境条件性说明；若后续阶段判定需要，属新的受控改动，须同步 THIRD_PARTY_NOTICES | open |  | 2026-09-11T09:56:18.235Z |  |
-| 17 | 47 | deviation | package.json |  | 47-04 Task 1 step 5（改后 asar 清单取证）未执行：orchestrator 的 mandatory checkpoint guard 硬禁止任何打包/安装命令（make install*、npm run build、electron-builder），因生产实例 PID 25922 正在运行。改后 asar 清单的断言全部顺延到 Task 3 的人工门禁（Task 3 step 2b2 本就是「Task 1 的改后在真实安装产物上的复核」）—— 本计划未以任何方式弱化该判据，只是把它与打包动作一起交给人工 | open |  | 2026-09-11T10:03:14.753Z |  |
+| 17 | 47 | deviation | package.json |  | 47-04 Task 1 step 5（改后 asar 清单取证）未执行：orchestrator 的 mandatory checkpoint guard 硬禁止任何打包/安装命令（make install*、npm run build、electron-builder），因生产实例 PID 25922 正在运行。改后 asar 清单的断言全部顺延到 Task 3 的人工门禁（Task 3 step 2b2 本就是「Task 1 的改后在真实安装产物上的复核」）—— 本计划未以任何方式弱化该判据，只是把它与打包动作一起交给人工 | fixed |  | 2026-09-11T10:03:14.753Z | 2026-09-11T11:22:45.517Z |
+| 18 | 47 | unrun-verify | skills-builtin/skill-creator/scripts/check_env.mjs |  | 47-04 Task 3（部分）：SKILL-09 打包态侧证据只演示了「脚本在打包态技能目录内可执行 + stdout 可解析 JSON」（executor 直接以 node 运行），未演示验收原文的「经确认卡片后执行」半条。确认卡片那半条已由 tests/test-ai-bash-policy.js（70 例，含 DANGEROUS_INTERPRETERS 对 node/python3 的强制确认断言）覆盖，本项为额外的打包态端到端演示，非缺陷 | open |  | 2026-09-11T11:22:50.700Z |  |
 
 ````json
 [
@@ -234,9 +235,21 @@ last_updated: 2026-09-11T10:03:14.753Z
     "file": "package.json",
     "line": null,
     "description": "47-04 Task 1 step 5（改后 asar 清单取证）未执行：orchestrator 的 mandatory checkpoint guard 硬禁止任何打包/安装命令（make install*、npm run build、electron-builder），因生产实例 PID 25922 正在运行。改后 asar 清单的断言全部顺延到 Task 3 的人工门禁（Task 3 step 2b2 本就是「Task 1 的改后在真实安装产物上的复核」）—— 本计划未以任何方式弱化该判据，只是把它与打包动作一起交给人工",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-09-11T10:03:14.753Z",
+    "resolved_at": "2026-09-11T11:22:45.517Z"
+  },
+  {
+    "id": 18,
+    "kind": "unrun-verify",
+    "phase": "47",
+    "file": "skills-builtin/skill-creator/scripts/check_env.mjs",
+    "line": null,
+    "description": "47-04 Task 3（部分）：SKILL-09 打包态侧证据只演示了「脚本在打包态技能目录内可执行 + stdout 可解析 JSON」（executor 直接以 node 运行），未演示验收原文的「经确认卡片后执行」半条。确认卡片那半条已由 tests/test-ai-bash-policy.js（70 例，含 DANGEROUS_INTERPRETERS 对 node/python3 的强制确认断言）覆盖，本项为额外的打包态端到端演示，非缺陷",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-11T11:22:50.700Z",
     "resolved_at": null
   }
 ]

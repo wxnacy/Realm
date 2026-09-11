@@ -81,7 +81,7 @@ Requirements for v2.6. Each maps to roadmap phases.
 ### DOC — 产品文档同步（AGENTS.md 强制约定）
 
 - [x] **DOC-01**: 新建 `docs/product/ai-skills.md` 产品说明（能力、双目录、优先级、限额、安全边界、已知限制）
-- [ ] **DOC-02**: 同步 `docs/product/ai-agent-workspace.md`（技能不构成额外权限、`allowed-tools` 不被强制）与 `AGENTS.md`
+- [x] **DOC-02**: 同步 `docs/product/ai-agent-workspace.md`（技能不构成额外权限、`allowed-tools` 不被强制）与 `AGENTS.md`
 
 ## v2 Requirements
 
@@ -164,7 +164,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SEC-09 | Phase 50 | Pending |
 | SEC-10 | Phase 51 | Pending |
 | DOC-01 | Phase 46 | Complete |
-| DOC-02 | Phase 47 | Pending |
+| DOC-02 | Phase 47 | Complete |
 
 **Coverage:**
 
