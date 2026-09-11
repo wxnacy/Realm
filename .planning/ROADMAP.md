@@ -200,6 +200,18 @@ Plans:
   5. 打包后正式 .app 中两个内置技能可被正确加载（`asarUnpack` + `app.isPackaged` 路径分支生效），且 `THIRD_PARTY_NOTICES` 记录来源仓库 + 固定 commit SHA + 许可证 + 是否修改及修改说明。
 
 **Plans**: TBD
+**Wave 1**
+
+- [ ] 47-01-PLAN.md
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 47-02-PLAN.md
+- [ ] 47-03-PLAN.md
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 47-04-PLAN.md
 
 **Security gate**: P1（S1，阻断门禁）npx RCE 向量；P10（发布门禁）内置技能许可证归属义务。
 **Research needed**: find-skills 彻底去 CLI 化的改写方案需产品决策 + 许可证文本法务式复核——每一行都要按"这段文字被模型执行后会做什么"逐句评审。
@@ -297,7 +309,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 46. 技能基础设施 | 4/4 | Complete | 2026-09-11 |
-| 47. 内置技能播种 + bash 策略加固 | TBD | Not started | - |
+| 47. 内置技能播种 + bash 策略加固 | 0/4 | Planned    |  |
 | 48. 技能发现与调用 | TBD | Not started | - |
 | 49. `manage_skill` 工具 | TBD | Not started | - |
 | 50. 设置页技能管理区 + `/api/skills/*` | TBD | Not started | - |

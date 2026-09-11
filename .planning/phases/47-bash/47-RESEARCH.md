@@ -2324,7 +2324,17 @@ console.log('skills-builtin/ 文件数:', all.filter((x) => x.startsWith('skills
 
 **若 planner 认为上表某条的验证成本低于其风险，建议优先验证 A4（asarUnpack 嵌套）与 A5（既有测试回归）** —— 这两条的失败会在执行期直接暴露（技能不可用 / 测试红），是计划里最值得加"验证步骤"的地方。
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> **本阶段 plan 期已全部拍板**（2026-09-11），逐条落点如下 —— 保留原问答作为决策依据留痕：
+>
+> | # | 决策 | 落点 |
+> |---|------|------|
+> | Q1 | **包含**上游 `agents/`（3 文件 / 26,712 B） | 47-03-PLAN.md decision `D-47-03-a` |
+> | Q2 | 两个技能**一律标 `modified`**（fail-safe）+ `SKILL.md` 文首 §4(b) 修改声明 | 47-03-PLAN.md decision `D-47-03-b` |
+> | Q3 | **保持「三档权限」框架**，第三档写两个互不包含的触发源 | 47-02-PLAN.md `D-47-02-b` + 47-04-PLAN.md `D-47-04-b` |
+> | Q4 | **本阶段修**，选最小 `!` 排除方案（`build.files` 加 5 条） | 47-04-PLAN.md decision `D-47-04-a` |
+> | Q5 | **不要求**「技能在仓库内的路径」，只要求仓库 URL + 许可证 + 活跃度 | 47-01-PLAN.md Task 1 step 1 ⑥ |
 
 ### Q1: 上游 `agents/` 目录是否随包？（D-05 的内部张力）
 
