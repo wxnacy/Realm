@@ -2561,6 +2561,18 @@ ${content}
         return;
       }
 
+      // D-04：每次重建都无条件重扫两个技能目录 —— 这是覆盖「模型经 write / bash
+      // 工具直接改写 skills/foo/SKILL.md」这条无事件可挂失效路径的唯一自动兜底。
+      // rootDirs 顺序 managed → user 不是装饰（D-06 遮蔽判定依赖输入顺序）。
+      // configStore 注入式读取（manager 侧零 configStore 依赖）
+      await getAiSkillsManagerLazy().refreshSkills(this.sandboxEnv, {
+        disabled: this.configStore ? this.configStore.get('settings.aiSkills.disabled', []) : [],
+        rootDirs: [
+          getAgentWorkspaceLazy().getManagedSkillsDir(),
+          getAgentWorkspaceLazy().getSkillsDir(),
+        ],
+      });
+
       this.agent = new Agent({
         initialState: {
           systemPrompt: buildSystemPrompt(),

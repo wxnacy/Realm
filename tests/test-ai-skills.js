@@ -1276,3 +1276,91 @@ describe('Agent prompt 回写（SKILL-04）', () => {
   });
 });
 
+describe('P8 失效链机制断言（源码扫描）', () => {
+  test('覆盖断言：每个 new Agent( 之前 60 行内都存在 refreshSkills( 调用', () => {
+    const src = readSource('ai-manager.js');
+    const lines = src.split('\n');
+    const createLines = [];
+    lines.forEach((line, idx) => {
+      if (line.includes('new Agent(')) createLines.push(idx + 1);
+    });
+
+    assert.ok(createLines.length >= 2, `应至少有 2 处 Agent 创建点，实际 ${createLines.length}`);
+    for (const lineNo of createLines) {
+      const from = Math.max(0, lineNo - 1 - 60);
+      const window = lines.slice(from, lineNo - 1).join('\n');
+      assert.ok(
+        window.includes('refreshSkills('),
+        `new Agent( 于第 ${lineNo} 行之前 60 行内缺少 refreshSkills 调用 —— P8 漏接线`
+      );
+    }
+    // 计数口径声明：本断言是**创建点覆盖**断言，不是「refreshSkills( 出现次数 ===
+    // new Agent( 出现次数」。refreshSkills( 可以合法地出现在非创建点（本阶段的
+    // syncAgentSystemPrompt() 内就有一次按需刷新，48/49/50 的写路径同样只在那
+    // 一处刷新），这类调用不参与创建点判定。唯一会转红的情形是某个 new Agent(
+    // 的前 60 行窗口内没有 refreshSkills(。不得补「两者计数相等」的断言。
+  });
+
+  test('源码：init() 与 _recreateAgent() 的 refreshSkills 调用文本逐字一致', () => {
+    const src = readSource('ai-manager.js');
+    const callRe = /await getAiSkillsManagerLazy\(\)\.refreshSkills\(this\.sandboxEnv, \{[\s\S]*?\n\s*\}\);/;
+    // 只比较**两处创建点**内的调用 —— syncAgentSystemPrompt() 内的按需刷新
+    // 不参与本次比对（它不是创建点，见上方计数口径声明）
+    const norm = (text) => (text || '').split('\n').map((l) => l.trim()).join('\n');
+    const callOf = (methodName) => {
+      const body = methodBody(src, methodName);
+      const m = body.match(callRe);
+      return m ? norm(m[0]) : '';
+    };
+    const initCall = callOf('init');
+    const recreateCall = callOf('_recreateAgent');
+
+    assert.ok(initCall, 'init() 内必须有 refreshSkills 调用');
+    assert.ok(recreateCall, '_recreateAgent() 内必须有 refreshSkills 调用');
+    assert.strictEqual(
+      initCall, recreateCall,
+      '两处创建点的 refreshSkills 调用必须一致（含 disabled 表达式与 rootDirs 顺序 managed → user）'
+    );
+    assert.ok(initCall.includes('getManagedSkillsDir()'), 'rootDirs 首位必须是 managed');
+    assert.ok(
+      initCall.indexOf('getManagedSkillsDir()') < initCall.indexOf('getSkillsDir()'),
+      'rootDirs 顺序 managed → user 不是装饰（D-06 遮蔽判定依赖输入顺序）'
+    );
+  });
+
+  test('源码：_recreateAgent 的 catch 分支不清空技能缓存（D-05 第 2 层由 manager 内部承担）', () => {
+    const body = methodBody(readSource('ai-manager.js'), '_recreateAgent');
+    assert.strictEqual(body.includes('_resetCacheForTest'), false, '不得清空技能缓存');
+    assert.strictEqual(body.includes('_cache'), false, '不得直接触碰 manager 的 _cache');
+    assert.ok(body.includes('refreshSkills('), '重建前必须重扫（D-04）');
+  });
+
+  test('源码：P8 机制断言 ① —— ai-skills-manager 的权威面已导出', () => {
+    const src = readSource('ai-skills-manager.js');
+    const exportsBlock = src.slice(src.indexOf('module.exports = {'));
+    for (const name of ['refreshSkills', 'buildSkillsPrompt', 'getSkillsSnapshot']) {
+      assert.ok(exportsBlock.includes(name), `module.exports 必须含 ${name}（供后续阶段消费）`);
+    }
+  });
+
+  test('行为：磁盘被外部直接改写后重扫能反映新内容（P8 第 6 条路径的兜底链）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    const file = writeSkill(workspace.getSkillsDir(), 'alpha', { description: '改写前描述' });
+
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+    assert.ok(aiSkills.buildSkillsPrompt().includes('改写前描述'), '前置：初始描述已进 prompt');
+
+    // 模拟模型经 write / bash 绕过所有 Realm 管理器直接改盘（无事件可挂）
+    fs.writeFileSync(
+      file,
+      '---\nname: alpha\ndescription: 改写后描述\n---\n\n# alpha\n\n新正文\n'
+    );
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const prompt = aiSkills.buildSkillsPrompt();
+    assert.ok(prompt.includes('改写后描述'), '重扫必须反映磁盘上的外部改写（D-04 兜底）');
+    assert.strictEqual(prompt.includes('改写前描述'), false, '旧描述不得残留');
+  });
+});
