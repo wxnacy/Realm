@@ -5,16 +5,16 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 46
 current_phase_name: 技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）
 status: executing
-stopped_at: Completed 46-01-PLAN.md
-last_updated: "2026-09-11T01:55:36.733Z"
+stopped_at: Completed 46-02-PLAN.md
+last_updated: "2026-09-11T02:01:56.581Z"
 last_activity: 2026-09-11
 last_activity_desc: Phase 46 execution started
-state_head: 3090c347a6cd459110e3c7f8d8338d768e43c829
+state_head: 36e905a659963a0094a698a30260ea6a3518f02e
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 4
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 46 (技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-09-11 — Phase 46 execution started
 
@@ -91,6 +91,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 45 P03 | 8min | 2 tasks | 3 files |
 | Phase 45 P04 | 20min | 2 tasks | 2 files |
 | Phase 46 P1 | 5min | 3 tasks | 4 files |
+| Phase 46 P2 | 3min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -157,6 +158,11 @@ Recent decisions affecting current work:
 - [Phase 46]: 技能段固定为 system prompt 第 4 段（末段），前三段全静态 —— 技能集变更不影响冻结记忆段前缀缓存（D-01）
 - [Phase 46]: 加载面收窄发生在 SDK 遍历之前（薄 env 覆写 listDir/readTextFile），不导出 createSkillsEnv，测试只经公开面断言
 - [Phase 46]: 技能目录一律由 getWorkspaceDir() 派生；resolveInside/createSandboxEnv 本阶段零 diff（不为 managed-skills 加第二个沙箱 root）
+- [Phase 46]: 46-02：遮蔽败者不从 _cache.skills 剔除（返回数组与输入等长），标 shadowed/shadowedBy 并保留 —— D-06 costly：48 要来源徽标、50 要列表与诊断，剔除需两阶段同时改数据源与展示层
+- [Phase 46]: 46-02：名称权威取自 path.basename(path.dirname(entry.skill.filePath)) 并就地重写 skill.name（Skill 五字段无位置字段，<location> 只是 XML 标签名）；重写 ≠ 丢弃，命名不规范的合法技能仍进 prompt
+- [Phase 46]: 46-02：applyShadowing 只消费 loadSourcedSkills 的输入顺序（managed → user）不重新定义优先级，且必须排在 enforceDirNameAuthority 之后（重写后单目录内 name 唯一，遮蔽判定才无歧义）
+- [Phase 46]: 46-02：本计划不对 getSkillsSnapshot().skills 的条目顺序做任何断言 —— 该顺序唯一权威是 46-03 Task 2 的 bySkillPriority；优先级方向改用「败者 filePath 位于 managed-skills/ 下」钉死
+- [Phase 46]: 46-02：_cache.diagnostics 容器在加载后管线开始前就位、之后只做追加（原先管线末尾整体赋值会静默覆盖新诊断）
 
 ### Roadmap Evolution
 
@@ -258,8 +264,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T01:55:36.719Z
-Stopped at: Completed 46-01-PLAN.md
+Last session: 2026-09-11T02:01:56.566Z
+Stopped at: Completed 46-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

@@ -21,7 +21,7 @@ Requirements for v2.6. Each maps to roadmap phases.
 - [x] **SKILL-02**: 系统提示词动态注入 `<available_skills>` 段（含 name / description / location），无技能时该段为空（不注入空标签）
 - [x] **SKILL-03**: 技能加载异步完成后同步可读（模块级缓存 + 同步访问器），两处 Agent 创建点（`init()` / `_recreateAgent()`）均在构造 Agent **之前**完成加载
 - [ ] **SKILL-04**: 技能集变更后（安装 / 卸载 / 启用禁用 / `manage_skill` / Agent 重建）刷新 Agent 的 system prompt 且**不重建 Agent**；变更经跨窗口广播同步各窗口
-- [ ] **SKILL-05**: 用户技能与 managed 技能同名时用户技能遮蔽 managed（user > managed），去重发生在注入之前；同名冲突对用户可见
+- [x] **SKILL-05**: 用户技能与 managed 技能同名时用户技能遮蔽 managed（user > managed），去重发生在注入之前；同名冲突对用户可见
 - [ ] **SKILL-06**: 技能加载诊断（非法 name / 超长 description / YAML 解析失败）透传到设置页，不静默失败
 - [ ] **SKILL-07**: 技能资源限额集中定义并生效（SKILL.md 正文字节上限、用户技能数量上限、prompt 段字符预算），超限时给出「哪个限额 / 当前值」的可操作提示
 - [ ] **SKILL-08**: 用户可对单个技能启用/禁用（存储于设置，加载后过滤，**不删文件**）
@@ -122,7 +122,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SKILL-02 | Phase 46 | Complete |
 | SKILL-03 | Phase 46 | Complete |
 | SKILL-04 | Phase 46 | Pending |
-| SKILL-05 | Phase 46 | Pending |
+| SKILL-05 | Phase 46 | Complete |
 | SKILL-06 | Phase 46 | Pending |
 | SKILL-07 | Phase 46 | Pending |
 | SKILL-08 | Phase 46 | Pending |
