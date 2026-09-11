@@ -2134,6 +2134,16 @@ describe('DOC-02 文档同步（47-04 Task 2）', () => {
       workspaceDoc.includes('npm audit --json fix'),
       '应具名登记「audit 与 fix 之间夹旗标」这条零卡片残余（CR-02）'
     );
+    // verifier 独立发现的第三条零卡片残余：`npm -g update ls` 会命中白名单前缀 →
+    // 文档不得把它写成「不会零卡片」（原措辞已据此修正）
+    assert.ok(
+      workspaceDoc.includes('npm -g update ls'),
+      '应具名登记「旗标取值与子命令不可区分」这条残余（且必须归入零卡片类）'
+    );
+    assert.ok(
+      !workspaceDoc.includes('不会零卡片的同源残余'),
+      '不得把旗标取值残余写成「不会零卡片」（实测 npm -g update ls @ [npm] → allow）'
+    );
     assert.ok(
       workspaceDoc.includes('`brew install` / `brew upgrade` / `brew cask install`'),
       '应给 brew 的只读/安装对照'
