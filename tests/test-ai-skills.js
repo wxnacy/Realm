@@ -58,6 +58,20 @@ function functionBody(source, name) {
   return source.slice(start, end);
 }
 
+/**
+ * 取类方法体文本（支持 `async <name>(` / `function <name>(` / 两空格缩进的 `<name>(`）
+ *
+ * 与 functionBody 的区别：类方法以两空格缩进的 `}` 收尾，且多数是 `async`。
+ */
+function methodBody(source, name) {
+  let start = source.indexOf(`async ${name}(`);
+  if (start < 0) start = source.indexOf(`function ${name}(`);
+  if (start < 0) start = source.indexOf(`\n  ${name}(`);
+  assert.ok(start >= 0, `源码中应存在方法 ${name}(`);
+  const end = source.indexOf('\n  }', start);
+  return source.slice(start, end);
+}
+
 describe('端到端纵切（tracer）', () => {
   test('建 skills/alpha/SKILL.md → refreshSkills → buildSystemPrompt 含技能段 → 沙箱可 read 正文', async (t) => {
     const root = withTempRoot(t);
@@ -1155,3 +1169,110 @@ describe('接线与导出面（源码断言）', () => {
     assert.strictEqual(typeof value.then, 'undefined', '不得返回 thenable');
   });
 });
+
+describe('Agent prompt 回写（SKILL-04）', () => {
+  test('SDK 契约：改写 agent.state.systemPrompt 后下一轮快照即反映新值（D-03 的技术前提）', async () => {
+    const { Agent } = await import('@earendil-works/pi-agent-core');
+    const agent = new Agent({
+      initialState: { systemPrompt: 'A' },
+      streamFn: async () => {
+        throw new Error('noop');
+      },
+    });
+
+    assert.strictEqual(agent.createContextSnapshot().systemPrompt, 'A', '前置：初始快照');
+    agent.state.systemPrompt = 'B';
+    assert.strictEqual(
+      agent.createContextSnapshot().systemPrompt, 'B',
+      'state.systemPrompt 是可写普通属性、createContextSnapshot 每轮重读 —— 不重建 Agent 即可生效'
+    );
+    assert.strictEqual(agent.state.systemPrompt, 'B', 'state 返回内部对象本体（非快照）');
+  });
+
+  test('广播行为断言：真正改写时以 skills:changed 调用恰一次；无变化不调用；忙时不调用只置脏', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    writeSkill(workspace.getSkillsDir(), 'alpha', { description: '回写用技能' });
+
+    const AIManager = require('../ai-manager');
+    const wm = require('../window-manager');
+    const originalBroadcast = wm.broadcast;
+    const calls = [];
+    wm.broadcast = (channel) => {
+      calls.push(channel);
+    };
+    t.after(() => {
+      wm.broadcast = originalBroadcast;
+    });
+
+    const ctx = {
+      agent: { state: { systemPrompt: '' } },
+      sandboxEnv: env,
+      configStore: null,
+      isProcessing: false,
+      _skillsPromptDirty: false,
+      _skillsPromptDigest: '',
+    };
+
+    // (a) 真正改写时调用恰一次
+    await AIManager.prototype.syncAgentSystemPrompt.call(ctx);
+    assert.deepStrictEqual(
+      calls, ['skills:changed'],
+      '真正改写了 prompt 时必须以 skills:changed 广播恰一次'
+    );
+    assert.strictEqual(
+      ctx.agent.state.systemPrompt, aiManager.buildSystemPrompt(),
+      '改写后 agent.state.systemPrompt 必须等于 buildSystemPrompt()'
+    );
+    assert.ok(ctx._skillsPromptDigest.length > 0, '已应用摘要应被记录（供下次早退比对）');
+
+    // (b) 无变化时不调用（digest 早退 + 逐字符比对都生效）
+    await AIManager.prototype.syncAgentSystemPrompt.call(ctx);
+    assert.strictEqual(calls.length, 1, '无变化时不得重复广播（保 provider 前缀缓存）');
+
+    // (c) 忙时不调用且不改写，只置脏
+    const busy = {
+      agent: { state: { systemPrompt: ctx.agent.state.systemPrompt } },
+      sandboxEnv: env,
+      configStore: null,
+      isProcessing: true,
+      _skillsPromptDirty: false,
+      _skillsPromptDigest: '',
+    };
+    await AIManager.prototype.syncAgentSystemPrompt.call(busy);
+    assert.strictEqual(calls.length, 1, '忙时不得广播');
+    assert.strictEqual(busy._skillsPromptDirty, true, '忙时必须置脏（由 idle 边界补刷）');
+    assert.strictEqual(
+      busy.agent.state.systemPrompt, ctx.agent.state.systemPrompt,
+      '忙时不得改写 prompt（当前轮的 createContextSnapshot 已取过值）'
+    );
+  });
+
+  test('源码：syncAgentSystemPrompt 的早退 → 改写 → 广播形态', () => {
+    const body = methodBody(readSource('ai-manager.js'), 'syncAgentSystemPrompt');
+    assert.ok(body.includes('refreshSkills('), '必须先重扫技能集');
+    assert.ok(
+      body.includes('this.agent.state.systemPrompt = next'),
+      '必须直接改写 agent.state.systemPrompt（不重建 Agent —— D-03）'
+    );
+    assert.ok(body.includes("windowManager.broadcast('skills:changed')"), '真正改写后必须广播');
+    assert.ok(body.includes('this._skillsPromptDirty = true'), '忙时必须置脏');
+    assert.ok(
+      body.includes('snap.digest === this._skillsPromptDigest'),
+      '早退须以 digest 为快速判定主键'
+    );
+    const earlyIdx = body.indexOf('=== next) return;');
+    const writeIdx = body.indexOf('this.agent.state.systemPrompt = next');
+    assert.ok(earlyIdx >= 0, '早退条件须同时含 digest 与 prompt 逐字符比对');
+    assert.ok(writeIdx > earlyIdx, '早退必须位于改写之前');
+  });
+
+  test('源码：promptWithContext 的 idle 边界存在唯一的 _skillsPromptDirty 补刷块', () => {
+    const body = methodBody(readSource('ai-manager.js'), 'promptWithContext');
+    assert.ok(body.includes('this._skillsPromptDirty'), 'promptWithContext 必须含 idle 补刷块');
+    assert.ok(body.includes('this._skillsPromptDirty = false;'), '补刷前须先复位脏标记');
+    assert.ok(body.includes('await this.syncAgentSystemPrompt()'), '补刷须复用同一个方法');
+  });
+});
+

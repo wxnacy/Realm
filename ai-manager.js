@@ -684,6 +684,22 @@ class AIManager {
     this._sdkFileTools = null;
     /** @type {Object|null} 沙箱 ExecutionEnv（文件/Bash 工具共用） */
     this.sandboxEnv = null;
+    /**
+     * @type {boolean} 忙时收到的技能集变更标记（D-03）
+     *
+     * 流式处理中不得改写 system prompt（当前轮的 createContextSnapshot 已取值，
+     * 改写对当前轮无效且让状态机难以推理）。此时只置脏，在 promptWithContext()
+     * 的 idle 边界补刷一次。
+     */
+    this._skillsPromptDirty = false;
+    /**
+     * @type {string} 上一次**已应用**的技能集摘要（getSkillsSnapshot().digest）
+     *
+     * 作「技能集是否变化」的快速判定主键；仅当它与当前 digest 相同**且**
+     * buildSystemPrompt() 与 agent.state.systemPrompt 逐字符相同才早退
+     * （不写、不广播），以保 provider 的前缀缓存。
+     */
+    this._skillsPromptDigest = '';
     /** @type {Object|null} SDK compaction 工具缓存（calculateContextTokens/estimateTokens，init 动态 import） */
     this._contextUsageFns = null;
   }
@@ -1238,6 +1254,18 @@ class AIManager {
       }
 
       this.isProcessing = false;
+
+      // idle 边界补刷（D-03）：忙时收到的技能集变更在此落地一次。
+      // 只在成功路径补（错误路径与 _cleanupCurrentAgent 不补），避免同一次运行双刷。
+      if (this._skillsPromptDirty) {
+        this._skillsPromptDirty = false;
+        try {
+          await this.syncAgentSystemPrompt();
+        } catch (err) {
+          console.warn('[Realm AI] 延迟刷新技能 prompt 失败:', err.message);
+        }
+      }
+
       return this.currentConversationId || null;
     } catch (err) {
       console.error('[Realm AI] 带上下文消息处理失败:', err.message);
@@ -2460,6 +2488,58 @@ ${content}
    * 复用现有 init 逻辑中的 Agent 创建代码
    * @private
    */
+  /**
+   * 刷新技能集并把新的 system prompt 落到**当前 Agent 实例**上（D-03 / SKILL-04）
+   *
+   * **不重建 Agent** —— 直接改写 `agent.state.systemPrompt`，保留 `state.messages`
+   * 的引用链与当前对话的上下文连续性。
+   *
+   * SDK 契约（`@earendil-works/pi-agent-core@0.84.3`，源码直读 + 最小实例实测）：
+   * `Agent.get state()` 返回内部 `_state` 本体（非快照）；`systemPrompt` 是
+   * `createMutableAgentState` 里赋的普通属性（不在 `get`/`set` 访问器列表内，
+   * `tools`/`messages` 才是）；`createContextSnapshot()` 每次 `prompt()` /
+   * `promptContinue()` 都重读 —— 因此改写**下一轮即生效**，且对**正在进行中**
+   * 的那一轮不生效（这也是忙时必须置脏而非直接改写的原因）。
+   *
+   * 三处早退/降级：
+   * - Agent 或沙箱未就绪 → 直接返回
+   * - 忙时（`isProcessing` 或 `agent.state.isStreaming`）→ 只置 `_skillsPromptDirty`，
+   *   不改 prompt、不广播，由 promptWithContext() 的 idle 边界补刷
+   * - 无变化（digest 相同**且** prompt 逐字符相同）→ 直接返回，不触碰
+   *   `agent.state`、不广播，保 provider 前缀缓存
+   *
+   * @returns {Promise<void>}
+   */
+  async syncAgentSystemPrompt() {
+    if (!this.agent || !this.sandboxEnv) return;
+
+    // 重新扫描两个技能目录（磁盘可能被模型经 write/bash 直接改写）
+    await getAiSkillsManagerLazy().refreshSkills(this.sandboxEnv, {
+      disabled: this.configStore ? this.configStore.get('settings.aiSkills.disabled', []) : [],
+      rootDirs: [
+        getAgentWorkspaceLazy().getManagedSkillsDir(),
+        getAgentWorkspaceLazy().getSkillsDir(),
+      ],
+    });
+
+    if (this.isProcessing || (this.agent.state && this.agent.state.isStreaming)) {
+      this._skillsPromptDirty = true;
+      return;
+    }
+
+    const snap = getAiSkillsManagerLazy().getSkillsSnapshot();
+    const next = buildSystemPrompt();
+    // digest 是快速判定主键、逐字符比对是二次确认 —— 两者一致才认定「无变化」
+    if (snap.digest === this._skillsPromptDigest && this.agent.state.systemPrompt === next) return;
+
+    // 先记录已应用的摘要，再改写 prompt（顺序不可调换：中途抛错时摘要不应超前）
+    this._skillsPromptDigest = snap.digest;
+    this.agent.state.systemPrompt = next;
+
+    // 只在真正改写了 prompt 的路径上广播（本阶段只发事件，消费方在 Phase 48/50）
+    windowManager.broadcast('skills:changed');
+  }
+
   async _recreateAgent() {
     if (!this.models || !this.isInitialized) {
       console.warn('[Realm AI] 无法重建 Agent：Models 未初始化');
