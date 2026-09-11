@@ -5,16 +5,16 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 46
 current_phase_name: 技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）
 status: executing
-stopped_at: Completed 46-02-PLAN.md
-last_updated: "2026-09-11T02:01:56.581Z"
+stopped_at: Completed 46-03-PLAN.md
+last_updated: "2026-09-11T02:17:33.673Z"
 last_activity: 2026-09-11
 last_activity_desc: Phase 46 execution started
-state_head: 36e905a659963a0094a698a30260ea6a3518f02e
+state_head: 5a6acc318ad10c06fac04b2be9ab403964f4b9d7
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 46 (技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-09-11 — Phase 46 execution started
 
@@ -92,6 +92,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 45 P04 | 20min | 2 tasks | 2 files |
 | Phase 46 P1 | 5min | 3 tasks | 4 files |
 | Phase 46 P2 | 3min | 3 tasks | 2 files |
+| Phase 46 P3 | 12min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -163,6 +164,9 @@ Recent decisions affecting current work:
 - [Phase 46]: 46-02：applyShadowing 只消费 loadSourcedSkills 的输入顺序（managed → user）不重新定义优先级，且必须排在 enforceDirNameAuthority 之后（重写后单目录内 name 唯一，遮蔽判定才无歧义）
 - [Phase 46]: 46-02：本计划不对 getSkillsSnapshot().skills 的条目顺序做任何断言 —— 该顺序唯一权威是 46-03 Task 2 的 bySkillPriority；优先级方向改用「败者 filePath 位于 managed-skills/ 下」钉死
 - [Phase 46]: 46-02：_cache.diagnostics 容器在加载后管线开始前就位、之后只做追加（原先管线末尾整体赋值会静默覆盖新诊断）
+- [Phase 46]: 46-03：description 类 invalid_metadata 跳过、name 类不跳过 —— 46-02 的 D-08（以目录名重写并保留）与 46-03/SKILL-06 的「非法 name 被跳过」措辞冲突，按更具体的锁定决策 D-08 调和：description 是渐进式披露下模型匹配技能的唯一依据（不可用即永不触发，必须跳过），name 不一致是可被目录名权威化解的告警（丢弃等于静默删除用户从 GitHub 导入的合法技能）
+- [Phase 46]: 46-03：prompt 段预算的 entryCost 改用边际成本 format([dummy, skill]) - format([dummy]) —— 计划原文 format([skill]) - format([dummy]) 让每条重复计入一次前言，k 条时累计口径比真实段长少 (k-1) 倍前言，会把贪心放行到超预算（实测 40 条技能段长 9404 > 8000）
+- [Phase 46]: 46-03：errors[] 在每次刷新的 try 开工处复位（目录缺失诊断需在成功路径存活；原成功路径末尾整体置空会清掉它）；bySkillPriority 是集合顺序唯一权威且排在遮蔽之后（胜负由输入顺序定，可观测顺序由比较器定，职责正交）
 
 ### Roadmap Evolution
 
@@ -264,8 +268,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T02:01:56.566Z
-Stopped at: Completed 46-02-PLAN.md
+Last session: 2026-09-11T02:17:33.657Z
+Stopped at: Completed 46-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
