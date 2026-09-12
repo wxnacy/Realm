@@ -1,10 +1,11 @@
 ---
 phase: "48"
 slug: "skill-name"
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: "2026-09-12"
+reviewed_at: "2026-09-12"
 ---
 
 # Phase 48 — UI Design Contract
@@ -534,31 +535,48 @@ renderer **不得**按路径字符串自行匹配 `skills/` / `managed-skills/`�
 
 ## UI Considerations
 
-Applicable state considerations resolved: 12 covered, 2 backstop, 0 unresolved
+> 本节由 ui-phase Step 9.5 的 UI 考量探针产出（引擎：`ui-consideration-probe.cjs`，
+> 7 个元素 / 26 条考量）。元素种类经人工确认补全（探针原始判定把 `/` 面板误判为 `nav`，
+> 已按 `list-collection` + `interactive-control` 重跑，补出空态 / 有数据 / 部分数据 / 零一多四类）。
+> **重复运行即整节替换，不追加。**
+>
+> 空态与错误态的**文案**在 `## Copywriting Contract`（下方各行的「见 Copywriting Contract」即指该节），
+> 本节只记形状根因的状态覆盖，不重复抄写文案。
+
+Applicable state considerations resolved: 26（**20 covered / 1 backstop / 5 dismissed / 0 unresolved**）
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
-| empty | `/` 面板列表（list-collection） | ✅ covered | 过滤无命中 → 单行空态，文案 `无匹配技能或命令，输入 / 查看全部`（沿用既有 `.slash-picker-row` + `.slash-picker-desc` 形态，`cursor:default`，无标题）；技能集为空时**只渲染「命令」分区**，空分组标题不输出（D-01） |
-| empty | 面板「技能」分区（list-collection） | ✅ covered | 0 个已启用技能时该分区连同标题**整个不渲染** —— 不是空分区占位（D-01）。已禁用技能在面板隐藏（D-10），因此禁用全部技能等价于技能集为空 |
-| loading | `/` 面板列表（list-collection） | ✅ covered | **无 loading 态**：打开即用同步快照渲染，不显示骨架屏 / spinner / 占位文字；后台刷新完成后原地重渲染（`## 刷新契约`） |
-| loading | 用户气泡 / 工具卡片（media, interactive-control） | ✅ covered | 本阶段不在气泡与卡片内引入异步态：折叠块内容随消息对象一次到位；`read` 卡片沿用既有 `running` 状态图标与「正在执行...」文字 |
-| error | `/` 面板列表（list-collection） | ✅ covered | 快照刷新失败**保留旧快照**、面板内零错误 UI（避免把瞬时失败渲染成面板空态）；失败可见性归主进程诊断面（Phase 50） |
-| error | 技能显式调用（interactive-control） | ✅ covered | 三条错误反馈全部走既有 `.ai-system-note` 单行形态，文案见 `## Copywriting Contract`（禁用 / 未找到 / 未知命令），**零新渲染形状** |
-| populated | `/` 面板列表（list-collection） | ✅ covered | 典型量 = 2 条本地命令 + 若干技能；两个 sticky 分组标题 + 行内容五要素（名 / 徽标 / `仅显式` / 描述 / 状态标注） |
-| partial | `/` 面板列表（list-collection） | ✅ covered | stale-while-revalidate 的中间态：待渲染条目已可用但技能集可能已变更 —— 属**正常可交互态**，不显示任何「数据可能过期」提示（语义上快照就是权威视图，刷新是自愈） |
-| overflow | `/` 面板列表（list-collection） | ✅ covered | 面板 `max-height: 220px`（存量）+ `overflow-y: auto`；active 行经 `scrollIntoView({block:'nearest'})` 保持可见；分组标题 sticky 常驻 |
-| overflow | 技能正文折叠块（static-content） | ✅ covered | body `max-height: 260px` + `overflow-y: auto` 内部滚动（照抄 `.ai-summary-box-body`）；header 不随内容滚动 |
-| zero-one-many | `/` 面板列表（list-collection） | 🧪 backstop | **0 技能**：只渲染「命令」分区（已覆盖）；**1 项**：单行，无「数量」类文案需要复数处理（中文无单复数）；**50+ 项**：`max-height:220px` 下实际观感（两个 sticky 标题占用后的剩余可视行数）为 CONTEXT 明确列出的**待实测项** —— 需在真实 50 技能数据集上视觉确认，**若不可接受，处理方式是调整 `--ai-panel-*` 之外的面板高度常量，不得改动分组/标注结构** |
-| overflow | 面板行尾状态标注（static-content） | ✅ covered | 行 `flex-wrap: wrap`；标注 `flex-shrink:0` + `nowrap`，宽度不足时自动换到第二行右对齐（280px 最窄面板下仍完整可读）；**永不截断** |
-| long-text | 面板行（list-collection） | ✅ covered | 名称 `nowrap`（`.slash-picker-name` 存量）+ `flex-shrink:0`；描述 `flex:1; min-width:0` + 单行 ellipsis（存量 `.slash-picker-desc`）。超长描述不换行、不撑高 |
-| long-text | 用户气泡技能 pill（static-content） | ✅ covered | pill `max-width: 180px`（存量）+ 名 `.ai-message-ref-title` ellipsis；`技能` 微标 `flex-shrink:0` 优先保留 |
-| long-text | `read` 卡片技能标题（static-content） | ✅ covered | `.tool-card-name-text` ellipsis（`overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0`）；徽标 `flex-shrink:0` |
-| long-text | 技能正文折叠块 body（static-content） | ✅ covered | `white-space: pre-wrap` + `word-break: break-word`（照抄存量），长行强制折行，无横向滚动 |
-| long-text | system-note（static-content） | ✅ dismissed | 技能 `name` 受 `^[a-z0-9-]+$` 与目录名约束、`description` 不进入任何 system-note 文案 —— 三条反馈文案长度天然可控，**不改** `.ai-system-note` 的既有宽度行为（改它会波及 `/clear`、`/compact` 等既有反馈） |
-| long-text | `read` 卡片标题「使用技能「name」」（interactive-control） | ✅ covered | 归入上表「`read` 卡片技能标题」行；卡片 header 有 `height:36px` 固定高，截断不改变行高 |
+| empty | `/` 面板列表 | ✅ covered | 过滤无命中 → 单行空态（文案见 `## Copywriting Contract` 的「面板过滤无命中」行）；技能集为空时**只渲染「命令」分区**，空分组标题整个不输出（D-01）。已禁用技能在面板隐藏（D-10），故禁用全部技能等价于技能集为空 |
+| loading | `/` 面板列表 | ✅ covered | **无 loading 态**：打开瞬间即用同步快照渲染，不出现骨架屏 / spinner / 「加载中」占位（`## 刷新契约`）；后台刷新完成后原地重渲染 |
+| error | `/` 面板列表 | ✅ covered | 快照刷新失败**保留旧快照**，面板内零错误 UI；失败可见性归主进程诊断面（Phase 50）。**禁止**把失败渲染成面板空态（`## 刷新契约`）|
+| populated | `/` 面板列表 | ✅ covered | 典型量 = 2 条本地命令 + 若干技能；两个 sticky 分组标题 + 行五要素（名称 / 来源徽标 / `仅显式` / 描述 / 行尾状态标注）|
+| partial | `/` 面板列表 | ✅ covered | stale-while-revalidate 的中间态是**正常可交互态**：快照即权威视图，不显示任何「数据可能过期」提示（刷新是自愈）|
+| overflow | `/` 面板列表 | ✅ covered | 面板 `max-height: 220px`（存量）+ `overflow-y: auto`；active 行经 `scrollIntoView({block:'nearest'})` 保持可见；分组标题 sticky 常驻 |
+| zero-one-many | `/` 面板列表 | 🧪 backstop | **50+ 技能在 220px 面板（扣掉两个 sticky 标题占位后）的实际观感** —— CONTEXT 明确列为待实测项，静态契约无法裁决。0 技能只渲染「命令」分区（已覆盖）；1 项中文无单复数问题。→ `{ statement: "50+ 技能下列表在 220px 面板内的可视行数与观感经真实数据集确认可接受，分组与标注结构无需改动", verification: "backstop" }`；**无显式证据则路由 `human_needed`**。若不可接受，处理方式是调整面板高度常量，**不得**改动分组 / 标注结构 |
+| long-text | `/` 面板列表行 | ✅ covered | 名称 `nowrap`（`.slash-picker-name` 存量）+ `flex-shrink:0`；描述 `flex:1; min-width:0` + 单行 ellipsis（存量 `.slash-picker-desc`）；超长描述不换行、不撑高 |
+| loading | 面板灰显禁用行 | ✅ dismissed | 禁用行是静态渲染结果，不存在加载中间态 —— 数据层状态字段全部随快照一次到位 |
+| error | 面板灰显禁用行 | ✅ dismissed | 禁用 / 遮蔽判定全部来自快照，无独立失败路径；失败面统一归 `loading`/`error` 的「`/` 面板列表」行 |
+| overflow | 面板灰显禁用行 | ✅ covered | 灰显行与正常行共用 `.slash-picker-row` 的 `flex-wrap: wrap` 规则；行尾标注 `flex-shrink:0` + nowrap，宽度不足时换第二行右对齐 |
+| long-text | 面板灰显禁用行 | ✅ covered | 行尾标注为**定长文案**（`已遮蔽 · 由用户同名技能胜出` / `与本地命令同名 · 本地命令优先`），不随技能名或描述长度变化 |
+| overflow | 面板行尾状态标注 | ✅ covered | 标注 `flex-shrink:0` + `white-space:nowrap`，**永不截断**；剩余宽度不足时由 `flex-wrap: wrap` 换到第二行并 `margin-left:auto` 右对齐（280px 最窄面板下仍完整可读）|
+| long-text | 面板行尾状态标注 | ✅ covered | 三种标注均为固定文案，长度与技能名 / 描述无关；超限两条刻意长度不对称（`未进提示词 · 超预算` / `超数量上限`）—— 契约要求**照写不统一** |
+| loading | 气泡技能 pill + 折叠块 | ✅ dismissed | 折叠块内容随消息对象一次到位，气泡内不存在异步填充阶段 |
+| error | 气泡技能 pill + 折叠块 | ✅ dismissed | pill 与折叠块是已入库消息的纯渲染，无独立失败路径 |
+| overflow | 技能正文折叠块 | ✅ covered | body `max-height: 260px` + `overflow-y: auto` 内部滚动（照抄 `.ai-summary-box-body`）；header 固定，不随内容滚动 |
+| long-text | 气泡技能 pill + 折叠块 | ✅ covered | pill `max-width: 180px` + 名称 `.ai-message-ref-title` ellipsis，`技能` 微标 `flex-shrink:0` 优先保留；折叠块 body `white-space:pre-wrap` + `word-break:break-word`，长行强制折行、无横向滚动 |
+| loading | `read` 工具卡片技能变体 | ✅ covered | 沿用既有状态图标 + `正在执行...` 文字，本阶段不改；技能变体只改标题文案 + 追加徽标 |
+| error | `read` 工具卡片技能变体 | ✅ covered | 沿用既有 `失败` 状态文字与样式；技能变体不动状态区 |
+| overflow | `read` 工具卡片技能变体 | ✅ covered | 卡片 header 为既有固定 `height: 36px`；标题截断不改变行高，参数区 / 结果区沿用既有折叠滚动行为 |
+| long-text | `read` 工具卡片技能变体 | ✅ covered | `.tool-card-name-text` 施加 `overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0`；来源徽标 `flex-shrink:0`，技能名超长时徽标不受影响 |
+| overflow | system-note 文本反馈 | ✅ covered | 沿用既有 `.ai-system-note` 单行居中形态与宽度行为，**不改**（改它会波及 `/clear`、`/compact` 等既有反馈）|
+| long-text | system-note 文本反馈 | ✅ dismissed | 技能 `name` 受 `^[a-z0-9-]+$` 与目录名约束、`description` 不进入任何 system-note 文案 ⇒ 三条反馈文案长度天然可控，无需新增截断规则 |
+| overflow | 三档来源徽标 | ✅ covered | 徽标 `flex-shrink:0` + `white-space:nowrap`，行内不换行不截断；空间不足时由相邻描述（`flex:1; min-width:0`）先让位 |
+| long-text | 三档来源徽标 | ✅ covered | 徽标文案仅 `用户` / `内置` / `托管` 三值，定长；不随技能名变化。`title` 属性文本不参与布局 |
 
-> **backstop 行的含义**：`50+ 技能下的 220px 面板观感` 无法由静态契约裁决，需真实数据集的视觉确认。
+> **backstop 行（唯一一条）**：`50+ 技能下的 220px 面板观感` 无法由静态契约裁决，需真实数据集的视觉确认。
 > 验证时**无显式证据**则路由到 `human_needed`，不得静默通过。
+> **dismissed 行（5 条）**：均已给出「不存在该状态」的具体理由，不是省略。
 
 ---
 
@@ -601,12 +619,12 @@ Applicable state considerations resolved: 12 covered, 2 backstop, 0 unresolved
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
-- [ ] Dimension 7 Inventory Provenance: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS（FLAG — 非阻断：`:65` 的「零改动」措辞未涵盖为承载换行所需的 `flex-wrap` / `flex:1; min-width:0` 属性增补）
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS（前次 BLOCK 已由 Exceptions B 表登记 + 5 处标注值拉回 4 网格解除）
+- [x] Dimension 6 Registry Safety: PASS
+- [x] Dimension 7 Inventory Provenance: PASS（FLAG — 非阻断：`Could not enumerate` + 真实原因，清单显式声明为非穷尽）
 
-**Approval:** pending
+**Approval:** approved 2026-09-12（第 2 轮复验；7/7 通过，2 项非阻断 FLAG）
