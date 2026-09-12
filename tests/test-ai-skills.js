@@ -2299,5 +2299,178 @@ describe('G 组 · 面板刷新链路与跨文件护栏（D-17 / P-48-06，源�
   });
 });
 
+describe('H 组 · read 卡片技能化（48-03 / DISC-05）', () => {
+  /** 组装 _resolveSkillMarker 的最小调用上下文（只需 sandboxEnv 与 seeded 名集合） */
+  function markerCtx(env, seeded) {
+    return { sandboxEnv: env, getSeededSkillNamesSafe: () => (seeded || []) };
+  }
+
+  test('_resolveSkillMarker：绝对命中 / 相对命中 / 非 SKILL.md 不命中 / 工作区外不命中', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const file = writeSkill(workspace.getManagedSkillsDir(), 'alpha');
+    const env = await setupSkillsEnv(root);
+    const ctx = markerCtx(env);
+
+    assert.deepStrictEqual(
+      aiManager.prototype._resolveSkillMarker.call(ctx, 'read', { path: file }),
+      { name: 'alpha', tier: 'managed' },
+      '绝对路径命中（tier 按注入的 seeded 集合判定）'
+    );
+    assert.deepStrictEqual(
+      aiManager.prototype._resolveSkillMarker.call(ctx, 'read', { path: path.relative(env.cwd, file) }),
+      { name: 'alpha', tier: 'managed' },
+      '相对路径按 sandboxEnv.cwd 纯词法归一化后命中（与 SDK env.absolutePath 同规则）'
+    );
+    assert.strictEqual(
+      aiManager.prototype._resolveSkillMarker.call(ctx, 'read', {
+        path: path.join(path.dirname(file), 'references', 'x.md'),
+      }),
+      null,
+      '技能目录下的 references/*.md 不算「使用技能」（basename 非 SKILL.md）'
+    );
+    assert.strictEqual(
+      aiManager.prototype._resolveSkillMarker.call(ctx, 'read', { path: '/tmp/outside/SKILL.md' }),
+      null,
+      '工作区外的 SKILL.md 不命中'
+    );
+  });
+
+  test('_resolveSkillMarker：tier 经注入的 seeded 集合判定，不依赖真实 skills-builtin/', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const managedFile = writeSkill(workspace.getManagedSkillsDir(), 'alpha');
+    const userFile = writeSkill(workspace.getSkillsDir(), 'beta');
+    const env = await setupSkillsEnv(root);
+
+    assert.deepStrictEqual(
+      aiManager.prototype._resolveSkillMarker.call(markerCtx(env, ['alpha']), 'read', { path: managedFile }),
+      { name: 'alpha', tier: 'builtin' },
+      'name ∈ seeded 集合 → builtin'
+    );
+    assert.deepStrictEqual(
+      aiManager.prototype._resolveSkillMarker.call(markerCtx(env, ['alpha']), 'read', { path: userFile }),
+      { name: 'beta', tier: 'user' },
+      'user 来源恒为 user（seeded 判定不参与）'
+    );
+  });
+
+  test('_resolveSkillMarker 四条负例：非 read / 缺 args / path 非字符串 / sandboxEnv 为 null', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const file = writeSkill(workspace.getManagedSkillsDir(), 'alpha');
+    const env = await setupSkillsEnv(root);
+    const ctx = markerCtx(env);
+    const call = (toolName, args) => aiManager.prototype._resolveSkillMarker.call(ctx, toolName, args);
+
+    assert.strictEqual(call('bash', { path: file }), null, '非 read 工具一律不标');
+    assert.strictEqual(call('read', {}), null, '缺 args.path');
+    assert.strictEqual(call('read', undefined), null, 'args 为空');
+    assert.strictEqual(call('read', { path: 123 }), null, 'path 非字符串');
+    // sandboxEnv 为 null（AI 未初始化）→ null 且**不抛错**
+    const bare = { sandboxEnv: null, getSeededSkillNamesSafe: () => [] };
+    assert.strictEqual(
+      aiManager.prototype._resolveSkillMarker.call(bare, 'read', { path: file }),
+      null,
+      'sandboxEnv 缺失时不得抛错'
+    );
+  });
+
+  test('源码：tool_execution_start 分支带 skill_invocation 且 params 逐字未变', () => {
+    const src = readSource('ai-manager.js');
+    const i = src.indexOf("case 'tool_execution_start'");
+    assert.ok(i >= 0, '应存在 tool_execution_start 分支');
+    const seg = src.slice(i, src.indexOf('break;', i) + 'break;'.length);
+    assert.ok(seg.includes('skill_invocation:'), '工具事件必须携带 skill_invocation 字段');
+    assert.ok(seg.includes('_resolveSkillMarker('), '必须调用唯一的标记解析器');
+    assert.ok(/params:\s*event\.args,/.test(seg), 'params 必须逐字保持 event.args');
+  });
+
+  test('源码：renderer 流式映射把事件 snake_case 落到 toolExecution.skillInvocation', () => {
+    const src = readSource('src/renderer.js');
+    assert.ok(
+      src.includes('skillInvocation: event.skill_invocation'),
+      '流式映射必须把 skill_invocation 接线到 skillInvocation（与 tool_execution_id / tool_name 同款）'
+    );
+  });
+
+  test('源码：renderToolCard 技能变体（文案 / 修饰类 / 白名单徽标 / textContent / 零路径匹配）', () => {
+    const body = functionBody(readSource('src/renderer.js'), 'renderToolCard');
+    assert.ok(body.includes('使用技能「'), '技能变体标题文案为「使用技能「{name}」」');
+    assert.ok(body.includes('tool-card-name-skill'), '名称容器须追加修饰类');
+    assert.ok(body.includes('tool-card-name-text'), '名称文本须用内层类承载截断');
+    assert.ok(body.includes('TIER_BADGE'), 'tier → class / label / title 必须经白名单查表');
+    assert.ok(body.includes('textContent'), '技能名与徽标一律 textContent（T-48-10 缓解）');
+    assert.strictEqual(
+      /managed-skills|SKILL\.md/.test(body),
+      false,
+      'renderer 不得按路径字符串自行匹配技能（判定只在工具事件生成侧）'
+    );
+    assert.strictEqual(body.includes('innerHTML'), false, '技能变体不得退回 innerHTML');
+  });
+
+  test('样式：技能变体只经两个新类承载，.tool-card 系列既有规则零改动', () => {
+    const css = readSource('src/styles/main.css');
+    const ruleBody = (selector) => {
+      const i = css.indexOf(selector + ' {');
+      assert.ok(i >= 0, `应存在规则 ${selector}`);
+      return css.slice(i, css.indexOf('}', i));
+    };
+    for (const selector of ['.tool-card-header', '.tool-card-name', '.tool-card-icon', '.tool-card-status']) {
+      const body = ruleBody(selector);
+      for (const forbidden of ['使用技能', 'tool-card-name-skill', 'tool-card-name-text']) {
+        assert.strictEqual(body.includes(forbidden), false, `${selector} 既有规则体不得含 ${forbidden}`);
+      }
+    }
+  });
+
+  test('样式：.tool-card-name-skill 的 gap 与 .tool-card-name-text 的截断四件套', () => {
+    const css = readSource('src/styles/main.css');
+    const skillIdx = css.indexOf('.tool-card-name-skill {');
+    assert.ok(skillIdx >= 0, '应存在 .tool-card-name-skill');
+    const seg = css.slice(skillIdx, skillIdx + 240);
+    assert.ok(/gap:\s*8px/.test(seg), 'gap 必须与父容器 .tool-card-header 存量值同值（8px，不得用 6px）');
+    assert.ok(/display:\s*flex/.test(seg), '名称容器须为 flex 以让徽标与文本同行');
+
+    const textIdx = css.indexOf('.tool-card-name-text {');
+    assert.ok(textIdx >= 0, '应存在 .tool-card-name-text');
+    const tseg = css.slice(textIdx, textIdx + 320);
+    for (const prop of ['overflow: hidden', 'text-overflow: ellipsis', 'white-space: nowrap', 'min-width: 0']) {
+      assert.ok(tseg.includes(prop), `.tool-card-name-text 缺少 ${prop}（超长技能名必须 ellipsis 截断）`);
+    }
+    assert.ok(tseg.includes('var(--font-mono, monospace)'), '名称文本用等宽字体');
+  });
+
+  test('缓存失效：本阶段最后一次 CSS 改动已推进 index.html 的 styles/main.css?v= 序号', () => {
+    const html = readSource('src/index.html');
+    const m = html.match(/styles\/main\.css\?v=(\d+)/);
+    assert.ok(m, 'index.html 必须含带缓存失效序号的 styles/main.css 引用');
+    assert.ok(
+      Number(m[1]) >= 8,
+      `序号须 ≥ 8（48-03 的两个新类须随序号生效），实际 v=${m[1]}`
+    );
+  });
+
+  test('回归（跨计划）：REALM_SYSTEM_PROMPT 区分技能与工具，技能段仍逐字符等于 buildSkillsPrompt()', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    writeSkill(workspace.getSkillsDir(), 'alpha', { description: '回归用例技能' });
+    await setupSkillsEnv(root);
+
+    const src = readSource('ai-manager.js');
+    assert.ok(src.includes('技能（Skill）'), 'D-18 措辞须含「技能（Skill）」');
+    assert.ok(/技能与工具（Tool）/.test(src), 'D-18 措辞须显式区分技能与工具');
+
+    const skillsBlock = aiSkills.buildSkillsPrompt();
+    assert.ok(skillsBlock.length > 0, '前置：技能段非空');
+    const prompt = aiManager.buildSystemPrompt();
+    assert.strictEqual(
+      prompt.slice(prompt.length - skillsBlock.length),
+      skillsBlock,
+      '技能段必须固定在末段且逐字符等于 buildSkillsPrompt()（46 D-02 边界）'
+    );
+  });
+});
+
 
 
