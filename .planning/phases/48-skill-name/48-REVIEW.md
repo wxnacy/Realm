@@ -289,6 +289,34 @@ const abs = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(root, raw);
 
 ---
 
+## Accepted Tech Debt（阶段 48 UAT 收尾裁决）
+
+本节记录 `/gsd-verify-work 48` 逐条裁决后**确认延后**的 Critical / Warning。裁决前提：48 不进正式版发布（用户 2026-09-12 确认「暂时不发版」）。每条都带**接手触发点**，不依赖任何自动化门禁重新发现。
+
+### TD-48-01 ← CR-01 属性逃逸注入（延后）
+
+- **裁决：** 延后，不进本阶段修复。2026-09-12 UAT test 1。
+- **接手触发点：** Phase 49 开工前**第一条**（`manage_skill` 落地前）。Phase 49 会让 AI 常规化地创建技能目录，扩面后再补代价更高。
+
+> ⚠️ **以下两条是对本报告 CR-01 原文的实测更正**（2026-09-12 用 playwright `_electron` 驱动真实 dev 应用取得）。
+> CR-01 原文「把 payload 换成 `onmouseover="…"` 就是事件处理器注入」「注入代码在主窗口 renderer 执行，该上下文持有 `window.realmAPI` 全量 IPC」**不成立**，勿据此定级。
+
+- **✅ 注入成立（实测）：** 在 `managed-skills/` 下建目录名 `pwn" onmouseover="document.documentElement.dataset.pwned=1" data-x="y`，打开 `/` 面板后该行**真实 DOM 属性**为：
+  `class` / `data-index` / `title="/skill:pwn"`（被引号截断）/ `onmouseover` / `data-x="y 可显式调用"` —— 即 `escapeHtml` 不转义引号的属性逃逸**确实发生**，注入体成为真实属性。
+- **❌ 代码执行被 CSP 拦掉（实测，决定性）：** `src/index.html:8-9` 有 CSP `script-src 'self'`（无 `unsafe-inline`），内联事件处理器**不被编译**。同一文档内对照实测：
+  `innerHTML` 注入 `onmouseover` → 属性在、`el.onmouseover === null`、真实 `mouseover` 派发后计数器未置位（`null`）；
+  程序化赋值 `el.onmouseover = fn` → `typeof === 'function'` 且正常触发（对照组）。
+  故 `row.onmouseover` 为 `null` 是真值，不是「已编译」。
+- **残余真实影响（降级为 minor 级缺陷，非 blocker）：** ① `style` 属性注入**可行**（CSP `style-src 'self' 'unsafe-inline'`）→ CSS 注入 / UI 重绘伪装；② 任意属性注入污染 DOM 结构；③ **潜在 XSS**：一旦 CSP 放宽（加 `unsafe-inline`）或该模板被复用到无 CSP 上下文，即刻升级为可执行。安全性归因应改为「纵深防御兜住了，但转义缺陷仍在」。
+- **附带更正：`AGENTS.md` 的「主窗口（`file://` 加载，无 CSP）」表述有误** —— 主窗口**有** CSP（`src/index.html:8`），只是 `style-src` 含 `unsafe-inline` 使内联 style 可用（弹框居中那节的结论因此仍成立，但理由不该是「无 CSP」）。
+- **⚠ 不要指望 secure-phase 兜住：** `48-01-PLAN.md:432` 的 T-48-03（Tampering / high / mitigate）声明的缓解措施正是「`title` 一律经 `escapeHtml()`」——即失效的那个机制。secure-phase 的短路规则会读成已缓解。
+- **可达性**（与上面区分）：`managed-skills/` 落在硬沙箱 root 内（`agent-workspace.js:114`），AI 的 `write`/`bash` 免确认自动执行；`enforceDirNameAuthority`（`ai-skills-manager.js:329`）刻意**不校验字符集**并保留不规范名；`toUISkillEntry`（`:707`）对 `name` 零加工直送面板 —— 所以**输入侧**确实可达且无需人工操作，只是被 CSP 挡在「执行」这一步。
+- **修复口径（下次开工直接照做，约 10 行）：** 新增引号感知的 `escapeAttr`，替换 `src/renderer.js:10332` / `:10340` / `:10343` 三处属性上下文（文本上下文继续用 `escapeHtml`）；或该行改 DOM API（`setAttribute` 天然安全，阶段自身在 `renderAISkillPill` 已用此模式）。**修它的理由已从「堵 XSS」变为「消除 latent XSS + 消除 CSS 注入面 + 不再依赖 CSP 单点兜底」。**
+- **取舍说明（为什么只修这三处不算半吊子）：** 同类落点 downloads（`14178/14210`）、media（`11214`）是老 bug 且数据源**不是 AI 可自建**，性质不同；本条的独特性在于「数据源可由 AI 自建」。同类落点的统一整改属独立议题。
+- **爆炸半径已核实：** 全仓仅 `48-VERIFICATION.md` 的 `covered_files` 含 `src/renderer.js`，修它不连累 44–47 的验证指纹。
+
+---
+
 _Reviewed: 2026-09-12T06:37:30Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
