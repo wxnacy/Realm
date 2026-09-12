@@ -468,3 +468,11 @@ blocked: 0
   deferred_at: 2026-09-12
   evidence_addendum: "test 5 实测（2026-09-12）：属性逃逸成立，但主窗口 CSP 拦掉内联处理器 → 代码不执行，定级由 blocker 更正为 minor；TD-48-01 已回写"
 ```
+
+## 更正（G-48-12 立项时，2026-09-12）
+
+本节为**纯追加**的事后更正，不修改上方任何既有记录（含 `## Gaps` 的 YAML 块）。逐条如下：
+
+1. **更正 G-48-3 的 `root_cause` 括注中的错误前提**。该括注写作「运行期新增技能（AI 经 write/bash 建目录 → 主进程 idle 边界重扫并广播）」，描述的链路**在代码里并不存在**：`_skillsPromptDirty`（`ai-manager.js` 的 idle 补刷块）**不是独立触发源** —— 该标记只由 `syncAgentSystemPrompt()` 自身在「忙」时置位，而它的常规入口只有「打开 `/` 面板」。因此「运行期新增技能」当时并**没有**任何可依赖的自动重扫；括注把「本应发生」误写成了「已存在」。
+2. **真正的失效点与修复口径**。失效点不在 renderer（48-06 已修那半边），而在主进程：`readSkillForInvocation`（`ai-skills-manager.js:802-804`）在触盘**之前**用 `_cache.skills` 做存在性门，缓存未命中即判「不存在」，读盘路径根本不执行。48-07 在**调用侧**（`_resolveSkillInvocation`）对「不存在」判定做**至多一次**的 `syncAgentSystemPrompt()` 权威重扫 + 重试读盘；因此 shadowed（46 D-06 / D-11）、disabled（46 D-09 / D-10）、tier（D-14）三个字段全部来自 `refreshSkills` 同一条加载管线，不新增第二套判定。权威口径见 `.planning/phases/48-skill-name/48-07-PLAN.md` 的 `key-decisions`。
+3. **交接**。本节**不**修改上方 `## Gaps` 里 `G-48-12` 的 `status: failed` —— 该 status 由重跑 `/gsd-verify-work 48` 的自动驱动探针（UAT test 12，B / B2 判别性复测形态：在 `managed-skills/` 下运行期新建目录后**不打开** `/` 面板，直接手打 `/skill:<新名>`）判定后回填。同一标准也适用于 `.planning/WINDOWS.md` 的 unrun-verify id 24（其机制描述已同步更正，status 保持 `open`）。

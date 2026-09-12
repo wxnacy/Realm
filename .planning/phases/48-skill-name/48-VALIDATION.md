@@ -78,6 +78,7 @@ created: "2026-09-12"
 | 48-02-T3 | 02 | 2 | （P8） | T-48-08 | 面板 stale-while-revalidate：打开用快照立即渲染 + 后台刷新 + 广播只重拉快照（无自激回路、无 loading 态） | 源码扫描 | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
 | 48-01-T1 | 01 | 1 | （硬约束） | — | 实时读盘：改盘后立即调用读到新正文；跨轮不重读 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
 | 48-01-T1 | 01 | 1 | （硬约束） | — | `src/index.html` 在 `renderer.js` 之前加载 `skill-picker-model.js`（wave 1 可端到端运行的前提） | 源码扫描 | `node -e "…script-order…"`（见 48-01 Task 1 `<verify>`） | ✅ | ⬜ pending |
+| 48-07-T1 | 07 | 6 | DISC-02 | T-48-07-01 | 运行期新增技能目录（未重扫）→ `/skill:<新名>` 成功；miss 时经唯一权威入口 `syncAgentSystemPrompt()` 重扫**一次**再当场读盘（shadowed / disabled / tier 三字段全部来自加载管线，不新增第二套判定）；缓存命中时零重扫 | unit + 行为 | `node tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
 
 **A–E 五组断言清单（共 35 条）见 `48-RESEARCH.md` §Validation Architecture**；上表已把它们逐条落到 `48-XX-PLAN.md` 的 task `<acceptance_criteria>` / `<verify>`（GROUP A/B → 48-02-T1、GROUP C → 48-01-T1 + 48-03-T1、GROUP D → 48-01-T1/T2/T3、GROUP E → 48-01-T2 + 48-02-T2/T3 + 48-03-T1）。
 
