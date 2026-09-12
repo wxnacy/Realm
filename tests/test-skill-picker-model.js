@@ -375,16 +375,83 @@ describe('C 组 · renderer 源码护栏（预检分支 / 重发载荷 / 气泡�
     assert.strictEqual(rendererSrc.includes('Buffer.byteLength'), false, '不得改用字节数');
     assert.strictEqual(rendererSrc.includes('TextEncoder'), false, '不得改用字节数');
 
-    // 两处渲染都由 renderAIMessages 的 isUser 分支挂载（ pill 在正文前、折叠块在附件后）
-    const renderBody = functionBody(rendererSrc, 'renderAIMessages');
-    const userIdx = renderBody.indexOf('if (isUser) {');
-    const segment = renderBody.slice(userIdx, renderBody.indexOf('} else if (content)', userIdx));
-    const pillCall = segment.indexOf('renderAISkillPill(');
-    const textCall = segment.indexOf('textDiv.textContent');
-    const boxCall = segment.indexOf('renderSkillContentBox(');
-    assert.ok(pillCall >= 0 && boxCall >= 0, 'isUser 分支必须挂载 pill 与折叠块');
+    // 顺序契约迁到**用户气泡构建单源** `buildUserMessageContent`（G-48-6：整列渲染与
+    // 定向重绘共用同一份；顺序即契约 —— pill 在正文前、折叠块在附件后）
+    assert.strictEqual(
+      (rendererSrc.match(/function buildUserMessageContent\(/g) || []).length,
+      1,
+      'buildUserMessageContent 必须只有一份实现（不得复制第二份）'
+    );
+    const userBubble = functionBody(rendererSrc, 'buildUserMessageContent');
+    const pillCall = userBubble.indexOf('renderAISkillPill(');
+    const textCall = userBubble.indexOf('textDiv.textContent');
+    const boxCall = userBubble.indexOf('renderSkillContentBox(');
+    assert.ok(pillCall >= 0 && boxCall >= 0, 'buildUserMessageContent 必须挂载 pill 与折叠块');
     assert.ok(pillCall < textCall, 'pill 必须在正文之前');
     assert.ok(boxCall > textCall, '折叠块必须在正文/附件之后');
+
+    // 已迁出：renderAIMessages 内不得再有第二份构建逻辑（防实现复活）
+    const renderBody = functionBody(rendererSrc, 'renderAIMessages');
+    assert.ok(renderBody.includes('buildUserMessageContent('), '整列渲染必须委派单源构建');
+    assert.strictEqual(
+      renderBody.includes('renderAISkillPill('),
+      false,
+      'renderAIMessages 不得保留第二份 pill 构建（已迁至 buildUserMessageContent）'
+    );
+    assert.strictEqual(
+      renderBody.includes('renderSkillContentBox('),
+      false,
+      'renderAIMessages 不得保留第二份折叠块构建（已迁至 buildUserMessageContent）'
+    );
+  });
+
+  test('回填后立即刷新该条气泡（G-48-6：三处调用点都在 skillInvocation 赋值之后）', () => {
+    // 发送路径：回填 result.skillInvocation → 立即刷新
+    const send = asyncFunctionBody(rendererSrc, 'handleSendAIMessage');
+    const sendRefill = send.indexOf('userMsg.skillInvocation = result.skillInvocation');
+    const sendRefresh = send.indexOf('refreshUserMessageBubble(userMsgId)');
+    assert.ok(sendRefill >= 0, 'handleSendAIMessage 必须回填响应的 skillInvocation');
+    assert.ok(sendRefresh >= 0, 'handleSendAIMessage 必须在回填后刷新该条气泡');
+    assert.ok(sendRefresh > sendRefill, '刷新必须在回填**之后**（回填前刷新拿不到 pill / 折叠块）');
+
+    // 重发路径（重新生成）
+    const regen = asyncFunctionBody(rendererSrc, 'regenerateMessage');
+    const regenRefill = regen.indexOf('resent.skillInvocation = res.skillInvocation');
+    const regenRefresh = regen.indexOf('refreshUserMessageBubble(resentUserId)');
+    assert.ok(regenRefill >= 0, 'regenerateMessage 必须用本次读盘结果覆盖折叠块正文');
+    assert.ok(regenRefresh >= 0, 'regenerateMessage 必须在回填后刷新该条气泡');
+    assert.ok(regenRefresh > regenRefill, '重发生路径的刷新同样必须在回填之后');
+
+    // 重发路径（错误重试按钮处理器）
+    const retryStart = rendererSrc.indexOf('retryBtn.addEventListener');
+    assert.ok(retryStart >= 0, '应存在错误重试处理器');
+    const retryEnd = rendererSrc.indexOf('errorDiv.appendChild(errorText)', retryStart);
+    assert.ok(retryEnd > retryStart, '重试处理器区域应可界定');
+    const retry = rendererSrc.slice(retryStart, retryEnd);
+    const retryRefill = retry.indexOf('target.skillInvocation = res.skillInvocation');
+    const retryRefresh = retry.indexOf('refreshUserMessageBubble(retryUserMsg.id)');
+    assert.ok(retryRefill >= 0, '错误重试必须回填 skillInvocation');
+    assert.ok(retryRefresh >= 0, '错误重试必须在回填后刷新该条气泡');
+    assert.ok(retryRefresh > retryRefill, '重试路径的刷新同样必须在回填之后');
+  });
+
+  test('refreshUserMessageBubble 是定向更新（replaceChild，不整列清空重建）', () => {
+    const body = functionBody(rendererSrc, 'refreshUserMessageBubble');
+    assert.ok(body.includes('buildUserMessageContent('), '必须复用单源构建（不得另写一份）');
+    assert.ok(body.includes('replaceChild'), '必须只替换该条的 .ai-message-content');
+    assert.ok(
+      /if \(!wrapper\) \{\s*renderAIMessages\(\);\s*return;/.test(body),
+      '取不到 wrapper 时必须回落整列重绘（与 updateAIStreamingBubble 的竞态容错一致）'
+    );
+    assert.strictEqual(
+      body.includes("innerHTML = ''"),
+      false,
+      '不得整列清空重建（会丢滚动位置与正在流式的气泡节点）'
+    );
+    assert.ok(
+      body.includes("msg.role !== 'user'"),
+      '非 user 消息直接返回（本函数只服务用户气泡）'
+    );
   });
 
   test('重发路径：buildResendPayload 是唯一实现，两条路径共用且带 await', () => {

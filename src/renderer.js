@@ -8044,77 +8044,9 @@ function renderAIMessages() {
     }
 
     if (isUser) {
-      // @ 引用标签页标记（在气泡顶部展示，便于确认引用已随消息发出）
-      if (msg.referencedTabs && msg.referencedTabs.length > 0) {
-        const refRow = document.createElement('div');
-        refRow.className = 'ai-message-refs';
-        msg.referencedTabs.forEach(t => {
-          const pill = document.createElement('span');
-          pill.className = 'ai-message-ref-pill';
-
-          const dot = document.createElement('span');
-          dot.className = 'ai-message-ref-dot';
-          dot.style.backgroundColor = t.containerColor || '#666';
-
-          const title = document.createElement('span');
-          title.className = 'ai-message-ref-title';
-          title.textContent = t.title || '标签页';
-
-          pill.appendChild(dot);
-          pill.appendChild(title);
-          refRow.appendChild(pill);
-        });
-        content.appendChild(refRow);
-      }
-
-      // 技能调用 pill（D-06）：`技能` 微标 + 技能名。渲染走 DOM API + textContent
-      //（T-48-03），技能名来自磁盘属不可信输入
-      if (msg.skillInvocation && msg.skillInvocation.name) {
-        content.appendChild(renderAISkillPill(msg.skillInvocation));
-      }
-
-      // 用户消息：纯文本
-      const textDiv = document.createElement('div');
-      textDiv.textContent = msg.content || '';
-      content.appendChild(textDiv);
-
-      // 附件渲染：图片内联展示（截图工具同款：点击放大 + 右键下载），
-      // 非图片保持徽标行（历史恢复经 getMessages attachments 列带出）
-      const msgAtts = msg.attachments || [];
-      const inlineImages = msgAtts.filter(a => a.isImage && !a.isDirectory);
-      const badgeAtts = msgAtts.filter(a => !(a.isImage && !a.isDirectory));
-
-      if (inlineImages.length > 0) {
-        content.appendChild(renderAIAttachmentImages(inlineImages));
-      }
-
-      if (badgeAtts.length > 0) {
-        const attRow = document.createElement('div');
-        attRow.className = 'ai-message-refs';
-        badgeAtts.forEach(att => {
-          const pill = document.createElement('span');
-          pill.className = 'ai-message-ref-pill ai-message-attachment-pill';
-          pill.title = att.isDirectory ? `${att.name}/（目录）` : att.name;
-
-          const badge = document.createElement('span');
-          badge.className = 'ai-attachment-badge';
-          badge.innerHTML = aiAttachmentTypeIcon(att);
-
-          const name = document.createElement('span');
-          name.className = 'ai-message-ref-title';
-          name.textContent = att.isDirectory ? `${att.name}/` : att.name;
-
-          pill.appendChild(badge);
-          pill.appendChild(name);
-          attRow.appendChild(pill);
-        });
-        content.appendChild(attRow);
-      }
-
-      // 技能正文折叠块（D-09）：附件之后、默认折叠、可展开查看本次实际注入的正文
-      if (msg.skillInvocation && typeof msg.skillInvocation.content === 'string') {
-        content.appendChild(renderSkillContentBox(msg.skillInvocation));
-      }
+      // 用户气泡构建**单源**（buildUserMessageContent）：整列渲染与定向重绘共用同一份
+      // 顺序契约（pill 在正文前、折叠块在附件后），不得在此保留第二份构建逻辑
+      content = buildUserMessageContent(msg);
     } else if (content) {
       // AI 消息：Markdown 渲染 + DOMPurify 消毒（T-21-01）
       const sanitized = renderAIMarkdown(msg.content || '');
@@ -8222,6 +8154,44 @@ function updateAIStreamingBubble() {
   // 自动滚动
   if (state.aiAutoScroll) {
     scrollToBottom();
+  }
+}
+
+/**
+ * 定向刷新单条用户气泡（G-48-6）
+ *
+ * **只重绘这一条**：整列 `renderAIMessages()` 会丢滚动位置、丢掉正在流式的
+ * assistant 气泡节点与 typing 指示器状态（既有 `updateAIStreamingBubble` 的设计
+ * 理由同款）。故这里用 `buildUserMessageContent` 生成新的内容节点后
+ * `replaceChild` 掉该 wrapper 内既有的 `.ai-message-content`。
+ *
+ * 用途：`result.skillInvocation` 回填 `state.aiMessages` 之后必须主动刷新这一条 ——
+ * 发送起点那次 `renderAIMessages()` 早于 `await ai.prompt()` 返回，此后整轮只走
+ * `updateAIStreamingBubble`（只替换 assistant 气泡），不刷新则 pill 与「技能正文」
+ * 折叠块在本轮永不出现（skillInvocation 是数字世界的输入，DOM 不会自己知道）。
+ *
+ * 取不到 wrapper 时回落整列重绘（与 `updateAIStreamingBubble` 的竞态容错一致）。
+ *
+ * @param {string} messageId - 用户消息 id（`wrapper.dataset.messageId` 的定位依据）
+ */
+function refreshUserMessageBubble(messageId) {
+  const msg = state.aiMessages.find(m => m.id === messageId);
+  if (!msg || msg.role !== 'user') return;
+
+  const wrapper = elements.aiMessageList.querySelector(
+    `[data-message-id="${messageId}"]`
+  );
+  if (!wrapper) {
+    renderAIMessages();
+    return;
+  }
+
+  const next = buildUserMessageContent(msg);
+  const prev = wrapper.querySelector('.ai-message-content');
+  if (prev) {
+    wrapper.replaceChild(next, prev);
+  } else {
+    wrapper.insertBefore(next, wrapper.firstChild);
   }
 }
 
@@ -8843,6 +8813,10 @@ async function handleSendAIMessage() {
     if (result && result.skillInvocation) {
       const userMsg = state.aiMessages.find(m => m.id === userMsgId);
       if (userMsg) userMsg.skillInvocation = result.skillInvocation;
+      // 回填后**立即**刷新这一条气泡（G-48-6）：发送起点那次 renderAIMessages() 早于
+      // IPC 返回，此后整轮只走 updateAIStreamingBubble（只替换 assistant 气泡），
+      // 不主动刷新则 pill 与折叠块在本轮永不出现（只在下一次整列重绘时才补上）
+      refreshUserMessageBubble(userMsgId);
     }
 
     // 主进程权威判定与本地预检不一致（如另一窗口刚禁用了该技能）：主进程未调用
@@ -8981,6 +8955,101 @@ function renderSkillContentBox(skillInvocation) {
   box.appendChild(header);
   box.appendChild(body);
   return box;
+}
+
+/**
+ * 构建用户气泡的内容节点（**用户气泡构建的唯一实现**）
+ *
+ * `renderAIMessages`（整列渲染）与 `refreshUserMessageBubble`（定向重绘单条）**共用**
+ * 本函数 —— 不得复制第二份：G-48-6 的修复依赖「回填后只重绘这一条」，两份构建逻辑
+ * 必然漂移（一份加了 pill，另一份没加）。
+ *
+ * **顺序即契约**（逐字沿用 48-01/48-02 的既有顺序）：@ 引用 pill 行 → 技能调用 pill
+ * （`技能` 微标 + 技能名）→ 正文（技能调用时为 args 原文，纯文本 `textContent`）
+ * → 内联图片 → 非图片附件徽标行 → 技能正文折叠块（附件之后、默认折叠）。
+ *
+ * 技能名与正文均来自磁盘（不可信输入），一律 DOM API + `textContent`（T-48-03）。
+ *
+ * @param {Object} msg - 用户消息对象（`{content, referencedTabs?, skillInvocation?, attachments?}`）
+ * @returns {HTMLElement} `class="ai-message-content"` 的内容容器
+ */
+function buildUserMessageContent(msg) {
+  const content = document.createElement('div');
+  content.className = 'ai-message-content';
+
+  // @ 引用标签页标记（在气泡顶部展示，便于确认引用已随消息发出）
+  if (msg.referencedTabs && msg.referencedTabs.length > 0) {
+    const refRow = document.createElement('div');
+    refRow.className = 'ai-message-refs';
+    msg.referencedTabs.forEach(t => {
+      const pill = document.createElement('span');
+      pill.className = 'ai-message-ref-pill';
+
+      const dot = document.createElement('span');
+      dot.className = 'ai-message-ref-dot';
+      dot.style.backgroundColor = t.containerColor || '#666';
+
+      const title = document.createElement('span');
+      title.className = 'ai-message-ref-title';
+      title.textContent = t.title || '标签页';
+
+      pill.appendChild(dot);
+      pill.appendChild(title);
+      refRow.appendChild(pill);
+    });
+    content.appendChild(refRow);
+  }
+
+  // 技能调用 pill（D-06）：`技能` 微标 + 技能名。渲染走 DOM API + textContent
+  //（T-48-03），技能名来自磁盘属不可信输入
+  if (msg.skillInvocation && msg.skillInvocation.name) {
+    content.appendChild(renderAISkillPill(msg.skillInvocation));
+  }
+
+  // 用户消息：纯文本
+  const textDiv = document.createElement('div');
+  textDiv.textContent = msg.content || '';
+  content.appendChild(textDiv);
+
+  // 附件渲染：图片内联展示（截图工具同款：点击放大 + 右键下载），
+  // 非图片保持徽标行（历史恢复经 getMessages attachments 列带出）
+  const msgAtts = msg.attachments || [];
+  const inlineImages = msgAtts.filter(a => a.isImage && !a.isDirectory);
+  const badgeAtts = msgAtts.filter(a => !(a.isImage && !a.isDirectory));
+
+  if (inlineImages.length > 0) {
+    content.appendChild(renderAIAttachmentImages(inlineImages));
+  }
+
+  if (badgeAtts.length > 0) {
+    const attRow = document.createElement('div');
+    attRow.className = 'ai-message-refs';
+    badgeAtts.forEach(att => {
+      const pill = document.createElement('span');
+      pill.className = 'ai-message-ref-pill ai-message-attachment-pill';
+      pill.title = att.isDirectory ? `${att.name}/（目录）` : att.name;
+
+      const badge = document.createElement('span');
+      badge.className = 'ai-attachment-badge';
+      badge.innerHTML = aiAttachmentTypeIcon(att);
+
+      const name = document.createElement('span');
+      name.className = 'ai-message-ref-title';
+      name.textContent = att.isDirectory ? `${att.name}/` : att.name;
+
+      pill.appendChild(badge);
+      pill.appendChild(name);
+      attRow.appendChild(pill);
+    });
+    content.appendChild(attRow);
+  }
+
+  // 技能正文折叠块（D-09）：附件之后、默认折叠、可展开查看本次实际注入的正文
+  if (msg.skillInvocation && typeof msg.skillInvocation.content === 'string') {
+    content.appendChild(renderSkillContentBox(msg.skillInvocation));
+  }
+
+  return content;
 }
 
 /**
@@ -9919,6 +9988,8 @@ async function regenerateMessage(messageId) {
     if (res && res.skillInvocation) {
       const resent = state.aiMessages.find(m => m.id === resentUserId);
       if (resent) resent.skillInvocation = res.skillInvocation;
+      // 回填后立即刷新该条气泡（G-48-6）：与发送路径同款，重发也不留旧正文 / 旧 N
+      refreshUserMessageBubble(resentUserId);
     }
   } catch (err) {
     console.error('[Realm Renderer] AI 重新生成失败:', err);
@@ -9994,6 +10065,8 @@ function showAIError(errorMessage) {
       if (res && res.skillInvocation) {
         const target = state.aiMessages.find(m => m.id === retryUserMsg.id);
         if (target) target.skillInvocation = res.skillInvocation;
+        // 回填后立即刷新该条气泡（G-48-6）：与发送 / 重发生路径同款
+        refreshUserMessageBubble(retryUserMsg.id);
       }
     } catch (err) {
       console.error('[Realm Renderer] AI 重试失败:', err);
