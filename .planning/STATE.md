@@ -4,18 +4,18 @@ milestone: v2.6
 milestone_name: AI 助手技能（Skill）能力
 current_phase: 48
 current_phase_name: "技能发现与调用（`/` 面板 + `/skill:name`）"
-status: planning
-stopped_at: Phase 48 context gathered
-last_updated: "2026-09-11T17:07:22.611Z"
+status: executing
+stopped_at: Phase 48 UI-SPEC approved
+last_updated: "2026-09-12T04:08:32.346Z"
 last_activity: 2026-09-12
 last_activity_desc: Phase 47 complete, transitioned to Phase 48
-state_head: 23e5144e1f78c300f3893f622f27adf5b3fccc63
+state_head: ff6e590c3bd89cb4b7c74feeb14c47899ae6dd53
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 10
+  total_plans: 13
   completed_plans: 10
-  percent: 17
+  percent: 0
 ---
 
 # Project State: Realm Browser
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-09-11)
 
 ## Current Position
 
-Phase: 48 — 技能发现与调用（`/` 面板 + `/skill:name`）
+Phase: 48 (技能发现与调用（`/` 面板 + `/skill:name`）) — READY TO EXECUTE
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-09-12 — Phase 47 complete, transitioned to Phase 48
 
-Progress: [██░░░░░░░░] 17%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -219,10 +219,13 @@ None yet.
 - O5（51）：frontmatter 是否显式 require `yaml`——若 require 必须提升为直接 `dependencies`（否则换 pnpm 立刻 MODULE_NOT_FOUND）
 - ~~O7（46/50）：`MAX_SKILL_MD_BYTES` / `MAX_USER_SKILLS` / prompt 段字符预算具体数值需结合实测用量定~~ — **已在 Phase 46 落定**（`ai-skills-manager.js LIMITS`：64 KiB / 50 / 8000）。Phase 50 只负责把这些数值渲染给用户，不得重新定义
 - ~~O8（46）：`/compact` 不保留技能正文，须写进 `docs/product/ai-skills.md` 已知限制~~ — **已在 Phase 46 落定**（文档「六、已知限制」）
-- ⚠️ [Phase 48/49/50/51] `syncAgentSystemPrompt()` **本阶段无生产调用方** —— 技能集写路径（`/` 面板 48 / `manage_skill` 49 / 设置页启停卸载 50 / 导入 51）落地时**必须**把「写成功后调用 `syncAgentSystemPrompt()`」写成显式交付项与验收项；P8 失效链本阶段只闭合 3/6
+- ⚠️ [Phase 48/49/50/51] `syncAgentSystemPrompt()` **本阶段无生产调用方** —— 技能集写路径（`/` 面板 48 / `manage_skill` 49 / 设置页启停卸载 50 / 导入 51）落地时**必须**把「写成功后调用 `syncAgentSystemPrompt()`」写成显式交付项与验收项；P8 失效链本阶段只闭合 3/6 —— **2026-09-12 规划期注记**：Phase 48 已新增**读侧**生产调用方 `refreshSkillsForPanel()` → `await this.syncAgentSystemPrompt()`（D-17 / P8 触发点，48-01 Task 2）；但「写成功后回写」仍归 49/50/51，**该 ⚠️ 不因 48 闭合**
 - ⚠️ [Phase 48] `/skill:name` **显式调用必须实时读盘**（用户 2026-09-11 UAT 明确要求）—— 技能正文当场从磁盘读取，不得依赖 prompt 快照或对话历史里的旧回答。背景：46-UAT Test 3 实测「切回老对话看不到磁盘改动」，根因是模型复读自身历史答案（两次回答 1801 字符逐字相同），非重扫失效
 - ⚠️ [Phase 48] prompt 未区分「工具 / 技能」两个概念 —— 模型被问「你有哪些技能」时会把 27 个 tool 也称作技能（仅 demo 是真技能）；无历史污染时模型自行区分正确。做 `/` 面板时可考虑补一句措辞
-- O9（51）：既有沙箱 `writeFile` ENOENT symlink 缺口列为本期加固项（SEC-10）
+- ⚠️ [Phase 48 · 规划期技术债] **plan-checker 第 4 轮独立门禁未运行** —— 子代理配额 429（重置 2026-09-13 10:53），第 3 轮 checker 查出的 1 blocker（`resolveSkillBubbleArgs` 空 args 分支）+ 1 warning（`regenerateMessage`/`showError` 重试丢技能注入）由 planner 修订后，改由**主会话**做聚焦验证并判定成立。独立 gate 对这两项的属性已降级（非独立上下文）；执行前若配额恢复，可重跑 `/gsd-plan-phase 48 --skip-research` 复验。
+- ⚠️ [Phase 48 · 执行期注意] `resolveSkillBubbleArgs` **残留窄洞**：纯 `prompt()` 路径下，若 args 的尾段恰为 `'\n\n' + '/skill:{name}'`（用户手打 `/skill:alpha 第一段` + 空行 + `/skill:alpha`），pass1 无非空解、pass2 命中该假候选 → 返回 `''` 而非真 args（`promptWithContext` 形态因尾段 `用户消息：` 使 pass1 命中而不受影响）。触发需 args 末尾逐字重复同一技能 token，属病态但可达。48-01 Task 1 的八例解析表不含该形态 → 测试可全绿而该输入显示错 args。判据见 `48-01-PLAN.md` Task 1 ③ 第 4/6 步。
+
+
 - ⚠️ [技术债 · 无归属阶段] **bash 安装档只读豁免的结构性根因** —— `matchInstall` 用「整段正则 + `FLAG_TOLERANCE` 取值槽」判只读，使三条形态在白名单含裸工具名时**零卡片**：CR-01（`npm -g update` / `npm --global rebuild`）、CR-02（`npm audit --json fix`）、残余 ③（`npm -g update ls`）。三者均在 Phase 47 基线即存在（非回归），已具名写进两份产品文档的残余段与 `47-REVIEW.md`。**根治 = argv 级分词 + 显式「带值旗标」清单**；修的时候须同步改 `tests/test-ai-bash-policy.js:847`（它当前把 CR-01 的词法形态钉成期望的 `allow`）与三份文档口径。另两条同源技术债：`ai-bash-policy.js:249` 的 JSDoc 称旗标容忍「不会吞掉子命令本身」（与 CR-01 矛盾）、`docs` 只读枚举缺机械漂移护栏
 
 **v2.6 待实测风险（plan 期验证，research Gaps）：**
@@ -296,9 +299,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T17:07:22.569Z
-Stopped at: Phase 48 context gathered
-Resume file: .planning/phases/48-skill-name/48-CONTEXT.md
+Last session: 2026-09-12T02:26:09.863Z
+Stopped at: Phase 48 UI-SPEC approved
+Resume file: /Users/wxnacy/Projects/Realm/.planning/phases/48-skill-name/48-UI-SPEC.md
 
 ## Operator Next Steps
 

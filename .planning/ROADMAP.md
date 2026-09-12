@@ -238,9 +238,18 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 48-01-PLAN.md — `/skill:name` 主进程端到端纵切（解析 → 实时读盘 → `<skill>` 块组装 → 注入 → 重载还原）+ 收窄投影与三档 tier + 两个面板 IPC 通道 + 气泡 pill / 技能正文折叠块（wave 1，DISC-02/03/04/06/07）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 48-02-PLAN.md — `/` 面板同屏分区列出技能与本地命令、两档实时过滤、↑↓ 可选中导航与选中执行、五要素行与三态可见性、stale-while-revalidate 刷新链路（wave 2，DISC-01/04/07）
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 48-03-PLAN.md — `read` 工具卡片技能化（模型自动匹配的可见性）与重载标记重建 + 「发现与调用」产品文档与 AGENTS.md 同步（wave 3，DISC-05）
+
 **UI hint**: yes
 **Doc sync**: `docs/product/ai-skills.md` 补发现与调用章节（48-03）。
 
