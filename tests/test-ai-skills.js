@@ -2136,7 +2136,93 @@ describe('E 组 · 通道成对 / 转义护栏（源码扫描）', () => {
       0,
       "主窗口 file:// 不能 fetch 本地 HTTP API，技能数据必须走 realmAPI.ai.*"
     );
+    assert.strictEqual(
+      (src.match(/http:\/\/localhost[^\n]*skill/gi) || []).length,
+      0,
+      '技能相关路径不得出现 http://localhost'
+    );
   });
 });
+
+// ==================== 48-01 F 组：renderer 调用路径接线（源码扫描） ====================
+
+describe('F 组 · renderer 调用路径（D-06 / D-19 / 重发路径）', () => {
+  const rendererSrc = readSource('src/renderer.js');
+  const bodyOf = (name) => {
+    const start = rendererSrc.indexOf(`async function ${name}(`);
+    assert.ok(start >= 0, `应存在 async function ${name}(`);
+    return rendererSrc.slice(start, rendererSrc.indexOf('\n}', start));
+  };
+
+  test('handleSendAIMessage：预检位置在 aiStreaming 守卫之前 + 两条拒绝分支', () => {
+    const body = bodyOf('handleSendAIMessage');
+    const guardIdx = body.indexOf('if (state.aiStreaming) return;');
+    const precheckIdx = body.indexOf('disabled === true');
+    assert.ok(guardIdx >= 0, '必须保留流式守卫');
+    assert.ok(precheckIdx >= 0, '必须插入技能预检');
+    assert.ok(precheckIdx < guardIdx, '技能预检必须在流式守卫之前（否则流式中调用被静默丢弃）');
+    assert.ok(body.includes("'未找到技能「' + ref.name + '」，输入 / 查看可用技能'"), '未找到文案');
+    assert.ok(
+      body.includes("'技能「' + ref.name + '」已被禁用，可在 设置 → AI → 技能管理 重新启用'"),
+      '禁用文案'
+    );
+    assert.ok(body.includes('未知命令 '), '两边都不命中仍走未知命令路径');
+  });
+
+  test('state.aiSkills / state.aiSkillsDigest 已建立且预检查的是含禁用条目的投影', () => {
+    assert.ok(rendererSrc.includes('aiSkills:'),
+      '必须新增 state.aiSkills（主进程收窄投影缓存，含已禁用条目）');
+    assert.ok(rendererSrc.includes('aiSkillsDigest:'), '必须新增 state.aiSkillsDigest');
+    const body = bodyOf('handleSendAIMessage');
+    assert.ok(body.includes('state.aiSkills'), '预检必须查 state.aiSkills');
+  });
+
+  test('重发路径：两处 ai.prompt 实参均为 payload 且均带 await；唯一实现', () => {
+    assert.strictEqual(
+      (rendererSrc.match(/function buildResendPayload\(/g) || []).length,
+      1,
+      'buildResendPayload 必须只有一份实现'
+    );
+    const defIdx = rendererSrc.indexOf('function buildResendPayload(');
+    const def = rendererSrc.slice(defIdx, rendererSrc.indexOf('\n}', defIdx));
+    assert.ok(def.includes('buildSkillSyntaxText('), '函数体必须由反向唯一实现重组语法文本');
+    assert.ok(def.includes('skillInvocation.name'), '技能调用消息必须走重组分支');
+
+    const regen = bodyOf('regenerateMessage');
+    assert.ok(regen.includes('buildResendPayload('), 'regenerateMessage 必须共用');
+    assert.ok(regen.includes('await window.realmAPI.ai.prompt(payload)'), '必须 await payload');
+    assert.strictEqual(
+      (regen.match(/realmAPI\.ai\.prompt\(/g) || []).length,
+      1,
+      'regenerateMessage 内只应有一处 ai.prompt 调用'
+    );
+    assert.ok(regen.includes('if (!payload)'), '空值守卫必须以 payload 为判据');
+
+    const retryIdx = rendererSrc.indexOf('retryBtn.addEventListener');
+    const retry = rendererSrc.slice(retryIdx, retryIdx + 1800);
+    assert.ok(retry.includes('buildResendPayload('), '错误重试必须共用');
+    assert.ok(retry.includes('await window.realmAPI.ai.prompt(payload)'), '重试必须 await payload');
+  });
+
+  test('重发路径消费响应：skillError 复位 + system-note；skillInvocation 覆盖折叠块正文', () => {
+    const regen = bodyOf('regenerateMessage');
+    assert.ok(regen.includes('res.skillError'), '必须消费 skillError');
+    assert.ok(regen.includes('pushSystemNote(res.skillError.message)'), '错误走 system-note');
+    assert.ok(regen.includes('res.skillInvocation'), '必须用本次读盘结果覆盖 skillInvocation');
+    const retryIdx = rendererSrc.indexOf('retryBtn.addEventListener');
+    const retry = rendererSrc.slice(retryIdx, retryIdx + 1800);
+    assert.ok(retry.includes('res.skillError'), '重试路径同样消费 skillError');
+    assert.ok(retry.includes('res.skillInvocation'), '重试路径同样覆盖 skillInvocation');
+  });
+
+  test('气泡折叠块 N 口径为 String.length；不出现字节口径', () => {
+    const start = rendererSrc.indexOf('function renderAIMessages(');
+    const body = rendererSrc.slice(start, rendererSrc.indexOf('\n}', start));
+    assert.ok(body.includes('msg.skillInvocation.content.length'), 'N 必须是 content.length');
+    assert.strictEqual(body.includes('Buffer.byteLength'), false);
+    assert.strictEqual(body.includes('TextEncoder'), false);
+  });
+});
+
 
 
