@@ -1424,8 +1424,10 @@ class AIManager {
    *    `sourceTierOf` + seeded 集合）。本方法**不**新增第二套遮蔽 / 禁用判定，也**不**按目录
    *    直读绕过契约布局过滤、description 可用性过滤与 `SKILL.md` 64 KiB 字节闸。
    * 3. 重试**至多一次**，不得写成循环：真不存在仍是 `not_found`（返回值域仍只有
-   *    `not_found | disabled` 两个码）；重扫抛错被就地 catch + 告警后**保留原判定**，
-   *    不把「未找到」升级成异常。
+   *    `not_found | disabled` 两个码）。**重扫抛错**或**重试读盘抛错**都在各自独立的 `try` 内
+   *    就地 catch + 告警后**沿用原判定** —— 不赋 `result`、不逃逸、不升级成第三码；重扫抛错时
+   *    **不再执行**重试读盘（整批失败会回滚缓存三件套 ⇒ 重读必然与首次同形）。告警取值一律用
+   *    `err && err.message ? err.message : String(err)`，故 `throw null` / 抛原始值不会二次抛错。
    * 4. **忙时只置脏**：`prompt()` / `promptWithContext()` 在调用本方法**之前**即置
    *    `isProcessing = true`，故重扫必然落到同步入口的忙分支 —— 重扫落地、脏标记置真，但
    *    **不改写** `agent.state.systemPrompt`、**不广播**。prompt 回写与 `skills:changed`
@@ -1458,13 +1460,39 @@ class AIManager {
     // 忙时语义：显式调用路径恒处于「正在处理」，重扫必然落到忙分支 —— 只置脏，不改写 prompt、
     // 不广播，回写与广播延后到下一次非忙同步点。
     if (result && result.ok !== true && result.reason === 'not_found') {
+      // ① 重扫与重试读盘**各自独立兜底**：重试读盘是 48-07 新增的调用点，原先落在 try 之外，
+      //    一旦抛错就直接逃逸出本方法 —— 而调用点恒处于「正在处理」，逃逸会让该状态永不复位，
+      //    后续消息会被「AI 正在处理上一条消息」拒绝，直到重建 Agent。
+      // ② 重扫抛错时**不执行**重试读盘（用 `rescanned` 局部标志）：整批加载失败会回滚缓存三件套
+      //    ⇒ 缓存未变 ⇒ 重读必然得到与首次**同形**的判定，白付一次 IO。取舍已注明：若日后调用点
+      //    改成非忙，重扫可能「缓存已更新但后续步骤抛错」，此时跳过重读会退回 not_found —— 代价是
+      //    一次调用退化（下一次调用缓存已命中即恢复），有界且自愈，换取「沿用原判定」在字面上成立。
+      // ③ 判定**至多一次**，不得写成循环（任何循环关键字都会让「有界」失效）。
+      // ④ 两个 catch 都**不赋 `result`、不逃逸**：判定沿用原值，返回值域仍只有
+      //    `not_found | disabled`（`skillErrorFromReason` 是唯一来源）。告警取值一律用
+      //    `err && err.message ? err.message : String(err)`（与 ai-skills-manager 同形）——
+      //    `throw null` / 抛原始值是合法 JS 形态，裸读 `err.message` 会在 catch 体内二次抛
+      //    `TypeError`，恰好把「绝不升级为异常」反转。两条告警文案必须**可判别**。
+      let rescanned = false;
       try {
         await this.syncAgentSystemPrompt();
+        rescanned = true;
       } catch (err) {
-        // 重扫失败**保留原判定**（不把「未找到」升级成异常），但绝不静默
-        console.warn('[Realm AI] 技能缓存未命中后的重扫失败（保留原判定）:', err.message);
+        console.warn(
+          '[Realm AI] 技能缓存未命中后的重扫失败（沿用原判定，不重复读盘）:',
+          err && err.message ? err.message : String(err)
+        );
       }
-      result = await skillsManager.readSkillForInvocation(this.sandboxEnv, parsed.name);
+      if (rescanned) {
+        try {
+          result = await skillsManager.readSkillForInvocation(this.sandboxEnv, parsed.name);
+        } catch (err) {
+          console.warn(
+            '[Realm AI] 技能缓存未命中后的重试读盘失败（沿用原判定）:',
+            err && err.message ? err.message : String(err)
+          );
+        }
+      }
     }
 
     if (!result || result.ok !== true) {

@@ -2931,6 +2931,139 @@ describe('J 组 · G-48-12 运行期新增技能（miss → 权威重扫一次 �
     assert.strictEqual(ctx.rescanCalls, 1, '真不存在也至多重扫一次（既非 0 次也非 ≥2 次）');
   });
 
+  test('J8 · 负例 · 重扫抛错（Error 形态）：就地 catch、沿用原判定、不升级为异常、不重复读盘', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root);
+    const ctx = skillResolveCtx(env);
+    // 必须同时自增计数：覆写会整体替换 skillResolveCtx 的计数包装，否则 rescanCalls 失真
+    ctx.syncAgentSystemPrompt = function () {
+      this.rescanCalls += 1;
+      throw new Error('boom');
+    };
+
+    // 读盘计数：getAiSkillsManagerLazy() 返回的就是本模块对象，包装后 `_resolveSkillInvocation`
+    // 取到的即是被包装的版本（t.after 复原）
+    const skillsManager = aiSkills;
+    const realRead = skillsManager.readSkillForInvocation;
+    let readCalls = 0;
+    skillsManager.readSkillForInvocation = async (...args) => {
+      readCalls += 1;
+      return realRead.apply(skillsManager, args);
+    };
+    t.after(() => {
+      skillsManager.readSkillForInvocation = realRead;
+    });
+
+    const warns = [];
+    const realWarn = console.warn;
+    console.warn = (...args) => {
+      warns.push(args.join(' '));
+    };
+    t.after(() => {
+      console.warn = realWarn;
+    });
+
+    const res = await invokeSkill(ctx, '/skill:no-such-skill-xyz');
+
+    assert.strictEqual(
+      res.skillError.code,
+      'skill_not_found',
+      '重扫抛错必须沿用原判定：不是异常、不是第三码'
+    );
+    assert.strictEqual(res.skill, null);
+    assert.strictEqual(res.skillBlock, '');
+    assert.strictEqual(ctx.rescanCalls, 1, '重扫尝试恰一次');
+    assert.strictEqual(readCalls, 1, '重扫失败后不得再读盘（缓存未变，重读必然与首次同形）');
+    assert.ok(
+      warns.some((w) => w.includes('重扫失败')),
+      '告警必须含「重扫失败」文案（绝不静默）'
+    );
+  });
+
+  test('J9 · 负例 · 重扫抛错（原始值形态）：告警取值不得二次抛错', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root);
+    const ctx = skillResolveCtx(env);
+
+    // `throw null` / 抛原始值是**合法** JS 抛出形态；若 catch 体内裸读 `err.message`，
+    // 本用例会在 catch 体内二次抛 TypeError —— 恰好把「绝不升级为异常」反转成「升级为异常」。
+    // 取值形态必须与 `ai-skills-manager.js` 同形：`err && err.message ? err.message : String(err)`。
+
+    // 形态 ① `throw null`
+    ctx.syncAgentSystemPrompt = function () {
+      this.rescanCalls += 1;
+      throw null;
+    };
+    const resNull = await invokeSkill(ctx, '/skill:no-such-skill-xyz');
+    assert.strictEqual(
+      resNull.skillError.code,
+      'skill_not_found',
+      '`throw null` 时仍须正常 resolve 且判定不变'
+    );
+    assert.strictEqual(resNull.skill, null);
+
+    // 形态 ② 抛原始字符串
+    ctx.syncAgentSystemPrompt = function () {
+      this.rescanCalls += 1;
+      throw 'x';
+    };
+    const resStr = await invokeSkill(ctx, '/skill:no-such-skill-xyz');
+    assert.strictEqual(
+      resStr.skillError.code,
+      'skill_not_found',
+      "抛原始值 'x' 时仍须正常 resolve 且判定不变"
+    );
+    assert.strictEqual(resStr.skill, null);
+
+    assert.strictEqual(ctx.rescanCalls, 2, '两次调用各重扫一次');
+  });
+
+  test('J10 · 负例 · 重试读盘抛错：沿用原判定、不逃逸，且告警可与「重扫失败」判别', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root);
+    const ctx = skillResolveCtx(env); // syncAgentSystemPrompt 走**真实**实现 → 重扫成功
+
+    const skillsManager = aiSkills;
+    const realRead = skillsManager.readSkillForInvocation;
+    let readCalls = 0;
+    skillsManager.readSkillForInvocation = async (...args) => {
+      readCalls += 1;
+      if (readCalls === 2) throw null; // 第 2 次 = 重试读盘，抛非对象值（一并覆盖原始值形态）
+      return realRead.apply(skillsManager, args);
+    };
+    t.after(() => {
+      skillsManager.readSkillForInvocation = realRead;
+    });
+
+    const warns = [];
+    const realWarn = console.warn;
+    console.warn = (...args) => {
+      warns.push(args.join(' '));
+    };
+    t.after(() => {
+      console.warn = realWarn;
+    });
+
+    const res = await invokeSkill(ctx, '/skill:no-such-skill-xyz');
+
+    assert.strictEqual(res.skillError.code, 'skill_not_found', '重试读盘抛错同样沿用原判定');
+    assert.strictEqual(res.skill, null);
+    assert.strictEqual(ctx.rescanCalls, 1, '重扫走真实实现 → 恰一次');
+    assert.strictEqual(readCalls, 2, '首次 + 至多一次重试');
+    assert.ok(
+      warns.some((w) => w.includes('重试读盘失败')),
+      '告警必须含「重试读盘失败」文案'
+    );
+    assert.strictEqual(
+      warns.some((w) => w.includes('重扫失败')),
+      false,
+      '两条告警必须可判别 —— 两条 catch 不得被合并成一条'
+    );
+  });
+
   test('源码护栏 · miss 重试的接线与有界性（修复落在调用侧）', () => {
     const body = methodBody(readSource('ai-manager.js'), '_resolveSkillInvocation');
     assert.ok(body.length >= 400, `方法体提取口径失效会假绿 —— 守卫须先过这一关（实际 ${body.length}）`);
