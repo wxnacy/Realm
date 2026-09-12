@@ -54,22 +54,26 @@ Could not enumerate: 项目无组件库、无设计系统包 —— 无 `compone
 grep -nE "^\.(slash-picker|ai-(message-ref|attachment|summary-box|system-note)|tool-card)[a-z-]*[ ,{]" src/styles/main.css
 ```
 
-**非穷尽清单** —— 执行时若需要表外原语，直接查 `main.css` 是预期路径，不是例外。
+**非穷尽清单 —— 不是封闭白名单。** 执行时如需表外原语，直接查 `main.css` 是**预期路径**，
+不是例外：**表中未列出的既有类可直接使用**（例如 `.ai-message-refs`、`.ai-attachment-pill-badge`、
+`.ai-drop-overlay`），**不因未列于本表而受阻**。本表的作用是标出本阶段**已经核对过**的复用点，
+不是允许使用的上限。
 
 | 既有原语（类 / 函数） | 位置 | 本阶段如何复用 |
 |----------------------|------|----------------|
 | `.slash-picker-panel` | `main.css:6973` | 面板外壳：`bottom:100%` / `max-height:220px` / `overflow-y:auto` / `--bg-secondary` 底 / `8px` 圆角 / `0 4px 16px rgba(0,0,0,0.4)` 阴影。**零改动**（含 `max-height` —— 见 `## UI Considerations` 的 backstop 行） |
-| `.slash-picker-row` / `-name` / `-desc` | `main.css:6989-7020` | 行骨架。`-name` = `var(--font-mono, monospace)` / 13px / 600 / nowrap；`-desc` = 12px / `--text-muted` / 单行 ellipsis。**零改动** |
-| `.slash-picker-row:hover` / `.active` | `main.css:7000-7007` | 行高亮一律 `var(--bg-hover)`。**禁止**改为 accent 背景 |
+| `.slash-picker-row` / `-name` / `-desc` | `main.css:6988-7019` | 行骨架。`-name` = `var(--font-mono, monospace)` / 13px / 600 / nowrap；`-desc` = 12px / `--text-muted` / 单行 ellipsis。**零改动** |
+| `.slash-picker-row:hover` / `.active` | `main.css:6997-7003` | 行高亮一律 `var(--bg-hover)`。**禁止**改为 accent 背景 |
 | `#slashPickerList` / `#slashPickerPanel` | `index.html:861-863` | 渲染容器。分组标题必须落在 `.slash-picker-panel` 的滚动容器内（见下） |
 | `SLASH_COMMANDS` | `renderer.js:334` | 本地命令唯一注册表；「命令」分区的唯一数据源，形状 `{name, description, takesArg, handler}` |
 | `renderSlashPickerList()` | `renderer.js:9900` | 全量 `innerHTML` 重建 + `activeRow.scrollIntoView({block:'nearest'})` + `data-cmd` 点击/mousemove 绑定。新增分组渲染在此函数内扩展 |
 | `state.slashPickerItems` | `renderer.js` 单数组 | **必须保持展平单数组**（D-01）；`activeIndex` 是扁平索引 |
-| `.ai-message-ref-pill` / `-dot` / `-title` | `main.css:6929-6957` | 用户气泡 pill 家族：20px 高 / `padding 1px 8px` / `border-radius 10px` / 11px / `rgba(0,0,0,0.25)` 底 / `color: inherit` / `max-width 180px`。技能 pill 复用（**底部用 `rgba(0,0,0,0.25)` 而非 `--bg-hover`** —— 它坐在 `--accent-color` 蓝底气泡上） |
+| `.ai-message-ref-pill` / `-dot` / `-title` | `main.css:6929-6953` | 用户气泡 pill 家族：20px 高 / `padding 1px 8px` / `border-radius 10px` / 11px / `rgba(0,0,0,0.25)` 底 / `color: inherit` / `max-width 180px`。技能 pill 复用（**底部用 `rgba(0,0,0,0.25)` 而非 `--bg-hover`** —— 它坐在 `--accent-color` 蓝底气泡上） |
+| `.ai-message-refs` | `main.css:6922` | 气泡 pill 行容器（`flex` / `flex-wrap` / `gap:4px` / `margin-bottom:6px`）。技能 pill 行**原类复用**，零改动 |
 | `.ai-attachment-pill-badge` | `main.css:6843` | 中性微标先例（面板语境）。**气泡语境不用它**（`--bg-hover` 底在蓝气泡上发灰），改用新增 `.ai-skill-pill-badge` |
-| `.ai-summary-box` / `-header` / `-icon` / `-title` / `-chevron` / `-body` | `main.css:5733-5783` | `/compact` 折叠框先例：`flex-shrink:0` / `border-radius 8px` / header 12px `--text-secondary` / chevron 折叠时 `rotate(-90deg)` / body `max-height:260px` + `overflow-y:auto` + `white-space:pre-wrap` + `line-height:1.6`。技能正文折叠块**逐值照抄** |
-| `.ai-system-note` / `span` | `main.css:5713-5724` | 文本反馈唯一形态（居中 / 12px / `--text-muted` / `rgba(127,127,127,0.12)` 底 / `padding 3px 12px` / `border-radius 10px`）。D-10 / D-13 三条反馈**零新形状** |
-| `.tool-card` / `-header` / `-name` / `-icon` / `-status` | `main.css:5998-6060` | `-header` = `display:flex` / `gap:8px` / `height:36px` / `padding:0 12px`；`-name` = 12px / 500 / `flex:1` / ellipsis / nowrap。`read` 技能变体复用骨架，只加修饰类 |
+| `.ai-summary-box` / `-header` / `-icon` / `-title` / `-chevron` / `-body` | `main.css:5733-5785` | `/compact` 折叠框先例：`flex-shrink:0` / `border-radius 8px` / header 12px `--text-secondary` / chevron 折叠时 `rotate(-90deg)` / body `max-height:260px` + `overflow-y:auto` + `white-space:pre-wrap` + `line-height:1.6`。技能正文折叠块**逐值照抄** |
+| `.ai-system-note` / `span` | `main.css:5713-5725` | 文本反馈唯一形态（居中 / 12px / `--text-muted` / `rgba(127,127,127,0.12)` 底 / `padding 3px 12px` / `border-radius 10px`）。D-10 / D-13 三条反馈**零新形状** |
+| `.tool-card` / `-header` / `-name` / `-icon` / `-status` | `main.css:5991-6059` | `-header` = `display:flex` / `gap:8px` / `height:36px` / `padding:0 12px`；`-name` = 12px / 500 / `flex:1` / ellipsis / nowrap。`read` 技能变体复用骨架，只加修饰类 |
 | `renderToolCard()` | `renderer.js:9224` | `execute_action (${action})` 已是「按参数特殊化标题」的既有先例 → 技能变体同款处理 |
 | `pushSystemNote(content)` | `renderer.js:8794` | 文本反馈唯一入口 |
 | `abortAIIfStreaming()` | `renderer.js:8804` | 流式中触发技能调用先中止再发（D-08），零新增中止逻辑 |
@@ -78,12 +82,13 @@ grep -nE "^\.(slash-picker|ai-(message-ref|attachment|summary-box|system-note)|t
 
 ## Spacing Scale
 
-声明值（新增元素只允许取 4 的倍数）：
+声明值（**新增元素**的 `gap` / `padding` / `margin` 只允许取 4 的倍数；唯一例外通道是下方
+Exceptions 的 **B 表** —— 偏离值必须逐条登记并附理由与既有先例）：
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| xs | 4px | 徽标/标记与相邻文字的间隙；`·` 状态标注的内边距 |
-| sm | 8px | 行垂直 padding；块级元素之间的间隙 |
+| xs | 4px | 徽标/标记与相邻文字的间隙（`margin-right`）；徽标**水平** `padding`；状态标注的内边距 |
+| sm | 8px | 行垂直 padding；块级元素之间的间隙；`read` 卡片技能名的外层（图标↔名称）与内层（名称↔徽标）`gap` |
 | md | 16px | 本阶段**未使用**（保留） |
 | lg | 24px | 本阶段**未使用**（保留） |
 | xl | 32px | 本阶段**未使用**（保留） |
@@ -91,17 +96,35 @@ grep -nE "^\.(slash-picker|ai-(message-ref|attachment|summary-box|system-note)|t
 | 3xl | 64px | 本阶段**未使用**（保留） |
 
 **12px 亦在标内**（4 的倍数），本阶段用于水平 padding，因为它就是既有
-`.slash-picker-row { padding: 8px 12px }` 的水平值 —— 沿用而非新引入。
+`.slash-picker-row { padding: 8px 12px }`（`main.css:6992`）的水平值 —— 沿用而非新引入；
+新增的 `.slash-picker-group-header` 取 `padding: 4px 12px` 同款口径。
 
-Exceptions（**存量继承值，允许继续存在但不得新增同类偏离**）：
+### Exceptions
 
-- `.slash-picker-row` 的 `gap: 10px`（`main.css:6991`）—— 10 不是 4 的倍数，为存量行骨架值，
-  **不改**（改它会同时移动既有命令行的观感，超出本阶段范围）
-- `.slash-picker-row` 的 `padding: 8px 12px`、`.ai-summary-box-header` 的 `padding: 6px 12px`、
-  `.ai-summary-box-body` 的 `padding: 8px 12px 10px`、`.ai-message-ref-pill` 的 `padding: 1px 8px`
-  —— 均为被复用类别的存量值，照抄不改
-- `.ai-system-note span` 的 `padding: 3px 12px` —— 存量值，D-10/D-13 反馈直接沿用
-- **本阶段新增元素的 `gap` / `padding` 一律取 4 / 8 / 12**；不得出现 6 / 10 / 14 之类新值
+**A. 存量继承值** —— 既有类的值，被复用或照抄；允许继续存在，**不得新增同类偏离**：
+
+| 既有类 | 值 | 位置 | 处理 |
+|--------|-----|------|------|
+| `.slash-picker-row` | `gap: 10px` | `main.css:6991` | **不改** —— 10 不是 4 的倍数，但改它会同时移动既有命令行的观感，超出本阶段范围 |
+| `.slash-picker-row` | `padding: 8px 12px` | `main.css:6992` | 照抄值 |
+| `.ai-summary-box` | `margin: 4px auto` | `main.css:5738` | 4 的倍数；技能折叠块的覆盖项对齐它（`4px 0 0`） |
+| `.ai-summary-box-header` | `padding: 6px 12px`、`gap: 6px` | `main.css:5748-5749` | 照抄值（见 B 表第 2 条） |
+| `.ai-summary-box-body` | `padding: 8px 12px 10px` | `main.css:5772` | 照抄值 |
+| `.ai-message-ref-pill` | `padding: 1px 8px` | `main.css:6933` | 照抄值（气泡 pill 原地复用，零改动） |
+| `.ai-message-refs` | `gap: 4px` / `margin-bottom: 6px` | `main.css:6925-6926` | 气泡 pill 行容器原地复用，零改动 |
+| `.ai-system-note span` | `padding: 3px 12px` | `main.css:5724` | 存量值，D-10/D-13 反馈直接沿用 |
+
+**B. 本阶段新增声明中非 4 倍数的值 —— 仅此两条，逐条附理由与先例。**
+执行时**不得**再添加任何未登记的新值：
+
+| 新增类 | 属性 | 值 | 为什么不能取 4 的倍数 |
+|--------|------|-----|----------------------|
+| `.slash-picker-source-badge`、`.slash-picker-tag-explicit`、`.ai-skill-pill-badge`（三处**共用同一条例外**） | `padding` | `1px 4px` —— **水平已是 4 倍数，例外仅在垂直 `1px`** | 三个徽标都是 **11px 文字上的发丝级垂直内边距**。取 `4px` 会把徽标高撑到约 23px（`11 × 1.4 + 2×4 + 2×1(border)`），**超出其宿主的固定高**：`.ai-message-ref-pill` 是 `height: 20px`（`main.css:6932`），`.slash-picker-row` 是单行高。既有同族先例的垂直值同样非 4 倍数：`.ai-message-ref-pill` 的 `1px 8px`（`main.css:6933`）、`.ai-attachment-pill-badge` 的 `2px 4px`（`main.css:6846`）。垂直取 `1px` 而非 `2px` 是为与 pill 家族（`1px`）对齐 |
+| `.ai-skill-content-box-header`（新增，见 `## 用户气泡契约`） | `gap` / `padding` | `gap: 6px` / `padding: 6px 12px` | **逐值照抄** `.ai-summary-box-header`（`main.css:5748-5749` 即 `gap: 6px; padding: 6px 12px`）。契约要求技能正文折叠块与既有 `/compact` 摘要框**同族**（本文件开头：「**不得**另起一套…第二份徽标/折叠实现」）。此处单独拉回 `gap: 8px` 会与同屏可能出现的摘要框产生**无收益的视觉分叉**；改成 4 的倍数即等于发明第三个折叠框外观 |
+
+- **本阶段新增元素的 `gap` / `padding` / `margin` 一律取 4 的倍数**（6 / 10 / 14 之类**不得出现**），
+  **唯一例外是上表 B 中已逐条登记的两条**。新增任何偏离值都必须先补进 B 表（附理由 + 既有先例）
+  再落码 —— 契约与 CSS 块必须始终自洽。
 
 无 44px 触控目标例外：本阶段全部控件是桌面端键盘优先的浮层行与 pill，无独立触控入口。
 
@@ -115,8 +138,9 @@ Exceptions（**存量继承值，允许继续存在但不得新增同类偏离**
 | Label | 11px | 400 | 1.4 |
 | Heading | 13px | 600 | 1.2 |
 | Display | 14px | 400 | 1.5 |
+| Inherited（既有卡片标题，**本阶段不改**） | 12px | 500（继承） | n/a（继承，未声明） |
 
-**共 4 个字号、2 个字重**（400 / 600）。逐个用途：
+**本阶段声明**：**4 个字号、2 个字重**（400 / 600）。逐个用途：
 
 - **Body 12px / 400** —— 面板行描述（`.slash-picker-desc` 存量 12px）、行尾状态标注、
   技能正文折叠块正文（复用 `.ai-summary-box-body` 存量 12px）、system-note（存量 12px）
@@ -127,11 +151,17 @@ Exceptions（**存量继承值，允许继续存在但不得新增同类偏离**
 - **Display 14px / 400** —— 既有用户气泡正文（`.ai-message-content` 14px），
   **本阶段不新增**该档用途，仅登记以免执行时误用第 5 个字号
 
+> **表末行是「继承登记」，不是本阶段声明。** `.tool-card-name`（`main.css:6044-6046`：
+> `font-size: 12px; font-weight: 500`）是既有 `read` 卡片标题的存量值，本阶段**只改文案 +
+> 追加徽标，不改该类**（详见 Exceptions 第 1 条）。它的 500 不计入本阶段声明的字重数，
+> 也不得因此新增任何 500 字重的新类。
+
 Exceptions：
 
 - `.tool-card-name` 的存量 **500** 字重**不改**（技能变体的标题行只改文案 + 追加徽标，
-  不引入第 3 个字重）
-- 技能正文折叠块正文的 `line-height: 1.6` 照抄 `.ai-summary-box-body` 存量值（详见 `## Color` 后的复用说明）
+  不引入第 3 个字重）—— 该值同时在 Typography 表末行以「继承登记」形式列出
+- 技能正文折叠块正文的 `line-height: 1.6` 照抄 `.ai-summary-box-body` 存量值（详见
+  `## 用户气泡契约`）
 - 分组标题 11px 比既有 `.slash-picker-desc` 的 12px 更小，是刻意的层级区分（分组标题是结构标签、不是内容）
 
 ---
@@ -172,7 +202,7 @@ Exceptions：
 
 ```css
 font-size: 11px; font-weight: 400; line-height: 1.4;
-padding: 1px 5px; border-radius: 3px; white-space: nowrap; flex-shrink: 0;
+padding: 1px 4px; border-radius: 3px; white-space: nowrap; flex-shrink: 0;
 color: var(--skill-source-<tier>);
 background: color-mix(in srgb, var(--skill-source-<tier>) 15%, transparent);
 border: 1px solid color-mix(in srgb, var(--skill-source-<tier>) 30%, transparent);
@@ -180,6 +210,9 @@ border: 1px solid color-mix(in srgb, var(--skill-source-<tier>) 30%, transparent
 
 - 写进 `:root, [data-theme="dark"]` 与 `[data-theme="light"]` **两处**（缺一即浅色主题失效）
 - `color-mix` 项目已有先例（`.ai-drop-overlay`），Electron 43 支持
+- **`padding` 全部在 4 网格内（水平 `4px`）**，唯一偏离是垂直 `1px` —— 已登记于
+  `## Spacing Scale` 的 **B 表第 1 条**（11px 文字 + 20px 高 pill 宿主下 4px 会撑破容器；
+  与 `.ai-message-ref-pill` 的存量 `1px 8px` 同族）。**不得**在执行时另行放大
 - **对比度硬要求：徽标文字对「15% 混色底 + 面板 `--bg-secondary`」的对比度 ≥ 4.5:1**
   （11px 属小字，按 WCAG 1.4.3）。上述取值已按 15% 混色底手工核算通过
   （暗色约 5.7 / 6.1 / 5.2:1，浅色约 4.7 / 5.3 / 5.0:1）。
@@ -283,7 +316,7 @@ border: 1px solid color-mix(in srgb, var(--skill-source-<tier>) 30%, transparent
 | 背景 | `var(--bg-secondary)`（**必须显式声明** —— 透明背景会让滚动内容从标题下透出） |
 | 下边框 | `1px solid var(--border-color)` |
 | 排版 | 11px / 400 / `var(--text-muted)`（见 `## Typography` 的 Label 档） |
-| 内边距 | `padding: 4px 12px` |
+| 内边距 | `padding: 4px 12px`（两值均在 4 网格内 —— 见 `## Spacing Scale`） |
 | 交互 | `user-select: none`；**不可点击、无 hover 背景、无 cursor:pointer**；不参与 `slashPickerItems` 索引 |
 
 **硬约束（sticky 生效前提）**：`.slash-picker-panel` 仍是滚动容器（`overflow-y: auto` 保持），
@@ -313,13 +346,16 @@ border: 1px solid color-mix(in srgb, var(--skill-source-<tier>) 30%, transparent
 
 ```css
 font-size: 11px; font-weight: 400; line-height: 1.4;
-padding: 1px 5px; border-radius: 3px; white-space: nowrap; flex-shrink: 0;
+padding: 1px 4px; border-radius: 3px; white-space: nowrap; flex-shrink: 0;
 color: var(--text-secondary);
 background: rgba(127, 127, 127, 0.16);
 ```
 
 刻意**与来源徽标同尺寸但无彩色** —— 一行里出现 4 个色相会变成彩虹；来源是分类（需要色相区分，
 用户已确认），`仅显式` 是修饰（中性足以）。
+
+`padding` 与 `.slash-picker-source-badge` **完全同值**：水平 `4px` 在 4 网格内，垂直 `1px`
+走 `## Spacing Scale` **B 表第 1 条**这条共用例外（两个徽标必须严格同高，否则同一行里会参差）。
 
 ### 行状态与可选中性
 
@@ -424,6 +460,10 @@ color: inherit; background: rgba(0, 0, 0, 0.25);
 > 坐在 `--accent-color` 蓝底气泡上会发灰发脏。`.ai-message-ref-pill` 家族的 `rgba(0,0,0,0.25)`
 > 才是气泡语境的自适应做法 —— 微标必须与所属 pill 同底。
 
+> **间距说明**：`margin-right: 4px` 与水平 `padding: 4px` 都在 4 网格内；垂直 `1px` 是
+> `## Spacing Scale` **B 表第 1 条**登记的共用例外（4px 垂直内边距会把微标撑到约 23px，
+> 超出宿主 `.ai-message-ref-pill` 的 `height: 20px`）。
+
 - 技能名用**等宽字体 + 600**（与面板行名称同款），与 @ 引用 pill 的「彩色圆点 + 普通字重标题」
   和附件 pill 的「SVG 图标 + 标题」在形状上三者可辨
 - 气泡**不显示** `/name` 原文与技能正文（D-06）
@@ -437,11 +477,11 @@ color: inherit; background: rgba(0, 0, 0, 0.25);
 
 | 属性 | 值 | 来源 |
 |------|-----|------|
-| 外框 | `border: 1px solid var(--border-color)` / `border-radius: 8px` / `background: var(--bg-secondary)` / `overflow: hidden` / `flex-shrink: 0` / `max-width: 86%` | `.ai-summary-box` |
-| header | `display:flex; align-items:center; gap:6px; padding:6px 12px; cursor:pointer; user-select:none; font-size:12px; color:var(--text-secondary)` + hover 背景 `--bg-hover` | `.ai-summary-box-header` |
-| chevron | `margin-left:auto` + 折叠时 `rotate(-90deg)` + `transition: transform 150ms ease` | `.ai-summary-box-chevron` |
-| body | 默认 `display:none`；展开后 `padding:8px 12px 10px; font-size:12px; line-height:1.6; color:var(--text-secondary); white-space:pre-wrap; word-break:break-word; border-top:1px solid var(--border-color); max-height:260px; overflow-y:auto` | `.ai-summary-box-body` |
-| 覆盖项（**仅此两项**） | `max-width: 100%`、`margin: 6px 0 0` | 气泡内不需要居中 |
+| 外框（`.ai-skill-content-box`） | `border: 1px solid var(--border-color)` / `border-radius: 8px` / `background: var(--bg-secondary)` / `overflow: hidden` / `flex-shrink: 0` / `max-width: 86%` | `.ai-summary-box`（`main.css:5733-5743`） |
+| header（`.ai-skill-content-box-header`） | `display:flex; align-items:center; gap:6px; padding:6px 12px; cursor:pointer; user-select:none; font-size:12px; color:var(--text-secondary)` + hover 背景 `--bg-hover` | `.ai-summary-box-header`（`main.css:5745-5759`）。`gap: 6px` / `padding: 6px 12px` 为**照抄值**，已登记于 `## Spacing Scale` **B 表第 2 条** |
+| chevron（`.ai-skill-content-box-chevron`） | `margin-left:auto` + 折叠时 `rotate(-90deg)` + `transition: transform 150ms ease` | `.ai-summary-box-chevron`（`main.css:5761-5768`） |
+| body（`.ai-skill-content-box-body`） | 默认 `display:none`；展开后 `padding:8px 12px 10px; font-size:12px; line-height:1.6; color:var(--text-secondary); white-space:pre-wrap; word-break:break-word; border-top:1px solid var(--border-color); max-height:260px; overflow-y:auto` | `.ai-summary-box-body`（`main.css:5770-5785`）；`padding` 为照抄的存量值（A 表） |
+| 覆盖项（**仅此两项**） | `max-width: 100%`、`margin: 4px 0 0` | 气泡内不需要居中；`4px` 对齐 `.ai-summary-box` 的存量 `margin: 4px auto`（`main.css:5738`），**在 4 网格内** |
 
 - header 文案 `技能正文（N 字符）`（N 口径见 `## Copywriting Contract`）
 - **默认折叠**（与 `/compact` 摘要框一致）
@@ -473,12 +513,16 @@ renderer **不得**按路径字符串自行匹配 `skills/` / `managed-skills/`�
 | 元素 | 契约 |
 |------|------|
 | 标题文案 | `使用技能「{name}」`（替换原始 `read`） |
-| 名称容器 | `.tool-card-name` **原类零改动** + 新增修饰类 `.tool-card-name-skill`（`display:flex; align-items:center; gap:6px; min-width:0`） |
+| 名称容器 | `.tool-card-name` **原类零改动** + 新增修饰类 `.tool-card-name-skill`（`display:flex; align-items:center; gap:8px; min-width:0`） |
 | 名称文本 | 内层新增 `.tool-card-name-text`（`overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0`）+ **等宽字体** |
 | 来源徽标 | `.slash-picker-source-badge` **同一类复用**（同尺寸、同色令牌、同 15% 混色底） |
 | 状态图标 / 状态文字 | **不变**（`正在执行...` / `完成` / `失败`） |
 | 折叠内容 | **不变** —— 参数区仍显示 `filePath`、结果区仍显示文件内容（用户要能核对读了哪个路径） |
 | 展开/折叠交互 | **不变**（既有 header 点击 toggle） |
+
+- `.tool-card-name-skill` 的 `gap: 8px` **在 4 网格内**，与父容器 `.tool-card-header` 的存量
+  `gap: 8px`（`main.css:6001`）同值 —— 使「图标↔名称」与「名称↔徽标」两处间隙一致；
+  **不得**改用 6px（那是 `## Spacing Scale` B 表的例外值，仅折叠框 header 可用）
 
 ### 负向约束
 
@@ -548,6 +592,7 @@ Applicable state considerations resolved: 12 covered, 2 backstop, 0 unresolved
 | **气泡 pill = `技能` 微标 + 技能名** | **用户（本次 ui-phase 问答）** |
 | **超限标注用警示橙、遮蔽标注用中性灰** | **用户（本次 ui-phase 问答）** |
 | 徽标 / 标记 / 标注 / 分组标题的具体尺码与色值 | 本契约（存量先例 + 对比度核算） |
+| 新增间距值一律对齐 4 网格；两条不可对齐的偏离（徽标垂直 `1px`、折叠框 header 的照抄值）逐条登记 | 本契约（`## Spacing Scale` Exceptions B 表；值均以 `src/styles/main.css` 既有类的实际值为先例核对） |
 | ↑↓ 跳过不可选中行 + 灰显禁用态口径 | 由 D-11 推导（「不可选中」的键盘补全） |
 | 「与本地命令同名」行的灰显处理与标注 | 由 D-04 的优先级规则推导 |
 | `--skill-limit-text` 浅色专用值 | 本契约（`--warning-color` 在浅色主题对比度不足） |
