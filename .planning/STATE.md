@@ -5,16 +5,16 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 48
 current_phase_name: "技能发现与调用（`/` 面板 + `/skill:name`）"
 status: executing
-stopped_at: Completed 48-06-PLAN.md
-last_updated: "2026-09-12T12:07:16.554Z"
+stopped_at: Completed 48-07-PLAN.md
+last_updated: "2026-09-12T14:19:08.890Z"
 last_activity: 2026-09-12
 last_activity_desc: Phase 48 execution started
-state_head: 062b7a0205a824a4b67b12b1a278e38a8e81bfd5
+state_head: 96560a68597cb3416ebe58b86b2689f67f56dabc
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 16
-  completed_plans: 16
+  total_plans: 17
+  completed_plans: 17
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-11)
 ## Current Position
 
 Phase: 48 (技能发现与调用（`/` 面板 + `/skill:name`）) — EXECUTING
-Plan: 6 of 6
+Plan: 7 of 7
 Status: Ready to execute
 Last activity: 2026-09-12 — Phase 48 execution started
 
@@ -108,6 +108,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 48 P04 | 5min | 2 tasks | 2 files |
 | Phase 48 P5 | 5min | 2 tasks | 5 files |
 | Phase 48 P06 | 6min | 2 tasks | 8 files |
+| Phase 48 P7 | 6min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -213,6 +214,11 @@ Recent decisions affecting current work:
 - [Phase 48]: G-48-3：渲染端发送路径不再做存在性/启停判定（删两段本地否决）—— 存在性/启停一律由主进程在调用那一刻读盘裁定，失败经响应 skillError 走既有回滚；用户可见契约（一条 system-note + 零残留气泡）由主进程文案 + removeSkillFailureBubbles 完整承担
 - [Phase 48]: state.aiSkills / aiSkillsDigest 保留（/ 面板首帧的同步数据源），但发送路径零读取；skills:changed 改为无条件 pullAiSkillsSnapshot，仍绝不触发 refreshSkills（自激回路 P-48-06）
 - [Phase 48]: 跨文件护栏：渲染端不得含两条失败文案 + 主进程 skillErrorFromReason 必含它们 —— 两侧不可能被同时删除后无人发现
+- [Phase 48]: [Phase 48] 48-07：G-48-12 修在**调用侧**（ai-manager.js 的 `_resolveSkillInvocation`）—— miss（`not_found`）时经唯一权威入口 `syncAgentSystemPrompt()` 重扫**至多一次**后当场重试读盘；`ai-skills-manager.js` 与 `syncAgentSystemPrompt()` 函数体逐字未改，缓存存在性门原样保留
+- [Phase 48]: [Phase 48] 48-07：不做「按目录直读回退探测」—— 单目录直读会绕过契约布局过滤 / description 可用性 / 64 KiB 字节闸与 overLimit·promptOmitted 标记；经 `refreshSkills` 重扫则判定面逐项同源，零重复实现
+- [Phase 48]: [Phase 48] 48-07：shadowed（46 D-06）/ disabled（46 D-09·D-10）/ tier（D-14）三字段全部由同一条重扫管线产出 → 运行期新增的技能不能绕过遮蔽与禁用；重试有界（源码门禁禁 while/for + 行为断言 `rescanCalls === 1`），失败码域仍 `not_found`｜`disabled` 两个
+- [Phase 48]: [Phase 48] 48-07：忙时语义是设计 —— 调用路径恒 `isProcessing = true`，重扫必落忙分支：只置脏、不改写 `agent.state.systemPrompt`、不广播（回写与 `skills:changed` 延后到下一次非忙同步点），天然排除「广播 → 重扫 → 再广播」自激回路；renderer `.refreshSkills(` 计数仍恒 1
+- [Phase 48]: [Phase 48] 48-07：G-48-12 只闭合代码/测试/文档面；`48-UAT.md` 的 gap status 保持 `failed`、`.planning/WINDOWS.md` unrun-verify id 24 保持 `open`（计数未动）—— 运行期终证仍是重跑 `/gsd-verify-work 48` 的自动驱动探针（在 managed-skills 下新建目录后不打开 / 面板直接手打 /skill:<新名>）
 
 ### Roadmap Evolution
 
@@ -321,8 +327,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-12T12:07:16.519Z
-Stopped at: Completed 48-06-PLAN.md
+Last session: 2026-09-12T14:19:08.856Z
+Stopped at: Completed 48-07-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
