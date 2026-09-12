@@ -23,20 +23,27 @@ created: "2026-09-12"
 | **Framework** | `node:test` + `node:assert`（Node 内置，零框架依赖）；渲染端 DOM 接线可选 Playwright `_electron`（先例 `tests/test-unified-navigation.js`） |
 | **Config file** | none — 单文件脚本式，照 `tests/test-ai-skills.js` / `tests/test-builtin-skills-seeder.js` |
 | **Quick run command** | `node --test tests/test-ai-skills.js` |
-| **Full suite command** | `node --test tests/test-ai-skills.js tests/test-skill-picker-model.js tests/test-agent-workspace.js tests/test-ai-bash-policy.js tests/test-builtin-skills-seeder.js tests/test-ai-conversations.js` |
-| **Estimated runtime** | ~3 秒（实测 `test-ai-skills.js` = 64 例 / 1.02 s，2026-09-12） |
+| **Full suite command** | 两段（**必须分开跑**，见下方豁免口径）：① `node --test tests/test-ai-skills.js tests/test-skill-picker-model.js tests/test-agent-workspace.js tests/test-ai-bash-policy.js tests/test-ai-conversations.js`（基线 183/0）；② `node tests/test-builtin-skills-seeder.js`（**直跑形式**，基线 101/0） |
+| **Estimated runtime** | ~4 秒（实测 `test-ai-skills.js` = 64 例 / 0.71 s、seeder 直跑 101 例 / 1.12 s，2026-09-12 本机复核） |
 
 **实测基线（地板）**：`node --test tests/test-ai-skills.js` → `# tests 64 / # suites 14 / # pass 64 / # fail 0`。
 任何回归都以此 64 例为地板，不得下降。
+
+**⚠ 豁免口径（既有红项，非本阶段引入）**：`node --test tests/test-builtin-skills-seeder.js` 在**基线即红** ——
+`# tests 101 / # pass 100 / # fail 1`，红项是 `tests/test-builtin-skills-seeder.js:2200` 的
+「AGENTS.md 的「测试：」行计数与实跑输出一致」（该用例在 `node --test` 下 `spawnSync` 嵌套跑
+`node --test tests/test-ai-bash-policy.js`，孙进程输出不再是可解析的 TAP，故 `:2212` 失败）。
+该文件**不在任何计划的 `files_modified` 内**，本阶段改动不会使其转绿 → **gate 用直跑形式**
+`node tests/test-builtin-skills-seeder.js`；**不要**为本阶段去改该测试文件，也**不得**把这一红项算作本阶段的引入回归。
 
 ---
 
 ## Sampling Rate
 
 - **After every task commit:** `node --test tests/test-ai-skills.js`（~1 s）
-- **After every plan wave:** `node --test tests/test-ai-skills.js tests/test-skill-picker-model.js tests/test-agent-workspace.js tests/test-ai-bash-policy.js tests/test-builtin-skills-seeder.js tests/test-ai-conversations.js`
-- **Before `/gsd:verify-work`:** 全绿 + `node --test tests/test-skill-picker-model.js` 全绿
-- **Max feedback latency:** ~3 秒
+- **After every plan wave:** `node --test tests/test-ai-skills.js tests/test-skill-picker-model.js tests/test-agent-workspace.js tests/test-ai-bash-policy.js tests/test-ai-conversations.js` **并** `node tests/test-builtin-skills-seeder.js`（后者**直跑**，见豁免口径）
+- **Before `/gsd:verify-work`:** 上述两段全绿 + `node --test tests/test-skill-picker-model.js` 全绿
+- **Max feedback latency:** ~4 秒
 
 ---
 
@@ -49,10 +56,10 @@ created: "2026-09-12"
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | 48-01-T1 | 01 | 1 | DISC-02 | T-48-01 | 组装逐字节 = `formatSkillInvocation(skill, provenance + '\n\n' + args)`；实时读盘（改盘后二次调用读到新正文） | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
 | 48-01-T1 | 01 | 1 | DISC-02 | T-48-01 | 拼接顺序 `[技能块, visionNotice, markerBlock, visionBlock, contextBlock]`；无技能时输出逐字符不变 | unit + 源码扫描 | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
-| 48-01-T1 | 01 | 1 | DISC-02 | — | 重载装饰：user 行 `content` **逐字符等于** args（SDK 追加的 provenance 行被剥离）、`skillInvocation` 键集合与 live 路径**消息对象**逐字相等 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
+| 48-01-T1 | 01 | 1 | DISC-02 | — | 重载装饰：user 行 `content` **逐字符等于** args、`skillInvocation` 键集合与 live 路径**消息对象**逐字相等；**必须覆盖含 `@` 引用 / 附件的完整增强串与 args 自身含空行两例**（`resolveSkillBubbleArgs` 五例打表 + live/reload 同正文相等） | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
 | 48-01-T1 | 01 | 1 | DISC-03 | — | 技能调用进历史（`agent.prompt` 收增强文本）+ `_ensureConversation` 收原始语法文本（标题不退化） | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
 | 48-02-T1 | 02 | 2 | DISC-03 | T-48-09 | renderer 技能不走 `handler` 分支（`kind` 分流 + 扁平索引直绑） | 源码扫描 | `node --test tests/test-skill-picker-model.js` | ❌ W0 | ⬜ pending |
-| 48-02-T2 | 02 | 2 | DISC-03 | — | 气泡：user 消息挂 `skillInvocation` 元数据并渲染为 pill + args 正文（**不显示** `/skill:name` 原文） | 源码扫描 | `node --test tests/test-ai-skills.js` + `tests/test-skill-picker-model.js` | ✅（新增） | ⬜ pending |
+| 48-01-T3 | 01 | 1 | DISC-03 | — | 气泡：user 消息对象 `content` = **args**（不显示 `/skill:name` 原文）、IPC 载荷 = 完整语法文本（D-19，两变量解耦）；`skillInvocation` 元数据响应回传后回填 | 源码扫描 + 行为 | `node --test tests/test-ai-skills.js` + `tests/test-skill-picker-model.js` | ✅（新增） | ⬜ pending |
 | 48-01-T2 | 01 | 1 | DISC-01 / DISC-04 | T-48-05 | 面板投影经 IPC 到达 renderer，形状正确且**零正文**（收窄投影：无 `content` / `filePath` / `diagnostics`） | unit | `node --test tests/test-ai-skills.js` | ✅（断言组新增） | ⬜ pending |
 | 48-02-T1 | 02 | 2 | DISC-01 | T-48-07 | `/` 展平数组 = 技能分区 + 命令分区；实时过滤两档；空分组标题不渲染 | unit | `node --test tests/test-skill-picker-model.js` | ❌ W0 | ⬜ pending |
 | 48-01-T2 | 01 | 1 | DISC-04 | — | 三档 `tier` 判定（`source==='user'` → user / name ∈ seededNames → builtin / 非 seeded managed），seeded 集合由测试注入 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
@@ -62,7 +69,7 @@ created: "2026-09-12"
 | 48-03-T1 | 03 | 3 | DISC-05 | T-48-10 | `read` 事件带 `skill_invocation`；renderer 映射到 `toolExecution.skillInvocation`；renderer **零**路径字符串匹配 | unit + 源码扫描 | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
 | 48-03-T2 | 03 | 3 | DISC-05 | T-48-13 | 重载链路用**同一个** `_resolveSkillMarker` 重建标记，形状与实时链路逐字相等；技能删除后不挂键且不丢消息 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
 | 48-01-T2 | 01 | 1 | （D-18 / 硬约束） | T-48-04 | `REALM_SYSTEM_PROMPT` 含「技能」与「工具」，且 `buildSystemPrompt()` 技能段 `=== buildSkillsPrompt()`（未被改写） | 源码扫描 | `node --test tests/test-ai-skills.js` | ✅（新增 + 既有 :1184） | ⬜ pending |
-| 48-01-T1 / T3 | 01 | 1 | DISC-06 | T-48-01 | 不存在 / 已禁用 → 结构化错误码（`skill_not_found` / `skill_disabled`，**无第三个码**）+ system-note 文案（不静默；被整条跳过的技能与不存在同形） | unit | `node --test tests/test-ai-skills.js`（main 侧错误码）+ `tests/test-skill-picker-model.js`（renderer 分支选择） | ✅/❌ W0 | ⬜ pending |
+| 48-01-T1 / T3 | 01 | 1 | DISC-06 | T-48-01 | 不存在 / 已禁用 → 结构化错误码（`skill_not_found` / `skill_disabled`，**无第三个码**）+ system-note 文案（不静默；被整条跳过的技能与不存在同形）。**main 侧错误码的唯一判据 = 48-01-T1 的 `skillErrorFromReason` 打表断言**（两码 + 两条文案 + 值域无第三码） | unit | `node --test tests/test-ai-skills.js`（main 侧错误码）+ `tests/test-skill-picker-model.js`（renderer 分支选择） | ✅/❌ W0 | ⬜ pending |
 | 48-01-T1 | 01 | 1 | DISC-07 | — | `disableModelInvocation` **可**显式调用（`{ok:true}`）、**不**进 system prompt、**不**被标 `promptOmitted`；与 `disabled` 互不蕴含 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
 | 48-01-T3 | 01 | 1 | DISC-07 | — | renderer 预检的拒绝条件只有 `disabled === true` —— 不因 `disableModelInvocation` 拒绝（手打入口面） | 源码扫描 | `node --test tests/test-skill-picker-model.js` | ❌ W0 | ⬜ pending |
 | 48-02-T1 / T2 | 02 | 2 | DISC-07 | T-48-07 | 面板「仅显式」gating：标记只由该 flag 决定、**不**改变可选中性（B 组 + 渲染侧条件断言） | unit + 源码扫描 | `node --test tests/test-skill-picker-model.js` | ❌ W0 | ⬜ pending |
@@ -81,7 +88,7 @@ created: "2026-09-12"
 
 - [ ] `src/skill-picker-model.js` — 纯逻辑抽取（双模式导出）：`parseSkillRef` / `extractArgs` / 过滤两档 / 展平 + selectable。无它则 A/B/C 三组断言无处可测
 - [ ] `tests/test-skill-picker-model.js` — A/B/C 组宿主（含 `readSource('src/renderer.js')` 的接线断言）
-- [ ] `tests/test-ai-skills.js` 扩展 — D 组（实时读盘 / 组装顺序 / 投影 / tier / `promptOmitted` / read 标记 / 重载装饰）
+- [ ] `tests/test-ai-skills.js` 扩展 — D 组（实时读盘 / 组装顺序 / 投影 / tier / `promptOmitted` / read 标记 / 重载装饰 —— 重载装饰必须覆盖**含 `@` 引用 / 附件的完整增强串**与 **args 自身含空行**两例），以及 `resolveSkillBubbleArgs` / `parseStoredSkillInvocation` / `skillErrorFromReason` 的纯函数打表
 - [ ] 测试夹具：seeded 集合注入辅助（`seeder.setBuiltinDepsForTest({ srcDir })` + `t.after` 复位），否则任何触达 tier 的断言以 TypeError 失败（P-48-07）
 - [ ] 无需框架安装（`node:test` 内置）
 

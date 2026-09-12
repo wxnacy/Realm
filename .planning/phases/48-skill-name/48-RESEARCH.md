@@ -964,6 +964,18 @@ renderer 收到 `skillError` 时：**移除刚推送的 user 气泡 + 未产出�
 **字段名与语义必须逐字一致**（`skillInvocation: {name, tier, content}`），
 并写一条测试断言两条路径产出的对象形状相同（见 Validation Architecture）。
 
+> **⚠ 修正（本轮 plan 修订，来自 checker 的 blocker 复核）**：上面「args = 从 provenance 行**之后**的部分」
+> 只在 `prompt()` 路径（增强消息**只有技能块**）成立。`promptWithContext()` 的增强消息是
+> `[skillBlock, visionNotice, markerBlock, visionBlock, contextBlock].filter(Boolean).join('\n\n')`，
+> provenance 行之后**还有尾段**（附件 marker / 视觉提示 / `<referenced-tab>` 引用 XML / `用户消息：{语法文本}`），
+> 直接把其后内容当 args 会把尾段一起算进气泡正文（违反 D-06 与 UI-SPEC §用户气泡契约「正文 = args 原文」）。
+> **权威口径落在 48-01 Task 1 ③ 的模块级纯函数 `resolveSkillBubbleArgs(enhancedContent, name)`**：
+> 以「`contextBlock` 恒为增强消息末段、且 `_buildMessageWithContext`（`ai-manager.js:1364-1387`）
+> 恒以用户原文（完整语法文本）收尾」为锚点，用 `extractArgs` 从**末段语法文本**取 args，
+> 并以「与 provenance 行之后的首段逐字符一致（`T2 === a || T2.startsWith(a + '\n\n')`）」自校验；
+> 无尾段（`prompt()` 路径）时回落到「provenance 行之后即 args」。
+> 本节其余结论（`name` / `body` 的解析、`tier` 还原、装饰落点选 `ai-manager`、不 hijack JSON 列）**均不变**。
+
 **备选（不推荐，供 plan 期知情）**：把 `{name, tier}` 塞进既有 JSON 列（`page_snapshots` 当前**写入但显示侧从不读取**，
 `ai-conversations-manager.js:142-166` / `:251`）可省掉解析，但那是对一个语义明确的列做 hijack，
 且**正文仍需从 `content` 解析或另存**；D-16「不改表结构」在解析方案下已满足，故不取。
@@ -1669,6 +1681,12 @@ ipcMain.handle('ai:refresh-skills', async (event) => { assertTrustedSender(event
 
 **需要用户/plan 期确认的**：A2（节流是否要做）、A5（新模块 vs Playwright 路线）、
 `skillInvocation.source` 是否改用 `tier`（§1.3 命名警告）、`getSeededSkillNames()` 是否在本阶段加 fail-safe（事实 4）。
+
+> **plan 期复核（原为「待确认」四项，均已被 48-01 / 48-02 裁决，本节不再有未决项）**：
+> A2 → 48-02 Task 3（stale-while-revalidate：快照立即渲染 + 打开时后台刷新一次 + 广播只重拉快照，`digest` 相同早退）；
+> A5 → 48-01 Task 1 ①（采用 `src/skill-picker-model.js` 双模式导出，Playwright 路线不取）；
+> `skillInvocation.source` 命名 → 48-01 Task 1 ② 改用 `tier`（`sourceTierOf` / `toUISkillEntry` 产出 `tier`，与数据层 `source` 的语义/取值域区分开）；
+> `getSeededSkillNames()` fail-safe → 48-01 Task 1 ③ 的 `getSeededSkillNamesSafe()`（try/catch + 空集合降级）。
 
 ---
 
