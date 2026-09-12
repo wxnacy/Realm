@@ -2683,16 +2683,38 @@ ${content}
   getConversationMessages(conversationId) {
     const messages = conversationStore.getMessages(conversationId);
     if (!Array.isArray(messages)) return messages;
-    // 技能调用的 user 行装饰（48 D-09）：入库的是完整增强消息，此处把气泡还原为
-    // {content: args, skillInvocation:{name, tier, content}}。落点选这里而非
-    // conversationStore —— 存储层保持「只懂存储」的单一职责，技能域知识不进它。
-    // 非技能消息**原样透传**（零改动），装饰失败也只告警不丢消息。
-    return messages.map((msg) => {
-      if (!msg || msg.role !== 'user') return msg;
-      const decorated = this._decorateSkillUserMessage(msg.content);
-      if (!decorated) return msg;
-      return { ...msg, content: decorated.content, skillInvocation: decorated.skillInvocation };
-    });
+    // 展示层装饰（**不落存储** —— conversationStore 保持「只懂存储」的单一职责，技能域知识不进它）：
+    // (a) user 行的技能调用装饰（48-01 D-09 / D-06）：入库的是完整增强消息，此处把气泡还原为
+    //     {content: args, skillInvocation:{name, tier, content}}。
+    // (b) assistant 行 toolExecutions 的 read 标记重建（48-03 D-15 / DISC-05）：用与实时链路
+    //     **同一个** _resolveSkillMarker 判定，使两条链路产出的形状逐字一致；技能已删除 / 改名时
+    //     静默不标（不挂键，与实时链路「匹配不到就是普通卡片」一致）。
+    // **不做**的替代方案：把标记写进 `tool_calls` 列 —— 会污染 getAgentMessages 读同一列的
+    // LLM 上下文重建路径。
+    // 整段包 try/catch：装饰失败只告警并返回未装饰结果，**不因元数据缺失丢消息**（与 48-01 的
+    // user 行装饰同款容错）。
+    try {
+      return messages.map((msg) => {
+        if (!msg) return msg;
+        if (msg.role === 'user') {
+          const decorated = this._decorateSkillUserMessage(msg.content);
+          return decorated
+            ? { ...msg, content: decorated.content, skillInvocation: decorated.skillInvocation }
+            : msg;
+        }
+        if (Array.isArray(msg.toolExecutions)) {
+          const rebuilt = msg.toolExecutions.map((t) => {
+            const marker = this._resolveSkillMarker(t.name, t.params);
+            return marker ? { ...t, skillInvocation: marker } : t;
+          });
+          return { ...msg, toolExecutions: rebuilt };
+        }
+        return msg;
+      });
+    } catch (err) {
+      console.warn('[Realm AI] 对话消息技能装饰失败（原样透传，不丢消息）:', err.message);
+      return messages;
+    }
   }
 
   /**

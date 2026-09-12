@@ -22,6 +22,7 @@ const aiSkills = require('../ai-skills-manager');
 const aiManager = require('../ai-manager');
 const seeder = require('../builtin-skills-seeder');
 const skillPickerModel = require('../src/skill-picker-model');
+const conversationStore = require('../ai-conversations-manager');
 
 /** 仓库根目录（源码扫描 / 真实随包目录用） */
 const REPO_ROOT = path.join(__dirname, '..');
@@ -2476,6 +2477,141 @@ describe('H 组 · read 卡片技能化（48-03 / DISC-05）', () => {
       prompt.slice(prompt.length - skillsBlock.length),
       skillsBlock,
       '技能段必须固定在末段且逐字符等于 buildSkillsPrompt()（46 D-02 边界）'
+    );
+  });
+});
+
+describe('I 组 · 重载链路技能标记重建（48-03 / DISC-05）', () => {
+  /** 覆写 conversationStore.getMessages 返回给定显示形状消息数组（t.after 复位） */
+  function stubMessages(t, messages) {
+    const original = conversationStore.getMessages;
+    conversationStore.getMessages = () => JSON.parse(JSON.stringify(messages));
+    t.after(() => { conversationStore.getMessages = original; });
+  }
+
+  /** 组装 getConversationMessages 的最小调用上下文（真实原型方法 + 注入 sandboxEnv / seeded） */
+  function reloadCtx(env, seeded) {
+    return {
+      _decorateSkillUserMessage: aiManager.prototype._decorateSkillUserMessage,
+      _resolveSkillMarker: aiManager.prototype._resolveSkillMarker,
+      _skillTierByLocation: aiManager.prototype._skillTierByLocation,
+      getSeededSkillNamesSafe: () => (seeded || []),
+      sandboxEnv: env,
+    };
+  }
+
+  test('重载链路与实时链路的 skillInvocation 形状逐字相等（同一判定）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const file = writeSkill(workspace.getManagedSkillsDir(), 'alpha');
+    const env = await setupSkillsEnv(root);
+
+    const live = aiManager.prototype._resolveSkillMarker.call(
+      { sandboxEnv: env, getSeededSkillNamesSafe: () => [] }, 'read', { path: file }
+    );
+    assert.deepStrictEqual(live, { name: 'alpha', tier: 'managed' }, '前置：实时链路命中');
+
+    stubMessages(t, [
+      { id: 1, role: 'assistant', content: '', toolExecutions: [
+        { id: 'tc1', name: 'read', status: 'completed', params: { path: file } },
+      ] },
+    ]);
+    const out = aiManager.prototype.getConversationMessages.call(reloadCtx(env), 'conv-1');
+    const exec = out[0].toolExecutions[0];
+    assert.ok(exec.skillInvocation, '重载路径必须重建标记');
+    assert.deepStrictEqual(
+      Object.keys(exec.skillInvocation).sort(),
+      Object.keys(live).sort(),
+      '键集合必须与实时链路逐字相等'
+    );
+    assert.deepStrictEqual(exec.skillInvocation, live, '取值必须与实时链路逐字相等');
+    // 既有字段的存在性与取值不得改变（renderer 普通卡片路径逐字节不变）
+    assert.strictEqual(exec.name, 'read');
+    assert.strictEqual(exec.status, 'completed');
+    assert.deepStrictEqual(exec.params, { path: file });
+  });
+
+  test('技能删除 / 缓存复位后不挂键，且消息条数 / params / status 逐字未变', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const file = writeSkill(workspace.getManagedSkillsDir(), 'alpha');
+    const env = await setupSkillsEnv(root);
+    // 缓存复位 = 技能已被删除 / 改名（matchSkillByPath 找不到）
+    aiSkills._resetCacheForTest();
+
+    stubMessages(t, [
+      { id: 1, role: 'assistant', content: '', toolExecutions: [
+        { id: 'tc1', name: 'read', status: 'completed', params: { path: file } },
+      ] },
+    ]);
+    const out = aiManager.prototype.getConversationMessages.call(reloadCtx(env), 'conv-1');
+    assert.strictEqual(out.length, 1, '消息条数不得变化');
+    const exec = out[0].toolExecutions[0];
+    assert.strictEqual('skillInvocation' in exec, false, '匹配不到 → 静默不标（不写 undefined）');
+    assert.strictEqual(exec.status, 'completed');
+    assert.deepStrictEqual(exec.params, { path: file });
+  });
+
+  test('非技能 read（工作区内非 SKILL.md）与其它工具一概不挂键', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    writeSkill(workspace.getManagedSkillsDir(), 'alpha');
+    const env = await setupSkillsEnv(root);
+    const other = path.join(env.cwd, 'notes.txt');
+    fs.writeFileSync(other, 'hello');
+
+    stubMessages(t, [
+      { id: 1, role: 'assistant', content: '', toolExecutions: [
+        { id: 'tc1', name: 'read', status: 'completed', params: { path: other } },
+        { id: 'tc2', name: 'bash', status: 'completed', params: { command: 'ls' } },
+      ] },
+    ]);
+    const out = aiManager.prototype.getConversationMessages.call(reloadCtx(env), 'conv-1');
+    for (const exec of out[0].toolExecutions) {
+      assert.strictEqual('skillInvocation' in exec, false);
+    }
+  });
+
+  test('容错：判定抛错时仍返回完整消息数组（不丢消息、不抛错）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root);
+    stubMessages(t, [
+      { id: 1, role: 'assistant', content: '', toolExecutions: [
+        { id: 'tc1', name: 'read', status: 'completed', params: { path: '/x/SKILL.md' } },
+      ] },
+    ]);
+    const ctx = {
+      _decorateSkillUserMessage: () => null,
+      _resolveSkillMarker: () => { throw new Error('boom'); },
+      getSeededSkillNamesSafe: () => [],
+      sandboxEnv: env,
+    };
+    let out;
+    assert.doesNotThrow(
+      () => { out = aiManager.prototype.getConversationMessages.call(ctx, 'conv-1'); },
+      '装饰失败不得抛出'
+    );
+    assert.strictEqual(out.length, 1, '装饰失败不得丢消息');
+    assert.strictEqual(out[0].toolExecutions.length, 1, '工具执行条目也必须完整返回');
+  });
+
+  test('源码：getConversationMessages 复用 _resolveSkillMarker，装饰段包 try/catch', () => {
+    const body = methodBody(readSource('ai-manager.js'), 'getConversationMessages');
+    assert.ok(body.length >= 120, '方法体提取口径失效会假绿 —— 守卫须先过这一关');
+    assert.ok(body.includes('_resolveSkillMarker('), '重载路径必须复用同一个判定实现（一处实现、两处调用）');
+    assert.strictEqual(body.includes('matchSkillByPath('), false, '不得在本方法体内直接调 matchSkillByPath');
+    assert.ok(/toolExecutions/.test(body), '必须重建 assistant 行的技能标记');
+    assert.ok(/try\s*\{/.test(body), '装饰段必须包 try');
+    assert.ok(/catch\s*\(/.test(body), '装饰失败必须 catch 并原样透传');
+    assert.ok(body.includes('console.warn'), '失败只告警（不静默）');
+  });
+
+  test('源码：技能域知识未下沉到存储层（ai-conversations-manager.js 零 skillInvocation）', () => {
+    assert.strictEqual(
+      readSource('ai-conversations-manager.js').includes('skillInvocation'),
+      false,
+      '存储层保持「只懂存储」—— 标记只在 getConversationMessages 的装饰层重建'
     );
   });
 });
