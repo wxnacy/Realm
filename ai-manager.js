@@ -1413,6 +1413,25 @@ class AIManager {
    * 失败时不调用 `agent.prompt`，直接把结构化错误交给调用方（D-13 推论：
    * 被 `refreshSkills()` 整条跳过的技能与「不存在」同形处理）。
    *
+   * **缓存未命中的一次性重扫（G-48-12）**：
+   * 1. 读盘口的存在性判据取自模块级缓存 —— 缓存未命中即 `not_found`，读盘路径根本不会执行。
+   *    而该缓存只由显式重扫刷新（Agent 创建 / 本类的同步入口 / Agent 重建），常规触发点只有
+   *    「打开 `/` 面板」；全仓无 fs watcher、无定时器、无写工具钩子，因此**运行期新增**的
+   *    技能目录永不自动进缓存，与「调用瞬间实时读盘」的硬约束冲突（UAT test 12 实测：
+   *    主进程连请求日志都没有，手工补一次重扫后原样重发即成功 —— 失效点确实在主进程缓存门）。
+   * 2. 故判定为「不存在」时，经**唯一权威入口** `syncAgentSystemPrompt()` 重扫**一次**后当场
+   *    **重试读盘**。该入口的函数体逐字未改，重扫仍由同一条加载管线产出三字段 ——
+   *    `shadowed`（46 D-06）/ `disabled`（46 D-09、D-10，注入式禁用清单）/ `tier`（D-14，
+   *    `sourceTierOf` + seeded 集合）。本方法**不**新增第二套遮蔽 / 禁用判定，也**不**按目录
+   *    直读绕过契约布局过滤、description 可用性过滤与 `SKILL.md` 64 KiB 字节闸。
+   * 3. 重试**至多一次**，不得写成循环：真不存在仍是 `not_found`（返回值域仍只有
+   *    `not_found | disabled` 两个码）；重扫抛错被就地 catch + 告警后**保留原判定**，
+   *    不把「未找到」升级成异常。
+   * 4. **忙时只置脏**：`prompt()` / `promptWithContext()` 在调用本方法**之前**即置
+   *    `isProcessing = true`，故重扫必然落到同步入口的忙分支 —— 重扫落地、脏标记置真，但
+   *    **不改写** `agent.state.systemPrompt`、**不广播**；prompt 回写与 `skills:changed`
+   *    广播延后到下一次非忙同步点（打开面板 / Agent 重建 / 下一轮 idle 边界）。
+   *
    * @param {string} rawMessage - 用户原始消息（完整语法文本）
    * @returns {Promise<{skillBlock: string, skill: {name: string, tier: string, content: string}|null,
    *                    skillError?: {code: string, message: string}}>}
@@ -1423,7 +1442,31 @@ class AIManager {
     if (!parsed) return { skillBlock: '', skill: null };
 
     const skillsManager = getAiSkillsManagerLazy();
-    const result = await skillsManager.readSkillForInvocation(this.sandboxEnv, parsed.name);
+    let result = await skillsManager.readSkillForInvocation(this.sandboxEnv, parsed.name);
+
+    // G-48-12：缓存未命中 → 经唯一权威入口 syncAgentSystemPrompt() 重扫**一次**后重试读盘。
+    // ① UAT test 12 实测（2026-09-12）：运行期新增技能目录 + 从未打开过 `/` 面板时，14ms 内
+    //    就出 system-note、主进程连 `发送消息: /skill:…` 日志都没有；手工补一次重扫后原样重发
+    //    即成功 —— 失效点确实在主进程的缓存存在性门，与「调用瞬间实时读盘」的硬约束冲突。
+    // ② 根因：读盘口的存在性判据取自模块级缓存（命中才读盘，未命中直接 not_found），而缓存只由
+    //    显式重扫刷新；全仓无 fs watcher、无定时器、无写工具钩子，运行期新增的目录永不自动进缓存。
+    // ③ 重扫走与 Agent 创建 / 打开面板完全相同的入口，其内部调用的加载管线是 shadowed（46 D-06）、
+    //    disabled（46 D-09 / D-10）、tier（D-14）三字段的唯一产出口 —— 本块不新增第二套遮蔽 /
+    //    禁用判定，也不用单目录直读绕过契约布局过滤与字节闸。
+    // ④ 重试**至多一次**，禁止写成循环：重试后仍失败即走同一条失败出口，真不存在的技能仍是
+    //    not_found；误诊一个技能名的成本固定为一次全量重扫（与打开 `/` 面板同款）。
+    // 忙时语义：显式调用路径恒处于「正在处理」，重扫必然落到忙分支 —— 只置脏，不改写 prompt、
+    // 不广播，回写与广播延后到下一次非忙同步点。
+    if (result && result.ok !== true && result.reason === 'not_found') {
+      try {
+        await this.syncAgentSystemPrompt();
+      } catch (err) {
+        // 重扫失败**保留原判定**（不把「未找到」升级成异常），但绝不静默
+        console.warn('[Realm AI] 技能缓存未命中后的重扫失败（保留原判定）:', err.message);
+      }
+      result = await skillsManager.readSkillForInvocation(this.sandboxEnv, parsed.name);
+    }
+
     if (!result || result.ok !== true) {
       const reason = result && result.reason ? result.reason : 'not_found';
       return { skillBlock: '', skill: null, skillError: skillErrorFromReason(reason, parsed.name) };

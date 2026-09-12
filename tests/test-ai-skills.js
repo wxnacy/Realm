@@ -2738,5 +2738,207 @@ describe('I 组 · 重载链路技能标记重建（48-03 / DISC-05）', () => {
   });
 });
 
+// ==================== 48-07 J 组：G-48-12 运行期新增技能（miss → 权威重扫一次 → 当场读盘） ====================
+
+/**
+ * 调用侧上下文夹具：只为 `_resolveSkillInvocation` 补足读盘 / 重扫真正读到的状态。
+ *
+ * **不 `new AIManager()`**（那会触碰真实 userData 与 electron app 路径）；用 `Object.create`
+ * 取原型方法，own property 只补必需字段。
+ *
+ * `isProcessing: true` **与真实调用点同值**（`ai-manager.js` 先置位、后调本方法）——
+ * 这同时是「忙时只置脏、不得在轮内改写 prompt」断言的前提。
+ *
+ * `getSeededSkillNamesSafe` 覆写为空集合：纯 Node 下 `builtin-skills-seeder` 间接依赖
+ * electron（见 `ai-manager.js` 的降级说明），覆写既免告警噪声、也让 tier 判定确定。
+ *
+ * `syncAgentSystemPrompt` 用 own-property 包装计数 —— 原方法体逐字不改，只统计调用次数
+ * （「有界」是行为断言，不靠读源码推断）。
+ */
+function skillResolveCtx(env, { disabled = [] } = {}) {
+  const ctx = Object.create(aiManager.prototype);
+  ctx.sandboxEnv = env;
+  ctx.isProcessing = true;
+  ctx._skillsPromptDirty = false;
+  ctx._skillsPromptDigest = '';
+  ctx.agent = { state: { systemPrompt: 'OLD', isStreaming: false } };
+  ctx.configStore = {
+    get: (key, fallback) => (key === 'settings.aiSkills.disabled' ? disabled : fallback),
+  };
+  ctx.getSeededSkillNamesSafe = () => [];
+  ctx.rescanCalls = 0;
+  const realSync = aiManager.prototype.syncAgentSystemPrompt;
+  ctx.syncAgentSystemPrompt = function () {
+    this.rescanCalls += 1;
+    return realSync.call(this);
+  };
+  return ctx;
+}
+
+/** 走调用侧唯一入口发起一次显式技能调用 */
+function invokeSkill(ctx, text) {
+  return aiManager.prototype._resolveSkillInvocation.call(ctx, text);
+}
+
+describe('J 组 · G-48-12 运行期新增技能（miss → 权威重扫一次 → 当场读盘）', () => {
+  test('正例 · managed 根：运行期新增目录（不重扫）→ /skill: 当场读盘成功且只重扫一次', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root); // 此刻技能集为空
+    // 运行期新增技能目录（模拟 AI 经 write / bash 建目录）—— **不**触发任何重扫
+    writeSkill(workspace.getManagedSkillsDir(), 'probe-new', {
+      body: '# probe-new\n\n新技能正文\n',
+    });
+
+    const ctx = skillResolveCtx(env);
+    const res = await invokeSkill(ctx, '/skill:probe-new 你好');
+
+    assert.strictEqual(
+      res.skillError,
+      undefined,
+      `运行期新增的技能必须当场可调用: ${JSON.stringify(res.skillError)}`
+    );
+    assert.strictEqual(res.skill.name, 'probe-new');
+    assert.strictEqual(res.skill.tier, 'managed');
+    assert.ok(res.skill.content.includes('新技能正文'), '返回体正文来自当场读盘');
+    assert.ok(res.skillBlock.includes('新技能正文'), '注入块正文来自当场读盘');
+    assert.strictEqual(ctx.rescanCalls, 1, 'miss 时经权威入口重扫**恰一次**（有界且足够）');
+    assert.strictEqual(ctx._skillsPromptDirty, true, '忙分支：只置脏');
+    assert.strictEqual(ctx.agent.state.systemPrompt, 'OLD', '忙分支：不得在轮内改写 prompt');
+  });
+
+  test('正例 · user 根 + 读盘实时性：新增后可调用，改盘后二次调用读到新正文', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root);
+    writeSkill(workspace.getSkillsDir(), 'probe-user', { body: '# probe-user\n\n用户版第一版\n' });
+
+    const ctx = skillResolveCtx(env);
+    const first = await invokeSkill(ctx, '/skill:probe-user 参数');
+    assert.strictEqual(first.skillError, undefined);
+    assert.strictEqual(first.skill.tier, 'user');
+    assert.strictEqual(ctx.rescanCalls, 1);
+
+    // 改盘（不新增目录、不重扫）→ 缓存已命中，仍必须当场读盘
+    writeSkill(workspace.getSkillsDir(), 'probe-user', { body: '# probe-user\n\n用户版第二版\n' });
+    const second = await invokeSkill(ctx, '/skill:probe-user');
+    assert.ok(
+      second.skillBlock.includes('用户版第二版'),
+      '重试路径之后仍走实时读盘（不复用重扫产出的缓存正文）'
+    );
+    assert.strictEqual(second.skillBlock.includes('用户版第一版'), false, '旧正文不得残留');
+  });
+
+  test('快路径不变式：缓存命中 → 零重扫（既有 D 组语义不变）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root);
+    writeSkill(workspace.getSkillsDir(), 'probe-hit', { body: '# probe-hit\n\n第一版正文\n' });
+
+    const ctx = skillResolveCtx(env);
+    const warm = await invokeSkill(ctx, '/skill:probe-hit');
+    assert.strictEqual(warm.skillError, undefined);
+    assert.strictEqual(ctx.rescanCalls, 1, '预热：首次 miss → 重扫一次');
+    const baseline = ctx.rescanCalls;
+
+    writeSkill(workspace.getSkillsDir(), 'probe-hit', { body: '# probe-hit\n\n第二版正文\n' });
+    const second = await invokeSkill(ctx, '/skill:probe-hit');
+    assert.ok(second.skillBlock.includes('第二版正文'), '缓存命中仍须当场读盘');
+    assert.strictEqual(
+      ctx.rescanCalls - baseline,
+      0,
+      '快路径不变式：缓存命中时零重扫'
+    );
+  });
+
+  test('负例 · disabled 不被绕过：运行期新增但名入禁用清单 → skill_disabled 零注入', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root);
+    writeSkill(workspace.getManagedSkillsDir(), 'probe-dis', { body: '# probe-dis\n\n禁用版正文\n' });
+
+    const ctx = skillResolveCtx(env, { disabled: ['probe-dis'] });
+    const res = await invokeSkill(ctx, '/skill:probe-dis');
+
+    assert.strictEqual(res.skillError.code, 'skill_disabled');
+    assert.strictEqual(res.skillBlock, '', '已禁用 → 零注入');
+    assert.strictEqual(res.skill, null);
+    assert.strictEqual(ctx.rescanCalls, 1, '禁用判定来自重扫产出（同一条加载管线）');
+  });
+
+  test('负例 · shadowed 不被绕过：两根同名 → 注入胜出者正文、败者 shadowed === true', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root);
+    // 两根同时**运行期**新增同名技能（一个都不在缓存里）
+    writeSkill(workspace.getManagedSkillsDir(), 'probe-dup', { body: '# managed\n\n托管版正文\n' });
+    writeSkill(workspace.getSkillsDir(), 'probe-dup', { body: '# user\n\n用户版正文\n' });
+
+    const ctx = skillResolveCtx(env);
+    const res = await invokeSkill(ctx, '/skill:probe-dup');
+
+    assert.strictEqual(res.skillError, undefined, '影子败者不得妨碍显式调用');
+    assert.strictEqual(res.skill.tier, 'user', '手打一律作用于胜出者（D-11）');
+    assert.ok(res.skillBlock.includes('用户版正文'));
+    assert.strictEqual(res.skillBlock.includes('托管版正文'), false, '败者正文不得进注入块');
+
+    const dupes = aiSkills.getSkillsSnapshot().skills.filter((e) => e.skill.name === 'probe-dup');
+    const managedEntry = dupes.find((e) => e.source === 'managed');
+    const userEntry = dupes.find((e) => e.source === 'user');
+    assert.ok(managedEntry && managedEntry.shadowed === true, 'managed 条目必须标 shadowed（D-11 / 46 D-06）');
+    assert.strictEqual(managedEntry.shadowedBy, 'user');
+    assert.ok(userEntry, '胜出者必须仍在集合内（遮蔽不剔除条目）');
+    assert.notStrictEqual(userEntry.shadowed, true, '胜出者不得被遮蔽');
+  });
+
+  test('负例 · 真不存在 + 有界：仍 skill_not_found，且重扫恰一次', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root);
+
+    // 全新 ctx（基线归零，不复用前面用例的累加值）
+    const ctx = skillResolveCtx(env);
+    const res = await invokeSkill(ctx, '/skill:no-such-skill-xyz');
+
+    assert.strictEqual(res.skillError.code, 'skill_not_found');
+    assert.strictEqual(res.skill, null);
+    assert.strictEqual(res.skillBlock, '');
+    assert.strictEqual(ctx.rescanCalls, 1, '真不存在也至多重扫一次（既非 0 次也非 ≥2 次）');
+  });
+
+  test('源码护栏 · miss 重试的接线与有界性（修复落在调用侧）', () => {
+    const body = methodBody(readSource('ai-manager.js'), '_resolveSkillInvocation');
+    assert.ok(body.length >= 400, `方法体提取口径失效会假绿 —— 守卫须先过这一关（实际 ${body.length}）`);
+    assert.ok(body.includes('syncAgentSystemPrompt('), '必须经唯一权威入口重扫，不自调刷新管线');
+    assert.strictEqual(
+      (body.match(/readSkillForInvocation\(/g) || []).length,
+      2,
+      '读盘口必须恰 2 次：首次 + miss 重试'
+    );
+    assert.ok(body.includes('console.warn'), '重扫失败不得静默');
+    assert.strictEqual(/\bwhile\b/.test(body), false, '禁止循环重试（至多一次）');
+    assert.strictEqual(/\bfor\s*\(/.test(body), false, '禁止循环重试（至多一次）');
+    assert.strictEqual(
+      body.includes('refreshSkills('),
+      false,
+      '必须经 syncAgentSystemPrompt() 而非自调重扫（三字段单源）'
+    );
+    assert.ok(body.includes('skillErrorFromReason('), '失败出口唯一');
+
+    // 修复落在**调用侧**：manager 侧的缓存未命中短路原样保留，且 manager 不反向依赖调用侧入口
+    const mgr = readSource('ai-skills-manager.js');
+    const readBody = functionBody(mgr, 'readSkillForInvocation');
+    assert.ok(
+      readBody.includes("if (!entry) return { ok: false, reason: 'not_found', name };"),
+      'manager 侧缓存未命中短路必须原样保留（本计划没有把第二套判定搬进 manager）'
+    );
+    assert.strictEqual(
+      /\.syncAgentSystemPrompt\s*\(/.test(mgr),
+      false,
+      'manager 侧不得出现调用侧入口（跨层依赖）—— 注释中的具名引用不算依赖'
+    );
+  });
+});
+
 
 
