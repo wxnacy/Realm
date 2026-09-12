@@ -235,7 +235,7 @@ Plans:
   4. 模型可仅凭 description 自动匹配技能并通过 `read` 打开其正文（用户不显式调用也能生效）。
   5. 调用不存在的技能给出明确错误提示（不出现"点了没反应"）；`disable-model-invocation` 技能不进 system prompt 但可经 `/skill:` 显式调用且在 UI 有标记。
 
-**Plans:** 8/8 plans executed（48-01..07 已执行；**48-08 待执行** —— UAT round 3 test 18 裁决出的 G-48-18 / G-48-19，见文末 Gap closure）
+**Plans:** 8/8 plans executed（48-01..08 全部执行完毕；**48-08** 为 UAT round 3 test 18 裁决出的 G-48-18 / G-48-19 gap 收敛，见文末 Gap closure —— 代码面已闭合，运行期组合面待 `/gsd-verify-work 48`）
 
 Plans:
 

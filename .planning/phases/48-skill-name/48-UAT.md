@@ -1,10 +1,10 @@
 ---
-status: diagnosed
+status: testing
 phase: 48-skill-name
 source: [48-VERIFICATION.md]
 started: 2026-09-12T06:55:00Z
-updated: 2026-09-12T15:00:00Z
-round: 3
+updated: 2026-09-12T16:35:00Z
+round: 4
 round_1_status: diagnosed
 round_2_source: "48-VERIFICATION.md @ 2026-09-12T12:25:00Z（gap 修复后重验，31/36）"
 round_2_status: "diagnosed（2026-09-12 自动驱动实测：9/10/13 pass，12 issue → G-48-12，11 已跳过）"
@@ -12,16 +12,32 @@ round_2_driver: "playwright _electron + 真实 dev 应用；provider = xiaomi/mi
 round_3_source: "48-VERIFICATION.md @ 2026-09-12T14:33:42Z（gap 48-07 执行后重验，44/52，仍 human_needed）"
 round_3_status: "complete（2026-09-12 自动驱动实测：14/15/16/17 全 pass；18 已裁决 → WR-07/WR-08 双修复路线，落新 gap G-48-18 / G-48-19 待执行）"
 round_3_driver: "playwright _electron + 真实 dev 应用；provider = xiaomi/mimo-v2.5（XIAOMI_API_KEY）；证据 /tmp/uat48-r3-t14.json、/tmp/uat48-r3-t16.json"
+round_4_source: "48-VERIFICATION.md @ 2026-09-12T16:30:00Z（gap 计划 48-08 执行后重验，66/68，仍 human_needed —— 2 项 present-behavior-unverified）"
+round_4_status: "pending（2 项待人工/运行期确认：19 G-48-18 组合面、20 48-02 backstop 观感）"
+round_4_driver: "(待运行 /gsd-verify-work 48)"
 ---
 
 ## Current Test
 
-[testing complete]
+[testing complete] → **round 4 待测**
+
+number: 1
+name: G-48-18 组合面运行期探针 —— 已打开的 `/` 面板随后可见运行期新增技能
+expected: |
+  打开 `/` 面板 → 在 `agent-workspace/managed-skills/`（或 `skills/`）下**运行期**新建技能目录
+  （**不重开面板**、不重启、不重建 Agent）→ 直接手打 `/skill:<新名>` → 断言：
+  ① 主进程有 `[Realm AI] 发送消息: /skill:<新名>` 日志（48-08 的补刷 + 48-07 的重扫链已通）；
+  ② **已打开的面板**在广播后原地重渲染并出现该新行（`skills:changed` → renderer 无条件重拉快照 → 面板重渲染）；
+  ③ 后续普通消息里模型能按 description 自动匹配该新技能（system prompt 已回写）。
+awaiting: user response
 
 > 历史：[round 2 testing complete] —— 4 项待测已全部由自动驱动实测并裁决
 > （test 9 pass / test 10 pass / test 12 **issue**（G-48-12）/ test 13 pass；test 11 已按 TD-48-02 跳过）。
 > **round 3 已收尾**：14 pass（**G-48-12 运行期面闭合**）/ 15 pass / 16 pass / 17 pass / 18 裁决为
 > 「双修复」→ 新开 gap **G-48-18（WR-07）** 与 **G-48-19（WR-08）**，待 `/gsd-execute-phase 48 --gaps-only`。
+> **round 4（本次）**：48-08 已执行，G-48-18 / G-48-19 的**代码面**经重验钉死
+> （K1–K5 打在真实 `syncAgentSystemPrompt()` 上；对照组在 `a211abfb` 上跑本轮测试得 `# fail 6`），
+> 两条 gap 置 `resolved`；余 2 项（19 / 20）为运行期/主观面，待 `/gsd-verify-work 48`。
 
 ## Tests
 
@@ -457,18 +473,60 @@ decision: |
   核验报告（48-REVIEW.md）判两条**不阻断 UAT**，故本条 severity 记 `minor`：不影响任何已通过项的真值，
   属「本增量把既有延迟落地机制放大成常规路径」与「文档承诺的不变式只写进注释」。
 
+## Round 4 — 重验后的人工验证项（2026-09-12T16:30Z）
+
+> 前三轮的实测记录与裁决**原样保留**。本轮为 gap 计划 **48-08**（闭合 G-48-18 / G-48-19）执行后的重验。
+> 48-08 只改 `ai-manager.js` / `tests/test-ai-skills.js` / 文档，**未触 renderer / DOM**
+> （`src/renderer.js`、`ai-skills-manager.js` 零 diff），故下列两项仍须运行期/主观面确认。
+> 以下编号续接为 19–20。
+
+### 19. G-48-18 组合面运行期探针（本轮**唯一阻断收尾**项）
+
+expected: 打开 `/` 面板 → 在 `agent-workspace/managed-skills/`（或 `skills/`）下**运行期**新建技能目录 → **不重开面板**、不重启、不重建 Agent → 直接手打 `/skill:<新名>` → 三条同时成立：① 主进程日志出现 `发送消息: /skill:<新名>`；② **已打开的面板**原地重渲染并出现该新行；③ 后续普通消息里模型按 description 自动匹配该新技能
+why_human: G-48-18 的可观察结果分两半，**只有半边被代码面证成** ——
+（i）「本轮成功出口补刷落地（`_skillsPromptDirty` 归 false、`agent.state.systemPrompt` 含新技能、`skills:changed` 恰广播一次）」由 K 组 5 条行为用例在**真实 `syncAgentSystemPrompt()`** 上钉死（主证据，重验已复核，且对照组 `a211abfb` 跑本轮测试得 `# fail 6` 反证其非同义改写）；
+（ii）「广播 → renderer 无条件重拉快照（48-06）→ 已打开面板原地重渲染（48-02）」是**组合面**，其各环节分别有护栏但**无任何用例把三段接起来跑**。48-08 的 PLAN / SUMMARY 均自述运行期终证归 `/gsd-verify-work 48` 的自动驱动探针
+verified_by: (待 `/gsd-verify-work 48` 自动驱动：playwright _electron + 真实 dev 应用)
+observed: |
+  [pending]
+note: |
+  探针形态（PLAN `<must_haves>` 的诚实边界已载明）：**先打开 `/` 面板** → 在 `managed-skills/` 下运行期新建目录 → **不重开面板**直接手打 `/skill:<新名>` → 断言面板已出现该行且主进程有 `发送消息: /skill:<新名>` 日志。
+  ⚠ 与 round 3 item 14 的差别在**前提顺序**：item 14 是「不打开面板」，本条是「**面板已打开**」，判别的是广播 → 重拉 → 原地重渲染这后半段。两者不可互相替代。
+  ⚠ 前置纪律：48-08 的 K1 用例自身记录 `rescanCalls === 2`（本次 miss 重扫 + 成功出口补刷各一次），故探针**不要**断言「全轮仅一次重扫」。
+result: [pending]
+
+### 20. 48-02 backstop 观感复核（WINDOWS id 21，主观面）
+
+expected: 50+ 技能数据集下 `/` 面板 220px 宽的观感可接受（行高/截断/滚动无破版）
+why_human: 纯主观视觉判断，无法由断言承载；round 1 item 7 曾提出，未实测
+verified_by: (待人工目测)
+observed: |
+  [pending]
+result: [pending]
+
 ## Summary
 
 round_1: { total: 8, passed: 3, issues: 5, pending: 0, skipped: 0, blocked: 0 }
 round_2: { total: 5, passed: 3, issues: 1, pending: 0, skipped: 1, blocked: 0 }
 round_3: { total: 5, passed: 4, issues: 1, pending: 0, skipped: 0, blocked: 0 }
+round_4: { total: 2, passed: 0, issues: 0, pending: 2, skipped: 0, blocked: 0 }
 
-total: 18
+total: 20
 passed: 10
 issues: 7
-pending: 0
+pending: 2
 skipped: 1
 blocked: 0
+
+> round_4 的 2 项（19–20）**尚未裁决**，待 `/gsd-verify-work 48`：
+>
+> | item | 预期结论 | 备注 |
+> |------|----------|------|
+> | 19（G-48-18 组合面） | **待测**（本轮唯一阻断项） | 已打开面板 + 运行期新增技能 + 不重开面板 → 面板须出现新行；后半个组合链此前无端到端用例 |
+> | 20（48-02 backstop 观感） | **待测**（主观面，非阻断） | 50+ 技能 / 220px 面板观感 |
+>
+> round_4 已闭合的**代码面**（不占 UAT 条目，记于 Gaps）：G-48-18 的补刷单源、G-48-19 的抛错兜底，
+> 均由 K 组 5 条 + J 组 3 条行为用例钉死（对照组 `a211abfb` → `# fail 6`）。
 
 > round_3 的 5 项（14–18）已全部裁决完毕（2026-09-12 自动驱动实测）：
 >
@@ -622,7 +680,8 @@ blocked: 0
 ```yaml
 - gap_id: G-48-18
   truth: "运行期新增技能在**纯文本流**下也最终落地：`/skill:<新名>`（无 @ 引用与附件，走 `ai.prompt`）成功后，延迟的 system prompt 回写与 `skills:changed` 广播应在本轮结束时执行一次，而非等到打开 `/` 面板或重建 Agent；模型自动匹配（D-18 的 `read` + description 路径）与已打开的 `/` 面板随后都能看到新技能"
-  status: failed
+  status: resolved
+  resolution: "**代码面已闭合（2026-09-12，48-08）**：`ai-manager.js` 新增唯一实现 `_flushDeferredSkillsPrompt()`（检脏早退 → 复位 → `await this.syncAgentSystemPrompt()` → 失败恢复置脏），`prompt()`（`:1091`）与 `promptWithContext()`（`:1333`）成功出口各一行共用（全文件恰 2 处调用；`promptWithContext` 体内零 `_skillsPromptDirty` 读写）。K 组 5 条行为用例打在**真实 `syncAgentSystemPrompt()`** 上；对照组在 `a211abfb`（pre-48-08）跑本轮测试得 `# fail 6`（K1/K5/改写后的单源护栏/J8/J9/J10），证明用例非同义改写。文档 §10.7 落地时机与失败恢复语义同步收口。**运行期组合面未证**：见 Round 4 item 19（本轮唯一阻断收尾项）—— 该半边由 `/gsd-verify-work 48` 的自动驱动探针终证（PLAN/SUMMARY 已载明）"
   reason: "User reported（2026-09-12 裁决）：取**路线 A** —— 补 flush，使纯文本流也落地回写 + 广播。WR-07：`_skillsPromptDirty` 全仓唯一消费点在 `promptWithContext()` 成功路径，而常规 `/skill:` 走 `ai.prompt`；48-07 把「置脏」从罕见（流式中打开面板）变成常规（任一次 miss），于是「缓存已含新技能、system prompt 不含」成为默认态"
   severity: minor
   test: 18
@@ -648,7 +707,8 @@ blocked: 0
 ```yaml
 - gap_id: G-48-19
   truth: "缓存未命中后的重扫若抛错，`_resolveSkillInvocation` 必须**保留原判定**且不把「未找到」升级为异常：返回码域仍只有 `not_found | disabled`；且该分支有可失败的行为用例把三件事钉住（不逃逸异常 / 不重复读盘 / 沿用原判定）"
-  status: failed
+  status: resolved
+  resolution: "**已闭合（2026-09-12，48-08）**：miss 重试块改为两个各自独立的 `try`（重扫 / 重试读盘），`rescanned` 局部标志在重扫成功后才允许重读；任一侧抛错均就地 catch、**沿用原判定**（不赋 `result`、不逃逸、不升级第三码）；两条告警文案可判别（「重扫失败」/「重试读盘失败」）；取值对齐 `err && err.message ? err.message : String(err)` 形态，故 `throw null` / `throw 'x'` 不再二次抛错。J 组新增 3 条行为用例（J8 抛 Error / J9 抛原始值 / J10 重试读盘抛原始值）钉死；对照组在 `a211abfb` 上三者全红。**WR-02 仍开**（首次读盘 `:1447` 与两处裸调 `:1048` / `:1182` 仍不在 try 内 —— 本次只把新增的调用点纳入 try，PLAN 明令不得读成「WR-02 已修」）"
   reason: "User reported（2026-09-12 裁决）：**修复 + 补行为用例**。WR-08：48-07 自述的第三条不变式（「重扫抛错被就地 catch + 告警后保留原判定，不把「未找到」升级成异常」）只被断言、未被强制：① 重试读盘在 `try` 之外；② catch 之后是**替换**判定而非保留；③ catch 体内 `err.message` 对非对象抛出值会二次抛错；④ 该分支零行为用例，唯一护栏是 `body.includes('console.warn')` 这种字符串存在性断言。"
   severity: minor
   test: 18
