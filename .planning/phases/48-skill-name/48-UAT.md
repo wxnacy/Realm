@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 48-skill-name
 source: [48-VERIFICATION.md]
 started: 2026-09-12T06:55:00Z
-updated: 2026-09-12T08:00:00Z
+updated: 2026-09-12T08:13:32Z
 ---
 
 ## Current Test
@@ -171,10 +171,17 @@ blocked: 0
   reason: "自动驱动实测：发送后立即与整轮跑完时 pill / 折叠块均不存在（`hasPill=false`、`hasBox=false`）；手动调用 `renderAIMessages()` 后两者立即正确出现（pill 文案 `技能demo`、折叠块 `技能正文（94 字符）`、默认折叠、正文 94 字符、三态切换正常）。根因：`src/renderer.js:8843-8846` 回填 `result.skillInvocation` 后没有重渲染；发送起点那次 `renderAIMessages()` 早于 IPC 返回，之后流式更新只走 `updateStreamingBubble`（仅替换 `.ai-message-content`）。属 48-REVIEW.md 11 条 finding 之外的独立缺陷"
   severity: major
   test: 6
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "`handleSendAIMessage` 在回填 `result.skillInvocation` 之后（`src/renderer.js:8843-8846`）**没有触发任何渲染**；而发送起点那次 `renderAIMessages()` 发生在 `await ai.prompt()` 返回**之前**，此后整轮流式只走 `updateStreamingBubble`（只替换 `.ai-message-content`，`renderer.js:8175-8193`）。故用户气泡的 pill 与「技能正文」折叠块在本轮永不出现，只在下一次**全量** `renderAIMessages()`（切对话 / 重载 / `/compact`）才渲染出来。属 48-REVIEW.md 11 条 finding **之外**的独立缺陷（CR/IN 均未覆盖该渲染时机）。"
+  artifacts:
+    - path: "src/renderer.js"
+      issue: "8843-8846 回填 userMsg.skillInvocation 后缺一次渲染；渲染时机与 IPC 返回顺序错位"
+    - path: "src/renderer.js"
+      issue: "8175-8193 updateStreamingBubble 只更新 .ai-message-content，不重建 pill / 折叠块"
+  missing:
+    - "回填 `userMsg.skillInvocation` 后立即渲染该气泡的 pill 与折叠块（最小改法：只重绘这一条消息，避免整列重建丢滚动位置与流式光标）"
+    - "补断言：发送 `/skill:<name> <args>` 后**无需任何额外交互**，用户气泡即含 `.ai-skill-pill` 与 `.ai-skill-content-box`（现测试面覆盖不到该时机）"
+    - "回归：确认重发路径（`buildResendPayload` → 重新生成 / 错误重试，renderer.js:9896-9920）的折叠块刷新不受影响"
+  debug_session: "(未派独立诊断：根因已由 UAT 决定性探针定位 —— 手动调用 renderAIMessages() 前后对照)"
 ```
 
 ```yaml
@@ -184,10 +191,22 @@ blocked: 0
   reason: "自动驱动实测（真实 dev 应用 + MS/Qwen3-8B）：技能调用后新气泡在 t=7372ms 变为「用户已取消」并 15s 零增长，停止按钮即刻回退，`.ai-skill-pill` 未出现、无 system-note；主进程日志确认 `/skill:demo` 已收到 —— 新一轮输出完全不可见。机制与 48-REVIEW.md CR-03 第 3-5 步逐条吻合（`state.aiCancelledByUser` 在 abort 后不复位 → 迟到 error 按「当前消息 id」= 新气泡归属 → 后续 `message_update` 因 `aiCurrentMessageId === null` 全丢）"
   severity: major
   test: 4
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "`abortAIIfStreaming()`（`src/renderer.js:9046-9055`）置 `state.aiCancelledByUser = true` 后调 abort，**且不回滚该标记**；技能路径随后只就地复位流式状态（`renderer.js:8736-8740` 复位 `aiStreaming` / `aiCurrentMessageId`），未把「被取消的消息」与新消息隔离开。`ai:abort` 处理器**同步**返回（`ipc-handlers.js:1840-1846` 只调 `aiManager.abort()` 后立即 return），因此 renderer 的 `await` 先恢复、同步段已把 `state.aiCurrentMessageId` 指向**新气泡**。被中止那一轮的迟到 `error`（SDK `handleRunFailure` → `turn_end` 被 `ai-manager.js:1724-1731` 静默吞掉、`agent_end` 带 errorMessage → `ai-manager.js:1743-1748` 发 `'error'`）到达时，取消分支（`renderer.js:9315-9331`）按**当前** `aiCurrentMessageId`（= 新气泡）归属 → 把新气泡正文改成 `'*用户已取消*'` 并置 `aiCancelledByUser=false`、`aiCurrentMessageId=null`。此后新 run 的 `message_update`（`renderer.js:9244-9246`）与 `tool_execution_update`（`:9258-9260`）按 `m.id === state.aiCurrentMessageId`（恒 `null`）查找 → **全部丢弃**，停止按钮也提前回退。"
+  artifacts:
+    - path: "src/renderer.js"
+      issue: "9046-9055 abortAIIfStreaming 置 aiCancelledByUser 后不复位，也没记录被取消的消息"
+    - path: "src/renderer.js"
+      issue: "8736-8740 技能路径只复位 aiStreaming / aiCurrentMessageId，未处理取消标记的生命周期"
+    - path: "src/renderer.js"
+      issue: "9315-9331 取消分支按「当前消息 id」归属，而非「被取消的那条消息」"
+    - path: "ipc-handlers.js"
+      issue: "1840-1846 ai:abort 同步返回，使新消息必然早于迟到事件，放大竞态窗口（可选：等 run settled 再返回）"
+  missing:
+    - "新增被取消消息锚点（如 `state.aiCancelledMessageId`）：`abortAIIfStreaming()` 在置 `aiCancelledByUser` 的同一处记录 `aiCurrentMessageId`，取消落点后清空"
+    - "取消分支只作用于锚点消息（按 id 查找），**不得**读「当前」`aiCurrentMessageId`"
+    - "`handleStopAI`（`renderer.js:8403-8413`）同样在取消落点后清空锚点，保持停止按钮语义不变"
+    - "补一条覆盖「abort × 新消息」时序的测试（现测试面完全没有该时序；UAT 实测序列：新气泡 t≈7.4s 变「用户已取消」、其后 15s 零增长）"
+  debug_session: "(未派独立诊断：根因已由 UAT 端到端实测复现，症状与 48-REVIEW.md CR-03 第 3-5 步逐条吻合)"
 ```
 
 ```yaml
@@ -197,10 +216,20 @@ blocked: 0
   reason: "User reported: 确定（2026-09-12 裁决方案 A）—— 发送路径的本地预检用可能陈旧的 `state.aiSkills` 快照否决调用（`known` / `known.disabled` 两段），违反 2026-09-11「调用瞬间实时读盘」硬约束；运行期新增技能 + 从未打开过 `/` 面板 → 「未找到技能」且输入框被清空，主进程无机会读盘"
   severity: major
   test: 3
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "发送路径在 renderer 侧用可能陈旧的 `state.aiSkills` 快照做**本地否决**（`src/renderer.js:8719-8732` 的 `known` 未命中分支与 `known.disabled` 分支），而该快照只在三处更新：启动一次性 `pullAiSkillsSnapshot()`（`renderer.js:4406`）、打开 `/` 面板时 `refreshSkills()` 回包（`openSlashPicker`，`:10228-10242`）、以及**仅面板打开期间**的 `skills:changed` 广播（`:4400-4403` 的 `if (!state.slashPickerOpen) return;`）。于是「运行期新增技能（AI 经 write/bash 建目录 → 主进程 idle 边界重扫并广播）+ 从未打开过 `/` 面板 → 手打 `/skill:newname`」会走进死路：本地判「未找到技能」并**清空输入框**，主进程从未收到请求，其唯一被要求的「调用那一刻实时读盘」没有机会执行。该预检是**纯冗余**：两种失败的主进程文案（`ai-manager.js:6087-6098` 的 `skill_disabled` / `skill_not_found`）与 renderer 本地两段分支**一字不差**，删除后 UX 零变化。属对 48-01 Task 3 ② / 48-02 明文要求的计划偏离（用户 2026-09-12 裁决背书）。"
+  artifacts:
+    - path: "src/renderer.js"
+      issue: "8719-8732 known 未命中 / known.disabled 两段本地否决（含清空输入框）"
+    - path: "src/renderer.js"
+      issue: "4400-4403 skills:changed 在面板关闭时早退，导致快照在面板关闭期间永不更新"
+    - path: "src/renderer.js"
+      issue: "4406 仅启动一次预热，覆盖不到「运行期新增技能」"
+  missing:
+    - "删除 `known` / `known.disabled` 两段本地否决 —— 快照未命中时照常发主进程，由既有 `skillError` 回滚链路（`renderer.js:8851-8859`）呈现提示与撤销气泡"
+    - "确认删除后两条提示仍由主进程文案经该链路呈现（`ai-manager.js:6090-6098`），renderer 不重复实现文案"
+    - "同步核对并更新 48-01 Task 3 ② 与 48-02 中「要求该本地预检」的明文，使计划/实现/文档一致（README 与 48-01-PLAN 的源码扫描断言若涉及该分支需一并调整）"
+    - "加固（可选但建议）：`skills:changed` 无条件 `pullAiSkillsSnapshot()`（只拉快照、不触发刷新，无自激回路），使面板行在重新打开前也不显示陈旧状态"
+  debug_session: "(未派独立诊断：根因由代码直读 + 主进程文案逐字核对确定)"
 ```
 
 ```yaml
@@ -210,10 +239,20 @@ blocked: 0
   reason: "User reported: 修吧（2026-09-12 裁决按 CR-02 路径判据修复）—— `readSkillForInvocation`（`ai-skills-manager.js:806-811`）以「名字相等」当同一性判据，而名字正是合法会不一致的那个字段；`skills.find(s => s.name === name) || skills[0]` 的兜底被紧随其后的 `fresh.name !== name` 直接作废"
   severity: major
   test: 2
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "`readSkillForInvocation`（`ai-skills-manager.js:806-811`）把「SDK 从磁盘读回来的 `fresh.name` 是否等于入参 `name`」当作「读到的还是同一个技能」的判据。但 SDK 的 `Skill.name` 是 `frontmatterName || parentDirName`（`dist/harness/skills.js:218-219`），而 Realm 的「目录名权威」（`enforceDirNameAuthority`，`ai-skills-manager.js:329-341`）**只作用于缓存层**、读盘路径走 SDK 原生解析不接受重写 —— 两者在 `frontmatter name ≠ 目录名` 时必然不一致，于是 `:811` 恒判 `not_found`。`:806` 特意写的 `|| skills[0]`（注释自陈「想兜住 name 不一致」）被 `:811` 立即作废，两行自相矛盾。该形态技能是 D-08 明确要保留的合法技能（GitHub 导入常见），本阶段又把显式调用做成它们的主要可用路径。测试面永久盲区：`tests/test-ai-skills.js` 的 helper 恒写 `name: <目录名>`，`fresh.name !== name` 现有用例造的是「目录被换成别的技能」，与 name≠目录名 在实现里不可区分。"
+  artifacts:
+    - path: "ai-skills-manager.js"
+      issue: "806-811 以 name 相等作同一性判据；806 的 || skills[0] 兜底被 811 作废"
+    - path: "ai-skills-manager.js"
+      issue: "329-341 enforceDirNameAuthority 只重写缓存层 name，读盘路径不享有该权威"
+    - path: "tests/test-ai-skills.js"
+      issue: "skill 写入 helper 恒写 name = 目录名，name≠目录名 永久无覆盖"
+  missing:
+    - "判据改为**目录路径**相等：`path.resolve(path.dirname(entry.skill.filePath)) === path.resolve(path.dirname(fresh.filePath))`；路径不等才判「目录被换成别的技能」→ not_found"
+    - "注入用的 name **仍取目录名**（保持 D-08 防冒名语义），不得改用 `fresh.name`；空正文检查保持原序"
+    - "补一条 name ≠ 目录名 的用例（含正例：可正常调用；负例：目录被换成另一技能仍 not_found）—— 需先给测试 helper 增加「写 name 与目录名不同」的能力"
+    - "核对 docs/product/ai-skills.md §10.4「正常 → 能显式调用 ✅」在该修复后成立（修复前该表述与实现分叉）"
+  debug_session: "(未派独立诊断：根因由代码直读确定，两行自相矛盾为决定性证据)"
 ```
 
 ## Deferred Follow-Ups
