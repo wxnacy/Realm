@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 20
+open_count: 22
 waived_count: 0
 fixed_count: 1
-total_count: 21
-last_updated: 2026-09-12T05:25:38.311Z
+total_count: 23
+last_updated: 2026-09-12T11:57:11.319Z
 ---
 
 # Broken Windows Ledger
@@ -36,6 +36,8 @@ last_updated: 2026-09-12T05:25:38.311Z
 | 19 | 48 | deviation | src/renderer.js |  | 流式中触发技能调用原会因 abort 的异步取消事件被静默丢弃，已在 abort 后就地复位 state.aiStreaming / aiCurrentMessageId / 发送按钮 | open |  | 2026-09-12T05:13:37.283Z |  |
 | 20 | 48 | deviation | src/skill-picker-model.js |  | parseSkillRef 裸名分支加「本地命令名前缀占位」歧义护栏（/foobar 对 foo → null），使计划四条 behavior 行同时成立 | open |  | 2026-09-12T05:13:37.366Z |  |
 | 21 | 48 | unrun-verify |  |  | 48-02 Task 3 <human-check>（backstop）：50+ 技能数据集下 220px 面板的分组标题 sticky 常驻 / 行五要素可读 / 行尾标注无一截断 —— 视觉观感无法自动化裁决，留 UAT 实测 | open |  | 2026-09-12T05:25:38.311Z |  |
+| 22 | 48 | unrun-verify | src/renderer.js |  | 48-05 G-48-6：pill/折叠块「发送后即现」是运行时机行为，node:test 无 DOM 宿主可断言；最终证据为重跑 /gsd-verify-work 48 的自动驱动探针（UAT test 6 clause 1） | open |  | 2026-09-12T11:57:11.239Z |  |
+| 23 | 48 | unrun-verify | src/ai-cancel-state.js |  | 48-05 G-48-4：abort × 新消息的端到端竞态（新气泡不得被写成「用户已取消」）无法在纯 Node 构造；最终证据为重跑 /gsd-verify-work 48 的自动驱动探针（UAT test 4） | open |  | 2026-09-12T11:57:11.319Z |  |
 
 ````json
 [
@@ -289,6 +291,30 @@ last_updated: 2026-09-12T05:25:38.311Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-12T05:25:38.311Z",
+    "resolved_at": null
+  },
+  {
+    "id": 22,
+    "kind": "unrun-verify",
+    "phase": "48",
+    "file": "src/renderer.js",
+    "line": null,
+    "description": "48-05 G-48-6：pill/折叠块「发送后即现」是运行时机行为，node:test 无 DOM 宿主可断言；最终证据为重跑 /gsd-verify-work 48 的自动驱动探针（UAT test 6 clause 1）",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-12T11:57:11.239Z",
+    "resolved_at": null
+  },
+  {
+    "id": 23,
+    "kind": "unrun-verify",
+    "phase": "48",
+    "file": "src/ai-cancel-state.js",
+    "line": null,
+    "description": "48-05 G-48-4：abort × 新消息的端到端竞态（新气泡不得被写成「用户已取消」）无法在纯 Node 构造；最终证据为重跑 /gsd-verify-work 48 的自动驱动探针（UAT test 4）",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-12T11:57:11.319Z",
     "resolved_at": null
   }
 ]

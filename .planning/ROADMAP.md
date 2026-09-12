@@ -235,7 +235,7 @@ Plans:
   4. 模型可仅凭 description 自动匹配技能并通过 `read` 打开其正文（用户不显式调用也能生效）。
   5. 调用不存在的技能给出明确错误提示（不出现"点了没反应"）；`disable-model-invocation` 技能不进 system prompt 但可经 `/skill:` 显式调用且在 UI 有标记。
 
-**Plans:** 4/6 plans executed（48-01..03 已执行；48-04..06 为 gap 收敛计划，见文末 Gap closure）
+**Plans:** 5/6 plans executed（48-01..03 已执行；48-04..06 为 gap 收敛计划，见文末 Gap closure）
 
 Plans:
 **Wave 1**
@@ -255,7 +255,7 @@ Plans:
 **Wave 4** *(仅依赖既有 48-01..03 交付；48-04 与 48-05 文件集互不重叠，可并行)*
 
 - [x] 48-04-PLAN.md — **G-48-2**：`readSkillForInvocation` 的同一性判据从「SDK 读回的 name 与入参相等」改为**目录路径全等**，命中后把注入用的 `name` 重写为目录名（保 46 D-08 防冒名）；测试 helper 支持写 `frontmatter name ≠ 目录名` 并补正/负例（wave 4，DISC-02）
-- [ ] 48-05-PLAN.md — **G-48-6 + G-48-4**：用户气泡构建抽成单源（`buildUserMessageContent`）+ 回填 `skillInvocation` 后**定向刷新**该条气泡（pill 与「技能正文」折叠块发送后即时出现）；引入「被取消消息」锚点（含独立纯逻辑模块 `src/ai-cancel-state.js`）使迟到取消事件只作用于被取消的那条消息，流式中调用技能不再吃掉新一轮（wave 4，DISC-02/03）
+- [x] 48-05-PLAN.md — **G-48-6 + G-48-4**：用户气泡构建抽成单源（`buildUserMessageContent`）+ 回填 `skillInvocation` 后**定向刷新**该条气泡（pill 与「技能正文」折叠块发送后即时出现）；引入「被取消消息」锚点（含独立纯逻辑模块 `src/ai-cancel-state.js`）使迟到取消事件只作用于被取消的那条消息，流式中调用技能不再吃掉新一轮（wave 4，DISC-02/03）
 
 **Wave 5** *(blocked on Wave 4 completion —— 与 48-05 同改 `src/renderer.js` 与 `tests/test-skill-picker-model.js`)*
 
@@ -340,7 +340,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 46. 技能基础设施 | 4/4 | Complete | 2026-09-11 |
 | 47. 内置技能播种 + bash 策略加固 | 6/6 | In Progress|  |
-| 48. 技能发现与调用 | 4/6 | In Progress|  |
+| 48. 技能发现与调用 | 5/6 | In Progress|  |
 | 49. `manage_skill` 工具 | TBD | Not started | - |
 | 50. 设置页技能管理区 + `/api/skills/*` | TBD | Not started | - |
 | 51. 用户技能导入管线 | TBD | Not started | - |

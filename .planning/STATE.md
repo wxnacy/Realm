@@ -5,16 +5,16 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 48
 current_phase_name: "技能发现与调用（`/` 面板 + `/skill:name`）"
 status: executing
-stopped_at: Completed 48-04-PLAN.md
-last_updated: "2026-09-12T11:51:24.835Z"
+stopped_at: Completed 48-05-PLAN.md
+last_updated: "2026-09-12T11:57:53.023Z"
 last_activity: 2026-09-12
 last_activity_desc: Phase 48 execution started
-state_head: 60e229a518d9c1c39427b6bc13bd738311d866e7
+state_head: b8b855f19fe30ee90c1ab94728f83bcb1a2ea5cc
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 16
-  completed_plans: 14
+  completed_plans: 15
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-11)
 ## Current Position
 
 Phase: 48 (技能发现与调用（`/` 面板 + `/skill:name`）) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-09-12 — Phase 48 execution started
 
@@ -106,6 +106,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 48 P02 | 7min | 3 tasks | 6 files |
 | Phase 48 P03 | 21min | 3 tasks | 7 files |
 | Phase 48 P04 | 5min | 2 tasks | 2 files |
+| Phase 48 P5 | 5min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -205,6 +206,9 @@ Recent decisions affecting current work:
 - [Phase 48]: [Phase 48] 48-04：readSkillForInvocation 的同一性判据改为**所在目录路径全等**（纯词法 path.resolve），不再比较 SDK 读回的 name —— Skill.name 是 frontmatterName || parentDirName（skills.js:218-219），可被 SKILL.md 内容伪造，用它判同一性等于把 P3/S1 要堵的冒名路径重新放行；目录名才是 Realm 的唯一权威（46 D-08），而该权威此前只作用于缓存层、读盘层不享有 —— 判据取**位置**不取**属性**
 - [Phase 48]: [Phase 48] 48-04：命中后返回 { ...fresh, name }（name 重写为入参目录名）—— SDK formatSkillInvocation 取 skill.name 生成 <skill name="…">（skills.js:9），不重写会让 frontmatter 声明的名字进注入块；重载链路 parseStoredSkillInvocation 从该属性取技能名，重写同时保证重开对话后 pill 名称与实时链路一致；并删除与目录路径判据冲突的 || skills[0] 兜底
 - [Phase 48]: [Phase 48] 48-04：「目录被换成别的技能」的负例判据换成「目录读不到 / 路径不等」（读盘为空 → not_found），不再依赖会与「name≠目录名」混淆的字段；测试 helper writeSkill 增 frontmatterName 选项（默认 = 目录名，既有 129 例调用零改动）—— 默认值恒等于既有行为是新增覆盖面不产生回归的前提
+- [Phase 48]: 48-05：G-48-6 修复用「构建单源 + 定向刷新」而非整列重绘 —— 抽 buildUserMessageContent（用户气泡唯一实现）与 refreshUserMessageBubble（只 replaceChild 该条 .ai-message-content），三处 skillInvocation 回填后立即调用；整列 renderAIMessages() 会丢滚动位置与正在流式的气泡节点（UAT missing 明文要求）
+- [Phase 48]: 48-05：G-48-4 取消归属改用 aiCancelledMessageId 锚点并抽到 src/ai-cancel-state.js（零依赖纯函数 resolveCancelAttribution）；resetRunState 只由锚点等式决定、与消息列表形态无关（消息被移除也保住按钮语义），新一轮已开始时不得越权复位（否则 message_update 整批丢弃）；aiCancelledByUser 与停止按钮语义一字未改
+- [Phase 48]: 48-05：ai:abort 保持同步返回——刻意不做 48-REVIEW CR-03 的替代方案「等 run 结算再返回」，锚点已能隔离归属，主进程等待语义会新增挂起路径（run 未结算时新消息被无限期挡住、需超时兜底），风险高于收益
 
 ### Roadmap Evolution
 
@@ -313,8 +317,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-12T11:51:19.312Z
-Stopped at: Completed 48-04-PLAN.md
+Last session: 2026-09-12T11:57:52.991Z
+Stopped at: Completed 48-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
