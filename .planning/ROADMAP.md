@@ -235,7 +235,7 @@ Plans:
   4. 模型可仅凭 description 自动匹配技能并通过 `read` 打开其正文（用户不显式调用也能生效）。
   5. 调用不存在的技能给出明确错误提示（不出现"点了没反应"）；`disable-model-invocation` 技能不进 system prompt 但可经 `/skill:` 显式调用且在 UI 有标记。
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans executed
 
 Plans:
 **Wave 1**
@@ -248,7 +248,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 48-03-PLAN.md — `read` 工具卡片技能化（模型自动匹配的可见性）与重载标记重建 + 「发现与调用」产品文档与 AGENTS.md 同步（wave 3，DISC-05）
+- [x] 48-03-PLAN.md — `read` 工具卡片技能化（模型自动匹配的可见性）与重载标记重建 + 「发现与调用」产品文档与 AGENTS.md 同步（wave 3，DISC-05）
 
 **UI hint**: yes
 **Doc sync**: `docs/product/ai-skills.md` 补发现与调用章节（48-03）。
@@ -329,7 +329,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 46. 技能基础设施 | 4/4 | Complete | 2026-09-11 |
 | 47. 内置技能播种 + bash 策略加固 | 6/6 | In Progress|  |
-| 48. 技能发现与调用 | 2/3 | In Progress|  |
+| 48. 技能发现与调用 | 3/3 | In Progress|  |
 | 49. `manage_skill` 工具 | TBD | Not started | - |
 | 50. 设置页技能管理区 + `/api/skills/*` | TBD | Not started | - |
 | 51. 用户技能导入管线 | TBD | Not started | - |
