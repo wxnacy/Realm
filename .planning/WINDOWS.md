@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 17
+open_count: 19
 waived_count: 0
 fixed_count: 1
-total_count: 18
-last_updated: 2026-09-11T11:22:50.700Z
+total_count: 20
+last_updated: 2026-09-12T05:13:37.366Z
 ---
 
 # Broken Windows Ledger
@@ -33,6 +33,8 @@ last_updated: 2026-09-11T11:22:50.700Z
 | 16 | 47 | deviation | tests/test-builtin-skills-seeder.js |  | 47-03 Task 1（已知残余）: 按计划的禁令「除六处受控改动外不得有其他偏离上游正文」，上游正文里两处 Cowork 提及（Step 4 的 headless 环境回退说明、结尾的 TodoList 提醒）逐字保留，未随三章一并删除。它们不是被删三章的标题子串（验收只禁 present_files / Claude.ai-specific / Cowork-Specific），且属环境条件性说明；若后续阶段判定需要，属新的受控改动，须同步 THIRD_PARTY_NOTICES | open |  | 2026-09-11T09:56:18.235Z |  |
 | 17 | 47 | deviation | package.json |  | 47-04 Task 1 step 5（改后 asar 清单取证）未执行：orchestrator 的 mandatory checkpoint guard 硬禁止任何打包/安装命令（make install*、npm run build、electron-builder），因生产实例 PID 25922 正在运行。改后 asar 清单的断言全部顺延到 Task 3 的人工门禁（Task 3 step 2b2 本就是「Task 1 的改后在真实安装产物上的复核」）—— 本计划未以任何方式弱化该判据，只是把它与打包动作一起交给人工 | fixed |  | 2026-09-11T10:03:14.753Z | 2026-09-11T11:22:45.517Z |
 | 18 | 47 | unrun-verify | skills-builtin/skill-creator/scripts/check_env.mjs |  | 47-04 Task 3（部分）：SKILL-09 打包态侧证据只演示了「脚本在打包态技能目录内可执行 + stdout 可解析 JSON」（executor 直接以 node 运行），未演示验收原文的「经确认卡片后执行」半条。确认卡片那半条已由 tests/test-ai-bash-policy.js（70 例，含 DANGEROUS_INTERPRETERS 对 node/python3 的强制确认断言）覆盖，本项为额外的打包态端到端演示，非缺陷 | open |  | 2026-09-11T11:22:50.700Z |  |
+| 19 | 48 | deviation | src/renderer.js |  | 流式中触发技能调用原会因 abort 的异步取消事件被静默丢弃，已在 abort 后就地复位 state.aiStreaming / aiCurrentMessageId / 发送按钮 | open |  | 2026-09-12T05:13:37.283Z |  |
+| 20 | 48 | deviation | src/skill-picker-model.js |  | parseSkillRef 裸名分支加「本地命令名前缀占位」歧义护栏（/foobar 对 foo → null），使计划四条 behavior 行同时成立 | open |  | 2026-09-12T05:13:37.366Z |  |
 
 ````json
 [
@@ -250,6 +252,30 @@ last_updated: 2026-09-11T11:22:50.700Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-11T11:22:50.700Z",
+    "resolved_at": null
+  },
+  {
+    "id": 19,
+    "kind": "deviation",
+    "phase": "48",
+    "file": "src/renderer.js",
+    "line": null,
+    "description": "流式中触发技能调用原会因 abort 的异步取消事件被静默丢弃，已在 abort 后就地复位 state.aiStreaming / aiCurrentMessageId / 发送按钮",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-12T05:13:37.283Z",
+    "resolved_at": null
+  },
+  {
+    "id": 20,
+    "kind": "deviation",
+    "phase": "48",
+    "file": "src/skill-picker-model.js",
+    "line": null,
+    "description": "parseSkillRef 裸名分支加「本地命令名前缀占位」歧义护栏（/foobar 对 foo → null），使计划四条 behavior 行同时成立",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-12T05:13:37.366Z",
     "resolved_at": null
   }
 ]

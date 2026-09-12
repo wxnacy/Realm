@@ -235,12 +235,12 @@ Plans:
   4. 模型可仅凭 description 自动匹配技能并通过 `read` 打开其正文（用户不显式调用也能生效）。
   5. 调用不存在的技能给出明确错误提示（不出现"点了没反应"）；`disable-model-invocation` 技能不进 system prompt 但可经 `/skill:` 显式调用且在 UI 有标记。
 
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 48-01-PLAN.md — `/skill:name` 主进程端到端纵切（解析 → 实时读盘 → `<skill>` 块组装 → 注入 → 重载还原）+ 收窄投影与三档 tier + 两个面板 IPC 通道 + 气泡 pill / 技能正文折叠块（wave 1，DISC-02/03/04/06/07）
+- [x] 48-01-PLAN.md — `/skill:name` 主进程端到端纵切（解析 → 实时读盘 → `<skill>` 块组装 → 注入 → 重载还原）+ 收窄投影与三档 tier + 两个面板 IPC 通道 + 气泡 pill / 技能正文折叠块（wave 1，DISC-02/03/04/06/07）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -329,7 +329,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 46. 技能基础设施 | 4/4 | Complete | 2026-09-11 |
 | 47. 内置技能播种 + bash 策略加固 | 6/6 | In Progress|  |
-| 48. 技能发现与调用 | TBD | Not started | - |
+| 48. 技能发现与调用 | 1/3 | In Progress|  |
 | 49. `manage_skill` 工具 | TBD | Not started | - |
 | 50. 设置页技能管理区 + `/api/skills/*` | TBD | Not started | - |
 | 51. 用户技能导入管线 | TBD | Not started | - |

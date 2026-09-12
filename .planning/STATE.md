@@ -5,16 +5,16 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 48
 current_phase_name: "技能发现与调用（`/` 面板 + `/skill:name`）"
 status: executing
-stopped_at: Phase 48 UI-SPEC approved
-last_updated: "2026-09-12T04:08:32.346Z"
+stopped_at: Completed 48-01-PLAN.md
+last_updated: "2026-09-12T05:13:55.523Z"
 last_activity: 2026-09-12
-last_activity_desc: Phase 47 complete, transitioned to Phase 48
-state_head: ff6e590c3bd89cb4b7c74feeb14c47899ae6dd53
+last_activity_desc: Phase 48 execution started
+state_head: 78266f46f184df13597c6072c4bbed9c4e0368fb
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 0
   total_plans: 13
-  completed_plans: 10
+  completed_plans: 11
   percent: 0
 ---
 
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-09-11)
 
 ## Current Position
 
-Phase: 48 (技能发现与调用（`/` 面板 + `/skill:name`）) — READY TO EXECUTE
-Plan: Not started
+Phase: 48 (技能发现与调用（`/` 面板 + `/skill:name`）) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-09-12 — Phase 47 complete, transitioned to Phase 48
+Last activity: 2026-09-12 — Phase 48 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -102,6 +102,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 47 P4 | 22min | 3 tasks | 5 files |
 | Phase 47 P5 | ~1 session | 3 tasks | 5 files |
 | Phase 47 P6 | ~1 session | 3 tasks | 3 files |
+| Phase 48 P01 | 17min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -190,6 +191,11 @@ Recent decisions affecting current work:
 - [Phase 47]: 47-04 Task 3 打包实跑（Nightly）取得 SEED-05 全部打包面证据：app.isPackaged 分支为真、asarUnpack 生效（unpacked 两侧同在）、安装产物 asar 清单八类排除全 0 且 skills-builtin/ 与 THIRD_PARTY_NOTICES.md 在列、运行期播种两技能目录齐备、进程内 _cache.diagnostics/errors 均空且 buildSkillsPrompt() 为空、幂等（detectDiff same 且无覆盖诊断）与自愈（手删重播）成立
 - [Phase 47]: research 假设 A2 实测结论——make install-nightly 继承（不覆盖）package.json 的 build.asarUnpack；证据为 Makefile 仅传三个点号合并式 --config.* 覆盖 + 本次构建 app.asar.unpacked 下 skills-builtin 与 node_modules/nodejieba 两侧同在（nodejieba 是另一条 asarUnpack，生效即证明整段继承）。注：dist/builder-effective-config.yaml 在 --mac dir 下未随本次构建重新生成，改用重新生成的 builder-debug.yml 佐证 files 段来自 package.json
 - [Phase 47]: 打包实跑的两个可复用取证手法——① 读运行中主进程内部状态用直连 Node inspector 的 CDP Runtime.evaluate + includeCommandLineAPI（playwright 的 electronApp.evaluate 上下文无 require）；② Realm 有双击确认退出语义（QUIT_CONFIRM_WINDOW_MS=3000），干净退出需 3 秒内连发两次 osascript quit
+- [Phase 48]: [Phase 48] 48-01：跨进程规则单源——解析器住 src/skill-picker-model.js（零依赖双模式导出），renderer 与 main 各自委派，杜绝两份 token/边界实现（P-48-01 的 rest 取值缺陷由 extractArgs token 取值法一次修掉两处）
+- [Phase 48]: [Phase 48] 48-01：parseSkillRef 裸名分支加「本地命令名前缀占位」歧义护栏（/foobar 对 foo → null 走未知命令），是计划四条 behavior 行唯一自洽读法；裸名 not-found 与 /skill: not-found 分两条文案（UI-SPEC §Copywriting）
+- [Phase 48]: [Phase 48] 48-01：显示值与载荷解耦——气泡 content = args、IPC 载荷 = 完整语法文本；重发路径经 buildResendPayload → buildSkillSyntaxText 重组（空 args 时载荷 /skill:{name} 非空，不再静默不动作）
+- [Phase 48]: [Phase 48] 48-01：流式中触发技能调用时 abort 后就地复位 aiStreaming/aiCurrentMessageId/发送按钮（取消事件异步到达，不复位则被流式守卫静默丢弃）
+- [Phase 48]: [Phase 48] 48-01：refreshSkillsForPanel 只是 syncAgentSystemPrompt 的读侧生产调用方（函数体逐字未改，46-04 五条方法体断言继续绿）；写路径收口仍归 49/50/51，STATE.md 的 syncAgentSystemPrompt ⚠️ 不因 48 闭合
 
 ### Roadmap Evolution
 
@@ -224,7 +230,6 @@ None yet.
 - ⚠️ [Phase 48] prompt 未区分「工具 / 技能」两个概念 —— 模型被问「你有哪些技能」时会把 27 个 tool 也称作技能（仅 demo 是真技能）；无历史污染时模型自行区分正确。做 `/` 面板时可考虑补一句措辞
 - ⚠️ [Phase 48 · 规划期技术债] **plan-checker 第 4 轮独立门禁未运行** —— 子代理配额 429（重置 2026-09-13 10:53），第 3 轮 checker 查出的 1 blocker（`resolveSkillBubbleArgs` 空 args 分支）+ 1 warning（`regenerateMessage`/`showError` 重试丢技能注入）由 planner 修订后，改由**主会话**做聚焦验证并判定成立。独立 gate 对这两项的属性已降级（非独立上下文）；执行前若配额恢复，可重跑 `/gsd-plan-phase 48 --skip-research` 复验。
 - ⚠️ [Phase 48 · 执行期注意] `resolveSkillBubbleArgs` **残留窄洞**：纯 `prompt()` 路径下，若 args 的尾段恰为 `'\n\n' + '/skill:{name}'`（用户手打 `/skill:alpha 第一段` + 空行 + `/skill:alpha`），pass1 无非空解、pass2 命中该假候选 → 返回 `''` 而非真 args（`promptWithContext` 形态因尾段 `用户消息：` 使 pass1 命中而不受影响）。触发需 args 末尾逐字重复同一技能 token，属病态但可达。48-01 Task 1 的八例解析表不含该形态 → 测试可全绿而该输入显示错 args。判据见 `48-01-PLAN.md` Task 1 ③ 第 4/6 步。
-
 
 - ⚠️ [技术债 · 无归属阶段] **bash 安装档只读豁免的结构性根因** —— `matchInstall` 用「整段正则 + `FLAG_TOLERANCE` 取值槽」判只读，使三条形态在白名单含裸工具名时**零卡片**：CR-01（`npm -g update` / `npm --global rebuild`）、CR-02（`npm audit --json fix`）、残余 ③（`npm -g update ls`）。三者均在 Phase 47 基线即存在（非回归），已具名写进两份产品文档的残余段与 `47-REVIEW.md`。**根治 = argv 级分词 + 显式「带值旗标」清单**；修的时候须同步改 `tests/test-ai-bash-policy.js:847`（它当前把 CR-01 的词法形态钉成期望的 `allow`）与三份文档口径。另两条同源技术债：`ai-bash-policy.js:249` 的 JSDoc 称旗标容忍「不会吞掉子命令本身」（与 CR-01 矛盾）、`docs` 只读枚举缺机械漂移护栏
 
@@ -299,9 +304,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-12T02:26:09.863Z
-Stopped at: Phase 48 UI-SPEC approved
-Resume file: /Users/wxnacy/Projects/Realm/.planning/phases/48-skill-name/48-UI-SPEC.md
+Last session: 2026-09-12T05:13:55.494Z
+Stopped at: Completed 48-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
