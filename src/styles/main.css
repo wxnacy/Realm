@@ -7072,18 +7072,30 @@ textarea::placeholder {
 .slash-picker-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 8px 12px;
   cursor: pointer;
   transition: background-color 150ms ease;
 }
 
-.slash-picker-row:hover {
+.slash-picker-row:not(.slash-picker-row-disabled):hover {
   background: var(--bg-hover);
 }
 
-.slash-picker-row.active {
+.slash-picker-row:not(.slash-picker-row-disabled).active {
   background: var(--bg-hover);
+}
+
+/* 灰显禁用行（被遮蔽 / 与本地命令同名，48-02）：不可选中，且不参与 hover / active 高亮 */
+.slash-picker-row-disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* 面板空态行（单行提示条，沿用行骨架但不可点击） */
+.slash-picker-row-empty {
+  cursor: default;
 }
 
 .slash-picker-name {
@@ -7092,6 +7104,7 @@ textarea::placeholder {
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .slash-picker-desc {
@@ -7100,6 +7113,86 @@ textarea::placeholder {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+/* / 面板分组标题（48-02）：sticky 常驻。
+   背景必须显式声明 —— 透明背景会让滚动内容从标题下透出。
+   sticky 生效前提：滚动容器是 .slash-picker-panel（唯一 overflow-y: auto），
+   #slashPickerList 与其间任何包裹元素都不得声明 overflow。 */
+.slash-picker-group-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-muted);
+  padding: 4px 12px;
+  user-select: none;
+}
+
+/* 三档来源徽标（48-02，面板与 48-03 的 read 卡片共用同一类）：
+   11px 文字上的发丝级垂直内边距（1px 为 48-UI-SPEC Spacing Exceptions B 表第 1 条
+   登记的共用例外 —— 4px 会把徽标高撑到约 23px，超出其宿主行高）。 */
+.slash-picker-source-badge {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.slash-picker-source-badge-user {
+  color: var(--skill-source-user);
+  background: color-mix(in srgb, var(--skill-source-user) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--skill-source-user) 30%, transparent);
+}
+
+.slash-picker-source-badge-builtin {
+  color: var(--skill-source-builtin);
+  background: color-mix(in srgb, var(--skill-source-builtin) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--skill-source-builtin) 30%, transparent);
+}
+
+.slash-picker-source-badge-managed {
+  color: var(--skill-source-managed);
+  background: color-mix(in srgb, var(--skill-source-managed) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--skill-source-managed) 30%, transparent);
+}
+
+/* 「仅显式」标记：与来源徽标严格同尺寸同 padding（否则同行参差），中性色（不引入第 4 个色相） */
+.slash-picker-tag-explicit {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  background: rgba(127, 127, 127, 0.16);
+}
+
+/* 行尾状态标注：纯文本（无底、无边框），永不截断（宽度不足时由行 flex-wrap 换第二行右对齐） */
+.slash-picker-status {
+  margin-left: auto;
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.slash-picker-status-limit {
+  color: var(--skill-limit-text);
+}
+
+.slash-picker-status-muted {
+  color: var(--text-muted);
 }
 
 /* 搜索框 */

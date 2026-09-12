@@ -856,3 +856,216 @@ describe('B 组 · 双模式导出扩展（四个新函数挂在同一 api 对�
   });
 });
 
+// ==================== 48-02 面板渲染层：五要素 / 转义 / sticky 前提 / 样式契约 ====================
+
+describe('B 组 · 面板五要素行与转义护栏（T-48-07）', () => {
+  const rendererSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer.js'), 'utf8');
+  const modelSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'skill-picker-model.js'), 'utf8');
+  const cssSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles', 'main.css'), 'utf8');
+  const htmlSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf8');
+
+  const panelBody = (() => {
+    const start = rendererSrc.indexOf('function renderSlashPickerList()');
+    assert.ok(start >= 0, '应存在 renderSlashPickerList');
+    return rendererSrc.slice(start, rendererSrc.indexOf('\n}', start));
+  })();
+
+  /** 行构造区（徽标 → 状态 的局部变量 + 最终 html 拼接），转义窗口断言只看这一段 */
+  const rowRegion = (() => {
+    const start = panelBody.indexOf('const badge =');
+    const end = panelBody.indexOf('list.innerHTML = html');
+    assert.ok(start >= 0 && end > start, 'renderSlashPickerList 应含行构造区');
+    return panelBody.slice(start, end);
+  })();
+
+  /** 最终 html 拼接模板（五要素顺序与插值转义的断点） */
+  const rowTemplate = (() => {
+    const tplStart = rowRegion.indexOf("html += '<div class=\"' +");
+    assert.ok(tplStart >= 0, '行构造区应含最终 html 拼接');
+    return rowRegion.slice(tplStart);
+  })();
+
+  /** 取一条 CSS 规则的文本（选择器 → 首个 `}`） */
+  function rule(css, selector) {
+    const i = css.indexOf(selector);
+    assert.ok(i >= 0, `CSS 中应存在规则 ${selector}`);
+    return css.slice(i, css.indexOf('}', i) + 1);
+  }
+
+  test('行五要素齐备：名称 / 来源徽标 / 仅显式标记 / 描述 / 行尾状态标注', () => {
+    for (const cls of [
+      'slash-picker-name',
+      'slash-picker-source-badge',
+      'slash-picker-tag-explicit',
+      'slash-picker-desc',
+      'slash-picker-status',
+    ]) {
+      assert.ok(panelBody.includes(cls), `行模板必须包含 ${cls}`);
+    }
+    // 结构顺序：名称 → 徽标 → 仅显式 → 描述 → 状态（只看最终 html 拼接模板）
+    const order = ['slash-picker-name', 'badgeHtml', 'explicitTag', 'slash-picker-desc', 'statusHtml']
+      .map((k) => rowTemplate.indexOf(k));
+    for (let i = 1; i < order.length; i++) {
+      assert.ok(order[i - 1] >= 0 && order[i] > order[i - 1], `五要素必须按 UI-SPEC 顺序拼接（${i}）`);
+    }
+  });
+
+  test('分组标题：空分区整个不输出，且不占索引（无 data-index）', () => {
+    assert.ok(
+      panelBody.includes('index === 0 && built.skillCount > 0'),
+      '技能标题只在 skillCount > 0 时输出'
+    );
+    assert.ok(
+      panelBody.includes('index === built.skillCount && built.commandCount > 0'),
+      '命令标题只在 commandCount > 0 时输出'
+    );
+    const headerSeg = panelBody.slice(
+      panelBody.indexOf('slash-picker-group-header'),
+      panelBody.indexOf('slash-picker-group-header') + 60
+    );
+    assert.strictEqual(headerSeg.includes('data-index'), false, '分组标题不得带 data-index（不占索引）');
+    assert.strictEqual(panelBody.includes('cursor: pointer'), false, '分组标题不得声明 cursor:pointer');
+  });
+
+  test('全部磁盘来源插值经 escapeHtml（name / description / statusText / row title / 徽标 label·title）', () => {
+    for (const wrapped of [
+      'escapeHtml(item.name)',
+      "escapeHtml(item.description || '')",
+      'escapeHtml(item.statusText)',
+      "escapeHtml('/skill:' + item.name + ' 可显式调用')",
+      'escapeHtml(badge.title)',
+      'escapeHtml(badge.label)',
+    ]) {
+      assert.ok(panelBody.includes(wrapped), `插值必须经转义：${wrapped}`);
+    }
+    // 行模板内：剥掉全部 escapeHtml(...) 调用后，不得再有未经转义的磁盘来源插值
+    const tplStripped = rowTemplate.replace(/escapeHtml\([^)]*\)/g, 'ESC');
+    for (const key of ['item.name', 'item.description', 'item.statusText', 'badge.title', 'badge.label']) {
+      assert.strictEqual(tplStripped.includes(key), false, `行模板内存在未经 escapeHtml 的插值：${key}`);
+    }
+  });
+
+  test('tier → class 走白名单查表，不把 tier 值拼进 class（T-48-07）', () => {
+    assert.ok(panelBody.includes('TIER_BADGE[item.tier]'), '徽标必须查 TIER_BADGE');
+    assert.strictEqual(
+      /source-badge[\s\S]{0,40}?\$\{item\.tier\}/.test(panelBody),
+      false,
+      '不得把 tier 值直接拼进 class 字符串'
+    );
+    for (const label of ["'用户'", "'内置'", "'托管'"]) {
+      assert.strictEqual(
+        panelBody.includes(label),
+        false,
+        `徽标文案不得在渲染层硬编码（${label}）—— 一律取 TIER_BADGE[tier].label`
+      );
+      assert.strictEqual(
+        modelSrc.split(label).length - 1,
+        1,
+        `${label} 在 skill-picker-model.js 中必须恰出现一次（TIER_BADGE 定义处）`
+      );
+    }
+  });
+
+  test('「仅显式」标记只由 disableModelInvocation 决定，且文案不在数据层', () => {
+    // 断言范围限定在徽标/标记渲染上下文（renderSlashPickerList 函数体）——
+    // 不得对 renderer.js 全文件做计数断言：该文件其它位置有既有提及。
+    assert.strictEqual(
+      (panelBody.split('仅显式').length - 1),
+      1,
+      '「仅显式」在面板渲染函数体内恰出现一次（条件标记，权威在渲染侧）'
+    );
+    assert.strictEqual(
+      (panelBody.split('该技能不进模型提示词，只能手动调用（/skill:名字）').length - 1),
+      1,
+      '其 title 文案在面板渲染函数体内恰出现一次'
+    );
+    const tagIdx = panelBody.indexOf('slash-picker-tag-explicit');
+    const window = panelBody.slice(Math.max(0, tagIdx - 200), tagIdx + 200);
+    assert.ok(window.includes('disableModelInvocation'), '标记必须受该 flag 条件约束，不得无条件拼接');
+    assert.strictEqual(modelSrc.includes('仅显式'), false, '该文案不与行尾状态标注混放');
+  });
+
+  test('空态为单行提示条（沿用行骨架，不引入 heading/body 两段）', () => {
+    assert.ok(panelBody.includes('无匹配技能或命令，输入 / 查看全部'), '空态文案原文');
+    assert.ok(panelBody.includes('slash-picker-row-empty'), '空态沿用 .slash-picker-row 形态');
+  });
+
+  test('sticky 前提与面板高度零改动（UI-SPEC 硬约束）', () => {
+    const panel = rule(cssSrc, '.slash-picker-panel {');
+    assert.ok(/max-height:\s*220px/.test(panel), 'max-height 必须保持 220px');
+    assert.ok(/overflow-y:\s*auto/.test(panel), '面板必须仍是唯一滚动容器');
+    assert.strictEqual(
+      /^\.slash-picker-list\s*\{/m.test(cssSrc),
+      false,
+      '.slash-picker-list 不得声明任何规则（尤其不得有 overflow，会静默打断 sticky）'
+    );
+    assert.strictEqual(
+      /overflow\s*:\s*(hidden|auto)/.test(rule(cssSrc, '.slash-picker-group-header {')),
+      false,
+      '分组标题自身不得带 overflow'
+    );
+    assert.ok(
+      /slash-picker-panel[\s\S]{0,200}slash-picker-list/.test(htmlSrc),
+      '#slashPickerList 必须直接位于 .slash-picker-panel 内（无中间包裹元素）'
+    );
+  });
+
+  test('样式契约：标题 sticky + 显式背景；行换行；名称/描述/标注的压缩规则；灰显不参与高亮', () => {
+    const header = rule(cssSrc, '.slash-picker-group-header {');
+    assert.ok(/position:\s*sticky/.test(header), '标题必须 sticky');
+    assert.ok(/top:\s*0/.test(header), '标题 sticky 落点 top: 0');
+    assert.ok(/background:\s*var\(--bg-secondary\)/.test(header), '标题必须显式声明背景');
+
+    assert.ok(/flex-wrap:\s*wrap/.test(rule(cssSrc, '.slash-picker-row {')), '行必须可换行');
+    assert.ok(/flex-shrink:\s*0/.test(rule(cssSrc, '.slash-picker-name {')), '名称不压缩（nowrap 配套）');
+    const desc = rule(cssSrc, '.slash-picker-desc {');
+    assert.ok(/flex:\s*1/.test(desc) && /min-width:\s*0/.test(desc), '描述承担全部压缩');
+    const status = rule(cssSrc, '.slash-picker-status {');
+    assert.ok(/margin-left:\s*auto/.test(status), '标注右对齐（换第二行时）');
+    assert.ok(/white-space:\s*nowrap/.test(status), '标注永不截断');
+    assert.ok(/flex-shrink:\s*0/.test(status), '标注不压缩');
+
+    assert.ok(/opacity:\s*0\.6/.test(rule(cssSrc, '.slash-picker-row-disabled {')), '灰显行 opacity 0.6');
+    const hover = rule(cssSrc, '.slash-picker-row:not(.slash-picker-row-disabled):hover {');
+    assert.ok(hover.includes('background'), '高亮必须限定在可选中行上');
+    assert.ok(
+      cssSrc.includes('.slash-picker-row:not(.slash-picker-row-disabled).active'),
+      '.active 高亮必须同样限定在可选中行上'
+    );
+    for (const tone of ['.slash-picker-status-limit', '.slash-picker-status-muted']) {
+      assert.ok(rule(cssSrc, tone + ' {').includes('color:'), `${tone} 必须有文字色`);
+    }
+    assert.ok(
+      rule(cssSrc, '.slash-picker-status-limit {').includes('var(--skill-limit-text)'),
+      '超限标注取 --skill-limit-text'
+    );
+    assert.ok(
+      rule(cssSrc, '.slash-picker-status-muted {').includes('var(--text-muted)'),
+      '遮蔽/同名标注取 --text-muted'
+    );
+  });
+
+  test('缓存失效：index.html 的 styles/main.css?v= 序号已推进', () => {
+    const m = htmlSrc.match(/styles\/main\.css\?v=(\d+)/);
+    assert.ok(m, 'index.html 应带 ?v= 缓存失效序号');
+    assert.ok(Number(m[1]) >= 7, '本计划的 CSS 改动必须推进序号（≥ 7）');
+  });
+
+  test('三档徽标修饰类与令牌：白名单 class 名与 TIER_BADGE 一致，四个令牌只消费不新增', () => {
+    for (const tier of ['user', 'builtin', 'managed']) {
+      const cls = model.TIER_BADGE[tier].className;
+      assert.ok(cssSrc.includes('.' + cls), `CSS 缺少白名单 class .${cls}`);
+      const def = rule(cssSrc, '.' + cls + ' {');
+      assert.ok(def.includes(`var(--skill-source-${tier})`), `.${cls} 必须消费 --skill-source-${tier}`);
+      assert.ok(/color-mix\(in srgb/.test(def), `.${cls} 必须用 color-mix 低饱和底`);
+    }
+    // 本计划不得新增第 5 个技能相关令牌（只消费 48-01 已落的四个）
+    const declared = [...cssSrc.matchAll(/^\s*(--skill-[a-z-]+):/gm)].map((m) => m[1]);
+    assert.deepStrictEqual(
+      [...new Set(declared)].sort(),
+      ['--skill-limit-text', '--skill-source-builtin', '--skill-source-managed', '--skill-source-user'],
+      '令牌集合必须恰为 48-01 已落的四个'
+    );
+  });
+});
+

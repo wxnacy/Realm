@@ -10185,17 +10185,39 @@ function closeSlashPicker() {
 }
 
 /**
+ * 行尾状态标注的 tone → 白名单 class（**取值不参与字符串拼接**；表外 tone 不产出 class）
+ */
+const SLASH_STATUS_TONE_CLASS = Object.freeze({
+  muted: 'slash-picker-status-muted',
+  limit: 'slash-picker-status-limit',
+});
+
+/**
+ * 行尾状态标注的 `title`（UI-SPEC §Copywriting 的两条固定文案，按 tone 取）：
+ * - `limit`（超限两种）→ 说明「未进提示词但仍可手动调用」
+ * - `muted`（被遮蔽 / 与本地命令同名）→ 说明「本行不可调用」
+ */
+const SLASH_STATUS_TITLE = Object.freeze({
+  limit: '未进入模型提示词，但仍可手动调用（/skill:名字）',
+  muted: '本行不可调用；/skill:名字 作用于胜出的用户技能',
+});
+
+/**
  * 渲染 / 面板列表（技能分区 + 命令分区，展平单数组）
  *
  * 不变式（D-01 + UI-SPEC）：`state.slashPickerItems` 是**展平单数组**且**数组顺序 ===
  * 视觉渲染顺序**；分组标题只在渲染层插入、**不占索引**。空分组标题整个不输出。
+ *
+ * 行内容五要素（从左到右）：`/{name}` → 来源徽标（三档，查 `TIER_BADGE`）→ explicit-only 标记
+ * （仅 `disableModelInvocation === true`）→ 单行截断描述 → 行尾状态标注。不显示体积 /
+ * 文件数 / 诊断计数（那是 Phase 50 设置页的职责）。
  *
  * 绑定按**扁平索引**直绑（`data-index`），不再按名字反查 —— 同名两行（技能名 = 本地
  * 命令名）时反查会命中第一行，表现为「点了没反应 / 点了做错事」（P-48-04）。
  * 不可选中行**不绑任何处理器**，`active` 高亮也不会落在它上面。
  *
  * 面板内插入的磁盘来源文本（技能 name / description / title）**一律**经 `escapeHtml()`
- * （T-48-07）。
+ * （T-48-07）；tier → class 走 `TIER_BADGE` 白名单查表，**不把 tier 值拼进 class 字符串**。
  */
 function renderSlashPickerList() {
   const list = elements.slashPickerList;
@@ -10232,10 +10254,35 @@ function renderSlashPickerList() {
     }
 
     const isActive = item.selectable === true && index === state.slashPickerActiveIndex;
-    const rowClass = item.kind === 'skill' ? 'slash-picker-row slash-picker-row-skill' : 'slash-picker-row';
-    html += '<div class="' + rowClass + (isActive ? ' active' : '') + '" data-index="' + index + '">' +
+    const rowClasses = ['slash-picker-row'];
+    if (item.kind === 'skill') rowClasses.push('slash-picker-row-skill');
+    if (item.selectable !== true) rowClasses.push('slash-picker-row-disabled');
+    if (isActive) rowClasses.push('active');
+
+    // 来源徽标：三档唯一权威查表（表外 / 缺失 tier → 整个徽标不渲染，不产出 undefined）
+    const badge = item.kind === 'skill' ? window.SkillPickerModel.TIER_BADGE[item.tier] : null;
+    const badgeHtml = badge
+      ? '<span class="slash-picker-source-badge ' + badge.className + '" title="' +
+        escapeHtml(badge.title) + '">' + escapeHtml(badge.label) + '</span>'
+      : '';
+    // explicit-only 标记：只由 disableModelInvocation 决定；不改变可选中性（DISC-07 clause ③）
+    const explicitTag = item.kind === 'skill' && item.disableModelInvocation === true
+      ? '<span class="slash-picker-tag-explicit" title="该技能不进模型提示词，只能手动调用（/skill:名字）">仅显式</span>'
+      : '';
+    const rowTitle = item.kind === 'skill'
+      ? ' title="' + escapeHtml('/skill:' + item.name + ' 可显式调用') + '"'
+      : '';
+    const statusHtml = item.statusText
+      ? '<span class="slash-picker-status ' + (SLASH_STATUS_TONE_CLASS[item.statusTone] || '') + '" title="' +
+        escapeHtml(SLASH_STATUS_TITLE[item.statusTone] || '') + '">' + escapeHtml(item.statusText) + '</span>'
+      : '';
+
+    html += '<div class="' + rowClasses.join(' ') + '" data-index="' + index + '"' + rowTitle + '>' +
       '<span class="slash-picker-name">/' + escapeHtml(item.name) + '</span>' +
+      badgeHtml +
+      explicitTag +
       '<span class="slash-picker-desc">' + escapeHtml(item.description || '') + '</span>' +
+      statusHtml +
       '</div>';
   });
   list.innerHTML = html;
