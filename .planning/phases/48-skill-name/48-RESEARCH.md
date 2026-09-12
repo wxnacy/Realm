@@ -1672,29 +1672,35 @@ ipcMain.handle('ai:refresh-skills', async (event) => { assertTrustedSender(event
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **`syncAgentSystemPrompt()` 作为面板刷新入口会不会有「副作用过大」之争？**
+> 四条在 plan 期全部裁决完毕（下列每条的 `Recommendation` 即裁决口径），落点见各条末尾的 Resolution 行。
+
+1. **(RESOLVED)** **`syncAgentSystemPrompt()` 作为面板刷新入口会不会有「副作用过大」之争？**
    - What we know: 它已实现「重扫 → digest 早退 → 回写 prompt → 广播」全套；不改其函数体就不会打红既有源码扫描断言。
    - What's unclear: 是否有人主张「面板刷新不该动 prompt」。
    - Recommendation: **坚持调用它**。面板与 prompt 必须同源，否则「bash 直改技能文件 → 面板看到新版、模型仍用旧版」——正是 P8 门禁要闭合的失效路径。
+   - Resolution: 落地为 48-01 Task 2 的 `refreshSkillsForPanel()`（`await this.syncAgentSystemPrompt()` → 返回新投影），`syncAgentSystemPrompt()` 函数体逐字保持；D-18 措辞在同一任务落地。
 
-2. **`promptOmitted` 字段名是否与 Phase 50 的列表口径对齐？**
+2. **(RESOLVED)** **`promptOmitted` 字段名是否与 Phase 50 的列表口径对齐？**
    - What we know: 50 要展示诊断与状态，D-12 的两态文案已在 UI-SPEC 锁定。
    - What's unclear: 50 是否希望用别的字段名（如 `inPrompt: false`）。
    - Recommendation: 用**正向**语义命名 `promptOmitted`（true = 未进提示词），并在产品文档 §四 限额节登记该字段，
      供 50 直接复用。
+   - Resolution: 采用正向语义名 `promptOmitted` —— 48-01 Task 1 在 ⑦ 尾部打标并纳入收窄投影，48-02 Task 2 在面板行尾标注消费，Phase 50 可直接复用该字段。
 
-3. **`read` 卡片的技能标记在重载后重建，会不会与「不额外插 system-note」冲突？**
+3. **(RESOLVED)** **`read` 卡片的技能标记在重载后重建，会不会与「不额外插 system-note」冲突？**
    - What we know: D-15 要求不插 note（信息重复）。
    - What's unclear: 重载重建是否被视为「新功能」而超范围。
    - Recommendation: 做（§3.3），理由是「同一份实现两处调用」比「两条路径行为不同」便宜得多，
      且零新增 UI 形状。
+   - Resolution: 做 —— 48-03 Task 2 在 `getConversationMessages` 内用**同一个** `_resolveSkillMarker` 重建；不插 system-note、不新增卡片形状。
 
-4. **面板空态（只显示「命令」分区）在 2 个内置技能都 `disable-model-invocation` 时是否真的空？**
+4. **(RESOLVED)** **面板空态（只显示「命令」分区）在 2 个内置技能都 `disable-model-invocation` 时是否真的空？**
    - What we know: 两个内置技能 `disable-model-invocation: true`（`skills-builtin/*/SKILL.md` 实测），
      但它们**仍进面板**（只有「仅显式」标记）——空态只在「零技能或全禁用」时出现。
    - Recommendation: 断言组 9 的分组空态用**注入的**技能集构造，不依赖真实 `skills-builtin/`。
+   - Resolution: 48-02 Task 1 的 B 组按**注入技能集**构造空态 / 分区断言，不依赖真实随包目录（与 tier 断言同一策略）。
 
 ---
 

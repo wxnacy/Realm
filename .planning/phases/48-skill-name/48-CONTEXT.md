@@ -147,7 +147,7 @@
 - `src/preload.js` —— `realmAPI.ai.*` 下新增技能列表读取与技能调用（或扩展现有 `ai:prompt` 契约，D-19 决定「发完整语法文本」）
 - `ipc-handlers.js` —— 新增通道注册（`ai:get-skills` 类）与现有 `ai:prompt` / `ai:prompt-with-context`（`:1680` / `:1699`）
 - `ai-manager.js` —— 技能调用解析与实时读盘（D-05/D-07/D-19）、增强消息拼接顺序（`:1229`，技能块置最前）、`_deriveConversationTitle` 的输入契约（`:1338`）、`read` 工具卡片的事件标记（D-15）、`REALM_SYSTEM_PROMPT` 第 1 段措辞（D-18）
-- `ai-skills-manager.js` —— `refreshSkills()` 由面板打开触发（D-17）；**本阶段零新增写路径**，故 `syncAgentSystemPrompt()` 仍不产生新的生产调用方（该收口在 49/50/51）
+- `ai-skills-manager.js` —— `refreshSkills()` 由面板打开触发（D-17）；**本阶段零新增写路径**，故 `syncAgentSystemPrompt()` 仍不产生新的生产调用方（该收口在 49/50/51）。**规划期注记（本轮 plan 修订补入）**：48-01 已加 `refreshSkillsForPanel()` 作为其**读侧**生产调用方（「重扫 + 回写」而非「写成功后回写」），**写路径**收口仍归 49/50/51。
 - `builtin-skills-seeder.js` → 三档徽标的数据组合点（D-14；注意 electron 依赖边界）
 - `tests/test-ai-skills.js` —— 已有技能基础设施断言（含 `skills:changed` 广播行为断言 `:1218`）；本阶段需新增解析 / 面板过滤 / 边界行为的断言组
 - `docs/product/ai-skills.md` —— 新增「发现与调用」章节（面板形态 / `/skill:name` 语义 / 实时读盘口径 / 边界技能行为 / 三档徽标）
@@ -179,6 +179,7 @@
 - **四态可见性**（Claude Code `skillOverrides` 的 `"on"` / `"name-only"` / `"user-invocable-only"` / `"off"`）—— `.planning/research/FEATURES.md:230` 建议 v1 只做二元 enable/disable；四态属 **ECO-05**。
 - **诊断在面板内的展示**（每条技能的诊断计数 / 悬停详情）—— 归 Phase 50 设置页列表；本阶段面板只显示「未进提示词」这一条与调用直接相关的状态。
 - **`syncAgentSystemPrompt()` 生产调用方收口** —— 本阶段无写路径，归 Phase 49（`manage_skill` 三动作）/ 50（启停卸载）/ 51（导入）；`.planning/STATE.md:222` 的 ⚠️ 仍挂着。
+  - **规划期注记（本轮 plan 修订补入，不改动上条语义）**：48-01 已新增 `refreshSkillsForPanel()` 作为 `syncAgentSystemPrompt()` 的**读侧**生产调用方（面板打开时触发「重扫 → 回写 prompt → 广播」）—— 该 deferred 项因此**部分满足**：**写路径**的收口仍归 Phase 49/50/51（48 零新增技能写路径），故上条「本阶段无写路径」的判断不变。口径区别见 48-03 Task 3：本阶段让回写链路**有了生产调用方**，但它是「重扫 + 回写」语义，不是「写成功后回写」语义。
 
 </deferred>
 

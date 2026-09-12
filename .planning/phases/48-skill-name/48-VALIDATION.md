@@ -42,29 +42,36 @@ created: "2026-09-12"
 
 ## Per-Task Verification Map
 
-> 计划尚未生成（本文件在 plan 期播种，per-task 行由 `validate-phase` §6 或执行期回填）。
-> 下表以需求为单位给出可自动化的验收口径，plan 生成后逐 task 对应到 `48-XX-PLAN.md`。
+> 本表已按**已交付的计划/任务分配**重键（本轮 plan 修订）：Task ID 用 `<plan>-T<n>`，Plan / Wave 列对应 `48-XX-PLAN.md` 的 frontmatter。
+> `Status` 列仍由执行期 / `validate-phase` §6 回填（下表的 File Exists 只描述断言宿主是否已存在）。
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 48-01-XX | 01 | 1 | DISC-01 | — | 面板投影经 IPC 到达 renderer，形状正确且**零正文**（收窄投影） | unit | `node --test tests/test-ai-skills.js` | ✅（断言组新增） | ⬜ pending |
-| 48-01-XX | 01 | 1 | DISC-01 | — | `/` 展平数组 = 技能分区 + 命令分区；实时过滤两档；空分组标题不渲染 | unit | `node --test tests/test-skill-picker-model.js` | ❌ W0 | ⬜ pending |
-| 48-02-XX | 02 | 2 | DISC-02 | — | 组装逐字节 = `formatSkillInvocation(skill, provenance + '\n\n' + args)` | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
-| 48-02-XX | 02 | 2 | DISC-02 | — | 拼接顺序 `[技能块, visionNotice, markerBlock, visionBlock, contextBlock]`；无技能时逐字符不变 | unit + 源码扫描 | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
-| 48-02-XX | 02 | 2 | DISC-03 | — | 技能调用进历史（`agent.prompt` 收增强文本）+ `_ensureConversation` 收原始语法文本 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
-| 48-02-XX | 02 | 2 | DISC-03 | — | renderer 技能不走 `handler` 分支（`kind` 分流） | 源码扫描 | `node --test tests/test-skill-picker-model.js` | ❌ W0 | ⬜ pending |
-| 48-01-XX | 01 | 1 | DISC-04 | — | 三档 `tier` 判定（user / seeded / 非 seeded managed），seeded 集合由测试注入 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
-| 48-01-XX | 01 | 1 | DISC-04 | — | 遮蔽条目可见（投影保留 `shadowed` + `shadowedBy`），且不可选中 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
-| 48-03-XX | 03 | 3 | DISC-05 | — | `matchSkillByPath` 四类路径（绝对 / 相对 / 非 SKILL.md / 工作区外） | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
-| 48-03-XX | 03 | 3 | DISC-05 | — | `read` 事件带 `skill_invocation`；renderer 映射到 `toolExecution.skillInvocation` | unit + 源码扫描 | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
-| 48-03-XX | 03 | 3 | DISC-05 | — | D-18 措辞存在且 `buildSystemPrompt()` 技能段未被改写 | 源码扫描 | `node --test tests/test-ai-skills.js` | ✅（新增 + 既有 :1184） | ⬜ pending |
-| 48-02-XX | 02 | 2 | DISC-06 | — | 不存在 / 被跳过 / 读盘失败 → 结构化错误码 + system-note 文案（不静默） | unit | `node --test tests/test-ai-skills.js` + `tests/test-skill-picker-model.js` | ✅/❌ W0 | ⬜ pending |
-| 48-02-XX | 02 | 2 | DISC-07 | — | `disableModelInvocation` **可**显式调用，且**不**被标 `promptOmitted` | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
-| 48-01-XX | 01 | 1 | DISC-07 | — | 面板行打「仅显式」标记 | 源码扫描 + unit | `node --test tests/test-skill-picker-model.js` | ❌ W0 | ⬜ pending |
-| 48-01-XX | 01 | 1 | （P8） | — | 面板刷新调用 `syncAgentSystemPrompt()`；其函数体未被重构 | 源码扫描 | `node --test tests/test-ai-skills.js` | ✅（既有 :1278 继续绿 + 新增调用点断言） | ⬜ pending |
-| 48-02-XX | 02 | 2 | （硬约束） | — | 实时读盘：改盘后立即调用读到新正文；跨轮不重读 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
+| 48-01-T1 | 01 | 1 | DISC-02 | T-48-01 | 组装逐字节 = `formatSkillInvocation(skill, provenance + '\n\n' + args)`；实时读盘（改盘后二次调用读到新正文） | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
+| 48-01-T1 | 01 | 1 | DISC-02 | T-48-01 | 拼接顺序 `[技能块, visionNotice, markerBlock, visionBlock, contextBlock]`；无技能时输出逐字符不变 | unit + 源码扫描 | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
+| 48-01-T1 | 01 | 1 | DISC-02 | — | 重载装饰：user 行 `content` **逐字符等于** args（SDK 追加的 provenance 行被剥离）、`skillInvocation` 键集合与 live 路径**消息对象**逐字相等 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
+| 48-01-T1 | 01 | 1 | DISC-03 | — | 技能调用进历史（`agent.prompt` 收增强文本）+ `_ensureConversation` 收原始语法文本（标题不退化） | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
+| 48-02-T1 | 02 | 2 | DISC-03 | T-48-09 | renderer 技能不走 `handler` 分支（`kind` 分流 + 扁平索引直绑） | 源码扫描 | `node --test tests/test-skill-picker-model.js` | ❌ W0 | ⬜ pending |
+| 48-02-T2 | 02 | 2 | DISC-03 | — | 气泡：user 消息挂 `skillInvocation` 元数据并渲染为 pill + args 正文（**不显示** `/skill:name` 原文） | 源码扫描 | `node --test tests/test-ai-skills.js` + `tests/test-skill-picker-model.js` | ✅（新增） | ⬜ pending |
+| 48-01-T2 | 01 | 1 | DISC-01 / DISC-04 | T-48-05 | 面板投影经 IPC 到达 renderer，形状正确且**零正文**（收窄投影：无 `content` / `filePath` / `diagnostics`） | unit | `node --test tests/test-ai-skills.js` | ✅（断言组新增） | ⬜ pending |
+| 48-02-T1 | 02 | 2 | DISC-01 | T-48-07 | `/` 展平数组 = 技能分区 + 命令分区；实时过滤两档；空分组标题不渲染 | unit | `node --test tests/test-skill-picker-model.js` | ❌ W0 | ⬜ pending |
+| 48-01-T2 | 01 | 1 | DISC-04 | — | 三档 `tier` 判定（`source==='user'` → user / name ∈ seededNames → builtin / 非 seeded managed），seeded 集合由测试注入 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
+| 48-01-T2 | 01 | 1 | DISC-04 | — | 遮蔽条目可见（投影保留 `shadowed` + `shadowedBy`） | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
+| 48-02-T1 | 02 | 2 | DISC-04 | T-48-09 | `shadowed` / 与本地命令同名的条目 `selectable === false`，其余为 true | unit | `node --test tests/test-skill-picker-model.js` | ❌ W0 | ⬜ pending |
+| 48-03-T1 | 03 | 3 | DISC-05 | T-48-10 | `_resolveSkillMarker` 四类路径（绝对 / 相对 / 非 SKILL.md / 工作区外）+ 四条负例 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
+| 48-03-T1 | 03 | 3 | DISC-05 | T-48-10 | `read` 事件带 `skill_invocation`；renderer 映射到 `toolExecution.skillInvocation`；renderer **零**路径字符串匹配 | unit + 源码扫描 | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
+| 48-03-T2 | 03 | 3 | DISC-05 | T-48-13 | 重载链路用**同一个** `_resolveSkillMarker` 重建标记，形状与实时链路逐字相等；技能删除后不挂键且不丢消息 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
+| 48-01-T2 | 01 | 1 | （D-18 / 硬约束） | T-48-04 | `REALM_SYSTEM_PROMPT` 含「技能」与「工具」，且 `buildSystemPrompt()` 技能段 `=== buildSkillsPrompt()`（未被改写） | 源码扫描 | `node --test tests/test-ai-skills.js` | ✅（新增 + 既有 :1184） | ⬜ pending |
+| 48-01-T1 / T3 | 01 | 1 | DISC-06 | T-48-01 | 不存在 / 已禁用 → 结构化错误码（`skill_not_found` / `skill_disabled`，**无第三个码**）+ system-note 文案（不静默；被整条跳过的技能与不存在同形） | unit | `node --test tests/test-ai-skills.js`（main 侧错误码）+ `tests/test-skill-picker-model.js`（renderer 分支选择） | ✅/❌ W0 | ⬜ pending |
+| 48-01-T1 | 01 | 1 | DISC-07 | — | `disableModelInvocation` **可**显式调用（`{ok:true}`）、**不**进 system prompt、**不**被标 `promptOmitted`；与 `disabled` 互不蕴含 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
+| 48-01-T3 | 01 | 1 | DISC-07 | — | renderer 预检的拒绝条件只有 `disabled === true` —— 不因 `disableModelInvocation` 拒绝（手打入口面） | 源码扫描 | `node --test tests/test-skill-picker-model.js` | ❌ W0 | ⬜ pending |
+| 48-02-T1 / T2 | 02 | 2 | DISC-07 | T-48-07 | 面板「仅显式」gating：标记只由该 flag 决定、**不**改变可选中性（B 组 + 渲染侧条件断言） | unit + 源码扫描 | `node --test tests/test-skill-picker-model.js` | ❌ W0 | ⬜ pending |
+| 48-01-T2 | 01 | 1 | （P8） | T-48-06 | 面板刷新调用 `syncAgentSystemPrompt()`；其函数体未被重构 | 源码扫描 | `node --test tests/test-ai-skills.js` | ✅（既有 :1278 继续绿 + 新增调用点断言） | ⬜ pending |
+| 48-02-T3 | 02 | 2 | （P8） | T-48-08 | 面板 stale-while-revalidate：打开用快照立即渲染 + 后台刷新 + 广播只重拉快照（无自激回路、无 loading 态） | 源码扫描 | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
+| 48-01-T1 | 01 | 1 | （硬约束） | — | 实时读盘：改盘后立即调用读到新正文；跨轮不重读 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
+| 48-01-T1 | 01 | 1 | （硬约束） | — | `src/index.html` 在 `renderer.js` 之前加载 `skill-picker-model.js`（wave 1 可端到端运行的前提） | 源码扫描 | `node -e "…script-order…"`（见 48-01 Task 1 `<verify>`） | ✅ | ⬜ pending |
 
-**A–E 五组断言清单（共 35 条）见 `48-RESEARCH.md` §Validation Architecture**，plan 期须逐条落到 task 的 `<acceptance_criteria>` / `<verify>`。
+**A–E 五组断言清单（共 35 条）见 `48-RESEARCH.md` §Validation Architecture**；上表已把它们逐条落到 `48-XX-PLAN.md` 的 task `<acceptance_criteria>` / `<verify>`（GROUP A/B → 48-02-T1、GROUP C → 48-01-T1 + 48-03-T1、GROUP D → 48-01-T1/T2/T3、GROUP E → 48-01-T2 + 48-02-T2/T3 + 48-03-T1）。
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
