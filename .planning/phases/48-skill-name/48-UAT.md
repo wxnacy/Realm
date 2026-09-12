@@ -1,23 +1,19 @@
 ---
-status: testing
+status: diagnosed
 phase: 48-skill-name
 source: [48-VERIFICATION.md]
 started: 2026-09-12T06:55:00Z
-updated: 2026-09-12T12:30:00Z
+updated: 2026-09-12T13:52:31Z
 round: 2
 round_1_status: diagnosed
 round_2_source: "48-VERIFICATION.md @ 2026-09-12T12:25:00Z（gap 修复后重验，31/36）"
+round_2_status: "diagnosed（2026-09-12 自动驱动实测：9/10/13 pass，12 issue → G-48-12，11 已跳过）"
+round_2_driver: "playwright _electron + 真实 dev 应用；provider = xiaomi/mimo-v2.5（XIAOMI_API_KEY）"
 ---
 
 ## Current Test
 
-number: 9
-name: 重跑 UAT test 6 clause 1 —— 技能调用后用户气泡的 pill 与「技能正文」折叠块
-expected: |
-  **整轮回复结束时**必有 pill 与折叠块（本轮修复的目标面）；
-  回车后立即的前半句按 WR-05 预测仍为 false —— 需人工定口径（改链路推到解析阶段，或把
-  truth / 文档 §10.8 措辞收口为「本轮回复结束时即现」）。
-awaiting: user response
+[testing complete] —— round 2 的 4 项待测已全部由自动驱动实测并裁决（test 9 pass / test 10 pass / test 12 **issue**（G-48-12）/ test 13 pass；test 11 已按 TD-48-02 跳过）
 
 ## Tests
 
@@ -173,12 +169,52 @@ note: |
 ### 9. 重跑 UAT test 6 clause 1：技能气泡 pill 与「技能正文（N 字符）」折叠块
 expected: `npm run dev` → 输入 `/skill:<真实技能名> <args>` 回车，**不做任何额外交互**，在「整轮回复结束后」采样 `hasPill` / `hasBox`。**整轮回复结束时**必有 pill 与折叠块（默认折叠、点击可展开），且**不需要**切换对话 / 重载 / `/compact` 触发
 why_human: DOM 渲染时机 + IPC 往返属运行时行为（`await ai.prompt()` 在整轮 run 结束后才返回）。**口径已收口**（用户 2026-09-12 裁决，见 48-REVIEW.md WR-05 裁决段）：呈现时刻 = 本轮回合结束，**不再要求**回车那一刻即现 —— 故本条只需验后半边；`docs/product/ai-skills.md` §10.8 与 48-VERIFICATION.md 已同步措辞
-result: [pending]
+verified_by: 自动驱动（playwright _electron + 真实 dev 应用，provider = xiaomi/mimo-v2.5，2026-09-12 round 2）
+observed: |
+  `/skill:demo 你好世界` → 发送后**零额外交互**，每 250ms 采样：
+  - t=50ms：本轮 run 进行中（`stop-mode=true`），`hasPill=false` / `hasBox=false`（符合 WR-05 收口——不要求回车即现）
+  - **t=1566ms：`hasPill=true` 且 `hasBox=true`，与 `stop-mode` 翻回 `send` 同一采样点**（本轮 run 结束即现，无需切对话/重载/`/compact`）
+  - pill 文案 = `技能demo`；折叠块标题 = `技能正文（94 字符）`、正文长度 = **94**；`boxCollapsed=true`（默认折叠）
+  - 三态切换：collapsed(true) → 点击 header → expanded(false) → 再点 → collapsed(true) ✅
+  - 用户气泡正文 = args `你好世界`（未被改写为 `/skill:demo 你好世界`）✅
+  - assistant 回复 = `こんにちは世界`（demo 技能正文要求「中文直译日文」，行为符合技能内容）✅
+  - 全程 `notes=[]`（无 system-note）、无确认卡片、无「用户已取消」
+  - 主进程日志：`[Realm AI] 发送消息: /skill:demo 你好世界`
+  - 证据：`/tmp/uat48-r2-t9.json`、截图 `/tmp/uat48-r2-t9.png`
+result: pass
 
 ### 10. 重跑 UAT test 4：流式回复中调用技能（G-48-4 运行时半边）
 expected: `npm run dev` + 可用 provider → 发一条长回复 prompt，等首气泡确实有正文（停止按钮已亮）→ 流式中手打 `/skill:<真实技能名>` → 每 250ms 采样 15s。新气泡创建后有内容、持续增长；**不得**在 t≈7.4s 被写成「用户已取消」、不得其后 15s 零增长、停止按钮不得在 t≈0 就回退；`.ai-skill-pill` 应出现
 why_human: 运行时竞态（`ai:abort` 同步返回 + 迟到 error 的到达顺序），node:test 只覆盖纯逻辑判定与接线契约。上一轮实测失败，锚点修复后须实测裁决是否真的闭合
-result: [pending]
+verified_by: 自动驱动（playwright _electron + 真实 dev 应用，provider = xiaomi/mimo-v2.5，2026-09-12 round 2）
+observed: |
+  **前提取得**：散文 prompt 首气泡确已流式产出（`streamingAt = { bubbles: 1, len: 28 }`、停止按钮 `stop-mode` 已亮），
+  随后流式中手打 `/skill:demo` 发起技能调用，每 250ms 采样 15s（60 个采样）：
+
+  | t (ms) | ai 气泡 | bubble0（被中止的散文轮） | bubble1（新技能轮） | stop | pill | notes |
+  |--------|---------|---------------------------|---------------------|------|------|-------|
+  | 31–1042 | 2 | `用户已取消` | 28 字符（见下方残余观察） | true | false | [] |
+  | 1295 | 2 | `用户已取消` | `你好世界\n——\n`（8） | true | false | [] |
+  | 1547 | 2 | `用户已取消` | `你好世界\n—— 翻译为日文：\nこんにちは世界\n`（23，完整） | true | false | [] |
+  | 1800–15018 | 2 | `用户已取消` | 同上（23，**稳定不再变**） | **false** | **true** | [] |
+
+  - **新气泡有内容且持续增长** ✅（8 → 23）
+  - **新气泡未被写成「*用户已取消*」** ✅ —— 取消落点在 **bubble0（被中止的那一轮）**，与 `state.aiCancelledMessageId` 锚点语义一致
+  - **停止按钮未提前回退** ✅ —— t=31…1547 始终 `stop-mode`，t=1800 在本轮**真正结束**时翻回「发送」
+  - **未出现 15s 零增长** ✅ —— 内容在 t=1547 产出完毕，此后 13.5s 稳定（属正常完成态，非卡死）
+  - **`.ai-skill-pill` 出现** ✅（t=1800 起，与 G-48-6 的「本轮结束即现」口径一致）
+  - 全程 `notes=[]`（无错误条 / 无 system-note）
+  - 主进程日志：`[Realm AI] 发送消息: /skill:demo` → `本轮回复: 你好世界\n\n—— 翻译为日文：\n\nこんにちは世界` → `回复完成`
+  - 证据：`/tmp/uat48-r2-t10.json`、截图 `/tmp/uat48-test4-after.png`（本轮覆盖写入）
+  - **对照上一轮失败态**（新气泡 t≈7372ms 变「用户已取消」+ 其后 15s 零增长 + 停止按钮 t≈0 回退）：三条症状**全部消失**
+residual_observation: |
+  不计入 gap 的残余现象（属 48-05 修复范围**之外**的既有归属路径）：
+  t=31…1042 期间新气泡（bubble1）短暂显示**被中止那一轮**已流出的 28 字符
+  （老轮的迟到 `message_update` 仍按「当前消息 id」写入，而该 id 在技能路径的同步段已指向新气泡；
+  锚点方案只改了 error/取消分支的归属，未改 `message_update` 的归属）。
+  t=1295 起被新一轮真实 token 覆盖，表象为约 1.3s 的瞬时残留文本。
+  不影响本条 truth 的三条否定判据（未标取消 / 未提前回退 / 新回复可见）；是否升级为独立缺陷由人工裁决。
+result: pass
 
 ### [Deferred · TD-48-02] 11. CR-05 可达性实测
 expected: （原为「在流式结束的瞬间连点两次停止按钮，随后触发一次任意真实错误」的实测）
@@ -189,35 +225,123 @@ skip_reason: "用户 2026-09-12 裁决「先记技术债，直接跑 UAT」→ �
 ### 12. G-48-3 运行期探针（`.planning/WINDOWS.md` unrun-verify id 24）
 expected: 在 `agent-workspace/managed-skills/` 下新建一个技能目录（**不打开** `/` 面板），直接手打 `/skill:<新名>`。请求到达主进程并由其当场读盘 → 正常调用（不再出现「未找到技能」且输入框被清空）
 why_human: 主进程 idle 边界重扫 + 广播 + IPC 往返的运行时组合；node:test 只证明「发送路径零快照读取」（源码契约）与「主进程读盘成功」（单测）两个半边
-result: [pending]
+verified_by: 自动驱动（playwright _electron + 真实 dev 应用，provider = xiaomi/mimo-v2.5，2026-09-12 round 2）
+observed: |
+  **先说结论：本条 truth 未达成 —— 出现「未找到技能」，且不是 renderer 本地否决，而是主进程缓存门。**
+
+  **A 段（renderer 半边已修 ✅）** 把 renderer 快照人为清空（`state.aiSkills = []`，最大陈旧度）后对磁盘上确有的
+  `demo` 发 `/skill:demo 你好`：pill `技能demo` + 折叠块 94 字符 + args `你好`，`notes=[]`，
+  主进程日志 `发送消息: /skill:demo 你好` —— **请求确实直达主进程**，G-48-3 的「移除本地否决」这一半成立。
+
+  **B 段（主进程半边 ❌）** 应用**启动后**在 `managed-skills/` 下新建 `uat-probe-r2-20689539/SKILL.md`，
+  **全程不打开 `/` 面板**，立即手打 `/skill:uat-probe-r2-20689539 你好`：
+  - 观测 1：system-note **「未找到技能「uat-probe-r2-20689539」，输入 / 查看可用技能」**
+  - 观测 2：主进程日志**无** `发送消息: /skill:…`（拒绝发生在 `agent.prompt` 之前）
+  - 观测 3：`state.aiSkills` 全程 `count:0 / containsNew:false`（**无任何自动重拉**）
+
+  **B2 判别性补测（同一技能、同一磁盘状态，只差一次重扫）**：
+  | 轮次 | 前置 | 结果 |
+  |------|------|------|
+  | round 1 | 外部新建目录后**立即**发送（无重扫触发） | ❌ note「未找到技能「uat-probe-b2-21006865」」；`notesAdded` 命中延迟 **14ms**；`sawRun=false`；`mainLogs=[]` |
+  | — | 调 `realmAPI.ai.refreshSkills()`（= 打开 `/` 面板所走的重扫链） | 返回 `{count:5, containsNew:true, digest:"12an2m8"}` |
+  | round 2 | 重扫之后原样再发 | ✅ 零 note；pill `技能uat-probe-b2-21006865`；折叠块 17 字符；args `你好`；主进程日志 `发送消息: /skill:uat-probe-b2-21006865 你好` |
+
+  → 同一份磁盘状态，**只差一次缓存重扫**即从必败变为正常调用。
+
+  **根因（源码直读）**：
+  `readSkillForInvocation`（`ai-skills-manager.js:802-804`）在**触盘之前**先用缓存做存在性门 ——
+  `const entry = _cache.skills.find(e => e.skill.name === name && e.shadowed !== true); if (!entry) return { ok:false, reason:'not_found' }`。
+  即「当场读盘」只对**已进缓存**的技能成立（内容改动确实即时生效，`tests/test-ai-skills.js:1471` 覆盖的正是这一形态）；
+  **新建目录**不在缓存里 → 连读盘都不会发生。
+  而 `refreshSkills()` 全仓只有 3 个调用点（`ai-manager.js:868` Agent 创建、`:2763` `syncAgentSystemPrompt`、`:2840` `_recreateAgent`），
+  `skills:changed` 只在 `:2786` 广播。`syncAgentSystemPrompt` 的两个可达入口是「打开 `/` 面板（`ai:refresh-skills`）」与
+  「`promptWithContext` 的 `_skillsPromptDirty` idle 补刷」—— 而 `_skillsPromptDirty` **只由 `syncAgentSystemPrompt` 自己在忙时置位**，
+  故它不构成独立触发源。**没有任何文件系统监听、定时器或写工具钩子** —— 纯 fs 变更（含 AI 经 write/bash 建目录）不会自动进缓存。
+  ⚠ 据此，G-48-3 gap 原文括注的「AI 经 write/bash 建目录 → 主进程 idle 边界重扫并广播」这条链**在代码里并不存在**，
+  该前提在 gap 立项时即不准确。
+
+  **可达性补充**：现实中用户先在面板里看到新技能（面板打开即触发重扫）再手打调用 → 不受影响；
+  受影响的是「运行期新增 + 从不打开面板 + 直接手打」这一路径，正是本条 truth 描述的场景。
+
+  - 证据：`/tmp/uat48-r2-t12.json`（A/B 段）、`/tmp/uat48-r2-t12b.json`（B2 判别性）、截图 `/tmp/uat48-r2-t12.png` / `-t12b.png`
+  - 探针技能目录已清理（`managed-skills/` 恢复为 `find-skills` / `skill-creator`）
+result: issue
+reported: "自动驱动实测：A 段（renderer 本地否决已移除）通过；B 段与 B2 判别性补测显示**主进程缓存门**使运行期新增技能仍判「未找到技能」——`readSkillForInvocation` 在触盘前用 `_cache.skills` 做存在性门（ai-skills-manager.js:803-804），且纯 fs 变更无任何自动重扫触发"
+severity: major
+root_cause: "`readSkillForInvocation` 的存在性判据取自**缓存**而非磁盘：`_cache.skills.find(name)` 未命中即 `not_found`，读盘路径根本未被执行。缓存只由 3 个显式 `refreshSkills()` 调用点刷新（Agent 创建 / `syncAgentSystemPrompt` / `_recreateAgent`），其中 `syncAgentSystemPrompt` 的唯一常规入口是「打开 `/` 面板」；`_skillsPromptDirty` idle 补刷不是独立触发源（该标记只由 `syncAgentSystemPrompt` 自身在忙时置位）。无 fs watcher / 定时器 / 写工具钩子 → 运行期新增技能目录（含 AI 经 write/bash 创建）永不自动进缓存。"
+artifacts:
+  - path: "ai-skills-manager.js"
+    issue: "802-804 触盘前用 _cache.skills 做存在性门：缓存未命中直接 not_found，与「调用瞬间实时读盘」硬约束冲突"
+  - path: "ai-manager.js"
+    issue: "2763 syncAgentSystemPrompt 是唯一常规重扫入口，其调用方仅 refreshSkillsForPanel（打开 / 面板）；无写工具钩子/fs 监听"
+  - path: "ai-manager.js"
+    issue: "1325-1334 _skillsPromptDirty idle 补刷块不是独立触发源（该标记只由 syncAgentSystemPrompt 自身置位）"
+missing:
+  - "定口径：是让 `readSkillForInvocation` 在缓存未命中时按目录名**回退一次磁盘探测**（至少判「目录 + SKILL.md 是否存在」），还是把 truth/文档收口为「需先有一次重扫（打开面板 / Agent 重建）」"
+  - "若选择回退探测：需同时裁定该路径的 shadowed / disabled / tier 取值来源（缓存是这些字段的唯一权威），不得让新技能绕过遮蔽与禁用判定"
+  - "若选择收口：须同步修正本条 truth（48-UAT.md）、`.planning/WINDOWS.md` unrun-verify id 24、G-48-3 原文括注的错误前提，以及 `docs/product/ai-skills.md` 的相关表述"
+  - "补一条覆盖「运行期新增技能目录 → 直接 /skill:调用」的测试（现测试面只覆盖「已缓存技能的内容改动」，新建目录形态永久盲区）"
+residual_observation: "A 段使用的人为清空快照手法会与 `pullAiSkillsSnapshot` 的 digest 早退（renderer.js:9086-9088）相互作用，导致快照不会自动回填 —— 这是探针手法，不是产品行为；已用 B2 的 `refreshSkills()` 显式重扫对照排除干扰。"
 
 ### 13. DISC-05 模型侧复核（可选 · 已知限制）
 expected: 在不手打 `/skill:` 的前提下提一个命中某技能 description 的任务，并追问「你有哪些技能？它们和你可用的工具有什么区别？」。理想：模型自行 `read` 该 SKILL.md，卡片标题「使用技能「x」」。已知：弱模型（Qwen3-8B）会把技能名当**工具**调用并得到 `Tool x not found`，且答「需通过 `/skill:` 显式调用」
 why_human: SDK 提示词模板已写明「Read the full skill file when the task matches its description.」并给出 `<location>` 绝对路径 —— Realm 侧接线无误，失败完全归因于模型能力；本机唯一可用 provider 为 Qwen3-8B，无法换更强模型复测。已作为观测写入 48-REVIEW.md IN-04（留给 Phase 50/51 的技能 UX）
-result: [pending]
+verified_by: 自动驱动（playwright _electron + 真实 dev 应用，provider = xiaomi/**mimo-v2.5**（推理模型，2026-09-12 起可用），2026-09-12 round 2）
+observed: |
+  **round 1 的失败在本轮换模型后翻转 —— 反证了「失败完全归因于模型能力」。**
+
+  **Q1**（不手打 `/skill:`，直接发「把「今天天气很好」翻译成日文。」，命中 demo 的 description）：
+  - 模型**自发**调用 `read`：工具卡片 = `使用技能「demo」`，来源徽标 = `用户`，状态 `完成`，
+    参数区显示实际读取路径 `…/agent-workspace/skills/demo/SKILL.md` ✅
+  - **无** `Tool demo not found` 失败卡片（round 1 在 Qwen3-8B 下出现 ×5）
+  - 回答正确（按技能正文要求「只输出译文本身」）：`今日はとてもいい天気ですね。` ✅
+
+  **Q2**（追问「你有哪些技能？它们和你可用的工具有什么区别？」，D-18 口径）：
+  模型答「我目前有两个**技能（Skill）**：1. **demo** — 当需要把中文翻译成日文时使用 2. **weather** — 当用户询问天气时使用」，
+  并给出与 D-18 一致的区分：「技能…我只知道技能的名字、描述和文件位置，**正文并不在我的提示词里**。
+  只有当用户的请求匹配某个技能的描述时，我才用 `read` 工具去打开对应的 `SKILL.md` 文件」——
+  **与 round 1 Qwen3-8B 的「需通过 `/skill:` 显式调用」相反** ✅
+
+  - 主进程日志：`[Realm AI] 工具完成: read → {…demo/SKILL.md 正文 216 字…}`
+  - 证据：`/tmp/uat48-r2-t13.json`、截图 `/tmp/uat48-r2-t13-q1.png` / `-q2.png`
+note: |
+  本条为**可选**项，且按 round 1 的裁定「②（模型自发遵守 read 指令）由 SDK 模板完全承载、不属本阶段可控代码」——
+  故本轮的通过**不改变** round 1 test 8 的判 pass 结论，只更新观测：48-REVIEW.md IN-04 所述「弱模型下用户会看到一张
+  `demo` 失败卡片」是**模型能力相关**而非 Realm 接线问题（换 mimo-v2.5 即消失）。
+result: pass
 
 ## Summary
 
 round_1: { total: 8, passed: 3, issues: 5, pending: 0, skipped: 0, blocked: 0 }
-round_2: { total: 5, passed: 0, issues: 0, pending: 4, skipped: 1, blocked: 0 }
+round_2: { total: 5, passed: 3, issues: 1, pending: 0, skipped: 1, blocked: 0 }
 
 total: 13
-passed: 3
-issues: 5
-pending: 4
+passed: 6
+issues: 6
+pending: 0
 skipped: 1
 blocked: 0
 
 > round_1 的 5 个 issue（test 2 / 3 / 4 / 5 / 6）已由 gap 计划 48-04 / 48-05 / 48-06 处置并执行完毕，
-> 其记录保留为历史；round_2 的 5 项中 item 11（CR-05 可达性）已裁决记 TD-48-02 并跳过，
-> 其余 4 项（item 9 / 10 / 12 / 13）为**修复后**的运行时可证性重开，待人工实测。
+> 其记录保留为历史（对应 Gaps 中的 G-48-2 / G-48-3 / G-48-4 / G-48-6 均已 `status: resolved`，
+> test 5 已裁决记 TD-48-01、不立 gap）。round_2 的 5 项已全部裁决完毕（2026-09-12）：
+>
+> | item | 结论 | 备注 |
+> |------|------|------|
+> | 9（test 6 clause 1 重跑：技能气泡 pill + 折叠块） | **pass** | t=1566ms 与 run 结束同一采样点出现，三态正确 |
+> | 10（test 4 重跑：流式中调用技能） | **pass** | 老气泡被标取消、新气泡正常增长；停止按钮未提前回退；pill 出现 |
+> | 11（CR-05 可达性实测） | skipped | 已裁决记 TD-48-02，本阶段不要求实测 |
+> | 12（G-48-3 运行期探针） | **issue → G-48-12** | renderer 半边已修；主进程 `_cache.skills` 存在性门使运行期新增技能仍不可调用 |
+> | 13（DISC-05 模型侧复核 · 可选） | **pass** | 换 mimo-v2.5 后模型自发 `read`、卡片技能化、正确区分技能与工具（反证 round 1 失败纯属模型能力） |
 
 ## Gaps
 
 ```yaml
 - gap_id: G-48-6
   truth: "输入 `/skill:<真实技能名> 参数` 回车后，用户气泡应立即呈现三件套：技能 pill（文案「技能」+ 技能名）+ args 正文 + 默认折叠的「技能正文（N 字符）」块"
-  status: failed
+  status: resolved
+  resolved_by: 48-05-PLAN.md
+  resolved_at: 2026-09-12
   reason: "自动驱动实测：发送后立即与整轮跑完时 pill / 折叠块均不存在（`hasPill=false`、`hasBox=false`）；手动调用 `renderAIMessages()` 后两者立即正确出现（pill 文案 `技能demo`、折叠块 `技能正文（94 字符）`、默认折叠、正文 94 字符、三态切换正常）。根因：`src/renderer.js:8843-8846` 回填 `result.skillInvocation` 后没有重渲染；发送起点那次 `renderAIMessages()` 早于 IPC 返回，之后流式更新只走 `updateStreamingBubble`（仅替换 `.ai-message-content`）。属 48-REVIEW.md 11 条 finding 之外的独立缺陷"
   severity: major
   test: 6
@@ -237,7 +361,9 @@ blocked: 0
 ```yaml
 - gap_id: G-48-4
   truth: "AI 正在流式回复（或卡在工具确认卡片）时调用技能不得打断：新技能调用正常发出并流式回显；不出现新气泡被写成「*用户已取消*」、停止按钮提前回退、新回复不显示"
-  status: failed
+  status: resolved
+  resolved_by: 48-05-PLAN.md
+  resolved_at: 2026-09-12
   reason: "自动驱动实测（真实 dev 应用 + MS/Qwen3-8B）：技能调用后新气泡在 t=7372ms 变为「用户已取消」并 15s 零增长，停止按钮即刻回退，`.ai-skill-pill` 未出现、无 system-note；主进程日志确认 `/skill:demo` 已收到 —— 新一轮输出完全不可见。机制与 48-REVIEW.md CR-03 第 3-5 步逐条吻合（`state.aiCancelledByUser` 在 abort 后不复位 → 迟到 error 按「当前消息 id」= 新气泡归属 → 后续 `message_update` 因 `aiCurrentMessageId === null` 全丢）"
   severity: major
   test: 4
@@ -262,7 +388,9 @@ blocked: 0
 ```yaml
 - gap_id: G-48-3
   truth: "AI 正在流式回复时调用技能不得打断：新技能调用正常发出并流式回显；不出现新气泡被写成「*用户已取消*」、停止按钮提前回退、新回复不显示"
-  status: failed
+  status: resolved
+  resolved_by: 48-06-PLAN.md
+  resolved_at: 2026-09-12
   reason: "User reported: 确定（2026-09-12 裁决方案 A）—— 发送路径的本地预检用可能陈旧的 `state.aiSkills` 快照否决调用（`known` / `known.disabled` 两段），违反 2026-09-11「调用瞬间实时读盘」硬约束；运行期新增技能 + 从未打开过 `/` 面板 → 「未找到技能」且输入框被清空，主进程无机会读盘"
   severity: major
   test: 3
@@ -285,7 +413,9 @@ blocked: 0
 ```yaml
 - gap_id: G-48-2
   truth: "`frontmatter name ≠ 目录名` 的技能在面板列出且可选中，点击或手打 `/skill:<目录名>` 应能正常调用（调用瞬间实时读盘，注入以目录名为权威的正文），与 `docs/product/ai-skills.md` §10.4「能显式调用 ✅」一致"
-  status: failed
+  status: resolved
+  resolved_by: 48-04-PLAN.md
+  resolved_at: 2026-09-12
   reason: "User reported: 修吧（2026-09-12 裁决按 CR-02 路径判据修复）—— `readSkillForInvocation`（`ai-skills-manager.js:806-811`）以「名字相等」当同一性判据，而名字正是合法会不一致的那个字段；`skills.find(s => s.name === name) || skills[0]` 的兜底被紧随其后的 `fresh.name !== name` 直接作废"
   severity: major
   test: 2
@@ -303,6 +433,29 @@ blocked: 0
     - "补一条 name ≠ 目录名 的用例（含正例：可正常调用；负例：目录被换成另一技能仍 not_found）—— 需先给测试 helper 增加「写 name 与目录名不同」的能力"
     - "核对 docs/product/ai-skills.md §10.4「正常 → 能显式调用 ✅」在该修复后成立（修复前该表述与实现分叉）"
   debug_session: "(未派独立诊断：根因由代码直读确定，两行自相矛盾为决定性证据)"
+```
+
+```yaml
+- gap_id: G-48-12
+  truth: "在 `agent-workspace/managed-skills/` 下运行期新建技能目录（不打开 `/` 面板），直接手打 `/skill:<新名>`：请求到达主进程并由其当场读盘 → 正常调用（不出现「未找到技能」）"
+  status: failed
+  reason: "User reported: 自动驱动实测（2026-09-12 round 2）—— A 段（renderer 本地否决已移除）通过；B 段与 B2 判别性补测显示**主进程缓存门**使运行期新增技能仍判「未找到技能」：`readSkillForInvocation`（ai-skills-manager.js:803-804）在触盘前用 `_cache.skills` 做存在性门，缓存未命中即 not_found；且纯 fs 变更无任何自动重扫触发"
+  severity: major
+  test: 12
+  root_cause: "`readSkillForInvocation` 的存在性判据取自**缓存**而非磁盘（`_cache.skills.find(e => e.skill.name === name && e.shadowed !== true)`，未命中直接 not_found，读盘路径不执行）。缓存只由 3 个显式 `refreshSkills()` 调用点刷新（ai-manager.js:868 Agent 创建 / :2763 `syncAgentSystemPrompt` / :2840 `_recreateAgent`），而 `syncAgentSystemPrompt` 的唯一常规入口是「打开 `/` 面板」（`ai:refresh-skills`）；`_skillsPromptDirty` idle 补刷（:1325-1334）不是独立触发源 —— 该标记只由 `syncAgentSystemPrompt` 自身在忙时置位。全仓无 fs watcher / 定时器 / 写工具钩子 → 运行期新增技能目录（含 AI 经 write/bash 创建）永不自动进缓存。B2 判别性补测：同一技能、同一磁盘状态，无重扫必失败（14ms 内 note，主进程无 `发送消息` 日志），`ai.refreshSkills()` 后原样重发即正常调用。"
+  artifacts:
+    - path: "ai-skills-manager.js"
+      issue: "802-804 触盘前用 _cache.skills 做存在性门，与「调用瞬间实时读盘」硬约束冲突"
+    - path: "ai-manager.js"
+      issue: "2763 syncAgentSystemPrompt 为唯一常规重扫入口，调用方仅打开面板；无写工具钩子"
+    - path: "ai-manager.js"
+      issue: "1325-1334 _skillsPromptDirty idle 补刷块非独立触发源"
+  missing:
+    - "定口径：`readSkillForInvocation` 缓存未命中时是否按目录名回退一次磁盘探测；或把 truth/文档收口为「需先有一次重扫（打开面板 / Agent 重建）」"
+    - "若选回退探测：裁定 shadowed / disabled / tier 的取值来源（缓存是这些字段唯一权威），不得让新技能绕过遮蔽与禁用判定"
+    - "若选收口：同步修正本条 truth、`.planning/WINDOWS.md` unrun-verify id 24、G-48-3 原文括注的错误前提（「AI 经 write/bash 建目录 → 主进程 idle 边界重扫」在代码中不存在）、`docs/product/ai-skills.md`"
+    - "补一条覆盖「运行期新增技能目录 → 直接 /skill: 调用」的测试（现测试面只覆盖「已缓存技能的内容改动」形态）"
+  debug_session: "(未派独立诊断：根因由源码直读 + B2 判别性对照确定)"
 ```
 
 ## Deferred Follow-Ups
