@@ -1026,6 +1026,20 @@ contextBridge.exposeInMainWorld('realmAPI', {
     getReadabilityScript: () => ipcRenderer.invoke('ai:get-readability-script'),
 
     /**
+     * 获取 `/` 面板的技能集投影（48 D-17：同步快照，零正文）
+     * 主窗口 `file://` 不能 fetch 本地 HTTP API，技能数据只能走本 IPC（Phase 38 事故）
+     * @returns {Promise<{skills: Array<object>, refreshedAt: number, digest: string}>}
+     */
+    getSkills: () => ipcRenderer.invoke('ai:get-skills'),
+
+    /**
+     * 后台刷新技能集（重扫 → 必要回写 → 广播），返回刷新后的投影
+     * 与 getSkills 是两次独立调用：先立即渲染快照，再后台刷新（stale-while-revalidate）
+     * @returns {Promise<{skills: Array<object>, refreshedAt: number, digest: string}>}
+     */
+    refreshSkills: () => ipcRenderer.invoke('ai:refresh-skills'),
+
+    /**
      * 取消当前 Agent 执行
      * @returns {Promise<{success: boolean}>}
      */

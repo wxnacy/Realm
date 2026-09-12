@@ -2042,3 +2042,101 @@ describe('D 组 · 投影收窄 / tier 三档 / promptOmitted / DISC-07', () => 
   });
 });
 
+// ==================== 48-01 E 组：面板入口接线 / 措辞 / 通道护栏（源码扫描） ====================
+
+describe('E 组 · 面板入口接线（D-17 / P8 触发点）', () => {
+  test('refreshSkillsForPanel 复用 syncAgentSystemPrompt 并返回投影（源码）', () => {
+    const body = methodBody(readSource('ai-manager.js'), 'refreshSkillsForPanel');
+    assert.ok(body.includes('await this.syncAgentSystemPrompt()'), '必须复用既有失效链');
+    assert.ok(body.includes('getSkillsForUI()'), '必须返回刷新后的收窄投影');
+    assert.strictEqual(body.includes('new Agent('), false, '不得重建 Agent');
+  });
+
+  test('refreshSkillsForPanel 是 syncAgentSystemPrompt 的读侧生产调用方（P8 闭环半边）', () => {
+    const src = readSource('ai-manager.js');
+    const body = methodBody(src, 'refreshSkillsForPanel');
+    assert.ok(
+      body.includes('await this.syncAgentSystemPrompt()'),
+      '必须存在生产调用方（否则 syncAgentSystemPrompt 仍无调用者）'
+    );
+    const ipc = readSource('ipc-handlers.js');
+    const idx = ipc.indexOf("'ai:refresh-skills'");
+    assert.ok(idx >= 0, 'ipc-handlers 必须注册 ai:refresh-skills');
+    assert.ok(
+      ipc.slice(idx, idx + 400).includes('refreshSkillsForPanel'),
+      'ai:refresh-skills 必须调用 refreshSkillsForPanel'
+    );
+  });
+
+  test('syncAgentSystemPrompt 的方法体未被重构（46-04 五条断言继续成立）', () => {
+    const body = methodBody(readSource('ai-manager.js'), 'syncAgentSystemPrompt');
+    assert.ok(body.includes('refreshSkills('));
+    assert.ok(body.includes('this.agent.state.systemPrompt = next'));
+    assert.ok(body.includes("windowManager.broadcast('skills:changed')"));
+    assert.ok(body.includes('this._skillsPromptDirty = true'));
+    assert.ok(body.includes('snap.digest === this._skillsPromptDigest'));
+  });
+
+  test('REALM_SYSTEM_PROMPT 补了技能 / 工具的概念区分（D-18）', () => {
+    const src = readSource('ai-manager.js');
+    assert.ok(src.includes('技能（Skill）'), '应点名「技能（Skill）」');
+    assert.ok(src.includes('工具（Tool）'), '应点名「工具（Tool）」');
+    assert.ok(src.includes('是两个不同的概念'), '必须明确两者是不同概念');
+    assert.ok(src.includes('按需读取的指令文档'), '技能应被描述为按需读取的指令文档 / 工作流');
+    assert.ok(src.includes('正文不在提示词里'), '应说明技能正文不在提示词里');
+    assert.ok(src.includes('read 工具打开'), '应给出读取正文的途径');
+    // 不得写成「技能可自动注入」这类虚假措辞
+    assert.strictEqual(src.includes('技能可自动注入'), false);
+  });
+
+  test('技能段仍逐字符等于 buildSkillsPrompt()（46 D-02 未被 D-18 触碰）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    writeSkill(workspace.getSkillsDir(), 'alpha', { description: '措辞用例技能' });
+    await setupSkillsEnv(root);
+
+    const skillsBlock = aiSkills.buildSkillsPrompt();
+    assert.ok(skillsBlock.length > 0, '前置：技能段非空');
+    const prompt = aiManager.buildSystemPrompt();
+    assert.ok(prompt.includes(skillsBlock), 'buildSystemPrompt 必须原样包含技能段');
+    assert.strictEqual(
+      prompt.slice(prompt.length - skillsBlock.length),
+      skillsBlock,
+      '技能段必须逐字符等于 buildSkillsPrompt() 的返回值（固定在末段且未加前缀）'
+    );
+    assert.ok(prompt.includes('技能（Skill）'), '第 1 段的 D-18 措辞应同时存在');
+  });
+});
+
+describe('E 组 · 通道成对 / 转义护栏（源码扫描）', () => {
+  test('ipc-handlers：两个新通道都在 assertTrustedSender 之后、且在 aiManager 判空后返回', () => {
+    const src = readSource('ipc-handlers.js');
+    for (const channel of ['ai:get-skills', 'ai:refresh-skills']) {
+      const idx = src.indexOf(`'${channel}'`);
+      assert.ok(idx >= 0, `缺少通道 ${channel}`);
+      const seg = src.slice(idx, idx + 400);
+      assert.ok(seg.includes('assertTrustedSender(event)'), `${channel} 必须校验可信发送者`);
+      const guardIdx = seg.indexOf("throw new Error('AI Manager 未初始化')");
+      const returnIdx = seg.indexOf('return aiManager.');
+      assert.ok(guardIdx >= 0, `${channel} 必须有 aiManager 判空`);
+      assert.ok(returnIdx > guardIdx, `${channel} 的返回必须在判空之后`);
+    }
+  });
+
+  test('src/preload.js 成对暴露 getSkills / refreshSkills', () => {
+    const src = readSource('src/preload.js');
+    assert.ok(src.includes("getSkills: () => ipcRenderer.invoke('ai:get-skills')"));
+    assert.ok(src.includes("refreshSkills: () => ipcRenderer.invoke('ai:refresh-skills')"));
+  });
+
+  test('新增通道不得走本地 HTTP API（Phase 38 事故护栏）', () => {
+    const src = readSource('src/renderer.js');
+    assert.strictEqual(
+      (src.match(/fetch\(['"]\/api\/skills/g) || []).length,
+      0,
+      "主窗口 file:// 不能 fetch 本地 HTTP API，技能数据必须走 realmAPI.ai.*"
+    );
+  });
+});
+
+

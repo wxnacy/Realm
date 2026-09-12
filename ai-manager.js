@@ -495,6 +495,8 @@ async function executeScript(script, webContentsId, onStepUpdate, abortSignal) {
  */
 const REALM_SYSTEM_PROMPT = `你是 Realm Browser 的 AI 助手。你可以帮助用户管理浏览器标签页、查看当前状态、读取网页内容、提取链接等。
 
+关于「技能（Skill）」：技能与工具（Tool）是两个不同的概念 —— 工具是你可直接调用的函数；技能是一份按需读取的指令文档 / 工作流。可用技能的清单里只有它的 name、description 与 location（SKILL.md 的绝对路径），**正文不在提示词里**，需要你用 read 工具打开该 location 才能看到。未被用户显式调用（/skill:名字）时，你不会自动获得任何技能的正文；当用户的请求与某个技能的 description 匹配时，请先 read 它的 location 读取正文，再按正文的指引行事。
+
 你的能力：
 - get_tabs: 获取当前所有标签页列表
 - search_history: 搜索浏览历史记录，支持按 URL 和标题模糊匹配，支持时间范围筛选。默认使用当前活跃容器，也可通过 containerId 参数指定特定容器。
@@ -2718,6 +2720,27 @@ ${content}
 
     // 只在真正改写了 prompt 的路径上广播（本阶段只发事件，消费方在 Phase 48/50）
     windowManager.broadcast('skills:changed');
+  }
+
+  /**
+   * `/` 面板的后台刷新入口（48 D-17 / P8 失效链的**读侧**生产调用方）
+   *
+   * 复用既有失效链：`syncAgentSystemPrompt()`（重扫两个技能目录 → 必要的 prompt 回写与
+   * 广播）→ 返回刷新后的收窄投影。**不重建 Agent**、不新增第二条刷新路径。
+   *
+   * **只加调用方，`syncAgentSystemPrompt()` 的函数体逐字未改**（46-04 的方法体源码扫描
+   * 断言是硬约束）。语义上与 Phase 49/50/51 的「写成功后回写」区分：本入口是
+   * 「打开面板时重扫 + 回写」，不是技能写路径的收口。
+   *
+   * **早退边界**：`syncAgentSystemPrompt()` 在 `!this.agent || !this.sandboxEnv` 时直接
+   * 返回（AI 未初始化 / 未创建过 Agent）→ 此时面板拿到的是**旧投影**。这是唯一诚实的降级：
+   * 没有 Agent 就没有可用的读盘环境（`sandboxEnv` 亦未建立），无从重扫。
+   *
+   * @returns {Promise<{skills: Array<object>, refreshedAt: number, digest: string}>} 刷新后的面板投影
+   */
+  async refreshSkillsForPanel() {
+    await this.syncAgentSystemPrompt();
+    return this.getSkillsForUI();
   }
 
   /**

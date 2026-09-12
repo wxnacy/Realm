@@ -1675,7 +1675,10 @@ function registerHandlers() {
   /**
    * 发送用户消息给 AI Agent
    * @param {string} message - 用户输入的消息
-   * @returns {Promise<{success: boolean, conversationId: string|null}>} conversationId 为本轮对话 id（首条消息惰性建行后回传 renderer，per G-42-2），失败时为 null
+   * @returns {Promise<{success: boolean, conversationId: string|null, skillInvocation: object|null, skillError?: object}>}
+   *   conversationId 为本轮对话 id（首条消息惰性建行后回传 renderer，per G-42-2），失败时为 null；
+   *   48-01 起额外回传技能调用契约（`skillInvocation` = 本次实际注入的技能块元数据；
+   *   `skillError` = 技能解析失败的结构化错误，此时主进程未调用 agent.prompt）
    */
   ipcMain.handle('ai:prompt', async (event, message) => {
     assertTrustedSender(event);
@@ -1685,8 +1688,13 @@ function registerHandlers() {
     if (!aiManager) {
       throw new Error('AI Manager 未初始化');
     }
-    const conversationId = await aiManager.prompt(message);
-    return { success: true, conversationId };
+    const res = await aiManager.prompt(message);
+    return {
+      success: true,
+      conversationId: res.conversationId,
+      skillInvocation: res.skillInvocation,
+      skillError: res.skillError,
+    };
   });
 
   /**
@@ -1694,7 +1702,8 @@ function registerHandlers() {
    * @param {Object} data - 消息数据
    * @param {string} data.message - 用户消息
    * @param {Array} data.referencedTabs - 引用的标签页列表
-   * @returns {Promise<{success: boolean, conversationId: string|null}>} conversationId 为本轮对话 id（per G-42-2），失败时为 null
+   * @returns {Promise<{success: boolean, conversationId: string|null, skillInvocation: object|null, skillError?: object}>}
+   *   conversationId 为本轮对话 id（per G-42-2），失败时为 null；技能调用契约同 `ai:prompt`
    */
   ipcMain.handle('ai:prompt-with-context', async (event, data) => {
     assertTrustedSender(event);
@@ -1710,13 +1719,53 @@ function registerHandlers() {
     if (!aiManager) {
       throw new Error('AI Manager 未初始化');
     }
-    const conversationId = await aiManager.promptWithContext(
+    const res = await aiManager.promptWithContext(
       data.message,
       data.referencedTabs || [],
       attachmentIds,
       data.supportsVision !== false,
     );
-    return { success: true, conversationId };
+    return {
+      success: true,
+      conversationId: res.conversationId,
+      skillInvocation: res.skillInvocation,
+      skillError: res.skillError,
+    };
+  });
+
+  /**
+   * 获取 `/` 面板的技能集投影（48 D-17）
+   *
+   * 无载荷 invoke：同步读主进程内存快照（零 IO、零正文的收窄投影），供面板**立即渲染**。
+   * 与 `ai:refresh-skills` 是两次独立调用 —— 合成一次会让首次渲染等异步重扫
+   *（stale-while-revalidate 的两半边）。
+   *
+   * 注意：**不得**走 `/api/skills/*`（主窗口 `file://` 不能 fetch 本地 HTTP —— Phase 38 事故）。
+   *
+   * @returns {Promise<{skills: Array<object>, refreshedAt: number, digest: string}>}
+   */
+  ipcMain.handle('ai:get-skills', async (event) => {
+    assertTrustedSender(event);
+    if (!aiManager) {
+      throw new Error('AI Manager 未初始化');
+    }
+    return aiManager.getSkillsForUI();
+  });
+
+  /**
+   * 后台刷新技能集并返回刷新后的投影（48 D-17 / P8 触发点）
+   *
+   * 无载荷 invoke：主进程侧「重扫两个技能目录 → 必要时回写 system prompt 并广播」→
+   * 返回收窄投影供面板原地重渲染。
+   *
+   * @returns {Promise<{skills: Array<object>, refreshedAt: number, digest: string}>}
+   */
+  ipcMain.handle('ai:refresh-skills', async (event) => {
+    assertTrustedSender(event);
+    if (!aiManager) {
+      throw new Error('AI Manager 未初始化');
+    }
+    return aiManager.refreshSkillsForPanel();
   });
 
   // ==================== AI 聊天附件 ====================
