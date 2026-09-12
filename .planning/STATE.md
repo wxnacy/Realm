@@ -5,16 +5,16 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 48
 current_phase_name: "技能发现与调用（`/` 面板 + `/skill:name`）"
 status: executing
-stopped_at: Completed 48-05-PLAN.md
-last_updated: "2026-09-12T11:57:53.023Z"
+stopped_at: Completed 48-06-PLAN.md
+last_updated: "2026-09-12T12:07:16.554Z"
 last_activity: 2026-09-12
 last_activity_desc: Phase 48 execution started
-state_head: b8b855f19fe30ee90c1ab94728f83bcb1a2ea5cc
+state_head: 062b7a0205a824a4b67b12b1a278e38a8e81bfd5
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 16
-  completed_plans: 15
+  completed_plans: 16
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-11)
 ## Current Position
 
 Phase: 48 (技能发现与调用（`/` 面板 + `/skill:name`）) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-09-12 — Phase 48 execution started
 
@@ -107,6 +107,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 48 P03 | 21min | 3 tasks | 7 files |
 | Phase 48 P04 | 5min | 2 tasks | 2 files |
 | Phase 48 P5 | 5min | 2 tasks | 5 files |
+| Phase 48 P06 | 6min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -209,6 +210,9 @@ Recent decisions affecting current work:
 - [Phase 48]: 48-05：G-48-6 修复用「构建单源 + 定向刷新」而非整列重绘 —— 抽 buildUserMessageContent（用户气泡唯一实现）与 refreshUserMessageBubble（只 replaceChild 该条 .ai-message-content），三处 skillInvocation 回填后立即调用；整列 renderAIMessages() 会丢滚动位置与正在流式的气泡节点（UAT missing 明文要求）
 - [Phase 48]: 48-05：G-48-4 取消归属改用 aiCancelledMessageId 锚点并抽到 src/ai-cancel-state.js（零依赖纯函数 resolveCancelAttribution）；resetRunState 只由锚点等式决定、与消息列表形态无关（消息被移除也保住按钮语义），新一轮已开始时不得越权复位（否则 message_update 整批丢弃）；aiCancelledByUser 与停止按钮语义一字未改
 - [Phase 48]: 48-05：ai:abort 保持同步返回——刻意不做 48-REVIEW CR-03 的替代方案「等 run 结算再返回」，锚点已能隔离归属，主进程等待语义会新增挂起路径（run 未结算时新消息被无限期挡住、需超时兜底），风险高于收益
+- [Phase 48]: G-48-3：渲染端发送路径不再做存在性/启停判定（删两段本地否决）—— 存在性/启停一律由主进程在调用那一刻读盘裁定，失败经响应 skillError 走既有回滚；用户可见契约（一条 system-note + 零残留气泡）由主进程文案 + removeSkillFailureBubbles 完整承担
+- [Phase 48]: state.aiSkills / aiSkillsDigest 保留（/ 面板首帧的同步数据源），但发送路径零读取；skills:changed 改为无条件 pullAiSkillsSnapshot，仍绝不触发 refreshSkills（自激回路 P-48-06）
+- [Phase 48]: 跨文件护栏：渲染端不得含两条失败文案 + 主进程 skillErrorFromReason 必含它们 —— 两侧不可能被同时删除后无人发现
 
 ### Roadmap Evolution
 
@@ -317,8 +321,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-12T11:57:52.991Z
-Stopped at: Completed 48-05-PLAN.md
+Last session: 2026-09-12T12:07:16.519Z
+Stopped at: Completed 48-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

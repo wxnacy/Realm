@@ -235,7 +235,7 @@ Plans:
   4. 模型可仅凭 description 自动匹配技能并通过 `read` 打开其正文（用户不显式调用也能生效）。
   5. 调用不存在的技能给出明确错误提示（不出现"点了没反应"）；`disable-model-invocation` 技能不进 system prompt 但可经 `/skill:` 显式调用且在 UI 有标记。
 
-**Plans:** 5/6 plans executed（48-01..03 已执行；48-04..06 为 gap 收敛计划，见文末 Gap closure）
+**Plans:** 6/6 plans executed（48-01..03 已执行；48-04..06 为 gap 收敛计划，见文末 Gap closure）
 
 Plans:
 **Wave 1**
@@ -259,7 +259,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion —— 与 48-05 同改 `src/renderer.js` 与 `tests/test-skill-picker-model.js`)*
 
-- [ ] 48-06-PLAN.md — **G-48-3**：删除渲染端用陈旧 `state.aiSkills` 快照做本地否决的两段分支（存在性/启停一律由主进程当场读盘裁定、失败经既有 `skillError` 回滚呈现，用户可见文案逐字不变）+ `skills:changed` 无条件重拉快照；同步两套源码扫描断言与 `48-01/48-02/48-VALIDATION` 的旧明文，并**收口本轮全部产品文档面**（`docs/product/ai-skills.md` 的 §10.3 / §10.7 两条 / §10.4 表下两条注 / 新增 §10.8「用户气泡契约」/ §七 测试清单；本轮唯一文档写者）（wave 5，DISC-02/06）
+- [x] 48-06-PLAN.md — **G-48-3**：删除渲染端用陈旧 `state.aiSkills` 快照做本地否决的两段分支（存在性/启停一律由主进程当场读盘裁定、失败经既有 `skillError` 回滚呈现，用户可见文案逐字不变）+ `skills:changed` 无条件重拉快照；同步两套源码扫描断言与 `48-01/48-02/48-VALIDATION` 的旧明文，并**收口本轮全部产品文档面**（`docs/product/ai-skills.md` 的 §10.3 / §10.7 两条 / §10.4 表下两条注 / 新增 §10.8「用户气泡契约」/ §七 测试清单；本轮唯一文档写者）（wave 5，DISC-02/06）
 
 **UI hint**: yes
 **Doc sync**: `docs/product/ai-skills.md` 补发现与调用章节（48-03）；gap 收敛轮全部文档面收口（§10.3 / §10.7 / §10.4 表下注 / 新增 §10.8「用户气泡契约」/ §七）由 **48-06** 单点完成以避免同波并发编辑同一文件。
@@ -340,7 +340,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 46. 技能基础设施 | 4/4 | Complete | 2026-09-11 |
 | 47. 内置技能播种 + bash 策略加固 | 6/6 | In Progress|  |
-| 48. 技能发现与调用 | 5/6 | In Progress|  |
+| 48. 技能发现与调用 | 6/6 | In Progress|  |
 | 49. `manage_skill` 工具 | TBD | Not started | - |
 | 50. 设置页技能管理区 + `/api/skills/*` | TBD | Not started | - |
 | 51. 用户技能导入管线 | TBD | Not started | - |

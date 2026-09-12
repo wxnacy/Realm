@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 22
+open_count: 23
 waived_count: 0
 fixed_count: 1
-total_count: 23
-last_updated: 2026-09-12T11:57:11.319Z
+total_count: 24
+last_updated: 2026-09-12T12:05:50.272Z
 ---
 
 # Broken Windows Ledger
@@ -38,6 +38,7 @@ last_updated: 2026-09-12T11:57:11.319Z
 | 21 | 48 | unrun-verify |  |  | 48-02 Task 3 <human-check>（backstop）：50+ 技能数据集下 220px 面板的分组标题 sticky 常驻 / 行五要素可读 / 行尾标注无一截断 —— 视觉观感无法自动化裁决，留 UAT 实测 | open |  | 2026-09-12T05:25:38.311Z |  |
 | 22 | 48 | unrun-verify | src/renderer.js |  | 48-05 G-48-6：pill/折叠块「发送后即现」是运行时机行为，node:test 无 DOM 宿主可断言；最终证据为重跑 /gsd-verify-work 48 的自动驱动探针（UAT test 6 clause 1） | open |  | 2026-09-12T11:57:11.239Z |  |
 | 23 | 48 | unrun-verify | src/ai-cancel-state.js |  | 48-05 G-48-4：abort × 新消息的端到端竞态（新气泡不得被写成「用户已取消」）无法在纯 Node 构造；最终证据为重跑 /gsd-verify-work 48 的自动驱动探针（UAT test 4） | open |  | 2026-09-12T11:57:11.319Z |  |
+| 24 | 48 | unrun-verify | src/renderer.js |  | 48-06 G-48-3：运行期新增技能 + 从未打开过 / 面板 → 手打 /skill:<新名> 可调用是运行时行为（主进程重扫 → 广播 → IPC 往返），node:test 只覆盖源码契约；最终证据为重跑 /gsd-verify-work 48 的自动驱动探针 | open |  | 2026-09-12T12:05:50.272Z |  |
 
 ````json
 [
@@ -315,6 +316,18 @@ last_updated: 2026-09-12T11:57:11.319Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-12T11:57:11.319Z",
+    "resolved_at": null
+  },
+  {
+    "id": 24,
+    "kind": "unrun-verify",
+    "phase": "48",
+    "file": "src/renderer.js",
+    "line": null,
+    "description": "48-06 G-48-3：运行期新增技能 + 从未打开过 / 面板 → 手打 /skill:<新名> 可调用是运行时行为（主进程重扫 → 广播 → IPC 往返），node:test 只覆盖源码契约；最终证据为重跑 /gsd-verify-work 48 的自动驱动探针",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-12T12:05:50.272Z",
     "resolved_at": null
   }
 ]
