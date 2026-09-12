@@ -3,17 +3,27 @@ status: diagnosed
 phase: 48-skill-name
 source: [48-VERIFICATION.md]
 started: 2026-09-12T06:55:00Z
-updated: 2026-09-12T13:52:31Z
-round: 2
+updated: 2026-09-12T14:33:42Z
+round: 3
 round_1_status: diagnosed
 round_2_source: "48-VERIFICATION.md @ 2026-09-12T12:25:00Z（gap 修复后重验，31/36）"
 round_2_status: "diagnosed（2026-09-12 自动驱动实测：9/10/13 pass，12 issue → G-48-12，11 已跳过）"
 round_2_driver: "playwright _electron + 真实 dev 应用；provider = xiaomi/mimo-v2.5（XIAOMI_API_KEY）"
+round_3_source: "48-VERIFICATION.md @ 2026-09-12T14:33:42Z（gap 48-07 执行后重验，44/52，仍 human_needed）"
+round_3_status: "pending（G-48-12 代码面已闭合；运行期面与两条新处置待实测/裁决）"
 ---
 
 ## Current Test
 
-[testing complete] —— round 2 的 4 项待测已全部由自动驱动实测并裁决（test 9 pass / test 10 pass / test 12 **issue**（G-48-12）/ test 13 pass；test 11 已按 TD-48-02 跳过）
+number: 14
+name: 重跑 UAT test 12 / G-48-12 运行期探针（运行期新增技能目录 → 手打 `/skill:<新名>`，不打开 `/` 面板）
+expected: |
+  请求到达主进程并由它当场读盘后正常调用：不再出现 system-note「未找到技能「<新名>」」，主进程日志出现 `发送消息: /skill:<新名>`
+awaiting: user response
+
+> 历史：[round 2 testing complete] —— 4 项待测已全部由自动驱动实测并裁决
+> （test 9 pass / test 10 pass / test 12 **issue**（G-48-12）/ test 13 pass；test 11 已按 TD-48-02 跳过）。
+> round 3 新开 5 项（14–18），当前待测第 1 项为 **14**（G-48-12 运行期面，本轮阻断收尾项）。
 
 ## Tests
 
@@ -310,17 +320,58 @@ note: |
   `demo` 失败卡片」是**模型能力相关**而非 Realm 接线问题（换 mimo-v2.5 即消失）。
 result: pass
 
+## Round 3 — 重验后的人工验证项（2026-09-12T14:33Z）
+
+> 前两轮的实测记录与裁决**原样保留**（`### 1.`–`### 8.` 与「## Round 2」9–13）。本轮为 gap 计划
+> **48-07**（闭合 G-48-12 主进程半边）执行后的重验。48-07 只改 `ai-manager.js` / 测试 / 文档，
+> **未触 renderer / DOM**，故下列 14–17 中凡属运行时行为者仍须实测；18 为两处新处置裁决。
+> 以下编号续接为 14–18。
+
+### 14. 重跑 UAT test 12 / G-48-12 运行期探针（本轮**阻断收尾**项）
+expected: `agent-workspace/managed-skills/`（或 `skills/`）下**运行期**新建技能目录 —— **不打开 `/` 面板**、不重启、不重建 Agent —— 直接手打 `/skill:<新名> [args]`。请求须**到达主进程并由它当场读盘**后正常调用：不再出现 system-note「未找到技能「<新名>」」，不再有「主进程无 `发送消息: /skill:…` 日志」这一现象
+why_human: 缓存未命中的重扫是主进程运行时行为；48-07 已修代码面（`_resolveSkillInvocation` 至多重试一次经 `syncAgentSystemPrompt()` 后重读盘，`rescanCalls === 1` 由 139 例单测钉住），但**真实 dev 应用的端到端链路未实测**。修复前证据（round 2 test 12，2026-09-12）：14ms 内出 note、`state.aiSkills` 全程 `containsNew:false`、主进程零请求；`ai.refreshSkills()` 后原样重发即成功
+result: [pending]
+
+### 15. 重跑 UAT test 6 clause 1（pill + 「技能正文」折叠块）—— 复核性重跑
+expected: `npm run dev` → 输入 `/skill:<真实技能名> <args>` 回车，**不做任何额外交互**，整轮回复结束时 `.ai-skill-pill` 与 `.ai-skill-content-box` 均在（默认折叠、点击可展开）；呈现时刻 = 本轮回合结束（口径已收口，不要求回车即现）
+why_human: round 2 test 9 已通过（t=1566ms 与 run 结束同一采样点出现）。48-07 未触 renderer，本轮为**回归复核**：确认 48-07 的重扫路径没有改变回填后的定向刷新时机
+result: [pending]
+
+### 16. 重跑 UAT test 4（流式中调用技能）—— 复核性重跑
+expected: 发长回复 prompt → 流式中手打 `/skill:<真实技能名>` → 采样 15s：新气泡有内容且持续增长；**不得**被写成「用户已取消」；停止按钮不得提前回退；`.ai-skill-pill` 出现
+why_human: round 2 test 10 已通过。48-07 未触 renderer / 取消锚点，本轮为**回归复核**
+result: [pending]
+
+### 17. 新增：重扫抛错回退的行为面（48-REVIEW.md WR-08）
+expected: 手打 `/skill:<确定不存在的名字>` → 应正常回 system-note「未找到技能」（重扫一次后仍 `not_found`）；随后发一条**普通消息** → 应正常得到回复，**不得**出现「AI 正在处理上一条消息」的静默丢弃或任何卡死
+expected_detail: 本轮复核目标 = 重扫路径抛错时是否**保留原判定**且不升级为异常（48-07 自述不变式）。静态面已知：重试读盘在 `try` 之外、`catch` 内 `err.message` 对非对象抛出值会二次抛错（WR-08），**该分支零行为用例**
+why_human: 异常路径在正常环境不自然发生；须人为构造（例如使重扫期间读盘失败）或至少验证「不存在名 → note → 后续消息正常」这条相邻路径不受影响
+result: [pending]
+
+### 18. 处置裁决：WR-07 与 WR-08（各择一路线）
+expected: 逐条拍板并落地
+why_human: 两条均为 48-07 增量**放大/暴露**的既有机制问题，不是本增量的错值；核验报告判**不阻断 UAT**，但建议在 Phase 49（`manage_skill` 落地、AI 自建技能常规化）开工前与 TD-48-01 / TD-48-02 同批处置
+options:
+  - "WR-07 —— `_skillsPromptDirty` 唯一消费者在 `promptWithContext()`（`ai-manager.js:1325`），而纯文本 `/skill:` 走 `ai.prompt`（`src/renderer.js:8799`）→ 延迟回写与广播在纯文本流上**永不落地**，运行期新增技能对模型自动匹配与已开面板长期不可见。路线 A：在 `prompt()` 成功出口（`ai-manager.js:1084-1088`）补一次 flush（≈6 行）；路线 B：仅收紧 docs §10.7 的「下一轮 idle 边界」措辞为「下一轮**带引用/附件**的结束」"
+  - "WR-08 —— 补该分支的行为用例（或原地收紧 try 范围 + 修 `err.message` 取值），或明确接受把不变式降为「尽力而为」并在注释/文档同步"
+result: [pending]
+
 ## Summary
 
 round_1: { total: 8, passed: 3, issues: 5, pending: 0, skipped: 0, blocked: 0 }
 round_2: { total: 5, passed: 3, issues: 1, pending: 0, skipped: 1, blocked: 0 }
+round_3: { total: 5, passed: 0, issues: 0, pending: 5, skipped: 0, blocked: 0 }
 
-total: 13
+total: 18
 passed: 6
 issues: 6
-pending: 0
+pending: 5
 skipped: 1
 blocked: 0
+
+> round_3 的 5 项（14–18）为本轮新开：14 是 G-48-12 的**运行期面**（48-07 只闭合了代码面），
+> 15 / 16 是 round 2 已通过项的回归复核（48-07 未触 renderer），17 是 WR-08 提出的重扫抛错行为面，
+> 18 是 WR-07 / WR-08 的处置裁决。
 
 > round_1 的 5 个 issue（test 2 / 3 / 4 / 5 / 6）已由 gap 计划 48-04 / 48-05 / 48-06 处置并执行完毕，
 > 其记录保留为历史（对应 Gaps 中的 G-48-2 / G-48-3 / G-48-4 / G-48-6 均已 `status: resolved`，
@@ -439,6 +490,7 @@ blocked: 0
 - gap_id: G-48-12
   truth: "在 `agent-workspace/managed-skills/` 下运行期新建技能目录（不打开 `/` 面板），直接手打 `/skill:<新名>`：请求到达主进程并由其当场读盘 → 正常调用（不出现「未找到技能」）"
   status: failed
+  status_note: "**代码面已闭合** —— 48-07 已使 `_resolveSkillInvocation` 在缓存未命中（`not_found`）时经唯一权威入口 `syncAgentSystemPrompt()` 重扫**恰一次**后当场重读磁盘（`ai-skills-manager.js` 保持零 diff；`rescanCalls === 1` 由 139 例单测钉住）。本条 `status` 仍为 `failed` 是因为 **运行期面未实测**（round 3 item 14 待跑）；`.planning/WINDOWS.md` unrun-verify id 24 同步仍为 `open`，待实测回填后才可改判"
   reason: "User reported: 自动驱动实测（2026-09-12 round 2）—— A 段（renderer 本地否决已移除）通过；B 段与 B2 判别性补测显示**主进程缓存门**使运行期新增技能仍判「未找到技能」：`readSkillForInvocation`（ai-skills-manager.js:803-804）在触盘前用 `_cache.skills` 做存在性门，缓存未命中即 not_found；且纯 fs 变更无任何自动重扫触发"
   severity: major
   test: 12
@@ -451,10 +503,10 @@ blocked: 0
     - path: "ai-manager.js"
       issue: "1325-1334 _skillsPromptDirty idle 补刷块非独立触发源"
   missing:
-    - "定口径：`readSkillForInvocation` 缓存未命中时是否按目录名回退一次磁盘探测；或把 truth/文档收口为「需先有一次重扫（打开面板 / Agent 重建）」"
-    - "若选回退探测：裁定 shadowed / disabled / tier 的取值来源（缓存是这些字段唯一权威），不得让新技能绕过遮蔽与禁用判定"
-    - "若选收口：同步修正本条 truth、`.planning/WINDOWS.md` unrun-verify id 24、G-48-3 原文括注的错误前提（「AI 经 write/bash 建目录 → 主进程 idle 边界重扫」在代码中不存在）、`docs/product/ai-skills.md`"
-    - "补一条覆盖「运行期新增技能目录 → 直接 /skill: 调用」的测试（现测试面只覆盖「已缓存技能的内容改动」形态）"
+    - "（已处置 48-07）定口径 —— 采用第三条路线：**不改 `ai-skills-manager.js`**，改在调用侧 `_resolveSkillInvocation`，miss 时至多一次经 `syncAgentSystemPrompt()` 重扫后重读盘"
+    - "（已处置 48-07）shadowed / disabled / tier 取值来源 —— 全部由同一条 `refreshSkills` 管线产出，未写第二套遮蔽判定；「按目录直读回退探测」被明确否决"
+    - "（已处置 48-07）补覆盖「运行期新增技能目录 → 直接 /skill: 调用」的测试 —— `tests/test-ai-skills.js` J 组 7 例（139 例总数）"
+    - "**运行期面待实测**：真实 dev 应用里的端到端探针（round 3 item 14）；实测通过后同步修正 `.planning/WINDOWS.md` unrun-verify id 24 的状态并回填本条 `status`"
   debug_session: "(未派独立诊断：根因由源码直读 + B2 判别性对照确定)"
 ```
 
@@ -467,6 +519,16 @@ blocked: 0
   owner_trigger: "Phase 49 开工前第一条（manage_skill 落地前）"
   deferred_at: 2026-09-12
   evidence_addendum: "test 5 实测（2026-09-12）：属性逃逸成立，但主窗口 CSP 拦掉内联处理器 → 代码不执行，定级由 blocker 更正为 minor；TD-48-01 已回写"
+- test: 18
+  idea: "WR-07 —— `_skillsPromptDirty` 的延迟回写/广播在纯文本流上永不落地（唯一消费者在 `promptWithContext()`，纯文本走 `ai.prompt`），48-07 把「置脏」从罕见变常规；核验判不阻断，建议 Phase 49 开工前与 TD 同批处置"
+  debt_ref: "48-REVIEW.md WR-07"
+  owner_trigger: "Phase 49 开工前（`manage_skill` 落地前）"
+  deferred_at: 2026-09-12
+- test: 18
+  idea: "WR-08 —— 48-07 自述的「重扫抛错保留原判定」只被断言未被强制，且该分支零行为用例；核验判不阻断，建议补行为用例或原地收紧 try 范围"
+  debt_ref: "48-REVIEW.md WR-08"
+  owner_trigger: "Phase 49 开工前"
+  deferred_at: 2026-09-12
 ```
 
 ## 更正（G-48-12 立项时，2026-09-12）
