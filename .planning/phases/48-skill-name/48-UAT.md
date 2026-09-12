@@ -21,7 +21,7 @@ awaiting: user response
 
 ## Tests
 
-### 1. {阶段门槛} 裁决 48-REVIEW.md CR-01：面板行 `title` 属性逃逸
+### [Round 1] 1. {阶段门槛} 裁决 48-REVIEW.md CR-01：面板行 `title` 属性逃逸
 expected: 面板行的 `title` 属性用 `escapeHtml` 转义（不转义引号），磁盘来源的技能名可闭合 `title` 属性并注入新属性 / 事件处理器。已用纯 Node 探针复现：目录名 `pwn" data-x="y` 产出 `title="/skill:pwn" data-x="y 可显式调用"`。决定「Phase 49 开工前修复」或「登记为技术债延后」——Phase 49 的 `manage_skill` 会让 AI 直接创建技能目录，使该路径变为常规可达。
 result: pass
 decision: 登记为技术债延后（用户 2026-09-12 拍板，前提「暂时不发版」）→ 落 `48-REVIEW.md` TD-48-01，带接手触发点「Phase 49 开工前第一条」
@@ -33,14 +33,14 @@ note: |
   不被编译，代码**不执行**，残余影响为 CSS 注入 / 潜在 XSS。详见 TD-48-01 的实测更正段。
   另已确认 secure-phase **不会**兜住（T-48-03 声明的缓解即失效机制）。
 
-### 2. {阶段门槛} 裁决 48-REVIEW.md CR-02：`frontmatter name ≠ 目录名` 的技能不可调用
+### [Round 1] 2. {阶段门槛} 裁决 48-REVIEW.md CR-02：`frontmatter name ≠ 目录名` 的技能不可调用
 expected: 决定「按 CR-02 的路径判据修复 + 补一条 name≠目录名 用例」或「登记为技术债」；若不改，须同时修正 `docs/product/ai-skills.md` §10.4 的表述（现写「能显式调用 ✅」而实际 `readSkillForInvocation` 恒返回 `not_found`），以免产品说明与实现分叉。该行为是 48-01 PLAN 明确要求（`fresh.name !== name` → not_found，防冒名注入），非执行器偏离。
 result: issue
 reported: "修吧"
 decision: 按 CR-02 的路径判据修复（用户 2026-09-12 裁决）→ gap G-48-2；§10.4 的 ✅ 随修复变为真实，无需改口径
 severity: major
 
-### 3. {阶段门槛} 裁决 48-REVIEW.md CR-04：renderer 陈旧快照否决调用
+### [Round 1] 3. {阶段门槛} 裁决 48-REVIEW.md CR-04：renderer 陈旧快照否决调用
 expected: 决定「移除本地否决、改由主进程 `skillError` 走既有回滚（D-13 推论）」或「让任何 `skills:changed` 都重拉快照」。现状下「运行期新增技能 + 从未打开过 `/` 面板」会得到「未找到技能」且输入框被清空，与「调用瞬间实时读盘」的用户硬约束（2026-09-11）存在张力；该预检是 48-01 Task 3 ② / 48-02 明文的计划要求，是否放宽需人工裁决。
 result: issue
 reported: "确定"
@@ -51,7 +51,7 @@ verification_note: |
   删它属对 48-01 Task 3 ② / 48-02 明文要求的**计划偏离**，本行裁决即其背书。
 severity: major
 
-### 4. 真实环境验证 CR-03 时序：流式回复中调用技能
+### [Round 1] 4. 真实环境验证 CR-03 时序：流式回复中调用技能
 expected: `npm run dev` → AI 正在流式回复时，点面板技能行（或手打 `/skill:name`）。新技能调用正常发出、新气泡流式回显；**不得**出现新气泡被写成「*用户已取消*」、停止按钮提前回退、新回复不显示。abort × 新消息的取消归属是运行时竞态（`state.aiCancelledByUser` 在 abort 后不复位、错误事件按 `state.aiCurrentMessageId` 归属），无测试覆盖。
 result: issue
 reported: "自动驱动实测（playwright _electron + 真实 MS/Qwen3-8B provider）：失败，症状与 CR-03 预测一致"
@@ -73,7 +73,7 @@ confound: |
   归属竞态机制与 CR-03 描述完全相同，结论不受影响。
 decision: 缺陷成立，进 gap G-48-4（修复口径见 48-REVIEW.md CR-03）
 
-### 5. 安全回归实测：目录名含 `"` 的技能行
+### [Round 1] 5. 安全回归实测：目录名含 `"` 的技能行
 expected: 在 `skills/` 下建一个目录名含 `"` 的技能（如 `pwn" data-x="y`），打开 `/` 面板把鼠标划过该行 —— 面板行不产生新属性 / 不执行注入（**当前实现会产出** `title="/skill:pwn" data-x="y 可显式调用"`）。需在真实 DOM 中观察生成的行结构与属性。
 result: issue
 reported: "自动驱动实测：属性逃逸**成立**，但注入的代码**不执行**（主窗口 CSP 拦掉内联事件处理器）"
@@ -95,7 +95,7 @@ correction: |
   残余影响降为 minor（CSS 注入 / UI 伪装 / 潜在 XSS），已全文回写 `48-REVIEW.md` 的 TD-48-01。
 adjudication: 与 test 1 同源（CR-01）。已裁决「延后」→ 记 TD-48-01，**不新开 gap plan**；本行实测即其证据与定级更正。
 
-### 6. {UAT} 真实 Electron 端到端：气泡视觉与 IPC 往返
+### [Round 1] 6. {UAT} 真实 Electron 端到端：气泡视觉与 IPC 往返
 expected: `npm run dev` → 输入 `/skill:<真实技能名> 参数` 回车 → 气泡 = 技能 pill + args 正文 + 可展开「技能正文（N 字符）」块；再输入 `/skill:<不存在>` → system-note「未找到技能「foo」，输入 / 查看可用技能」且零气泡；再输入一个已禁用技能 → system-note「技能「foo」已被禁用，可在 设置 → AI → 技能管理 重新启用」；流式中调用技能能正常发出并流式回显。
 result: issue
 reported: "自动驱动实测（playwright _electron）：clause 1 失败（pill 与折叠块本次发送后不出现），clause 4 随 test 4 失败；clause 2 / 3 通过"
@@ -113,7 +113,7 @@ observed: |
   ⚠ 主进程日志另有旁证：模型收到调用后尝试把 `demo` 当**工具**调用（`Tool demo not found` × 5）—— 弱模型对 `<skill>` 块的误读，非本阶段缺陷，记录备查。
 decision: 缺陷成立，进 gap G-48-6（clause 4 归 G-48-4）
 
-### 7. {UAT} 50+ 技能数据集下 220px 面板观感（48-02 backstop）
+### [Round 1] 7. {UAT} 50+ 技能数据集下 220px 面板观感（48-02 backstop）
 expected: 按 `48-VALIDATION.md` §Manual-Only Verifications 的脚本向 `skills/` 生成 50 个最小技能后 `npm run dev`，打开 `/` 面板并滚动到「命令」分区 —— 分组标题 sticky 常驻；行五要素可读；行尾标注 `flex-wrap` 后无一截断；（若有）「超数量上限」/「未进提示词 · 超预算」标注正确出现。
 result: pass
 verified_by: 自动驱动（playwright _electron），可量化项全部达标；主观「观感」由代理依据截图判定，用户可推翻
@@ -131,7 +131,7 @@ note: |
   唯一人判项是「观感是否可接受」。代理判定可接受（截图见上）；行高 62px 的两行行在 220px 宽下仍完整可读。
   `48-VALIDATION.md` §Manual-Only 要求「若不可接受，只调面板高度常量，不得改动分组 / 标注结构」—— 本条**无需改动**。
 
-### 8. {UAT} 模型自动匹配技能的可见性（DISC-05 核心）
+### [Round 1] 8. {UAT} 模型自动匹配技能的可见性（DISC-05 核心）
 expected: 在运行中的应用里提一个**命中某技能 description 的任务**（不手打 `/skill:`），观察模型是否自行 `read` 该技能的 `SKILL.md` —— 工具卡片标题显示「使用技能「name」」并带来源徽标；参数区仍显示实际读取路径；**切换对话再切回**后同一卡片标记仍在。另问「你有哪些技能」，模型应能区分技能与工具（D-18）。
 result: pass
 decision: 判 pass（用户 2026-09-12 拍板）—— 交付物①（技能化卡片 + 徽标 + 路径 + 重载还原）已端到端证成；②（模型自发遵守 `read` 指令）由 SDK 模板完全承载、不属本阶段可控代码，失败归因于模型能力，另记 REVIEW 观测
@@ -180,7 +180,7 @@ expected: `npm run dev` + 可用 provider → 发一条长回复 prompt，等首
 why_human: 运行时竞态（`ai:abort` 同步返回 + 迟到 error 的到达顺序），node:test 只覆盖纯逻辑判定与接线契约。上一轮实测失败，锚点修复后须实测裁决是否真的闭合
 result: [pending]
 
-### 11. CR-05 可达性实测
+### [Deferred · TD-48-02] 11. CR-05 可达性实测
 expected: （原为「在流式结束的瞬间连点两次停止按钮，随后触发一次任意真实错误」的实测）
 why_human: CR-05 是从状态机 + SDK 语义推出的窄竞态路径（`abort()` 打在已结算 run 上是静默 no-op），无任何测试覆盖
 result: skipped

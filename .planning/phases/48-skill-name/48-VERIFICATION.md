@@ -3,8 +3,8 @@ phase: 48-skill-name
 verified: 2026-09-12T12:25:00Z
 status: human_needed
 score: 31/36 must-haves verified
-covered_files: [".planning/REQUIREMENTS.md", ".planning/phases/48-skill-name/48-01-PLAN.md", ".planning/phases/48-skill-name/48-02-PLAN.md", ".planning/phases/48-skill-name/48-03-PLAN.md", ".planning/phases/48-skill-name/48-04-PLAN.md", ".planning/phases/48-skill-name/48-05-PLAN.md", ".planning/phases/48-skill-name/48-06-PLAN.md", ".planning/phases/48-skill-name/48-01-SUMMARY.md", ".planning/phases/48-skill-name/48-02-SUMMARY.md", ".planning/phases/48-skill-name/48-03-SUMMARY.md", ".planning/phases/48-skill-name/48-04-SUMMARY.md", ".planning/phases/48-skill-name/48-05-SUMMARY.md", ".planning/phases/48-skill-name/48-06-SUMMARY.md", ".planning/phases/48-skill-name/48-UAT.md", ".planning/phases/48-skill-name/48-REVIEW.md", ".planning/phases/48-skill-name/48-VALIDATION.md", "ai-skills-manager.js", "ai-manager.js", "ipc-handlers.js", "src/renderer.js", "src/ai-cancel-state.js", "src/skill-picker-model.js", "src/index.html", "src/preload.js", "src/styles/main.css", "tests/test-ai-skills.js", "tests/test-skill-picker-model.js", "tests/test-ai-cancel-state.js", "docs/product/ai-skills.md", "AGENTS.md"]
-covered_digest: "v1:sha256:1448691404001a0732fa7b1b84b55343a133b4f0693c41f5cf05a9130c0c5d7d"
+covered_files: [".planning/REQUIREMENTS.md",".planning/phases/48-skill-name/48-01-PLAN.md",".planning/phases/48-skill-name/48-02-PLAN.md",".planning/phases/48-skill-name/48-03-PLAN.md",".planning/phases/48-skill-name/48-04-PLAN.md",".planning/phases/48-skill-name/48-05-PLAN.md",".planning/phases/48-skill-name/48-06-PLAN.md",".planning/phases/48-skill-name/48-01-SUMMARY.md",".planning/phases/48-skill-name/48-02-SUMMARY.md",".planning/phases/48-skill-name/48-03-SUMMARY.md",".planning/phases/48-skill-name/48-04-SUMMARY.md",".planning/phases/48-skill-name/48-05-SUMMARY.md",".planning/phases/48-skill-name/48-06-SUMMARY.md",".planning/phases/48-skill-name/48-REVIEW.md",".planning/phases/48-skill-name/48-VALIDATION.md","ai-skills-manager.js","ai-manager.js","ipc-handlers.js","src/renderer.js","src/ai-cancel-state.js","src/skill-picker-model.js","src/index.html","src/preload.js","src/styles/main.css","tests/test-ai-skills.js","tests/test-skill-picker-model.js","tests/test-ai-cancel-state.js","docs/product/ai-skills.md","AGENTS.md"]
+covered_digest: "v1:sha256:4592d10fbb92d5f3148f4bf4ff6943eb03ce2d43731b929c152838f37c6019b3"
 behavior_unverified: 5
 overrides_applied: 0
 re_verification:
@@ -267,6 +267,8 @@ human_verification:
 | WR-06（调用路径绕过 64 KiB 字节闸） | 未裁决修复时机，保持开放 | 记入 `48-REVIEW.md` 裁决段；建议随 Phase 49 一并处置。本条不影响任何已登记 must-have 真值 |
 
 本阶段因此维持 `status: human_needed`；UAT 第二轮（`48-UAT.md` item 9 / 10 / 12 / 13）通过后由 `/gsd-verify-work 48` 推进收尾。
+
+**指纹维护说明：** 本轮把 `.planning/phases/48-skill-name/48-UAT.md` **移出 `covered_files`** 并重算 `covered_digest`（`v1:sha256:4592d10f…`）。原因是 UAT 是人工实测记录、不是验证输入：把它并入清单后，每追加一轮 UAT 都会让本报告被 `verification.status` 判 `stale`（本轮实测踩到两次）。沿用 Phase 47 的既有实践（`47-UAT.md` / `47-SECURITY.md` 刻意不入清单）。`48-REVIEW.md` / `48-VALIDATION.md` 仍在清单内。
 
 ---
 
