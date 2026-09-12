@@ -2227,5 +2227,77 @@ describe('F 组 · renderer 调用路径（D-06 / D-19 / 重发路径）', () =>
   });
 });
 
+// ==================== 48-02 G 组：面板刷新链路与跨文件护栏（源码扫描） ====================
+
+describe('G 组 · 面板刷新链路与跨文件护栏（D-17 / P-48-06，源码扫描）', () => {
+  const rendererSrc = readSource('src/renderer.js');
+
+  /** 取函数体文本（`function <name>(` 到下一个行首 `}`） */
+  function bodyOf(name) {
+    const start = rendererSrc.indexOf(`function ${name}(`);
+    assert.ok(start >= 0, `应存在 function ${name}(`);
+    return rendererSrc.slice(start, rendererSrc.indexOf('\n}', start));
+  }
+
+  test('openSlashPicker：后台刷新 + 失败 catch + 无 loading 态', () => {
+    const body = bodyOf('openSlashPicker');
+    assert.ok(body.includes('ai.refreshSkills'), '面板打开必须发起一次后台刷新（D-17 刷新半边）');
+    assert.ok(/\.catch\(/.test(body), '刷新失败必须 catch —— 保留旧快照，不渲染成空态');
+    assert.ok(/console\.warn/.test(body), '失败只记录告警（stale-while-revalidate）');
+    assert.strictEqual(
+      /spinner|skeleton/.test(body),
+      false,
+      '快照是零 IO 同步视图，不得出现骨架屏 / spinner 占位'
+    );
+    assert.ok(
+      body.indexOf('renderSlashPickerList();') < body.indexOf('ai.refreshSkills'),
+      '必须先同步渲染快照再发起刷新（打开瞬间零延迟）'
+    );
+  });
+
+  test('skills:changed 广播处理器：只重拉快照、面板关闭早退、绝不触发刷新（P-48-06）', () => {
+    const idx = rendererSrc.indexOf("onIpcMessage('skills:changed'");
+    assert.ok(idx >= 0, '必须存在 skills:changed 监听');
+    const segment = rendererSrc.slice(idx, idx + 300);
+    assert.ok(segment.includes('if (!state.slashPickerOpen)'), '面板关闭时必须早退');
+    assert.strictEqual(segment.includes('refreshSkills'), false, '广播处理器内不得触发主进程重扫');
+    assert.ok(segment.includes('pullAiSkillsSnapshot('), '监听只重拉快照（getSkills，零 IO）');
+    assert.strictEqual(
+      (rendererSrc.match(/\.refreshSkills\(/g) || []).length,
+      1,
+      'renderer 只允许 openSlashPicker 一处重扫调用点 —— 多于一处即自激回路风险'
+    );
+  });
+
+  test('限额数值字面量在三文件内零命中（常量单源在 ai-skills-manager.LIMITS）', () => {
+    for (const file of ['src/renderer.js', 'src/preload.js', 'ipc-handlers.js']) {
+      const src = readSource(file);
+      const n = (src.match(/64\s*\*\s*1024|65536|MAX_USER_SKILLS|8000/g) || []).length;
+      assert.strictEqual(n, 0, `${file} 不得出现限额数值字面量（命中 ${n} 处）`);
+    }
+  });
+
+  test('renderer 内零区域敏感比较（跨机字节序一致的既有先例）', () => {
+    assert.strictEqual(
+      (rendererSrc.match(/localeCompare/g) || []).length,
+      0,
+      '面板排序一律沿用主进程投影原序，不得改用 localeCompare'
+    );
+  });
+
+  test('技能数据路径不出现本地 HTTP 端点访问（Phase 38 事故护栏）', () => {
+    assert.strictEqual(
+      (rendererSrc.match(/fetch\(['"]\/api\/skills/g) || []).length,
+      0,
+      '主窗口 file:// 不能 fetch 本地 HTTP API，技能数据必须走 realmAPI.ai.*'
+    );
+    assert.strictEqual(
+      (rendererSrc.match(/http:\/\/localhost[^\n]*skill/gi) || []).length,
+      0,
+      '技能相关路径不得出现 http://localhost'
+    );
+  });
+});
+
 
 

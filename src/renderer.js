@@ -10045,12 +10045,20 @@ function handleAIInputKeydown(e) {
   if (state.slashPickerOpen) {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      const count = state.slashPickerItems.length;
-      if (count > 0) {
-        const delta = e.key === 'ArrowDown' ? 1 : -1;
-        state.slashPickerActiveIndex = (state.slashPickerActiveIndex + delta + count) % count;
-        renderSlashPickerList();
+      // 只在**可选中**索引集合上取模：跳过灰显行（被遮蔽 / 与本地命令同名），
+      // 否则 Enter 会落在不可选中行上变成死键（UI-SPEC 由 D-11 推导）。
+      const next = window.SkillPickerModel.nextSelectableIndex(
+        state.slashPickerSelectable,
+        state.slashPickerActiveIndex,
+        e.key === 'ArrowDown' ? 1 : -1
+      );
+      if (next < 0) {
+        // 全部不可选中 → 置 -1 后直接返回（不重渲染、不新增分支与空态文案）
+        state.slashPickerActiveIndex = -1;
+        return;
       }
+      state.slashPickerActiveIndex = next;
+      renderSlashPickerList();
       return;
     }
     if (e.key === 'Escape') {
@@ -10166,13 +10174,49 @@ function handleAIInputAutoResize() {
 }
 
 /**
- * 打开 / 斜杠命令面板
+ * 打开 / 斜杠命令面板（D-17 / P8 触发点：stale-while-revalidate 起点）
+ *
+ * 四步顺序不可调换：置开启 → 复位 `activeIndex` → 显示面板 → **同步**渲染。
+ * 第一步渲染用的是内存快照投影（`state.aiSkills`），**零延迟、无 loading 态** ——
+ * 不出现骨架屏 / spinner / 「加载中」占位（快照是零 IO 视图，没有可显示的等待态）。
+ *
+ * 四步之后追加一次**后台刷新**（fire-and-forget）：`realmAPI.ai` 的 refreshSkills 无载荷
+ * invoke → 主进程侧「重扫两个技能目录 → 必要时回写 system prompt 并广播」→ 返回刷新后的收窄投影；
+ * 回来后若面板仍打开则**原地重渲染**（不关面板、不清输入框、不重置任何其他状态）。
+ *
+ * **刷新失败**（IPC 抛错 / AI 未初始化 / 通道缺失）一律 catch 并**保留现有快照**，
+ * 面板内**零错误 UI** —— 失败可见性归主进程诊断面（Phase 50），绝不把失败渲染成空态。
+ *
+ * **早退边界（如实披露）**：主进程的 `syncAgentSystemPrompt()` 在 `!this.agent ||
+ * !this.sandboxEnv` 时直接返回 —— AI 未初始化时该链路早退，面板显示上一次投影。
+ * 此时 `sandboxEnv` 亦未建立，**根本没有任何可用的读盘环境**，降级为不刷新是唯一诚实行为；
+ * 不为它发明第二套刷新路径。
+ *
+ * `skills:changed` 广播只重拉快照（`pullAiSkillsSnapshot`，digest 相同即早退），
+ * **不得**在此之外的路径再触发刷新 —— 「广播 → 刷新 → 再广播」是自激回路（P-48-06）。
  */
 function openSlashPicker() {
   state.slashPickerOpen = true;
   state.slashPickerActiveIndex = 0;
   elements.slashPickerPanel.style.display = 'block';
   renderSlashPickerList();
+
+  // 后台刷新半边：只在通道存在时发起；不 await、不阻塞面板显示
+  if (window.realmAPI && window.realmAPI.ai && window.realmAPI.ai.refreshSkills) {
+    window.realmAPI.ai.refreshSkills()
+      .then((snapshot) => {
+        if (!state.slashPickerOpen) return;
+        if (snapshot && Array.isArray(snapshot.skills)) {
+          state.aiSkills = snapshot.skills;
+          state.aiSkillsDigest = snapshot.digest || state.aiSkillsDigest;
+        }
+        renderSlashPickerList();
+      })
+      .catch((err) => {
+        // 失败保留现有快照（stale-while-revalidate 语义），面板内零错误 UI
+        console.warn('[Realm Renderer] 面板刷新技能集失败（沿用现有快照）:', err.message);
+      });
+  }
 }
 
 /**

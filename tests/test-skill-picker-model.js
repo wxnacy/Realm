@@ -424,10 +424,18 @@ describe('C 组 · renderer 源码护栏（预检分支 / 重发载荷 / 气泡�
     const pull = asyncFunctionBody(rendererSrc, 'pullAiSkillsSnapshot');
     assert.ok(pull.includes('realmAPI.ai.getSkills()'), '重拉实现必须是零 IO 的 getSkills');
     assert.ok(pull.includes('aiSkillsDigest'), 'digest 相同必须原地返回（不重渲染、不丢 activeIndex）');
+
+    // 广播路径之外，renderer 只允许**一处**主进程重扫调用点：openSlashPicker 的
+    // stale-while-revalidate 刷新半边（D-17 / P8 触发点）。广播处理器内绝不刷新，
+    // 否则「广播 → 刷新 → 再广播」自激（P-48-06）。
     assert.strictEqual(
-      rendererSrc.includes('.refreshSkills('),
-      false,
-      'renderer 绝不触发主进程重扫（自激回路）'
+      (rendererSrc.match(/\.refreshSkills\(/g) || []).length,
+      1,
+      'renderer 只允许 openSlashPicker 一处重扫调用点'
+    );
+    assert.ok(
+      functionBody(rendererSrc, 'openSlashPicker').includes('ai.refreshSkills'),
+      '唯一的调用点必须在 openSlashPicker 的后台刷新半边'
     );
   });
 
@@ -766,6 +774,34 @@ describe('B 组 · 导航取模只在可选中集合上（UI-SPEC 由 D-11 推�
     assert.strictEqual(model.nextSelectableIndex([7], 7, -1), 7);
     assert.strictEqual(model.nextSelectableIndex([7], 3, 1), 7);
   });
+
+  test('nextSelectableIndex：密集集合上逐步行进（跨分区连续导航）', () => {
+    const sel = [0, 1, 2, 5, 6]; // 3 / 4 为不可选中行（被跳过）
+    assert.strictEqual(model.nextSelectableIndex(sel, 0, 1), 1);
+    assert.strictEqual(model.nextSelectableIndex(sel, 2, 1), 5, '必须跳过 3 / 4 两个不可选中行');
+    assert.strictEqual(model.nextSelectableIndex(sel, 5, -1), 2, '反向同样跳过');
+    assert.strictEqual(model.nextSelectableIndex(sel, 6, 1), 0, '末尾回绕到首个可选中行');
+    assert.strictEqual(model.nextSelectableIndex(sel, 3, 1), 5, '落点恰在不可选中行 → 向后取下一个可选中');
+    assert.strictEqual(model.nextSelectableIndex(sel, 4, -1), 2, '落点恰在不可选中行 → 向前取上一个可选中');
+  });
+
+  test('buildSelectableIndexes 与 buildPickerItems 串起来：灰显行被排除在导航集合外', () => {
+    const commands = [{ name: 'clear', description: '开启新对话' }];
+    const skills = [
+      { name: 'alpha', description: 'a', tier: 'user', disabled: false, shadowed: false },
+      { name: 'shadow', description: 's', tier: 'managed', disabled: false, shadowed: true },
+      { name: 'clear', description: 'c', tier: 'user', disabled: false, shadowed: false },
+    ];
+    const built = model.buildPickerItems(skills, commands, '');
+    const sel = model.buildSelectableIndexes(built.items);
+    assert.deepStrictEqual(
+      sel,
+      [0, 3],
+      '仅 alpha（技能）与 clear（命令）可选中；shadow 与被遮蔽 / 同名行均被排除'
+    );
+    assert.strictEqual(built.items[1].selectable, false);
+    assert.strictEqual(built.items[2].selectable, false);
+  });
 });
 
 describe('B 组 · TIER_BADGE 三档徽标唯一权威查表（D-14 消费方）', () => {
@@ -834,6 +870,38 @@ describe('B 组 · 面板接线源码扫描（renderer 侧消费点）', () => {
     const handlerIdx = body.indexOf('cmd.handler(');
     assert.ok(commandBranchIdx >= 0, '必须有显式的命令分支判别');
     assert.ok(handlerIdx > commandBranchIdx, 'cmd.handler( 必须落在 kind === \'command\' 分支内');
+  });
+
+  test('handleAIInputKeydown：↑↓ 只在可选中集合上取模（跳过不可选中行），Enter 回落路径逐字节保留', () => {
+    const body = bodyOf('handleAIInputKeydown');
+    assert.ok(body.includes('state.slashPickerSelectable'), '导航必须消费可选中索引集合');
+    assert.ok(body.includes('nextSelectableIndex('), '取模必须走纯函数（集合为空 → -1）');
+    assert.strictEqual(
+      body.includes('state.slashPickerItems.length'),
+      false,
+      '不得再在全量索引上取模（会落在灰显行上）'
+    );
+    assert.ok(
+      /if \(next < 0\) \{[\s\S]{0,160}?state\.slashPickerActiveIndex = -1;[\s\S]{0,40}?return;/.test(body),
+      '全部不可选中 → 置 -1 后直接返回（不新增分支或空态文案）'
+    );
+    assert.ok(
+      body.includes('if (!executeActiveSlashCommand()) {\n        closeSlashPicker();\n        handleSendAIMessage();\n      }'),
+      'Enter 分支必须逐字符保持既有回落路径（全部不可选中时走系统提示）'
+    );
+  });
+
+  test('openSlashPicker：打开即用快照渲染 + 后台刷新 + 失败 catch（无 loading 态、无自激）', () => {
+    const body = bodyOf('openSlashPicker');
+    assert.ok(body.includes('renderSlashPickerList();'), '第一步必须同步渲染内存快照');
+    assert.ok(body.includes('ai.refreshSkills()'), '必须发起一次后台刷新（D-17 刷新半边）');
+    assert.ok(/\.catch\(/.test(body), '刷新失败必须 catch（保留旧快照，不渲染成空态）');
+    assert.strictEqual(/spinner|skeleton|加载中/.test(body), false, '不得有 loading 态占位');
+    assert.strictEqual(
+      (rendererSrc.match(/\.refreshSkills\(/g) || []).length,
+      1,
+      '刷新调用点唯一（广播处理器内不得再刷新 —— 自激回路）'
+    );
   });
 });
 
