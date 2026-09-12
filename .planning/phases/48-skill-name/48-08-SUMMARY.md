@@ -179,7 +179,7 @@ Each task was committed atomically:
 _Note: 本计划无 TDD 任务，三个任务各一次提交。Task 1 为 `type="tracer"`，其 `<verify>` 三个块在提交后已按 tracer feedback gate 端到端复跑通过（auto 模式 + `human_verify_mode: end-of-phase` + 纯 `<automated>` 判据 ⇒ 不合成 checkpoint）。_
 
 实测（台账 `.git/gsd-plan-head-before-48-08` = `87fb2cc62713a8ead75594925b6d9e930c4a23a7`）：
-`git rev-list --count 87fb2cc..HEAD` = **3**，与 `actuals.commits` 一致。
+**SUMMARY 写入时点** `git rev-list --count 87fb2cc..HEAD` = **3**（= 3 次任务提交，与 `actuals.commits` 一致；本台账基线的**首个任务提交之前**取值，符合 48-07 同款口径）。随后的 metadata 提交（SUMMARY + STATE + ROADMAP + state.json）会使该计数变为 4 —— `actuals.commits` 只计**任务**提交，故记为 3；`git log --oneline 87fb2cc..HEAD` 可见 `f679ea8` / `c727d82` / `4ef828c`（任务）+ `064748d`（metadata）。
 
 ## Files Created/Modified
 
@@ -288,7 +288,7 @@ None —— 本计划未新增网络端点、鉴权路径、文件访问模式�
 - FOUND: `tests/test-ai-skills.js`（含 `K 组` 5 条 + `J8` / `J9` / `J10` + 改写后的单源护栏）
 - FOUND: `docs/product/ai-skills.md` / `AGENTS.md` / `.planning/phases/48-skill-name/48-VALIDATION.md`
 - FOUND: `f679ea8`（Task 1）/ `c727d82`（Task 2）/ `4ef828c`（Task 3）
-- 计划台账 `.git/gsd-plan-head-before-48-08` = `87fb2cc62713a8ead75594925b6d9e930c4a23a7`；`git rev-list --count 台账..HEAD` = **3**（与 `actuals.commits` 一致）
+- 计划台账 `.git/gsd-plan-head-before-48-08` = `87fb2cc62713a8ead75594925b6d9e930c4a23a7`；**SUMMARY 写入时点** `git rev-list --count 台账..HEAD` = **3**（任务提交；metadata 提交后该计数为 4 —— `actuals.commits` 只计任务提交，见「Task Commits」末段口径说明）
 - 测试：`node --check ai-manager.js` 通过；`node tests/test-ai-skills.js` → `# tests 147 / # pass 147 / # fail 0`；`node --test tests/test-skill-picker-model.js` → `# tests 95 / # pass 95 / # fail 0`
 - 门禁：Task 1 门 2 → `deferred flush single-source ok (2 call sites, dirty-gated)`；Task 1 门 3 → `K 组用例素材齐备`；Task 2 门 2 → `retry-block shape ok (two guarded tries, distinguishable warns)`；Task 2 门 3 → `J 组新增行为用例素材齐备`；Task 3 门 1 → `docs §10.7 落地时机 + §七 例数/覆盖面 收口 ok`；Task 3 门 2 → `AGENTS.md + docs §七 + 48-VALIDATION 例数/行数一致（147 例）`
 - 边界：`git diff --name-only 台账..HEAD` = `ai-manager.js` / `tests/test-ai-skills.js` / `docs/product/ai-skills.md` / `AGENTS.md` / `48-VALIDATION.md`（严格等于 `files_modified`）；`ai-skills-manager.js` 与 `src/renderer.js` **零 diff**
