@@ -79,6 +79,9 @@ created: "2026-09-12"
 | 48-01-T1 | 01 | 1 | （硬约束） | — | 实时读盘：改盘后立即调用读到新正文；跨轮不重读 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
 | 48-01-T1 | 01 | 1 | （硬约束） | — | `src/index.html` 在 `renderer.js` 之前加载 `skill-picker-model.js`（wave 1 可端到端运行的前提） | 源码扫描 | `node -e "…script-order…"`（见 48-01 Task 1 `<verify>`） | ✅ | ⬜ pending |
 | 48-07-T1 | 07 | 6 | DISC-02 | T-48-07-01 | 运行期新增技能目录（未重扫）→ `/skill:<新名>` 成功；miss 时经唯一权威入口 `syncAgentSystemPrompt()` 重扫**一次**再当场读盘（shadowed / disabled / tier 三字段全部来自加载管线，不新增第二套判定）；缓存命中时零重扫 | unit + 行为 | `node tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
+| 48-08-T1 | 08 | 7 | DISC-02 | T-48-08-02 | 延迟补刷唯一实现 `_flushDeferredSkillsPrompt()`（`prompt()` 与 `promptWithContext()` 两个成功出口共用，全文件恰 2 处调用）；首行检脏早退 ⇒ 脏标记为假时零重扫；错误出口与 `_cleanupCurrentAgent()` 不补刷；纯文本 `/skill:<运行期新增名>` 成功后脏标记归假、prompt 已含该技能、`skills:changed` 恰广播一次（`rescanCalls === 2`，无双刷） | unit + 行为 | `node tests/test-ai-skills.js` | ✅（已有） | ⬜ pending |
+| 48-08-T2 | 08 | 7 | DISC-06 | T-48-08-04 | 重扫与重试读盘各自独立 `try`：重扫抛错（含 `throw null` / 抛原始字符串）时正常 resolve、判定沿用 `skill_not_found`、不升级成第三码、不重复读盘；重扫成功但重试读盘抛错时同样沿用原判定；两条告警文案可判别（「重扫失败」/「重试读盘失败」）；err 取值一律 `err && err.message ? err.message : String(err)` | unit + 行为 | `node tests/test-ai-skills.js` | ✅（已有） | ⬜ pending |
+| 48-08-T3 | 08 | 7 | DISC-02 | T-48-08-03 | `docs/product/ai-skills.md` §10.7 落地时机改为「任一轮成功出口（含纯文本轮）/ 打开面板 / Agent 创建或重建」并补失败恢复语义、旧措辞零命中、WR-06 开放声明原样在册；§七 与 `AGENTS.md` 技能域测试清单的例数 = 实测值且覆盖面补本次两条修复；`48-VALIDATION.md` 三行 10 列对齐 | 文档 + 结构 | `node tests/test-ai-skills.js` | ✅（已有） | ⬜ pending |
 
 **A–E 五组断言清单（共 35 条）见 `48-RESEARCH.md` §Validation Architecture**；上表已把它们逐条落到 `48-XX-PLAN.md` 的 task `<acceptance_criteria>` / `<verify>`（GROUP A/B → 48-02-T1、GROUP C → 48-01-T1 + 48-03-T1、GROUP D → 48-01-T1/T2/T3、GROUP E → 48-01-T2 + 48-02-T2/T3 + 48-03-T1）。
 
