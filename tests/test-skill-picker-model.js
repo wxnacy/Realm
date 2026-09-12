@@ -299,29 +299,42 @@ describe('C 组 · renderer 源码护栏（预检分支 / 重发载荷 / 气泡�
     assert.deepStrictEqual(names, ['clear', 'compact'], '技能必须作为第二命令源经 kind 判别，不得并入注册表');
   });
 
-  test('技能预检分支：拒绝条件只有 disabled === true（不含禁用调用旗标）', () => {
+  test('技能分支：只按 kind 分流，无本地否决（48 G-48-3）', () => {
     const body = asyncFunctionBody(rendererSrc, 'handleSendAIMessage');
-    const guardIdx = body.indexOf('kind === \'skill\'');
-    assert.ok(guardIdx >= 0, '预检必须按 kind 判别分流');
-    // 只看代码行（注释里可以说明「不因 disableModelInvocation 拒绝」，那不是判定条件）
+    const guardIdx = body.indexOf("kind === 'skill'");
+    assert.ok(guardIdx >= 0, '技能分支必须按 kind 判别分流');
+    // 只看代码行（注释里可以说明「为何不做本地否决」，那不是判定条件）。
+    // 区域取到 `} else {`（未知命令分支）之前，不用固定长度窗口（避免卷进 else 分支）
     const segment = body
-      .slice(guardIdx, guardIdx + 1400)
+      .slice(guardIdx, body.indexOf('} else {', guardIdx))
       .split('\n')
       .filter((l) => !/^\s*\/\//.test(l))
       .join('\n');
-    assert.ok(segment.includes('disabled === true'), '必须按 disabled 拒绝（D-10）');
+    assert.ok(segment.includes('abortAIIfStreaming('), '技能分支仍需中止上一轮后发起调用');
+    assert.strictEqual(
+      segment.includes('state.aiSkills'),
+      false,
+      '发送路径不得读快照（G-48-3：快照可能陈旧，调用那一刻实时读盘是硬约束）'
+    );
+    assert.strictEqual(
+      segment.includes('pushSystemNote('),
+      false,
+      '渲染端不得复制失败文案 / 本地出系统提示（文案与判定单源在主进程）'
+    );
     assert.strictEqual(
       segment.includes('disableModelInvocation'),
       false,
-      'disableModelInvocation 不参与拒绝条件（DISC-07 clause ③：仅显式技能仍可手打调用）'
+      'disableModelInvocation 不参与任何拒绝条件（DISC-07 clause ③：仅显式技能仍可手打调用）'
     );
     assert.strictEqual(
       segment.includes('已遮蔽'),
       false,
-      'shadowed 在按 name 查找时不可达（46 D-08 name 唯一性），不得为它加错误分支'
+      'shadowed 不再是拒绝条件（46 D-08 name 唯一性下本就不可达）'
     );
-    assert.ok(segment.includes('未找到技能「'), '未找到 → 未找到文案');
-    assert.ok(segment.includes('已被禁用，可在 设置 → AI → 技能管理 重新启用'), '禁用 → 禁用文案');
+    // 跨文件护栏：两条失败文案与判定入口的唯一来源仍是主进程 —— 删除本地否决后，
+    // 任一 侧被删都会让本断言变红（防两侧同时消失后 UX 静默丢失）
+    const aiManagerSrc = fs.readFileSync(path.join(__dirname, '..', 'ai-manager.js'), 'utf8');
+    assert.ok(aiManagerSrc.includes('skillErrorFromReason'), '主进程必须仍是判定与文案的唯一来源');
   });
 
   test('双变量解耦：气泡正文取 args、IPC 载荷取完整语法文本（D-19 / D-06）', () => {
@@ -480,11 +493,19 @@ describe('C 组 · renderer 源码护栏（预检分支 / 重发载荷 / 气泡�
     assert.ok(retry.includes('await window.realmAPI.ai.prompt(payload)'), '重试必须 await 且载荷为 payload');
   });
 
-  test('skills:changed 监听：只重拉快照、面板关闭时早退、绝不触发刷新（P-48-06）', () => {
+  test('skills:changed 监听：无条件重拉快照、绝不触发刷新（P-48-06 / G-48-3）', () => {
     const idx = rendererSrc.indexOf("onIpcMessage('skills:changed'");
     assert.ok(idx >= 0, '必须新增 skills:changed 监听');
     const segment = rendererSrc.slice(idx, idx + 300);
-    assert.ok(segment.includes('if (!state.slashPickerOpen)'), '面板关闭时必须早退');
+    assert.strictEqual(
+      segment.includes('if (!state.slashPickerOpen)'),
+      false,
+      '不得再有面板关闭早退（G-48-3：广播到达即无条件重拉快照）'
+    );
+    assert.ok(
+      /=>\s*\{\s*pullAiSkillsSnapshot\(\);\s*\}/.test(segment),
+      '处理器体内直接重拉快照（无前置早退 / 无附加分支）'
+    );
     assert.strictEqual(segment.includes('refreshSkills'), false, '绝不自激（广播 → 刷新 → 再广播）');
     assert.ok(segment.includes('pullAiSkillsSnapshot('), '监听只重拉快照');
 
@@ -511,7 +532,7 @@ describe('C 组 · renderer 源码护栏（预检分支 / 重发载荷 / 气泡�
     const segment = rendererSrc.slice(idx, idx + 300);
     assert.ok(
       (segment.match(/pullAiSkillsSnapshot\(\)/g) || []).length >= 2,
-      '挂载点同处必须有一次预热调用（否则从未开过面板的用户手打 /skill: 会被误判为未找到）'
+      '挂载点同处必须有一次预热调用（面板首帧用内存快照同步渲染，预热让首次打开不出现空态闪烁）'
     );
   });
 

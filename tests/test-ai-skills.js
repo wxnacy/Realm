@@ -2256,27 +2256,44 @@ describe('F 组 · renderer 调用路径（D-06 / D-19 / 重发路径）', () =>
     return rendererSrc.slice(start, rendererSrc.indexOf('\n}', start));
   };
 
-  test('handleSendAIMessage：预检位置在 aiStreaming 守卫之前 + 两条拒绝分支', () => {
+  test('handleSendAIMessage：技能分支位置在 aiStreaming 守卫之前 + 无本地否决（G-48-3）', () => {
     const body = bodyOf('handleSendAIMessage');
     const guardIdx = body.indexOf('if (state.aiStreaming) return;');
-    const precheckIdx = body.indexOf('disabled === true');
+    const branchIdx = body.indexOf("kind === 'skill'");
     assert.ok(guardIdx >= 0, '必须保留流式守卫');
-    assert.ok(precheckIdx >= 0, '必须插入技能预检');
-    assert.ok(precheckIdx < guardIdx, '技能预检必须在流式守卫之前（否则流式中调用被静默丢弃）');
-    assert.ok(body.includes("'未找到技能「' + ref.name + '」，输入 / 查看可用技能'"), '未找到文案');
-    assert.ok(
-      body.includes("'技能「' + ref.name + '」已被禁用，可在 设置 → AI → 技能管理 重新启用'"),
-      '禁用文案'
+    assert.ok(branchIdx >= 0, '必须存在技能分支');
+    assert.ok(branchIdx < guardIdx, '技能分支必须在流式守卫之前（否则流式中调用被静默丢弃）');
+    // 存在性/启停判定与两条失败文案单源在主进程（skillErrorFromReason）——
+    // 渲染端**不得**复制它们，也不得用快照做前置否决（G-48-3）
+    assert.strictEqual(body.includes('未找到技能「'), false, '渲染端不得复制「未找到」文案');
+    assert.strictEqual(
+      body.includes('已被禁用，可在 设置 → AI → 技能管理 重新启用'),
+      false,
+      '渲染端不得复制「已禁用」文案'
     );
-    assert.ok(body.includes('未知命令 '), '两边都不命中仍走未知命令路径');
+    assert.ok(body.includes('未知命令 '), '两边都不命中仍走未知命令路径（本地提示保留）');
+    // 跨文件护栏：主进程仍是两条文案的唯一来源（两侧不可能同时消失后无人发现）
+    const mainSrc = readSource('ai-manager.js');
+    const fnIdx = mainSrc.indexOf('function skillErrorFromReason(');
+    assert.ok(fnIdx >= 0, '主进程必须存在 skillErrorFromReason');
+    const fn = mainSrc.slice(fnIdx, mainSrc.indexOf('\n}', fnIdx));
+    assert.ok(fn.includes('未找到技能「'), '主进程仍含「未找到」文案字面量');
+    assert.ok(
+      fn.includes('已被禁用，可在 设置 → AI → 技能管理 重新启用'),
+      '主进程仍含「已禁用」文案字面量'
+    );
   });
 
-  test('state.aiSkills / state.aiSkillsDigest 已建立且预检查的是含禁用条目的投影', () => {
+  test('state.aiSkills / state.aiSkillsDigest 仍建立（面板数据源），但发送路径不得读它（G-48-3）', () => {
     assert.ok(rendererSrc.includes('aiSkills:'),
-      '必须新增 state.aiSkills（主进程收窄投影缓存，含已禁用条目）');
-    assert.ok(rendererSrc.includes('aiSkillsDigest:'), '必须新增 state.aiSkillsDigest');
+      '必须保留 state.aiSkills（`/` 面板首帧的同步快照数据源）');
+    assert.ok(rendererSrc.includes('aiSkillsDigest:'), '必须保留 state.aiSkillsDigest');
     const body = bodyOf('handleSendAIMessage');
-    assert.ok(body.includes('state.aiSkills'), '预检必须查 state.aiSkills');
+    assert.strictEqual(
+      body.includes('state.aiSkills'),
+      false,
+      '发送路径不得读快照（存在性/启停一律由主进程当场读盘裁定）'
+    );
   });
 
   test('重发路径：两处 ai.prompt 实参均为 payload 且均带 await；唯一实现', () => {
@@ -2357,11 +2374,15 @@ describe('G 组 · 面板刷新链路与跨文件护栏（D-17 / P-48-06，源�
     );
   });
 
-  test('skills:changed 广播处理器：只重拉快照、面板关闭早退、绝不触发刷新（P-48-06）', () => {
+  test('skills:changed 广播处理器：无条件重拉快照、绝不触发刷新（P-48-06 / G-48-3）', () => {
     const idx = rendererSrc.indexOf("onIpcMessage('skills:changed'");
     assert.ok(idx >= 0, '必须存在 skills:changed 监听');
     const segment = rendererSrc.slice(idx, idx + 300);
-    assert.ok(segment.includes('if (!state.slashPickerOpen)'), '面板关闭时必须早退');
+    assert.strictEqual(
+      segment.includes('if (!state.slashPickerOpen)'),
+      false,
+      '不得再有面板关闭早退（G-48-3：广播到达即无条件重拉快照）'
+    );
     assert.strictEqual(segment.includes('refreshSkills'), false, '广播处理器内不得触发主进程重扫');
     assert.ok(segment.includes('pullAiSkillsSnapshot('), '监听只重拉快照（getSkills，零 IO）');
     assert.strictEqual(

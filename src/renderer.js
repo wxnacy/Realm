@@ -4398,13 +4398,14 @@ async function init() {
   // 初始化 AI 事件流监听
   handleAIStream();
 
-  // 技能集快照同步（48 D-17 / P8 触发点）：广播到达时**只重拉快照**（面板关闭则早退），
-  // 绝不触发 refreshSkills —— 「广播 → 刷新 → 再广播」会自激（P-48-06）
+  // 技能集快照同步（48 D-17 / P8 触发点）：广播到达即**无条件重拉快照**（不再因面板关闭
+  // 早退 —— 快照是 `/` 面板首帧的同步数据源，陈旧会让面板闪一下空态或显示上次投影）；
+  // 处理器体只调零 IO 的读取投影，**绝不**触发 refreshSkills —— 「广播 → 刷新 → 再广播」
+  // 会自激（P-48-06 约束不变）
   window.realmAPI.onIpcMessage('skills:changed', () => {
-    if (!state.slashPickerOpen) return;
     pullAiSkillsSnapshot();
   });
-  // 启动预热：否则从未打开过 `/` 面板的用户手打 /skill: 会被预检误判为「未找到技能」
+  // 启动预热：面板首帧用内存快照同步渲染，预热让首次打开不出现空态闪烁
   pullAiSkillsSnapshot();
 
   // 初始拉取一次上下文用量（圆环按钮显示当前对话状态）
@@ -8691,27 +8692,13 @@ async function handleSendAIMessage() {
       return;
     }
 
-    // 技能预检（D-04 本地命令优先已在上方返回；技能是**第二命令源**，经 kind 判别分流，
+    // 技能分支（D-04 本地命令优先已在上方返回；技能是**第二命令源**，经 kind 判别分流，
     // 绝不并入 SLASH_COMMANDS —— 并入即被本地 handler 吞掉）
     const ref = window.SkillPickerModel.parseSkillRef(text, SLASH_COMMANDS.map(c => c.name));
     if (ref && ref.kind === 'skill') {
-      // state.aiSkills 是主进程收窄投影（含已禁用条目）；此处只查表，不重算任何技能集状态
-      const known = (Array.isArray(state.aiSkills) ? state.aiSkills : [])
-        .find(s => s.name === ref.name);
-      if (!known) {
-        elements.aiInput.value = '';
-        elements.aiInput.style.height = 'auto';
-        pushSystemNote('未找到技能「' + ref.name + '」，输入 / 查看可用技能');
-        return;
-      }
-      if (known.disabled === true) {
-        elements.aiInput.value = '';
-        elements.aiInput.style.height = 'auto';
-        pushSystemNote('技能「' + ref.name + '」已被禁用，可在 设置 → AI → 技能管理 重新启用');
-        return;
-      }
-      // `shadowed` 在此不可达：name 唯一性（46 D-08）保证按 name 查找必然取到胜出者，
-      // 故不另立「已遮蔽」错误分支（也不因 disableModelInvocation 拒绝 —— 仅显式技能可手打调用）
+      // 不做本地否决（48 G-48-3）：技能集快照可能陈旧（运行期新增技能、另一窗口刚启用/
+      // 禁用），而「调用那一刻实时读盘」是硬约束；存在性/启停一律由主进程当场裁定，失败经
+      // 响应里的 skillError 走既有回滚链路呈现（文案与判定单源在主进程）
       skillRef = ref;
       await abortAIIfStreaming();
       // 就地复位流式状态：取消事件是异步广播的，不复位则紧随的 aiStreaming 守卫会丢弃本次调用
@@ -10214,7 +10201,7 @@ function handleAIInputKeydown(e) {
  * 按 `kind` 分流（命令源有两条：本地 `SLASH_COMMANDS` 与技能集，技能**不得**并入注册表）：
  * - 命令项 → 既有语义逐字节不变（清空输入框 + 关面板 + `cmd.handler(rest)`）
  * - 技能项 → **不调 handler**：把输入框值置为完整语法文本 `/skill:{name}[ {args}]`，
- *   交既定发送链路（`handleSendAIMessage()` 的技能预检 → 主进程权威解析，D-19）。
+ *   交既定发送链路（`handleSendAIMessage()` 的技能分支 → 主进程权威解析，D-19）。
  *   不得在本处手拼语法文本（那会成为第二份实现，与 `buildSkillSyntaxText` 必然漂移），
  *   也不得在 renderer 拼增强文本 / 把技能正文塞进 message。
  *
