@@ -3,15 +3,15 @@ status: testing
 phase: 48-skill-name
 source: [48-VERIFICATION.md]
 started: 2026-09-12T06:55:00Z
-updated: 2026-09-12T07:35:51Z
+updated: 2026-09-12T07:48:46Z
 ---
 
 ## Current Test
 
-number: 6
-name: {UAT} 真实 Electron 端到端：气泡视觉与 IPC 往返
+number: 8
+name: {UAT} 模型自动匹配技能的可见性（DISC-05 核心）
 expected: |
-  `npm run dev` → 输入 `/skill:<真实技能名> 参数` 回车 → 气泡 = 技能 pill + args 正文 + 可展开「技能正文（N 字符）」块；再输入 `/skill:<不存在>` → system-note「未找到技能「foo」，输入 / 查看可用技能」且零气泡；再输入一个已禁用技能 → system-note「技能「foo」已被禁用，可在 设置 → AI → 技能管理 重新启用」；流式中调用技能能正常发出并流式回显。
+  在运行中的应用里提一个**命中某技能 description 的任务**（不手打 `/skill:`），观察模型是否自行 `read` 该技能的 `SKILL.md` —— 工具卡片标题显示「使用技能「name」」并带来源徽标；参数区仍显示实际读取路径；**切换对话再切回**后同一卡片标记仍在。另问「你有哪些技能」，模型应能区分技能与工具（D-18）。
 awaiting: user response
 
 ## Tests
@@ -92,11 +92,39 @@ adjudication: 与 test 1 同源（CR-01）。已裁决「延后」→ 记 TD-48-
 
 ### 6. {UAT} 真实 Electron 端到端：气泡视觉与 IPC 往返
 expected: `npm run dev` → 输入 `/skill:<真实技能名> 参数` 回车 → 气泡 = 技能 pill + args 正文 + 可展开「技能正文（N 字符）」块；再输入 `/skill:<不存在>` → system-note「未找到技能「foo」，输入 / 查看可用技能」且零气泡；再输入一个已禁用技能 → system-note「技能「foo」已被禁用，可在 设置 → AI → 技能管理 重新启用」；流式中调用技能能正常发出并流式回显。
-result: [pending]
+result: issue
+reported: "自动驱动实测（playwright _electron）：clause 1 失败（pill 与折叠块本次发送后不出现），clause 4 随 test 4 失败；clause 2 / 3 通过"
+severity: major
+observed: |
+  **clause 1 ❌** `/skill:demo 你好世界`：
+  - ✅ 气泡正文 = args `你好世界`（正确）
+  - ❌ 发送后立即、以及整轮跑完后：`hasPill=false`、`hasBox=false` —— pill 与「技能正文」折叠块**都不出现**
+  - ✅ 手动调用 `renderAIMessages()` 之后：pill 出现（文案 `技能demo`）、折叠块出现（`技能正文（94 字符）`）、默认折叠、正文 94 字符；点击表头 collapsed→expanded→collapsed 三态正确
+  → **根因**：`src/renderer.js:8843-8846` 把 `result.skillInvocation` 回填到 `state.aiMessages` 里的 user 消息后**没有重渲染**；发送开始时那次 `renderAIMessages()` 发生在 IPC 返回之前，之后 `message_update` / `tool_execution_*` 只走 `updateStreamingBubble`（只替换 `.ai-message-content`）。故 pill/折叠块只在**下一次全量重渲染**（切对话、重载、/compact 等）才出现。
+    这是 48-REVIEW.md 11 条 finding **之外的独立缺陷**（CR/IN 均未覆盖）。
+  **clause 2 ✅** `/skill:definitely-no-such-skill`：system-note「未找到技能「definitely-no-such-skill」，输入 / 查看可用技能」，user 气泡数 1→1（推送后被撤），零新增气泡。
+  **clause 3 ✅** `/skill:weather`（config 置 `settings.aiSkills.disabled=['weather']`）：system-note「技能「weather」已被禁用，可在 设置 → AI → 技能管理 重新启用」，user 气泡数 1→1。
+  **clause 4 ❌** 「流式中调用技能能正常发出并流式回显」—— 与 test 4 同根因（CR-03 / G-48-4），不重复计一个 gap。
+  ⚠ 主进程日志另有旁证：模型收到调用后尝试把 `demo` 当**工具**调用（`Tool demo not found` × 5）—— 弱模型对 `<skill>` 块的误读，非本阶段缺陷，记录备查。
+decision: 缺陷成立，进 gap G-48-6（clause 4 归 G-48-4）
 
 ### 7. {UAT} 50+ 技能数据集下 220px 面板观感（48-02 backstop）
 expected: 按 `48-VALIDATION.md` §Manual-Only Verifications 的脚本向 `skills/` 生成 50 个最小技能后 `npm run dev`，打开 `/` 面板并滚动到「命令」分区 —— 分组标题 sticky 常驻；行五要素可读；行尾标注 `flex-wrap` 后无一截断；（若有）「超数量上限」/「未进提示词 · 超预算」标注正确出现。
-result: [pending]
+result: pass
+verified_by: 自动驱动（playwright _electron），可量化项全部达标；主观「观感」由代理依据截图判定，用户可推翻
+observed: |
+  按文档脚本向 `skills/` 落 `skill-01`..`skill-50`（各含 `description: 测试技能 NN`），面板投影 = 55 项（53 技能行 + 2 命令行）。
+  - **分组标题 sticky ✅**：`.slash-picker-group-header` 计算样式 `position: sticky`；滚到列表 50% 处，「技能」标题相对滚动容器顶偏移 **1px**（贴住）；滚到底时「命令」标题可见、位置正常。
+  - **行尾标注 flex-wrap 后无截断 ✅**：`.slash-picker-status` 截断计数 **0**（15 条带标注行全部完整）；行 `flex-wrap: wrap`；标注行自然折成两行（行高 35 → 62px），**未裁切任何文字**。
+  - **行五要素可读 ✅**：`emptyDesc = 0`（最短描述列仍有 62px，行高 35px 基准）；`/demo` 长描述按设计走 `text-overflow: ellipsis` 省略（`nowrap`+`ellipsis` 是既有设计，不是缺陷）。
+  - **首屏可见行数 = 6**（滚动容器 clientH 218、行高 35）。滚动容器 = `#slashPickerPanel`（`max-height: 220px`）。
+  - **限额标注正确出现 ✅**：`未进提示词 · 超预算` × **14**、`超数量上限` × **1**。
+    算术核对：user 源 = `demo` + `weather` + 50 生成 = 52；`weather` 被禁用后计入限额的为 51 → 超限 1 条，与观测一致（超限口径不把已禁用技能计入）。
+  - **面板宽度口径澄清**：文档写「220px 面板」有歧义。CSS 侧 `#slashPickerPanel { max-height: 220px }`（实测 clientH=218）指向**高度**；而 `.ai-panel` 的自然宽度在本机是 **600px**（`--ai-panel-width` 运行时被 renderer 以 inline 样式覆盖，改 CSS 变量无效）。两种口径都测了：自然 600px 与**强制 220px 宽**（inline `!important`）下，上述 sticky / 不截断 / 标注出现 / `emptyDesc=0` 结论**完全一致**，220px 宽下仅折行行数增至 17（行高 62px，仍可读）。
+  - 截图：`/tmp/uat48-test7-top.png`、`-scrolled.png`、`-forced220.png`、`-forced220-bottom.png`。
+note: |
+  唯一人判项是「观感是否可接受」。代理判定可接受（截图见上）；行高 62px 的两行行在 220px 宽下仍完整可读。
+  `48-VALIDATION.md` §Manual-Only 要求「若不可接受，只调面板高度常量，不得改动分组 / 标注结构」—— 本条**无需改动**。
 
 ### 8. {UAT} 模型自动匹配技能的可见性（DISC-05 核心）
 expected: 在运行中的应用里提一个**命中某技能 description 的任务**（不手打 `/skill:`），观察模型是否自行 `read` 该技能的 `SKILL.md` —— 工具卡片标题显示「使用技能「name」」并带来源徽标；参数区仍显示实际读取路径；**切换对话再切回**后同一卡片标记仍在。另问「你有哪些技能」，模型应能区分技能与工具（D-18）。
@@ -105,13 +133,26 @@ result: [pending]
 ## Summary
 
 total: 8
-passed: 1
-issues: 4
-pending: 3
+passed: 2
+issues: 5
+pending: 1
 skipped: 0
 blocked: 0
 
 ## Gaps
+
+```yaml
+- gap_id: G-48-6
+  truth: "输入 `/skill:<真实技能名> 参数` 回车后，用户气泡应立即呈现三件套：技能 pill（文案「技能」+ 技能名）+ args 正文 + 默认折叠的「技能正文（N 字符）」块"
+  status: failed
+  reason: "自动驱动实测：发送后立即与整轮跑完时 pill / 折叠块均不存在（`hasPill=false`、`hasBox=false`）；手动调用 `renderAIMessages()` 后两者立即正确出现（pill 文案 `技能demo`、折叠块 `技能正文（94 字符）`、默认折叠、正文 94 字符、三态切换正常）。根因：`src/renderer.js:8843-8846` 回填 `result.skillInvocation` 后没有重渲染；发送起点那次 `renderAIMessages()` 早于 IPC 返回，之后流式更新只走 `updateStreamingBubble`（仅替换 `.ai-message-content`）。属 48-REVIEW.md 11 条 finding 之外的独立缺陷"
+  severity: major
+  test: 6
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
+```
 
 ```yaml
 - gap_id: G-48-4
