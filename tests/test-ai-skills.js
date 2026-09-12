@@ -20,6 +20,14 @@ const workspace = require('../agent-workspace');
 const aiMemoryManager = require('../ai-memory-manager');
 const aiSkills = require('../ai-skills-manager');
 const aiManager = require('../ai-manager');
+const seeder = require('../builtin-skills-seeder');
+const skillPickerModel = require('../src/skill-picker-model');
+
+/** 仓库根目录（源码扫描 / 真实随包目录用） */
+const REPO_ROOT = path.join(__dirname, '..');
+
+/** 真实的随包内置技能源目录（seeded 注入用；不依赖其内容，只作 srcDir 覆写） */
+const REAL_BUILTIN_SRC = path.join(REPO_ROOT, 'skills-builtin');
 
 /** 建一次性临时根目录并在测试结束后清理 */
 function withTempRoot(t) {
@@ -1405,3 +1413,632 @@ describe('P8 失效链机制断言（源码扫描）', () => {
     assert.strictEqual(prompt.includes('改写前描述'), false, '旧描述不得残留');
   });
 });
+
+// ==================== 48-01 D 组：技能调用 / 实时读盘 / 组装 / 重载还原 ====================
+
+/** 取 SDK 的 formatSkillInvocation（SDK 为 ESM-only，动态 import） */
+async function sdkFormatSkillInvocation() {
+  const sdk = await import('@earendil-works/pi-agent-core');
+  return sdk.formatSkillInvocation;
+}
+
+/** 直接写一份带 frontmatter 的 SKILL.md（需要 disable-model-invocation 等字段时用） */
+function writeRawSkill(scannedDir, name, frontmatterExtra = '') {
+  const dir = path.join(scannedDir, name);
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'SKILL.md');
+  fs.writeFileSync(
+    file,
+    `---\nname: ${name}\ndescription: ${name} 技能描述\n${frontmatterExtra}---\n\n# ${name}\n\n正文内容\n`
+  );
+  return file;
+}
+
+/** 建临时 workspace + 沙箱 env + 刷新技能集（D 组的统一夹具） */
+async function setupSkillsEnv(root) {
+  workspace.ensureWorkspaceDir();
+  const env = await workspace.createSandboxEnv({ cwd: root });
+  await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+  return env;
+}
+
+describe('D 组 · 实时读盘（用户 2026-09-11 硬约束，DISC-02）', () => {
+  test('调用瞬间读盘：写技能 → 读到正文 → 改盘 → 二次调用读到新正文', async (t) => {
+    const root = withTempRoot(t);
+    const file = writeSkill(workspace.getSkillsDir(), 'alpha', { body: '# alpha\n\n第一版正文\n' });
+    const env = await setupSkillsEnv(root);
+
+    const first = await aiSkills.readSkillForInvocation(env, 'alpha');
+    assert.strictEqual(first.ok, true, `应读盘成功: ${JSON.stringify(first)}`);
+    assert.ok(first.skill.content.includes('第一版正文'), '首次读到第一版正文');
+    assert.strictEqual(first.source, 'user');
+
+    // 模拟模型经 write / bash 直接改盘（无事件可挂）
+    fs.writeFileSync(file, '---\nname: alpha\ndescription: alpha 技能描述\n---\n\n# alpha\n\n第二版正文\n');
+    // 不重新 refreshSkills —— 实时读盘必须当场反映磁盘
+    const second = await aiSkills.readSkillForInvocation(env, 'alpha');
+    assert.strictEqual(second.ok, true);
+    assert.ok(second.skill.content.includes('第二版正文'), '二次调用必须读到新正文（实时读盘）');
+    assert.strictEqual(second.skill.content.includes('第一版正文'), false, '旧正文不得残留');
+  });
+
+  test('SKILL.md 被删除 → not_found（不冒名注入、不回退缓存快照）', async (t) => {
+    const root = withTempRoot(t);
+    const file = writeSkill(workspace.getSkillsDir(), 'alpha');
+    const env = await setupSkillsEnv(root);
+    fs.rmSync(file);
+    const res = await aiSkills.readSkillForInvocation(env, 'alpha');
+    assert.deepStrictEqual(res, { ok: false, reason: 'not_found', name: 'alpha' });
+  });
+
+  test('目录被换成别的技能（fresh.name !== name）→ not_found', async (t) => {
+    const root = withTempRoot(t);
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    const env = await setupSkillsEnv(root);
+    // 把 alpha 目录里的 SKILL.md 换成另一个技能名 + 把目录名也换掉
+    const dir = path.join(workspace.getSkillsDir(), 'alpha');
+    fs.rmSync(dir, { recursive: true, force: true });
+    writeSkill(workspace.getSkillsDir(), 'beta');
+    const res = await aiSkills.readSkillForInvocation(env, 'alpha');
+    // 目录仍存在但内容已换成 beta → loadSkills 读不到 name === 'alpha'，按不存在处理
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.reason, 'not_found');
+  });
+
+  test('正文为空串 / 仅空白 → 组装被拒（P-48-03：绝不产出字面量 undefined）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await setupSkillsEnv(root);
+
+    const emptyFile = path.join(workspace.getSkillsDir(), 'empty-body', 'SKILL.md');
+    fs.mkdirSync(path.dirname(emptyFile), { recursive: true });
+    fs.writeFileSync(emptyFile, '---\nname: empty-body\ndescription: 空正文技能\n---\n');
+    const blankFile = path.join(workspace.getSkillsDir(), 'blank-body', 'SKILL.md');
+    fs.mkdirSync(path.dirname(blankFile), { recursive: true });
+    fs.writeFileSync(blankFile, '---\nname: blank-body\ndescription: 空白正文技能\n---\n\n   \n');
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    for (const name of ['empty-body', 'blank-body']) {
+      const res = await aiSkills.readSkillForInvocation(env, name);
+      assert.strictEqual(res.ok, false, `${name}: 空正文必须在组装之前被拒`);
+      assert.strictEqual(res.reason, 'not_found');
+    }
+
+    // 组装守卫：即便外部拼出一个缺 content 的 skill 对象，注入串里也不得出现 `undefined`
+    const fmt = await sdkFormatSkillInvocation();
+    const assembled = aiManager.buildSkillInvocationBlock(
+      { skill: { name: 'x', filePath: '/a/b/SKILL.md', content: 'BODY' }, name: 'x' },
+      'arg',
+      fmt
+    );
+    assert.strictEqual(assembled.includes('\nundefined\n'), false, '注入串不得出现字面量 undefined');
+  });
+
+  test('不存在的技能名 → not_found', async (t) => {
+    const root = withTempRoot(t);
+    const env = await setupSkillsEnv(root);
+    const res = await aiSkills.readSkillForInvocation(env, 'nope');
+    assert.deepStrictEqual(res, { ok: false, reason: 'not_found', name: 'nope' });
+  });
+
+  test('disabled 技能 → {ok:false, reason:"disabled"}（且在读盘之前判定）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    await aiSkills.refreshSkills(env, { disabled: ['alpha'], rootDirs: scanRoots() });
+
+    const res = await aiSkills.readSkillForInvocation(env, 'alpha');
+    assert.deepStrictEqual(res, { ok: false, reason: 'disabled', name: 'alpha' });
+  });
+
+  test('同名遮蔽：readSkillForInvocation 跳过 shadowed 条目，只作用于胜出者（D-11）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    writeSkill(workspace.getManagedSkillsDir(), 'alpha', { body: '# managed\n\n托管版\n' });
+    writeSkill(workspace.getSkillsDir(), 'alpha', { body: '# user\n\n用户版\n' });
+    const env = await setupSkillsEnv(root);
+
+    const snap = aiSkills.getSkillsSnapshot();
+    const shadowed = snap.skills.find((e) => e.skill.name === 'alpha' && e.shadowed === true);
+    assert.ok(shadowed, '前置：managed 版应被标 shadowed');
+    assert.strictEqual(shadowed.source, 'managed');
+
+    const res = await aiSkills.readSkillForInvocation(env, 'alpha');
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.source, 'user', '必须作用在胜出者（user）上，不得读到遮蔽败者');
+    assert.ok(res.skill.content.includes('用户版'), '读到的正文来自胜出者');
+  });
+
+  test('overLimit / promptOmitted 条目仍可显式调用（D-12：显式调用是它唯一可用路径）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    for (let i = 0; i < 52; i += 1) {
+      writeSkill(workspace.getSkillsDir(), `long-${String(i).padStart(3, '0')}`, {
+        description: 'y'.repeat(300),
+      });
+    }
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const ui = aiSkills.getSkillsForUI([]);
+    const omitted = ui.skills.find((e) => e.promptOmitted === true);
+    const over = ui.skills.find((e) => e.overLimit === true);
+    assert.ok(omitted, '前置：应存在被预算丢弃（promptOmitted）的条目');
+    assert.ok(over, '前置：应存在超出数量上限（overLimit）的条目');
+
+    for (const e of [omitted, over]) {
+      const res = await aiSkills.readSkillForInvocation(env, e.name);
+      assert.strictEqual(res.ok, true, `${e.name}: 超限/被省略的技能仍必须可显式调用`);
+    }
+  });
+});
+
+describe('D 组 · 组装与拼接顺序（D-05 / D-07）', () => {
+  test('buildSkillInvocationBlock 逐字节 === formatSkillInvocation(skill, provenance + "\\n\\n" + args)', async () => {
+    const fmt = await sdkFormatSkillInvocation();
+    const skill = { name: 'alpha', description: 'd', content: '# alpha\n\n正文\n', filePath: '/ws/skills/alpha/SKILL.md' };
+    for (const args of ['帮我找 X', '第一段\n\n第二段', '']) {
+      const expected = fmt(skill, ['用户显式调用了技能「alpha」', args].filter(Boolean).join('\n\n'));
+      assert.strictEqual(
+        aiManager.buildSkillInvocationBlock({ skill, name: 'alpha' }, args, fmt),
+        expected,
+        `args=${JSON.stringify(args)} 时组装必须逐字节等于 SDK 输出`
+      );
+    }
+  });
+
+  test('无 args 时 provenance 之后无尾随分隔符（SDK 的 additionalInstructions 语义）', async () => {
+    const fmt = await sdkFormatSkillInvocation();
+    const skill = { name: 'alpha', description: 'd', content: 'BODY', filePath: '/ws/skills/alpha/SKILL.md' };
+    const block = aiManager.buildSkillInvocationBlock({ skill, name: 'alpha' }, '', fmt);
+    assert.ok(block.endsWith('用户显式调用了技能「alpha」'), '无 args 时块尾就是 provenance 行');
+    assert.ok(block.includes('\n\n用户显式调用了技能「alpha」'));
+  });
+
+  test('拼接顺序：[skillBlock, visionNotice, markerBlock, visionBlock, contextBlock]（源码 + 相对次序）', () => {
+    const src = readSource('ai-manager.js');
+    assert.ok(
+      src.includes('[resolved.skillBlock, visionNotice, markerBlock, visionBlock, contextBlock]'),
+      'promptWithContext 的拼接数组必须以 skillBlock 打头且其余四段相对顺序不变'
+    );
+    const arrayIdx = src.indexOf('[resolved.skillBlock, visionNotice, markerBlock, visionBlock, contextBlock]');
+    const order = ['skillBlock', 'visionNotice', 'markerBlock', 'visionBlock', 'contextBlock'];
+    let cursor = arrayIdx;
+    for (const name of order) {
+      const idx = src.indexOf(name, cursor);
+      assert.ok(idx >= 0 && idx < arrayIdx + 200, `${name} 应出现在拼接数组内且次序正确`);
+      cursor = idx;
+    }
+  });
+
+  test('无技能调用时增强消息与改动前逐字符相同（skillBlock 为空被 filter 剔除）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await setupSkillsEnv(root);
+    // 普通消息（不含技能语法）→ skillBlock 必须为空串，且 skill 为 null
+    const ctx = { sandboxEnv: env, getSeededSkillNamesSafe: () => [] };
+    const resolved = await aiManager.prototype._resolveSkillInvocation.call(ctx, '帮我找 X');
+    assert.strictEqual(resolved.skillBlock, '');
+    assert.strictEqual(resolved.skill, null);
+    assert.strictEqual(resolved.skillError, undefined, '普通消息不得产生 skillError');
+    // 空 skillBlock 被 filter(Boolean) 剔除 → 分片序列与改动前逐字符相同
+    const parts = [resolved.skillBlock, 'visionNotice', 'markerBlock', 'visionBlock', 'contextBlock']
+      .filter(Boolean);
+    assert.deepStrictEqual(parts, ['visionNotice', 'markerBlock', 'visionBlock', 'contextBlock']);
+  });
+
+  test('_deriveConversationTitle 打表（D-19：技能调用不退化）', () => {
+    const derive = (text) => aiManager.prototype._deriveConversationTitle.call({}, text);
+    assert.strictEqual(derive('/skill:find-skills'), '/skill:find-skills');
+    assert.strictEqual(derive('/skill:alpha'), '/skill:alpha');
+    assert.strictEqual(derive(''), '新对话');
+    assert.strictEqual(derive('   '), '新对话');
+    const long = '/skill:alpha ' + 'x'.repeat(50);
+    assert.strictEqual(derive(long).length, 30, '超长时截断到 30 字符');
+    assert.strictEqual(derive(long), long.trim().substring(0, 30));
+  });
+
+  test('源码：agent.prompt 收到增强文本，而 _ensureConversation 仍收原始文本（D-19）', () => {
+    const src = readSource('ai-manager.js');
+    assert.ok(src.includes('this._ensureConversation(message)'), '必须保留原始文本建/改对话标题');
+    assert.strictEqual(
+      (src.match(/this\._ensureConversation\(enhanced/g) || []).length,
+      0,
+      '不得把增强文本传给 _ensureConversation（否则标题会变成 <skill …> 垃圾）'
+    );
+    assert.ok(src.includes('const enhanced = '), 'agent.prompt 的实参必须是 enhanced 局部量');
+    assert.ok(src.includes('await this.agent.prompt(enhanced'), '技能路径必须把增强文本交给 agent.prompt');
+  });
+
+  test('源码：解析与组装只有一份实现（prompt / promptWithContext 共用 _resolveSkillInvocation）', () => {
+    const src = readSource('ai-manager.js');
+    assert.strictEqual(
+      (src.match(/await this\._resolveSkillInvocation\(message\)/g) || []).length,
+      2,
+      'prompt 与 promptWithContext 必须各调一次同一个私有方法（不得出现两份解析）'
+    );
+    for (const name of ['parseSkillInvocationText', 'buildSkillInvocationBlock', 'skillErrorFromReason', 'parseStoredSkillInvocation', 'resolveSkillBubbleArgs']) {
+      assert.strictEqual(typeof aiManager[name], 'function', `ai-manager 必须导出 ${name}`);
+    }
+  });
+
+  test('源码：skill-picker-model.js 在 renderer.js 之前加载（wave 1 端到端运行的前提）', () => {
+    const html = readSource('src/index.html');
+    const modelIdx = html.indexOf('skill-picker-model.js');
+    const rendererIdx = html.indexOf('renderer.js"');
+    assert.ok(modelIdx >= 0, 'index.html 必须加载 skill-picker-model.js');
+    assert.ok(rendererIdx >= 0);
+    assert.ok(modelIdx < rendererIdx, 'skill-picker-model.js 必须先于 renderer.js（后者顶层即引用该全局）');
+  });
+});
+
+describe('D 组 · skillErrorFromReason（错误码与文案的唯一来源，DISC-06）', () => {
+  test('两个码 + 两条文案逐字命中', () => {
+    assert.deepStrictEqual(aiManager.skillErrorFromReason('not_found', 'foo'), {
+      code: 'skill_not_found',
+      message: '未找到技能「foo」，输入 / 查看可用技能',
+    });
+    assert.deepStrictEqual(aiManager.skillErrorFromReason('disabled', 'foo'), {
+      code: 'skill_disabled',
+      message: '技能「foo」已被禁用，可在 设置 → AI → 技能管理 重新启用',
+    });
+  });
+
+  test('返回值域只有两个码（不存在第三个）', () => {
+    const codes = new Set(
+      ['not_found', 'disabled', 'read_failed', 'bogus', undefined].map(
+        (r) => aiManager.skillErrorFromReason(r, 'x').code
+      )
+    );
+    assert.deepStrictEqual([...codes].sort(), ['skill_disabled', 'skill_not_found']);
+  });
+
+  test('_resolveSkillInvocation 走同一映射（不硬写文案）', () => {
+    const body = methodBody(readSource('ai-manager.js'), '_resolveSkillInvocation');
+    assert.ok(body.includes('skillErrorFromReason('), '必须调用唯一映射函数');
+    assert.strictEqual(body.includes('未找到技能'), false, '不得在方法体内硬写文案');
+    assert.strictEqual(body.includes('已被禁用'), false, '不得在方法体内硬写文案');
+  });
+});
+
+describe('D 组 · 重载装饰（八例，getConversationMessages 还原）', () => {
+  test('八例 args 还原 + 与 live 路径同形', async (t) => {
+    const root = withTempRoot(t);
+    const bodyText = '# alpha\n\n正文内容\n';
+    writeSkill(workspace.getSkillsDir(), 'alpha', { body: bodyText });
+    const env = await setupSkillsEnv(root);
+
+    const read = await aiSkills.readSkillForInvocation(env, 'alpha');
+    assert.strictEqual(read.ok, true);
+    const skill = read.skill;
+    const fmt = await sdkFormatSkillInvocation();
+    const buildBlock = (args) =>
+      aiManager.buildSkillInvocationBlock({ skill, name: 'alpha' }, args, fmt);
+
+    const MARKER = '[attached_file: /tmp/ws/attachments/a.txt]';
+    const REF = '<referenced-tab index="1" title="T" url="https://e.com">c</referenced-tab>';
+    const refContext = (msg) => `${REF}\n\n用户消息：${msg}`;
+
+    const NON_EMPTY = '帮我找 X';
+    const MULTI = '第一段\n\n第二段';
+    const MSG_A = `/skill:alpha ${NON_EMPTY}`;
+    const MSG_MULTI = `/skill:alpha ${MULTI}`;
+    const MSG_BARE = '/skill:alpha';
+
+    const CASES = [
+      { id: '①裸技能块（prompt 路径）', args: NON_EMPTY, message: MSG_A,
+        build: (msg, args) => buildBlock(args), hasTail: false },
+      { id: '②含 @ 引用的完整增强串', args: NON_EMPTY, message: MSG_A,
+        build: (msg, args) => [buildBlock(args), MARKER, refContext(msg)].join('\n\n'), hasTail: true },
+      { id: '③含附件（无引用）的完整增强串', args: NON_EMPTY, message: MSG_A,
+        build: (msg, args) => [buildBlock(args), MARKER, msg].join('\n\n'), hasTail: true },
+      { id: '④args 自身含空行', args: MULTI, message: MSG_MULTI,
+        build: (msg, args) => buildBlock(args), hasTail: false },
+      { id: '⑤a 空 args 裸技能块', args: '', message: MSG_BARE,
+        build: (msg, args) => buildBlock(args), hasTail: false },
+      { id: '⑤b 空 args + 附件', args: '', message: MSG_BARE,
+        build: (msg, args) => [buildBlock(args), MARKER, msg].join('\n\n'), hasTail: true },
+      { id: '⑤c 空 args + @ 引用', args: '', message: MSG_BARE,
+        build: (msg, args) => [buildBlock(args), refContext(msg)].join('\n\n'), hasTail: true },
+      { id: '⑤d 空 args + promptWithContext（无附件无引用）', args: '', message: MSG_BARE,
+        build: (msg, args) => [buildBlock(args), msg].join('\n\n'), hasTail: true },
+    ];
+
+    for (const c of CASES) {
+      const enhanced = c.build(c.message, c.args);
+      const reloaded = aiManager.parseStoredSkillInvocation(enhanced, () => 'user');
+      assert.ok(reloaded, `${c.id}: 必须被识别为技能调用消息`);
+
+      // 正文逐字符等于 args（⑤a–⑤d 一律 ''）
+      assert.strictEqual(reloaded.content, c.args, `${c.id}: content 必须逐字符等于 args`);
+      assert.strictEqual(typeof reloaded.content, 'string', `${c.id}: content 必须是字符串`);
+
+      // 块体逐字符等于读盘得到的 skill.content
+      assert.strictEqual(reloaded.skillInvocation.content, skill.content, `${c.id}: 折叠块正文 = 读盘正文`);
+
+      // 必须是「本次」读盘注入的正文（不是快照/历史残留）
+      assert.strictEqual(reloaded.skillInvocation.name, 'alpha', `${c.id}: name 来自块属性`);
+
+      if (c.hasTail) {
+        for (const forbidden of [MARKER, '<referenced-tab', '用户消息：', '/skill:alpha']) {
+          assert.strictEqual(
+            reloaded.content.includes(forbidden), false,
+            `${c.id}: 正文不得含尾段标记 ${forbidden}`
+          );
+        }
+      }
+
+      // 与 live 路径同一正文（两条路径的可失败等式）
+      const live = aiManager.parseSkillInvocationText(c.message);
+      assert.strictEqual(reloaded.content, live.args, `${c.id}: 重载路径 content 必须逐字符等于 live 路径 args`);
+    }
+  });
+
+  test('resolveTier 返回假值时省略 tier 键（气泡照常渲染，不丢消息）', async (t) => {
+    const root = withTempRoot(t);
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    const env = await setupSkillsEnv(root);
+    const read = await aiSkills.readSkillForInvocation(env, 'alpha');
+    const fmt = await sdkFormatSkillInvocation();
+    const block = aiManager.buildSkillInvocationBlock({ skill: read.skill, name: 'alpha' }, 'x', fmt);
+
+    const noTier = aiManager.parseStoredSkillInvocation(block, () => null);
+    assert.ok(noTier, '找不到 tier 时仍必须装饰成功');
+    assert.strictEqual('tier' in noTier.skillInvocation, false, '省略 tier 键（不写 undefined）');
+
+    const withTier = aiManager.parseStoredSkillInvocation(block, () => 'builtin');
+    assert.strictEqual(withTier.skillInvocation.tier, 'builtin');
+  });
+
+  test('重载路径对象键集合与 live 路径逐字相等（{name, tier, content} 三键）', async (t) => {
+    const root = withTempRoot(t);
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    const env = await setupSkillsEnv(root);
+    const ctx = { sandboxEnv: env, getSeededSkillNamesSafe: () => [] };
+
+    const live = await aiManager.prototype._resolveSkillInvocation.call(ctx, '/skill:alpha 帮我找 X');
+    assert.ok(live.skill, '前置：live 路径必须解析成功');
+    assert.deepStrictEqual(
+      Object.keys(live.skill).sort(), ['content', 'name', 'tier'],
+      '返回契约只有三个键（不存在 contentLength 之类的声明型字段）'
+    );
+
+    // 用真实读盘对象（含 filePath）组装增强串，再走重载装饰
+    const read = await aiSkills.readSkillForInvocation(env, 'alpha');
+    const fmt = await sdkFormatSkillInvocation();
+    const block = aiManager.buildSkillInvocationBlock({ skill: read.skill, name: 'alpha' }, '帮我找 X', fmt);
+    const reloaded = aiManager.parseStoredSkillInvocation(block, () => live.skill.tier);
+    assert.deepStrictEqual(
+      Object.keys(reloaded.skillInvocation).sort(),
+      Object.keys(live.skill).sort(),
+      '重载路径的 skillInvocation 键集合必须与 live 路径逐字相等'
+    );
+    assert.strictEqual(reloaded.skillInvocation.content, live.skill.content);
+    assert.strictEqual(reloaded.skillInvocation.tier, live.skill.tier);
+  });
+
+  test('非技能消息原样透传（parseStoredSkillInvocation → null）', () => {
+    assert.strictEqual(aiManager.parseStoredSkillInvocation('帮我找 X', () => null), null);
+    assert.strictEqual(
+      aiManager.parseStoredSkillInvocation('<context-summary>\n正文\n</context-summary>', () => null),
+      null
+    );
+    // 块头对但块后不是 provenance → 不是技能调用消息
+    assert.strictEqual(
+      aiManager.parseStoredSkillInvocation(
+        '<skill name="alpha" location="/ws/skills/alpha/SKILL.md">\nReferences are relative to /ws/skills/alpha.\n\nBODY\n</skill>\n\n别的内容',
+        () => null
+      ),
+      null
+    );
+  });
+
+  test('源码：getConversationMessages 只调装饰方法，不直接出现 matchSkillByPath(', () => {
+    const body = methodBody(readSource('ai-manager.js'), 'getConversationMessages');
+    assert.ok(body.includes('_decorateSkillUserMessage('), '必须经独立装饰方法');
+    assert.strictEqual(body.includes('matchSkillByPath('), false, '不得在本方法体内直接调 matchSkillByPath');
+  });
+});
+
+describe('D 组 · resolveSkillBubbleArgs 打表（args 还原唯一规则）', () => {
+  test('五类形态 + 两趟扫描顺序 + 回落语义', async (t) => {
+    const root = withTempRoot(t);
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    const env = await setupSkillsEnv(root);
+    const read = await aiSkills.readSkillForInvocation(env, 'alpha');
+    const fmt = await sdkFormatSkillInvocation();
+    const buildBlock = (args) =>
+      aiManager.buildSkillInvocationBlock({ skill: read.skill, name: 'alpha' }, args, fmt);
+
+    const MARKER = '[attached_file: /tmp/ws/attachments/a.txt]';
+    const REF = '<referenced-tab index="1">c</referenced-tab>';
+    const msg = '/skill:alpha 帮我找 X';
+
+    // ① 非空 args，无尾段（prompt() 路径）→ R 恰为 args
+    assert.strictEqual(aiManager.resolveSkillBubbleArgs(buildBlock('帮我找 X'), 'alpha'), '帮我找 X');
+    // ② 非空 args + 尾段（promptWithContext 形态）→ 仍取末段语法文本的 args
+    assert.strictEqual(
+      aiManager.resolveSkillBubbleArgs([buildBlock('帮我找 X'), MARKER, msg].join('\n\n'), 'alpha'),
+      '帮我找 X'
+    );
+    assert.strictEqual(
+      aiManager.resolveSkillBubbleArgs([buildBlock('帮我找 X'), `${REF}\n\n用户消息：${msg}`].join('\n\n'), 'alpha'),
+      '帮我找 X'
+    );
+    // ④ args 含空行 → 逐字符还原（「按段分隔符截首段」会失败的判据）
+    assert.strictEqual(
+      aiManager.resolveSkillBubbleArgs(buildBlock('第一段\n\n第二段'), 'alpha'),
+      '第一段\n\n第二段'
+    );
+    // ⑤a–⑤d 空 args 四形态 → 恒为 ''（上一轮 blocker 的回归守卫）
+    const EMPTY_CASES = [
+      ['⑤a prompt() 裸技能块', buildBlock('')],
+      ['⑤b 附件', [buildBlock(''), MARKER, msg].join('\n\n')],
+      ['⑤c @引用', [buildBlock(''), `${REF}\n\n用户消息：${msg}`].join('\n\n')],
+      ['⑤d promptWithContext 无附件无引用', [buildBlock(''), msg].join('\n\n')],
+    ];
+    for (const [id, enhanced] of EMPTY_CASES) {
+      const args = aiManager.resolveSkillBubbleArgs(enhanced, 'alpha');
+      assert.strictEqual(args, '', `${id}: 必须返回字符串 ''`);
+      assert.strictEqual(typeof args, 'string', `${id}: 类型必须是字符串`);
+      for (const forbidden of [MARKER, '<referenced-tab', '用户消息：', '/skill:alpha']) {
+        assert.strictEqual(args.includes(forbidden), false, `${id}: 不得把尾段当正文（${forbidden}）`);
+      }
+    }
+    // 空 args 且无尾段（prompt() 路径）→ ''
+    assert.strictEqual(aiManager.resolveSkillBubbleArgs(buildBlock(''), 'alpha'), '');
+
+    // 两趟扫描顺序：args 含空行且内嵌同名语法 token，尾段语法文本使第一趟非空解胜出
+    const trickyArgs = '第一段\n\n/skill:alpha';
+    const trickyMsg = `/skill:alpha ${trickyArgs}`;
+    const trickyEnhanced = [buildBlock(trickyArgs), trickyMsg].join('\n\n');
+    assert.strictEqual(
+      aiManager.resolveSkillBubbleArgs(trickyEnhanced, 'alpha'),
+      trickyArgs,
+      '第一趟的非空前缀解必须胜出（不得被串尾的假候选抢先给出 ""）'
+    );
+
+    // 已知窄洞（STATE.md 已披露）：纯 prompt() 路径下 args 尾段恰为 '\n\n' + '/skill:alpha'
+    // 与「args 为空的 promptWithContext 形态」逐字符同形，任何规则都无法区分 → 按后者解释为 ''
+    assert.strictEqual(
+      aiManager.resolveSkillBubbleArgs(buildBlock(trickyArgs), 'alpha'),
+      '',
+      '该病态输入按已披露的口径解释为空 args（不影响消息内容与注入）'
+    );
+
+    // 出现过候选但都没锚中 → 回落 '' 而非整段尾段
+    const mismatched = [buildBlock('真 args'), '/skill:alpha 别的 args'].join('\n\n');
+    assert.strictEqual(aiManager.resolveSkillBubbleArgs(mismatched, 'alpha'), '');
+
+    // 不是该技能的调用消息 → null
+    assert.strictEqual(aiManager.resolveSkillBubbleArgs('普通消息', 'alpha'), null);
+    assert.strictEqual(aiManager.resolveSkillBubbleArgs(buildBlock('x'), 'beta'), null);
+  });
+});
+
+describe('D 组 · 投影收窄 / tier 三档 / promptOmitted / DISC-07', () => {
+  test('getSkillsForUI 是收窄投影：每个条目不含 content / filePath / diagnostics', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    writeSkill(workspace.getSkillsDir(), 'alpha');
+    writeSkill(workspace.getManagedSkillsDir(), 'beta');
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const ui = aiSkills.getSkillsForUI([]);
+    assert.strictEqual(ui.skills.length, 2);
+    assert.strictEqual(typeof ui.digest, 'string');
+    assert.strictEqual(typeof ui.refreshedAt, 'number');
+    for (const e of ui.skills) {
+      assert.strictEqual('content' in e, false, '投影不得携带技能正文（T-48-05）');
+      assert.strictEqual('filePath' in e, false, '投影不得携带 filePath');
+      assert.strictEqual('diagnostics' in e, false, '投影不得携带诊断');
+      for (const key of ['name', 'description', 'tier', 'disableModelInvocation', 'disabled', 'shadowed', 'overLimit', 'promptOmitted']) {
+        assert.ok(key in e, `投影必须含 ${key}`);
+      }
+    }
+  });
+
+  test('tier 三档判定：user / seeded builtin / 非 seeded managed', () => {
+    const entries = {
+      user: { skill: { name: 'alpha' }, source: 'user' },
+      seeded: { skill: { name: 'find-skills' }, source: 'managed' },
+      managed: { skill: { name: 'my-own' }, source: 'managed' },
+    };
+    assert.strictEqual(aiSkills.sourceTierOf(entries.user, []), 'user');
+    assert.strictEqual(aiSkills.sourceTierOf(entries.seeded, ['find-skills']), 'builtin');
+    assert.strictEqual(aiSkills.sourceTierOf(entries.managed, ['find-skills']), 'managed');
+    assert.strictEqual(aiSkills.toUISkillEntry(entries.seeded, ['find-skills']).tier, 'builtin');
+    assert.strictEqual(aiSkills.toUISkillEntry(entries.managed, ['find-skills']).tier, 'managed');
+  });
+
+  test('seeded 集合可经 seeder.setBuiltinDepsForTest 注入真实随包目录（t.after 复位）', (t) => {
+    seeder.setBuiltinDepsForTest({ srcDir: REAL_BUILTIN_SRC });
+    t.after(() => seeder._resetForTest());
+    const seeded = seeder.getSeededSkillNames();
+    assert.ok(Array.isArray(seeded) && seeded.length > 0, '真实随包目录应含至少一个内置技能');
+    const entry = { skill: { name: seeded[0] }, source: 'managed' };
+    assert.strictEqual(aiSkills.sourceTierOf(entry, seeded), 'builtin');
+  });
+
+  test('matchSkillByPath：规范化全等命中；非 SKILL.md / 工作区外不命中', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const file = writeSkill(workspace.getSkillsDir(), 'alpha');
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    assert.deepStrictEqual(aiSkills.matchSkillByPath(file, []), { name: 'alpha', tier: 'user' });
+    assert.deepStrictEqual(
+      aiSkills.matchSkillByPath(path.join(path.dirname(file), '..', 'alpha', 'SKILL.md'), []),
+      { name: 'alpha', tier: 'user' },
+      '含 .. 的相对段必须被 path.resolve 规范化后命中'
+    );
+    assert.strictEqual(aiSkills.matchSkillByPath(path.join(path.dirname(file), 'README.md'), []), null);
+    assert.strictEqual(aiSkills.matchSkillByPath('/tmp/outside/SKILL.md', []), null);
+    assert.strictEqual(aiSkills.matchSkillByPath('', []), null);
+    assert.strictEqual(aiSkills.matchSkillByPath(null, []), null);
+  });
+
+  test('DISС-07：disable-model-invocation 不进 prompt、仍可显式调用、投影标真且不 promptOmitted', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    writeSkill(workspace.getSkillsDir(), 'normal', { description: '普通技能' });
+    writeRawSkill(workspace.getSkillsDir(), 'explicit-only', 'disable-model-invocation: true\n');
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const snap = aiSkills.getSkillsSnapshot();
+    const entry = snap.skills.find((e) => e.skill.name === 'explicit-only');
+    assert.ok(entry, '前置：explicit-only 应被加载');
+
+    // ① 不进 system prompt
+    const block = aiSkills.buildSkillsPrompt();
+    assert.strictEqual(block.includes('explicit-only'), false, '仅显式技能不得出现在 buildSkillsPrompt() 里');
+    assert.ok(block.includes('normal'), '对照：普通技能仍进 prompt');
+
+    // ② 仍可经 /skill: 显式调用
+    const res = await aiSkills.readSkillForInvocation(env, 'explicit-only');
+    assert.strictEqual(res.ok, true, '仅显式技能必须仍可显式调用（{ok:true}）');
+
+    // ③ 投影：disableModelInvocation === true 且 promptOmitted !== true
+    const ui = aiSkills.getSkillsForUI([]).skills.find((e) => e.name === 'explicit-only');
+    assert.strictEqual(ui.disableModelInvocation, true);
+    assert.notStrictEqual(ui.promptOmitted, true, '仅显式条目永不 promptOmitted');
+
+    // flag 独立性：disableModelInvocation 与 disabled 互不蕴含（同时为真时禁用面胜出）
+    await aiSkills.refreshSkills(env, { disabled: ['explicit-only'], rootDirs: scanRoots() });
+    const disabledRes = await aiSkills.readSkillForInvocation(env, 'explicit-only');
+    assert.deepStrictEqual(disabledRes, { ok: false, reason: 'disabled', name: 'explicit-only' });
+  });
+
+  test('promptOmitted 只打在 ⑦ 预算丢弃的 eligible 条目上（P-48-08 边界一致）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    // 20 条长描述（必然超 8000 预算）+ 31 条短描述（使 user 总数 > MAX_USER_SKILLS=50）
+    for (let i = 0; i < 20; i += 1) {
+      writeSkill(workspace.getSkillsDir(), `long-${String(i).padStart(3, '0')}`, {
+        description: 'y'.repeat(400),
+      });
+    }
+    for (let i = 20; i < 51; i += 1) {
+      writeSkill(workspace.getSkillsDir(), `long-${String(i).padStart(3, '0')}`);
+    }
+    writeRawSkill(workspace.getSkillsDir(), 'explicit-only', 'disable-model-invocation: true\n');
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    await aiSkills.refreshSkills(env, { disabled: ['off-skill'], rootDirs: scanRoots() });
+
+    const ui = aiSkills.getSkillsForUI([]).skills;
+    assert.ok(ui.some((e) => e.promptOmitted === true), '应存在被预算丢弃的条目');
+    assert.ok(ui.some((e) => e.overLimit === true), '前置：应存在超数量上限的条目');
+
+    for (const e of ui) {
+      if (e.shadowed === true || e.disabled === true || e.overLimit === true || e.disableModelInvocation === true) {
+        assert.notStrictEqual(
+          e.promptOmitted, true,
+          `${e.name}: 遮蔽/禁用/超限/仅显式条目永不被标 promptOmitted（P-48-08）`
+        );
+      }
+    }
+  });
+});
+

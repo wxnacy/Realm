@@ -1017,6 +1017,8 @@
 
   <script src="ai-brand-map.js"></script>
   <script src="model-family.js"></script>
+  <!-- skill-picker-model.js 必须在 renderer.js 之前：renderer 顶层即引用 window.SkillPickerModel -->
+  <script src="skill-picker-model.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

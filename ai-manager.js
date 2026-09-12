@@ -120,6 +120,23 @@ function getAiSkillsManagerLazy() {
   return require('./ai-skills-manager');
 }
 
+/**
+ * 惰性 require 内置技能播种模块（seeded 身份的唯一数据源，48 D-14）
+ *
+ * builtin-skills-seeder 经 agent-workspace 间接依赖 electron（`app.isPackaged`），
+ * 纯 Node 环境下 `require('electron')` 返回字符串、解构出的 `app` 为 undefined
+ * → `getSeededSkillNames()` 抛 TypeError（`48-RESEARCH.md` 事实 4）。因此调用方
+ * **必须**走 getSeededSkillNamesSafe() 的 try/catch 降级，不得直接调用本模块的该方法。
+ *
+ * @returns {object} builtin-skills-seeder 模块导出
+ */
+function getBuiltinSkillsSeederLazy() {
+  return require('./builtin-skills-seeder');
+}
+
+/** `/` 面板与技能调用共用的纯逻辑模型（双模式导出，main 侧取同一份规则） */
+const skillPickerModel = require('./src/skill-picker-model');
+
 // Bash 三档权限策略（纯函数零依赖，可直接顶层 require）
 const bashPolicy = require('./ai-bash-policy');
 
@@ -971,8 +988,14 @@ class AIManager {
    * - 错误事件广播到渲染进程（per D-11）
    * - 使用 isProcessing 标志防止并发调用
    *
+   * 技能调用（48-01 D-19）：`message` 是完整语法文本（`/skill:name args`），解析与
+   * 实时读盘由 `_resolveSkillInvocation` 完成后把技能块置为 `agent.prompt` 的实参；
+   * 普通消息 `enhanced === message`，逐字节不变。`_ensureConversation` **仍收原始文本**
+   * —— 对话标题因此派生为 `/skill:find-skills …` 而非退化（D-19）。
+   *
    * @param {string} message - 用户输入的消息
-   * @returns {Promise<string|null>} 成功时返回当前对话 ID（惰性创建或既有），失败/早退返回 null
+   * @returns {Promise<{conversationId: string|null, skillInvocation: object|null, skillError?: object}>}
+   *   48-01 起统一为对象契约（技能调用经 `skillInvocation` 回传本次实际注入的正文；技能解析失败经 `skillError` 回传）
    */
   async prompt(message) {
     if (!this.isInitialized) {
@@ -983,7 +1006,7 @@ class AIManager {
         message: 'AI 助手未初始化，请先在「设置 → AI 助手」中配置提供商和 API Key',
         timestamp: Date.now(),
       }]);
-      return null;
+      return { conversationId: this.currentConversationId || null, skillInvocation: null };
     }
 
     // Agent 保证（per G-42-1）：删除对话等路径会经 _cleanupCurrentAgent() 置空
@@ -998,7 +1021,7 @@ class AIManager {
           message: 'AI 助手未初始化，请先在「设置 → AI 助手」中配置提供商和 API Key',
           timestamp: Date.now(),
         }]);
-        return null;
+        return { conversationId: this.currentConversationId || null, skillInvocation: null };
       }
     }
 
@@ -1010,13 +1033,27 @@ class AIManager {
         message: 'AI 正在处理上一条消息，请稍候再试',
         timestamp: Date.now(),
       }]);
-      return null;
+      return { conversationId: this.currentConversationId || null, skillInvocation: null };
     }
 
     this.isProcessing = true;
 
+    // 技能调用解析（D-19 / D-05）：命中语法时当场读盘并组装技能块；普通消息零成本早退
+    //（不触达 SDK、不做 IO）。失败时**不调用** agent.prompt，直接回结构化错误 ——
+    // renderer 据此回滚刚推送的气泡并给出 system-note（D-13 推论：不留半截历史）。
+    const resolved = await this._resolveSkillInvocation(message);
+    if (resolved.skillError) {
+      this.isProcessing = false;
+      console.warn(`[Realm AI] 技能调用被拒：${resolved.skillError.code}`);
+      return {
+        conversationId: this.currentConversationId || null,
+        skillInvocation: null,
+        skillError: resolved.skillError,
+      };
+    }
+
     // 惰性对话生命周期（per G-42-2 / D-04）：首条消息创建（或认领）对话，
-    // 标题自动取首条用户消息前 30 字符
+    // 标题自动取首条用户消息前 30 字符。**必须传原始文本**（D-19：不退化）
     try {
       this._ensureConversation(message);
     } catch (err) {
@@ -1027,7 +1064,7 @@ class AIManager {
         message: '创建对话失败: ' + err.message,
         timestamp: Date.now(),
       }]);
-      return null;
+      return { conversationId: this.currentConversationId || null, skillInvocation: null };
     }
 
     console.log(`[Realm AI] 发送消息: ${message}`);
@@ -1037,10 +1074,16 @@ class AIManager {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        await this.agent.prompt(message);
+        // 技能调用发送增强文本（技能块 = `<skill>` + provenance + args）；普通消息
+        // `enhanced === message`，逐字节不变
+        const enhanced = resolved.skillBlock || message;
+        await this.agent.prompt(enhanced);
         await this.agent.waitForIdle();
         this.isProcessing = false;
-        return this.currentConversationId || null;
+        return {
+          conversationId: this.currentConversationId || null,
+          skillInvocation: resolved.skill || null,
+        };
       } catch (err) {
         const isLastAttempt = attempt === maxRetries;
 
@@ -1055,7 +1098,7 @@ class AIManager {
             message: err.message,
             timestamp: Date.now(),
           }]);
-          return null;
+          return { conversationId: this.currentConversationId || null, skillInvocation: null };
         }
 
         console.warn(`[Realm AI] 第 ${attempt + 1} 次尝试失败，${retryDelays[attempt]}ms 后重试:`, err.message);
@@ -1084,7 +1127,8 @@ class AIManager {
    * @param {Array} referencedTabs - 引用的标签页列表，每项包含 {tabId, title, url, content}
    * @param {string[]} [attachmentIds] - 附件登记 ID 列表（ai:attach-files/attach-blob 返回的 id）
    * @param {boolean} [supportsVision=true] - @deprecated 已忽略：能力判定内聚主进程（vision 桥）
-   * @returns {Promise<string|null>} 成功时返回当前对话 ID（惰性创建或既有），失败/早退返回 null
+   * @returns {Promise<{conversationId: string|null, skillInvocation: object|null, skillError?: object}>}
+   *   48-01 起统一为对象契约（同 prompt()）
    */
   async promptWithContext(message, referencedTabs, attachmentIds = [], supportsVision = true) {
     if (!this.isInitialized) {
@@ -1094,7 +1138,7 @@ class AIManager {
         message: 'AI 助手未初始化，请先在「设置 → AI 助手」中配置提供商和 API Key',
         timestamp: Date.now(),
       }]);
-      return null;
+      return { conversationId: this.currentConversationId || null, skillInvocation: null };
     }
 
     // Agent 保证（per G-42-1）：同 prompt()——删除对话后直接发送可恢复
@@ -1107,7 +1151,7 @@ class AIManager {
           message: 'AI 助手未初始化，请先在「设置 → AI 助手」中配置提供商和 API Key',
           timestamp: Date.now(),
         }]);
-        return null;
+        return { conversationId: this.currentConversationId || null, skillInvocation: null };
       }
     }
 
@@ -1119,10 +1163,22 @@ class AIManager {
         message: 'AI 正在处理上一条消息，请稍候再试',
         timestamp: Date.now(),
       }]);
-      return null;
+      return { conversationId: this.currentConversationId || null, skillInvocation: null };
     }
 
     this.isProcessing = true;
+
+    // 技能调用解析（D-19 / D-05）：与 prompt() 共用同一份实现；失败时不进对话
+    const resolved = await this._resolveSkillInvocation(message);
+    if (resolved.skillError) {
+      this.isProcessing = false;
+      console.warn(`[Realm AI] 技能调用被拒：${resolved.skillError.code}`);
+      return {
+        conversationId: this.currentConversationId || null,
+        skillInvocation: null,
+        skillError: resolved.skillError,
+      };
+    }
 
     // 解析附件登记：renderer 只持 attachmentId，主进程登记表反查快照元数据
     //（杜绝 renderer 伪造路径指向 attachments 目录之外的文件）；未知 id 跳过
@@ -1148,7 +1204,7 @@ class AIManager {
         message: '创建对话失败: ' + err.message,
         timestamp: Date.now(),
       }]);
-      return null;
+      return { conversationId: this.currentConversationId || null, skillInvocation: null };
     }
 
     console.log(`[Realm AI] 发送带上下文消息: ${message}，引用 ${referencedTabs.length} 个标签页，附件 ${resolvedAttachments.length} 个`);
@@ -1226,7 +1282,10 @@ class AIManager {
       // described=桥接转写），避免「声称已附于消息」却看不到图诱发幻觉
       const markerBlock = aiAttachments.buildAttachmentMarkers(resolvedAttachments, { imageMode });
       const contextBlock = this._buildMessageWithContext(message, referencedTabs);
-      const enhancedMessage = [visionNotice, markerBlock, visionBlock, contextBlock]
+      // 技能块置增强消息最前（D-07）：显式调用时技能是这次请求的「程序说明」，
+      // 附件与 @ 引用是它的输入。其余四段的**相对顺序逐字节不变**；无技能调用时
+      // `resolved.skillBlock` 为 ''，被 filter(Boolean) 剔除 → 输出与改动前逐字符相同。
+      const enhancedMessage = [resolved.skillBlock, visionNotice, markerBlock, visionBlock, contextBlock]
         .filter(Boolean)
         .join('\n\n');
 
@@ -1272,7 +1331,10 @@ class AIManager {
         }
       }
 
-      return this.currentConversationId || null;
+      return {
+        conversationId: this.currentConversationId || null,
+        skillInvocation: resolved.skill || null,
+      };
     } catch (err) {
       console.error('[Realm AI] 带上下文消息处理失败:', err.message);
       this.isProcessing = false;
@@ -1283,7 +1345,7 @@ class AIManager {
         message: err.message,
         timestamp: Date.now(),
       }]);
-      return null;
+      return { conversationId: this.currentConversationId || null, skillInvocation: null };
     }
   }
 
@@ -1338,6 +1400,112 @@ class AIManager {
   _deriveConversationTitle(userMessageText) {
     const trimmed = typeof userMessageText === 'string' ? userMessageText.trim() : '';
     return trimmed ? trimmed.substring(0, 30) : '新对话';
+  }
+
+  /**
+   * 解析一次显式技能调用并**当场从磁盘读取正文**（D-05 / D-13 / 用户 2026-09-11 硬约束）
+   *
+   * `prompt()` 与 `promptWithContext()` **共用**本方法 —— 解析与读盘只有一份实现。
+   * 普通消息（不含技能语法）在此零成本早退（不触达 SDK、不做任何 IO）。
+   *
+   * 失败时不调用 `agent.prompt`，直接把结构化错误交给调用方（D-13 推论：
+   * 被 `refreshSkills()` 整条跳过的技能与「不存在」同形处理）。
+   *
+   * @param {string} rawMessage - 用户原始消息（完整语法文本）
+   * @returns {Promise<{skillBlock: string, skill: {name: string, tier: string, content: string}|null,
+   *                    skillError?: {code: string, message: string}}>}
+   * @private
+   */
+  async _resolveSkillInvocation(rawMessage) {
+    const parsed = parseSkillInvocationText(rawMessage);
+    if (!parsed) return { skillBlock: '', skill: null };
+
+    const skillsManager = getAiSkillsManagerLazy();
+    const result = await skillsManager.readSkillForInvocation(this.sandboxEnv, parsed.name);
+    if (!result || result.ok !== true) {
+      const reason = result && result.reason ? result.reason : 'not_found';
+      return { skillBlock: '', skill: null, skillError: skillErrorFromReason(reason, parsed.name) };
+    }
+
+    // SDK 为 ESM-only，动态 import 后把 formatSkillInvocation 注入纯函数（避免顶层 import）
+    const { formatSkillInvocation } = await import('@earendil-works/pi-agent-core');
+    const skillBlock = buildSkillInvocationBlock(
+      { skill: result.skill, name: parsed.name },
+      parsed.args,
+      formatSkillInvocation
+    );
+    const tier = skillsManager.sourceTierOf(
+      { skill: result.skill, source: result.source },
+      this.getSeededSkillNamesSafe()
+    );
+    // 返回契约只有三个键：{name, tier, content}（content = 技能块体，气泡折叠块的 N 来源）。
+    // args **不进返回体** —— 气泡正文由渲染侧按同一份 token 规则算出（D-06）。
+    return {
+      skillBlock,
+      skill: { name: parsed.name, tier, content: result.skill.content },
+    };
+  }
+
+  /**
+   * 同步读取随包内置技能名集合（seeded 身份，48 D-14）—— **fail-safe 降级为空集合**
+   *
+   * `builtin-skills-seeder.getSeededSkillNames()` 经 agent-workspace 间接依赖 electron：
+   * 纯 Node 环境下 `require('electron')` 返回字符串 → `app` 为 undefined → TypeError
+   *（`48-RESEARCH.md` 事实 4）。降级为空集合的后果是内置技能被标成「托管」（错标），
+   * 因此必须 `console.warn` 留下痕迹（禁止静默失败）。
+   *
+   * @returns {string[]} 随包内置技能名数组；不可判定时为空数组
+   */
+  getSeededSkillNamesSafe() {
+    try {
+      const names = getBuiltinSkillsSeederLazy().getSeededSkillNames();
+      return Array.isArray(names) ? names : [];
+    } catch (err) {
+      console.warn('[Realm AI] 读取随包内置技能名失败（seeded 判定降级为空集合）:', err.message);
+      return [];
+    }
+  }
+
+  /**
+   * `/` 面板数据源（同步、零 IO）—— 经 `ai:get-skills` 通道交给 renderer
+   *
+   * seeded 集合在此注入（`ai-skills-manager` 保持零 electron 依赖纪律）。
+   * 返回的是**收窄投影**（无正文 / 无 filePath / 无诊断），见 `toUISkillEntry`。
+   *
+   * @returns {{skills: Array<object>, refreshedAt: number, digest: string}}
+   */
+  getSkillsForUI() {
+    return getAiSkillsManagerLazy().getSkillsForUI(this.getSeededSkillNamesSafe());
+  }
+
+  /**
+   * 由技能文件路径求 tier（重载路径的元数据还原）—— 唯一的 `matchSkillByPath` 调用点
+   *
+   * @param {string} location - 技能文件绝对路径（入库存的是 `skill.filePath`）
+   * @returns {string|null} tier；技能已被删除 / 改名时返回 null（气泡照常渲染）
+   * @private
+   */
+  _skillTierByLocation(location) {
+    const hit = getAiSkillsManagerLazy().matchSkillByPath(location, this.getSeededSkillNamesSafe());
+    return hit ? hit.tier : null;
+  }
+
+  /**
+   * 装饰一条入库的 user 行：还原气泡正文（args）与技能元数据（48 D-09 / D-06）
+   *
+   * 装饰失败**只告警不丢消息**（与 48-03 的 assistant 行装饰同款容错）。
+   *
+   * @param {string} text - 入库的 user 行 `content`
+   * @returns {{content: string, skillInvocation: object}|null} 非技能调用消息返回 null
+   * @private
+   */
+  _decorateSkillUserMessage(text) {
+    try {
+      return parseStoredSkillInvocation(text, (location) => this._skillTierByLocation(location));
+    } catch (err) {
+      console.warn('[Realm AI] 技能调用消息装饰失败（原样透传）:', err.message);
+      return null;
+    }
   }
 
   /**
@@ -2469,7 +2637,18 @@ ${content}
    * @returns {Array} 显示形状消息列表
    */
   getConversationMessages(conversationId) {
-    return conversationStore.getMessages(conversationId);
+    const messages = conversationStore.getMessages(conversationId);
+    if (!Array.isArray(messages)) return messages;
+    // 技能调用的 user 行装饰（48 D-09）：入库的是完整增强消息，此处把气泡还原为
+    // {content: args, skillInvocation:{name, tier, content}}。落点选这里而非
+    // conversationStore —— 存储层保持「只懂存储」的单一职责，技能域知识不进它。
+    // 非技能消息**原样透传**（零改动），装饰失败也只告警不丢消息。
+    return messages.map((msg) => {
+      if (!msg || msg.role !== 'user') return msg;
+      const decorated = this._decorateSkillUserMessage(msg.content);
+      if (!decorated) return msg;
+      return { ...msg, content: decorated.content, skillInvocation: decorated.skillInvocation };
+    });
   }
 
   /**
@@ -5786,8 +5965,227 @@ ${content}
   }
 }
 
+// ==================== 技能调用（48-01）—— 模块级纯函数 ====================
+
+/**
+ * 解析显式技能调用（D-19 的权威解析）
+ *
+ * 与 `src/skill-picker-model.js` 共用**同一份** token 取值与边界实现（本函数直接委派），
+ * 因此 renderer 与 main 不可能漂移。main 侧不判本地命令（本地命令优先由 renderer 侧保证）。
+ *
+ * @param {string} text - renderer 发来的完整语法文本（`/skill:name args` 或 `/name args`）
+ * @returns {{name: string, args: string, syntax: 'skill-colon'|'bare'} | null}
+ */
+function parseSkillInvocationText(text) {
+  return skillPickerModel.parseSkillInvocationText(text);
+}
+
+/** 显式技能调用的 provenance 行（D-05 的唯一模板，重载还原时按同一模板锚定） */
+function skillProvenanceLine(name) {
+  return '用户显式调用了技能「' + name + '」';
+}
+
+/**
+ * 由 `readSkillForInvocation` 的失败 reason 映射为结构化错误（DISC-06 / D-13 推论）
+ *
+ * **错误码与文案的唯一来源** —— `_resolveSkillInvocation` 只调它、不在方法体内硬写文案，
+ * 因此「两个码 + 两条文案」可被测试直接打表。
+ *
+ * 返回值域**只有两个码**：`readSkillForInvocation` 的失败码域就是
+ * `not_found | disabled`（SDK `loadSkills` 读盘失败只产诊断 + 空技能集、不抛错），
+ * D-13 推论也要求「被整条跳过的技能」与「不存在」同形 —— **不得**声明第三个码。
+ *
+ * @param {'not_found'|'disabled'} reason - 读盘失败原因
+ * @param {string} name - 技能名
+ * @returns {{code: 'skill_not_found'|'skill_disabled', message: string}}
+ */
+function skillErrorFromReason(reason, name) {
+  if (reason === 'disabled') {
+    return {
+      code: 'skill_disabled',
+      message: '技能「' + name + '」已被禁用，可在 设置 → AI → 技能管理 重新启用',
+    };
+  }
+  return {
+    code: 'skill_not_found',
+    message: '未找到技能「' + name + '」，输入 / 查看可用技能',
+  };
+}
+
+/**
+ * 组装技能调用块（D-05）：SDK `<skill>` 块 + provenance 行 + args 原文
+ *
+ * 一次 `formatSkillInvocation` 调用完成，段间分隔符由 SDK 决定（不自行拼模板 ——
+ * 自拼等于复制 SDK 的转义与缩进，SDK 升级即漂移）。
+ *
+ * `formatSkillInvocation` 由调用处以参数注入（SDK 为 ESM-only，本模块不得顶层 import）。
+ *
+ * @param {{skill: object, name: string}} resolved - `{skill, name}`
+ * @param {string} args - args 原文（可为空串）
+ * @param {(skill: object, additionalInstructions?: string) => string} formatSkillInvocation
+ *   SDK 的 `formatSkillInvocation`（调用处动态 import 后注入）
+ * @returns {string} `<skill …>…</skill>\n\n<provenance>\n\n<args>`
+ */
+function buildSkillInvocationBlock({ skill, name }, args, formatSkillInvocation) {
+  if (typeof formatSkillInvocation !== 'function') {
+    throw new TypeError('buildSkillInvocationBlock 需要注入 formatSkillInvocation');
+  }
+  const provenance = skillProvenanceLine(name);
+  const instructions = [provenance, args].filter(Boolean).join('\n\n');
+  return formatSkillInvocation(skill, instructions);
+}
+
+/**
+ * 在 `R` 的某个位置尝试取「技能语法 token」（`/skill:{name}` 或 `/{name}`）
+ *
+ * 边界规则与 `extractArgs` 的 token 取值**同源**：token 之后必须紧接空白或串尾 ——
+ * `/alphax` 不得命中 `alpha`。
+ *
+ * @param {string} rest - 以候选位置为起点的剩余串
+ * @param {string} name - 技能名
+ * @returns {string|null} 命中的 token（含前导 `/`）或 null
+ */
+function skillTokenAt(rest, name) {
+  const candidates = ['/' + skillPickerModel.SKILL_PREFIX + name, '/' + name];
+  for (const token of candidates) {
+    if (!rest.startsWith(token)) continue;
+    const next = rest.charAt(token.length);
+    if (next === '' || /\s/.test(next)) return token;
+  }
+  return null;
+}
+
+/**
+ * 从**入库的增强消息**还原用户气泡的 args 正文 —— **唯一规则**（D-06 / D-19）
+ *
+ * **为什么需要它**：入库的是 main 的 `agent.state.messages`（完整增强消息），而 D-06 要求
+ * 气泡正文 = **args 原文**（不含 `/skill:name` 前缀、不含 provenance 行、不含技能正文，
+ * 也不含附件 marker / `<referenced-tab>` 引用 XML / `用户消息：` 收尾标记）。
+ *
+ * **术语**：`P` = provenance 行文本；`R` = `P` 之后的剩余内容（并剥掉紧邻的一个 `\n\n`，
+ * 即增强段分隔符本身）。两条路径下 `R` 的语义：
+ * - `prompt()` 路径：增强消息到 provenance 行之后即 args 原文 → `R` 恰为 args（无 args 时为空串）
+ * - `promptWithContext()` 路径：`R` = `args + '\n\n' + 尾段区`，或 args 为空时的 `尾段区`
+ *   （**args 为空不是「没有 R」**，而是「R 从尾段区第一段开始」）
+ *
+ * **锚点依据**：`contextBlock` 恒为增强消息**末段**，且 `_buildMessageWithContext`
+ * 恒以 `message`（用户原文 = 完整语法文本）收尾 —— 无 `@` 引用时 `contextBlock === message`，
+ * 有引用时为 `…</referenced-tab>\n\n用户消息：${message}`。因此 args 恒可从**末段的语法文本**
+ * 经 `extractArgs` 精确取得。锚点必须挂在 provenance 行上，才能天然排除技能块体中的同名文本。
+ *
+ * **两趟扫描顺序不可颠倒**：第一趟只接受「非空 args 且通过前缀式」的候选；扫到 `R` 起点
+ * 都没有这样的候选时，第二趟才接受「空 args 且 `after.trim() === ''`」的候选。理由：
+ * 语法文本可能出现在 args 内部（args 含空行、且其中再出现一次带空行前缀的
+ * `/skill:{name}`，如 `/skill:alpha 第一段\n\n/skill:alpha`），串尾那个**假**候选的 `a`
+ * 恰好为空；若不分两趟、按「第一个通过的候选」取值，假候选会先命中并给出错误的 `''`。
+ * 两趟顺序保证「真 args 非空」时永远以真 args 为准。
+ *
+ * **回落**（两趟均无候选）分两种情形：`R` 内**一次候选都没出现过** → `args = R`
+ * （`prompt()` 路径：无 args 时 `R === ''`，有 args 时 `R` 恰为 args 原文）；
+ * **出现过候选但都没锚中** → `args = ''`（保守降级：宁可少显示 args，也绝不把附件 marker /
+ * `<referenced-tab>` / `用户消息：` 当正文显示）。
+ *
+ * **已知且不可避免的歧义**（不另加分支）：`/skill:{name} /skill:{name}`（args 字面等于裸语法
+ * token 且无附件无引用）与「args 为空的 `promptWithContext()` 形态」产生**逐字符相同**的增强串，
+ * 任何规则都无法区分；本规则按后者解释为 `''`。这是 D-19（发完整语法文本、由主进程重解析）
+ * 带来的固有歧义，只影响该病态输入的 args 显示，不影响消息内容与注入。
+ *
+ * @param {string} enhancedContent - 入库的 user 行 `content`（完整增强消息）
+ * @param {string} name - 技能名
+ * @returns {string|null} args 原文（可为空串）；不是该技能的调用消息时返回 null
+ */
+function resolveSkillBubbleArgs(enhancedContent, name) {
+  if (typeof enhancedContent !== 'string' || typeof name !== 'string' || !name) return null;
+  const provenance = skillProvenanceLine(name);
+  const p = enhancedContent.indexOf(provenance);
+  if (p < 0) return null;
+  let R = enhancedContent.slice(p + provenance.length);
+  if (R.startsWith('\n\n')) R = R.slice(2);
+
+  const USER_MARKER = '用户消息：';
+  let sawCandidate = false;
+  let nonEmpty = null;
+  let empty = null;
+
+  for (let j = R.length; j >= 0; j -= 1) {
+    const rest = R.slice(j);
+    const token = skillTokenAt(rest, name);
+    if (!token) continue;
+    // 尾段边界：R 起点（紧跟 provenance 行）/ 增强段分隔符之后 / `用户消息：` 之后
+    const atStart = j === 0;
+    const afterSeparator = j >= 2 && R.slice(j - 2, j) === '\n\n';
+    const afterUserMarker =
+      j >= USER_MARKER.length && R.slice(j - USER_MARKER.length, j) === USER_MARKER;
+    if (!atStart && !afterSeparator && !afterUserMarker) continue;
+    sawCandidate = true;
+
+    const a = skillPickerModel.extractArgs(rest);
+    const after = rest.slice(token.length);
+    if (nonEmpty === null && a !== '' && (R === a || R.startsWith(a + '\n\n'))) {
+      nonEmpty = a;
+      break; // 第一趟命中即终局（两趟顺序的第一优先级）
+    }
+    if (empty === null && a === '' && after.trim() === '') empty = '';
+  }
+
+  if (nonEmpty !== null) return nonEmpty;
+  if (empty !== null) return empty;
+  return sawCandidate ? '' : R;
+}
+
+/**
+ * 解析**入库的**技能调用 user 行（重载路径，48 D-09）
+ *
+ * 与 live 路径产出的 `skillInvocation` 形状**逐字一致**（`{name, tier?, content}`）——
+ * 两条路径同一形状是「重开对话气泡与实时一致」的可失败判据。
+ *
+ * 块体边界用**固定模板锚定**（`<skill …>` 行 + `References are relative to ….` 行 + 空行
+ * + 正文 + **最后一个** `\n</skill>`），不做「最后一个空行」之类的位置猜测。
+ *
+ * @param {string} content - 入库的 user 行 `content`
+ * @param {(location: string) => (string|null|undefined)} [resolveTier]
+ *   由 `matchSkillByPath` 求 tier 的注入闭包；返回假值时**省略 `tier` 键**（气泡照常渲染）
+ * @returns {{content: string, skillInvocation: {name: string, tier?: string, content: string}}|null}
+ */
+function parseStoredSkillInvocation(content, resolveTier) {
+  if (typeof content !== 'string') return null;
+  const head = content.match(/^<skill name="([^"]+)" location="([^"]+)">\n/);
+  if (!head) return null;
+  const name = head[1];
+  const location = head[2];
+
+  const afterHead = content.slice(head[0].length);
+  const refLine = afterHead.match(/^References are relative to .*\n\n/);
+  if (!refLine) return null;
+
+  const bodyAndRest = afterHead.slice(refLine[0].length);
+  const closeMark = '\n</skill>';
+  const closeIdx = bodyAndRest.lastIndexOf(closeMark);
+  if (closeIdx < 0) return null;
+
+  const body = bodyAndRest.slice(0, closeIdx);
+  const after = bodyAndRest.slice(closeIdx + closeMark.length);
+  // 块体之后必须只剩 provenance 行与 args（其余 → 不是技能调用消息，原样透传）
+  if (after !== '' && !after.startsWith('\n\n' + skillProvenanceLine(name))) return null;
+
+  const args = resolveSkillBubbleArgs(content, name);
+  if (args === null) return null;
+
+  const skillInvocation = { name, content: body };
+  const tier = typeof resolveTier === 'function' ? resolveTier(location) : null;
+  if (tier) skillInvocation.tier = tier;
+  return { content: args, skillInvocation };
+}
+
 module.exports = AIManager;
 module.exports.executeScript = executeScript;
 module.exports.sanitizeInput = sanitizeInput;
 module.exports.validateScriptForSteps = validateScriptForSteps;
 module.exports.buildSystemPrompt = buildSystemPrompt;
+// 48-01：技能调用的模块级纯函数（供测试直接打表；parseStoredSkillInvocation /
+// resolveSkillBubbleArgs 是重载还原的唯一规则，skillErrorFromReason 是错误码与文案的唯一来源）
+module.exports.parseSkillInvocationText = parseSkillInvocationText;
+module.exports.buildSkillInvocationBlock = buildSkillInvocationBlock;
+module.exports.skillErrorFromReason = skillErrorFromReason;
+module.exports.parseStoredSkillInvocation = parseStoredSkillInvocation;
+module.exports.resolveSkillBubbleArgs = resolveSkillBubbleArgs;

@@ -53,6 +53,12 @@ const EMPTY_CACHE = () => ({
  *   （遮蔽败者额外带 `shadowed: true` 与 `shadowedBy`）；条目级 `diagnostics`
  *   即 D-07 语境中的 `skill.diagnostics[]` —— 诊断挂在**缓存条目**上，
  *   `Skill` 本体保持 SDK 五字段形状不被注入私有字段
+ *   消费侧标记（均由 ⑤⑥⑦ 写入、只增不减）：
+ *   - `disabled`（⑤，46 D-09）：命中 `opts.disabled` 名单
+ *   - `overLimit`（⑥，SKILL-07）：user 来源超出 `MAX_USER_SKILLS` 的部分
+ *   - `promptOmitted`（⑦，48 D-12）：§⑦ 预算贪心**丢弃**的 `eligible` 条目
+ *     —— 判定边界必须与 ⑦ 的 `eligible` 过滤条件完全一致；**永不**打在
+ *     `shadowed` / `disabled` / `overLimit` / `disableModelInvocation === true` 条目上
  * - promptBlock：SDK formatSkillsForSystemPrompt 的返回值（空集为 ''）
  * - digest：技能集稳定序列化后的短摘要（技能集是否变化的快速判定主键）
  * - diagnostics：加载期诊断（SDK 原样形状 + Realm 自建，code 以 realm_ 前缀区分）
@@ -595,6 +601,12 @@ async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
     }
     let block = kept.length ? formatSkillsForSystemPrompt(kept) : '';
     const omitted = eligible.length - kept.length;
+    // ⑦ 的条目级落点（48 D-12）：被预算丢弃的条目逐条打标，供面板渲染
+    // 「未进提示词 · 超预算」。判定边界必须与上方 eligible 的过滤条件**完全一致**
+    //（eligible.slice(kept.length) 恰为「通过 eligible 过滤但未进 kept」的条目）。
+    // 该标记**不得**进 computeDigest：任何使它变化的输入都会改变 omitted →
+    // 改变省略提示行 → 改变 promptBlock → digest 已随之变化。
+    for (const e of eligible.slice(kept.length)) e.promptOmitted = true;
     if (omitted > 0) {
       // 省略提示追加在 SDK 技能段的**闭合标签之外**：未截断时的前缀与截断时逐字节
       // 相同，provider 前缀缓存友好。截断绝不静默（SKILL-07）。
@@ -654,6 +666,152 @@ function getSkillsSnapshot() {
   };
 }
 
+/**
+ * 三档来源档位判定（48 D-14）—— **纯函数、零 IO**，判定只消费既有数据
+ *
+ * 档位取值域（与数据层的 `source` 不同：数据层只有 `'user' | 'managed'` 两值）：
+ * - `'user'`    ← `entry.source === 'user'`（`agent-workspace/skills/`）
+ * - `'builtin'` ← `entry.skill.name ∈ seededNames`（随包 `skills-builtin/` 播种而来）
+ * - `'managed'` ← 其余 `'managed'`（AI 自建，存于 `managed-skills/`）
+ *
+ * seeded 集合由调用方注入（`builtin-skills-seeder.getSeededSkillNames()`）——
+ * 本模块保持**零 electron 依赖**纪律，不自行解析随包目录。
+ *
+ * @param {{skill: {name: string}, source: string}} entry - 缓存条目
+ * @param {string[]|Set<string>} [seededNames] - 随包内置技能名集合
+ * @returns {'user'|'builtin'|'managed'} 档位
+ */
+function sourceTierOf(entry, seededNames) {
+  if (entry.source === 'user') return 'user';
+  const seeded = seededNames instanceof Set ? seededNames : new Set(seededNames || []);
+  return seeded.has(entry.skill.name) ? 'builtin' : 'managed';
+}
+
+/**
+ * 缓存条目 → 面板投影（**收窄投影**，48 D-14 / DISC-04）
+ *
+ * **必须收窄**：`_cache.skills[i].skill.content` 是完整正文（≥ 命令的 SKILL.md 全文），
+ * 经 IPC 一次全量送进 renderer 最坏 ~3 MB（50 × 64 KiB）且无人消费
+ *（`48-RESEARCH.md` 事实 5）。本投影**剔除** `content` / `filePath` / `diagnostics`。
+ *
+ * 字段名用 `tier` 而非 `source`：数据层 `source` 只有 `'user' | 'managed'`，
+ * 语义与取值域都与面板的三档不同（见 sourceTierOf）。
+ *
+ * @param {{skill: object, source: string, disabled?: boolean, shadowed?: boolean,
+ *          shadowedBy?: string, overLimit?: boolean, promptOmitted?: boolean}} entry
+ * @param {string[]|Set<string>} [seededNames] - 随包内置技能名集合
+ * @returns {{name: string, description: string, tier: string, disableModelInvocation: boolean,
+ *            disabled: boolean, shadowed: boolean, shadowedBy?: string,
+ *            overLimit: boolean, promptOmitted: boolean}}
+ */
+function toUISkillEntry(entry, seededNames) {
+  const out = {
+    name: entry.skill.name,
+    description: entry.skill.description,
+    tier: sourceTierOf(entry, seededNames),
+    disableModelInvocation: entry.skill.disableModelInvocation === true,
+    disabled: entry.disabled === true,
+    shadowed: entry.shadowed === true,
+    overLimit: entry.overLimit === true,
+    promptOmitted: entry.promptOmitted === true,
+  };
+  // shadowedBy 只在确实被遮蔽时出现（不写 undefined —— 投影里不携带无意义键）
+  if (entry.shadowed === true) out.shadowedBy = entry.shadowedBy;
+  return out;
+}
+
+/**
+ * 按技能文件的绝对路径反查条目（48 DISC-05）—— **纯函数、零 IO**，不重新扫盘
+ *
+ * 用途：`read` 工具卡片技能化的事件侧判定、以及重载路径的 `tier` 还原（入库存的是
+ * `location` = `skill.filePath`）。用 `path.resolve` 规范化后**全等比较** ——
+ * 绝不按目录前缀猜（前缀匹配会把 `skills/foo-bar/SKILL.md` 误判为 `skills/foo`）。
+ *
+ * @param {string} absPath - 技能文件路径（可含 `..` / 相对段，内部规范化）
+ * @param {string[]|Set<string>} [seededNames] - 随包内置技能名集合（求 tier 用）
+ * @returns {{name: string, tier: string}|null} 命中返回 `{name, tier}`，否则 null
+ */
+function matchSkillByPath(absPath, seededNames) {
+  if (typeof absPath !== 'string' || !absPath) return null;
+  let target;
+  try {
+    target = path.resolve(absPath);
+  } catch {
+    return null;
+  }
+  for (const entry of _cache.skills) {
+    const filePath = entry.skill && entry.skill.filePath;
+    if (typeof filePath !== 'string' || !filePath) continue;
+    if (path.resolve(filePath) !== target) continue;
+    return { name: entry.skill.name, tier: sourceTierOf(entry, seededNames) };
+  }
+  return null;
+}
+
+/**
+ * 面板数据源投影（48 D-17 / DISC-04）—— **同步、零 IO**
+ *
+ * 与 `getSkillsSnapshot` 的区别：这里是**面板消费面的收窄投影**（剔除正文与诊断），
+ * 不经 IPC 送出任何 `SKILL.md` 正文；`refreshedAt` / `digest` 供 renderer 做
+ * stale-while-revalidate 的「快照是否变化」判定。
+ *
+ * @param {string[]|Set<string>} [seededNames] - 随包内置技能名集合
+ * @returns {{skills: Array<object>, refreshedAt: number, digest: string}}
+ */
+function getSkillsForUI(seededNames) {
+  return {
+    skills: _cache.skills.map((e) => toUISkillEntry(e, seededNames)),
+    refreshedAt: _cache.refreshedAt,
+    digest: _cache.digest,
+  };
+}
+
+/**
+ * 解析一次显式技能调用的目标并**当场从磁盘读取正文**（用户 2026-09-11 硬约束）
+ *
+ * 读取口用 SDK 自己的 `loadSkills(env, <技能目录>)`：单目录、根层 SKILL.md 命中即返回
+ *（`skills.js:88-103`），一次 listDir + 一次 readTextFile。**不自行剥 frontmatter** ——
+ * 本模块不得重新实现 SDK 的解析（见文件头依赖纪律）。
+ *
+ * 四条口径（缺一即静默错）：
+ * 1. 查找**跳过 `shadowed === true`** —— 手打 `/skill:name` 一律作用于胜出者（D-11）
+ * 2. `disabled` 判定在**读盘之前**（D-10 拒绝，不做无用 IO）
+ * 3. 空正文 / 仅空白正文**在组装之前**拒绝 —— `formatSkillInvocation` 对缺失 content
+ *    不抛错、会静默产出字面量 `undefined`（`48-RESEARCH.md` 事实 1）
+ * 4. **不做**「读失败回退缓存快照」—— 那会直接违反硬约束（用户要的就是「当场读」）
+ *
+ * 返回值域**只有两个失败码**：`not_found`（不存在 / 被整条跳过 / 文件被删 /
+ * 目录被换成别的技能 / 正文为空）与 `disabled`。D-13 推论要求前者与「不存在」同形。
+ *
+ * @param {object} env - 沙箱 ExecutionEnv（agent-workspace.createSandboxEnv 的返回值）
+ * @param {string} name - 技能名（调用方已解析；恒等于目录名 —— 46 D-08）
+ * @returns {Promise<{ok: true, skill: object, source: string}
+ *                   | {ok: false, reason: 'not_found'|'disabled', name: string}>}
+ */
+async function readSkillForInvocation(env, name) {
+  const entry = _cache.skills.find((e) => e.skill.name === name && e.shadowed !== true);
+  if (!entry) return { ok: false, reason: 'not_found', name };
+  if (entry.disabled === true) return { ok: false, reason: 'disabled', name };
+
+  // SDK 为 ESM-only，只能从包根动态 import（与 refreshSkills 同款）
+  const { loadSkills } = await import('@earendil-works/pi-agent-core');
+  let skills = [];
+  try {
+    const res = await loadSkills(env, path.dirname(entry.skill.filePath));
+    skills = (res && res.skills) || [];
+  } catch {
+    // SDK 读盘失败只产诊断 + 空技能集、不抛错；真抛错时按「不存在」处理（不冒名注入）
+    return { ok: false, reason: 'not_found', name };
+  }
+  const fresh = skills.find((s) => s.name === name) || skills[0];
+  if (!fresh || typeof fresh.content !== 'string' || fresh.content.trim() === '') {
+    return { ok: false, reason: 'not_found', name };
+  }
+  // name 权威取自目录名：与缓存条目的 name 不一致 → 目录被换成别的技能，绝不冒名注入
+  if (fresh.name !== name) return { ok: false, reason: 'not_found', name };
+  return { ok: true, skill: fresh, source: entry.source };
+}
+
 /** 复位模块级缓存（仅测试用；跨用例污染会让「空技能集」断言假失败） */
 function _resetCacheForTest() {
   _cache = EMPTY_CACHE();
@@ -664,5 +822,11 @@ module.exports = {
   refreshSkills,
   buildSkillsPrompt,
   getSkillsSnapshot,
+  // 48-01 新增（面板投影 / tier / 路径反查 / 实时读盘）
+  sourceTierOf,
+  toUISkillEntry,
+  matchSkillByPath,
+  getSkillsForUI,
+  readSkillForInvocation,
   _resetCacheForTest,
 };

@@ -29,7 +29,7 @@ describe('A 组 · extractArgs —— token 取值法（事实 2 七组表逐行
   /**
    * 七组表逐行照抄 `48-RESEARCH.md`「事实 2」的实测表。
    *
-   * 现状缺陷式（`value.slice(1 + cmd.name.length).replace(/^\S*/, '').trim()`）在
+   * 旧式取值（按命令名长度切一刀、再正则剥掉首个非空白段）在
    * `/skill:find 帮我找 X` 上只取到 `X`（吞掉「帮我找 」）；token 取值法必须全对。
    */
   const TABLE = [
