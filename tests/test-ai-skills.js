@@ -45,12 +45,24 @@ function withTempRoot(t) {
   return dir;
 }
 
-/** 写入一个契约布局技能：<scannedDir>/<name>/SKILL.md */
-function writeSkill(scannedDir, name, { description = `${name} 技能描述`, body = `# ${name}\n\n正文内容\n` } = {}) {
+/**
+ * 写入一个契约布局技能：<scannedDir>/<name>/SKILL.md
+ *
+ * `frontmatterName` 默认等于目录名（既有调用逐字等价）；显式传入不同值即可造出
+ * 「frontmatter name ≠ 目录名」的技能（D-08 明确保留的合法形态，G-48-2 靶心）。
+ */
+function writeSkill(
+  scannedDir,
+  name,
+  { description = `${name} 技能描述`, body = `# ${name}\n\n正文内容\n`, frontmatterName = name } = {}
+) {
   const dir = path.join(scannedDir, name);
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, 'SKILL.md');
-  fs.writeFileSync(file, `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}`);
+  fs.writeFileSync(
+    file,
+    `---\nname: ${frontmatterName}\ndescription: ${description}\n---\n\n${body}`
+  );
   return file;
 }
 
@@ -1472,18 +1484,17 @@ describe('D 组 · 实时读盘（用户 2026-09-11 硬约束，DISC-02）', () 
     assert.deepStrictEqual(res, { ok: false, reason: 'not_found', name: 'alpha' });
   });
 
-  test('目录被换成别的技能（fresh.name !== name）→ not_found', async (t) => {
+  test('目录被换成别的技能（目录读不到 / 路径不等）→ not_found', async (t) => {
     const root = withTempRoot(t);
     writeSkill(workspace.getSkillsDir(), 'alpha');
     const env = await setupSkillsEnv(root);
-    // 把 alpha 目录里的 SKILL.md 换成另一个技能名 + 把目录名也换掉
+    // 把 alpha 目录整体移除、另建一个别的技能目录
     const dir = path.join(workspace.getSkillsDir(), 'alpha');
     fs.rmSync(dir, { recursive: true, force: true });
     writeSkill(workspace.getSkillsDir(), 'beta');
     const res = await aiSkills.readSkillForInvocation(env, 'alpha');
-    // 目录仍存在但内容已换成 beta → loadSkills 读不到 name === 'alpha'，按不存在处理
-    assert.strictEqual(res.ok, false);
-    assert.strictEqual(res.reason, 'not_found');
+    // 同一性判据是**所在目录**（不是 SDK 读回的 name）：alpha 目录读不到 → 按不存在处理
+    assert.deepStrictEqual(res, { ok: false, reason: 'not_found', name: 'alpha' });
   });
 
   test('正文为空串 / 仅空白 → 组装被拒（P-48-03：绝不产出字面量 undefined）', async (t) => {
@@ -1571,6 +1582,96 @@ describe('D 组 · 实时读盘（用户 2026-09-11 硬约束，DISC-02）', () 
       const res = await aiSkills.readSkillForInvocation(env, e.name);
       assert.strictEqual(res.ok, true, `${e.name}: 超限/被省略的技能仍必须可显式调用`);
     }
+  });
+
+  // G-48-2：frontmatter name ≠ 目录名 的技能（46 D-08 明确保留的合法形态，GitHub 导入常见）。
+  // 修复前 readSkillForInvocation 恒返回 not_found —— 面板按目录名列出并标「可显式调用」，
+  // 用户点了/手打了却没反应。以下三例在旧实现下必然失败（ok:true 与 name === 目录名 均为假）。
+
+  test('目录名与 frontmatter name 不一致的技能可正常显式调用（G-48-2 靶心）', async (t) => {
+    const root = withTempRoot(t);
+    const file = writeSkill(workspace.getSkillsDir(), 'evil', {
+      frontmatterName: 'find-skills',
+      description: '冒名技能描述',
+      body: '# evil\n\n正文一\n',
+    });
+    const env = await setupSkillsEnv(root);
+
+    // 缓存层：目录名权威（enforceDirNameAuthority 就地重写）→ 面板按 evil 列出
+    const cached = aiSkills.getSkillsSnapshot().skills.find((e) => e.source === 'user');
+    assert.ok(cached, '前置：user 技能应进缓存');
+    assert.strictEqual(cached.skill.name, 'evil', '缓存层 name 必须已被重写为目录名');
+
+    const res = await aiSkills.readSkillForInvocation(env, 'evil');
+    assert.strictEqual(res.ok, true, `name≠目录名 的合法技能必须可显式调用: ${JSON.stringify(res)}`);
+    assert.strictEqual(res.source, 'user');
+    assert.ok(res.skill.content.includes('正文一'), '读到的正文来自该目录');
+    // 靶心断言：注入用 name 是**目录名**，不是 frontmatter 里的冒名 name（防冒名 46 D-08）
+    assert.strictEqual(res.skill.name, 'evil', '注入用 name 必须是目录名');
+    assert.notStrictEqual(res.skill.name, 'find-skills', '不得使用 frontmatter 里声明的名字');
+    assert.strictEqual(
+      path.resolve(path.dirname(res.skill.filePath)),
+      path.resolve(path.dirname(file)),
+      '命中对象必须来自缓存条目所在的同一个目录'
+    );
+  });
+
+  test('注入块的 name 属性与 provenance 行都是目录名（冒名 name 不进块）', async (t) => {
+    const root = withTempRoot(t);
+    writeSkill(workspace.getSkillsDir(), 'evil', {
+      frontmatterName: 'find-skills',
+      description: '冒名技能描述',
+      body: '# evil\n\n正文一\n',
+    });
+    const env = await setupSkillsEnv(root);
+
+    const res = await aiSkills.readSkillForInvocation(env, 'evil');
+    assert.strictEqual(res.ok, true, `前置：应读盘成功: ${JSON.stringify(res)}`);
+
+    const fmt = await sdkFormatSkillInvocation();
+    const block = aiManager.buildSkillInvocationBlock(
+      { skill: res.skill, name: 'evil' },
+      '帮我找 X',
+      fmt
+    );
+
+    assert.ok(block.includes('name="evil"'), '注入块 name 属性必须是目录名');
+    assert.ok(
+      block.includes(`location="${path.join(workspace.getSkillsDir(), 'evil', 'SKILL.md')}"`),
+      '注入块 location 必须是该技能 SKILL.md 的绝对路径'
+    );
+    assert.strictEqual(
+      block.includes('name="find-skills"'),
+      false,
+      'frontmatter 里的冒名 name 不得进注入块'
+    );
+    assert.ok(block.includes('用户显式调用了技能「evil」'), 'provenance 行同样用目录名');
+  });
+
+  test('name 不一致 + 实时读盘：不刷新缓存也能读到改盘后的新正文，name 仍是目录名', async (t) => {
+    const root = withTempRoot(t);
+    const file = writeSkill(workspace.getSkillsDir(), 'evil', {
+      frontmatterName: 'find-skills',
+      description: '冒名技能描述',
+      body: '# evil\n\n正文一\n',
+    });
+    const env = await setupSkillsEnv(root);
+
+    const first = await aiSkills.readSkillForInvocation(env, 'evil');
+    assert.strictEqual(first.ok, true, `前置：首次调用应成功: ${JSON.stringify(first)}`);
+    assert.ok(first.skill.content.includes('正文一'), '首次读到正文一');
+
+    // 把 frontmatter 的 name 改成第三个值（目录名不变），且**不**重新 refreshSkills
+    fs.writeFileSync(
+      file,
+      '---\nname: totally-different\ndescription: 冒名技能描述\n---\n\n# evil\n\n正文二\n'
+    );
+
+    const second = await aiSkills.readSkillForInvocation(env, 'evil');
+    assert.strictEqual(second.ok, true, '实时读盘必须当场反映磁盘（不依赖快照刷新）');
+    assert.ok(second.skill.content.includes('正文二'), '二次调用必须读到新正文');
+    assert.strictEqual(second.skill.content.includes('正文一'), false, '旧正文不得残留');
+    assert.strictEqual(second.skill.name, 'evil', 'name 仍取目录名，不随 frontmatter 漂移');
   });
 });
 
