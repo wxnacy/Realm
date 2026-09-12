@@ -20,6 +20,13 @@
   --success-color: #10B981;
   --warning-color: #F59E0B;
   --ai-tool-card-bg: #252525;
+
+  /* 技能三档来源徽标色（48-UI-SPEC §Color：暗色主题） */
+  --skill-source-user: #93C5FD;
+  --skill-source-builtin: #6EE7B7;
+  --skill-source-managed: #C4B5FD;
+  /* 超限标注文字色（--warning-color 在浅色主题对比度不足，故浅色另有专用值） */
+  --skill-limit-text: #F59E0B;
 }
 
 [data-theme="light"] {
@@ -40,6 +47,12 @@
 
   /* AI 工具卡片 */
   --ai-tool-card-bg: #f0f0f0;
+
+  /* 技能三档来源徽标色（48-UI-SPEC §Color：浅色主题；缺一即浅色下失效） */
+  --skill-source-user: #1D4ED8;
+  --skill-source-builtin: #065F46;
+  --skill-source-managed: #5B21B6;
+  --skill-limit-text: #B45309;
 }
 
 /* 布局尺寸变量（与主题无关，须包在 :root 内——裸露在顶层会导致解析错误并吞掉后续规则） */
@@ -5781,6 +5794,77 @@ textarea::placeholder {
 }
 
 .ai-summary-box:not(.collapsed) .ai-summary-box-body {
+  display: block;
+}
+
+/* 气泡内技能 pill 的「技能」微标（48 D-06）
+   底色必须与所属 .ai-message-ref-pill 同底（rgba(0,0,0,0.25)）—— 该 pill 坐在
+   --accent-color 蓝底气泡上，用 --bg-hover 会发灰发脏（UI-SPEC §用户气泡契约） */
+.ai-skill-pill-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 1px 4px;
+  margin-right: 4px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: inherit;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* 技能正文折叠块（48 D-09）：视觉值逐项照抄 .ai-summary-box 家族，仅两处覆盖
+   （max-width: 100% 不居中；margin: 4px 0 0 与摘要框的 4px auto 对齐） */
+.ai-skill-content-box {
+  flex-shrink: 0;
+  max-width: 100%;
+  margin: 4px 0 0;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.ai-skill-content-box-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+  transition: background-color 150ms ease;
+}
+
+.ai-skill-content-box-header:hover {
+  background: var(--bg-hover);
+}
+
+.ai-skill-content-box-chevron {
+  margin-left: auto;
+  transition: transform 150ms ease;
+}
+
+.ai-skill-content-box.collapsed .ai-skill-content-box-chevron {
+  transform: rotate(-90deg);
+}
+
+.ai-skill-content-box-body {
+  display: none;
+  padding: 8px 12px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary, #888);
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-top: 1px solid var(--border-color);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.ai-skill-content-box:not(.collapsed) .ai-skill-content-box-body {
   display: block;
 }
 

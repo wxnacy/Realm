@@ -127,12 +127,33 @@
     return { name: ref.name, args: ref.args, syntax: ref.syntax };
   }
 
+  /**
+   * 由 `{name, args}` 反向组装完整语法文本（`/skill:{name}[ {args}]`）
+   *
+   * **`parseSkillRef` / `extractArgs` 的反向唯一实现** —— 语法文本与 `{name, args}` 是一对
+   * 互逆映射，两个方向各自只在本文件定义一次。**不得**在 renderer 手拼 `'/' + name + …`
+   * （会成为第二份实现，与正向解析必然漂移）。
+   *
+   * 用途：重发路径（重新生成 / 错误重试）把**显示值**（气泡正文 = args）还原为权威载荷；
+   * args 为空时结果恰为 `/skill:{name}`（非空，绝不产生空载荷）。
+   *
+   * @param {string} name - 技能名
+   * @param {string} args - args 原文（可为空串 / 含空行）
+   * @returns {string} `/skill:{name}` 或 `/skill:{name} {args}`
+   */
+  function buildSkillSyntaxText(name, args) {
+    const base = '/' + SKILL_PREFIX + name;
+    const trimmed = typeof args === 'string' ? args.trim() : '';
+    return trimmed ? base + ' ' + trimmed : base;
+  }
+
   const api = {
     SKILL_PREFIX,
     SKILL_NAME_RE,
     extractArgs,
     parseSkillRef,
     parseSkillInvocationText,
+    buildSkillSyntaxText,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

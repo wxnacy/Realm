@@ -2216,11 +2216,14 @@ describe('F 组 · renderer 调用路径（D-06 / D-19 / 重发路径）', () =>
   });
 
   test('气泡折叠块 N 口径为 String.length；不出现字节口径', () => {
-    const start = rendererSrc.indexOf('function renderAIMessages(');
+    const start = rendererSrc.indexOf('function renderSkillContentBox(');
+    assert.ok(start >= 0, '应存在 renderSkillContentBox');
     const body = rendererSrc.slice(start, rendererSrc.indexOf('\n}', start));
-    assert.ok(body.includes('msg.skillInvocation.content.length'), 'N 必须是 content.length');
-    assert.strictEqual(body.includes('Buffer.byteLength'), false);
-    assert.strictEqual(body.includes('TextEncoder'), false);
+    assert.ok(body.includes('skillInvocation.content.length'), 'N 必须是 content.length');
+    assert.ok(body.includes('技能正文（'), 'header 文案必须是「技能正文（N 字符）」');
+    assert.strictEqual(body.includes('innerHTML'), false, '折叠块必须走 DOM API + textContent');
+    assert.strictEqual(rendererSrc.includes('Buffer.byteLength'), false);
+    assert.strictEqual(rendererSrc.includes('TextEncoder'), false);
   });
 });
 

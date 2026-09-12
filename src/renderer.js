@@ -281,6 +281,11 @@ const state = {
   slashPickerItems: [],
   slashPickerActiveIndex: 0,
 
+  // 技能集投影缓存（主进程**收窄投影**，48 D-17；**含已禁用条目** —— 供区分
+  // 「未找到」与「已禁用」两条反馈。renderer 只消费，绝不重算优先级/遮蔽/限额）
+  aiSkills: [],
+  aiSkillsDigest: '',
+
   // Vim 标签历史栈（用于 ^ 命令切换到上一个访问的标签）
   tabHistoryStack: [],
 
@@ -4388,6 +4393,15 @@ async function init() {
   // 初始化 AI 事件流监听
   handleAIStream();
 
+  // 技能集快照同步（48 D-17 / P8 触发点）：广播到达时**只重拉快照**（面板关闭则早退），
+  // 绝不触发 refreshSkills —— 「广播 → 刷新 → 再广播」会自激（P-48-06）
+  window.realmAPI.onIpcMessage('skills:changed', () => {
+    if (!state.slashPickerOpen) return;
+    pullAiSkillsSnapshot();
+  });
+  // 启动预热：否则从未打开过 `/` 面板的用户手打 /skill: 会被预检误判为「未找到技能」
+  pullAiSkillsSnapshot();
+
   // 初始拉取一次上下文用量（圆环按钮显示当前对话状态）
   refreshContextUsage();
 
@@ -8051,6 +8065,12 @@ function renderAIMessages() {
         content.appendChild(refRow);
       }
 
+      // 技能调用 pill（D-06）：`技能` 微标 + 技能名。渲染走 DOM API + textContent
+      //（T-48-03），技能名来自磁盘属不可信输入
+      if (msg.skillInvocation && msg.skillInvocation.name) {
+        content.appendChild(renderAISkillPill(msg.skillInvocation));
+      }
+
       // 用户消息：纯文本
       const textDiv = document.createElement('div');
       textDiv.textContent = msg.content || '';
@@ -8087,6 +8107,11 @@ function renderAIMessages() {
           attRow.appendChild(pill);
         });
         content.appendChild(attRow);
+      }
+
+      // 技能正文折叠块（D-09）：附件之后、默认折叠、可展开查看本次实际注入的正文
+      if (msg.skillInvocation && typeof msg.skillInvocation.content === 'string') {
+        content.appendChild(renderSkillContentBox(msg.skillInvocation));
       }
     } else if (content) {
       // AI 消息：Markdown 渲染 + DOMPurify 消毒（T-21-01）
@@ -8658,7 +8683,7 @@ function initAIAttachments() {
 /**
  * 发送 AI 消息
  * 获取输入框内容，添加用户消息到列表，调用 AI API
- * 支持 @ 引用标签页内容注入
+ * 支持 @ 引用标签页内容注入与 `/skill:name [args]` 技能调用（48-01）
  */
 async function handleSendAIMessage() {
   const text = elements.aiInput.value.trim();
@@ -8667,9 +8692,10 @@ async function handleSendAIMessage() {
   // 压缩中禁止发送（含 /clear 等命令——压缩落库期间切对话会导致写串对话）
   if (state.aiCompacting) return;
 
-  // 斜杠命令拦截：命令文本绝不进入对话历史。
-  // 须在 aiStreaming 守卫之前——/clear、/compact 支持流式回复进行中执行，
-  // handler 内部会先 abort
+  // 斜杠输入拦截：本地命令 → 技能调用预检 → 未知命令。命令/技能文本绝不进入对话历史。
+  // 须在 aiStreaming 守卫之前——/clear、/compact 与技能调用支持流式回复进行中触发，
+  // 各自内部先 abort（D-08：否则流式中调用技能会被静默丢弃）
+  let skillRef = null;
   if (text.startsWith('/')) {
     const match = SLASH_COMMANDS.find(c =>
       text === '/' + c.name || text.startsWith('/' + c.name + ' ')
@@ -8677,15 +8703,46 @@ async function handleSendAIMessage() {
     if (match) {
       elements.aiInput.value = '';
       elements.aiInput.style.height = 'auto';
-      const args = text.slice(match.name.length + 1).trim();
+      // args 走 token 取值法（与主进程 parseSkillInvocationText 同源，P-48-01）
+      const args = window.SkillPickerModel.extractArgs(text);
       await match.handler(args);
       return;
     }
-    // 未知命令：提示且不入历史
-    elements.aiInput.value = '';
-    elements.aiInput.style.height = 'auto';
-    pushSystemNote(`未知命令 ${text.split(/\s/)[0]}，输入 / 查看可用命令`);
-    return;
+
+    // 技能预检（D-04 本地命令优先已在上方返回；技能是**第二命令源**，经 kind 判别分流，
+    // 绝不并入 SLASH_COMMANDS —— 并入即被本地 handler 吞掉）
+    const ref = window.SkillPickerModel.parseSkillRef(text, SLASH_COMMANDS.map(c => c.name));
+    if (ref && ref.kind === 'skill') {
+      // state.aiSkills 是主进程收窄投影（含已禁用条目）；此处只查表，不重算任何技能集状态
+      const known = (Array.isArray(state.aiSkills) ? state.aiSkills : [])
+        .find(s => s.name === ref.name);
+      if (!known) {
+        elements.aiInput.value = '';
+        elements.aiInput.style.height = 'auto';
+        pushSystemNote('未找到技能「' + ref.name + '」，输入 / 查看可用技能');
+        return;
+      }
+      if (known.disabled === true) {
+        elements.aiInput.value = '';
+        elements.aiInput.style.height = 'auto';
+        pushSystemNote('技能「' + ref.name + '」已被禁用，可在 设置 → AI → 技能管理 重新启用');
+        return;
+      }
+      // `shadowed` 在此不可达：name 唯一性（46 D-08）保证按 name 查找必然取到胜出者，
+      // 故不另立「已遮蔽」错误分支（也不因 disableModelInvocation 拒绝 —— 仅显式技能可手打调用）
+      skillRef = ref;
+      await abortAIIfStreaming();
+      // 就地复位流式状态：取消事件是异步广播的，不复位则紧随的 aiStreaming 守卫会丢弃本次调用
+      state.aiStreaming = false;
+      state.aiCurrentMessageId = null;
+      updateSendButtonState(false);
+    } else {
+      // 两边都不命中：提示且不入历史
+      elements.aiInput.value = '';
+      elements.aiInput.style.height = 'auto';
+      pushSystemNote(`未知命令 ${text.split(/\s/)[0]}，输入 / 查看可用技能与命令`);
+      return;
+    }
   }
 
   if (state.aiStreaming) return;
@@ -8708,11 +8765,17 @@ async function handleSendAIMessage() {
   state.aiAttachments = [];
   renderContextPills();
 
+  // 气泡正文：技能调用 = **args 原文**（D-06 / UI-SPEC §用户气泡契约）；非技能路径 = text
+  //（逐字节不变）。**完整语法文本 `text` 是另一个变量** —— 它只作发往主进程的 IPC 载荷
+  //（D-19：由主进程解析 name/args，也让 _deriveConversationTitle 的标题不退化），
+  // **不写入 content**（否则气泡会显示 `/skill:name` 原文）。
+  const bubbleContent = skillRef ? skillRef.args : text;
+
   // 添加用户消息（附带引用标签页与附件标记，气泡中展示）
   const userMsgId = 'user-msg-' + Date.now();
   state.aiMessages.push({
     role: 'user',
-    content: text,
+    content: bubbleContent,
     id: userMsgId,
     referencedTabs: referencedTabs.map(t => ({
       tabId: t.tabId,
@@ -8773,6 +8836,26 @@ async function handleSendAIMessage() {
       state.currentConversationId = result.conversationId;
     }
 
+    // 技能调用契约（48 D-06 / D-13）：只回填 `skillInvocation` 元数据（正文 + tier），
+    // **不改写 `content`** —— 气泡正文恒为 args；折叠块的 N 与正文取本次实际读盘注入的值
+    if (result && result.skillInvocation) {
+      const userMsg = state.aiMessages.find(m => m.id === userMsgId);
+      if (userMsg) userMsg.skillInvocation = result.skillInvocation;
+    }
+
+    // 主进程权威判定与本地预检不一致（如另一窗口刚禁用了该技能）：主进程未调用
+    // agent.prompt → 移除刚推送的 user 气泡与未产出的 assistant 占位、复位流式状态、
+    // 以 system-note 反馈（文案统一由主进程给，renderer 只呈现；不用 showAIError）
+    if (result && result.skillError) {
+      removeSkillFailureBubbles(userMsgId);
+      state.aiStreaming = false;
+      state.aiCurrentMessageId = null;
+      updateSendButtonState(false);
+      pushSystemNote(result.skillError.message);
+      await loadConversations();
+      return;
+    }
+
     // 本轮 run 结束后刷新对话列表（per G-42-2）：下拉打开时记录/标题/
     // 消息数立即可见；关闭时下次打开由 toggleConvDropdown 既有刷新兜底
     await loadConversations();
@@ -8782,6 +8865,163 @@ async function handleSendAIMessage() {
     // 切换回发送按钮
     updateSendButtonState(false);
     renderAIMessages();
+  }
+}
+
+/**
+ * 三档来源徽标 / 微标的同源 title 文案（消费主进程投影的 tier，不重算判定）
+ */
+const SKILL_TIER_TITLES = {
+  user: '用户技能（agent-workspace/skills/），同名时优先于内置与托管',
+  builtin: '随包内置技能，每次启动自愈播种',
+  managed: '托管技能（AI 自建，存于 managed-skills/）',
+};
+
+/**
+ * 取技能来源档位的 title 文案
+ * @param {string} [tier] - 主进程投影的 tier（user / builtin / managed）
+ * @returns {string} 文案；未知档位返回空串（不抛错）
+ */
+function skillTierTitle(tier) {
+  return SKILL_TIER_TITLES[tier] || '';
+}
+
+/**
+ * 移除一次技能调用失败留下的本地气泡（48 D-13 推论：不留半截历史）
+ *
+ * 主进程在 `skillError` 路径下未调用 agent.prompt，因此本地刚推送的 user 气泡与
+ * 未产出的 assistant 占位都必须撤掉 —— 只留一条 system-note 作为反馈。
+ *
+ * @param {string} userMsgId - 刚推送的 user 消息 id
+ */
+function removeSkillFailureBubbles(userMsgId) {
+  const idx = state.aiMessages.findIndex(m => m.id === userMsgId);
+  if (idx < 0) return;
+  state.aiMessages.splice(idx, 1);
+  const next = state.aiMessages[idx];
+  if (next && next.role === 'assistant' && !next.content &&
+      (!next.toolExecutions || next.toolExecutions.length === 0)) {
+    state.aiMessages.splice(idx, 1);
+  }
+}
+
+/**
+ * 渲染技能调用的气泡 pill（48 D-06）：`技能` 微标 + 技能名
+ *
+ * **一律 DOM API + `textContent`**（T-48-03 缓解，与 renderToolCard 同款）——
+ * 技能名来自磁盘（SKILL.md 所在目录名），属不可信输入，绝不进 innerHTML。
+ *
+ * @param {{name: string, tier?: string}} skillInvocation - 响应的技能调用元数据
+ * @returns {HTMLElement} pill 行容器（`.ai-message-refs`）
+ */
+function renderAISkillPill(skillInvocation) {
+  const row = document.createElement('div');
+  row.className = 'ai-message-refs';
+
+  const pill = document.createElement('span');
+  pill.className = 'ai-message-ref-pill ai-skill-pill';
+
+  const badge = document.createElement('span');
+  badge.className = 'ai-skill-pill-badge';
+  badge.textContent = '技能';
+
+  const name = document.createElement('span');
+  name.className = 'ai-message-ref-title';
+  name.textContent = skillInvocation.name;
+
+  // 来源信息在气泡内不渲染彩色徽标（避免与蓝底撞色），经 title 可达
+  const tierTitle = skillTierTitle(skillInvocation.tier);
+  if (tierTitle) {
+    badge.title = tierTitle;
+    name.title = tierTitle;
+  }
+
+  pill.appendChild(badge);
+  pill.appendChild(name);
+  row.appendChild(pill);
+  return row;
+}
+
+/**
+ * 渲染技能正文折叠块（48 D-09）：默认折叠、可展开查看本次实际注入的正文
+ *
+ * N 口径 = JS `String.length`（与`LIMITS.SKILLS_PROMPT_CHAR_BUDGET` 同口径，**不是字节数**）；
+ * 正文经 `textContent` 注入；展开状态不持久化（与 `/compact` 摘要框一致，零新状态）。
+ *
+ * @param {{name: string, content: string}} skillInvocation - 响应的技能调用元数据
+ * @returns {HTMLElement} 折叠块元素
+ */
+function renderSkillContentBox(skillInvocation) {
+  const box = document.createElement('div');
+  box.className = 'ai-skill-content-box collapsed';
+
+  const header = document.createElement('div');
+  header.className = 'ai-skill-content-box-header';
+
+  const title = document.createElement('span');
+  title.className = 'ai-skill-content-box-title';
+  title.textContent = '技能正文（' + skillInvocation.content.length + ' 字符）';
+
+  const chevron = document.createElement('span');
+  chevron.className = 'ai-skill-content-box-chevron';
+  chevron.textContent = '▾';
+
+  header.appendChild(title);
+  header.appendChild(chevron);
+  header.addEventListener('click', () => {
+    box.classList.toggle('collapsed');
+  });
+
+  const body = document.createElement('div');
+  body.className = 'ai-skill-content-box-body';
+  body.textContent = skillInvocation.content;
+
+  box.appendChild(header);
+  box.appendChild(body);
+  return box;
+}
+
+/**
+ * 组装「重发路径」的权威载荷（48 D-19 / D-06）
+ *
+ * 气泡正文（`msg.content`）是**显示值**（技能调用时为 args 原文），不能当 IPC 载荷：
+ * 有 args 时会退化为普通消息（技能正文不再注入），无 args 时为空串（静默不动作）。
+ * 故由 `content` + `skillInvocation.name` 经 `buildSkillSyntaxText`（反向唯一实现）
+ * **重组**完整语法文本后再发 —— 技能正文因此被再次注入。
+ *
+ * **两条重发路径（重新生成 / 错误重试）共用本函数，不得各写一份。**
+ *
+ * @param {Object} msg - 用户消息对象（`{content, skillInvocation?}`）
+ * @returns {string} 完整语法文本（技能调用）或原始正文（普通消息）；无可发内容时为空串
+ */
+function buildResendPayload(msg) {
+  if (msg && msg.skillInvocation && msg.skillInvocation.name) {
+    return window.SkillPickerModel.buildSkillSyntaxText(msg.skillInvocation.name, msg.content || '');
+  }
+  return msg && msg.content ? msg.content : '';
+}
+
+/**
+ * 拉取技能集快照（48 D-17：stale-while-revalidate 的「重拉」半边）
+ *
+ * 只调 `realmAPI.ai.getSkills()`（零 IO 同步投影），**绝不**调 `refreshSkills()`
+ * —— 后者会触发主进程重扫并再次广播 `skills:changed`，与本监听构成自激回路（P-48-06）。
+ * `digest` 相同则原地返回（技能集未变化，不重渲染、不丢 activeIndex）。
+ *
+ * @returns {Promise<void>}
+ */
+async function pullAiSkillsSnapshot() {
+  if (!(window.realmAPI && window.realmAPI.ai && window.realmAPI.ai.getSkills)) return;
+  try {
+    const snapshot = await window.realmAPI.ai.getSkills();
+    if (!snapshot || !Array.isArray(snapshot.skills)) return;
+    if (snapshot.digest === state.aiSkillsDigest) return;
+    state.aiSkills = snapshot.skills;
+    state.aiSkillsDigest = snapshot.digest || '';
+    if (state.slashPickerOpen) renderSlashPickerList();
+  } catch (err) {
+    // 刷新失败保留现有快照（stale-while-revalidate 语义），错误可见性归主进程诊断面
+    console.warn('[Realm Renderer] 拉取技能集快照失败（沿用现有快照）:', err.message);
   }
 }
 
@@ -9599,6 +9839,11 @@ async function copyMessage(messageId) {
 /**
  * 重新生成 AI 消息
  * 删除当前消息及其之后的所有消息，重新发送被删除消息之前的用户消息
+ *
+ * 技能调用（48 D-19 / D-06）：气泡正文是 args 显示值，**不能**当载荷重发
+ *（有 args 会退化为普通消息、无 args 会静默不动作），由 `buildResendPayload`
+ * 重组完整语法文本后再发 —— 技能正文因此被再次注入。
+ *
  * @param {string} messageId - 消息 ID
  */
 async function regenerateMessage(messageId) {
@@ -9607,22 +9852,25 @@ async function regenerateMessage(messageId) {
   const msgIndex = state.aiMessages.findIndex(m => m.id === messageId);
   if (msgIndex < 0) return;
 
-  // 找到该消息之前的最近一条用户消息
-  let userMsgContent = null;
+  // 找到该消息之前的最近一条用户消息（取消息对象本身，不取其 content）
+  let userMsg = null;
   for (let i = msgIndex - 1; i >= 0; i--) {
     if (state.aiMessages[i].role === 'user') {
-      userMsgContent = state.aiMessages[i].content;
+      userMsg = state.aiMessages[i];
       break;
     }
   }
 
-  if (!userMsgContent) return;
+  const payload = buildResendPayload(userMsg);
+  // 空值守卫以载荷为判据：技能调用在 args 为空时载荷是 `/skill:{name}`（非空）
+  if (!payload) return;
 
   // 删除该消息及其之后的所有消息
   state.aiMessages = state.aiMessages.slice(0, msgIndex);
 
-  // 重新发送用户消息
-  state.aiMessages.push({ role: 'user', content: userMsgContent });
+  // 重新发送用户消息（保留原对象字段：content 仍是 args，skillInvocation 仍带 pill/折叠块）
+  const resentUserId = 'user-msg-' + Date.now();
+  state.aiMessages.push({ ...userMsg, id: resentUserId });
 
   // 添加 AI 消息占位符
   const aiMsgId = 'ai-msg-' + Date.now();
@@ -9634,7 +9882,19 @@ async function regenerateMessage(messageId) {
 
   // 调用 AI API
   try {
-    window.realmAPI.ai.prompt(userMsgContent);
+    const res = await window.realmAPI.ai.prompt(payload);
+    if (res && res.skillError) {
+      state.aiStreaming = false;
+      state.aiCurrentMessageId = null;
+      updateSendButtonState(false);
+      pushSystemNote(res.skillError.message);
+      return;
+    }
+    // 本次真的重新读盘并注入了新正文 → 覆盖该气泡的折叠块正文（不留旧值）
+    if (res && res.skillInvocation) {
+      const resent = state.aiMessages.find(m => m.id === resentUserId);
+      if (resent) resent.skillInvocation = res.skillInvocation;
+    }
   } catch (err) {
     console.error('[Realm Renderer] AI 重新生成失败:', err);
     state.aiStreaming = false;
@@ -9676,9 +9936,9 @@ function showAIError(errorMessage) {
   const retryBtn = document.createElement('button');
   retryBtn.className = 'ai-retry-btn';
   retryBtn.textContent = '重试';
-  retryBtn.addEventListener('click', () => {
+  retryBtn.addEventListener('click', async () => {
     errorDiv.remove();
-    // 找到最后一条用户消息重新发送
+    // 找到最后一条用户消息并重组权威载荷（技能调用需重发完整语法文本，48 D-19）
     let lastUserMsgIndex = -1;
     for (let i = state.aiMessages.length - 1; i >= 0; i--) {
       if (state.aiMessages[i].role === 'user') {
@@ -9686,21 +9946,34 @@ function showAIError(errorMessage) {
         break;
       }
     }
-    if (lastUserMsgIndex >= 0) {
-      const userMsg = state.aiMessages[lastUserMsgIndex].content;
-      state.aiMessages = state.aiMessages.slice(0, lastUserMsgIndex + 1);
-      const aiMsgId = 'ai-msg-' + Date.now();
-      state.aiMessages.push({ role: 'assistant', content: '', id: aiMsgId });
-      state.aiCurrentMessageId = aiMsgId;
-      state.aiStreaming = true;
-      renderAIMessages();
-      try {
-        window.realmAPI.ai.prompt(userMsg);
-      } catch (err) {
-        console.error('[Realm Renderer] AI 重试失败:', err);
+    if (lastUserMsgIndex < 0) return;
+    const retryUserMsg = state.aiMessages[lastUserMsgIndex];
+    const payload = buildResendPayload(retryUserMsg);
+    if (!payload) return;
+
+    state.aiMessages = state.aiMessages.slice(0, lastUserMsgIndex + 1);
+    const aiMsgId = 'ai-msg-' + Date.now();
+    state.aiMessages.push({ role: 'assistant', content: '', id: aiMsgId });
+    state.aiCurrentMessageId = aiMsgId;
+    state.aiStreaming = true;
+    renderAIMessages();
+    try {
+      const res = await window.realmAPI.ai.prompt(payload);
+      if (res && res.skillError) {
         state.aiStreaming = false;
-        renderAIMessages();
+        state.aiCurrentMessageId = null;
+        updateSendButtonState(false);
+        pushSystemNote(res.skillError.message);
+        return;
       }
+      if (res && res.skillInvocation) {
+        const target = state.aiMessages.find(m => m.id === retryUserMsg.id);
+        if (target) target.skillInvocation = res.skillInvocation;
+      }
+    } catch (err) {
+      console.error('[Realm Renderer] AI 重试失败:', err);
+      state.aiStreaming = false;
+      renderAIMessages();
     }
   });
 

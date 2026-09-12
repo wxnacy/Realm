@@ -303,7 +303,12 @@ describe('C 组 · renderer 源码护栏（预检分支 / 重发载荷 / 气泡�
     const body = asyncFunctionBody(rendererSrc, 'handleSendAIMessage');
     const guardIdx = body.indexOf('kind === \'skill\'');
     assert.ok(guardIdx >= 0, '预检必须按 kind 判别分流');
-    const segment = body.slice(guardIdx, guardIdx + 1400);
+    // 只看代码行（注释里可以说明「不因 disableModelInvocation 拒绝」，那不是判定条件）
+    const segment = body
+      .slice(guardIdx, guardIdx + 1400)
+      .split('\n')
+      .filter((l) => !/^\s*\/\//.test(l))
+      .join('\n');
     assert.ok(segment.includes('disabled === true'), '必须按 disabled 拒绝（D-10）');
     assert.strictEqual(
       segment.includes('disableModelInvocation'),
@@ -330,6 +335,12 @@ describe('C 组 · renderer 源码护栏（预检分支 / 重发载荷 / 气泡�
     assert.ok(body.includes('message: text,'), 'promptWithContext 的载荷同样是 text');
     assert.strictEqual(body.includes('window.realmAPI.ai.prompt(bubbleContent)'), false, '不得把显示值当 IPC 载荷');
     assert.strictEqual(body.includes('ai.prompt(skillRef.args)'), false, '不得把 args 当 IPC 载荷');
+
+    // 气泡正文不含 `/skill:` 前缀（content 逐字符等于 parseSkillRef(text).args）
+    const ref = model.parseSkillRef('/skill:alpha 帮我找 X', COMMAND_NAMES);
+    assert.strictEqual(ref.args, '帮我找 X');
+    assert.strictEqual(ref.args.includes('/skill:'), false, 'args 不得含语法前缀');
+    assert.strictEqual(ref.args.includes('@'), false, 'args 不得含引用/marker 残留');
   });
 
   test('响应只回填 skillInvocation、不改写 content；skillError 走回滚 + system-note', () => {
@@ -345,23 +356,35 @@ describe('C 组 · renderer 源码护栏（预检分支 / 重发载荷 / 气泡�
   });
 
   test('气泡渲染：pill + 折叠块走 DOM API / textContent，零 innerHTML（T-48-03）', () => {
-    const body = functionBody(rendererSrc, 'renderAIMessages');
-    const userIdx = body.indexOf('if (isUser) {');
-    assert.ok(userIdx >= 0, '应存在 isUser 分支');
-    const segment = body.slice(userIdx, body.indexOf('} else if (content)', userIdx));
-    assert.ok(segment.includes('ai-skill-pill'), '必须渲染技能 pill');
-    assert.ok(segment.includes('ai-skill-content-box'), '必须渲染技能正文折叠块');
-    assert.strictEqual(
-      segment.includes('innerHTML'),
-      false,
-      '技能 pill 与折叠块一律用 DOM API + textContent'
-    );
+    const pill = functionBody(rendererSrc, 'renderAISkillPill');
+    const box = functionBody(rendererSrc, 'renderSkillContentBox');
+
+    assert.ok(pill.includes('ai-skill-pill'), 'pill 复用 .ai-message-ref-pill 并加 .ai-skill-pill');
+    assert.ok(pill.includes('ai-skill-pill-badge'), '必须渲染「技能」微标');
+    assert.ok(pill.includes('textContent'), '技能名必须经 textContent 注入');
+    assert.strictEqual(pill.includes('innerHTML'), false, 'pill 一律 DOM API + textContent');
+
+    assert.ok(box.includes('ai-skill-content-box'), '必须渲染技能正文折叠块');
     assert.ok(
-      segment.includes('msg.skillInvocation.content.length'),
+      box.includes('skillInvocation.content.length'),
       '折叠块 N 口径必须是 JS String.length'
     );
-    assert.strictEqual(segment.includes('Buffer.byteLength'), false, '不得改用字节数');
-    assert.strictEqual(segment.includes('TextEncoder'), false, '不得改用字节数');
+    assert.ok(box.includes('textContent'), '正文必须经 textContent 注入');
+    assert.strictEqual(box.includes('innerHTML'), false, '折叠块一律 DOM API + textContent');
+
+    assert.strictEqual(rendererSrc.includes('Buffer.byteLength'), false, '不得改用字节数');
+    assert.strictEqual(rendererSrc.includes('TextEncoder'), false, '不得改用字节数');
+
+    // 两处渲染都由 renderAIMessages 的 isUser 分支挂载（ pill 在正文前、折叠块在附件后）
+    const renderBody = functionBody(rendererSrc, 'renderAIMessages');
+    const userIdx = renderBody.indexOf('if (isUser) {');
+    const segment = renderBody.slice(userIdx, renderBody.indexOf('} else if (content)', userIdx));
+    const pillCall = segment.indexOf('renderAISkillPill(');
+    const textCall = segment.indexOf('textDiv.textContent');
+    const boxCall = segment.indexOf('renderSkillContentBox(');
+    assert.ok(pillCall >= 0 && boxCall >= 0, 'isUser 分支必须挂载 pill 与折叠块');
+    assert.ok(pillCall < textCall, 'pill 必须在正文之前');
+    assert.ok(boxCall > textCall, '折叠块必须在正文/附件之后');
   });
 
   test('重发路径：buildResendPayload 是唯一实现，两条路径共用且带 await', () => {
@@ -393,18 +416,27 @@ describe('C 组 · renderer 源码护栏（预检分支 / 重发载荷 / 气泡�
   test('skills:changed 监听：只重拉快照、面板关闭时早退、绝不触发刷新（P-48-06）', () => {
     const idx = rendererSrc.indexOf("onIpcMessage('skills:changed'");
     assert.ok(idx >= 0, '必须新增 skills:changed 监听');
-    const segment = rendererSrc.slice(idx, idx + 500);
+    const segment = rendererSrc.slice(idx, idx + 300);
     assert.ok(segment.includes('if (!state.slashPickerOpen)'), '面板关闭时必须早退');
     assert.strictEqual(segment.includes('refreshSkills'), false, '绝不自激（广播 → 刷新 → 再广播）');
-    assert.ok(segment.includes('realmAPI.ai.getSkills()'), '只重拉快照');
+    assert.ok(segment.includes('pullAiSkillsSnapshot('), '监听只重拉快照');
+
+    const pull = asyncFunctionBody(rendererSrc, 'pullAiSkillsSnapshot');
+    assert.ok(pull.includes('realmAPI.ai.getSkills()'), '重拉实现必须是零 IO 的 getSkills');
+    assert.ok(pull.includes('aiSkillsDigest'), 'digest 相同必须原地返回（不重渲染、不丢 activeIndex）');
+    assert.strictEqual(
+      rendererSrc.includes('.refreshSkills('),
+      false,
+      'renderer 绝不触发主进程重扫（自激回路）'
+    );
   });
 
   test('启动预热：skills:changed 挂载点同处 fire-and-forget 拉一次快照', () => {
     const idx = rendererSrc.indexOf("onIpcMessage('skills:changed'");
-    const around = rendererSrc.slice(Math.max(0, idx - 900), idx + 500);
+    const segment = rendererSrc.slice(idx, idx + 300);
     assert.ok(
-      around.includes('realmAPI.ai.getSkills()'),
-      '启动时必须预热 state.aiSkills（否则从未开过面板的用户手打 /skill: 会被误判为未找到）'
+      (segment.match(/pullAiSkillsSnapshot\(\)/g) || []).length >= 2,
+      '挂载点同处必须有一次预热调用（否则从未开过面板的用户手打 /skill: 会被误判为未找到）'
     );
   });
 
