@@ -470,3 +470,389 @@ describe('C 组 · renderer 源码护栏（预检分支 / 重发载荷 / 气泡�
   });
 });
 
+// ==================== 48-02 B 组：面板纯逻辑模型（过滤两档 / 展平 / selectable / 导航 / 徽标表） ====================
+
+describe('B 组 · 展平与分区计数（D-01 单数组不变式）', () => {
+  /** 本地命令注册表同形（renderer 的 SLASH_COMMANDS 为零改动的唯一来源） */
+  const COMMANDS = [
+    { name: 'clear', description: '开启新对话', takesArg: false, handler: () => {} },
+    { name: 'compact', description: '压缩上下文', takesArg: true, handler: () => {} },
+  ];
+
+  /** 主进程收窄投影条目（48-01 的形状，renderer 只消费不重算） */
+  function skill(name, extra = {}) {
+    return {
+      name,
+      description: `${name} 描述`,
+      tier: 'user',
+      disableModelInvocation: false,
+      disabled: false,
+      shadowed: false,
+      overLimit: false,
+      promptOmitted: false,
+      ...extra,
+    };
+  }
+
+  test('技能 0 项 → items 恰为命令分区，skillCount 0 / commandCount 2', () => {
+    const built = model.buildPickerItems([], COMMANDS, '');
+    assert.deepStrictEqual(built.items.map((i) => i.name), ['clear', 'compact']);
+    assert.strictEqual(built.skillCount, 0);
+    assert.strictEqual(built.commandCount, 2);
+    assert.ok(built.items.every((i) => i.kind === 'command'));
+  });
+
+  test('技能 1 项 → 技能项在数组最前（顺序 = 视觉顺序，标题不占索引）', () => {
+    const built = model.buildPickerItems([skill('alpha')], COMMANDS, '');
+    assert.strictEqual(built.items[0].name, 'alpha');
+    assert.strictEqual(built.items[0].kind, 'skill');
+    assert.deepStrictEqual(built.items.slice(1).map((i) => i.name), ['clear', 'compact']);
+    assert.strictEqual(built.skillCount, 1);
+    assert.strictEqual(built.commandCount, 2);
+    assert.strictEqual(built.items.length, 3, 'items 长度 = 技能 + 命令，分组标题不占位');
+  });
+
+  test('技能多项 → 技能分区在命令分区之前且保留投影原序', () => {
+    const built = model.buildPickerItems(
+      [skill('alpha'), skill('beta'), skill('gamma')],
+      COMMANDS,
+      ''
+    );
+    assert.deepStrictEqual(
+      built.items.map((i) => i.name),
+      ['alpha', 'beta', 'gamma', 'clear', 'compact']
+    );
+    assert.strictEqual(built.skillCount, 3);
+    assert.strictEqual(built.commandCount, 2);
+  });
+
+  test('技能项形状：kind / name / description / tier / disableModelInvocation / selectable / statusText / statusTone', () => {
+    const built = model.buildPickerItems([skill('alpha', { tier: 'builtin' })], COMMANDS, '');
+    const item = built.items[0];
+    assert.strictEqual(item.kind, 'skill');
+    assert.strictEqual(item.name, 'alpha');
+    assert.strictEqual(item.description, 'alpha 描述');
+    assert.strictEqual(item.tier, 'builtin');
+    assert.strictEqual(item.disableModelInvocation, false);
+    assert.strictEqual(item.selectable, true);
+    assert.strictEqual(item.statusText, undefined);
+    assert.strictEqual(item.statusTone, undefined);
+  });
+
+  test('命令项形状：kind=command 且 selectable 恒为 true（命令行行为零变化）', () => {
+    const built = model.buildPickerItems([], COMMANDS, '');
+    for (const item of built.items) {
+      assert.strictEqual(item.kind, 'command');
+      assert.strictEqual(item.selectable, true);
+      assert.strictEqual(item.statusText, undefined);
+      assert.strictEqual(typeof item.handler, 'function');
+      assert.strictEqual(item.takesArg, item.name === 'compact');
+    }
+  });
+
+  test('disabled === true 的条目不出现在 items 中（D-10 面板隐藏）', () => {
+    const built = model.buildPickerItems(
+      [skill('alpha'), skill('off', { disabled: true }), skill('beta')],
+      COMMANDS,
+      ''
+    );
+    assert.deepStrictEqual(built.items.map((i) => i.name), ['alpha', 'beta', 'clear', 'compact']);
+    assert.strictEqual(built.skillCount, 2);
+  });
+
+  test('仅显式 gating：flag 只影响标记输出条件，不改变可选中性且原样透传（DISC-07 clause ③）', () => {
+    const built = model.buildPickerItems(
+      [
+        skill('explicit-only', { disableModelInvocation: true }),
+        skill('auto-ok', { disableModelInvocation: false }),
+      ],
+      COMMANDS,
+      ''
+    );
+    const only = built.items.find((i) => i.name === 'explicit-only');
+    const auto = built.items.find((i) => i.name === 'auto-ok');
+    assert.strictEqual(only.disableModelInvocation, true);
+    assert.strictEqual(auto.disableModelInvocation, false);
+    assert.strictEqual(only.selectable, true, '仅显式技能仍可被显式调用（不得剥夺可选中性）');
+    assert.strictEqual(auto.selectable, true);
+    assert.strictEqual(only.statusText, undefined, '仅显式不是行尾状态标注，不得与行尾标注混放');
+  });
+});
+
+describe('B 组 · 过滤两档（name 前缀命中在前 / description 子串命中在后）（D-03）', () => {
+  const COMMANDS = [
+    { name: 'clear', description: '开启新对话' },
+    { name: 'compact', description: '压缩上下文' },
+  ];
+
+  function skill(name, description) {
+    return { name, description, tier: 'user', disabled: false, shadowed: false };
+  }
+
+  test('前缀命中在前档、仅描述命中在后档，各档内保持入参原序', () => {
+    const skills = [
+      skill('alpha', '含 fin 的描述'),
+      skill('find-skills', '查找技能'),
+      skill('finder', '另一个含 fin 的描述'),
+    ];
+    const out = model.filterPickerItems(skills, COMMANDS, 'fin');
+    assert.deepStrictEqual(out.skills.map((s) => s.name), ['find-skills', 'finder', 'alpha']);
+    // finder 也是前缀命中（fin 开头）—— 与 alpha（仅描述命中）分属两档
+  });
+
+  test('仅描述命中的条目排在所有前缀命中条目之后（跨入参顺序）', () => {
+    const skills = [
+      skill('alpha', '描述含 zeta'),
+      skill('zeta-one', '前缀命中'),
+      skill('beta', '描述也含 zeta'),
+    ];
+    const out = model.filterPickerItems(skills, COMMANDS, 'zeta');
+    assert.deepStrictEqual(out.skills.map((s) => s.name), ['zeta-one', 'alpha', 'beta']);
+  });
+
+  test('空过滤 → 全部技能进前缀档（描述档为空），顺序 = 入参原序', () => {
+    const skills = [skill('alpha', 'x'), skill('beta', 'y')];
+    const out = model.filterPickerItems(skills, COMMANDS, '');
+    assert.deepStrictEqual(out.skills.map((s) => s.name), ['alpha', 'beta']);
+  });
+
+  test('命令分区对照：与既有 startsWith 语义逐项相等（防顺手改语义）', () => {
+    for (const rawFilter of ['', 'c', 'cl', 'co', 'comp', 'clear', 'z', 'skill:fo']) {
+      const mine = model.filterPickerItems([], COMMANDS, rawFilter).commands;
+      const legacy = COMMANDS.filter((c) => c.name.startsWith(rawFilter));
+      assert.deepStrictEqual(mine, legacy, `rawFilter=${JSON.stringify(rawFilter)} 必须与既有语义逐项相等`);
+    }
+  });
+
+  test('/skill:<q> token：前缀按 SKILL_PREFIX 长度剥离用于技能分区，命令分区仍用原 token（命中 0 项）', () => {
+    const skills = [
+      { name: 'foxtrot', description: '前缀命中' },
+      { name: 'alpha', description: '描述含 fo' },
+    ];
+    const out = model.filterPickerItems(skills, COMMANDS, 'skill:fo');
+    assert.deepStrictEqual(out.skills.map((s) => s.name), ['foxtrot', 'alpha'], '技能按剥离后的 fo 过滤');
+    assert.deepStrictEqual(out.commands, [], '命令分区按原 token skill:fo 过滤 → 0 项（标题不渲染）');
+  });
+
+  test('过滤不改变 disabled 剔除（D-10 发生在过滤之前）', () => {
+    const skills = [
+      { name: 'alpha', description: 'a', disabled: true },
+      { name: 'alpine', description: 'b', disabled: false },
+    ];
+    const out = model.filterPickerItems(skills, COMMANDS, 'alp');
+    assert.deepStrictEqual(out.skills.map((s) => s.name), ['alpine']);
+  });
+});
+
+describe('B 组 · selectable 判定与状态标注优先级（D-11 / D-12 / D-04 推导）', () => {
+  const COMMANDS = [
+    { name: 'clear', description: '开启新对话' },
+    { name: 'compact', description: '压缩上下文' },
+  ];
+
+  function skill(name, extra = {}) {
+    return { name, description: `${name} 描述`, tier: 'user', disabled: false, shadowed: false, ...extra };
+  }
+
+  test('正常技能 → selectable true 且无状态标注', () => {
+    const built = model.buildPickerItems([skill('alpha')], COMMANDS, '');
+    assert.strictEqual(built.items[0].selectable, true);
+    assert.strictEqual(built.items[0].statusText, undefined);
+    assert.strictEqual(built.items[0].statusTone, undefined);
+  });
+
+  test('shadowed → selectable false + 「已遮蔽 · 由用户同名技能胜出」/ tone muted', () => {
+    const built = model.buildPickerItems([skill('alpha', { shadowed: true, shadowedBy: 'alpha' })], COMMANDS, '');
+    const item = built.items[0];
+    assert.strictEqual(item.selectable, false);
+    assert.strictEqual(item.statusText, '已遮蔽 · 由用户同名技能胜出');
+    assert.strictEqual(item.statusTone, 'muted');
+  });
+
+  test('与本地命令同名 → selectable false + 「与本地命令同名 · 本地命令优先」/ tone muted', () => {
+    const built = model.buildPickerItems([skill('clear')], COMMANDS, '');
+    const item = built.items.find((i) => i.kind === 'skill');
+    assert.strictEqual(item.selectable, false);
+    assert.strictEqual(item.statusText, '与本地命令同名 · 本地命令优先');
+    assert.strictEqual(item.statusTone, 'muted');
+  });
+
+  test('overLimit → 可选中 + 「超数量上限」/ tone limit（显式调用是它唯一可用路径，D-12）', () => {
+    const built = model.buildPickerItems([skill('alpha', { overLimit: true })], COMMANDS, '');
+    const item = built.items[0];
+    assert.strictEqual(item.selectable, true);
+    assert.strictEqual(item.statusText, '超数量上限');
+    assert.strictEqual(item.statusTone, 'limit');
+  });
+
+  test('promptOmitted → 可选中 + 「未进提示词 · 超预算」/ tone limit（D-12 原文两段式，照写不统一）', () => {
+    const built = model.buildPickerItems([skill('alpha', { promptOmitted: true })], COMMANDS, '');
+    const item = built.items[0];
+    assert.strictEqual(item.selectable, true);
+    assert.strictEqual(item.statusText, '未进提示词 · 超预算');
+    assert.strictEqual(item.statusTone, 'limit');
+  });
+
+  test('优先级 shadowed > 与本地命令同名 > promptOmitted > overLimit（同时命中取更高档）', () => {
+    const built = model.buildPickerItems(
+      [
+        skill('clear', { shadowed: true, promptOmitted: true, overLimit: true }),
+        skill('compact', { promptOmitted: true, overLimit: true }),
+        skill('zeta', { promptOmitted: true, overLimit: true }),
+      ],
+      COMMANDS,
+      ''
+    );
+    const byName = Object.fromEntries(built.items.filter((i) => i.kind === 'skill').map((i) => [i.name, i]));
+    assert.strictEqual(byName.clear.statusText, '已遮蔽 · 由用户同名技能胜出');
+    assert.strictEqual(byName.clear.statusTone, 'muted');
+    assert.strictEqual(byName.compact.statusText, '与本地命令同名 · 本地命令优先');
+    assert.strictEqual(byName.compact.statusTone, 'muted');
+    assert.strictEqual(byName.zeta.statusText, '未进提示词 · 超预算');
+    assert.strictEqual(byName.zeta.statusTone, 'limit');
+  });
+
+  test('四条行尾状态文案只在本模块定义（唯一权威，防两处硬编码漂移）', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'skill-picker-model.js'), 'utf8');
+    const rendererSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer.js'), 'utf8');
+    for (const text of [
+      '已遮蔽 · 由用户同名技能胜出',
+      '与本地命令同名 · 本地命令优先',
+      '未进提示词 · 超预算',
+      '超数量上限',
+    ]) {
+      assert.strictEqual(
+        (src.match(new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length,
+        1,
+        `skill-picker-model.js 中「${text}」必须恰出现一次`
+      );
+      assert.strictEqual(rendererSrc.includes(text), false, `renderer.js 不得硬编码「${text}」`);
+    }
+  });
+});
+
+describe('B 组 · 导航取模只在可选中集合上（UI-SPEC 由 D-11 推导）', () => {
+  test('buildSelectableIndexes：只收 selectable === true 的扁平索引', () => {
+    assert.deepStrictEqual(
+      model.buildSelectableIndexes([{ selectable: true }, { selectable: false }, { selectable: true }]),
+      [0, 2]
+    );
+    assert.deepStrictEqual(model.buildSelectableIndexes([]), []);
+    assert.deepStrictEqual(model.buildSelectableIndexes([{ selectable: false }]), []);
+  });
+
+  test('nextSelectableIndex：正常循环（含首尾回绕）', () => {
+    assert.strictEqual(model.nextSelectableIndex([0, 2], 0, 1), 2);
+    assert.strictEqual(model.nextSelectableIndex([0, 2], 2, 1), 0);
+    assert.strictEqual(model.nextSelectableIndex([0, 2], 0, -1), 2);
+    assert.strictEqual(model.nextSelectableIndex([0, 2], 2, -1), 0);
+  });
+
+  test('nextSelectableIndex：集合为空 → -1（全部不可选中）', () => {
+    assert.strictEqual(model.nextSelectableIndex([], 0, 1), -1);
+    assert.strictEqual(model.nextSelectableIndex([], -1, -1), -1);
+  });
+
+  test('nextSelectableIndex：current 不在集合内 → 按方向取最近可选中行（向后取更大索引、向前取更小索引）', () => {
+    assert.strictEqual(model.nextSelectableIndex([0, 2], 1, 1), 2);
+    assert.strictEqual(model.nextSelectableIndex([0, 2], 1, -1), 0);
+    assert.strictEqual(model.nextSelectableIndex([0, 2], -1, 1), 0, '[-1] 起点向后 → 首个可选中行');
+    assert.strictEqual(model.nextSelectableIndex([0, 2], -1, -1), 2, '[-1] 起点向前 → 末个可选中行');
+    assert.strictEqual(model.nextSelectableIndex([0, 2], 9, 1), 0, '越界向后 → 回绕到首个可选中行');
+  });
+
+  test('nextSelectableIndex：集合长度 1 → 循环自指', () => {
+    assert.strictEqual(model.nextSelectableIndex([7], 7, 1), 7);
+    assert.strictEqual(model.nextSelectableIndex([7], 7, -1), 7);
+    assert.strictEqual(model.nextSelectableIndex([7], 3, 1), 7);
+  });
+});
+
+describe('B 组 · TIER_BADGE 三档徽标唯一权威查表（D-14 消费方）', () => {
+  test('恰有三个键 user / builtin / managed', () => {
+    assert.deepStrictEqual(Object.keys(model.TIER_BADGE).sort(), ['builtin', 'managed', 'user']);
+  });
+
+  test('label 依次为 用户 / 内置 / 托管，且 className 两两不同', () => {
+    assert.strictEqual(model.TIER_BADGE.user.label, '用户');
+    assert.strictEqual(model.TIER_BADGE.builtin.label, '内置');
+    assert.strictEqual(model.TIER_BADGE.managed.label, '托管');
+    const classNames = ['user', 'builtin', 'managed'].map((t) => model.TIER_BADGE[t].className);
+    assert.strictEqual(new Set(classNames).size, 3, '三个白名单 class 必须两两不同');
+    for (const t of ['user', 'builtin', 'managed']) {
+      assert.strictEqual(typeof model.TIER_BADGE[t].title, 'string');
+      assert.ok(model.TIER_BADGE[t].title.length > 0, `${t} 必须有固定 title 文案`);
+    }
+  });
+
+  test('三档 label 字面量在模块内各出现恰一次（徽标文案唯一权威）', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'skill-picker-model.js'), 'utf8');
+    for (const label of ["'用户'", "'内置'", "'托管'"]) {
+      assert.strictEqual(
+        (src.split(label).length - 1),
+        1,
+        `skill-picker-model.js 中 ${label} 必须恰出现一次（TIER_BADGE 定义处）`
+      );
+    }
+  });
+});
+
+describe('B 组 · 面板接线源码扫描（renderer 侧消费点）', () => {
+  const rendererSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer.js'), 'utf8');
+
+  /** 取函数体文本（`function <name>(` 到下一个行首 `}`） */
+  function bodyOf(name) {
+    const start = rendererSrc.indexOf(`function ${name}(`);
+    assert.ok(start >= 0, `源码中应存在 function ${name}(`);
+    return rendererSrc.slice(start, rendererSrc.indexOf('\n}', start));
+  }
+
+  test('renderSlashPickerList：消费 buildPickerItems / buildSelectableIndexes，且扁平索引直绑（P-48-04）', () => {
+    const body = bodyOf('renderSlashPickerList');
+    for (const key of ['buildPickerItems(', 'buildSelectableIndexes(', 'escapeHtml(', 'data-index=']) {
+      assert.ok(body.includes(key), `renderSlashPickerList 必须包含 ${key}`);
+    }
+    assert.strictEqual(body.includes('data-cmd'), false, '不得再用旧的名字属性');
+    assert.strictEqual(
+      /findIndex\([\s\S]{0,80}?dataset\./.test(body),
+      false,
+      '不得再按名字反查索引（同名两行会点错行）'
+    );
+  });
+
+  test('executeActiveSlashCommand：args 走 extractArgs token 取值法，且 handler 只在命令分支', () => {
+    const body = bodyOf('executeActiveSlashCommand');
+    assert.ok(body.includes('extractArgs('), 'args 必须由 token 取值法取出（P-48-01）');
+    assert.strictEqual(
+      body.includes('1 + cmd.name.length'),
+      false,
+      '按名长切片的旧形态必须消失（/skill: 形态下会吞掉 args 开头）'
+    );
+    assert.ok(body.includes('buildSkillSyntaxText('), '技能行必须组装完整语法文本（D-19）');
+    assert.ok(body.includes('handleSendAIMessage()'), '技能行走既定发送链路');
+    const commandBranchIdx = body.indexOf("kind === 'command'");
+    const handlerIdx = body.indexOf('cmd.handler(');
+    assert.ok(commandBranchIdx >= 0, '必须有显式的命令分支判别');
+    assert.ok(handlerIdx > commandBranchIdx, 'cmd.handler( 必须落在 kind === \'command\' 分支内');
+  });
+});
+
+describe('B 组 · 双模式导出扩展（四个新函数挂在同一 api 对象上）', () => {
+  test('新函数与 TIER_BADGE 均已导出，且模块仍是单一 IIFE + 单一 api 对象', () => {
+    for (const k of ['buildSelectableIndexes', 'nextSelectableIndex', 'filterPickerItems', 'buildPickerItems']) {
+      assert.strictEqual(typeof model[k], 'function', `缺少导出 ${k}`);
+    }
+    assert.strictEqual(typeof model.TIER_BADGE, 'object');
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'skill-picker-model.js'), 'utf8');
+    assert.strictEqual((src.match(/const api = \{/g) || []).length, 1, '必须只有一个 api 对象字面量');
+    assert.strictEqual((src.match(/module\.exports = api/g) || []).length, 1, 'module.exports 必须导出同一 api');
+    assert.strictEqual(
+      (src.match(/window\.SkillPickerModel = api/g) || []).length,
+      1,
+      'window.SkillPickerModel 必须导出同一 api'
+    );
+    assert.strictEqual((src.match(/^\(function \(\) \{/gm) || []).length, 1, '不得新开第二个 IIFE');
+    assert.strictEqual((src.match(/^  const api = \{/gm) || []).length, 1, '不得新增第二份导出对象');
+  });
+});
+
