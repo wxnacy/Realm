@@ -1289,7 +1289,7 @@ describe('Agent prompt 回写（SKILL-04）', () => {
     };
     await AIManager.prototype.syncAgentSystemPrompt.call(busy);
     assert.strictEqual(calls.length, 1, '忙时不得广播');
-    assert.strictEqual(busy._skillsPromptDirty, true, '忙时必须置脏（由 idle 边界补刷）');
+    assert.strictEqual(busy._skillsPromptDirty, true, '忙时必须置脏（由延迟补刷在成功出口落地）');
     assert.strictEqual(
       busy.agent.state.systemPrompt, ctx.agent.state.systemPrompt,
       '忙时不得改写 prompt（当前轮的 createContextSnapshot 已取过值）'
@@ -1315,14 +1315,39 @@ describe('Agent prompt 回写（SKILL-04）', () => {
     assert.ok(writeIdx > earlyIdx, '早退必须位于改写之前');
   });
 
-  test('源码：promptWithContext 的 idle 边界存在唯一的 _skillsPromptDirty 补刷块', () => {
-    const body = methodBody(readSource('ai-manager.js'), 'promptWithContext');
-    assert.ok(body.includes('this._skillsPromptDirty'), 'promptWithContext 必须含 idle 补刷块');
-    assert.ok(body.includes('this._skillsPromptDirty = false;'), '补刷前须先复位脏标记');
-    assert.ok(body.includes('await this.syncAgentSystemPrompt()'), '补刷须复用同一个方法');
+  test('源码：延迟补刷是单源实现（G-48-18 的配套改写 —— 旧内联块形态已被取代，不是放宽护栏）', () => {
+    const src = readSource('ai-manager.js');
+    const body = methodBody(src, '_flushDeferredSkillsPrompt');
+    assert.ok(body.length >= 150, `补刷方法体提取口径失效会假绿（实际 ${body.length}）`);
+    const checkIdx = body.indexOf('if (!this._skillsPromptDirty)');
+    const resetIdx = body.indexOf('this._skillsPromptDirty = false');
+    const syncIdx = body.indexOf('await this.syncAgentSystemPrompt()');
+    const restoreIdx = body.indexOf('this._skillsPromptDirty = true');
+    assert.ok(checkIdx >= 0, '补刷首行必须检脏早退（否则每条普通消息都多付一次全量重扫）');
+    assert.ok(resetIdx >= 0, '补刷必须先复位脏标记');
+    assert.ok(checkIdx < resetIdx, '检脏判断必须位于复位之前（早退零成本）');
+    assert.ok(syncIdx >= 0, '补刷必须复用唯一权威入口 syncAgentSystemPrompt()');
+    assert.ok(restoreIdx > syncIdx, '失败恢复置脏必须位于同步调用之后（WR-04：变更不得静默丢弃）');
+
+    const plain = methodBody(src, 'prompt');
     assert.ok(
-      body.indexOf('this._skillsPromptDirty = true;') > body.indexOf('await this.syncAgentSystemPrompt()'),
-      '补刷失败时必须恢复脏标记（WR-04：否则变更被静默丢弃且无重试）'
+      plain.includes('await this._flushDeferredSkillsPrompt()'),
+      'prompt() 的成功出口必须共用补刷实现（G-48-18：纯文本通道的落地点）'
+    );
+    const withContext = methodBody(src, 'promptWithContext');
+    assert.ok(
+      withContext.includes('await this._flushDeferredSkillsPrompt()'),
+      'promptWithContext() 的成功出口必须共用补刷实现'
+    );
+    assert.strictEqual(
+      withContext.includes('this._skillsPromptDirty'),
+      false,
+      'promptWithContext() 内不得残留任何脏标记读写（否则就是第二份实现）'
+    );
+    assert.strictEqual(
+      (src.match(/await this\._flushDeferredSkillsPrompt\(\)/g) || []).length,
+      2,
+      '补刷调用点必须恰 2 处（两个成功出口各一次）'
     );
   });
 
@@ -2936,6 +2961,190 @@ describe('J 组 · G-48-12 运行期新增技能（miss → 权威重扫一次 �
       /\.syncAgentSystemPrompt\s*\(/.test(mgr),
       false,
       'manager 侧不得出现调用侧入口（跨层依赖）—— 注释中的具名引用不算依赖'
+    );
+  });
+});
+
+describe('K 组 · G-48-18 延迟补刷在纯文本流上落地', () => {
+  /**
+   * 延迟补刷出口上下文（K 组夹具）
+   *
+   * 与 `skillResolveCtx` 同款纪律：**不** `new AIManager()`（那会触碰真实 userData、
+   * electron 路径与对话数据库）；用 `Object.create(aiManager.prototype)` 取原型方法，
+   * own property 只补出口路径真正读到的字段。
+   *
+   * `_ensureConversation` / `agent.prompt` / `waitForIdle` 的覆写**不是**为测试而设的假状态，
+   * 而是隔离「对话数据库写盘」与「SDK 往返」这两个副作用 —— 本组验的是**出口行为**
+   * （补刷是否落地），不是对话生命周期也不是 SDK。
+   *
+   * `syncAgentSystemPrompt` 用 own-property **包装**（而非重写）计数 —— 真实方法体逐字未改
+   * 这条硬约束因此不被测试绕过（与 J 组同款）。
+   */
+  function promptCtx(env, { dirty = false } = {}) {
+    const ctx = Object.create(aiManager.prototype);
+    ctx.isInitialized = true;
+    ctx.sandboxEnv = env;
+    ctx.isProcessing = false;
+    ctx._skillsPromptDirty = dirty;
+    ctx._skillsPromptDigest = '';
+    ctx.currentConversationId = 'conv-flush';
+    ctx.agent = {
+      state: { systemPrompt: 'OLD', isStreaming: false },
+      prompt: async () => {},
+      waitForIdle: async () => {},
+      abort: () => {},
+    };
+    ctx.configStore = { get: (key, fallback) => fallback };
+    ctx.getSeededSkillNamesSafe = () => [];
+    ctx._ensureConversation = () => 'conv-flush';
+    ctx._sendEventsBatch = () => {};
+    ctx.rescanCalls = 0;
+    const realSync = aiManager.prototype.syncAgentSystemPrompt;
+    ctx.syncAgentSystemPrompt = function () {
+      this.rescanCalls += 1;
+      return realSync.call(this);
+    };
+    return ctx;
+  }
+
+  test('K1（靶心 · 行为）纯文本 /skill: 成功后延迟补刷落地：脏标记归假 + prompt 已含新技能 + 广播恰一次', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root); // 此刻技能集为空
+    // 运行期新增技能目录（模拟 AI 经 write / bash 建目录）—— **不**触发任何重扫
+    writeSkill(workspace.getSkillsDir(), 'flush-probe', { body: '# flush-probe\n\n落地用正文\n' });
+
+    const wm = require('../window-manager');
+    const originalBroadcast = wm.broadcast;
+    const channels = [];
+    wm.broadcast = (channel) => {
+      channels.push(channel);
+    };
+    t.after(() => {
+      wm.broadcast = originalBroadcast;
+    });
+
+    const ctx = promptCtx(env);
+    const res = await aiManager.prototype.prompt.call(ctx, '/skill:flush-probe 你好');
+
+    assert.strictEqual(res.skillError, undefined, `技能必须可调用: ${JSON.stringify(res.skillError)}`);
+    assert.strictEqual(res.skillInvocation.name, 'flush-probe');
+    assert.strictEqual(
+      ctx._skillsPromptDirty,
+      false,
+      '纯文本流的成功出口也必须把延迟补刷刷落地（G-48-18 靶心）'
+    );
+    assert.ok(
+      ctx.agent.state.systemPrompt.includes('flush-probe'),
+      '补刷后 system prompt 必须含运行期新增技能的 name / description'
+    );
+    assert.strictEqual(
+      ctx.agent.state.systemPrompt,
+      aiManager.buildSystemPrompt(),
+      '补刷后 system prompt 必须等于 buildSystemPrompt()'
+    );
+    assert.deepStrictEqual(
+      channels,
+      ['skills:changed'],
+      '真正改写 prompt 时必须以 skills:changed 广播恰一次'
+    );
+    assert.strictEqual(
+      ctx.rescanCalls,
+      2,
+      '忙时重扫一次 + 出口补刷一次（不是 3 —— 证明没有双刷）'
+    );
+  });
+
+  test('K2（早退零成本 · 行为）脏标记为假时普通消息不多付重扫', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root); // 不新增技能
+
+    const ctx = promptCtx(env); // dirty 默认 false
+    const res = await aiManager.prototype.prompt.call(ctx, '你好');
+
+    assert.strictEqual(res.skillError, undefined);
+    assert.strictEqual(res.skillInvocation, null);
+    assert.strictEqual(ctx.rescanCalls, 0, '补刷首行检脏早退 —— 普通消息零重扫');
+    assert.strictEqual(ctx.agent.state.systemPrompt, 'OLD', '无待补刷时 prompt 逐字不变');
+  });
+
+  test('K3（错误出口不补刷 · 行为）promptWithContext 抛错时脏标记原样保留、prompt 逐字不变、零广播', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root);
+
+    const wm = require('../window-manager');
+    const originalBroadcast = wm.broadcast;
+    const channels = [];
+    wm.broadcast = (channel) => {
+      channels.push(channel);
+    };
+    t.after(() => {
+      wm.broadcast = originalBroadcast;
+    });
+
+    const ctx = promptCtx(env, { dirty: true });
+    ctx.agent.prompt = async () => {
+      throw new Error('boom');
+    };
+
+    // 空引用 + 空附件 → 走普通分支；promptWithContext 的 catch 没有重试循环，毫秒级
+    const res = await aiManager.prototype.promptWithContext.call(ctx, '你好', [], []);
+
+    assert.strictEqual(res.skillInvocation, null);
+    assert.strictEqual(
+      ctx._skillsPromptDirty,
+      true,
+      '错误出口不补刷（否则同一次运行会双刷）—— 标记原样保留给下一次成功出口'
+    );
+    assert.strictEqual(ctx.agent.state.systemPrompt, 'OLD', '错误出口不得改写 prompt');
+    assert.deepStrictEqual(channels, [], '错误出口不得广播');
+    assert.strictEqual(ctx.rescanCalls, 0, '错误出口零重扫');
+  });
+
+  test('K4（清理不补刷 · 行为）_cleanupCurrentAgent 不碰脏标记', () => {
+    const ctx = promptCtx({}, { dirty: true });
+    aiManager.prototype._cleanupCurrentAgent.call(ctx);
+
+    assert.strictEqual(
+      ctx._skillsPromptDirty,
+      true,
+      '_cleanupCurrentAgent() 不碰该标记（既有设计，本计划保留并钉成门）'
+    );
+    assert.strictEqual(ctx.rescanCalls, 0, '清理路径零重扫');
+    assert.strictEqual(ctx.agent, null, '清理语义未变（abort + 置空 + 复位 isProcessing）');
+  });
+
+  test('K5（源码护栏 · 单源）补刷唯一实现 + 两个成功出口共用 + promptWithContext 无残留', () => {
+    const src = readSource('ai-manager.js');
+    const flush = methodBody(src, '_flushDeferredSkillsPrompt');
+    assert.ok(flush.length >= 150, `补刷方法体提取口径失效会假绿（实际 ${flush.length}）`);
+    const checkIdx = flush.indexOf('if (!this._skillsPromptDirty)');
+    const resetIdx = flush.indexOf('this._skillsPromptDirty = false');
+    const syncIdx = flush.indexOf('await this.syncAgentSystemPrompt()');
+    const restoreIdx = flush.indexOf('this._skillsPromptDirty = true');
+    assert.ok(checkIdx >= 0 && checkIdx < resetIdx, '检脏必须早于复位（早退零成本）');
+    assert.ok(syncIdx >= 0, '补刷必须复用唯一权威入口 syncAgentSystemPrompt()');
+    assert.ok(restoreIdx > syncIdx, '失败恢复置脏必须在同步调用之后（WR-04）');
+    assert.ok(
+      methodBody(src, 'prompt').includes('await this._flushDeferredSkillsPrompt()'),
+      'prompt() 的成功出口必须共用补刷实现'
+    );
+    const withContext = methodBody(src, 'promptWithContext');
+    assert.ok(
+      withContext.includes('await this._flushDeferredSkillsPrompt()'),
+      'promptWithContext() 的成功出口必须共用补刷实现'
+    );
+    assert.strictEqual(
+      withContext.includes('this._skillsPromptDirty'),
+      false,
+      'promptWithContext() 内不得残留脏标记读写（否则就是第二份实现）'
+    );
+    assert.strictEqual(
+      (src.match(/await this\._flushDeferredSkillsPrompt\(\)/g) || []).length,
+      2,
+      '补刷调用点必须恰 2 处'
     );
   });
 });

@@ -707,8 +707,10 @@ class AIManager {
      * @type {boolean} 忙时收到的技能集变更标记（D-03）
      *
      * 流式处理中不得改写 system prompt（当前轮的 createContextSnapshot 已取值，
-     * 改写对当前轮无效且让状态机难以推理）。此时只置脏，在 promptWithContext()
-     * 的 idle 边界补刷一次。
+     * 改写对当前轮无效且让状态机难以推理）。此时只置脏，由延迟补刷的**唯一实现**
+     * `_flushDeferredSkillsPrompt()` 消费 —— `prompt()` 与 `promptWithContext()`
+     * 两个**成功出口**各共用一次（含纯文本轮）；打开面板（`refreshSkillsForPanel`）
+     * 与 Agent 创建或重建各走自己的同步入口。
      */
     this._skillsPromptDirty = false;
     /**
@@ -1082,6 +1084,12 @@ class AIManager {
         await this.agent.prompt(enhanced);
         await this.agent.waitForIdle();
         this.isProcessing = false;
+
+        // 延迟补刷（G-48-18）：renderer 只在「有 @ 引用或附件」时才走 promptWithContext()，
+        // 常规 /skill:<name>、重新生成、错误重试都走本方法 —— 这里是延迟回写在纯文本通道上的
+        // 落地点。补刷自身检脏早退，故普通消息零成本。
+        await this._flushDeferredSkillsPrompt();
+
         return {
           conversationId: this.currentConversationId || null,
           skillInvocation: resolved.skill || null,
@@ -1320,18 +1328,9 @@ class AIManager {
 
       this.isProcessing = false;
 
-      // idle 边界补刷（D-03）：忙时收到的技能集变更在此落地一次。
-      // 只在成功路径补（错误路径与 _cleanupCurrentAgent 不补），避免同一次运行双刷。
-      if (this._skillsPromptDirty) {
-        this._skillsPromptDirty = false;
-        try {
-          await this.syncAgentSystemPrompt();
-        } catch (err) {
-          // 失败恢复脏标记：下一次 idle 边界重试，避免变更被静默丢弃（WR-04）
-          this._skillsPromptDirty = true;
-          console.warn('[Realm AI] 延迟刷新技能 prompt 失败（将于下次空闲重试）:', err.message);
-        }
-      }
+      // 延迟补刷（G-48-18）：唯一实现见 _flushDeferredSkillsPrompt()；**成功出口**是唯一的补刷点
+      // （错误出口与 _cleanupCurrentAgent() 不补，避免同一次运行双刷）。补刷自身检脏早退。
+      await this._flushDeferredSkillsPrompt();
 
       return {
         conversationId: this.currentConversationId || null,
@@ -1429,8 +1428,9 @@ class AIManager {
    *    不把「未找到」升级成异常。
    * 4. **忙时只置脏**：`prompt()` / `promptWithContext()` 在调用本方法**之前**即置
    *    `isProcessing = true`，故重扫必然落到同步入口的忙分支 —— 重扫落地、脏标记置真，但
-   *    **不改写** `agent.state.systemPrompt`、**不广播**；prompt 回写与 `skills:changed`
-   *    广播延后到下一次非忙同步点（打开面板 / Agent 重建 / 下一轮 idle 边界）。
+   *    **不改写** `agent.state.systemPrompt`、**不广播**。prompt 回写与 `skills:changed`
+   *    广播的落地时机 = **任一轮成功出口**（`prompt()` 与 `promptWithContext()` 各一处，
+   *    **含纯文本轮**）/ 打开面板（`refreshSkillsForPanel`）/ Agent 创建或重建。
    *
    * @param {string} rawMessage - 用户原始消息（完整语法文本）
    * @returns {Promise<{skillBlock: string, skill: {name: string, tier: string, content: string}|null,
@@ -2793,7 +2793,8 @@ ${content}
    * 三处早退/降级：
    * - Agent 或沙箱未就绪 → 直接返回
    * - 忙时（`isProcessing` 或 `agent.state.isStreaming`）→ 只置 `_skillsPromptDirty`，
-   *   不改 prompt、不广播，由 promptWithContext() 的 idle 边界补刷
+   *   不改 prompt、不广播；由延迟补刷的唯一实现 `_flushDeferredSkillsPrompt()`（`prompt()` 与
+   *   `promptWithContext()` 两个成功出口共用）在轮结束后消费
    * - 无变化（digest 相同**且** prompt 逐字符相同）→ 直接返回，不触碰
    *   `agent.state`、不广播，保 provider 前缀缓存
    *
@@ -2848,6 +2849,45 @@ ${content}
   async refreshSkillsForPanel() {
     await this.syncAgentSystemPrompt();
     return this.getSkillsForUI();
+  }
+
+  /**
+   * 延迟补刷技能 system prompt（D-03 / G-48-18）—— 延迟补刷的**唯一实现**
+   *
+   * `_skillsPromptDirty` 的检脏 / 复位 / 同步调用 / 失败恢复四件事**只允许存在于本方法体内**；
+   * `prompt()` 与 `promptWithContext()` 的两个**成功**出口各只留一行对本方法的 `await` 调用
+   * （全仓恰 2 处 —— 源码门禁按方法体区域断言，禁止出现第二份内联实现）。此前内联块只挂在
+   * `promptWithContext()` 上，而 renderer 只在「有 @ 引用或附件」时才走该通道，常规
+   * `/skill:<name>`、重新生成、错误重试都走 `prompt()`
+   * —— 于是「缓存已含新技能、system prompt 不含」的持续不一致成了默认态。
+   *
+   * 四条契约：
+   * 1. **单一权威实现**：两个成功出口共用本方法，不得再内联第二份检脏 / 复位 / 同步 / 失败恢复。
+   * 2. **首行检脏早退 = 零成本**：无待补刷时立即返回、不做任何 IO。漏掉这一步会让**每一条普通
+   *    消息**都在成功出口多付一次全量重扫（两个技能目录 + 逐技能读 `SKILL.md`）—— 这是本机制
+   *    最大的性能回归面。
+   * 3. **只由成功出口调用**：错误出口（重试耗尽的 `catch`）与 `_cleanupCurrentAgent()` 一律不调 ——
+   *    同一次运行补刷两次既无意义（错误轮已作废）又让「变更何时落地」难以推理。
+   * 4. **失败恢复脏标记**：同步失败时把标记恢复为「待回写」，语义 = **下一次成功出口重试**，
+   *    变更绝不静默丢弃；同时 `console.warn` 明示，不静默。
+   *
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _flushDeferredSkillsPrompt() {
+    if (!this._skillsPromptDirty) return;
+
+    this._skillsPromptDirty = false;
+    try {
+      await this.syncAgentSystemPrompt();
+    } catch (err) {
+      // 失败恢复脏标记：下一次成功出口重试，避免变更被静默丢弃（WR-04）
+      this._skillsPromptDirty = true;
+      console.warn(
+        '[Realm AI] 延迟刷新技能 prompt 失败（将于下次成功出口重试）:',
+        err && err.message ? err.message : String(err)
+      );
+    }
   }
 
   /**
