@@ -267,7 +267,7 @@ Plans:
 
 **Wave 7** *(仅依赖既有 48-07 交付；改动面 = `ai-manager.js` + `tests/test-ai-skills.js` + 文档账本，与既有计划无文件重叠)*
 
-- [ ] 48-08-PLAN.md — **G-48-18 + G-48-19**：延迟补刷抽成唯一实现 `_flushDeferredSkillsPrompt()` 并由 `prompt()` 与 `promptWithContext()` 两个**成功**出口共用（检脏早退零成本、错误出口与 `_cleanupCurrentAgent` 不补刷），使纯文本 `/skill:` 成功后 system prompt 回写与 `skills:changed` 广播在本轮结束即落地；把 miss 重试块的重扫与重试读盘拆成两个各自独立的 `try`（抛错沿用原判定、不逃逸、不升级第三码、`err` 取值对齐 `String(err)` 形态、两条告警可判别），补 K 组 5 条 + J 组 3 条行为用例并改写 1 条已过时的既有护栏，同步 §10.7 落地时机措辞与 §七 / `AGENTS.md` 例数（wave 7，DISC-02/06）
+- [x] 48-08-PLAN.md — **G-48-18 + G-48-19**：延迟补刷抽成唯一实现 `_flushDeferredSkillsPrompt()` 并由 `prompt()` 与 `promptWithContext()` 两个**成功**出口共用（检脏早退零成本、错误出口与 `_cleanupCurrentAgent` 不补刷），使纯文本 `/skill:` 成功后 system prompt 回写与 `skills:changed` 广播在本轮结束即落地；把 miss 重试块的重扫与重试读盘拆成两个各自独立的 `try`（抛错沿用原判定、不逃逸、不升级第三码、`err` 取值对齐 `String(err)` 形态、两条告警可判别），补 K 组 5 条 + J 组 3 条行为用例并改写 1 条已过时的既有护栏，同步 §10.7 落地时机措辞与 §七 / `AGENTS.md` 例数（wave 7，DISC-02/06）
 
 **UI hint**: yes
 **Doc sync**: `docs/product/ai-skills.md` 补发现与调用章节（48-03）；gap 收敛轮全部文档面收口（§10.3 / §10.7 / §10.4 表下注 / 新增 §10.8「用户气泡契约」/ §七）由 **48-06** 单点完成以避免同波并发编辑同一文件；48-08 的文档面（§10.7 的落地时机与失败恢复语义、§七 例数与覆盖面、`AGENTS.md` 测试清单例数）由 **48-08** 自己单点收口。
