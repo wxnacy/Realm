@@ -912,8 +912,14 @@ return { success: true, conversationId: res.conversationId, skillInvocation: res
 ```js
 // main：解析失败 → 不调 agent.prompt，直接返回结构化错误
 return { conversationId: currentConversationIdOrNull, skillInvocation: null,
-         skillError: { code: 'skill_not_found' | 'skill_disabled' | 'skill_read_failed', message } };
+         skillError: { code: 'skill_not_found' | 'skill_disabled', message } };
 ```
+
+> **修正（本轮 plan 修订）**：上面的第三码 `skill_read_failed` **已删除** —— `readSkillForInvocation`
+> 的返回值域只有 `not_found | disabled`（SDK `loadSkills` 读盘失败只产诊断 + 空技能集、**不抛错**），
+> D-13 推论也要求「被整条跳过的技能」与「不存在」同形处理。权威落点是 48-01 Task 1 ③ 的模块级纯函数
+> `skillErrorFromReason(reason, name)`（`not_found` → `skill_not_found` / `disabled` → `skill_disabled`，无第三码），
+> 并有打表断言守住「值域只有两个码」。
 
 renderer 收到 `skillError` 时：**移除刚推送的 user 气泡 + 未产出的 assistant 占位**、
 复位 `state.aiStreaming` / `aiCurrentMessageId` / 发送按钮，`pushSystemNote(message)`。
