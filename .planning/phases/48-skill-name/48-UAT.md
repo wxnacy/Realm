@@ -171,8 +171,8 @@ note: |
 > 的运行时可证性重开 5 项。以下编号续接为 9–13。
 
 ### 9. 重跑 UAT test 6 clause 1：技能气泡 pill 与「技能正文（N 字符）」折叠块
-expected: `npm run dev` → 输入 `/skill:<真实技能名> <args>` 回车，**不做任何额外交互**，分别在「回车后立即」与「整轮回复结束后」采样 `hasPill` / `hasBox`。**整轮回复结束时**必有 pill 与折叠块（本轮修复的目标面）；回车后立即的前半句按 48-REVIEW.md WR-05 预测仍为 false —— 若要求真「立即」，须按 WR-05 的选项 2 改链路（解析阶段即推事件给 renderer），否则须把 truth / `docs/product/ai-skills.md` §10.8 的措辞收口为「本轮回复结束时即现」
-why_human: DOM 渲染时机 + IPC 往返属运行时行为（`await ai.prompt()` 在整轮 run 结束后才返回）；且 truth 措辞与实现时机存在分歧（WR-05），需人工定口径
+expected: `npm run dev` → 输入 `/skill:<真实技能名> <args>` 回车，**不做任何额外交互**，在「整轮回复结束后」采样 `hasPill` / `hasBox`。**整轮回复结束时**必有 pill 与折叠块（默认折叠、点击可展开），且**不需要**切换对话 / 重载 / `/compact` 触发
+why_human: DOM 渲染时机 + IPC 往返属运行时行为（`await ai.prompt()` 在整轮 run 结束后才返回）。**口径已收口**（用户 2026-09-12 裁决，见 48-REVIEW.md WR-05 裁决段）：呈现时刻 = 本轮回合结束，**不再要求**回车那一刻即现 —— 故本条只需验后半边；`docs/product/ai-skills.md` §10.8 与 48-VERIFICATION.md 已同步措辞
 result: [pending]
 
 ### 10. 重跑 UAT test 4：流式回复中调用技能（G-48-4 运行时半边）
@@ -180,10 +180,11 @@ expected: `npm run dev` + 可用 provider → 发一条长回复 prompt，等首
 why_human: 运行时竞态（`ai:abort` 同步返回 + 迟到 error 的到达顺序），node:test 只覆盖纯逻辑判定与接线契约。上一轮实测失败，锚点修复后须实测裁决是否真的闭合
 result: [pending]
 
-### 11. CR-05 可达性实测（若采纳「先定口径」路线则可跳过）
-expected: 在流式结束的瞬间连点两次停止按钮，随后触发一次任意真实错误（如临时把 provider key 改错）。下一轮的真实错误仍走 `showAIError`（有提示 + 重试按钮），**不得**被当成取消消费、不得把上一轮已完成回复正文覆盖为「用户已取消」、不得使 `aiStreaming` 永不复位（输入框被 `if (state.aiStreaming) return;` 静默丢弃）
-why_human: CR-05 是从状态机 + SDK 语义推出的窄竞态路径（`abort()` 打在已结算 run 上是静默 no-op），无任何测试覆盖；`finalizeAIStreamingBubble` 只清 `aiStreaming` / `aiCurrentMessageId`，两处取消标记无正常结算清理点。此为本次复审的 Critical，按用户既有口径不阻断收尾，但须人工裁决修复时机
-result: [pending]
+### 11. CR-05 可达性实测
+expected: （原为「在流式结束的瞬间连点两次停止按钮，随后触发一次任意真实错误」的实测）
+why_human: CR-05 是从状态机 + SDK 语义推出的窄竞态路径（`abort()` 打在已结算 run 上是静默 no-op），无任何测试覆盖
+result: skipped
+skip_reason: "用户 2026-09-12 裁决「先记技术债，直接跑 UAT」→ 登记为 `48-REVIEW.md` 的 **TD-48-02**，接手触发点 = Phase 49 开工前第一条（与 TD-48-01 同批）。**本阶段不要求实测**；缺陷形态与修复口径见 TD-48-02。"
 
 ### 12. G-48-3 运行期探针（`.planning/WINDOWS.md` unrun-verify id 24）
 expected: 在 `agent-workspace/managed-skills/` 下新建一个技能目录（**不打开** `/` 面板），直接手打 `/skill:<新名>`。请求到达主进程并由其当场读盘 → 正常调用（不再出现「未找到技能」且输入框被清空）
@@ -198,17 +199,18 @@ result: [pending]
 ## Summary
 
 round_1: { total: 8, passed: 3, issues: 5, pending: 0, skipped: 0, blocked: 0 }
-round_2: { total: 5, passed: 0, issues: 0, pending: 5, skipped: 0, blocked: 0 }
+round_2: { total: 5, passed: 0, issues: 0, pending: 4, skipped: 1, blocked: 0 }
 
 total: 13
 passed: 3
 issues: 5
-pending: 5
-skipped: 0
+pending: 4
+skipped: 1
 blocked: 0
 
 > round_1 的 5 个 issue（test 2 / 3 / 4 / 5 / 6）已由 gap 计划 48-04 / 48-05 / 48-06 处置并执行完毕，
-> 其记录保留为历史；round_2 的 5 项均为**修复后**的运行时可证性重开，待人工实测。
+> 其记录保留为历史；round_2 的 5 项中 item 11（CR-05 可达性）已裁决记 TD-48-02 并跳过，
+> 其余 4 项（item 9 / 10 / 12 / 13）为**修复后**的运行时可证性重开，待人工实测。
 
 ## Gaps
 

@@ -4,7 +4,7 @@ verified: 2026-09-12T12:25:00Z
 status: human_needed
 score: 31/36 must-haves verified
 covered_files: [".planning/REQUIREMENTS.md", ".planning/phases/48-skill-name/48-01-PLAN.md", ".planning/phases/48-skill-name/48-02-PLAN.md", ".planning/phases/48-skill-name/48-03-PLAN.md", ".planning/phases/48-skill-name/48-04-PLAN.md", ".planning/phases/48-skill-name/48-05-PLAN.md", ".planning/phases/48-skill-name/48-06-PLAN.md", ".planning/phases/48-skill-name/48-01-SUMMARY.md", ".planning/phases/48-skill-name/48-02-SUMMARY.md", ".planning/phases/48-skill-name/48-03-SUMMARY.md", ".planning/phases/48-skill-name/48-04-SUMMARY.md", ".planning/phases/48-skill-name/48-05-SUMMARY.md", ".planning/phases/48-skill-name/48-06-SUMMARY.md", ".planning/phases/48-skill-name/48-UAT.md", ".planning/phases/48-skill-name/48-REVIEW.md", ".planning/phases/48-skill-name/48-VALIDATION.md", "ai-skills-manager.js", "ai-manager.js", "ipc-handlers.js", "src/renderer.js", "src/ai-cancel-state.js", "src/skill-picker-model.js", "src/index.html", "src/preload.js", "src/styles/main.css", "tests/test-ai-skills.js", "tests/test-skill-picker-model.js", "tests/test-ai-cancel-state.js", "docs/product/ai-skills.md", "AGENTS.md"]
-covered_digest: "v1:sha256:24e20365da20b977a482f1e65688c6b5467a9b449b96156d21cef56e2655ecdf"
+covered_digest: "v1:sha256:1448691404001a0732fa7b1b84b55343a133b4f0693c41f5cf05a9130c0c5d7d"
 behavior_unverified: 5
 overrides_applied: 0
 re_verification:
@@ -34,10 +34,10 @@ behavior_unverified_items:
     test: "`npm run dev` → 发一条长回复 prompt → 流式中手打 `/skill:<真实技能名>` → 采样 15s"
     expected: "新技能调用正常发出并流式回显；`.ai-skill-pill` 出现；新气泡正文持续增长；停止按钮保持 stop-mode 直到本轮结束"
     why_human: "abort × 新消息是运行时竞态（`ai:abort` 同步返回 + 迟到 error 的到达顺序），node:test 只覆盖纯逻辑判定与接线契约。另见 48-REVIEW.md CR-05（标记生命周期未闭合），该残余是同一状态机的相邻不变式，故本条不得记为 VERIFIED"
-  - truth: "G-48-6 运行时半边：发送 `/skill:<name> <args>` 后用户气泡即含技能 pill 与默认折叠的「技能正文（N 字符）」块"
-    test: "`npm run dev` → 输入 `/skill:<真实技能名> <args>` 回车，分别在「回车后立即」与「整轮回复跑完时」检查 `.ai-skill-pill` / `.ai-skill-content-box`"
-    expected: "两个时刻均存在 pill 与折叠块（默认折叠、点击可展开）"
-    why_human: "DOM 渲染时机属运行时行为，node:test 无 DOM 宿主。**且按 48-REVIEW.md WR-05，本条只有后半边成立** —— `refreshUserMessageBubble` 唯一触发点是 `ai:prompt` 应答返回之后（`renderer.js:8816`，应答在 `agent.waitForIdle()` 之后才解析），因此「发送后立即」在实现上**不成立**，重跑同一探针仍会在前半句失败"
+  - truth: "G-48-6 运行时半边：发送 `/skill:<name> <args>` 后，**本轮回合结束（`ai:prompt` 应答返回）时**用户气泡即含技能 pill 与默认折叠的「技能正文（N 字符）」块（**口径收口**：2026-09-12 用户裁决按实现时机改措辞，原「回车那一刻立即」不再作为验收要求；见 48-REVIEW.md WR-05 裁决段与 docs §10.8）"
+    test: "`npm run dev` → 输入 `/skill:<真实技能名> <args>` 回车，**不做任何额外交互**，在「整轮回复跑完时」检查 `.ai-skill-pill` / `.ai-skill-content-box`"
+    expected: "整轮回复跑完时存在 pill 与折叠块（默认折叠、点击可展开）；**不需要**切换对话 / 重载 / `/compact` 触发"
+    why_human: "DOM 渲染时机属运行时行为，node:test 无 DOM 宿主。`refreshUserMessageBubble` 的唯一触发点是 `ai:prompt` 应答返回之后（`renderer.js:8816`，应答在 `agent.waitForIdle()` 之后才解析），因此呈现时刻 = 本轮回合结束 —— 该措辞已由用户 2026-09-12 裁决收口（原「发送后立即」不成立，48-REVIEW.md WR-05）"
   - truth: "48-02 backstop：50+ 技能数据集下 220px 面板的分组标题 sticky 常驻、行五要素可读、行尾标注无一截断"
     test: "按 48-VALIDATION.md §Manual-Only Verifications 的脚本向 skills/ 生成 50 个最小技能后 `npm run dev`，打开 `/` 面板并滚动到「命令」分区"
     expected: "分组标题 sticky 常驻；行五要素可读；行尾标注 flex-wrap 后无一截断"
@@ -47,9 +47,9 @@ behavior_unverified_items:
     expected: "命中时气泡 = 技能 pill + args 正文 + 可展开「技能正文（N 字符）」块；两条失败走各自 system-note 且零残留气泡；流式中调用能正常发出并流式回显"
     why_human: "IPC 往返 + 主进程实时读盘 + 流式事件时序属运行时行为；node:test 只覆盖源码契约与纯函数。UAT test 6 的 clause 2（未找到）/ clause 3（已禁用）已实测通过，clause 1 与 clause 4 是本轮修复的目标面，须重跑"
 human_verification:
-  - test: "重跑 UAT test 6 clause 1：`npm run dev` → 输入 `/skill:<真实技能名> <args>` 回车，**不做任何额外交互**，分别在「回车后立即」与「整轮回复结束后」采样 `hasPill` / `hasBox`"
-    expected: "**整轮回复结束时**必有 pill 与折叠块（本轮修复的目标面）；回车后立即的前半句按 WR-05 预测仍为 false —— 若要求真「立即」，须按 WR-05 的选项 2 改链路（解析阶段即推事件给 renderer），否则须把 truth / 文档 §10.8 的措辞收口为「本轮回复结束时即现」"
-    why_human: "DOM 渲染时机 + IPC 往返属运行时行为；且 truth 措辞与实现时机存在分歧（WR-05），需人工定口径"
+  - test: "重跑 UAT test 6 clause 1：`npm run dev` → 输入 `/skill:<真实技能名> <args>` 回车，**不做任何额外交互**，在「整轮回复结束后」采样 `hasPill` / `hasBox`"
+    expected: "**整轮回复结束时**必有 pill 与折叠块（本轮修复的目标面）。口径已收口（2026-09-12 用户裁决）：呈现时刻 = 本轮回合结束，**不要求**回车那一刻即现 —— 故只需验后半边；`docs/product/ai-skills.md` §10.8 已同步该措辞"
+    why_human: "DOM 渲染时机 + IPC 往返属运行时行为；truth 措辞已按实现时机收口（48-REVIEW.md WR-05 裁决段）"
   - test: "重跑 UAT test 4：`npm run dev` + 可用 provider → 发一条长回复 prompt，等首气泡确实有正文（停止按钮已亮）→ 流式中手打 `/skill:<真实技能名>` → 每 250ms 采样 15s"
     expected: "新气泡创建后有内容、持续增长；**不得**在 t≈7.4s 被写成「用户已取消」、不得其后 15s 零增长、停止按钮不得在 t≈0 就回退；`.ai-skill-pill` 应出现"
     why_human: "运行时竞态；UAT test 4 上一轮实测失败，锚点修复后须实测裁决是否真的闭合"
@@ -104,7 +104,7 @@ human_verification:
 | 23 | **【原 CR-02 → 已闭合】G-48-2**：`frontmatter name ≠ 目录名` 的技能面板可见可选，`/skill:<目录名>` 可正常调用，注入用 name = **目录名** | ✓ VERIFIED | `ai-skills-manager.js:817-833` 实读判据为 `path.resolve(path.dirname(s.filePath)) === expectedDir`；判据探针实测 `expectedDir=true` / `legacy-name-judgment=false` / `skills[0]-fallback=false` / `name-rewritten=true`；`tests/test-ai-skills.js` 三条新用例实跑通过：「目录名与 frontmatter name 不一致的技能可正常显式调用（G-48-2 靶心）」「注入块的 name 属性与 provenance 行都是目录名（冒名 name 不进块）」「name 不一致 + 实时读盘」 |
 | 24 | **【原 CR-03 源码面 → 已闭合】G-48-4a**：迟到的取消事件按**锚点**解算，只作用于被取消的那条消息；不得读「当前」`aiCurrentMessageId` 做归属；`resetRunState` 只由锚点等式决定；两处对话切换清空锚点 | ✓ VERIFIED | `renderer.js:9387-9413` 实读取消分支：先 `resolveCancelAttribution(state.aiMessages, state.aiCancelledMessageId, state.aiCurrentMessageId)` 再复位，`resetRunState` 门控 `aiStreaming` / `aiCurrentMessageId` / 发送按钮；`src/ai-cancel-state.js:46-60` 实读（`list.findIndex(role==='assistant' && id===cancelledId)` + `resetRunState = !!cancelledId && cancelledId === currentId`）；`renderer.js:7214-7215` / `:7252-7253` 两处对话切换清空；`tests/test-ai-cancel-state.js` 实跑 `# pass 14 / # fail 0`（含 A 组② UAT test 4 实测序列靶心断言） |
 | 25 | **【原 CR-03 运行时面】G-48-4b**：流式中（含卡在工具确认卡片）调用技能 → 新气泡不被写成「用户已取消」、其后不零增长、停止按钮不提前回退 | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | 源码契约与纯逻辑判定齐备（真相 24），但「abort × 新消息」是运行时竞态（`ai:abort` 同步返回 + 迟到 error 到达序），无测试覆盖。**且 48-REVIEW.md CR-05 指出相邻不变式仍未闭合**：`finalizeAIStreamingBubble`（`renderer.js:8272-8281`）正常结算时只清 `aiStreaming` / `aiCurrentMessageId`，`aiCancelledByUser` / `aiCancelledMessageId` 无正常结算清理点（`grep` 全仓仅 7214/7252 / 8391/9122 / 9397 五组）→ 故本条**不得**记 VERIFIED。见 Human Verification |
-| 26 | **【新增】G-48-6**：发送 `/skill:<name> <args>` 后**无需任何额外交互**，用户气泡即含 `.ai-skill-pill` 与默认折叠的 `.ai-skill-content-box` | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | 「无需额外交互」半边由源码契约成立：`buildUserMessageContent` 单源（`renderer.js:8973`，`renderAIMessages` 委派于 `:8055`、`refreshUserMessageBubble` 复用 `:8195`）、三处回填后立即刷新（`:8816` 发送 / `:10006` 重新生成 / `:10083` 错误重试）、定向 `replaceChild`（`:8198-8202`）非整列重绘。**但「立即」半边不成立** —— `refreshUserMessageBubble` 唯一触发点是 `ai:prompt` 应答返回之后，而该应答在 `agent.waitForIdle()`（`ai-manager.js:1083`）之后才解析 → pill / 折叠块在**整轮回复结束时**出现，非回车那一刻（48-REVIEW.md WR-05）。见 Human Verification |
+| 26 | **【新增】G-48-6**：发送 `/skill:<name> <args>` 后**无需任何额外交互**，用户气泡在**本轮回合结束时**即含 `.ai-skill-pill` 与默认折叠的 `.ai-skill-content-box`（口径收口：2026-09-12 用户裁决） | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | 「无需额外交互」半边由源码契约成立：`buildUserMessageContent` 单源（`renderer.js:8973`，`renderAIMessages` 委派于 `:8055`、`refreshUserMessageBubble` 复用 `:8195`）、三处回填后立即刷新（`:8816` 发送 / `:10006` 重新生成 / `:10083` 错误重试）、定向 `replaceChild`（`:8198-8202`）非整列重绘。**呈现时刻 = 本轮回合结束**（`refreshUserMessageBubble` 唯一触发点是 `ai:prompt` 应答返回之后，而该应答在 `agent.waitForIdle()`（`ai-manager.js:1083`）之后才解析）—— 该口径已由用户 2026-09-12 裁决收口，替代原「回车那一刻立即」（48-REVIEW.md WR-05 裁决段）。见 Human Verification |
 | 27 | **【新增】48-06 单源护栏**：两条失败文案（`skill_not_found` / `skill_disabled`）的唯一来源在主进程 `skillErrorFromReason`，renderer **零复制** | ✓ VERIFIED | `grep -c "未找到技能" src/renderer.js` = **0**；`ai-manager.js:6089-6099` 两条文案字面量仍在；两套测试（picker C 组 / ai-skills F 组）跨文件断言成对钉住「主进程仍含 / 渲染端不含」 |
 | 28 | 真实 Electron 端到端：气泡三件套 / 两条 system-note / 流式中调用技能不被丢弃 | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | 源码与静态断言齐备（`renderAISkillPill` / `renderSkillContentBox`（全 `textContent` + DOM API）、`removeSkillFailureBubbles`、预检位于 `if (state.aiStreaming) return;` 之前），运行时链路与流式时序无测试覆盖。UAT test 6 的 clause 2/3 已实测通过；clause 1/4 待重跑 |
 | 29 | DISC-05：模型**仅凭 description 自动匹配**技能（用户不显式调用也能生效） | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | 机制三面均有断言（description 进 prompt、事件带标记、卡片渲染），但「模型是否自发匹配」须真实 LLM。**已按 2026-09-12 UAT 裁决拆分**：①（匹配到之后的可见性 + 徽标 + 路径 + 重载还原）端到端证成；②（模型自发遵守 SDK 的 `read` 指令）由 SDK 提示词模板承载、归因模型能力（本机 Qwen3-8B 把技能名当工具调用 `Tool demo not found`）→ 记为已知限制（48-REVIEW.md IN-04） |
@@ -252,9 +252,21 @@ human_verification:
 - **上一轮 3 条 CRITICAL 复核闭合**（CR-02 / CR-03 源码面 / CR-04），1 条 CRITICAL（CR-01）经用户裁决转为已跟踪延后（TD-48-01），1 条 UNCERTAIN（陈旧快照否决）转为 VERIFIED —— **本轮无 UNCERTAIN、无 must-have 真值 FAILED、无 artifact MISSING/STUB、无 key link NOT_WIRED、无未引用债标记**。
 - **测试实跑（非采信 SUMMARY）**：`test-skill-picker-model.js` 95/95、`test-ai-cancel-state.js` 14/14、`test-ai-skills.js` 132/132、5 文件回归门 346/346、seeder 101/101 —— 全绿。
 - **5 条真值落 ⚠️ PRESENT_BEHAVIOR_UNVERIFIED**（DISC-05 模型侧、G-48-4 运行时半边、G-48-6 运行时半边、48-02 视觉 backstop、真实 Electron 端到端）：全部属 node:test 无法裁决的运行时行为，已逐条进入 `behavior_unverified_items` 与 `human_verification`。其中两条带**已知残余**：
-  - G-48-6 的「发送后**立即**」半边按 WR-05 在实现上不成立（`refreshUserMessageBubble` 只在 `ai:prompt` 应答（= 整轮 `waitForIdle()` 之后）返回时才触发），须先定口径（改措辞 or 改链路）；
-  - G-48-4 的运行时半边受 CR-05 制约（取消标记无正常结算清理点，窄竞态下可跨轮污染并吞掉下一轮真实错误）。
+  - G-48-6 的「发送后**立即**」半边按 WR-05 在实现上不成立（`refreshUserMessageBubble` 只在 `ai:prompt` 应答（= 整轮 `waitForIdle()` 之后）返回时才触发）→ **已裁决收口措辞**（用户 2026-09-12）：呈现时刻 = 本轮回合结束，`docs/product/ai-skills.md` §10.8 与本报告 truth 已同步，UAT 只需验后半边；
+  - G-48-4 的运行时半边受 CR-05 制约（取消标记无正常结算清理点，窄竞态下可跨轮污染并吞掉下一轮真实错误）→ **已裁决延后为 TD-48-02**（用户 2026-09-12，接手触发点 = Phase 49 开工前），不要求本阶段 UAT 实测。
 - **结论**：自动化可裁决面全部通过；**运行时面尚未重跑**（UAT test 4 / test 6 clause 1 / G-48-3 运行期探针，均已登记在 `.planning/WINDOWS.md` 的 `unrun-verify`）。**UAT 探针重跑通过前本阶段不得 complete**（与用户既有口径「UAT 为准」及 `.planning/WINDOWS.md` 的 unrun-verify 条目一致）。
+
+## 收尾裁决记录（2026-09-12 · gap 闭合轮）
+
+`/gsd-execute-phase 48 --gaps-only` 收尾时对三项新发现作出裁决（用户拍板），据此对本文档措辞作收口，**不改变任何 must-have 的判定**：
+
+| 项 | 裁决 | 落地 |
+| --- | --- | --- |
+| CR-05（Critical，取消标记无生命周期） | 先记技术债，直接跑 UAT | 登记为 `48-REVIEW.md` 的 **TD-48-02**，接手触发点 = Phase 49 开工前；不改代码、不要求本轮实测 |
+| WR-05（G-48-6「立即」口径） | 收口措辞为「本轮回复结束时即现」 | §10.8 + 本报告 truth / human_verification / 真值表第 26 行 + UAT 第二轮 item 9 同步；UAT 只验后半边 |
+| WR-06（调用路径绕过 64 KiB 字节闸） | 未裁决修复时机，保持开放 | 记入 `48-REVIEW.md` 裁决段；建议随 Phase 49 一并处置。本条不影响任何已登记 must-have 真值 |
+
+本阶段因此维持 `status: human_needed`；UAT 第二轮（`48-UAT.md` item 9 / 10 / 12 / 13）通过后由 `/gsd-verify-work 48` 推进收尾。
 
 ---
 

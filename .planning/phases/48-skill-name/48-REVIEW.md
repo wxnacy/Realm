@@ -322,6 +322,23 @@ if (info && info.ok && info.value.size > LIMITS.MAX_SKILL_MD_BYTES) {
 
 > **本轮复核补记（不改动上文任何一字）：** 上文引用的是上一轮（`f5a770d`）的行号。本轮 diff 使 `src/renderer.js` 行号位移，当前对应位置为 `10427`（`rowTitle`）、`10419-10420`（badge `title`）、`10430-10431`（status `title`）；`escapeHtml` 仍为 `11349-11353`（仍只转义 `& < >`）。缺陷形态、CSP 实测结论与已裁决的处置（延后 + Phase 49 开工前第一条）均**不变**。
 
+### TD-48-02 ← CR-05 取消标记无生命周期（延后）
+
+- **裁决：** 延后，不进本阶段修复。2026-09-12 gap 闭合轮收尾，用户裁决「先记技术债，直接跑 UAT」。
+- **接手触发点：** **Phase 49 开工前**（与 TD-48-01 同批处置；Phase 49 的 `manage_skill` 会让「真实错误」出现得更频繁，放大本条的可达性）。**不要求本阶段 UAT 实测**。
+- **形态回顾：** 「归属」已由 48-05 从 `aiCurrentMessageId` 换为锚点 `aiCancelledMessageId`，但这对标记**没有生命周期** —— 清理点只有两处对话切换 / 两处 abort 失败 catch / 取消分支自身，**正常结算处一处不清**；而 SDK `abort()` 打在已结算 run 上是**静默 no-op**。窄竞态（「流式结束瞬间连点停止」的第二次点击落在主进程已结算、renderer 尚未处理 `turn_end` 的窗口）会留下跨轮存活的标记，使**下一轮任意真实错误**被当取消消费 → 已完成回复正文被覆盖为 `*用户已取消*`、错误无 `showAIError` / 无重试按钮、`resetRunState=false` 使 `aiStreaming` 永不复位（输入被静默丢弃，唯 `/clear` 或切对话可解）。
+- **诚实边界：** 非 UAT 实测复现，是从状态机 + SDK 语义推出的可达路径（触发需窄竞态窗口）；`tests/test-ai-cancel-state.js` A 组只覆盖单次解算的纯逻辑，无「标记何时该失效」维度。48-VERIFICATION.md 已据此把「G-48-4 运行时半边」与「真实 Electron 端到端」两条真值留为 `PRESENT_BEHAVIOR_UNVERIFIED`（而非 VERIFIED）。
+- **修复口径（下次开工直接照做，成本约 3 行 / 两处）：**
+  1. `finalizeAIStreamingBubble()`（`src/renderer.js:8272`，renderer 侧 `turn_end` = run 正常结算）补 `state.aiCancelledByUser = false; state.aiCancelledMessageId = null;` —— 这一处即可消除跨轮污染。被中止的 run 走 `handleRunFailure`，renderer 只收到 `error` 而收不到 `turn_end`（`ai-manager.js:1743-1748` 发完 error 即 break），故不与「用户点停止」的既有语义冲突。
+  2. 取消分支加身份自校验（纵深）：`if (state.aiCancelledByUser && state.aiCancelledMessageId) { …原逻辑… }`，走 `else` 时普通错误分支照常 `showAIError`。
+  - 建议附带一条接线断言：「正常结算后两处标记必须为 null」。
+- **同批相邻项（本轮 IN-06 / IN-07）：** `refreshUserMessageBubble` 不补 wrapper 级 `.message-actions`、以及「技能已解析但本轮 run 失败时 pill / 折叠块永不出现」（`ai-manager.js:1103` 错误路径返回 `skillInvocation: null`）—— 建议随 TD-48-02 一并处置。
+
+### WR-05 / WR-06 的裁决（2026-09-12 用户拍板）
+
+- **WR-05（`G-48-6` 的「立即」口径）：** 用户裁决**收口措辞**，不改链路。已落地：`docs/product/ai-skills.md` §10.8 改为「本轮回合结束（`ai:prompt` 应答返回）时即现」，并在 `48-VERIFICATION.md` 与 `48-UAT.md` 第二轮 item 9 同步口径。原「发送后立即」不再作为验收要求；若日后要求真「立即」，须按 CR-05 修复口径之外独立立项（解析阶段即推事件给 renderer），属行为变更。
+- **WR-06（调用路径绕过 64 KiB 字节闸）：** 未裁决修复时机，**保持开放**。`48-RESEARCH.md` 的 DoS 缓解口径仍不成立（实测 204,858 字节仍 `ok=true`）。影响面：`readSkillForInvocation` 用原始沙箱 env、不复查磁盘当前 size；`createSkillsEnv` 的字节闸只作用于 `refreshSkills` 扫描。建议随 Phase 49（AI 自建技能）一并处置 —— 届时技能内容由 AI 生成，DoS 面从「需人工放大」变为常规可达。
+
 ---
 
 _Reviewed: 2026-09-12T12:14:42Z_
