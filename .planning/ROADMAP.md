@@ -235,11 +235,12 @@ Plans:
   4. 模型可仅凭 description 自动匹配技能并通过 `read` 打开其正文（用户不显式调用也能生效）。
   5. 调用不存在的技能给出明确错误提示（不出现"点了没反应"）；`disable-model-invocation` 技能不进 system prompt 但可经 `/skill:` 显式调用且在 UI 有标记。
 
-**Plans:** 7/7 plans executed（48-01..03 已执行；48-04..06 为 gap 收敛计划，见文末 Gap closure）
+**Plans:** 8 plans（48-01..07 已执行；**48-08 待执行** —— UAT round 3 test 18 裁决出的 G-48-18 / G-48-19，见文末 Gap closure）
 
 Plans:
 
 - [x] 48-07-PLAN.md
+- [ ] 48-08-PLAN.md
 
 **Wave 1**
 
@@ -264,8 +265,12 @@ Plans:
 
 - [x] 48-06-PLAN.md — **G-48-3**：删除渲染端用陈旧 `state.aiSkills` 快照做本地否决的两段分支（存在性/启停一律由主进程当场读盘裁定、失败经既有 `skillError` 回滚呈现，用户可见文案逐字不变）+ `skills:changed` 无条件重拉快照；同步两套源码扫描断言与 `48-01/48-02/48-VALIDATION` 的旧明文，并**收口本轮全部产品文档面**（`docs/product/ai-skills.md` 的 §10.3 / §10.7 两条 / §10.4 表下两条注 / 新增 §10.8「用户气泡契约」/ §七 测试清单；本轮唯一文档写者）（wave 5，DISC-02/06）
 
+**Wave 7** *(仅依赖既有 48-07 交付；改动面 = `ai-manager.js` + `tests/test-ai-skills.js` + 文档账本，与既有计划无文件重叠)*
+
+- [ ] 48-08-PLAN.md — **G-48-18 + G-48-19**：延迟补刷抽成唯一实现 `_flushDeferredSkillsPrompt()` 并由 `prompt()` 与 `promptWithContext()` 两个**成功**出口共用（检脏早退零成本、错误出口与 `_cleanupCurrentAgent` 不补刷），使纯文本 `/skill:` 成功后 system prompt 回写与 `skills:changed` 广播在本轮结束即落地；把 miss 重试块的重扫与重试读盘拆成两个各自独立的 `try`（抛错沿用原判定、不逃逸、不升级第三码、`err` 取值对齐 `String(err)` 形态、两条告警可判别），补 K 组 5 条 + J 组 3 条行为用例并改写 1 条已过时的既有护栏，同步 §10.7 落地时机措辞与 §七 / `AGENTS.md` 例数（wave 7，DISC-02/06）
+
 **UI hint**: yes
-**Doc sync**: `docs/product/ai-skills.md` 补发现与调用章节（48-03）；gap 收敛轮全部文档面收口（§10.3 / §10.7 / §10.4 表下注 / 新增 §10.8「用户气泡契约」/ §七）由 **48-06** 单点完成以避免同波并发编辑同一文件。
+**Doc sync**: `docs/product/ai-skills.md` 补发现与调用章节（48-03）；gap 收敛轮全部文档面收口（§10.3 / §10.7 / §10.4 表下注 / 新增 §10.8「用户气泡契约」/ §七）由 **48-06** 单点完成以避免同波并发编辑同一文件；48-08 的文档面（§10.7 的落地时机与失败恢复语义、§七 例数与覆盖面、`AGENTS.md` 测试清单例数）由 **48-08** 自己单点收口。
 
 ### Phase 49: `manage_skill` 工具（AI 自建技能）
 
