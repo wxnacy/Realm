@@ -5,16 +5,16 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 48
 current_phase_name: "技能发现与调用（`/` 面板 + `/skill:name`）"
 status: executing
-stopped_at: Completed 48-07-PLAN.md
-last_updated: "2026-09-12T14:19:08.890Z"
-last_activity: 2026-09-12
+stopped_at: Completed 48-08-PLAN.md
+last_updated: "2026-09-12T16:12:43.310Z"
+last_activity: 2026-09-13
 last_activity_desc: Phase 48 execution started
-state_head: 96560a68597cb3416ebe58b86b2689f67f56dabc
+state_head: 4ef828cab6d644a983af363abbe41652f659feb8
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 17
-  completed_plans: 17
+  total_plans: 18
+  completed_plans: 18
   percent: 0
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-09-11)
 ## Current Position
 
 Phase: 48 (技能发现与调用（`/` 面板 + `/skill:name`）) — EXECUTING
-Plan: 7 of 7
-Status: Ready to execute
-Last activity: 2026-09-12 — Phase 48 execution started
+Plan: 8 of 8
+Status: Phase complete — ready for /gsd-verify-work
+Last activity: 2026-09-13 — Phase 48 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -109,6 +109,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 48 P5 | 5min | 2 tasks | 5 files |
 | Phase 48 P06 | 6min | 2 tasks | 8 files |
 | Phase 48 P7 | 6min | 2 tasks | 7 files |
+| Phase 48 P08 | 4 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -219,6 +220,10 @@ Recent decisions affecting current work:
 - [Phase 48]: [Phase 48] 48-07：shadowed（46 D-06）/ disabled（46 D-09·D-10）/ tier（D-14）三字段全部由同一条重扫管线产出 → 运行期新增的技能不能绕过遮蔽与禁用；重试有界（源码门禁禁 while/for + 行为断言 `rescanCalls === 1`），失败码域仍 `not_found`｜`disabled` 两个
 - [Phase 48]: [Phase 48] 48-07：忙时语义是设计 —— 调用路径恒 `isProcessing = true`，重扫必落忙分支：只置脏、不改写 `agent.state.systemPrompt`、不广播（回写与 `skills:changed` 延后到下一次非忙同步点），天然排除「广播 → 重扫 → 再广播」自激回路；renderer `.refreshSkills(` 计数仍恒 1
 - [Phase 48]: [Phase 48] 48-07：G-48-12 只闭合代码/测试/文档面；`48-UAT.md` 的 gap status 保持 `failed`、`.planning/WINDOWS.md` unrun-verify id 24 保持 `open`（计数未动）—— 运行期终证仍是重跑 `/gsd-verify-work 48` 的自动驱动探针（在 managed-skills 下新建目录后不打开 / 面板直接手打 /skill:<新名>）
+- [Phase 48]: [Phase 48 08] 延迟补刷的检脏/复位/同步/失败恢复四件事只允许存在于唯一方法 _flushDeferredSkillsPrompt() 内，prompt() 与 promptWithContext() 两个成功出口各只留一行调用（全文件恰 2 处）—— 用「方法体四要素顺序 + 调用点恰 N 处 + 另一出口零标记读写」把第二份实现钉死
+- [Phase 48]: [Phase 48 08] 补刷只在成功出口执行、且首行检脏早退：错误出口与 _cleanupCurrentAgent() 不补（避免同一次运行双刷）；脏标记为假时零 IO（否则每条普通消息多付一次全量重扫）—— 两条都写成可失败的门（K3/K4/K2），不是注释里的承诺
+- [Phase 48]: [Phase 48 08] miss 重试块取「重扫与重试读盘各自独立 try」+ rescanned 局部标志：重扫抛错时不再重读（整批失败会回滚缓存三件套 ⇒ 重读必然同形）；err 取值一律 err && err.message ? err.message : String(err)（throw null / 抛原始值不得二次抛错）；两条告警文案必须可判别（「重扫失败」/「重试读盘失败」）
+- [Phase 48]: [Phase 48 08] 本次只把「新增的调用点」（重试读盘）纳入 try —— ai-manager.js:1046/:1174 两处裸调、首次读盘与动态 import 仍不在 try 内，即 WR-02 仍开；WR-06 保持开放随 Phase 49。本计划不声称闭合二者，也不改 48-UAT.md
 
 ### Roadmap Evolution
 
@@ -327,8 +332,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-12T14:19:08.856Z
-Stopped at: Completed 48-07-PLAN.md
+Last session: 2026-09-12T16:12:43.275Z
+Stopped at: Completed 48-08-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

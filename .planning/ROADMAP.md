@@ -235,12 +235,12 @@ Plans:
   4. 模型可仅凭 description 自动匹配技能并通过 `read` 打开其正文（用户不显式调用也能生效）。
   5. 调用不存在的技能给出明确错误提示（不出现"点了没反应"）；`disable-model-invocation` 技能不进 system prompt 但可经 `/skill:` 显式调用且在 UI 有标记。
 
-**Plans:** 8 plans（48-01..07 已执行；**48-08 待执行** —— UAT round 3 test 18 裁决出的 G-48-18 / G-48-19，见文末 Gap closure）
+**Plans:** 8/8 plans executed（48-01..07 已执行；**48-08 待执行** —— UAT round 3 test 18 裁决出的 G-48-18 / G-48-19，见文末 Gap closure）
 
 Plans:
 
 - [x] 48-07-PLAN.md
-- [ ] 48-08-PLAN.md
+- [x] 48-08-PLAN.md
 
 **Wave 1**
 
@@ -348,7 +348,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 46. 技能基础设施 | 4/4 | Complete | 2026-09-11 |
 | 47. 内置技能播种 + bash 策略加固 | 6/6 | In Progress|  |
-| 48. 技能发现与调用 | 7/7 | In Progress|  |
+| 48. 技能发现与调用 | 8/8 | In Progress|  |
 | 49. `manage_skill` 工具 | TBD | Not started | - |
 | 50. 设置页技能管理区 + `/api/skills/*` | TBD | Not started | - |
 | 51. 用户技能导入管线 | TBD | Not started | - |
