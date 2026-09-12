@@ -1,18 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 48-skill-name
 source: [48-VERIFICATION.md]
 started: 2026-09-12T06:55:00Z
-updated: 2026-09-12T07:56:14Z
+updated: 2026-09-12T08:00:00Z
 ---
 
 ## Current Test
 
-number: 8
-name: {UAT} 模型自动匹配技能的可见性（DISC-05 核心）
-expected: |
-  在运行中的应用里提一个**命中某技能 description 的任务**（不手打 `/skill:`），观察模型是否自行 `read` 该技能的 `SKILL.md` —— 工具卡片标题显示「使用技能「name」」并带来源徽标；参数区仍显示实际读取路径；**切换对话再切回**后同一卡片标记仍在。另问「你有哪些技能」，模型应能区分技能与工具（D-18）。
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -128,8 +124,8 @@ note: |
 
 ### 8. {UAT} 模型自动匹配技能的可见性（DISC-05 核心）
 expected: 在运行中的应用里提一个**命中某技能 description 的任务**（不手打 `/skill:`），观察模型是否自行 `read` 该技能的 `SKILL.md` —— 工具卡片标题显示「使用技能「name」」并带来源徽标；参数区仍显示实际读取路径；**切换对话再切回**后同一卡片标记仍在。另问「你有哪些技能」，模型应能区分技能与工具（D-18）。
-result: [pending]
-awaiting_verdict: 待用户裁决（证据已取齐，见 observed；代理建议判 pass 并把「模型不配合」记为观测）
+result: pass
+decision: 判 pass（用户 2026-09-12 拍板）—— 交付物①（技能化卡片 + 徽标 + 路径 + 重载还原）已端到端证成；②（模型自发遵守 `read` 指令）由 SDK 模板完全承载、不属本阶段可控代码，失败归因于模型能力，另记 REVIEW 观测
 observed: |
   这条实测**必须拆成两件事**——代理把它拆开分别驱动，结论相反：
 
@@ -154,17 +150,15 @@ observed: |
 
   ⚠ 本机可用 provider 只有 MS/Qwen3-8B（huggingface 额度耗尽、xiaomi 无 key），**无法换更强模型复测**。
 note: |
-  代理建议：判 **pass**——Phase 48 的交付物是「技能化卡片的可见性与持久化」（①，已证），
-  而「模型是否自发遵守 `read` 指令」由 SDK 模板完全承载、不属本阶段可控代码；失败归因于模型能力。
-  但 ② 是**真实的产品可用性风险**（弱模型下用户会看到一张 `demo` 失败卡片），建议在阶段收尾时记一条观测（REVIEW Info 或留给 Phase 50/51 的技能 UX）。
-  备选：若你认为该在 Realm 侧补一句强化指令（如「技能只能经 `read` + `location` 读取，不存在同名工具」）→ 记 gap G-48-8 并进修复计划。
+  ② 已作为观测写入 `48-REVIEW.md` IN-04（弱模型下用户会看到一张 `demo` 失败卡片，属真实可用性风险，
+  留给 Phase 50/51 的技能 UX 处理）。本阶段不修。
 
 ## Summary
 
 total: 8
-passed: 2
+passed: 3
 issues: 5
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 

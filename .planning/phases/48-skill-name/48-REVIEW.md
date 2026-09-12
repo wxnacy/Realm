@@ -281,6 +281,17 @@ const abs = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(root, raw);
 
 ---
 
+### IN-04: 弱模型下「模型自发匹配技能」退化为把技能名当**工具**调用（实测观测，非本阶段代码缺陷）
+
+**来源:** `/gsd-verify-work 48` test 8 自动驱动（2026-09-12），两次独立观测一致。
+**Issue（现象）:** 给一个命中某技能 `description` 的任务（不手打 `/skill:`），模型**没有** `read` 该技能的 `SKILL.md`，而是把技能名当工具调用 —— 卡片标题 `demo`（未技能化）、参数 `{ "text": … }`、结果 `Tool demo not found`、状态`失败`；模型自述「未找到名为 "demo" 的技能工具」。追问「技能与工具有什么区别」时答「需通过 `/skill:名字` 显式调用才能生效」，与 D-18 口径不符。
+**归因（源码直读）:** 不是 Realm 的接线问题。`buildSystemPrompt()`（`ai-manager.js:599-604`）= base + `buildSkillsPrompt()`，后者即 SDK `formatSkillsForSystemPrompt` 的产物；该模板（`node_modules/@earendil-works/pi-agent-core/dist/harness/system-prompt.js`）已明确写下「Read the full skill file when the task matches its description.」并逐条给出 `<location>` 绝对路径。故指令存在且正确，是模型（ModelScope `Qwen/Qwen3-8B`）不遵守。
+**影响:** 弱模型用户会看到一张以技能名命名的**失败工具卡片**，技能自动匹配对其不可用；显式 `/skill:name` 路径不受影响。
+**为何不计缺陷:** 由 SDK 侧提示词模板承载，Realm 无可控代码；本阶段交付物（技能化卡片的可见性 + 重载还原）已由 test 8 ① 端到端验证通过。
+**建议去向:** 留给 Phase 50/51 的技能 UX（例如：把技能名注册为一个显式报错的同名工具、或在 Realm 侧追加一句强化指令「技能只能经 `read` + `location` 读取，不存在同名工具」）。
+
+---
+
 ## 备注（复核过的、不构成 finding 的点）
 
 - `ai:prompt` / `ai:prompt-with-context` 的返回值从 `string|null` 改为对象契约：全仓（排除 `.claude/worktrees/` 历史副本）仅 `ipc-handlers.js` 两处调用，均已同步；`prompt*()` 的所有 return 路径都返回对象，不存在 `res.conversationId` 读 undefined 的入口。
