@@ -781,7 +781,18 @@ function getSkillsForUI(seededNames) {
  * 4. **不做**「读失败回退缓存快照」—— 那会直接违反硬约束（用户要的就是「当场读」）
  *
  * 返回值域**只有两个失败码**：`not_found`（不存在 / 被整条跳过 / 文件被删 /
- * 目录被换成别的技能 / 正文为空）与 `disabled`。D-13 推论要求前者与「不存在」同形。
+ * 目录读不到 / 正文为空）与 `disabled`。D-13 推论要求前者与「不存在」同形。
+ *
+ * **命中判据是所在目录**（与 `enforceDirNameAuthority` 同口径），**不是**可能被
+ * frontmatter 伪造的 `Skill.name`：SDK 的名称是 `frontmatterName || parentDirName`
+ * （`skills.js:218-219`），而目录名才是 Realm 的唯一权威（46 D-08）。用目录路径
+ * 判定同一性，`frontmatter name ≠ 目录名` 的合法技能（GitHub 导入常见）才能被
+ * 显式调用；「目录被换成别的技能」的证据也随之变成**目录读不到 / 路径不等**。
+ *
+ * 命中后把 `name` 重写为入参（目录名）再返回：SDK 的 `formatSkillInvocation` 取的是
+ * `skill.name`（`skills.js:9`），不重写会让 frontmatter 里的冒名 name 进注入块；重载
+ * 链路 `parseStoredSkillInvocation` 也从注入块的 `name` 属性取技能名，重写才能保证
+ * 「重开对话后 pill 名称与实时链路一致」。
  *
  * @param {object} env - 沙箱 ExecutionEnv（agent-workspace.createSandboxEnv 的返回值）
  * @param {string} name - 技能名（调用方已解析；恒等于目录名 —— 46 D-08）
@@ -803,13 +814,23 @@ async function readSkillForInvocation(env, name) {
     // SDK 读盘失败只产诊断 + 空技能集、不抛错；真抛错时按「不存在」处理（不冒名注入）
     return { ok: false, reason: 'not_found', name };
   }
-  const fresh = skills.find((s) => s.name === name) || skills[0];
+  // 同一性改由**所在目录**判定（与 enforceDirNameAuthority 同口径）：读回来的就是
+  // 缓存条目那个目录下的 SKILL.md。归一化只用纯词法 path.resolve（与 48-03 的
+  // matchSkillByPath / _resolveSkillMarker 同规则），不引入 realpath / `~` 展开。
+  const expectedDir = path.resolve(path.dirname(entry.skill.filePath));
+  const fresh =
+    skills.find(
+      (s) =>
+        s &&
+        typeof s.filePath === 'string' &&
+        path.resolve(path.dirname(s.filePath)) === expectedDir
+    ) || null;
   if (!fresh || typeof fresh.content !== 'string' || fresh.content.trim() === '') {
     return { ok: false, reason: 'not_found', name };
   }
-  // name 权威取自目录名：与缓存条目的 name 不一致 → 目录被换成别的技能，绝不冒名注入
-  if (fresh.name !== name) return { ok: false, reason: 'not_found', name };
-  return { ok: true, skill: fresh, source: entry.source };
+  // name 重写为入参（目录名）：formatSkillInvocation 用 skill.name 生成注入块的 name
+  // 属性，不重写会让 frontmatter 里声明的名字进注入块（防冒名，46 D-08）
+  return { ok: true, skill: { ...fresh, name }, source: entry.source };
 }
 
 /** 复位模块级缓存（仅测试用；跨用例污染会让「空技能集」断言假失败） */
