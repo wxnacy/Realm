@@ -1583,6 +1583,42 @@ ${content}
   }
 
   /**
+   * 判定一次 `read` 工具调用是否在读取某个技能的正文（48 DISC-05 / D-15）
+   *
+   * **判定只在工具事件生成侧完成**（`_setupEventBroadcasting` 的 `tool_execution_start`）——
+   * renderer 在 `file://` 主窗口、没有 `sandboxEnv`，拿不到技能目录的权威路径，按路径字符串
+   * 包含猜就是第二份判定实现（T-48-10 的根因）。重载链路（`getConversationMessages`）**复用同一个**
+   * 方法，使两条链路判据相同。
+   *
+   * 判定顺序严格如下，任一不满足即 `return null`（接口契约：**缺失 / 非法一律零回归**，
+   * 渲染为普通 `read` 卡片）：
+   * 1. 只认 `read` 工具；`args` 为假值 / `args.path` 非字符串 → null
+   *    （SDK `read` 的参数键是 `path`，不是 `filePath`）
+   * 2. 取 `this.sandboxEnv.cwd` 作解析基准（AI 未初始化时不得抛错）
+   * 3. **纯词法** `path.resolve` 归一化（与 SDK `env.absolutePath` 同规则）；**不**额外展开
+   *    `~` / `file://` —— 那类路径解析后落在工作区外、沙箱会拒绝，标 null 是与之一致的正确行为
+   * 4. basename 必须是 `SKILL.md`（技能目录下的 `references/*.md` 同样不算「使用技能」）
+   * 5. 命中判定走 `ai-skills-manager.matchSkillByPath`（与缓存 `filePath` 做规范化全等比较，
+   *    **不按目录前缀猜、不重新扫盘**）
+   *
+   * 可靠性边界（如实写入产品文档）：极端 Unicode 文件名（NFD / 窄空格 / 弯引号变体）下标记
+   * 可能不命中 —— 后果**仅**是显示为普通 `read` 卡片，技能正文仍被正常读取。
+   *
+   * @param {string} toolName - 工具名
+   * @param {object|undefined} args - 工具参数（`read` 的路径在 `args.path`）
+   * @returns {{name: string, tier: string}|null} 命中返回标记，否则 null
+   * @private
+   */
+  _resolveSkillMarker(toolName, args) {
+    if (toolName !== 'read' || !args || typeof args.path !== 'string') return null;
+    const root = this.sandboxEnv && this.sandboxEnv.cwd;
+    if (!root) return null;
+    const abs = path.isAbsolute(args.path) ? path.resolve(args.path) : path.resolve(root, args.path);
+    if (path.basename(abs) !== 'SKILL.md') return null;
+    return getAiSkillsManagerLazy().matchSkillByPath(abs, this.getSeededSkillNamesSafe());
+  }
+
+  /**
    * 设置事件广播机制（per D-05~D-08）
    *
    * 订阅 Agent 事件，翻译为渲染端 UI 契约后广播：
@@ -1649,6 +1685,12 @@ ${content}
             tool_name: event.toolName,
             status: 'running',
             params: event.args,
+            // 48-03（D-15）：read 工具读取技能正文时的展示标记。只能在这里打 ——
+            // 本处是**同步**上下文而匹配可同步完成（缓存 filePath 是内存数据）；
+            // tool_execution_end 不带 params，标记错过 start 就没有第二次机会；
+            // renderer 的更新分支用 ...spread 保留既有字段，标记在后续状态更新中自然留存。
+            // 非技能 read / 非 read 工具 / 非法参数 → null（渲染普通卡片，零回归）。
+            skill_invocation: this._resolveSkillMarker(event.toolName, event.args),
           });
           break;
         }

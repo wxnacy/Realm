@@ -2406,7 +2406,15 @@ describe('H 组 · read 卡片技能化（48-03 / DISC-05）', () => {
       false,
       'renderer 不得按路径字符串自行匹配技能（判定只在工具事件生成侧）'
     );
-    assert.strictEqual(body.includes('innerHTML'), false, '技能变体不得退回 innerHTML');
+    // 技能变体段不得退回 innerHTML（状态图标的既有 innerHTML 不受本计划影响）
+    const variantStart = body.indexOf('使用技能「');
+    const variantEnd = body.indexOf('} else if', variantStart);
+    const variant = body.slice(variantStart, variantEnd > 0 ? variantEnd : variantStart + 900);
+    assert.strictEqual(
+      variant.includes('innerHTML'),
+      false,
+      '技能变体不得退回 innerHTML（技能名 / 徽标一律 textContent）'
+    );
   });
 
   test('样式：技能变体只经两个新类承载，.tool-card 系列既有规则零改动', () => {

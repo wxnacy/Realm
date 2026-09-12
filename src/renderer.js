@@ -9288,7 +9288,10 @@ function handleAIStream() {
                 status: event.status,
                 params: event.params,
                 result: event.result,
-                error: event.error
+                error: event.error,
+                // 48-03（D-15）：主进程在 start 事件打好的技能标记（snake_case，与
+                // tool_execution_id / tool_name 同款）。后续状态更新走 ...spread 保留。
+                skillInvocation: event.skill_invocation
               });
             }
             renderToolCards(state.aiCurrentMessageId);
@@ -9482,10 +9485,30 @@ function renderToolCard(toolExecution) {
     statusIcon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>';
   }
 
-  // 工具名称（execute_action 显示具体 action）
+  // 工具名称（execute_action 显示具体 action；技能读取变体显示技能化标题）
   const name = document.createElement('span');
   name.className = 'tool-card-name';
-  if (toolExecution.name === 'execute_action' && toolExecution.params?.action) {
+  const skillInvocation = toolExecution.skillInvocation;
+  if (skillInvocation && skillInvocation.name) {
+    // 48-03（D-15）：模型按 description 自动匹配并 read 技能正文时把卡片标题技能化。
+    // 判定已在工具事件生成侧完成（主进程），此处**不**按路径字符串自行匹配。
+    // 技能名与徽标一律走 DOM API + textContent（T-48-10 缓解）；tier → class / label /
+    // title 一律经 SkillPickerModel.TIER_BADGE 白名单查表（表外 / 缺失 tier → 跳过徽标），
+    // 不把 tier 值拼进 class 字符串，也不为该变体退回 innerHTML。
+    name.classList.add('tool-card-name-skill');
+    const nameText = document.createElement('span');
+    nameText.className = 'tool-card-name-text';
+    nameText.textContent = `使用技能「${skillInvocation.name}」`;
+    name.appendChild(nameText);
+    const badge = window.SkillPickerModel.TIER_BADGE[skillInvocation.tier];
+    if (badge) {
+      const badgeEl = document.createElement('span');
+      badgeEl.className = 'slash-picker-source-badge ' + badge.className;
+      badgeEl.textContent = badge.label;
+      badgeEl.title = badge.title;
+      name.appendChild(badgeEl);
+    }
+  } else if (toolExecution.name === 'execute_action' && toolExecution.params?.action) {
     name.textContent = `execute_action (${toolExecution.params.action})`;
   } else {
     name.textContent = toolExecution.name;

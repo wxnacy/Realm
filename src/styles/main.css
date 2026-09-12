@@ -6142,6 +6142,27 @@ textarea::placeholder {
   flex-shrink: 0;
 }
 
+/* 技能读取变体的名称容器（48-03）：.tool-card-name 的修饰类，零改动既有类。
+   gap: 8px 与父容器 .tool-card-header 的存量值同值 —— 使「图标↔名称」与「名称↔徽标」
+   两处间隙一致；不得改用 6px（那是折叠框 header 专用的 B 表例外值）。
+   min-width: 0 让内层文本在 flex 下可收缩并 ellipsis。 */
+.tool-card-name-skill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 技能变体的名称文本：超长技能名由本类截断（徽标 flex-shrink: 0 不受影响）。
+   字号字重沿用卡片存量 12px/500（继承自 .tool-card-name），此处只加等宽字体与截断四件套。 */
+.tool-card-name-text {
+  font-family: var(--font-mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 /* 工具卡片内容（默认折叠） */
 .tool-card-content {
   max-height: 0;
