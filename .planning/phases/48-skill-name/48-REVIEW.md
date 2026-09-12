@@ -1,221 +1,148 @@
 ---
 phase: 48-skill-name
-reviewed: 2026-09-12T06:37:30Z
+reviewed: 2026-09-12T12:14:42Z
+review_kind: incremental-gap-closure-re-review
+baseline: f5a770d922f6a02aced432ce3a4faef9b57d15a6（上一轮 48-REVIEW 的 diff_base）
 depth: standard
-files_reviewed: 12
+files_reviewed: 9
 files_reviewed_list:
   - AGENTS.md
-  - ai-manager.js
   - ai-skills-manager.js
   - docs/product/ai-skills.md
-  - ipc-handlers.js
+  - src/ai-cancel-state.js
   - src/index.html
-  - src/preload.js
   - src/renderer.js
-  - src/skill-picker-model.js
-  - src/styles/main.css
+  - tests/test-ai-cancel-state.js
   - tests/test-ai-skills.js
   - tests/test-skill-picker-model.js
 findings:
-  critical: 4
-  warning: 4
-  info: 3
-  total: 11
+  critical: 1
+  warning: 6
+  info: 7
+  total: 14
 status: issues_found
 highest_severity: critical
 ---
 
-# Phase 48: Code Review Report
+# Phase 48: Code Review Report（**增量复审 · Gap 闭合轮**）
 
-**Reviewed:** 2026-09-12
+**Reviewed:** 2026-09-12T12:14:42Z
 **Depth:** standard
-**Files Reviewed:** 12（7 源码 + 2 文档 + 1 构建/样式 + 2 测试）
-**Baseline used for diff:** `23e5144e1f78c300f3893f622f27adf5b3fccc63^`（`git diff --stat` 源码侧：ai-manager.js +521 / renderer.js +580 / ai-skills-manager.js +164 / skill-picker-model.js +358 / ipc-handlers.js +61 / preload.js +14 / main.css +202 / index.html +4）
-**Status:** issues_found（**4 条 Critical**；最高严重度 Critical）
+**Files Reviewed:** 9（3 源码：`ai-skills-manager.js` / `src/renderer.js` / `src/ai-cancel-state.js`（新增）+ 1 页面 `src/index.html` + 3 测试 + 1 产品文档 + 1 项目说明 `AGENTS.md`）
+**Baseline:** `f5a770d922f6a02aced432ce3a4faef9b57d15a6`（上一轮审查的 commit）
+**Status:** issues_found（**1 条 Critical**；上一轮 CR-02 / CR-03 / CR-04 全部**已闭合**，CR-01 维持用户 2026-09-12 已裁决的 `TD-48-01`，不重复计分）
+**测试实跑（本轮复核，非采信报告）:** `node --test tests/test-ai-cancel-state.js` 14/14 ✅ · `node tests/test-ai-skills.js` 132/132 ✅ · `node --test tests/test-skill-picker-model.js` 95/95 ✅
 
 ## Summary
 
-本阶段交付的是 `/skill:name` 显式调用端到端链路（解析 → 调用瞬间实时读盘 → `<skill>` 块注入 → 重载还原）、面板收窄投影与三档 tier、`/` 面板交互面、`read` 卡片技能化。两套测试实跑全绿（`node tests/test-ai-skills.js` 129/129；`node --test tests/test-skill-picker-model.js` 93/93）。
+本轮 diff 是 gap 闭合轮（G-48-2 名称权威 / G-48-3 移除本地否决 + 广播无条件重拉 / G-48-4 取消归属 / G-48-6 回填后定向重绘），共 9 个文件 +792/-156。
 
-**先说做对的部分（对抗式核验后仍然成立）**：①「解析规则只此一份」是真的 —— `src/skill-picker-model.js` 双模式导出，main 侧 `parseSkillInvocationText` 直接委派同一 api 对象，`extractArgs` 的 token 取值法确实消掉了旧式的「按名长切片吞 args 开头」（P-48-01）；②`buildSkillInvocationBlock` 委托 SDK `formatSkillInvocation`、`resolveSkillBubbleArgs` 的两趟扫描顺序（先非空候选后空候选）在 `48-RESEARCH` 列出的病态输入上经推演确实给出正确 args，且重载装饰用例用**真实** `formatSkillInvocation` 构造输入（SDK 改文案会红，不是自证）；③`⑦ promptOmitted` 的 `eligible.slice(kept.length)` 与贪心 `break` 的「kept 恒为 eligible 前缀」不变式一致，且未进 computeDigest（digest 只取 promptBlock，计数注释成立）；④`read` 标记只在 `tool_execution_start`（唯一带 `params` 的同步点）打、重载链路复用同一 `_resolveSkillMarker`、`t.params` 在真实存储形状下是对象（`ai-conversations-manager.js:225/585`）—— 这三条核验通过，不是「看起来对」；⑤路径判定用 `path.resolve` 全等而非目录前缀猜，`_resolveSkillMarker` 的边界（非 `read` / 非 `SKILL.md` / 非法参数 → null）零回归；⑥`ipc-handlers.js` 两处 `ai:prompt*` JSDoc 与 `preload.js` 的 `ai.getSkills/refreshSkills` 嵌套层级都正确（`ai:` 子对象内）。
+**先说做对的部分（逐条核证后仍然成立）**：
 
-**但本阶段的核心承诺有两处没关上**：一是「调用那一刻实时读盘」（用户 2026-09-11 硬约束）在 **renderer 侧被一个可能陈旧的快照挡住**（CR-04），二是**面板把技能名当属性值拼进 HTML**，而 `escapeHtml` 不转义引号（CR-01，可被 AI 自建内容驱动）。另有一处「流式中调用技能」的时序洞把新回复整条吃掉（CR-03），以及一处让面板列出的技能**必然无法调用**的判定错误（CR-02）。
+1. **G-48-2 的同一性判据改对了口径**（`ai-skills-manager.js:820-833`）：判据从 SDK `Skill.name`（= `frontmatterName || parentDirName`，正是**合法会不一致**的那个字段）改为**目录路径全等**，与 `enforceDirNameAuthority` 同口径；且把 `skills.find(...) || skills[0]` 的兜底连同作废它的 `fresh.name !== name` 一起删掉，返回前把 `name` 重写为入参目录名。我用独立探针复跑「目录 `evil` + `frontmatter name: find-skills`」，返回 `{ok:true, name:'evil'}`，注入块 `name="evil"` / `location="…/evil/SKILL.md"`，冒名 name 不进块 —— 与 46 D-08 一致，CR-02 真闭合（判据变换本身没有引入新的逃逸口：入参 `name` 只在缓存里做**全等**查找，不做路径拼接）。
+2. **G-48-4 的归属解算抽成纯函数是正确的一步**：`src/ai-cancel-state.js` 零依赖、双模式导出，`resetRunState` **只由锚点等式决定、与消息列表形态无关**（`ai-cancel-state.js:46-60`），这恰好保住了「用户点停止」的既有语义（`cancelledId === currentId` → 复位 + 气泡标取消），同时把 UAT test 4 的实测序列（锚点=旧 id / 当前=新 id → 目标为旧条、**不复位**）变成表驱动用例。renderer 的取消分支也**先解算再复位**（`renderer.js:9387-9413`），顺序正确。
+3. **G-48-3 两条口径都落地了**：本地否决整段删除（`renderer.js:8698-8707`，`state.aiSkills` 在发送路径上零出现），且 `skills:changed` 改为无条件重拉（`renderer.js:4405-4407`）。**自激回路核查通过**：`pullAiSkillsSnapshot`（`renderer.js:9081-9094`）只调 `ai:get-skills` → `aiManager.getSkillsForUI()`（`ipc-handlers.js:1747-1753`）→ `getSkillsForUI` 是**同步零 IO 投影**（`ai-skills-manager.js:761-767`，全仓唯一广播点是 `ai-manager.js:2786`，只在真正改写 prompt 时发），因此「广播 → 重拉 → 再广播」不成立。
+4. **G-48-6 的「单源构建」是真的单源**：`renderAIMessages` 的 `isUser` 分支整段替换为 `buildUserMessageContent(msg)`（`renderer.js:8052-8055`），`refreshUserMessageBubble` 复用同一函数，测试断言了 `renderAIMessages` 体内**不得**再出现 `renderAISkillPill(` / `renderSkillContentBox(`。属性逃逸面**没有变宽**：单源构建全部走 DOM API + `textContent`（`renderer.js:8890-8916`、`8962-9010`），`pill.title = …` 是 property 赋值，不经 `innerHTML`；`ai-cancel-state.js` 的 `<script>` 标签顺序正确（`src/index.html:1022-1024`，先于 `renderer.js`）。
+5. `state.aiCancelledMessageId` 的**维护成对性**无缺口：置位点只有 `abortAIIfStreaming`（`9115-9118`）与 `handleStopAI`（`8383-8385`）两处，且两处都与 `aiCancelledByUser` 同置；清理点在两处 catch（`8391-8392` / `9122-9123`）、取消分支（`9397-9398`）、两处对话切换（`7214-7215` / `7252-7253`）—— 不存在「只清锚点不清 flag」或反之。
 
----
+**但本轮仍有 1 条必须处置的 Critical**：取消归属的**生命周期**没闭合 —— `aiCancelledByUser` 只在「迟到的 error 事件」里被消费，**任何一处正常结算都不清理它**；而 `abort()` 打在已结算的 run 上是**静默 no-op**（SDK `agent.js:202-204` 的 `this.activeRun?.…`）。一旦出现「abort 无事件」的窄竞态，这对标记就会**跨轮存活**，把**下一轮的真实错误**当成取消消费掉；又因为此时 `cancelledId !== currentId`，`resetRunState` 为 false → 轮次状态**永不复位**（CR-05：UI 卡在「流式中」、错误静默、旧回复正文被覆盖）。这是本轮修复留下的**同源残余**，不是新功能面。
 
-## Critical Issues
-
-### CR-01: 技能名经 `escapeHtml` 拼进 HTML 属性 → 属性逃逸注入（renderer XSS）
-
-**File:** `src/renderer.js:10340`（同类：`10333`、`10344`、辅助函数 `11262-11266`）
-**Issue:**
-`renderSlashPickerList` 用字符串拼 HTML，并把**磁盘来源**的技能名插进了**属性值**位置：
-
-```js
-const rowTitle = item.kind === 'skill'
-  ? ' title="' + escapeHtml('/skill:' + item.name + ' 可显式调用') + '"'
-  : '';
-```
-
-而 `escapeHtml` 的实现是 `div.textContent = text; return div.innerHTML;` —— 这条路径只转义 `& < >`，**不转义 `"` / `'`**。技能名不是可信输入，且**字符集不受约束**：
-
-- 名称权威是**目录名**（`ai-skills-manager.enforceDirNameAuthority`，46 D-08），SDK 的 `validateName` 只产 warning、**不拒绝**（`dist/harness/skills.js:220-236/237-251`），Realm 也刻意不丢（注释明确「命名不规范在 GitHub 导入中很常见」）。
-- 目录名可以合法包含 `"`、`>`、空格。写入口在沙箱内对 AI 是开放的（`write` / `bash` 都自动执行、免确认），且产品文档明说当前管理技能的方式就是**直接操作两个技能目录下的文件**。
-
-实测复核（临时沙箱，`node /tmp/probe-xss.js`）：
-
-```
-投影里的 name = ["pwn\" data-x=\"y"]
-面板生成的 rowTitle 属性片段 =>
- title="/skill:pwn" data-x="y 可显式调用"
-```
-
-即 `"` 直接闭合 `title` 属性、后续内容成为新属性。把 payload 换成 `onmouseover="…"` 就是事件处理器注入（注入体不需要尖括号，`<`/`>` 的转义拦不住）。利用链成立且不需要用户做任何异常操作：网页提示注入 → AI 用 `write` 在 `managed-skills/` 下建一个带引号的技能目录 → 用户按 `/` 打开面板（`rawFilter` 为空时全部命中）→ 鼠标划过该行 → 注入代码在**主窗口 renderer** 执行，而该上下文持有 `window.realmAPI` 全量 IPC（设置、文件、Cookie、附件、确认卡片链路）。这是本阶段新增的**新攻击面**（同样模式的既有落点在 download / media 段，但那些数据不来自「AI 可自建」的目录）。
-
-**Fix:**
-属性上下文必须用引号感知的转义，或干脆改 DOM API（阶段自己在 `renderToolCard`/`renderAISkillPill` 已采用后者）：
-
-```js
-// 方案 A：补一个属性专用转义
-function escapeAttr(text) {
-  return String(text)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-// rowTitle / badge title / status title 三处改用它（文本上下文继续用 escapeHtml）
-```
-```js
-// 方案 B（更彻底）：行改 DOM 构建，永不拼属性字符串
-const row = document.createElement('div');
-row.className = rowClasses.join(' ');
-row.dataset.index = String(index);
-row.title = '/skill:' + item.name + ' 可显式调用';   // setAttribute 天然安全
-```
+另有 6 条 Warning（其中 2 条为本轮新增：`WR-05` 是 `G-48-6` 的「立即」口径与实现时机不符、会**原样复现 UAT 探针的失败半边**；`WR-06` 是**实时读盘路径绕过了 64 KiB 字节闸**，已用探针决定性复现），7 条 Info。
 
 ---
 
-### CR-02: `frontmatter name ≠ 目录名` 的技能**必然** `not_found`，但面板把它列为可调用
+## Narrative Findings (AI reviewer)
 
-**File:** `ai-skills-manager.js:806-811`（`readSkillForInvocation`）
-**Issue:**
-缓存层以**目录名**为权威（`enforceDirNameAuthority` 就地重写 `skill.name = dirName`，并保留该技能），但实时读盘走的是 SDK 原生 `loadSkills`，SDK 的名称是 `frontmatterName || parentDirName`（`dist/harness/skills.js:218-219`），**不接受 Realm 的重写**：
+### A. 上一轮 findings 复核台账（Gap 闭合结果）
 
-```js
-const fresh = skills.find((s) => s.name === name) || skills[0];   // ← 想兜住 name 不一致
-if (!fresh || typeof fresh.content !== 'string' || fresh.content.trim() === '') { ... }
-if (fresh.name !== name) return { ok: false, reason: 'not_found', name };  // ← 又把兜底作废
-```
+| id | 上一轮定级 | 本轮结论 | 判据（本轮按代码现状核，不采信计划自述） |
+|----|-----------|---------|------------------------------------------|
+| CR-01 | Critical | **维持已裁决** → `TD-48-01`（已更正为 minor 级残余） | 缺陷形态不变，行号因 diff 位移：`src/renderer.js:10427`（`rowTitle`）、`10419-10420`（badge title）、`10430-10431`（status title）；`escapeHtml` 仍只转义 `& < >`（`11349-11353`）。用户 2026-09-12 已裁决「延后，Phase 49 开工前第一条」，**不重新定级、不重复计分** |
+| CR-02 | Critical | ✅ **RESOLVED**（G-48-2） | `ai-skills-manager.js:817-833`：判据 = `path.resolve(path.dirname(s.filePath)) === expectedDir`；`skills[0]` 兜底与 `fresh.name !== name` 双删；返回 `{...fresh, name}`。独立探针复跑「目录 `evil` + `name: find-skills` → `{ok:true,name:'evil'}`」；新增 3 条用例（`tests/test-ai-skills.js:1589-1676`）在旧实现下必然红 |
+| CR-03 | Critical | ✅ **RESOLVED**（G-48-4），**但留下同源残余 → CR-05** | `renderer.js:9387-9413` 取消分支改按锚点解算 + `resetRunState` 门控；`src/ai-cancel-state.js:58` 把 `resetRunState` 与消息列表形态解耦。UAT test 4 的靶心序列（旧 id/新 id → 目标旧条 + **不复位**）成为用例 `tests/test-ai-cancel-state.js:41-56`。**残余**见 CR-05（标记生命周期） |
+| CR-04 | Critical | ✅ **RESOLVED**（G-48-3，**A+B 两条都做了**） | A：`renderer.js:8692-8707` 的 `known` / `!known` / `disabled` 三段本地否决整段删除；B：`renderer.js:4405-4407` 去掉 `if (!state.slashPickerOpen) return` 改为无条件 `pullAiSkillsSnapshot()`；新测试 `tests/test-skill-picker-model.js:493-512`、`tests/test-ai-skills.js:2377-2390` 双向钉死（既断言「无面板关闭早退」也断言「不触发重扫」） |
+| WR-01 | Warning | ❌ **仍开**（未被本轮触及） | `src/renderer.js:8847-8851` 的 `SKILL_TIER_TITLES` 与 `src/skill-picker-model.js:324-340` 的 `TIER_BADGE[*].title` 仍逐字重复三条文案 |
+| WR-02 | Warning | ❌ **仍开**，且**新增一个抛出点** | `ai-manager.js:1046` / `1174` 的 `await this._resolveSkillInvocation(message)` 仍裸调（位于 `isProcessing = true` 之后、重试 try 之前）。新增证据：`ai-skills-manager.js:808` 的 `await import('@earendil-works/pi-agent-core')` 在 `try` **之外**（try 只包 `loadSkills`，见 `810-816`）→ 动态 import 失败即穿透到 IPC，`isProcessing` 保持 true → 之后所有消息被「AI 正在处理上一条消息」拒绝，直到重建 Agent |
+| WR-03 | Warning | ❌ **仍开** | `renderer.js:9994-10000`（`regenerateMessage`）与 `10072-10078`（`showAIError` 重试）的 `skillError` 分支仍只 `pushSystemNote` 后 return；先前 push 的 `{role:'assistant', content:''}` 占位（`9985` / `10066`）在 `aiStreaming=false` 后被 `skipBubble` 跳掉内容却**仍产出 wrapper + `createMessageActions`**（`8041-8054`、`8093-8095`）→ 留一个带「复制」按钮的空壳。与发送路径的 `removeSkillFailureBubbles`（`8823`）不一致，本轮新加的 `refreshUserMessageBubble` 不改善该路径 |
+| WR-04 | Warning | ❌ **仍开** | `ai-manager.js:1612-1618` 的 `_resolveSkillMarker` 仍只做 `path.isAbsolute + path.resolve`，未做 SDK `normalizeToolPath` 的 `@` 前缀剥离与 Unicode 空格折叠 |
+| IN-01 | Info | ❌ 仍开 | `ai-manager.js:6187` 仍 `indexOf(provenance)`（取首次出现），与自身注释的「锚定在 provenance 行」理由矛盾 |
+| IN-02 | Info | ❌ 仍开 | `src/preload.js:979` 仍写 `@returns {Promise<{success: boolean, error?: string}>}`（实际 `{success?, conversationId, skillInvocation, skillError}`）；本轮 diff 未触及 preload |
+| IN-03 | Info | ❌ 仍开 | `src/renderer.js:10165-10169`：`next < 0` 分支置 `-1` 后直接 `return`，未重渲染，DOM 高亮与 state 短暂背离 |
+| IN-04 | Info（观测） | ⏸ **保留原样**（非本阶段代码缺陷，相位 50/51 处理） | 弱模型把技能名当工具调用的实测观测，归因 SDK 提示词模板，本轮不变 |
 
-于是「SKILL.md 里写了别的 name」的技能在面板上以目录名出现、标为可选（`docs/product/ai-skills.md` §10.4 表格写「正常 → 能显式调用 ✅」），但用户手打 `/skill:<目录名>` 或点面板行都会被判「未找到技能」，**输入框同时被清空**。实测复核（`node /tmp/probe-skill-name.js`）：
-
-```
-目录布局：skills/evil/SKILL.md 内容含 `name: find-skills`
-cache names: [ { name: 'evil', src: 'user', filePath: '.../skills/evil/SKILL.md' } ]
-ui names  : [ 'evil' ]          ← 面板就是这么显示的
-面板认为可显式调用的名字 = evil
-readSkillForInvocation 结果 = {"ok":false,"reason":"not_found","name":"evil"}
-```
-
-这不是理论边界：D-08 的立论本身就是「GitHub 导入里 name 与目录名不一致很常见」；本阶段把「显式调用」做成了该形态技能的唯一可用路径（46 D-08/D-12 语境），却把它判成「不存在」。测试覆盖不到——`writeSkill` 恒写 `name: <目录名>`（`tests/test-ai-skills.js:49-55`），`fresh.name !== name` 那条用例只造了「目录被换成别的技能」，两者在实现里不可区分。
-
-**Fix:**
-判据应以**路径**为准（目录名权威的同一口径），不要比较 SDK 的 name；「目录被换成别的技能」用路径不等来识别：
-
-```js
-// 命中判据：SDK 读回来的就是缓存里那个文件（同一目录、同一 SKILL.md）
-const expectedDir = path.resolve(path.dirname(entry.skill.filePath));
-const fresh = skills.find((s) => path.resolve(path.dirname(s.filePath || '')) === expectedDir) || null;
-if (!fresh) return { ok: false, reason: 'not_found', name };
-if (typeof fresh.content !== 'string' || fresh.content.trim() === '') {
-  return { ok: false, reason: 'not_found', name };
-}
-// 注入用的 name 仍取目录名（D-08）——不要用 fresh.name
-return { ok: true, skill: { ...fresh, name }, source: entry.source };
-```
-并补一条 name ≠ 目录名 的用例（现有 helper 恒写同名，等于永久盲区）。
+> 计数口径：`CR-01` 已由用户裁决为延后并降级，**不计入本轮 `findings.critical`**（它作为 `TD-48-01` 存在于下文技术债节）；`CR-02/03/04` 计为已闭合，不再列出。`critical: 1` 即本轮新增的 CR-05。
 
 ---
 
-### CR-03: 流式回复中发起技能调用 → 新气泡被写成「*用户已取消*」且整条回复的流被丢弃
+### B. Critical Issues
 
-**File:** `src/renderer.js:8736-8740`（中止 + 就地复位）、`src/renderer.js:9315-9331`（取消分支按 `state.aiCurrentMessageId` 归属）
+#### CR-05: 取消标记无生命周期 —— abort 打在已结算的 run 上会留下**跨轮存活**的锚点，吞掉下一轮真实错误并把面板永久卡在「流式中」
+
+**File:** `src/renderer.js:8272-8281`（`finalizeAIStreamingBubble`：唯一该清而没清的地方）、`9112-9125`（`abortAIIfStreaming`）、`8379-8394`（`handleStopAI`）、`9385-9414`（error 取消分支）
+**关联:** `ai-manager.js:1577-1583`（`abort()` 同步、无返回值）、`node_modules/@earendil-works/pi-agent-core/dist/agent.js:202-204`、`326-356`
+
 **Issue:**
-本阶段按 D-08 明确支持「流式回复进行中调用技能」，但复用 `abortAIIfStreaming()` 后**没有把取消标记（`state.aiCancelledByUser`）与新消息隔离开**，而被中止那一轮的迟到事件会按「当前消息 id」归属：
 
-1. `abortAIIfStreaming()`（`9046-9055`）置 `state.aiCancelledByUser = true`，abort 成功后**不回滚**该标记；技能路径随后就地复位 `aiStreaming=false` / `aiCurrentMessageId=null`（`8736-8740`）——注释已经意识到「取消事件是异步广播的」，但只复位了流式状态，没处理取消标记；
-2. `ai:abort` 处理器同步返回（`ipc-handlers.js:1840-1846` 只调 `aiManager.abort()` 后立即 return），因此 renderer 的 `await` 会先恢复，**同步**段把 `state.aiCurrentMessageId` 指向新气泡并发起新 `ai.prompt`；
-3. 被中止那轮的 unwinding 之后才到达：SDK `handleRunFailure` 发 `turn_end` + `agent_end`（`dist/agent.js:349-365`）；`turn_end` 因失败消息正文为空被 `ai-manager.js:1724-1731` 静默吞掉（不发事件），而 `agent_end` 带 `errorMessage` → `ai-manager.js:1743-1748` 发 `'error'`；
-4. renderer 收到该 error 时 `aiCancelledByUser === true` → 走取消分支：把 `state.aiCurrentMessageId`（**已经是新气泡**）的内容改成 `'*用户已取消*'`，并置 `aiStreaming=false`、`aiCurrentMessageId=null`；
-5. 新 run 随后的 `message_update`（`9244-9246`）与 `tool_execution_update`（`9258-9260`）都按 `m.id === state.aiCurrentMessageId` 查找，此时恒为 `null` → **全部丢弃**，新回复在界面上消失（停止按钮也提前回退成发送按钮）。
-
-净效果：在 AI 正在回复时点技能行（面板此时可正常操作），用户看到的是新气泡被标成「用户已取消」、且这一轮技能调用没有可见输出。修复前该路径无法用「测试全绿」证明可用——测试面完全没有涉及 abort × 新消息的时序。
-
-**Fix:**
-把「被取消的那条消息」显式记下来，取消分支只作用于它；或让 `ai:abort` 等 run 结算后再返回（`ipc-handlers.js` / `ai-manager.abort()` 侧 await 一次 run 的 settled promise），使渲染端的新消息严格发生在迟到事件之后：
+本轮的修复把「归属」从 `aiCurrentMessageId` 换成了锚点 `aiCancelledMessageId`，但**没有给这对标记加上生命周期**。完整枚举（全仓 `aiCancelledByUser` 出现点）显示清理只发生在四处：两处对话切换（`7214` / `7252`）、两处 abort 失败的 catch（`8391` / `9122`）、取消分支自身（`9397`）。**没有任何一处在「run 正常结算」时清理它** —— 而 SDK 的 abort 是**静默 no-op**：
 
 ```js
-// abortAIIfStreaming()：记住被取消的锚点
-state.aiCancelledByUser = true;
-state.aiCancelledMessageId = state.aiCurrentMessageId;   // 新增
-await window.realmAPI.ai.abort();
+// dist/agent.js:202-204
+abort() { this.activeRun?.abortController.abort(); }
+```
 
-// handleAIStream 的 error 分支：只认锚点，不认「当前」
-if (state.aiCancelledByUser) {
-  state.aiCancelledByUser = false;
-  const cancelIdx = state.aiMessages.findIndex(
-    m => m.role === 'assistant' && m.id === state.aiCancelledMessageId);
-  state.aiCancelledMessageId = null;
-  ...
+`activeRun` 只在 `runWithLifecycle` 的 `finally → finishRun()` 里清空（`326-356`），而 `handleRunFailure`（→ 唯一会带 `errorMessage` 的 `agent_end` → `ai-manager.js:1733-1748` 发 `error` 事件）**只在 executor 抛错时才走**。因此「abort 到达时 run 已正常跑完」时，主进程**一个事件都不发**，renderer 侧 `aiCancelledByUser` / `aiCancelledMessageId` 就永久留在内存里。
+
+最自然的复现路径是**在流式结束的瞬间连点一次停止按钮**（第二次点击落在主进程已结算、renderer 尚未处理 `turn_end` 的窗口内）：
+
+1. 点击 1：`handleStopAI` 置 flag + 锚点 = A，`abort()` 生效 → A 走 `handleRunFailure` → `error` 事件 → 取消分支消费 → 状态干净；
+2. 点击 2（同一窗口内）：`state.aiStreaming` 仍为 true → 再次置 flag + 锚点 = A → 但主进程 `activeRun` 已为 undefined → **abort no-op，无任何事件** → 标记滞留；
+3. 之后**任意一轮**的真实错误（模型 401/限流/网络、`Agent is already processing a prompt` 四次重试全败、`创建对话失败` …）到达时，取消分支**先于**普通错误分支命中（`9387` 的判据只有 flag）：
+
+```js
+if (state.aiCancelledByUser) {                       // ← 无 run 身份校验
+  const attribution = resolveCancelAttribution(state.aiMessages,
+    state.aiCancelledMessageId /* = A，上一轮的 id */, state.aiCurrentMessageId /* = B */);
+  state.aiCancelledByUser = false; state.aiCancelledMessageId = null;   // ← 单向消费，无补偿
+  if (attribution.targetIndex >= 0) state.aiMessages[attribution.targetIndex].content = '*用户已取消*';
+  if (attribution.resetRunState) { /* false（A ≠ B）→ 什么都不做 */ }
+  needsRender = true; break;                          // ← 错误被吞，showAIError 永不执行
 }
 ```
-（`handleStopAI`（`8403-8413`）同样要在取消落点后清空该锚点，保持停止按钮语义不变。）
+
+净效果（三个同时发生，任一单独都已是缺陷）：
+
+- **A 这条已完成的回复正文被就地覆盖成 `*用户已取消*`**（`9400`，A 仍在列表里 → `targetIndex >= 0`）；
+- **B 轮的轮次状态永不复位**（`resetRunState=false` → `state.aiStreaming` 保持 true、`aiCurrentMessageId` 保持 B、停止按钮不回退），而 B 的错误**没有 `showAIError`、没有重试按钮、没有 system-note**；
+- 面板进入**无法自恢复的卡死**：输入普通消息被 `renderer.js:8717` 的 `if (state.aiStreaming) return;` 静默丢弃，再点停止只会重复第 2 步（无事件可等），唯一出路是 `/clear`（`9132-9136`，靠 `createNewConversation` 清标记）或切换 / 重载对话。
+
+**可达性与定级说明（诚实边界）**：这条**不是** UAT 已实测复现的现象，而是从状态机 + SDK 语义推出的可达路径；触发需要一个窄竞态窗口（renderer 认为仍在流式、主进程已结算）。但它同时满足「错误静默丢失」「已完成回复的显示内容被破坏」「UI 卡在无可用交互的状态」三条，且修复成本是两行不变式；按 `BLOCKER = incorrect behavior / must be fixed before this code ships` 记 Critical。**它不是 CR-03 的重复**：CR-03 是「迟到取消落到新气泡」，本条是「取消标记活得比它要描述的 run 更久」。测试面同样覆盖不到 —— `tests/test-ai-cancel-state.js` 的 A 组只覆盖了单次解算的纯逻辑，没有「标记何时该失效」这一维度。
+
+**Fix（两处，成本约 3 行）:**
+
+```js
+// 1) renderer.js:8272 finalizeAIStreamingBubble()（renderer 侧 turn_end = run 正常结算）
+//    正常跑完就不该再留着「我要把某个错误解释成取消」的授权
+state.aiStreaming = false;
+state.aiCurrentMessageId = null;
+state.aiCancelledByUser = false;        // 新增
+state.aiCancelledMessageId = null;      // 新增 —— 这一处即可消除跨轮污染
+```
+```js
+// 2) renderer.js:9387 取消分支加身份自校验（纵深）：锚点缺失时不得按取消吞掉错误
+if (state.aiCancelledByUser && state.aiCancelledMessageId) { ...原逻辑... }
+// 走 else（原普通错误分支）→ showAIError 照常出提示与重试按钮
+```
+（第 1 处需要注意的是：被中止的 run 走 `handleRunFailure`，renderer 只会收到 `error` 而**收不到** `turn_end`（`ai-manager.js:1743-1748` 发完 error 即 `break`），因此不会与「用户点停止」的既有语义打架；`/clear` 与 `/compact` 的 aborted run 同理。可另补一条用例：`resolveCancelAttribution` 之上加「标记在正常结算后必须为 null」的接线断言。）
 
 ---
 
-### CR-04: renderer 预检用**可能陈旧**的快照否决调用，直接违反「调用那一刻实时读盘」硬约束
+### C. Warnings
 
-**File:** `src/renderer.js:8719-8732`（预检）、`src/renderer.js:4399-4403`（`skills:changed` 监听）、`src/renderer.js:9015-9028`（快照拉取）
-**Issue:**
-`state.aiSkills` 只在三处更新：启动一次性 `pullAiSkillsSnapshot()`、面板打开时的 `refreshSkills()` 回包、以及**面板打开期间**的 `skills:changed` 广播：
+#### WR-01: `SKILL_TIER_TITLES` 与 `TIER_BADGE[*].title` 逐字重复，破坏单源并让文档口径失真
 
-```js
-window.realmAPI.onIpcMessage('skills:changed', () => {
-  if (!state.slashPickerOpen) return;   // ← 面板关闭时快照永不更新
-  pullAiSkillsSnapshot();
-});
-```
-
-而发送路径把这份快照当**否决依据**：
-
-```js
-const known = (Array.isArray(state.aiSkills) ? state.aiSkills : []).find(s => s.name === ref.name);
-if (!known) { elements.aiInput.value = ''; pushSystemNote('未找到技能「' + ref.name + '」，输入 / 查看可用技能'); return; }
-```
-
-于是「运行期新增技能 + 未打开过 `/` 面板」这一完全正常的使用序列会走进死路：AI 自建技能（Phase 49 的正路：`write` 写好 `managed-skills/<name>/SKILL.md`，主进程 idle 边界 `syncAgentSystemPrompt()` 重扫并广播 `skills:changed`）→ 广播因面板关闭被直接丢弃 → 用户手打 `/skill:newname` → 本地判「未找到」→ **消息被吞且输入框被清空**，主进程根本没有机会做它唯一被要求的动作（实时读盘）。手工往 `agent-workspace/skills/` 加目录同理。这与「显式技能调用不得依赖 prompt 快照或历史回答」（用户 2026-09-11 定，D-05/D-19）直接冲突——`readSkillForInvocation` 的实时读盘被前置的一道快照闸门挡在门外。注释里对启动窗口的自我提醒（「否则从未打开过 `/` 面板的用户手打 /skill: 会被预检误判」）说明作者知道这个闸门会误判，但只补了启动一次性预热。
-
-**Fix（二选一，前者更贴合既有 D-13 设计）：**
-```js
-// A. 快照未命中不再本地否决 —— 照常发主进程，由 skillError 走既有回滚流程（D-13 推论）
-if (ref && ref.kind === 'skill') {
-  skillRef = ref;                       // 删掉 known/!known/disabled 三段本地分支
-  ...
-}
-```
-```js
-// B. 保留预检但让它不再陈旧：任何 skills:changed 都重拉快照（不触发刷新，无自激回路）
-window.realmAPI.onIpcMessage('skills:changed', () => { pullAiSkillsSnapshot(); });
-```
-（若选 B，`disabled` 的本地预检同样要用最新快照，否则「另一窗口刚启用」也会被误拒。）
-
----
-
-## Warnings
-
-### WR-01: `SKILL_TIER_TITLES` 与 `TIER_BADGE[*].title` 逐字重复，破坏单源并让文档口径失真
-
-**File:** `src/renderer.js:8876-8889` vs `src/skill-picker-model.js:324-340`
-**Issue:** 三档 title 文案在两边各写一份（`'用户技能（agent-workspace/skills/），同名时优先于内置与托管'` 等逐字相同）。`docs/product/ai-skills.md` §10.5 明确写「面板行与 `read` 工具卡片**共用同一张查表**…不存在第二份徽标实现」——用户气泡 pill 走的却是这份本地副本（`skillTierTitle`），文档口径与实现不符；后续改一处文案必然漂移。
+**File:** `src/renderer.js:8847-8851` vs `src/skill-picker-model.js:324-340`
+**本轮复核:** ❌ 仍开（逐字比对：三条文案仍完全一致；`skillTierTitle`（`8858-8860`）仍读本地副本）。
+**Issue:** `docs/product/ai-skills.md` §10.5 写「面板行与 `read` 工具卡片**共用同一张查表**…不存在第二份徽标实现」，用户气泡 pill 走的却是这份本地副本；后续改一处文案必然漂移。
 **Fix:**
 ```js
 function skillTierTitle(tier) {
@@ -225,10 +152,11 @@ function skillTierTitle(tier) {
 ```
 删掉 `SKILL_TIER_TITLES` 后同步核对文档 §10.5 的措辞（pill 只取 `title`，不渲染彩色徽标，仍属同一查表）。
 
-### WR-02: `_resolveSkillInvocation` 未包 try/catch → 抛错即永久锁死 AI（`isProcessing` 不复位）
+#### WR-02: `_resolveSkillInvocation` 未包 try/catch → 抛错即永久锁死 AI（`isProcessing` 不复位）
 
-**File:** `ai-manager.js:1046`、`ai-manager.js:1174`
-**Issue:** 该调用位于 `this.isProcessing = true` 之后、重试 `try` 之前，且内部含两处未兜底的抛出点：动态 `import('@earendil-works/pi-agent-core')`（ESM 解析失败）与 `buildSkillInvocationBlock` 的 `TypeError`（SDK 导出名变化）。任一抛错都会穿透 `prompt()` / `promptWithContext()` 直达 IPC（renderer 只打日志），而 `isProcessing` 保持 `true` —— 此后所有消息都被 `'AI 正在处理上一条消息，请稍候再试'` 拒绝，直到重启或重建 Agent。同文件其余失败分支都成对复位 `isProcessing`，此处是唯一的缺口。
+**File:** `ai-manager.js:1046`、`ai-manager.js:1174`（调用点）、`ai-skills-manager.js:808`（本轮复核新增的第二个抛出点）
+**本轮复核:** ❌ 仍开。`readSkillForInvocation` 的 `try` 只包住 `loadSkills(env, …)`（`810-816`），**不包** `await import('@earendil-works/pi-agent-core')`（`808`）与调用侧的 `await import('@earendil-works/pi-agent-core')` / `buildSkillInvocationBlock`（`ai-manager.js:1433-1438`）—— 任一抛错都穿透 `prompt()` / `promptWithContext()` 直达 IPC，而 `isProcessing` 保持 `true`。
+**Issue:** 此后所有消息都被 `'AI 正在处理上一条消息，请稍候再试'` 拒绝，直到重启或重建 Agent。同文件其余失败分支都成对复位 `isProcessing`，此处是唯一缺口。
 **Fix:**
 ```js
 let resolved;
@@ -240,63 +168,129 @@ try {
   return { conversationId: this.currentConversationId || null, skillInvocation: null };
 }
 ```
+（`ai-skills-manager.js:808` 的 import 一并挪进上方的 `try`，或整段包一层。）
 
-### WR-03: 两条重发路径的 `skillError` 分支留下空气泡（与发送路径的清理不一致）
+#### WR-03: 两条重发路径的 `skillError` 分支留下空气泡（与发送路径的清理不一致）
 
-**File:** `src/renderer.js:9911-9917`（`regenerateMessage`）、`src/renderer.js:9987-9993`（`showAIError` 的重试）
-**Issue:** `handleSendAIMessage` 在技能被拒时调用 `removeSkillFailureBubbles(userMsgId)`，并把「不留半截历史」（D-13 推论）落实到位；两条重发路径只 `pushSystemNote` 就 return，先前 push 的 `{role:'assistant', content:''}` 占位会**继续以空气泡形式渲染**（`renderAIMessages` 不跳过空 assistant 消息；`error` 事件分支之所以能删掉它，正是显式 splice）。同一条失败语义在三个入口产出三种界面状态。
-**Fix:** 重发路径在 `pushSystemNote` 前复用同一清理（把 `removeSkillFailureBubbles` 泛化为「移除指定 userId + 紧随的空 assistant 占位」，或在两处按 `aiMsgId` 直接 splice）。
+**File:** `src/renderer.js:9994-10000`（`regenerateMessage`）、`src/renderer.js:10072-10078`（`showAIError` 的重试）
+**本轮复核:** ❌ 仍开，且**症状已定位到具体 DOM**：`aiStreaming` 被置 false 后，空 assistant 占位的 `.ai-message-content` 被 `skipBubble` 跳过（`8041`），但 wrapper 照常挂载（`8102`）并因 `!state.aiStreaming` 追加 `createMessageActions`（`8093-8095`）→ 界面上留下一个**只有「复制」按钮的空壳**。
+**Issue:** `handleSendAIMessage` 在技能被拒时调用 `removeSkillFailureBubbles(userMsgId)`，并把「不留半截历史」（D-13 推论）落实到位；两条重发路径只 `pushSystemNote` 就 return。同一条失败语义在三个入口产出三种界面状态。
+**Fix:** 两处 `pushSystemNote` 前复用同一清理（把 `removeSkillFailureBubbles` 泛化为「移除指定 userId + 紧随的空 assistant 占位」，或在两处按 `aiMsgId` 直接 `splice`）。
 
-### WR-04: `_resolveSkillMarker` 未对齐 SDK 的路径归一化，`@` 前缀 / Unicode 空格形态会静默退化为普通卡片
+#### WR-04: `_resolveSkillMarker` 未对齐 SDK 的路径归一化，`@` 前缀 / Unicode 空格形态会静默退化为普通卡片
 
 **File:** `ai-manager.js:1612-1618`
-**Issue:** 判定只做 `path.isAbsolute + path.resolve`；而 SDK 侧实际读取走 `normalizeToolPath`（去掉前导 `@`、把 `[\u00A0\u2000-\u200A\u202F\u205F\u3000]` 折成普通空格）+ `resolveReadToolPath` 的多变体探测（`dist/harness/tools/path-utils.js:1-24`）。因此模型给出 `@/…/SKILL.md` 或含 Unicode 空格的路径时，**正文确实被读到**、卡片却退化为普通 `read`，两条链路判据不一致（文档已披露为可靠性边界，但披露的只是 NFD/窄空格/弯引号，未覆盖 `@` 前缀与 Unicode 空格折叠这两种 SDK 明确支持的常见形态）。
-**Fix:** 在解析前做与 SDK 同源的词法归一化（一行级成本）：
+**本轮复核:** ❌ 仍开（`1616` 逐字未变）。
+**Issue:** 判定只做 `path.isAbsolute + path.resolve`；而 SDK 侧实际读取走 `normalizeToolPath`（去掉前导 `@`、把 `[\u00A0\u2000-\u200A\u202F\u205F\u3000]` 折成普通空格）+ `resolveReadToolPath` 的多变体探测。因此模型给出 `@/…/SKILL.md` 或含 Unicode 空格的路径时，**正文确实被读到**、卡片却退化为普通 `read`，两条链路判据不一致。
+**Fix:**
 ```js
 const raw = args.path.replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, ' ').replace(/^@/, '');
 const abs = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(root, raw);
 ```
 
+#### WR-05（本轮新增）: `G-48-6` 的「立即」口径与实现时机不符 —— 修复只覆盖「整轮跑完时」，「发送后立即」这半边会**原样复现 UAT 探针失败**
+
+**File:** `src/renderer.js:8810-8817`（回填后刷新）、`8799`/`8788`（`await …ai.prompt`）、`ai-manager.js:1081-1089`；文档 `docs/product/ai-skills.md` §10.8（`+` 段）
+**Issue:**
+`ai:prompt` / `ai:prompt-with-context` 的应答在**整轮 run 结束之后**才解析（`await this.agent.prompt(enhanced); await this.agent.waitForIdle();` 之后才 `return { skillInvocation: resolved.skill }`），而 `refreshUserMessageBubble` 的**唯一**触发点就是该应答返回之后。因此技能 pill 与「技能正文（N 字符）」折叠块的出现时刻是「回复跑完」，**不是回车那一刻**；在这一轮（可能含多次工具调用、几十秒）内用户气泡始终是「纯 args 文本」。
+
+后果是指向验收面的：`48-UAT.md:171` 的 G-48-6 探针**同时测了两个时刻**（「发送后立即」与「整轮跑完时」），本轮修复只让后者由 false 变 true；gap 的 `truth` 原文是「输入 … 回车后，用户气泡**立即**呈现三件套」，**重跑同一探针仍会在前半句失败**（gap 的 `missing` 写的是「无需任何额外交互」，那一条确实满足 —— truth 与 missing 的口径本身也不一致）。`docs/product/ai-skills.md` §10.8 的「**即时呈现**：发送后**当轮即现**」继承了同一歧义。
+
+**Fix（二选一，建议先定口径再动手）:**
+- **口径收口（零代码）**：把 `G-48-6` 的 `truth` 与文档 §10.8 的措辞改成可证伪的形式 —— 「发送后无需任何额外交互，**本轮回复结束时**即含 pill 与折叠块」；
+- **真「立即」（要真做就改链路）**：技能解析在主进程 `_resolveSkillInvocation` 内已经完成、早于 run 启动，可在那一刻把 `{name, args, tier}` 经事件推给 renderer（或把 `ai:prompt` 拆成「解析应答 + run 应答」两段），renderer 收到即 `refreshUserMessageBubble`。注意别顺手把 `content` 也发下去（D-06 明确「正文恒为 args」，`content` 只在应答里供折叠块）。
+
+#### WR-06（本轮新增）: 实时读盘路径**绕过 64 KiB 字节闸** —— 文档里的 DoS 缓解口径已不成立（已用探针决定性复现）
+
+**File:** `ai-skills-manager.js:802-834`（`readSkillForInvocation` 用调用方传入的 `env`）、`ai-manager.js:864`（`this.sandboxEnv = createSandboxEnv()`，**原始**沙箱 env）、`ai-skills-manager.js:462-466`（`createSkillsEnv` 唯一使用点）
+**Issue:**
+`createSkillsEnv` 的 `readTextFile` 收窄（`basename === 'SKILL.md' && size > MAX_SKILL_MD_BYTES → invalid`，`161-183`）**只作用于 `refreshSkills` 的扫描**；`readSkillForInvocation` 拿到的是原始沙箱 env，因此**任何一次调用都不复查磁盘当前 size**。而「本轮新读盘的正文」正是要以此为准 —— 刷新时刻的 size 不能替代它。
+
+本轮探针（临时工作区，`node /tmp/probe-bytes.js`，真实 `createSandboxEnv` + 真实 `readSkillForInvocation`）：
+
+```
+LIMIT = 65536
+A. 刷新时正常大小 → ok=true contentLen=3
+B. 撑大后磁盘 size = 204858 字节（> 65536）
+C. 实时读盘（缓存未重扫）→ ok=true contentLen=204803（>65536: true）   ← 闸被绕过
+D. 重扫后缓存条目 = []   ← 字节闸只在这一侧生效
+D. 重扫后调用 → {"ok":false,"reason":"not_found","name":"big"}
+```
+
+后果：`48-RESEARCH.md:1653` 的 DoS 缓解行把它写成「既有 `LIMITS.MAX_SKILL_MD_BYTES` 字节闸（超限技能根本不在缓存 → 不可调用）」、`:814` 同口径 —— 对**已能免确认写盘的 AI**（`write`/`bash` 在沙箱内自动执行）而言，只要「先写超大 SKILL.md，再由用户 `/skill:name` 调用」，且该次发送走 `ai.prompt`（无附件/引用 → 不经过 `promptWithContext` 的 idle 边界重扫，`syncAgentSystemPrompt` 的唯二调用点是 `ai-manager.js:1328` / `2806`），就能让 **>64 KiB 正文**整段进注入块，同时绕过 8000 字符的 prompt 预算；该路径**不产任何诊断**（静默）。定级 Warning 而非 Critical：需要「本会话内先撑大、再调用、且不触发重扫」的组合，且无越权（仍被硬沙箱限制在工作区内），但**文档承诺的边界确实不成立**。
+
+**Fix（约 3 行，与 D-13「与不存在同形」一致）:**
+```js
+// readSkillForInvocation 内，组装之前
+const mdPath = path.join(path.dirname(entry.skill.filePath), 'SKILL.md');
+const info = await env.fileInfo(mdPath);
+if (info && info.ok && info.value.size > LIMITS.MAX_SKILL_MD_BYTES) {
+  return { ok: false, reason: 'not_found', name };   // 或 Phase 50 的专用码 + 诊断
+}
+```
+（更彻底且不新增第二份判定的做法：`readSkillForInvocation` 内复用 `createSkillsEnv(env, {rootDirs, maxSkillMdBytes})` —— 但注意 `createSkillsEnv` 的 `listDir` 收窄会连带作用，需要把「只叠 `readTextFile`」与「叠 `listDir`」拆成两个可选开关，改之前先确认不破坏「单目录读取」的语义。）
+
 ---
 
-## Info
+### D. Info
 
-### IN-01: `resolveSkillBubbleArgs` 用 `indexOf` 定位 provenance，与自身注释的锚定理由相矛盾
+#### IN-01: `resolveSkillBubbleArgs` 用 `indexOf` 定位 provenance，与自身注释的锚定理由相矛盾
 
-**File:** `ai-manager.js:6187`
-**Issue:** 注释写「锚点必须挂在 provenance 行上，才能天然排除技能块体中的同名文本」，实现却取**首次**出现：`const p = enhancedContent.indexOf(provenance)`。技能正文里若出现同一句（Realm 自身相关技能/文档被导入时可能），锚点落到正文内部，args 还原出错。属病态输入，但修正成本为零。
-**Fix:** 从块尾之后起锚（`parseStoredSkillInvocation` 已算出 `closeIdx`），或改为 `lastIndexOf` + 块尾边界校验后再传参。
+**File:** `ai-manager.js:6187`（`const p = enhancedContent.indexOf(provenance);`）
+**本轮复核:** ❌ 仍开。注释写「锚点必须挂在 provenance 行上，才能天然排除技能块体中的同名文本」，实现却取**首次**出现；技能正文里若出现同一句，锚点落到正文内部，args 还原出错。属病态输入，修正成本为零。
+**Fix:** 从块尾之后起锚（`parseStoredSkillInvocation` 已算出 `closeIdx`），或改 `lastIndexOf` + 块尾边界校验。
 
-### IN-02: `preload.js` 的 `ai.prompt*` JSDoc 未同步 48 起的新返回契约
+#### IN-02: `preload.js` 的 `ai.prompt*` JSDoc 未同步 48 起的新返回契约
 
-**File:** `src/preload.js:976-991`
-**Issue:** 仍写 `@returns {Promise<{success: boolean, error?: string}>}`；实际返回 `{success, conversationId, skillInvocation, skillError}`（`ipc-handlers.js:1686-1695` / `1705-1733` 已更新，preload 漏改）。renderer 依赖 `result.conversationId` / `result.skillInvocation` / `result.skillError`，文档面滞后会误导下一个改动者。
-**Fix:** 同步两处 JSDoc（可直接引用 `ipc-handlers.js` 的新契约描述）。
+**File:** `src/preload.js:979`（同类 `promptWithContext` 同段）
+**本轮复核:** ❌ 仍开（本轮 diff 未触及 preload）。仍写 `@returns {Promise<{success: boolean, error?: string}>}`；实际返回 `{success?, conversationId, skillInvocation, skillError}`（`ipc-handlers.js:1730-1733`）。renderer 依赖 `result.conversationId` / `result.skillInvocation` / `result.skillError`，文档面滞后会误导下一个改动者。
+**Fix:** 同步两处 JSDoc。
 
-### IN-03: 面板 `activeIndex` 归 `-1` 后不重渲染，DOM 高亮与 state 短暂背离
+#### IN-03: 面板 `activeIndex` 归 `-1` 后不重渲染，DOM 高亮与 state 短暂背离
 
-**File:** `src/renderer.js:10078-10081`
-**Issue:** 全部行不可选中时置 `activeIndex = -1` 并直接 `return`，未重渲染 —— DOM 上仍留着上一行的 `.active` 高亮，而 state 已是「无高亮」（Enter 会回落未知命令路径，故只是视觉不一致）。
-**Fix:** 在同分支补一次 `renderSlashPickerList()`（此时 `isActive` 判据 `selectable === true && index === -1` 恒假，高亮自然清空）。
+**File:** `src/renderer.js:10165-10169`
+**本轮复核:** ❌ 仍开（逐字未变）。全部行不可选中时置 `activeIndex = -1` 并直接 `return`，DOM 上仍留着上一行的 `.active` 高亮。
+**Fix:** 同分支补一次 `renderSlashPickerList()`（此时 `isActive` 判据 `selectable === true && index === -1` 恒假，高亮自然清空）。
 
----
-
-### IN-04: 弱模型下「模型自发匹配技能」退化为把技能名当**工具**调用（实测观测，非本阶段代码缺陷）
+#### IN-04: 弱模型下「模型自发匹配技能」退化为把技能名当**工具**调用（实测观测，非本阶段代码缺陷）
 
 **来源:** `/gsd-verify-work 48` test 8 自动驱动（2026-09-12），两次独立观测一致。
 **Issue（现象）:** 给一个命中某技能 `description` 的任务（不手打 `/skill:`），模型**没有** `read` 该技能的 `SKILL.md`，而是把技能名当工具调用 —— 卡片标题 `demo`（未技能化）、参数 `{ "text": … }`、结果 `Tool demo not found`、状态`失败`；模型自述「未找到名为 "demo" 的技能工具」。追问「技能与工具有什么区别」时答「需通过 `/skill:名字` 显式调用才能生效」，与 D-18 口径不符。
-**归因（源码直读）:** 不是 Realm 的接线问题。`buildSystemPrompt()`（`ai-manager.js:599-604`）= base + `buildSkillsPrompt()`，后者即 SDK `formatSkillsForSystemPrompt` 的产物；该模板（`node_modules/@earendil-works/pi-agent-core/dist/harness/system-prompt.js`）已明确写下「Read the full skill file when the task matches its description.」并逐条给出 `<location>` 绝对路径。故指令存在且正确，是模型（ModelScope `Qwen/Qwen3-8B`）不遵守。
+**归因（源码直读）:** 不是 Realm 的接线问题。`buildSystemPrompt()`（`ai-manager.js:599-604`）= base + `buildSkillsPrompt()`，后者即 SDK `formatSkillsForSystemPrompt` 的产物；该模板已明确写下「Read the full skill file when the task matches its description.」并逐条给出 `<location>` 绝对路径。故指令存在且正确，是模型（ModelScope `Qwen/Qwen3-8B`）不遵守。
 **影响:** 弱模型用户会看到一张以技能名命名的**失败工具卡片**，技能自动匹配对其不可用；显式 `/skill:name` 路径不受影响。
 **为何不计缺陷:** 由 SDK 侧提示词模板承载，Realm 无可控代码；本阶段交付物（技能化卡片的可见性 + 重载还原）已由 test 8 ① 端到端验证通过。
 **建议去向:** 留给 Phase 50/51 的技能 UX（例如：把技能名注册为一个显式报错的同名工具、或在 Realm 侧追加一句强化指令「技能只能经 `read` + `location` 读取，不存在同名工具」）。
+**本轮复核:** ⏸ 保留原样（无新证据，也不因本轮 diff 改变）。
+
+#### IN-05（本轮新增）: `renderAIMessages` 的 `isUser` 分支先建内容容器又整体丢弃 —— 死分配
+
+**File:** `src/renderer.js:8046-8055`
+**Issue:** `skipBubble` 判据含 `!isUser`（`8041`），因此对 user 消息 `content = document.createElement('div')`（`8047-8050`）必然为真分支进入，紧接着在 `8055` 被 `content = buildUserMessageContent(msg)` 整体替换 —— 每个用户气泡白建一个立刻被 GC 的 div。无害，但会被下一个读代码的人当成「这里有一份 content 会被复用」的暗示。
+**Fix:** 把 `isUser` 分支提到容器创建之前（user → `buildUserMessageContent`；否则按 `skipBubble` 建容器），或加一行注释说明该分配是刻意的空壳。
+
+#### IN-06（本轮新增）: `refreshUserMessageBubble` 与整列渲染**不是** DOM 等价 —— 不补 `.message-actions`
+
+**File:** `src/renderer.js:8183-8202` vs `8093-8095`
+**Issue:** 两者的 `.ai-message-content` 子树完全等价（同一 `buildUserMessageContent`，已核对），但 wrapper 上的操作按钮由整列渲染按 `msg.id && !state.aiStreaming` 决定。技能发送路径的气泡是在 `aiStreaming === true` 时渲染的（`8778`），随后的定向刷新**不会**补上「复制」按钮 —— 该气泡在本轮内一直缺按钮，直到下一次**全量** `renderAIMessages()`（切对话 / `/compact` / `pushSystemNote`）才补齐。属观感级不一致，不影响正确性。
+**Fix:** 要么在 `refreshUserMessageBubble` 内按同一判据同步 `.message-actions`（注意别重复挂载），要么在该函数 JSDoc 里显式声明「只对齐内容子树，wrapper 级按钮归整列渲染」。
+
+#### IN-07（本轮新增）: 技能已成功解析但本轮 run 失败时，pill / 折叠块永不出现
+
+**File:** `src/renderer.js:8810`（`if (result && result.skillInvocation)`）、`ai-manager.js:1093-1104`（错误路径 `return { …, skillInvocation: null }`）
+**Issue:** LLM 级错误（401/限流/网络）或 3 次重试全败时，主进程返回的 `skillInvocation` 为 `null`（`resolved.skill` 有值但不回传），renderer 便跳过 `refreshUserMessageBubble`；而该轮的 `renderAIMessages()`（错误分支 `9442`）也拿不到 `userMsg.skillInvocation` → 用户看到的是「纯 args 文本 + 错误提示」，**看不出这一轮实际注入了哪个技能**（DB 里该行确实带 `<skill>` 块）。属信息缺失而非错值。
+**Fix:** 错误路径也回传 `resolved.skill`（renderer 侧已用 `if (result && result.skillInvocation)` 判空，无需改渲染逻辑），或把「技能已解析」做成独立事件（与 WR-05 的「真立即」方案可合并实施）。
 
 ---
 
-## 备注（复核过的、不构成 finding 的点）
+## 备注（本轮复核过、不构成 finding 的点）
 
-- `ai:prompt` / `ai:prompt-with-context` 的返回值从 `string|null` 改为对象契约：全仓（排除 `.claude/worktrees/` 历史副本）仅 `ipc-handlers.js` 两处调用，均已同步；`prompt*()` 的所有 return 路径都返回对象，不存在 `res.conversationId` 读 undefined 的入口。
-- `escapeHtml` 的属性上下文缺陷是**既有模式**（downloads `14178/14210`、media `11214` 同样把文件名/URL 拼进属性），本阶段新增的是「数据源可被 AI 自建内容驱动」这一新面，故 CR-01 按 Critical 记、但修复时建议连同类落点一起换成属性专用转义或 DOM API。
-- `perf` 面（`getSeededSkillNamesSafe()` 每次调用都 `readdirSync` + 逐技能 `existsSync`（`builtin-skills-seeder.js:92-107`），而 `_resolveSkillMarker` 按**每条** toolExecution、`_skillTierByLocation` 按**每条** user 行各调一次；`matchSkillByPath` 又对每条缓存条目做一次 `path.resolve`）属「打开一条长对话做 O(消息数×技能数) 次同步 IO」的冗余计算，按 v1 范围不作为缺陷计分 —— 但它是主进程同步阻塞，且结果只依赖内存缓存，建议在 `getConversationMessages` 整批装饰时算一次向下传参。
+- **`resolveCancelAttribution` 的 `resetRunState` 边界是刻意且正确的**：`resetRunState = !!cancelledId && cancelledId === currentId`（`ai-cancel-state.js:58`）与 `messages` 形态解耦 —— 这正是「消息已被移除也仍要切回发送按钮」这一既有语义不丢的原因（用例 `tests/test-ai-cancel-state.js:74-83`）。不要为了修 CR-05 把它改成「有 targetIndex 才复位」（那会把用户点停止的语义再次弄坏）；CR-05 的修法在**标记生命周期**，不在解算函数。
+- **`/compact` 期间迟到取消会清掉 compression 按钮态**（`updateSendButtonState(false)` 在 `9410` 无条件覆盖 `updateSendButtonState(false, true)`，`9149`）—— 与本轮 diff 无关的**既有**行为（旧代码同样无条件调用），且被 `if (state.aiCompacting) return;`（`8676`）兜住，故不计为 finding；若要修，应在取消分支里加 `!state.aiCompacting` 判据。
+- **`handleStopAI` 新增的 `if (state.aiCurrentMessageId)` 守卫**（`8381`）在现有状态机下与旧语义等价 —— `aiStreaming` 与 `aiCurrentMessageId` 的置位/清理点成对（`8766-8769` / `9984-9987` / `10065-10068` 置位，`finalizeAIStreamingBubble:8277-8278` 清理），我未找到「streaming=true 而 currentMessageId=null」的可达态，故不计为 finding。
+- **`skills:changed` 无条件重拉的代价**：处理器体内只做一次 `ai:get-skills`（零 IO）且 `digest` 相同即早退（`9086`），每次广播的开销是常数级；窗口数 × 广播次数量级可忽略，无自激（见 Summary 第 3 条）。不计为 finding。
+- **`refreshUserMessageBubble` 的 `querySelector` 模板插值**（`8187-8189`）与既有 `updateAIStreamingBubble`（`8123-8125`）、`finalizeAIStreamingBubble`（`8288-8290`）同款。messageId 的来源只有 `'user-msg-' + Date.now()` / `'ai-msg-' + Date.now()` / DB 行 id（`ai-conversations-manager.js:606/644/654` 直取 `row.id`），**不含引号/反斜杠**，故不构成选择器注入；但如果以后引入外部来源的消息 id，这三处要一起改（属同一模式，非本阶段新增风险）。
+- **性能面（v1 范围外，沿用上一轮口径）**：`getSeededSkillNamesSafe()` 每次调用都 `readdirSync` + 逐技能 `existsSync`，而 `_resolveSkillMarker` 按**每条** toolExecution、`_skillTierByLocation` 按**每条** user 行各调一次；`matchSkillByPath` 又对每条缓存条目做一次 `path.resolve`。主进程同步阻塞，结果只依赖内存缓存，建议在 `getConversationMessages` 整批装饰时算一次向下传参。仍**不作为缺陷计分**。
+- **本轮新增测试的形态合规**：`tests/test-ai-cancel-state.js` 的 B 组是**源码扫描型护栏**（与仓库既有 `tests/test-skill-picker-model.js` C 组同款），它防的是「接线被改回去」，不能替代 CR-05 所缺的**行为**断言；`tests/test-ai-skills.js:1589-1676` 的三条 G-48-2 用例用**真实** `readSkillForInvocation` + 真实 SDK `formatSkillInvocation` 构造输入（SDK 改文案会红），不是自证。
 
 ---
 
@@ -326,8 +320,11 @@ const abs = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(root, raw);
 - **取舍说明（为什么只修这三处不算半吊子）：** 同类落点 downloads（`14178/14210`）、media（`11214`）是老 bug 且数据源**不是 AI 可自建**，性质不同；本条的独特性在于「数据源可由 AI 自建」。同类落点的统一整改属独立议题。
 - **爆炸半径已核实：** 全仓仅 `48-VERIFICATION.md` 的 `covered_files` 含 `src/renderer.js`，修它不连累 44–47 的验证指纹。
 
+> **本轮复核补记（不改动上文任何一字）：** 上文引用的是上一轮（`f5a770d`）的行号。本轮 diff 使 `src/renderer.js` 行号位移，当前对应位置为 `10427`（`rowTitle`）、`10419-10420`（badge `title`）、`10430-10431`（status `title`）；`escapeHtml` 仍为 `11349-11353`（仍只转义 `& < >`）。缺陷形态、CSP 实测结论与已裁决的处置（延后 + Phase 49 开工前第一条）均**不变**。
+
 ---
 
-_Reviewed: 2026-09-12T06:37:30Z_
+_Reviewed: 2026-09-12T12:14:42Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+_Review kind: incremental re-review of the gap-closure round (baseline `f5a770d`)_
