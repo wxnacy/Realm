@@ -29,13 +29,13 @@ Requirements for v2.6. Each maps to roadmap phases.
 
 ### DISC — 技能发现与调用
 
-- [ ] **DISC-01**: 用户在聊天输入框输入 `/` 时，面板列出全部已启用技能与既有本地命令，可按名称实时过滤
+- [x] **DISC-01**: 用户在聊天输入框输入 `/` 时，面板列出全部已启用技能与既有本地命令，可按名称实时过滤
 - [x] **DISC-02**: 用户可选择技能并以 `/skill:name [args]` 形式调用，技能正文经 `formatSkillInvocation` 作为 `<skill>` 块注入对话
 - [x] **DISC-03**: 技能调用**进入对话历史并触发 LLM**（与既有本地斜杠命令 `clear`/`compact` 语义区分，作为第二命令源而非本地 handler）
-- [ ] **DISC-04**: 技能列表区分来源（user / managed / seeded）并以徽标展示；被遮蔽的同名技能可见
+- [x] **DISC-04**: 技能列表区分来源（user / managed / seeded）并以徽标展示；被遮蔽的同名技能可见
 - [ ] **DISC-05**: 模型可根据 description 自动匹配技能并读取其正文（经 `read` 工具读取 SKILL.md 的 location）
 - [x] **DISC-06**: 调用不存在的技能给出明确错误提示，不出现「点了没反应」
-- [ ] **DISC-07**: `disable-model-invocation` 的技能不进 system prompt 列表，但仍可经 `/skill:` 显式调用并在 UI 打标
+- [x] **DISC-07**: `disable-model-invocation` 的技能不进 system prompt 列表，但仍可经 `/skill:` 显式调用并在 UI 打标
 
 ### MGMT — AI 自建技能（manage_skill）
 
@@ -127,13 +127,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SKILL-07 | Phase 46 | Complete |
 | SKILL-08 | Phase 46 | Complete |
 | SKILL-09 | Phase 47 | Complete |
-| DISC-01 | Phase 48 | Pending |
+| DISC-01 | Phase 48 | Complete |
 | DISC-02 | Phase 48 | Complete |
 | DISC-03 | Phase 48 | Complete |
-| DISC-04 | Phase 48 | Pending |
+| DISC-04 | Phase 48 | Complete |
 | DISC-05 | Phase 48 | Pending |
 | DISC-06 | Phase 48 | Complete |
-| DISC-07 | Phase 48 | Pending |
+| DISC-07 | Phase 48 | Complete |
 | MGMT-01 | Phase 49 | Pending |
 | MGMT-02 | Phase 49 | Pending |
 | MGMT-03 | Phase 49 | Pending |

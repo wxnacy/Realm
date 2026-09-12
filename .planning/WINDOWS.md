@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 19
+open_count: 20
 waived_count: 0
 fixed_count: 1
-total_count: 20
-last_updated: 2026-09-12T05:13:37.366Z
+total_count: 21
+last_updated: 2026-09-12T05:25:38.311Z
 ---
 
 # Broken Windows Ledger
@@ -35,6 +35,7 @@ last_updated: 2026-09-12T05:13:37.366Z
 | 18 | 47 | unrun-verify | skills-builtin/skill-creator/scripts/check_env.mjs |  | 47-04 Task 3（部分）：SKILL-09 打包态侧证据只演示了「脚本在打包态技能目录内可执行 + stdout 可解析 JSON」（executor 直接以 node 运行），未演示验收原文的「经确认卡片后执行」半条。确认卡片那半条已由 tests/test-ai-bash-policy.js（70 例，含 DANGEROUS_INTERPRETERS 对 node/python3 的强制确认断言）覆盖，本项为额外的打包态端到端演示，非缺陷 | open |  | 2026-09-11T11:22:50.700Z |  |
 | 19 | 48 | deviation | src/renderer.js |  | 流式中触发技能调用原会因 abort 的异步取消事件被静默丢弃，已在 abort 后就地复位 state.aiStreaming / aiCurrentMessageId / 发送按钮 | open |  | 2026-09-12T05:13:37.283Z |  |
 | 20 | 48 | deviation | src/skill-picker-model.js |  | parseSkillRef 裸名分支加「本地命令名前缀占位」歧义护栏（/foobar 对 foo → null），使计划四条 behavior 行同时成立 | open |  | 2026-09-12T05:13:37.366Z |  |
+| 21 | 48 | unrun-verify |  |  | 48-02 Task 3 <human-check>（backstop）：50+ 技能数据集下 220px 面板的分组标题 sticky 常驻 / 行五要素可读 / 行尾标注无一截断 —— 视觉观感无法自动化裁决，留 UAT 实测 | open |  | 2026-09-12T05:25:38.311Z |  |
 
 ````json
 [
@@ -276,6 +277,18 @@ last_updated: 2026-09-12T05:13:37.366Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-12T05:13:37.366Z",
+    "resolved_at": null
+  },
+  {
+    "id": 21,
+    "kind": "unrun-verify",
+    "phase": "48",
+    "file": "",
+    "line": null,
+    "description": "48-02 Task 3 <human-check>（backstop）：50+ 技能数据集下 220px 面板的分组标题 sticky 常驻 / 行五要素可读 / 行尾标注无一截断 —— 视觉观感无法自动化裁决，留 UAT 实测",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-12T05:25:38.311Z",
     "resolved_at": null
   }
 ]
