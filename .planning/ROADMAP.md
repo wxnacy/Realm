@@ -235,9 +235,14 @@ Plans:
   4. 模型可仅凭 description 自动匹配技能并通过 `read` 打开其正文（用户不显式调用也能生效）。
   5. 调用不存在的技能给出明确错误提示（不出现"点了没反应"）；`disable-model-invocation` 技能不进 system prompt 但可经 `/skill:` 显式调用且在 UI 有标记。
 
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 48-01-PLAN.md — `/skill:name` 主进程端到端纵切（解析 → 实时读盘 → `<skill>` 块组装 → 注入 → 重载还原）+ 收窄投影与三档 tier + 两个面板 IPC 通道 + 气泡 pill / 技能正文折叠块（wave 1，DISC-02/03/04/06/07）
+- [ ] 48-02-PLAN.md — `/` 面板同屏分区列出技能与本地命令、两档实时过滤、↑↓ 可选中导航与选中执行、五要素行与三态可见性、stale-while-revalidate 刷新链路（wave 2，DISC-01/04/07）
+- [ ] 48-03-PLAN.md — `read` 工具卡片技能化（模型自动匹配的可见性）与重载标记重建 + 「发现与调用」产品文档与 AGENTS.md 同步（wave 3，DISC-05）
 **UI hint**: yes
-**Doc sync**: `docs/product/ai-skills.md` 补发现与调用章节。
+**Doc sync**: `docs/product/ai-skills.md` 补发现与调用章节（48-03）。
 
 ### Phase 49: `manage_skill` 工具（AI 自建技能）
 
