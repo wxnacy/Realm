@@ -56,10 +56,11 @@ created: "2026-09-12"
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | 48-01-T1 | 01 | 1 | DISC-02 | T-48-01 | 组装逐字节 = `formatSkillInvocation(skill, provenance + '\n\n' + args)`；实时读盘（改盘后二次调用读到新正文） | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
 | 48-01-T1 | 01 | 1 | DISC-02 | T-48-01 | 拼接顺序 `[技能块, visionNotice, markerBlock, visionBlock, contextBlock]`；无技能时输出逐字符不变 | unit + 源码扫描 | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
-| 48-01-T1 | 01 | 1 | DISC-02 | — | 重载装饰：user 行 `content` **逐字符等于** args、`skillInvocation` 键集合与 live 路径**消息对象**逐字相等；**必须覆盖含 `@` 引用 / 附件的完整增强串与 args 自身含空行两例**（`resolveSkillBubbleArgs` 五例打表 + live/reload 同正文相等） | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
+| 48-01-T1 | 01 | 1 | DISC-02 | — | 重载装饰：user 行 `content` **逐字符等于** args、`skillInvocation` 键集合与 live 路径**消息对象**逐字相等；**必须覆盖含 `@` 引用 / 附件的完整增强串、args 自身含空行、以及「完整增强串 + args 为空」的四形态（① `prompt()` 裸技能块 / ② 附件 / ③ `@` 引用 / ④ `promptWithContext()` 无附件无引用，四例恒返回 `''`）**（`resolveSkillBubbleArgs` **八例**打表 + live/reload 同正文相等） | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
 | 48-01-T1 | 01 | 1 | DISC-03 | — | 技能调用进历史（`agent.prompt` 收增强文本）+ `_ensureConversation` 收原始语法文本（标题不退化） | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
 | 48-02-T1 | 02 | 2 | DISC-03 | T-48-09 | renderer 技能不走 `handler` 分支（`kind` 分流 + 扁平索引直绑） | 源码扫描 | `node --test tests/test-skill-picker-model.js` | ❌ W0 | ⬜ pending |
 | 48-01-T3 | 01 | 1 | DISC-03 | — | 气泡：user 消息对象 `content` = **args**（不显示 `/skill:name` 原文）、IPC 载荷 = 完整语法文本（D-19，两变量解耦）；`skillInvocation` 元数据响应回传后回填 | 源码扫描 + 行为 | `node --test tests/test-ai-skills.js` + `tests/test-skill-picker-model.js` | ✅（新增） | ⬜ pending |
+| 48-01-T3 | 01 | 1 | DISC-03 | — | 重发路径（`regenerateMessage` / `showAIError` 重试按钮）经 `buildResendPayload` 重组完整语法文本后再发：两处 `ai.prompt(` 实参均为 `payload` 且带 `await`、`buildResendPayload` 唯一实现、空 args 时载荷为 `/skill:{name}`（非空、不静默不动作）；`buildSkillSyntaxText` 与 `parseSkillRef` 的往返等式 | 源码扫描 + 单元（模型往返） | `node --test tests/test-ai-skills.js` + `tests/test-skill-picker-model.js` | ✅（新增） | ⬜ pending |
 | 48-01-T2 | 01 | 1 | DISC-01 / DISC-04 | T-48-05 | 面板投影经 IPC 到达 renderer，形状正确且**零正文**（收窄投影：无 `content` / `filePath` / `diagnostics`） | unit | `node --test tests/test-ai-skills.js` | ✅（断言组新增） | ⬜ pending |
 | 48-02-T1 | 02 | 2 | DISC-01 | T-48-07 | `/` 展平数组 = 技能分区 + 命令分区；实时过滤两档；空分组标题不渲染 | unit | `node --test tests/test-skill-picker-model.js` | ❌ W0 | ⬜ pending |
 | 48-01-T2 | 01 | 1 | DISC-04 | — | 三档 `tier` 判定（`source==='user'` → user / name ∈ seededNames → builtin / 非 seeded managed），seeded 集合由测试注入 | unit | `node --test tests/test-ai-skills.js` | ✅（新增） | ⬜ pending |
@@ -88,7 +89,7 @@ created: "2026-09-12"
 
 - [ ] `src/skill-picker-model.js` — 纯逻辑抽取（双模式导出）：`parseSkillRef` / `extractArgs` / 过滤两档 / 展平 + selectable。无它则 A/B/C 三组断言无处可测
 - [ ] `tests/test-skill-picker-model.js` — A/B/C 组宿主（含 `readSource('src/renderer.js')` 的接线断言）
-- [ ] `tests/test-ai-skills.js` 扩展 — D 组（实时读盘 / 组装顺序 / 投影 / tier / `promptOmitted` / read 标记 / 重载装饰 —— 重载装饰必须覆盖**含 `@` 引用 / 附件的完整增强串**与 **args 自身含空行**两例），以及 `resolveSkillBubbleArgs` / `parseStoredSkillInvocation` / `skillErrorFromReason` 的纯函数打表
+- [ ] `tests/test-ai-skills.js` 扩展 — D 组（实时读盘 / 组装顺序 / 投影 / tier / `promptOmitted` / read 标记 / 重载装饰 —— 重载装饰必须覆盖**含 `@` 引用 / 附件的完整增强串**、**args 自身含空行**、以及 **「完整增强串 + args 为空」的四形态**），以及 `resolveSkillBubbleArgs`（八例）/ `parseStoredSkillInvocation` / `skillErrorFromReason` 的纯函数打表，与重发路径的 **正向**源码扫描（`buildResendPayload` 唯一实现 + 两处实参为 `payload` + `await`）
 - [ ] 测试夹具：seeded 集合注入辅助（`seeder.setBuiltinDepsForTest({ srcDir })` + `t.after` 复位），否则任何触达 tier 的断言以 TypeError 失败（P-48-07）
 - [ ] 无需框架安装（`node:test` 内置）
 

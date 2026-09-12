@@ -890,7 +890,7 @@ src/renderer.js:8756    result = await window.realmAPI.ai.promptWithContext({...
 return {
   conversationId: this.currentConversationId || null,
   skillInvocation: skillResolved
-    ? { name, tier, content, contentLength: content.length }   // tier 由 §1.3 的 sourceTierOf 求得
+    ? { name, tier, content }   // tier 由 §1.3 的 sourceTierOf 求得；不设声明型字段（本轮 plan 修订）
     : null,
 };
 ```
@@ -920,6 +920,10 @@ return { conversationId: currentConversationIdOrNull, skillInvocation: null,
 > D-13 推论也要求「被整条跳过的技能」与「不存在」同形处理。权威落点是 48-01 Task 1 ③ 的模块级纯函数
 > `skillErrorFromReason(reason, name)`（`not_found` → `skill_not_found` / `disabled` → `skill_disabled`，无第三码），
 > 并有打表断言守住「值域只有两个码」。
+>
+> **并且（本轮 plan 修订）**：§2.5 的样例形状里的 `contentLength` **一并删除**。契约只有 `{ name, tier, content }`
+> 三个键 —— 渲染侧折叠块的 `N` 取 `content.length`（JS `String.length`），**没有消费方的字段不进契约**；
+> 48-01 的返回契约与 48-03 的「重载形状与实时链路键集合逐字相等」断言均以三键为准。
 
 renderer 收到 `skillError` 时：**移除刚推送的 user 气泡 + 未产出的 assistant 占位**、
 复位 `state.aiStreaming` / `aiCurrentMessageId` / 发送按钮，`pushSystemNote(message)`。
