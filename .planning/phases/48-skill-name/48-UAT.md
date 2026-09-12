@@ -3,7 +3,7 @@ status: testing
 phase: 48-skill-name
 source: [48-VERIFICATION.md]
 started: 2026-09-12T06:55:00Z
-updated: 2026-09-12T07:48:46Z
+updated: 2026-09-12T07:56:14Z
 ---
 
 ## Current Test
@@ -129,6 +129,35 @@ note: |
 ### 8. {UAT} 模型自动匹配技能的可见性（DISC-05 核心）
 expected: 在运行中的应用里提一个**命中某技能 description 的任务**（不手打 `/skill:`），观察模型是否自行 `read` 该技能的 `SKILL.md` —— 工具卡片标题显示「使用技能「name」」并带来源徽标；参数区仍显示实际读取路径；**切换对话再切回**后同一卡片标记仍在。另问「你有哪些技能」，模型应能区分技能与工具（D-18）。
 result: [pending]
+awaiting_verdict: 待用户裁决（证据已取齐，见 observed；代理建议判 pass 并把「模型不配合」记为观测）
+observed: |
+  这条实测**必须拆成两件事**——代理把它拆开分别驱动，结论相反：
+
+  **① 「匹配到之后的可见性 + 持久化」= ✅ 全部通过**（显式引导模型用 `read` 读 `skills/demo/SKILL.md`）：
+  - 工具卡片标题：`使用技能「demo」` ✅（48-03 的卡片技能化生效）
+  - 来源徽标：`用户`，`title`=「用户技能（agent-workspace/skills/），同名时优先于内置与托管」✅
+  - 参数区：`{ "path": ".../agent-workspace/skills/demo/SKILL.md", "offset": 1, "limit": 1 }` ✅ 实际读取路径可见
+  - 状态 `完成`；**切走对话再切回**后同一卡片 `使用技能「demo」` + 徽标 + 参数**逐字仍在** ✅
+  → DISC-05 的交付物（技能化卡片 + 徽标 + 路径 + 重载还原）端到端成立。
+
+  **② 「模型自发匹配」（不手打 `/skill:`、不给 read 指令）= ❌ 未发生**：
+  给 `demo` 的 description 命中任务「把「今天天气很好」翻译成日文。」后，模型**没有** `read` 技能文件，
+  而是把技能名当**工具**调用：卡片 `demo`、参数 `{ "text": "今天天气很好" }`、结果 `Tool demo not found`、状态`失败`；
+  模型自述「未找到名为 "demo" 的技能工具」。
+  追问「你有哪些技能？它们和你可用的工具有什么区别？」时它答「需通过 `/skill:名字` 显式调用才能生效」——与 D-18 设计口径不符。
+
+  **归因（源码直读，非推测）**：`buildSystemPrompt()`（`ai-manager.js:599-604`）= base + `buildSkillsPrompt()`（= SDK `formatSkillsForSystemPrompt` 的产物），
+  而该 SDK 模板（`node_modules/@earendil-works/pi-agent-core/dist/harness/system-prompt.js`）**已明确写着**
+  「Read the full skill file when the task matches its description.」并逐条给出 `<location>` 绝对路径。
+  故**提示词侧指令存在且正确**，Realm 侧接线无误；模型（ModelScope `Qwen/Qwen3-8B`）不遵守。
+  同一现象在 test 4 那轮也出现过（`Tool demo not found` ×5），两次独立观测一致。
+
+  ⚠ 本机可用 provider 只有 MS/Qwen3-8B（huggingface 额度耗尽、xiaomi 无 key），**无法换更强模型复测**。
+note: |
+  代理建议：判 **pass**——Phase 48 的交付物是「技能化卡片的可见性与持久化」（①，已证），
+  而「模型是否自发遵守 `read` 指令」由 SDK 模板完全承载、不属本阶段可控代码；失败归因于模型能力。
+  但 ② 是**真实的产品可用性风险**（弱模型下用户会看到一张 `demo` 失败卡片），建议在阶段收尾时记一条观测（REVIEW Info 或留给 Phase 50/51 的技能 UX）。
+  备选：若你认为该在 Realm 侧补一句强化指令（如「技能只能经 `read` + `location` 读取，不存在同名工具」）→ 记 gap G-48-8 并进修复计划。
 
 ## Summary
 
