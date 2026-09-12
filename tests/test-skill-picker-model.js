@@ -458,5 +458,15 @@ describe('C 组 · renderer 源码护栏（预检分支 / 重发载荷 / 气泡�
       }
     }
   });
+
+  test('单一数据权威：renderer 不得重算技能集状态（优先级 / 遮蔽 / 定序）', () => {
+    for (const forbidden of ['bySkillPriority', 'shadowedBy', 'localeCompare']) {
+      assert.strictEqual(
+        rendererSrc.includes(forbidden),
+        false,
+        `renderer 不得重实现 ${forbidden}（46 D-06：判定只在主进程一份）`
+      );
+    }
+  });
 });
 
