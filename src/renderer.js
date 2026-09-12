@@ -280,6 +280,8 @@ const state = {
   slashPickerOpen: false,
   slashPickerItems: [],
   slashPickerActiveIndex: 0,
+  // 可选中行的扁平索引集合（48-02：↑↓ 与 Enter 只认它 —— 不可选中行不得成为高亮落点）
+  slashPickerSelectable: [],
 
   // 技能集投影缓存（主进程**收窄投影**，48 D-17；**含已禁用条目** —— 供区分
   // 「未找到」与「已禁用」两条反馈。renderer 只消费，绝不重算优先级/遮蔽/限额）
@@ -10077,22 +10079,38 @@ function handleAIInputKeydown(e) {
 
 /**
  * 执行 / 命令面板当前高亮项
- * args 取输入框中命令名之后的剩余文本；输入框清空、面板关闭后执行
+ *
+ * 按 `kind` 分流（命令源有两条：本地 `SLASH_COMMANDS` 与技能集，技能**不得**并入注册表）：
+ * - 命令项 → 既有语义逐字节不变（清空输入框 + 关面板 + `cmd.handler(rest)`）
+ * - 技能项 → **不调 handler**：把输入框值置为完整语法文本 `/skill:{name}[ {args}]`，
+ *   交既定发送链路（`handleSendAIMessage()` 的技能预检 → 主进程权威解析，D-19）。
+ *   不得在本处手拼语法文本（那会成为第二份实现，与 `buildSkillSyntaxText` 必然漂移），
+ *   也不得在 renderer 拼增强文本 / 把技能正文塞进 message。
+ *
+ * args 一律由 `extractArgs`（token 取值法）取出：既有按名长切片的写法在 `/skill:<前缀>`
+ * 形态下会吞掉 args 开头（P-48-01）。
+ *
  * @returns {boolean} 是否有高亮项并已执行
  */
 function executeActiveSlashCommand() {
   const cmd = state.slashPickerItems[state.slashPickerActiveIndex];
   if (!cmd) return false;
 
-  const value = elements.aiInput.value.trim();
-  // 跳过 "/name" 及过滤 token，取其后的剩余文本作为 args
-  // （/cle → ''；/compact 重点保留登录 → '重点保留登录'）
-  const rest = value.slice(1 + cmd.name.length).replace(/^\S*/, '').trim();
+  const rest = window.SkillPickerModel.extractArgs(elements.aiInput.value);
 
-  elements.aiInput.value = '';
+  if (cmd.kind === 'command') {
+    elements.aiInput.value = '';
+    elements.aiInput.style.height = 'auto';
+    closeSlashPicker();
+    cmd.handler(rest);
+    return true;
+  }
+
+  // 技能行：组装完整语法文本 → 既有发送链路（主进程解析 + 调用瞬间实时读盘）
+  elements.aiInput.value = window.SkillPickerModel.buildSkillSyntaxText(cmd.name, rest);
   elements.aiInput.style.height = 'auto';
   closeSlashPicker();
-  cmd.handler(rest);
+  handleSendAIMessage();
   return true;
 }
 
@@ -10167,36 +10185,60 @@ function closeSlashPicker() {
 }
 
 /**
- * 渲染 / 斜杠命令面板列表
- * 按输入框当前文本过滤（/ 后、首个空白前的部分），命令文本不入对话历史
+ * 渲染 / 面板列表（技能分区 + 命令分区，展平单数组）
+ *
+ * 不变式（D-01 + UI-SPEC）：`state.slashPickerItems` 是**展平单数组**且**数组顺序 ===
+ * 视觉渲染顺序**；分组标题只在渲染层插入、**不占索引**。空分组标题整个不输出。
+ *
+ * 绑定按**扁平索引**直绑（`data-index`），不再按名字反查 —— 同名两行（技能名 = 本地
+ * 命令名）时反查会命中第一行，表现为「点了没反应 / 点了做错事」（P-48-04）。
+ * 不可选中行**不绑任何处理器**，`active` 高亮也不会落在它上面。
+ *
+ * 面板内插入的磁盘来源文本（技能 name / description / title）**一律**经 `escapeHtml()`
+ * （T-48-07）。
  */
 function renderSlashPickerList() {
   const list = elements.slashPickerList;
   if (!list) return;
 
   const value = elements.aiInput ? elements.aiInput.value : '';
-  const filter = value.slice(1).split(/\s/)[0].toLowerCase();
-  const items = SLASH_COMMANDS.filter(c => c.name.startsWith(filter));
+  const rawFilter = value.slice(1).split(/\s/)[0].toLowerCase();
+  const built = window.SkillPickerModel.buildPickerItems(state.aiSkills || [], SLASH_COMMANDS, rawFilter);
 
-  state.slashPickerItems = items;
-  if (state.slashPickerActiveIndex >= items.length) {
-    state.slashPickerActiveIndex = Math.max(0, items.length - 1);
+  state.slashPickerItems = built.items;
+  state.slashPickerSelectable = window.SkillPickerModel.buildSelectableIndexes(built.items);
+
+  // 越界守卫：收敛到最近的**可选中**索引（否则重入后停在灰显行上，Enter 变死键）
+  if (state.slashPickerSelectable.indexOf(state.slashPickerActiveIndex) < 0) {
+    state.slashPickerActiveIndex = state.slashPickerSelectable.length > 0
+      ? state.slashPickerSelectable[0]
+      : -1;
   }
 
-  if (items.length === 0) {
-    list.innerHTML = '<div class="slash-picker-row" style="cursor:default"><span class="slash-picker-desc">无匹配命令，输入 / 查看全部</span></div>';
+  if (built.items.length === 0) {
+    list.innerHTML = '<div class="slash-picker-row slash-picker-row-empty">' +
+      '<span class="slash-picker-desc">无匹配技能或命令，输入 / 查看全部</span></div>';
     return;
   }
 
-  list.innerHTML = items.map((cmd, index) => {
-    const isActive = index === state.slashPickerActiveIndex;
-    return `
-      <div class="slash-picker-row ${isActive ? 'active' : ''}" data-cmd="${cmd.name}">
-        <span class="slash-picker-name">/${cmd.name}</span>
-        <span class="slash-picker-desc">${cmd.description}</span>
-      </div>
-    `;
-  }).join('');
+  let html = '';
+  built.items.forEach((item, index) => {
+    // 分组标题：只在分区有命中时输出；不带 data-index、不参与索引、不绑处理器
+    if (index === 0 && built.skillCount > 0) {
+      html += '<div class="slash-picker-group-header">技能</div>';
+    }
+    if (index === built.skillCount && built.commandCount > 0) {
+      html += '<div class="slash-picker-group-header">命令</div>';
+    }
+
+    const isActive = item.selectable === true && index === state.slashPickerActiveIndex;
+    const rowClass = item.kind === 'skill' ? 'slash-picker-row slash-picker-row-skill' : 'slash-picker-row';
+    html += '<div class="' + rowClass + (isActive ? ' active' : '') + '" data-index="' + index + '">' +
+      '<span class="slash-picker-name">/' + escapeHtml(item.name) + '</span>' +
+      '<span class="slash-picker-desc">' + escapeHtml(item.description || '') + '</span>' +
+      '</div>';
+  });
+  list.innerHTML = html;
 
   // 键盘高亮项滚动到可视区域
   const activeRow = list.querySelector('.slash-picker-row.active');
@@ -10204,18 +10246,17 @@ function renderSlashPickerList() {
     activeRow.scrollIntoView({ block: 'nearest' });
   }
 
-  // 绑定点击执行与 hover 高亮
-  list.querySelectorAll('.slash-picker-row[data-cmd]').forEach(row => {
+  // 点击执行与 hover 高亮：一律按扁平索引直绑；不可选中行不绑处理器（灰显禁用态）
+  list.querySelectorAll('.slash-picker-row[data-index]').forEach(row => {
+    const idx = Number(row.dataset.index);
+    const item = state.slashPickerItems[idx];
+    if (!item || item.selectable !== true) return;
     row.addEventListener('click', () => {
-      const idx = items.findIndex(c => c.name === row.dataset.cmd);
-      if (idx >= 0) {
-        state.slashPickerActiveIndex = idx;
-        executeActiveSlashCommand();
-      }
+      state.slashPickerActiveIndex = idx;
+      executeActiveSlashCommand();
     });
     row.addEventListener('mousemove', () => {
-      const idx = items.findIndex(c => c.name === row.dataset.cmd);
-      if (idx >= 0 && idx !== state.slashPickerActiveIndex) {
+      if (idx !== state.slashPickerActiveIndex) {
         state.slashPickerActiveIndex = idx;
         renderSlashPickerList();
       }

@@ -147,6 +147,198 @@
     return trimmed ? base + ' ' + trimmed : base;
   }
 
+  // ==================== `/` 面板模型（48-02 D-01 / D-03 / D-10 / D-11 / D-12） ====================
+
+  /**
+   * 可选中行的扁平索引集合（UI-SPEC 由 D-11 推导）
+   *
+   * ↑↓ 导航与 Enter 命中判据**只**认这个集合 —— 不可选中行（被遮蔽 / 与本地命令同名）
+   * 不得成为 `slashPickerActiveIndex` 的落点（否则 Enter 变死键）。
+   *
+   * @param {Array<{selectable?: boolean}>} items - 展平单数组（`state.slashPickerItems`）
+   * @returns {number[]} 可选中行的扁平索引（升序）
+   */
+  function buildSelectableIndexes(items) {
+    const list = Array.isArray(items) ? items : [];
+    return list.map((it, i) => (it && it.selectable === true ? i : -1)).filter(i => i >= 0);
+  }
+
+  /**
+   * 在可选中索引集合上取模（↑↓ 一步）
+   *
+   * - 集合为空（全部不可选中）→ `-1`，调用方据此回落既有 false 路径（UI-SPEC）
+   * - `current` 不在集合内（越界收缩 / 初始 `-1`）→ 按方向取**最近**的可选中行：
+   *   `delta > 0` 取首个大于 `current` 的索引，`delta < 0` 取末个小于 `current` 的索引；
+   *   该方向上没有则回绕到集合另一端
+   * - `current` 在集合内 → `(pos + delta + len) % len`（首尾回绕、长度 1 自指）
+   *
+   * @param {number[]} selectable - `buildSelectableIndexes` 的结果
+   * @param {number} current - 当前 `activeIndex`
+   * @param {1|-1} delta - 方向（ArrowDown = 1 / ArrowUp = -1）
+   * @returns {number} 下一步的扁平索引；无任何可选中行时返回 -1
+   */
+  function nextSelectableIndex(selectable, current, delta) {
+    const sel = Array.isArray(selectable) ? selectable : [];
+    if (sel.length === 0) return -1;
+    const dir = delta < 0 ? -1 : 1;
+    const pos = sel.indexOf(current);
+    if (pos >= 0) return sel[(pos + dir + sel.length) % sel.length];
+    if (dir > 0) {
+      for (const idx of sel) {
+        if (idx > current) return idx;
+      }
+      return sel[0];
+    }
+    for (let i = sel.length - 1; i >= 0; i--) {
+      if (sel[i] < current) return sel[i];
+    }
+    return sel[sel.length - 1];
+  }
+
+  /**
+   * 面板过滤（D-03 两档 / D-10 面板隐藏 / `/skill:` token 分流）
+   *
+   * - 技能侧：先剔除 `disabled === true`（D-10 —— 纯消费主进程布尔，不重判）；
+   *   过滤 token 为 `/skill:` 形态时按 `SKILL_PREFIX` 长度剥离后使用。
+   *   前缀档 = `q === '' || name.startsWith(q)`；描述档 = 非前缀命中且 description
+   *   子串命中。返回 `[...前缀档, ...描述档]`，**各档内保持入参原序**（即
+   *   `ai-skills-manager.bySkillPriority` 已定的确定性全序）。
+   * - 命令侧：`name.startsWith(rawFilter)` —— **用原 token**，逐字节沿用既有语义。
+   *
+   * @param {Array<object>} skills - 主进程收窄投影条目
+   * @param {Array<{name: string}>} commands - 本地命令注册表（`SLASH_COMMANDS`）
+   * @param {string} rawFilter - 输入框 `/` 后首个空白前的 token（已小写）
+   * @returns {{skills: Array<object>, commands: Array<object>}}
+   */
+  function filterPickerItems(skills, commands, rawFilter) {
+    const list = Array.isArray(skills) ? skills : [];
+    const cmds = Array.isArray(commands) ? commands : [];
+    const raw = typeof rawFilter === 'string' ? rawFilter : '';
+    const q = raw.startsWith(SKILL_PREFIX) ? raw.slice(SKILL_PREFIX.length) : raw;
+
+    const prefixTier = [];
+    const descTier = [];
+    for (const s of list) {
+      if (!s || s.disabled === true) continue;
+      const name = typeof s.name === 'string' ? s.name : '';
+      const desc = typeof s.description === 'string' ? s.description.toLowerCase() : '';
+      if (q === '' || name.startsWith(q)) {
+        prefixTier.push(s);
+        continue;
+      }
+      if (desc.includes(q)) descTier.push(s);
+    }
+
+    return {
+      skills: prefixTier.concat(descTier),
+      commands: cmds.filter(c => c && typeof c.name === 'string' && c.name.startsWith(raw)),
+    };
+  }
+
+  /** 行尾状态标注四条定长文案（UI-SPEC §Copywriting，唯一权威） */
+  const STATUS_TEXT = Object.freeze({
+    shadowed: '已遮蔽 · 由用户同名技能胜出',
+    nameClash: '与本地命令同名 · 本地命令优先',
+    promptOmitted: '未进提示词 · 超预算',
+    overLimit: '超数量上限',
+  });
+
+  /**
+   * 展平单数组（D-01 的唯一顺序权威）
+   *
+   * 顺序 = `[...技能分区, ...命令分区]`，**数组顺序即视觉渲染顺序**（分组标题只在渲染层
+   * 插入、不占索引）。技能项的 `selectable` / `statusText` / `statusTone` 判定规则：
+   *
+   * - 可选中性 = 非 `shadowed` 且非「与本地命令同名」（后者是**纯名字集合查询**，
+   *   不重新定义任何优先级 / 遮蔽 / 限额判定 —— 那些一律消费主进程字段，46 D-06）
+   * - 状态标注优先级：`shadowed` > 与本地命令同名 > `promptOmitted` > `overLimit`
+   *
+   * @param {Array<object>} skills - 主进程收窄投影条目
+   * @param {Array<object>} commands - 本地命令注册表（`SLASH_COMMANDS`）
+   * @param {string} rawFilter - 输入框 `/` 后首个空白前的 token（已小写）
+   * @returns {{items: Array<object>, skillCount: number, commandCount: number}}
+   */
+  function buildPickerItems(skills, commands, rawFilter) {
+    const cmds = Array.isArray(commands) ? commands : [];
+    const filtered = filterPickerItems(skills, cmds, rawFilter);
+
+    const commandNames = new Set(
+      cmds.map(c => (c && typeof c.name === 'string' ? c.name : null)).filter(n => n !== null)
+    );
+
+    const skillItems = filtered.skills.map(s => {
+      const shadowed = s.shadowed === true;
+      const nameClash = commandNames.has(s.name);
+      let statusText;
+      let statusTone;
+      if (shadowed) {
+        statusText = STATUS_TEXT.shadowed;
+        statusTone = 'muted';
+      } else if (nameClash) {
+        statusText = STATUS_TEXT.nameClash;
+        statusTone = 'muted';
+      } else if (s.promptOmitted === true) {
+        statusText = STATUS_TEXT.promptOmitted;
+        statusTone = 'limit';
+      } else if (s.overLimit === true) {
+        statusText = STATUS_TEXT.overLimit;
+        statusTone = 'limit';
+      }
+      return {
+        kind: 'skill',
+        name: s.name,
+        description: s.description,
+        tier: s.tier,
+        disableModelInvocation: s.disableModelInvocation,
+        selectable: !(shadowed || nameClash),
+        statusText,
+        statusTone,
+      };
+    });
+
+    const commandItems = filtered.commands.map(c => ({
+      kind: 'command',
+      name: c.name,
+      description: c.description,
+      takesArg: c.takesArg,
+      handler: c.handler,
+      selectable: true,
+      statusText: undefined,
+    }));
+
+    return {
+      items: skillItems.concat(commandItems),
+      skillCount: skillItems.length,
+      commandCount: commandItems.length,
+    };
+  }
+
+  /**
+   * 三档来源徽标的唯一权威查表（D-14 的消费方）
+   *
+   * 面板行（48-02）与 `read` 工具卡片技能变体（48-03）**共用**本表取 `label` / `className`
+   * / `title`，从而满足 UI-SPEC「不得另起第二份徽标实现」。`className` 是三个固定白名单
+   * class 名，**取值不参与字符串拼接**；表外 / 缺失 tier → 渲染时跳过徽标（不得产出
+   * `undefined` 字面量进 class）。
+   */
+  const TIER_BADGE = Object.freeze({
+    user: Object.freeze({
+      label: '用户',
+      className: 'slash-picker-source-badge-user',
+      title: '用户技能（agent-workspace/skills/），同名时优先于内置与托管',
+    }),
+    builtin: Object.freeze({
+      label: '内置',
+      className: 'slash-picker-source-badge-builtin',
+      title: '随包内置技能，每次启动自愈播种',
+    }),
+    managed: Object.freeze({
+      label: '托管',
+      className: 'slash-picker-source-badge-managed',
+      title: '托管技能（AI 自建，存于 managed-skills/）',
+    }),
+  });
+
   const api = {
     SKILL_PREFIX,
     SKILL_NAME_RE,
@@ -154,6 +346,11 @@
     parseSkillRef,
     parseSkillInvocationText,
     buildSkillSyntaxText,
+    buildSelectableIndexes,
+    nextSelectableIndex,
+    filterPickerItems,
+    buildPickerItems,
+    TIER_BADGE,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
