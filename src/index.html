@@ -1019,6 +1019,9 @@
   <script src="model-family.js"></script>
   <!-- skill-picker-model.js 必须在 renderer.js 之前：renderer 顶层即引用 window.SkillPickerModel -->
   <script src="skill-picker-model.js"></script>
+  <!-- ai-cancel-state.js 同样必须在 renderer.js 之前：renderer 的 ai 事件 error 取消分支
+       同步引用 window.AICancelState（顺序不可调换，且文件本身零依赖） -->
+  <script src="ai-cancel-state.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

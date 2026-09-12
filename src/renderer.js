@@ -255,6 +255,9 @@ const state = {
   aiCurrentMessageId: null,
   aiAutoScroll: true,
   aiCancelledByUser: false,
+  // 被取消消息锚点（G-48-4）：取消只作用于「被取消的那条消息」，不读「当前」消息 id；
+  // 取消落点后清空（含对话切换两处）
+  aiCancelledMessageId: null,
   aiCompacting: false,
 
   // 对话管理状态
@@ -7208,6 +7211,7 @@ async function switchConversation(conversationId) {
     state.aiStreaming = false;
     state.aiCurrentMessageId = null;
     state.aiCancelledByUser = false;
+    state.aiCancelledMessageId = null;
 
     // 加载目标对话的消息
     if (result && result.messages && result.messages.length > 0) {
@@ -7245,6 +7249,7 @@ async function createNewConversation() {
     state.aiStreaming = false;
     state.aiCurrentMessageId = null;
     state.aiCancelledByUser = false;
+    state.aiCancelledMessageId = null;
     state.referencedTabs = [];
     if (elements.aiContextPills) {
       elements.aiContextPills.innerHTML = '';
@@ -8372,13 +8377,18 @@ function updateSendButtonState(isStreaming, isCompacting = false) {
  */
 async function handleStopAI() {
   try {
-    // 标记为用户主动取消
-    state.aiCancelledByUser = true;
+    if (state.aiCurrentMessageId) {
+      // 标记为用户主动取消
+      state.aiCancelledByUser = true;
+      // 记锚点（G-48-4）：无进行中轮次时不留空锚点污染下一轮（此时仍照常 abort）
+      state.aiCancelledMessageId = state.aiCurrentMessageId;
+    }
     await window.realmAPI.ai.abort();
     console.log('[Realm Renderer] AI 回复已停止');
   } catch (err) {
     console.error('[Realm Renderer] 停止 AI 回复失败:', err);
     state.aiCancelledByUser = false;
+    state.aiCancelledMessageId = null;
   }
 }
 
@@ -9116,10 +9126,14 @@ async function abortAIIfStreaming() {
   if (!state.aiStreaming) return;
   try {
     state.aiCancelledByUser = true;
+    // 记锚点（G-48-4）：abort 引发的 error 可能在新一轮开始**之后**才到，
+    // 那一刻 state.aiCurrentMessageId 已指向新气泡 —— 归属必须靠这条锚点
+    state.aiCancelledMessageId = state.aiCurrentMessageId;
     await window.realmAPI.ai.abort();
   } catch (err) {
     console.error('[Realm Renderer] 中止流式回复失败:', err);
     state.aiCancelledByUser = false;
+    state.aiCancelledMessageId = null;
   }
 }
 
@@ -9384,17 +9398,30 @@ function handleAIStream() {
         case 'error': {
           // 用户主动取消：在 AI 气泡中显示"用户已取消"
           if (state.aiCancelledByUser) {
-            state.aiCancelledByUser = false;
-            const cancelIdx = state.aiMessages.findIndex(
-              m => m.role === 'assistant' && m.id === state.aiCurrentMessageId
+            // 归属解算必须在**任何**状态复位之前（解算读锚点与当前轮次 id）。
+            // 取消只作用于被取消的那条消息，**不得**读「当前」aiCurrentMessageId 记账 ——
+            // `ai:abort` 同步返回，迟到 error 到达时当前 id 可能已指向新气泡
+            // （UAT test 4：新气泡被写成取消文案、其后 15s 零增长）
+            const attribution = window.AICancelState.resolveCancelAttribution(
+              state.aiMessages,
+              state.aiCancelledMessageId,
+              state.aiCurrentMessageId
             );
-            if (cancelIdx >= 0) {
-              state.aiMessages[cancelIdx].content = '*用户已取消*';
+            state.aiCancelledByUser = false;
+            state.aiCancelledMessageId = null;
+            if (attribution.targetIndex >= 0) {
+              state.aiMessages[attribution.targetIndex].content = '*用户已取消*';
             }
-            state.aiStreaming = false;
-            state.aiCurrentMessageId = null;
-            // 切换回发送按钮
-            updateSendButtonState(false);
+            // 仅当锚点仍是当前轮时复位轮次状态（用户点停止的既有语义：气泡标为
+            // 已取消 + 按钮切回发送）；新一轮已开始时不得越权复位，否则新轮的
+            // message_update / tool_execution_update 会因 aiCurrentMessageId 被置
+            // null 而整批丢弃
+            if (attribution.resetRunState) {
+              state.aiStreaming = false;
+              state.aiCurrentMessageId = null;
+              // 切换回发送按钮
+              updateSendButtonState(false);
+            }
             needsRender = true;
             break;
           }
