@@ -4,17 +4,17 @@ milestone: v2.6
 milestone_name: AI 助手技能（Skill）能力
 current_phase: 48
 current_phase_name: "技能发现与调用（`/` 面板 + `/skill:name`）"
-status: verifying
-stopped_at: Completed 48-03-PLAN.md
-last_updated: "2026-09-12T06:29:01.259Z"
+status: executing
+stopped_at: Completed 48-04-PLAN.md
+last_updated: "2026-09-12T11:51:24.835Z"
 last_activity: 2026-09-12
 last_activity_desc: Phase 48 execution started
-state_head: bb61fcbff46738926722e68da3c05ed21d33d91e
+state_head: 60e229a518d9c1c39427b6bc13bd738311d866e7
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 16
+  completed_plans: 14
   percent: 0
 ---
 
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-09-11)
 ## Current Position
 
 Phase: 48 (技能发现与调用（`/` 面板 + `/skill:name`）) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
+Plan: 4 of 6
+Status: Ready to execute
 Last activity: 2026-09-12 — Phase 48 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -105,6 +105,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 48 P01 | 17min | 3 tasks | 11 files |
 | Phase 48 P02 | 7min | 3 tasks | 6 files |
 | Phase 48 P03 | 21min | 3 tasks | 7 files |
+| Phase 48 P04 | 5min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -201,6 +202,9 @@ Recent decisions affecting current work:
 - [Phase 48]: 48-03：技能标记判定收敛到工具事件生成侧（ai-manager）—— _resolveSkillMarker 同步零 IO；路径归一化只用纯词法 path.resolve（与 SDK env.absolutePath 同规则），不额外展开 ~ / file://，命中只走 matchSkillByPath 的缓存 filePath 规范化全等 + basename 必须为 SKILL.md；renderer 零路径字符串匹配 — renderer 在 file:// 主窗口、无 sandboxEnv，拿不到技能目录权威路径；按字符串包含猜就是第二份判定实现（T-48-10 根因）。~ / file:// 解析后落在工作区外，标 null 与沙箱拒绝行为一致 —— 引入第二套解析会与沙箱分叉
 - [Phase 48]: 48-03：一处实现两处调用 —— 实时链路（tool_execution_start 的 skill_invocation）与重载链路（getConversationMessages 装饰 assistant 行 toolExecutions）共用 _resolveSkillMarker，产出对象形状以「键集合逐字相等」断言；标记必须在 start 事件一次性给出（end 不带 params，错过无第二次机会） — 两条链路若各写一份判据必然漂移（重开对话后卡片标记丢失或形状不一致）；用「实时 vs 重载键集合逐字相等」比分别断言两侧形状更难被绕过
 - [Phase 48]: 48-03：产品文档讲行为不讲字段 —— 边界行为表用中文状态名（超数量上限 / 未进提示词 · 超预算）不出现 overLimit / promptOmitted；并显式写明 disable-model-invocation（可显式调用、打「仅显式」）与「已禁用」（两入口都拒、面板不显示）是两个互不蕴含的 flag — 字段名属实现细节，文档写字段会让说明随重构腐烂；两个 flag 语义相反是最易被实现合成一个开关的地方（DISC-07 的正面要求），必须成文防回归
+- [Phase 48]: [Phase 48] 48-04：readSkillForInvocation 的同一性判据改为**所在目录路径全等**（纯词法 path.resolve），不再比较 SDK 读回的 name —— Skill.name 是 frontmatterName || parentDirName（skills.js:218-219），可被 SKILL.md 内容伪造，用它判同一性等于把 P3/S1 要堵的冒名路径重新放行；目录名才是 Realm 的唯一权威（46 D-08），而该权威此前只作用于缓存层、读盘层不享有 —— 判据取**位置**不取**属性**
+- [Phase 48]: [Phase 48] 48-04：命中后返回 { ...fresh, name }（name 重写为入参目录名）—— SDK formatSkillInvocation 取 skill.name 生成 <skill name="…">（skills.js:9），不重写会让 frontmatter 声明的名字进注入块；重载链路 parseStoredSkillInvocation 从该属性取技能名，重写同时保证重开对话后 pill 名称与实时链路一致；并删除与目录路径判据冲突的 || skills[0] 兜底
+- [Phase 48]: [Phase 48] 48-04：「目录被换成别的技能」的负例判据换成「目录读不到 / 路径不等」（读盘为空 → not_found），不再依赖会与「name≠目录名」混淆的字段；测试 helper writeSkill 增 frontmatterName 选项（默认 = 目录名，既有 129 例调用零改动）—— 默认值恒等于既有行为是新增覆盖面不产生回归的前提
 
 ### Roadmap Evolution
 
@@ -309,8 +313,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-12T06:19:19.977Z
-Stopped at: Completed 48-03-PLAN.md
+Last session: 2026-09-12T11:51:19.312Z
+Stopped at: Completed 48-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
