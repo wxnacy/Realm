@@ -1,11 +1,21 @@
 ---
 phase: 49-manage-skill-ai
-reviewed: 2026-09-13T14:39:43Z
+reviewed: 2026-09-13T16:52:00Z
 depth: standard
-round: 4
+round: 5
+previous_round: 4
 diff_base: a52f09de47c8fb0c5c40179978eb8d076ea20301
-files_reviewed: 8
+diff_base_round_5: 38d48726598bd79755dc64524ca6a52c9acf7527
+head_round_5: 27fea24
+files_reviewed: 6
 files_reviewed_list:
+  - AGENTS.md
+  - docs/product/ai-skills.md
+  - src/renderer.js
+  - src/styles/main.css
+  - tests/test-ai-skills.js
+  - tests/uat-49-g49-4-card-a11y-tab-order.js
+files_reviewed_list_round_4:
   - AGENTS.md
   - docs/product/ai-skills.md
   - src/renderer.js
@@ -26,10 +36,10 @@ files_reviewed_list_rounds_1_3:
   - tests/test-skill-picker-model.js
 findings:
   critical: 0
-  warning: 7
-  info: 7
-  total: 14
-findings_scope: 累计（本文件全部轮次）—— 轮 1–3 的 7 条（WR-05..WR-08 / IN-07..IN-09）+ 轮 4 新增 7 条（WR-09..WR-11 / IN-10..IN-13）
+  warning: 8
+  info: 11
+  total: 19
+findings_scope: 累计（本文件全部轮次）—— 轮 1–3 的 7 条（WR-05..WR-08 / IN-07..IN-09）+ 轮 4 新增 7 条（WR-09..WR-11 / IN-10..IN-13）+ 轮 5 新增 5 条（WR-12 / IN-14..IN-17）
 status: issues_found
 ---
 
@@ -473,3 +483,154 @@ _Reviewed: 2026-09-13T14:39:43Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
 _Round: 4（`a52f09d..HEAD`，49-07 / G-49-3 收口）· 累计 findings: critical 0 / warning 7 / info 7 / total 14_
+
+---
+
+## Round 5（49-08 / UI-49-W6-01 收口）
+
+**Reviewed:** 2026-09-13T16:52:00Z
+**Scope:** `git diff 38d4872..HEAD` 在册的 6 个文件（`AGENTS.md` / `docs/product/ai-skills.md` / `src/renderer.js` / `src/styles/main.css` / `tests/test-ai-skills.js` / `tests/uat-49-g49-4-card-a11y-tab-order.js`）。本轮唯一目标是闭合 `49-UI-REVIEW.md` 的 BLOCKER `UI-49-W6-01` —— 折叠的 `manage_skill` 卡片上那个「零可见高度、可 Tab 到达却看不见」的键盘停靠点。
+**判决:** **收口本身是真的**（我逐条独立复核了源码、证据 JSON 与可重跑的账本判据；`{ interactive: false }` 确实落在**真实**渲染路径上，a11y 回归也**真的消失而非搬了位置** —— `.tool-card-content` 内不存在任何其它可聚焦元素）。本轮的问题**全部落在新门禁的承重能力上**：绿轮那条自称「承重判据」的 `R3` 在**空集**上为真（证据 JSON 自己记着 `inCardCount = 0`），而 docstring 声称用来排除这种空真的 `R1` **根本不判卡片域**；整套断言又全是「没有不可见停靠点」这一**否命题**，把折叠块从布局里拿掉也能全绿。此外新增的 `M9b` 是纯源码形态扫描 —— 我用**逐字复制**的判据在内存变异文本上实测了三种形态等价的回归，**全部全绿**。
+
+### 本轮增量（逐条独立复核）
+
+| 声明 | 我的复核手段（不依赖本轮自带结论） | 结果 |
+|---|---|---|
+| `renderSkillContentBox` 增加语境开关（缺省 `true`；三条属性与 `keydown` 受 `if (interactive)` 守卫；`toggleCollapsed` 的 `aria-expanded` 同步同守卫） | 直读 `src/renderer.js:8952-9002`（守卫在 `:8959-8963`、`:8969-8971`、`:8986-8993`）；全仓 `setAttribute('tabindex')` **仅 1 处**（`:8961`，在守卫内）、`setAttribute('role')` 2 处（`:695` 的 tab、`:8960` 在守卫内） | ✅ 真 |
+| `{ interactive: false }` 落在**真实**卡片渲染路径（不是测试态路径） | `renderToolCard` 是实时（`renderToolCards` → `:10100`）与重载（`:8087`）的**唯一**卡片构建入口，`:9765` 在该函数内；证据 JSON 绿轮 `R5` 实测折叠/展开**两态**的 `tabindex` / `role` / `aria-expanded` **均为 `null`** | ✅ 真 |
+| a11y 回归**真的消失，而非搬到别的祖先** | 全仓 `ai-skill-content-box*` 只在 `renderSkillContentBox` 一处构建、只在 CSS 一处定义（`:5827-5890`、`:6232-6237`），无外部补加路径；绿轮 80 站 Tab 遍历中 `inToolCard = true` 命中 **0 站** | ✅ 真（但见 `WR-12`：这条「消失」在绿轮是**空集真**） |
+| 气泡实例的 48 Pillar 6 增量原位保留 | 气泡调用点 `:9093` 仍为 `renderSkillContentBox(msg.skillInvocation)`（不传选项 ⇒ 缺省 `true`）；驱动 `R4` 用**真实 `Enter`** 切换成功（`aria-expanded: false→true`、`collapsed→展开`） | ✅ 真 |
+| `src/styles/main.css` **只改注释** | **独立复算**（不采信任何自带 sha）：剥块注释后两侧非注释行 8373 行**逐字相等**；声明投影 sha256 在 `a52f09d` / `38d4872` / HEAD 三处**同为** `69899a4f2a42c56aa5b102ee828ab49ccaf6ca9b23032674759b6a88d7a293db` | ✅ 真 |
+| 例数账本 8 单元 = 178 / 55 / 111 | 现场跑三个套件：`178 / 55 / 111`；§11.8 的 `counts-parity` 命令输出 `counts-parity ok cells=8 measured={"test-manage-skill.js":"55","test-ai-skills.js":"178","test-skill-picker-model.js":"111"}` | ✅ 真 |
+| 红→绿两轮证据存在且自洽 | 读 `/tmp/uat49/evidence-g49-4.json`：`runs = red(exit 1 · inCard 2 / 违反 2 · R5 tabindex '0') + green(exit 0 · inCard 0 / 违反 0)`；红轮的属性值只有**未修复树**才可能产生 ⇒ 该轮确实跑在预修复态 | ✅ 真（但配对本身落在 `/tmp`，见 `IN-16`） |
+| `docs` / `AGENTS.md` 的口径限定与账本刷新 | `docs/product/ai-skills.md:531`（§11.7 新条目）、`:98` / `:539-540`（178 / 55 / 111）；`AGENTS.md:267-276` 测试行 | ✅ 与实现一致 |
+| **副作用（本轮未声明但已闭合）**：`WR-11` 的逃逸形态被 `stripComments` 扩展顺手堵住 | 逐字复制 `rendererManageRegions().branch` 与 M10 的常量判据，在内存变异上求值：`noteText = '超预算'; // noteText = window.SkillPickerModel.PROMPT_OMITTED_CARD_NOTE` ⇒ **新 `stripComments` 判红（旧版判绿）** | ✅ 真（机制已闭合，建议在账本里登记） |
+
+### 注入 → 判据矩阵（本轮门禁的承重面）
+
+| 注入 | 判据 | 结果 |
+|---|---|---|
+| 卡片调用点去掉 `{ interactive: false }`（= 红轮/未修复树） | `R3`（收紧后的 `hit === el \|\| el.contains(hit)`） | **转红** ✅ 可失败性成立（`hitIsAncestorOfEl = true`，命中承载裁切的 `.ai-message-ai`） |
+| 同上 | 绿轮 `R3`（`inCardCount = 0`） | **绿 —— 空集真** ❌ → `WR-12` |
+| 折叠块被 `display: none` 从布局里移除（`.tool-card-content .ai-skill-content-box`） | `P1`/`P2`（容器仍 0 高）+ `R3`（无停靠点 ⇒ 空集真）+ `R5`（属性仍 `null` ⇒ 绿）+ `R4`（气泡不受影响） | **全绿** ❌ → `WR-12` |
+| `M9b`：函数内加一行 `interactive = true;`（形态全不变，行为完全退回修复前） | `M9b` ①–⑧（逐字复制） | **全绿** ❌ → `IN-14` |
+| `M9b`：三条属性移到一处紧凑的 `if (interactive) { … }` 之后（无条件下施加） | 同上 | **全绿** ❌ → `IN-14` |
+| `M9b`：卡片调用点之后另有 `manageContentBox.querySelector('…').setAttribute('tabindex','0')` | 同上（⑧ 只禁 `removeAttribute` / `deleteAttribute`） | **全绿** ❌ → `IN-14` |
+| `M9b`：三条属性整体移出守卫 | 同上 | **转红** ✅（③ 对 `role` / `tabindex` 承重；对 `aria-expanded` 被 `toggleCollapsed` 的同类调用满足，见 `IN-14`） |
+| `M9b`：卡片调用点不传选项 / 新增第三个调用点 | 同上 | **转红** ✅（⑤ / ⑦） |
+| `M10`：写死 `'超预算'` 字面量 + 行尾注释承载常量名 | M10 常量判据（新 `stripComments`） | **转红** ✅（`WR-11` 机制已闭合） |
+
+### WR-12: 新驱动的「承重判据」在绿轮是**空集真**，且整套断言只有否命题 —— 折叠块被 `display:none` 移出布局时全绿
+
+**File:** `tests/uat-49-g49-4-card-a11y-tab-order.js:44-50`（docstring 的「断言非恒真的自证」）、`:662-672`（`R1`/`R2`）、`:674-720`（`R3`）、`:722-758`（`R5`）、`:89`（`TAB_STOPS`）
+
+**Issue:** 驱动自己在 docstring 里点名了这条失败模式 ——
+
+```
+ * 绿轮可能**空真**（卡片内零停靠点 ⇒ 「凡卡片内停靠点都可见」是空集真）。故：
+ *   ① `R1` 断言遍历本身有效（停靠点总数 ≥ 20 且至少一站非 `BODY`）；
+```
+
+而 `R1` 的判据是 **`tabStops.length >= 20 && nonBody.length >= 1`** —— 两个数都是**全文档**口径，与「卡片域是否有停靠点」正交。`R2` 更是 `P1 && P2` 的重复（前提断言），同样不涉及卡片域。于是：
+
+1. **本轮绿轮实测就踩在了这条失败模式上。** `/tmp/uat49/evidence-g49-4.json` 的绿轮 `r3Detail` 是 `{"inCardCount":0,"violationCount":0}`、`R1` 却是 `PASS`（`停靠点总数 80 · 非 body/html 站数 80`）、退出码 **0** 并打印 `ALL ASSERTIONS PASS`。我另查了该轮 `tabStops`：`inToolCard === true` **0 站**、`isContentBoxHeader === true` **0 站**（80 站实际只覆盖 21 种唯一元素签名，`tab-close` 一项就占 16 站 —— 即遍历**已在同一个环上跑了约两遍**）。也就是说：绿轮那条「承重判据」判定的是一个**空集**，它对「卡片内不存在不可见停靠点」这句话**没有提供任何证据**；实质证据来自 `R5`（真实渲染下三属性为 `null`）与红轮的配对。`49-08-SUMMARY.md` 的 `patterns-established` 把它写成「用 R1/R2 排除『遍历没跑起来』的空真」，与代码不符。
+2. **全套断言只有否命题，没有一条「折叠块确实被渲染」的正命题。** 逐条看：`R3` = 「卡片内停靠点都可见」（无停靠点即成立）、`R5` = 「三属性为 `null`」（元素消失也成立）、`P2` = 「`.tool-card-content` 高 0」（与折叠块无关）、`R4` = 气泡侧。因此注入 `.tool-card-content .ai-skill-content-box { display: none }`（或任何让折叠块脱离布局的等价改动）时：`querySelector` 仍能命中 header ⇒ 前置 `E-DATA` / `targetProbe` 照常通过；`display:none` 的元素不进 Tab 序 ⇒ `inCardCount` 仍为 0、`R3` 仍绿；三属性仍为 `null` ⇒ `R5` 仍绿；`R5` 的 `expandedOk` 只看 `.tool-card-content` 的 `max-height` ⇒ 仍绿。**「技能正文折叠块消失了」这一整类回归在全部 8 条断言下是绿的。** 这与上一轮 `WR-10`（`uat-49-g49-3` 的 A1–A6 单向判据）是**同一缺陷类**，只是这次落在新文件、且恰好落在这条 BLOCKER 的闭环判据上。（这一条我是**由源码直读判定**的：`querySelector` 命中 `display:none` 元素、以及 `display:none` 退出顺序焦点导航，都是确定性的浏览器语义，无需实跑。）
+3. 附带，`R6` 绿分支的 `detail` 写作「绿轮必须为绿且 **R1/R2** 为绿」，代码只 AND 了 `R1`（`:834`）—— 自校验的**措辞**也不是承重项；另 `R3` 统计的是**遍历站数**而非唯一元素数，故红轮的「违反 2 站」实际是**同一个 header 被访问两次**（`index 33` 与 `index 76`），`inCardCount` 同理不能读作「元素个数」。
+
+**Fix（三条，建议全做；改桩不动源码）：**
+
+```js
+// ① 正命题判据（R7）：折叠块必须真的被渲染、展开后真的可见、header 必须不是可聚焦控件
+assertions.R7 = {
+  pass: expandedState.boxRectH > 0 && expandedState.boxDisplay !== 'none'
+    && expandedState.boxVisibility !== 'hidden'
+    && expandedState.headerRole === null && expandedState.headerTabindex === null
+    && /^技能正文（\d+ 字符）/.test(expandedState.headerText || ''),
+  detail: '折叠块必须在展开态被真实渲染（rectH>0）且 header 不带焦点语义：'
+    + `rectH=${expandedState.boxRectH} display=${expandedState.boxDisplay} headerText=${JSON.stringify(expandedState.headerText)}`,
+};
+// 需要在 targetProbe() 的返回对象里补采 box / header 的 rectH、display、visibility
+
+// ② 把「空集真」显式化：R3 的 pass 之外，把 inCardCount 本身纳入判定
+assertions.R3 = {
+  pass: r3Violations.length === 0 && (ROUND === 'red' ? inCard.length >= 1 : true),
+  detail: /* … */ + (inCard.length === 0
+    ? ' · ⚠ 卡片域内零停靠点 ⇒ 本条在绿轮是**空集真**，本轮的实质证据是红轮配对 + R5/R7'
+    : ''),
+};
+// ③ R6 的绿分支同时要求 R5 && R7（把「属性为 null」与「块被渲染」绑在一起），
+//    并把 detail 里的 R1/R2 与代码对齐
+```
+
+（`R3` 的**方向无关**设计本身是对的 —— 日后卡片头部真变成可聚焦入口时命中即为自身、照样绿；问题只在绿轮的空集与缺正命题，不要把这条收紧成「卡片内不得有停靠点」。）
+
+## Round 5 · Info
+
+### IN-14: `M9b` 是纯源码形态扫描 —— 三种形态等价的回归实测全绿，而它是本仓唯一能自动跑的护栏
+
+**File:** `tests/test-ai-skills.js:4168-4237`（`M9b` ①–⑧）；`tests/test-ai-skills.js:3547-3558`（本轮扩展的 `stripComments`）
+
+**Issue:** `M9b` 的八条断言**没有一条构造被测函数**：①/⑦ 数标识符出现次数，② 匹配签名正则，③/④ 用「`if (interactive) {` 之后 200（/400）字符内须出现 `setAttribute` / `addEventListener`」这一**距离启发式**，⑤/⑥ 匹配调用点的**书写形态**，⑧ 对整份 `renderer.js` 做 `removeAttribute` / `deleteAttribute` 的负向扫描（性质是**函数局部**的，判据却是**文件全局**的）。我把这些判据逐字复制到内存变异文本上求值（未改动工作区任何文件），结果：
+
+```
+M0 当前树                                   GREEN
+M1 函数内加一行 interactive = true;          GREEN  ← 行为完全退回修复前，M9b 全过
+M2 三条属性整体移出守卫                       RED    （role / tabindex 转红；aria-expanded 被
+                                                    toggleCollapsed 内同类调用满足而漏过）
+M3 卡片调用点不传 { interactive: false }      RED    （⑤ 承重）
+M4 新增第三个调用点（默认 true）               RED    （⑦ 承重）
+M5 调用点之后外部补 setAttribute('tabindex')  GREEN  ← ⑧ 只禁「事后清除」，不禁「别处施加」
+M6 属性置于一处紧凑 if (interactive) { … } 之后 GREEN  ← ③ 的距离启发式被满足，属性实为无条件施加
+```
+
+即：**朴素注入能被拦下**（M2/M3/M4 转红，这一点值得肯定），但**「守卫内施加」这一实质语义没有被任何一条断言钉住** —— 判据钉的是「某个 `if (interactive) {` 与其后 200 字符内的 `setAttribute`」这一**相邻形态**。当前树不存在第二种施加入口（全仓 `setAttribute('tabindex')` 仅 1 处、`role` 2 处，我已 grep 核对），因此**今日无实害**；但要知道这条护栏不承重：`package.json` 没有 `test` 脚本，`uat-` 驱动也不在 Node 默认测试发现规则的拾取范围内（我用同构的合成目录在 Node v22.22.0 上实测：`tests/uat-foo.js` 不被 `node --test` 拾取，而 `tests/test-bar.js` 被拾取 ⇒ 驱动 docstring 的这条声明为真；另注：本机 Node 22.22 下 `node --test tests/` 这种「传目录」的写法直接以 `Cannot find module` 失败），所以**能自动跑的只有 `M9b` 这一层**。
+
+另有一处应记录的同源风险：本轮把 `stripComments` 扩成 `(^|[^:])\/\/.*$`（剥行尾注释）**确实闭合了 `WR-11`**（我实测旧版判绿、新版判红），但该正则不区分「注释」与「字符串里的 `//`」—— 未来任何一行出现 `'…//…'` 形态的字符串字面量，其**行尾代码会被静默删除**，对 `M7` / `M8` / `M10` / `M9b` 的**负向**断言（「不得出现 `JSON.stringify(...)`」这类）是假绿方向。我扫过当前 `src/renderer.js`：此类行**0 行**，故属潜在风险而非现存缺陷。
+
+**Fix:** 把「施加受 `interactive` 守卫」从形态判据改成**行为判据**（这是本阶段反复写下的纪律：源码扫描不该承重行为）。最小成本方案是把 `renderSkillContentBox` 抽成一个**零 DOM 依赖的纯函数**（返回 `[{attr, value}]` 的属性清单）放进 `src/skill-picker-model.js`，渲染端只做 `applyAttributes(el, list)`，测试直接断言 `planHeaders(…, {interactive:false}).length === 0`；若暂不重构，至少把 ③/④ 的距离启发式换成「`interactive` 的所有使用点都必须出现在 `if/&&/?:` 的判定位置」的形态判据，并补一条「`renderer.js` 中除本函数外不得对 `.ai-skill-content-box-header` 施加 `tabindex` / `role`」（对 M5 转红）。`stripComments` 侧建议改成先剥字符串字面量再剥注释，或至少在判据里加一条「剥注释后源码长度变化 ≤ 注释总长度」的自检。
+
+### IN-15: 两处 `49-UI-SPEC.md:508` 引用被本轮自己的插入挪成了空白行
+
+**File:** `src/renderer.js:8946`（`（契约 49-UI-SPEC.md:508 锁定"本阶段零改动"）`）、`src/styles/main.css:5860`（`卡片头部（.tool-card-header）的展开 / 折叠沿用全仓既有的鼠标语义（契约 :508）`）
+
+**Issue:** 本轮在 `49-UI-SPEC.md` 的 `## 卡片结构契约` 中插入了 17 行（「为什么卡片实例必须不施加」等段落），把被引用的那一行——`| 展开 / 折叠（卡片） | 既有行为：… **本阶段零改动** … |`——从 **508** 推到了 **525**。两处引用没有跟着改，现在指向一个**空行**（我在当前文件上核对：`:508` 为空行，行内容在 `:525`）。`49-08-SUMMARY.md` 说「`:508` 逐字未改」，指的是**行内容**未改（这是真的），但**行号已变**，于是引用失效。同类：`.planning/.../49-UI-SPEC.md:567` 的 E3 元素清单行仍写「header 具 `role="button"` + `aria-expanded`」（未加语境限定），与同文件 `:526` 的限定行不一致 —— 该文件不在本轮的 6 个在册文件内，故只作交叉提示，不计为本轮 finding。
+
+**Fix:** 把两处改成不带行号的引用（如「契约 `49-UI-SPEC.md` 的『展开 / 折叠（卡片）』行」），或改指 `:525`；避免在有插入动作的同一轮里保留会漂移的行号锚点。若后续允许，给 UI-SPEC 的契约行加一个稳定锚点（如 `<!-- contract:card-fold -->`）比行号更耐用。
+
+### IN-16: 红→绿配对只活在 `/tmp`，且驱动对本机 `realm-dev` 会话库有**数据前置** —— 新机器 / CI 上无法复建
+
+**File:** `tests/uat-49-g49-4-card-a11y-tab-order.js:71-79`（`EVIDENCE_PATH` / `CONV_DB`）、`:141-214`（`E-DATA-DB` 硬退出）、`:226-245`（累积式证据）、`:453-460`（`mutation` 由环境变量自标）
+
+**Issue:** 两件事合并记录：
+
+1. **数据前置**：`E-DATA-DB` 要求 `~/Library/Application Support/realm-dev/ai-conversations.db` 里存在「既有带 `content` 的 `manage_skill` 调用、又有成功结果」的会话，否则**以退出码 12 硬退出**（fail-closed，方向安全）。这意味着目标卡片**不是驱动构造的夹具**，而是作者本机会话的偶然产物（实际用的是会话 `3dec0492…`）；新机器 / CI / 换 userData 时该门禁**根本跑不起来**，而它承载的是本轮 BLOCKER 的唯一行为证据。
+2. **配对不可在仓内复建**：`G49_4_ROUND=red|green` 只是环境变量标签，`runs[]` 按标签去重覆盖；红轮需要**手工回退源码**，仓内没有任何东西表达这一状态。红轮的属性值（`tabindex === '0'`）确实只有未修复树才可能产生 ⇒ 我**不怀疑**该轮的真实性，故按 Info 而非 Warning 记；但 `/tmp` 不是证据保存地，证据被清或会话库变动后，「红→绿」这一结论无法重跑复核 —— 与 `WR-09`（A9 的红轮基准活在 `/tmp`）**同一族**，只是这次落在新驱动上。`49-08-SUMMARY.md` 的 Self-Check 也把 `/tmp/uat49/g49-4-{red,green}.log` 列为通过项，属同类依赖。
+
+**Fix:** 让驱动**自带夹具**：启动前用 `ai-conversations-manager` 的写入 API（或直接对一份临时 userData 的 `ai-conversations.db` 播种）造一条含成功 `manage_skill` 调用 + `content` 的会话，把 `E-DATA-DB` 从「读用户数据」改成「构造数据」；红轮的基线则用 `WR-09` 建议的同款做法**冻进源码**（例如把「卡片 header 必须无焦点语义」这条的期望值写成常量，并让 `G49_4_ROUND=red` 只影响证据标签、不影响判据）。这样 `/tmp` 只承担日志，判据本身随仓可重跑。
+
+### IN-17: §11.7 新条目写了「为什么不施加」，没写「后果」—— 卡片语境下正文折叠块**没有任何键盘路径**
+
+**File:** `docs/product/ai-skills.md:531`（§11.7 新增条目）
+
+**Issue:** 新条目把成因与修法讲得很完整（宿主默认零高 ⇒ 零可见高度停靠点 ⇒ 焦点环被祖先裁掉 ⇒ 故卡片实例不施加），但是**只写了「避免什么」**，没写**代价**：改动之后，卡片语境下的技能正文折叠块既无 `tabindex` 也无 `keydown`，而它的祖先 `.tool-card-content` 与卡片头部 `.tool-card-header` **同样不可聚焦**（全仓工具卡片范式），因此**键盘用户完全无法展开这张卡片去读 AI 刚写下的技能正文** —— 鼠标是唯一入口。这是 49 之前既已存在的范式（不是本轮引入的回归），也确实被 `49-UI-SPEC.md:525` 的契约锁定为「本阶段零改动」；但对**产品说明**而言，读者从新条目会得到「卡片一切照旧」的印象，而实际语义是「本已不可达的正文，现在明确承认键盘不可达」。作为产品文档的权威条目，代价应当与原因并列写出（本阶段另有两处同类做法：`allowed-tools` 不被强制、bash 白名单是启发式，均写明「不是安全边界」）。
+
+**Fix:** 在该条目末尾补一句限定，例如：`—— 代价是卡片语境下的正文折叠块**没有键盘展开入口**（与卡片头部同为鼠标语义，全仓工具卡片的既有范式，本阶段契约锁定不变）；键盘用户要读同一段正文，走 `/skill:<name>` 的气泡实例。`
+
+## Round 5 · 复核后的挂账状态
+
+**本轮（49-08 / `UI-49-W6-01`）闭合的是**：折叠的 `manage_skill` 卡片上**不再存在零可见高度的键盘停靠点**（`{ interactive: false }` 落在真实路径、气泡侧增量原位保留、`main.css` 声明零改动、账本按实测刷新）。这条**是真的**，我按源码 / 证据 JSON / 独立复算三条互不依赖的路线复核过。
+**顺带闭合（未声明）**：`WR-11`（`M10` 可被行尾注释满足）—— `stripComments` 扩展后我用变异实测旧绿新红；建议在 `49-VERIFICATION.md` 的 advisory 表与 `49-REVIEW.md` 的挂账清单里把它标为已闭合（本轮未改这两处措辞，故此处只作记录）。
+
+**本轮新挂账（5 条，编号避开既有 ID）**：`WR-12`（承重判据 `R3` 绿轮空集真 + 全套只有否命题 ⇒ 折叠块被 `display:none` 移出布局时全绿）、`IN-14`（`M9b` 纯源码形态扫描，三种等价变体全绿，而它是唯一可自动跑的护栏）、`IN-15`（两处 `:508` 引用被本轮自己的插入挪成空行）、`IN-16`（红→绿配对只在 `/tmp` + `E-DATA-DB` 数据前置 ⇒ 不可移植，同 `WR-09` 一族）、`IN-17`（§11.7 只写原因不写代价）。
+
+**仍未复核、仍按上一轮挂账**（这些文件/区域不在本轮 6 个在册文件的复核范围内，其「仍开放」继承自上一轮，本轮**未重新验证**）：`WR-03`（成功文案 vs UI-SPEC）、`WR-04`（bidi 控制符未剥离）、`WR-05`（`M3` 子串扫描）、`WR-06`（幽灵写入报无保留成功）、`WR-07`（两链路 `manageSkill` 键集合分歧）、`WR-08`（`[code]` 词缀 encode/decode 谓词不成逆）、`WR-09`（A9 基准活在 `/tmp`；A9 与 `css-decl-freeze` 至今无仓内判据 —— 本轮 `main.css` 的声明零改动我已独立复算，但**并没有**给这两条判据补上仓内落点）、`WR-10`（g49-3 的 A1–A6 单向判据）、`IN-07`–`IN-13`。其中 `WR-11` / `IN-10` 的机制面：`WR-11` 已闭合（见上），`IN-10`（`skill-picker-model` 的正形式判据可被注释满足）**未闭合** —— `tests/test-skill-picker-model.js` 本轮未改动，其判据仍跑在未剥注释的源码上。
+**Phase 48 命名空间的 `TD-48-01` / `TD-48-02` / `WR-01` / `WR-02` / `WR-06`** 与相位命名空间隔离，本轮未评估。
+
+**本轮暴露的一处结构性事实（承上轮）**：上一轮记的「本阶段真正的唯一有效证据是 `/tmp` 下的文件」在本轮**再次成立**，且这次多了一层 —— 连「能不能跑这个门禁」都取决于本机 `realm-dev` 会话库的内容（`IN-16`）。凡是「验收依赖 `/tmp`、依赖本机用户数据、或依赖计划文本」的判据，都应视为**未保存的证据**，其结论只能作为旁证，不能作为闭环判据；这也解释了为什么本轮唯一可自动重跑的那层（源码形态扫描）反而在形态等价变异下不承重（`IN-14`）。
+
+---
+
+_Reviewed: 2026-09-13T16:52:00Z_
+_Reviewer: Claude (gsd-code-reviewer)_
+_Depth: standard_
+_Round: 5（`38d4872..27fea24`，49-08 / UI-49-W6-01 收口）· 累计 findings: critical 0 / warning 8 / info 11 / total 19_
