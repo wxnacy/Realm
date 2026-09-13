@@ -5,16 +5,16 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 49
 current_phase_name: manage-skill-ai
 status: executing
-stopped_at: Phase 49 UI-SPEC approved
-last_updated: "2026-09-13T05:22:04.853Z"
+stopped_at: Completed 49-01-PLAN.md
+last_updated: "2026-09-13T06:54:22.899Z"
 last_activity: 2026-09-13
-last_activity_desc: Phase 48 complete, transitioned to Phase 49
-state_head: ced70716c53a11d48d8494e7c6509589c2fa4a67
+last_activity_desc: Phase 49 execution started
+state_head: 0cb484b0859f418e0fe434dc1846246a7163ba93
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 21
-  completed_plans: 18
+  completed_plans: 19
   percent: 17
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-13)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 49 — `manage_skill` 工具（AI 自建技能）
+**Current focus:** Phase 49 — manage-skill-ai
 
 ## Current Position
 
-Phase: 49 (manage-skill-ai) — READY TO EXECUTE
-Plan: Not started
+Phase: 49 (manage-skill-ai) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-09-13 — Phase 48 complete, transitioned to Phase 49
+Last activity: 2026-09-13 — Phase 49 execution started
 
 Progress: [██░░░░░░░░] 17%
 
@@ -111,6 +111,7 @@ Progress: [██░░░░░░░░] 17%
 | Phase 48 P06 | 6min | 2 tasks | 8 files |
 | Phase 48 P7 | 6min | 2 tasks | 7 files |
 | Phase 48 P08 | 4 min | 3 tasks | 5 files |
+| Phase 49 P01 | 12 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -225,6 +226,10 @@ Recent decisions affecting current work:
 - [Phase 48]: [Phase 48 08] 补刷只在成功出口执行、且首行检脏早退：错误出口与 _cleanupCurrentAgent() 不补（避免同一次运行双刷）；脏标记为假时零 IO（否则每条普通消息多付一次全量重扫）—— 两条都写成可失败的门（K3/K4/K2），不是注释里的承诺
 - [Phase 48]: [Phase 48 08] miss 重试块取「重扫与重试读盘各自独立 try」+ rescanned 局部标志：重扫抛错时不再重读（整批失败会回滚缓存三件套 ⇒ 重读必然同形）；err 取值一律 err && err.message ? err.message : String(err)（throw null / 抛原始值不得二次抛错）；两条告警文案必须可判别（「重扫失败」/「重试读盘失败」）
 - [Phase 48]: [Phase 48 08] 本次只把「新增的调用点」（重试读盘）纳入 try —— ai-manager.js:1046/:1174 两处裸调、首次读盘与动态 import 仍不在 try 内，即 WR-02 仍开；WR-06 保持开放随 Phase 49。本计划不声称闭合二者，也不改 48-UAT.md
+- [Phase 49-01]: manage_skill 的写函数与校验器一律住 ai-skills-manager.js（零 electron 依赖），ai-manager.js 只做注册与参数转发 — ROADMAP 安全门禁要求本阶段产出的校验器是 Phase 50/51 唯一可复用的那一份；ai-manager.js 有 electron 依赖链，50/51 无法 require 它。写权威与读权威同源（既有「技能集单一数据权威」模式的延伸）。
+- [Phase 49-01]: 字段分离扫描取「给 ai-memory-manager.scanInjectionPatterns 加向后兼容可选参」方案：description 跑注入组+凭据组，content 只跑注入组 — description 无条件进每次请求的 system prompt（与两层记忆同构）故两组都要跑；content 不进 prompt 且技能文档合法地会写配置示例（api_key: YOUR_KEY_HERE 实测被凭据组命中），跑两组会误伤合法技能创建。加可选参改动最小、向后兼容（既有全部单参调用零影响），且 Phase 51 可沿同一选项面扩表。
+- [Phase 49-01]: 撞名 / seeded / 数量闸一律读盘（env.exists / env.listDir），绝不用 createDir 的返回值；原子写失败清理只在 create 且本次确实新建目录时执行 — 实测 createDir 对已存在目录返回 ok:true（幂等），据此判「不存在」会把既有技能静默覆写；bash 可随时改盘，缓存快照只反映上次重扫时刻。update 失败不得删目标目录——其内容靠文件级 rename 的原子替换天然保持操作前状态，删目录反而毁用户数据。
+- [Phase 49-01]: 工具业务错误引入单源常量表 MANAGE_SKILL_ERROR（九码 + 沙箱兜底 UNKNOWN），字面量不出现在 code: 位置 — ai-skills-manager.js 的既有护栏把任何 code: '<字面量>' 当作 Realm 诊断码并要求 realm_ 前缀——而那是针对诊断码的真实约束，不该为工具错误放宽。工具 Error.code 与 realm_ 诊断码是两套命名空间，常量表既保住护栏原样不改，又让 D-07 的「闭合白名单」成为字面数据。
 
 ### Roadmap Evolution
 
@@ -339,9 +344,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T04:48:26.835Z
-Stopped at: Phase 49 UI-SPEC approved
-Resume file: .planning/phases/49-manage-skill-ai/49-UI-SPEC.md
+Last session: 2026-09-13T05:42:13.689Z
+Stopped at: Completed 49-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

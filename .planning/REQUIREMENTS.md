@@ -40,11 +40,11 @@ Requirements for v2.6. Each maps to roadmap phases.
 ### MGMT — AI 自建技能（manage_skill）
 
 - [ ] **MGMT-01**: AI 拥有 `manage_skill` 工具，支持 `create` / `update` / `delete` 三个动作
-- [ ] **MGMT-02**: `manage_skill` **不接受 `path` 参数**，只接受 `name`（`^[a-z0-9-]+$`）与 `content` / `description`；路径由 manager 用 `path.join` 计算
-- [ ] **MGMT-03**: 服务端对 name / description / 正文字节上限做二次校验（LLM 参数不可信）；写入走原子写（经沙箱 `env.renameFile` 获得双基准路径校验）
-- [ ] **MGMT-04**: seeded 内置技能不可被 AI 覆盖或删除（按**播种登记表**判定，而非按目录位置）
+- [x] **MGMT-02**: `manage_skill` **不接受 `path` 参数**，只接受 `name`（`^[a-z0-9-]+$`）与 `content` / `description`；路径由 manager 用 `path.join` 计算
+- [x] **MGMT-03**: 服务端对 name / description / 正文字节上限做二次校验（LLM 参数不可信）；写入走原子写（经沙箱 `env.renameFile` 获得双基准路径校验）
+- [x] **MGMT-04**: seeded 内置技能不可被 AI 覆盖或删除（按**播种登记表**判定，而非按目录位置）
 - [ ] **MGMT-05**: `manage_skill` 成功后刷新技能集与 Agent system prompt
-- [ ] **MGMT-06**: 工具描述引导 AI「优先增强已有技能，而非创建近乎重复的新技能」
+- [x] **MGMT-06**: 工具描述引导 AI「优先增强已有技能，而非创建近乎重复的新技能」
 
 ### USER — 用户技能管理（设置页 + 导入）
 
@@ -135,11 +135,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DISC-06 | Phase 48 | Complete |
 | DISC-07 | Phase 48 | Complete |
 | MGMT-01 | Phase 49 | Pending |
-| MGMT-02 | Phase 49 | Pending |
-| MGMT-03 | Phase 49 | Pending |
-| MGMT-04 | Phase 49 | Pending |
+| MGMT-02 | Phase 49 | Complete |
+| MGMT-03 | Phase 49 | Complete |
+| MGMT-04 | Phase 49 | Complete |
 | MGMT-05 | Phase 49 | Pending |
-| MGMT-06 | Phase 49 | Pending |
+| MGMT-06 | Phase 49 | Complete |
 | USER-01 | Phase 50 | Pending |
 | USER-02 | Phase 50 | Pending |
 | USER-03 | Phase 51 | Pending |

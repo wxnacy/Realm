@@ -285,12 +285,12 @@ Plans:
   4. 写入为原子操作（经沙箱 `env.renameFile` 获得双基准路径校验），失败不留半成品文件，且不触及 `ai-memory/`、`attachments/` 等其他工作区路径。
   5. 工具描述引导 AI 优先增强已有技能，而非创建近乎重复的新技能。
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 49-01-PLAN.md — tracer：`create` 端到端主干（校验器 → 字段分离扫描 → 独占创建 → 沙箱原子写 → 刷新链）+ `update` / `delete` 与边界拒绝矩阵 + 值域矩阵与两条护栏（MGMT-01..06、判据 1–4）
+- [x] 49-01-PLAN.md — tracer：`create` 端到端主干（校验器 → 字段分离扫描 → 独占创建 → 沙箱原子写 → 刷新链）+ `update` / `delete` 与边界拒绝矩阵 + 值域矩阵与两条护栏（MGMT-01..06、判据 1–4）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -362,6 +362,6 @@ Plans:
 | 46. 技能基础设施 | 4/4 | Complete | 2026-09-11 |
 | 47. 内置技能播种 + bash 策略加固 | 6/6 | In Progress|  |
 | 48. 技能发现与调用 | 8/8 | In Progress|  |
-| 49. `manage_skill` 工具 | TBD | Not started | - |
+| 49. `manage_skill` 工具 | 1/3 | In Progress|  |
 | 50. 设置页技能管理区 + `/api/skills/*` | TBD | Not started | - |
 | 51. 用户技能导入管线 | TBD | Not started | - |
