@@ -358,6 +358,353 @@ describe('create 脊椎（manage_skill 主干）', () => {
   });
 });
 
+/** 两个技能扫描根（refreshSkills 的 rootDirs 口径：managed 先、user 后） */
+function scanRoots() {
+  return [workspace.getManagedSkillsDir(), workspace.getSkillsDir()];
+}
+
+/** 技能目录的递归快照（拒绝路径「逐字不变」的判据） */
+function snapshotTree(dir) {
+  const out = {};
+  if (!fs.existsSync(dir)) return out;
+  const walk = (current) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const abs = path.join(current, entry.name);
+      if (entry.isDirectory()) walk(abs);
+      else out[path.relative(dir, abs)] = fs.readFileSync(abs, 'utf8');
+    }
+  };
+  walk(dir);
+  return out;
+}
+
+describe('update / delete 两动作与统一的目标判定', () => {
+  test('update 快乐路径：全量覆写（旧正文消失）+ 目录内文件数恒 1 + action === "update"', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    await aiSkills.createManagedSkill(env, {
+      name: 'flow',
+      content: '# 第一版\n\n旧正文\n',
+      description: '第一版描述',
+      seededNames: SEEDED,
+    });
+    const dir = path.join(workspace.getManagedSkillsDir(), 'flow');
+
+    const res = await aiSkills.updateManagedSkill(env, {
+      name: 'flow',
+      content: '# 第二版\n\n新正文\n',
+      description: '第二版描述',
+      seededNames: SEEDED,
+    });
+
+    assert.strictEqual(res.action, 'update');
+    const text = fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf8');
+    assert.ok(text.includes('第二版描述'), 'description 必须被覆写');
+    assert.ok(text.includes('新正文'), '新正文必须就位');
+    assert.ok(!text.includes('旧正文'), '旧正文必须消失（update = 全量覆写，不是追加）');
+    assert.strictEqual(fs.readdirSync(dir).length, 1, '原子替换：目录内文件数恒为 1');
+    assert.strictEqual((text.match(/^---$/gm) || []).length, 2, '仍为单层 frontmatter');
+  });
+
+  test('update 的三类拒绝（seeded / 用户技能 / 不存在）且目标目录逐字不变', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    writeSkill(workspace.getManagedSkillsDir(), 'find-skills', { body: '# 内置\n' });
+    writeSkill(workspace.getSkillsDir(), 'user-flow', { body: '# 用户的\n' });
+    const seededSnap = snapshotTree(path.join(workspace.getManagedSkillsDir(), 'find-skills'));
+    const userSnap = snapshotTree(path.join(workspace.getSkillsDir(), 'user-flow'));
+
+    await expectThrowCode(
+      () => aiSkills.updateManagedSkill(env, { name: 'find-skills', content: 'x', description: 'y', seededNames: SEEDED }),
+      'seeded_protected'
+    );
+    await expectThrowCode(
+      () => aiSkills.updateManagedSkill(env, { name: 'user-flow', content: 'x', description: 'y', seededNames: SEEDED }),
+      'user_owned_conflict'
+    );
+    await expectThrowCode(
+      () => aiSkills.updateManagedSkill(env, { name: 'ghost', content: 'x', description: 'y', seededNames: SEEDED }),
+      'not_found'
+    );
+
+    assert.deepStrictEqual(
+      snapshotTree(path.join(workspace.getManagedSkillsDir(), 'find-skills')),
+      seededSnap,
+      'seeded 技能内容不得被触碰'
+    );
+    assert.deepStrictEqual(
+      snapshotTree(path.join(workspace.getSkillsDir(), 'user-flow')),
+      userSnap,
+      '用户技能内容不得被触碰（prohibition 1）'
+    );
+  });
+
+  test('update 失败**不删目标目录**（与 create 的关键区别）：目录仍在、SKILL.md 逐字未变', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    await aiSkills.createManagedSkill(env, {
+      name: 'stable',
+      content: '# 原始正文\n',
+      description: '原始描述',
+      seededNames: SEEDED,
+    });
+    const dir = path.join(workspace.getManagedSkillsDir(), 'stable');
+    const file = path.join(dir, 'SKILL.md');
+    const before = fs.readFileSync(file, 'utf8');
+
+    // 人为让写路径失败：撤掉目标目录的写权限 ⇒ rename 无法落入（EACCES）
+    fs.chmodSync(dir, 0o555);
+    let err = null;
+    try {
+      await aiSkills.updateManagedSkill(env, {
+        name: 'stable',
+        content: '# 新正文\n',
+        description: '新描述',
+        seededNames: SEEDED,
+      });
+    } catch (e) {
+      err = e;
+    } finally {
+      fs.chmodSync(dir, 0o755); // 恢复权限，保证临时目录可被清理
+    }
+
+    assert.ok(err, '写盘失败时 update 必须抛错（不得静默成功）');
+    assert.ok(fs.existsSync(dir), 'update 失败**不得删除**目标目录（它属于既有数据）');
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), before, 'SKILL.md 必须逐字保持操作前状态');
+  });
+
+  test('delete 快乐路径：递归删掉整目录（含 scripts/ 子目录）+ action === "delete"', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    await aiSkills.createManagedSkill(env, {
+      name: 'with-scripts',
+      content: '正文',
+      description: '描述',
+      seededNames: SEEDED,
+    });
+    const dir = path.join(workspace.getManagedSkillsDir(), 'with-scripts');
+    // AI 可能经 bash 给技能加脚本目录 —— 递归删除必须一并带走
+    fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'scripts', 'run.sh'), 'echo hi\n');
+
+    const res = await aiSkills.deleteManagedSkill(env, { name: 'with-scripts', seededNames: SEEDED });
+
+    assert.strictEqual(res.action, 'delete');
+    assert.strictEqual(fs.existsSync(dir), false, '整目录（含 scripts/）必须被递归删除');
+    assert.strictEqual((await env.exists(dir)).value, false);
+  });
+
+  test('delete 的三类拒绝（seeded / 用户技能 / 不存在）：seeded 与用户目录必须仍在且逐字未变', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    writeSkill(workspace.getManagedSkillsDir(), 'skill-creator', { body: '# 内置\n' });
+    writeSkill(workspace.getSkillsDir(), 'user-only', { body: '# 用户的\n' });
+    const seededDir = path.join(workspace.getManagedSkillsDir(), 'skill-creator');
+    const userDir = path.join(workspace.getSkillsDir(), 'user-only');
+    const seededSnap = snapshotTree(seededDir);
+    const userSnap = snapshotTree(userDir);
+
+    await expectThrowCode(
+      () => aiSkills.deleteManagedSkill(env, { name: 'skill-creator', seededNames: SEEDED }),
+      'seeded_protected'
+    );
+    await expectThrowCode(
+      () => aiSkills.deleteManagedSkill(env, { name: 'user-only', seededNames: SEEDED }),
+      'user_owned_conflict'
+    );
+    await expectThrowCode(
+      () => aiSkills.deleteManagedSkill(env, { name: 'ghost', seededNames: SEEDED }),
+      'not_found'
+    );
+
+    assert.ok(fs.existsSync(seededDir), 'seeded 目录必须仍在（判据 3）');
+    assert.ok(fs.existsSync(userDir), '用户技能目录必须仍在 —— prohibition 1 的直接回归证据');
+    assert.deepStrictEqual(snapshotTree(seededDir), seededSnap);
+    assert.deepStrictEqual(snapshotTree(userDir), userSnap);
+  });
+
+  test('seeded 保护三入口同形：同一 SEEDED 注入下 create / update / delete 一律 seeded_protected', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    // 「位置在 managed-skills 下、且被列入 seededNames」的正例（判据 3 的靶心）
+    writeSkill(workspace.getManagedSkillsDir(), 'find-skills', { body: '# 内置\n' });
+
+    const codes = [];
+    for (const call of [
+      () => aiSkills.createManagedSkill(env, { name: 'find-skills', content: 'x', description: 'y', seededNames: SEEDED }),
+      () => aiSkills.updateManagedSkill(env, { name: 'find-skills', content: 'x', description: 'y', seededNames: SEEDED }),
+      () => aiSkills.deleteManagedSkill(env, { name: 'find-skills', seededNames: SEEDED }),
+    ]) {
+      const err = await expectThrowCode(call, 'seeded_protected');
+      codes.push(err.code);
+    }
+    assert.deepStrictEqual(codes, ['seeded_protected', 'seeded_protected', 'seeded_protected']);
+  });
+
+  test('数量闸：以读盘的「非 seeded managed 目录数」为统计对象；update / delete 不受限', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const managed = workspace.getManagedSkillsDir();
+    const max = aiSkills.LIMITS.MAX_MANAGED_SKILLS;
+
+    // 两个 seeded 目录**不得**计入（否则上限会提前触发）
+    writeSkill(managed, SEEDED[0]);
+    writeSkill(managed, SEEDED[1]);
+    for (let i = 0; i < max; i += 1) writeSkill(managed, `filler-${i}`);
+
+    const err = await expectThrowCode(
+      () => aiSkills.createManagedSkill(env, { name: 'one-too-many', content: '正文', description: '描述', seededNames: SEEDED }),
+      'limit_exceeded'
+    );
+    assert.ok(String(err.message).includes(String(max)), '原因须带上限值');
+    assert.ok(err.message.includes('删除'), '原因须给可操作提示（先删除不再需要的技能）');
+    assert.strictEqual(err.limit, max);
+    assert.strictEqual(err.currentValue, max, '统计对象是「非 seeded 的 managed 目录数」（seeded 不计入）');
+    assert.ok(!fs.existsSync(path.join(managed, 'one-too-many')), '到顶的 create 不得落盘');
+
+    // 到顶后仍能自救：update / delete 不受数量闸限制
+    const upd = await aiSkills.updateManagedSkill(env, {
+      name: 'filler-0',
+      content: '改过的正文',
+      description: '改过的描述',
+      seededNames: SEEDED,
+    });
+    assert.strictEqual(upd.action, 'update', '数量闸只管创建，不得阻塞 update');
+    const del = await aiSkills.deleteManagedSkill(env, { name: 'filler-1', seededNames: SEEDED });
+    assert.strictEqual(del.action, 'delete', '数量闸只管创建，不得阻塞 delete');
+  });
+});
+
+describe('update / delete 的补充边界', () => {
+  test('update 的 content 自带 frontmatter → 落盘单层；description 走同一条扫描 → 净化 → 写入路径', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    await aiSkills.createManagedSkill(env, {
+      name: 'layered',
+      content: '初始正文',
+      description: '初始描述',
+      seededNames: SEEDED,
+    });
+
+    const res = await aiSkills.updateManagedSkill(env, {
+      name: 'layered',
+      content: '---\nname: 冒名的名字\ndescription: 冒名描述\n---\n真正的正文',
+      description: '带\u200B零宽字符\n与换行的描述',
+      seededNames: SEEDED,
+    });
+
+    // 净化在同一条路径上生效（description 只作用于 frontmatter 那一行）
+    assert.strictEqual(res.description, '带 零宽字符 与换行的描述');
+    const text = fs.readFileSync(res.filePath, 'utf8');
+    assert.strictEqual((text.match(/^---$/gm) || []).length, 2, '自带 frontmatter 必须被剥除，只留单层');
+    assert.ok(text.includes('name: layered'), 'frontmatter 的 name 由工具生成（不沿用 content 里的冒名值）');
+    assert.ok(!text.includes('冒名的名字'), 'content 里的冒充 name 不得进 frontmatter（防冒名）');
+    assert.ok(text.includes('真正的正文'), '剥除后正文必须完整落盘');
+    assert.ok(!/[\u200B]/.test(text), '净化后的 description 不得残留零宽字符');
+  });
+
+  test('delete 的 name 非法形态 → invalid_name，且不触碰任何目录', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    writeSkill(workspace.getManagedSkillsDir(), 'legit', { body: '# 合法\n' });
+    const before = managedNames();
+
+    for (const bad of ['../legit', 'Legit', 'a/b', '']) {
+      await expectThrowCode(
+        () => aiSkills.deleteManagedSkill(env, { name: bad, seededNames: SEEDED }),
+        'invalid_name'
+      );
+    }
+    assert.deepStrictEqual(managedNames(), before, '非法 name 的 delete 不得触碰磁盘');
+  });
+
+  test('create 失败不留半成品：写路径失败时目标目录不得残留（本次新建才清理）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const managed = workspace.getManagedSkillsDir();
+    const destDir = path.join(managed, 'half-built');
+
+    // 人为让 createDir / rename 失败：撤掉 managed-skills 的写权限
+    fs.chmodSync(managed, 0o555);
+    let err = null;
+    try {
+      await aiSkills.createManagedSkill(env, {
+        name: 'half-built',
+        content: '正文',
+        description: '描述',
+        seededNames: SEEDED,
+      });
+    } catch (e) {
+      err = e;
+    } finally {
+      fs.chmodSync(managed, 0o755);
+    }
+
+    assert.ok(err, '写盘失败时 create 必须抛错');
+    assert.strictEqual(fs.existsSync(destDir), false, '失败不得留下半成品目录');
+    assert.strictEqual(fs.existsSync(path.join(destDir, 'SKILL.md')), false, '失败不得留下半成品文件');
+  });
+});
+
+describe('getSkillPromptIncluded（prompt 段归属的复用判定）', () => {
+  test('四个分支：存在且正常 → true；不存在 → false；disabled → false；promptOmitted → false', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+
+    writeSkill(workspace.getSkillsDir(), 'normal-one');
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+    assert.strictEqual(aiSkills.getSkillPromptIncluded('normal-one'), true, '存在且正常应进 prompt');
+    assert.strictEqual(aiSkills.getSkillPromptIncluded('never-existed'), false, '不存在 → false');
+
+    // disabled 分支（46 D-09：禁用是消费侧过滤，文件不动）
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots(), disabled: ['normal-one'] });
+    assert.strictEqual(aiSkills.getSkillPromptIncluded('normal-one'), false, 'disabled → false');
+
+    // promptOmitted 分支（48 D-12）：塞满 prompt 段预算，被贪心丢弃的条目逐条打标
+    const dir = workspace.getSkillsDir();
+    for (let i = 0; i < 12; i += 1) {
+      writeSkill(dir, `bulk-${String(i).padStart(2, '0')}`, { description: 'd'.repeat(900) });
+    }
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+    const snap = aiSkills.getSkillsSnapshot();
+    const omitted = snap.skills.find((e) => e.promptOmitted === true);
+    assert.ok(omitted, '前置：预算超限时必须有条目被标 promptOmitted（否则本分支未被覆盖）');
+    // 断言复用关系：与加载管线算好的 promptOmitted 字段完全同源
+    assert.strictEqual(aiSkills.getSkillPromptIncluded(omitted.skill.name), false, 'promptOmitted → false');
+
+    // 只读快照、不触发重扫：refreshedAt 不得因此改变
+    const before = aiSkills.getSkillsSnapshot().refreshedAt;
+    aiSkills.getSkillPromptIncluded(omitted.skill.name);
+    assert.strictEqual(aiSkills.getSkillsSnapshot().refreshedAt, before, '该判定必须零 IO、不触发重扫');
+  });
+
+  test('同名遮蔽时的边界：按 name 查找命中**胜出者**（user 版）⇒ true，且败者条目确实带 shadowed 标记', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    writeSkill(workspace.getManagedSkillsDir(), 'dup', { body: '# managed 版\n' });
+    writeSkill(workspace.getSkillsDir(), 'dup', { body: '# user 版\n' });
+
+    await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+
+    const entries = aiSkills.getSkillsSnapshot().skills.filter((e) => e.skill.name === 'dup');
+    assert.strictEqual(entries.length, 2, '遮蔽败者**保留在集合内**（D-06，不剔除）');
+    assert.strictEqual(
+      entries.filter((e) => e.shadowed === true).length,
+      1,
+      '败者必须带 shadowed 标记 —— 这是 getSkillPromptIncluded 复用的那个字段'
+    );
+    // `find` 在 bySkillPriority 全序（user 先于 managed）下命中胜出者，而胜出者确实进 prompt
+    // ⇒ 返回 true 是正确语义。若日后有人把查找改成「命中败者」或改动定序，该断言会转红。
+    assert.strictEqual(
+      aiSkills.getSkillPromptIncluded('dup'),
+      true,
+      '按 name 查找命中胜出者（user 版），它进 prompt ⇒ true'
+    );
+  });
+});
+
 describe('沙箱原语的回归护栏（create 硬前置）', () => {
   test('createDir 对已存在目录幂等返回 ok:true ⇒ 撞名判定绝不能用它的返回值', async (t) => {
     const root = withTempRoot(t);

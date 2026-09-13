@@ -1107,8 +1107,9 @@ function sanitizeSkillDescription(text) {
  *
  * 委托 `ai-memory-manager.scanInjectionPatterns`（记忆域与技能域共用同一份模式表与
  * 同一份判定逻辑）。命中即 `throw`（对齐 memory 工具「拒绝写入」的语义先例，
- * **不是** `validateScript` 的「拒绝执行」）。Phase 51 的 `SKILL_THREAT_PATTERNS`
- * 技能域模式组只需扩表，**不加接线**。
+ * **不是** `validateScript` 的「拒绝执行」）。Phase 51 的技能域威胁模式组只需
+ * 扩表（在同一份模式单源里追加条目），**不加接线** —— 故本阶段**不**预置任何
+ * 技能域威胁模式表，也不出现其标识符。
  *
  * 字段分离（调用方口径，不可调换）：
  * - `description` → `{ includeCredentials: true }`（无条件进每个请求的 system prompt，
@@ -1243,6 +1244,62 @@ async function countManagedSkills(env, managedDir, seededNames) {
 }
 
 /**
+ * 统一的【目标判定】—— 四类撞名 / 保护判定在三个动作里**只有这一份判据**
+ *
+ * 判定顺序**固定不可调换**（顺序本身就是语义）：
+ *   ① `isSeededName` → `seeded_protected`（**先判定且不查磁盘**：内置身份来自
+ *      播种登记表而非目录位置，判据 3）；
+ *   ② 同名用户技能存在 → `user_owned_conflict`（46 D-06 的 user > managed ⇒
+ *      AI 建同名的会被**永久遮蔽**，不拒绝就是静默无用）；
+ *   ③ 目标目录不存在 → `not_found`（update / delete 的失败面；create 把它读作
+ *      「可以创建」）；
+ *   ④ 否则 → `{ ok: true, destDir, destFile }`（目标已存在且是 AI 可改可删的
+ *      managed 技能；create 把它读作 `already_exists`）。
+ *
+ * 前三类一律**不落盘**。撞名判定**一律读盘**（`env.exists`），不用缓存快照 ——
+ * bash 可随时改写磁盘，缓存只反映上次重扫的时刻。
+ *
+ * @param {object} env - 沙箱 ExecutionEnv
+ * @param {string} name - 已 trim 的技能名
+ * @param {string[]|Set<string>} seededNames - 随包内置技能名集合（调用方注入）
+ * @returns {Promise<{ok: true, destDir: string, destFile: string}
+ *                   | {ok: false, code: string, message: string}>}
+ */
+async function resolveManagedTarget(env, name, seededNames) {
+  const { destDir, destFile } = managedSkillPaths(name);
+
+  if (isSeededName(name, seededNames)) {
+    return {
+      ok: false,
+      code: MANAGE_SKILL_ERROR.SEEDED_PROTECTED,
+      message: `"${name}" 是随包内置技能，不能被覆盖或删除。请换一个名字创建新技能，或只增强你自己创建（managed）的技能`,
+    };
+  }
+
+  const userDir = path.join(getAgentWorkspaceLazy().getSkillsDir(), name);
+  const existsUser = await env.exists(userDir);
+  if (existsUser && existsUser.ok === true && existsUser.value === true) {
+    return {
+      ok: false,
+      code: MANAGE_SKILL_ERROR.USER_OWNED_CONFLICT,
+      message: `存在同名用户技能 "${name}"：用户技能优先级更高，AI 创建的会被它永久遮蔽，且它不属于 AI 的管理范围。请换一个名字`,
+    };
+  }
+
+  const existsManaged = await env.exists(destDir);
+  const managedPresent = existsManaged && existsManaged.ok === true && existsManaged.value === true;
+  if (!managedPresent) {
+    return {
+      ok: false,
+      code: MANAGE_SKILL_ERROR.NOT_FOUND,
+      message: `技能 "${name}" 不存在（AI 只能修改或删除自己创建在 managed-skills 下的技能）。请先用 create 创建它`,
+    };
+  }
+
+  return { ok: true, destDir, destFile };
+}
+
+/**
  * 创建 managed 技能（`manage_skill` 的 create 动作，MGMT-01）
  *
  * **独占创建**（D-07，对齐 oh-my-pi 与 FEATURES §5.3）：目标已存在（任何来源）
@@ -1276,30 +1333,25 @@ async function createManagedSkill(env, { name, content, description, seededNames
   // 4. 路径（恒由 path.join 计算）
   const { managedDir, destDir, destFile } = managedSkillPaths(skillName);
 
-  // 5. 撞名判定：一律读盘，**绝不用 createDir 的返回值**（它对已存在目录返回
-  //    ok:true 幂等，据此判「不存在」会把既有技能静默覆写 —— E2 回归护栏）
-  const existsManaged = await env.exists(destDir);
-  const existsUser = await env.exists(path.join(getAgentWorkspaceLazy().getSkillsDir(), skillName));
-  if ((existsManaged && existsManaged.ok === true && existsManaged.value === true) ||
-      (existsUser && existsUser.ok === true && existsUser.value === true)) {
-    // seeded 判定先于其它三类（内置优先给内置的原因）；managed 侧「已存在」与
-    //「用户手放在 managed-skills/ 下的」同形（工具无法区分）→ 同走 already_exists
-    if (isSeededName(skillName, seededNames)) {
-      throw makeManageSkillError(
-        MANAGE_SKILL_ERROR.SEEDED_PROTECTED,
-        `"${skillName}" 是随包内置技能，不能覆盖。请换一个名字创建新技能，或增强你自己创建的技能`
-      );
-    }
-    if (existsUser && existsUser.ok === true && existsUser.value === true) {
-      throw makeManageSkillError(
-        MANAGE_SKILL_ERROR.USER_OWNED_CONFLICT,
-        `已存在同名用户技能 "${skillName}"，它优先级更高、会永久遮蔽 AI 创建的技能，因此未写入。请换一个名字`
-      );
-    }
+  // 5. 撞名判定：**复用统一的目标判定**（与 update / delete 同一份判据）。
+  //    读底盘、绝不用 createDir 的返回值 —— 后者对已存在目录返回 ok:true 幂等，
+  //    据此判「不存在」会把既有技能静默覆写（E2 回归护栏）。
+  //    四类来源的映射：seeded_protected / user_owned_conflict 直接抛出；
+  //    not_found（目标不存在）对 create 读作「可以创建」；ok:true（目标已存在且是
+  //    AI 可改可删的 managed）则读作 already_exists —— 独占创建，不是 upsert。
+  //    managed 侧「已存在」与「用户手放在 managed-skills/ 下的」同形（工具无法区分）。
+  const target = await resolveManagedTarget(env, skillName, seededNames);
+  // 目标已存在且是 AI 可改可删的 managed ⇒ create 的独占语义下就是 already_exists
+  //（update / delete 把它读作「可以操作」，create 读作「不许覆盖」）
+  if (target.ok === true) {
     throw makeManageSkillError(
       MANAGE_SKILL_ERROR.ALREADY_EXISTS,
       `技能 "${skillName}" 已存在。请改用 update 覆写它的正文，或换一个名字`
     );
+  }
+  // 其余拒绝原样抛出：seeded_protected / user_owned_conflict 在三个动作里**同形**
+  if (target.code !== MANAGE_SKILL_ERROR.NOT_FOUND) {
+    throw makeManageSkillError(target.code, target.message);
   }
 
   // 6. 数量闸（只约束 create；update / delete 不受限，否则到顶后无法自救）
@@ -1313,8 +1365,9 @@ async function createManagedSkill(env, { name, content, description, seededNames
   }
 
   // 7. 建目录（renameFile 到缺失父目录必失败 ⇒ createDir 是硬前置）。
+  //    走到这里只剩 not_found 一种情形 ⇒ 目标目录必然不存在，本次一定是「新建」。
   //    createDir 的返回值不参与任何判定（幂等，E2）。
-  const madeDir = !(existsManaged && existsManaged.ok === true && existsManaged.value === true);
+  const madeDir = true;
   await env.createDir(destDir);
 
   // 8. 原子写；失败清理**只在本次确实新建了目录时**执行 —— 否则会误删不属于
@@ -1331,6 +1384,117 @@ async function createManagedSkill(env, { name, content, description, seededNames
   }
 
   return { name: skillName, filePath: destFile, description: safeDescription, action: 'create' };
+}
+
+/**
+ * 更新 managed 技能（`manage_skill` 的 update 动作，MGMT-01）
+ *
+ * **语义按 D-04 固定：全量覆写正文**。`content` 必填 = 完整新正文且**不含
+ * frontmatter**（frontmatter 由 `buildSkillFileText` 生成 `name` + `description`
+ * 两行）。**不提供** `old_string` / `new_string` 等局部编辑参数 —— 那会与沙箱内
+ * `edit` 工具的能力完全重叠（`edit` 在 `managed-skills/**` 上可用是既成事实），
+ * 等于同一能力两份实现；且 ROADMAP 判据 2 明文「工具只接受 `name` 与
+ * `content` / `description`」，多一个参数会让该判据的验收面（properties 键集合）失败。
+ * 局部增强走「先 read 再全量写」或直接用 `edit` 工具。
+ *
+ * 与 create 的唯一结构性差异：**失败不做任何清理**。目标目录本就存在，其内容由
+ * `renameFile` 的原子替换保证保持操作前状态；删目录反而会毁掉用户数据。
+ *
+ * @param {object} env - 沙箱 ExecutionEnv
+ * @param {{name: string, content: string, description: string,
+ *          seededNames?: string[]|Set<string>}} params
+ * @returns {Promise<{name: string, filePath: string, description: string, action: 'update'}>}
+ * @throws {Error} 校验 / 扫描 / 目标判定 / 写入失败（均带 `code`）
+ */
+async function updateManagedSkill(env, { name, content, description, seededNames } = {}) {
+  // 1. 三个纯校验器
+  const skillName = typeof name === 'string' ? name.trim() : name;
+  const nameCheck = validateManagedSkillName(skillName);
+  if (!nameCheck.ok) throw makeManageSkillError(nameCheck.code, nameCheck.reason);
+  const descCheck = validateManagedSkillDescription(description);
+  if (!descCheck.ok) throw makeManageSkillError(descCheck.code, descCheck.reason);
+  const contentCheck = validateManagedSkillContent(content);
+  if (!contentCheck.ok) throw makeManageSkillError(contentCheck.code, contentCheck.reason);
+
+  // 2. 先扫描（description 两组；content 一组）
+  scanSkillText(description, { includeCredentials: true });
+  scanSkillText(content, { includeCredentials: false });
+
+  // 3. 后净化
+  const safeDescription = sanitizeSkillDescription(description);
+
+  // 4. 统一的目标判定（seeded / user / not_found 三态即三类拒绝）
+  const target = await resolveManagedTarget(env, skillName, seededNames);
+  if (!target.ok) throw makeManageSkillError(target.code, target.message);
+
+  // 5. 原子写（create / update 共用同一条 tmp → rename 路径）。
+  //    **失败直接 throw，不做任何清理** —— 目标目录属于既有数据，
+  //    其内容靠 rename 的原子替换天然保持操作前状态。
+  await atomicWriteSkillFile(
+    env,
+    target.destFile,
+    buildSkillFileText({ name: skillName, description: safeDescription, content })
+  );
+
+  return { name: skillName, filePath: target.destFile, description: safeDescription, action: 'update' };
+}
+
+/**
+ * 删除 managed 技能（`manage_skill` 的 delete 动作，MGMT-01）
+ *
+ * **递归删整目录**（含 AI 经 bash 加的 `scripts/` / `references/`）—— 对齐 O11 对
+ * Phase 50/51 卸载的同一口径。`env.remove` 的 `recursive` 默认是 **false**
+ *（`nodejs.js` 的 `recursive ?? false`），**必须显式传 `{ recursive: true }`**，
+ * 否则非空目录删不掉。
+ *
+ * 绝不动用户技能目录：seeded 与 user 来源在 `resolveManagedTarget` 里已被拒。
+ *
+ * @param {object} env - 沙箱 ExecutionEnv
+ * @param {{name: string, seededNames?: string[]|Set<string>}} params
+ * @returns {Promise<{name: string, filePath: string, action: 'delete'}>}
+ * @throws {Error} 校验 / 目标判定 / 删除失败（均带 `code`）
+ */
+async function deleteManagedSkill(env, { name, seededNames } = {}) {
+  // 1. name 仍须合法（否则拼出的路径没有意义）
+  const skillName = typeof name === 'string' ? name.trim() : name;
+  const nameCheck = validateManagedSkillName(skillName);
+  if (!nameCheck.ok) throw makeManageSkillError(nameCheck.code, nameCheck.reason);
+
+  // 2. 统一的目标判定（seeded 保护的三入口同形的第三入口）
+  const target = await resolveManagedTarget(env, skillName, seededNames);
+  if (!target.ok) throw makeManageSkillError(target.code, target.message);
+
+  // 3. 递归删除（recursive 默认 false，必须显式传）
+  const res = await env.remove(target.destDir, { recursive: true });
+  if (!res || res.ok !== true) {
+    throw makeManageSkillError(
+      MANAGE_SKILL_ERROR.UNKNOWN,
+      `删除技能 "${skillName}" 失败（沙箱码 ${sandboxErrorCode(res)}）`
+    );
+  }
+
+  return { name: skillName, filePath: target.destFile, action: 'delete' };
+}
+
+/**
+ * 判定某技能是否进了 prompt 段（`details.promptIncluded`，48 D-12 的可见性精神）
+ *
+ * **不新写边际成本计算** —— 直接复用加载管线已在条目上算好的三字段
+ * （`toUISkillEntry` 的 `shadowed` / `disabled` / `promptOmitted`），因此与 prompt
+ * 段的实际归属**同源**。同步、零 IO：只读模块级缓存快照，**不触发重扫**。
+ *
+ * 诚实边界：该判定读的是**上一次重扫**的结果，不是「此刻已进提示词」的最终态 ——
+ * 真正的 prompt 回写发生在本轮成功出口（D-13）。
+ *
+ * @param {string} name - 技能名
+ * @param {string[]|Set<string>} [seededNames] - 随包内置技能名集合（当前判定不需要，保持签名稳定）
+ * @returns {boolean} 该技能当前是否会被写进 prompt 段
+ */
+function getSkillPromptIncluded(name, seededNames) {
+  void seededNames;
+  const entry = getSkillsSnapshot().skills.find((e) => e.skill.name === name);
+  if (!entry) return false;
+  return entry.shadowed !== true && entry.disabled !== true && entry.promptOmitted !== true;
 }
 
 /** 复位模块级缓存（仅测试用；跨用例污染会让「空技能集」断言假失败） */
@@ -1357,5 +1521,9 @@ module.exports = {
   scanSkillText,
   buildSkillFileText,
   createManagedSkill,
+  updateManagedSkill,
+  deleteManagedSkill,
+  getSkillPromptIncluded,
+  MANAGE_SKILL_ERROR,
   _resetCacheForTest,
 };

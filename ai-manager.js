@@ -6009,6 +6009,9 @@ ${content}
           throw err;
         }
 
+        // 参数只做解析与转发，判定与写入全在 ai-skills-manager（校验器只有一份实现，
+        // Phase 50/51 可直接 require 同一份）。业务失败**照常向外 throw** ——
+        // 不 catch、不转成返回值；失败态的元数据转存是 49-02 的职责。
         let result;
         if (action === 'create') {
           result = await skillsManager.createManagedSkill(this.sandboxEnv, {
@@ -6017,21 +6020,46 @@ ${content}
             description: params.description,
             seededNames,
           });
+        } else if (action === 'update') {
+          result = await skillsManager.updateManagedSkill(this.sandboxEnv, {
+            name,
+            content: params.content,
+            description: params.description,
+            seededNames,
+          });
         } else {
-          throw new Error(`manage_skill 的 ${action} 动作尚未实现`);
+          result = await skillsManager.deleteManagedSkill(this.sandboxEnv, {
+            name,
+            seededNames,
+          });
         }
 
+        // 三动作共用同一句刷新链：该方法的函数体内已含 refreshSkills 重扫，
+        // 忙碌时只置脏标记，回写与广播由本轮成功出口的补刷落地（D-13）。
         await this.syncAgentSystemPrompt();
 
-        return {
-          content: [{ type: 'text', text: `已创建技能「${result.name}」。它从下一条消息起对模型可见。` }],
-          details: {
-            action: result.action,
-            name: result.name,
-            filePath: result.filePath,
-            description: result.description,
-          },
+        const details = {
+          action: result.action,
+          name: result.name,
+          filePath: result.filePath,
         };
+        // description / promptIncluded 只对会落盘正文的两个动作有意义
+        if (action !== 'delete') {
+          details.description = result.description;
+          details.promptIncluded = skillsManager.getSkillPromptIncluded(result.name, seededNames);
+        }
+
+        const actionText = action === 'create' ? '创建' : action === 'update' ? '更新' : '删除';
+        const whenText = action === 'delete'
+          ? '它从下一条消息起不再可用。'
+          : '它从下一条消息起对模型可见。';
+        let text = `已${actionText}技能「${result.name}」。${whenText}`;
+        if (details.promptIncluded === false) {
+          // 不说明会被读成「AI 建的技能没用」（48 D-12：超预算技能仍可显式调用）
+          text += `该技能暂未进入模型提示词（技能段预算已满），仍可用 /skill:${result.name} 手动调用。`;
+        }
+
+        return { content: [{ type: 'text', text }], details };
       },
     };
   }
