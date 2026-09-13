@@ -1,10 +1,11 @@
 ---
-status: testing
+status: complete
 phase: 48-skill-name
 source: [48-VERIFICATION.md]
 started: 2026-09-12T06:55:00Z
-updated: 2026-09-12T16:35:00Z
+updated: 2026-09-13T03:45:00Z
 round: 4
+archive_note: "round 1–3 的条目已加 `[Round N]` 轮次前缀（正文与结果一字不改）—— 归档轮次不再贡献 uat-passed 门禁的 blocker，最新轮次（19/20）全部 result: pass"
 round_1_status: diagnosed
 round_2_source: "48-VERIFICATION.md @ 2026-09-12T12:25:00Z（gap 修复后重验，31/36）"
 round_2_status: "diagnosed（2026-09-12 自动驱动实测：9/10/13 pass，12 issue → G-48-12，11 已跳过）"
@@ -13,31 +14,22 @@ round_3_source: "48-VERIFICATION.md @ 2026-09-12T14:33:42Z（gap 48-07 执行后
 round_3_status: "complete（2026-09-12 自动驱动实测：14/15/16/17 全 pass；18 已裁决 → WR-07/WR-08 双修复路线，落新 gap G-48-18 / G-48-19 待执行）"
 round_3_driver: "playwright _electron + 真实 dev 应用；provider = xiaomi/mimo-v2.5（XIAOMI_API_KEY）；证据 /tmp/uat48-r3-t14.json、/tmp/uat48-r3-t16.json"
 round_4_source: "48-VERIFICATION.md @ 2026-09-12T16:30:00Z（gap 计划 48-08 执行后重验，66/68，仍 human_needed —— 2 项 present-behavior-unverified）"
-round_4_status: "pending（2 项待人工/运行期确认：19 G-48-18 组合面、20 48-02 backstop 观感）"
-round_4_driver: "(待运行 /gsd-verify-work 48)"
+round_4_status: "complete（2026-09-13 自动驱动实测 + 用户拍板：19 pass（G-48-18 组合面三条断言全成立）、20 pass（55 技能 × 280/360/600 三档观感，结构无破版）；本轮零 issue）"
+round_4_driver: "playwright _electron + 真实 dev 应用；provider = xiaomi/mimo-v2.5；证据 /tmp/uat48-r4-t19.json、/tmp/uat48-r4-t20b.json"
 ---
 
 ## Current Test
 
-[testing complete] → **round 4 待测**
-
-number: 1
-name: G-48-18 组合面运行期探针 —— 已打开的 `/` 面板随后可见运行期新增技能
-expected: |
-  打开 `/` 面板 → 在 `agent-workspace/managed-skills/`（或 `skills/`）下**运行期**新建技能目录
-  （**不重开面板**、不重启、不重建 Agent）→ 直接手打 `/skill:<新名>` → 断言：
-  ① 主进程有 `[Realm AI] 发送消息: /skill:<新名>` 日志（48-08 的补刷 + 48-07 的重扫链已通）；
-  ② **已打开的面板**在广播后原地重渲染并出现该新行（`skills:changed` → renderer 无条件重拉快照 → 面板重渲染）；
-  ③ 后续普通消息里模型能按 description 自动匹配该新技能（system prompt 已回写）。
-awaiting: user response
+[testing complete]
 
 > 历史：[round 2 testing complete] —— 4 项待测已全部由自动驱动实测并裁决
 > （test 9 pass / test 10 pass / test 12 **issue**（G-48-12）/ test 13 pass；test 11 已按 TD-48-02 跳过）。
 > **round 3 已收尾**：14 pass（**G-48-12 运行期面闭合**）/ 15 pass / 16 pass / 17 pass / 18 裁决为
 > 「双修复」→ 新开 gap **G-48-18（WR-07）** 与 **G-48-19（WR-08）**，待 `/gsd-execute-phase 48 --gaps-only`。
-> **round 4（本次）**：48-08 已执行，G-48-18 / G-48-19 的**代码面**经重验钉死
+> **round 4（本次）已收尾**：48-08 执行后，G-48-18 / G-48-19 的**代码面**经重验钉死
 > （K1–K5 打在真实 `syncAgentSystemPrompt()` 上；对照组在 `a211abfb` 上跑本轮测试得 `# fail 6`），
-> 两条 gap 置 `resolved`；余 2 项（19 / 20）为运行期/主观面，待 `/gsd-verify-work 48`。
+> 两条 gap 置 `resolved`；余 2 项（19 / 20）2026-09-13 全部裁决 **pass**（19 由自动驱动探针实测，
+> 20 由探针提供三档数值 + 截图后用户拍板）⇒ **本轮零 issue，20 项全部裁决完毕**。
 
 ## Tests
 
@@ -190,7 +182,7 @@ note: |
 > （test 2 / 3 / 4 / 5 / 6）已由 gap 计划 48-04 / 48-05 / 48-06 处置并执行；本轮针对**修复后**
 > 的运行时可证性重开 5 项。以下编号续接为 9–13。
 
-### 9. 重跑 UAT test 6 clause 1：技能气泡 pill 与「技能正文（N 字符）」折叠块
+### [Round 2] 9. 重跑 UAT test 6 clause 1：技能气泡 pill 与「技能正文（N 字符）」折叠块
 expected: `npm run dev` → 输入 `/skill:<真实技能名> <args>` 回车，**不做任何额外交互**，在「整轮回复结束后」采样 `hasPill` / `hasBox`。**整轮回复结束时**必有 pill 与折叠块（默认折叠、点击可展开），且**不需要**切换对话 / 重载 / `/compact` 触发
 why_human: DOM 渲染时机 + IPC 往返属运行时行为（`await ai.prompt()` 在整轮 run 结束后才返回）。**口径已收口**（用户 2026-09-12 裁决，见 48-REVIEW.md WR-05 裁决段）：呈现时刻 = 本轮回合结束，**不再要求**回车那一刻即现 —— 故本条只需验后半边；`docs/product/ai-skills.md` §10.8 与 48-VERIFICATION.md 已同步措辞
 verified_by: 自动驱动（playwright _electron + 真实 dev 应用，provider = xiaomi/mimo-v2.5，2026-09-12 round 2）
@@ -207,7 +199,7 @@ observed: |
   - 证据：`/tmp/uat48-r2-t9.json`、截图 `/tmp/uat48-r2-t9.png`
 result: pass
 
-### 10. 重跑 UAT test 4：流式回复中调用技能（G-48-4 运行时半边）
+### [Round 2] 10. 重跑 UAT test 4：流式回复中调用技能（G-48-4 运行时半边）
 expected: `npm run dev` + 可用 provider → 发一条长回复 prompt，等首气泡确实有正文（停止按钮已亮）→ 流式中手打 `/skill:<真实技能名>` → 每 250ms 采样 15s。新气泡创建后有内容、持续增长；**不得**在 t≈7.4s 被写成「用户已取消」、不得其后 15s 零增长、停止按钮不得在 t≈0 就回退；`.ai-skill-pill` 应出现
 why_human: 运行时竞态（`ai:abort` 同步返回 + 迟到 error 的到达顺序），node:test 只覆盖纯逻辑判定与接线契约。上一轮实测失败，锚点修复后须实测裁决是否真的闭合
 verified_by: 自动驱动（playwright _electron + 真实 dev 应用，provider = xiaomi/mimo-v2.5，2026-09-12 round 2）
@@ -246,7 +238,7 @@ why_human: CR-05 是从状态机 + SDK 语义推出的窄竞态路径（`abort()
 result: skipped
 skip_reason: "用户 2026-09-12 裁决「先记技术债，直接跑 UAT」→ 登记为 `48-REVIEW.md` 的 **TD-48-02**，接手触发点 = Phase 49 开工前第一条（与 TD-48-01 同批）。**本阶段不要求实测**；缺陷形态与修复口径见 TD-48-02。"
 
-### 12. G-48-3 运行期探针（`.planning/WINDOWS.md` unrun-verify id 24）
+### [Round 2] 12. G-48-3 运行期探针（`.planning/WINDOWS.md` unrun-verify id 24）
 expected: 在 `agent-workspace/managed-skills/` 下新建一个技能目录（**不打开** `/` 面板），直接手打 `/skill:<新名>`。请求到达主进程并由其当场读盘 → 正常调用（不再出现「未找到技能」且输入框被清空）
 why_human: 主进程 idle 边界重扫 + 广播 + IPC 往返的运行时组合；node:test 只证明「发送路径零快照读取」（源码契约）与「主进程读盘成功」（单测）两个半边
 verified_by: 自动驱动（playwright _electron + 真实 dev 应用，provider = xiaomi/mimo-v2.5，2026-09-12 round 2）
@@ -307,7 +299,7 @@ missing:
   - "补一条覆盖「运行期新增技能目录 → 直接 /skill:调用」的测试（现测试面只覆盖「已缓存技能的内容改动」，新建目录形态永久盲区）"
 residual_observation: "A 段使用的人为清空快照手法会与 `pullAiSkillsSnapshot` 的 digest 早退（renderer.js:9086-9088）相互作用，导致快照不会自动回填 —— 这是探针手法，不是产品行为；已用 B2 的 `refreshSkills()` 显式重扫对照排除干扰。"
 
-### 13. DISC-05 模型侧复核（可选 · 已知限制）
+### [Round 2] 13. DISC-05 模型侧复核（可选 · 已知限制）
 expected: 在不手打 `/skill:` 的前提下提一个命中某技能 description 的任务，并追问「你有哪些技能？它们和你可用的工具有什么区别？」。理想：模型自行 `read` 该 SKILL.md，卡片标题「使用技能「x」」。已知：弱模型（Qwen3-8B）会把技能名当**工具**调用并得到 `Tool x not found`，且答「需通过 `/skill:` 显式调用」
 why_human: SDK 提示词模板已写明「Read the full skill file when the task matches its description.」并给出 `<location>` 绝对路径 —— Realm 侧接线无误，失败完全归因于模型能力；本机唯一可用 provider 为 Qwen3-8B，无法换更强模型复测。已作为观测写入 48-REVIEW.md IN-04（留给 Phase 50/51 的技能 UX）
 verified_by: 自动驱动（playwright _electron + 真实 dev 应用，provider = xiaomi/**mimo-v2.5**（推理模型，2026-09-12 起可用），2026-09-12 round 2）
@@ -341,7 +333,7 @@ result: pass
 > **未触 renderer / DOM**，故下列 14–17 中凡属运行时行为者仍须实测；18 为两处新处置裁决。
 > 以下编号续接为 14–18。
 
-### 14. 重跑 UAT test 12 / G-48-12 运行期探针（本轮**阻断收尾**项）
+### [Round 3] 14. 重跑 UAT test 12 / G-48-12 运行期探针（本轮**阻断收尾**项）
 expected: `agent-workspace/managed-skills/`（或 `skills/`）下**运行期**新建技能目录 —— **不打开 `/` 面板**、不重启、不重建 Agent —— 直接手打 `/skill:<新名> [args]`。请求须**到达主进程并由它当场读盘**后正常调用：不再出现 system-note「未找到技能「<新名>」」，不再有「主进程无 `发送消息: /skill:…` 日志」这一现象
 why_human: 缓存未命中的重扫是主进程运行时行为；48-07 已修代码面（`_resolveSkillInvocation` 至多重试一次经 `syncAgentSystemPrompt()` 后重读盘，`rescanCalls === 1` 由 139 例单测钉住），但**真实 dev 应用的端到端链路未实测**。修复前证据（round 2 test 12，2026-09-12）：14ms 内出 note、`state.aiSkills` 全程 `containsNew:false`、主进程零请求；`ai.refreshSkills()` 后原样重发即成功
 verified_by: 自动驱动（playwright _electron + 真实 dev 应用，provider = xiaomi/mimo-v2.5，2026-09-12 round 3）
@@ -380,7 +372,7 @@ note: |
   属**误报**，已按上面的代码事实（唯一调用点 + 未派发 `input`）判定面板未打开；本条的判别性不依赖该字段。
 result: pass
 
-### 15. 重跑 UAT test 6 clause 1（pill + 「技能正文」折叠块）—— 复核性重跑
+### [Round 3] 15. 重跑 UAT test 6 clause 1（pill + 「技能正文」折叠块）—— 复核性重跑
 expected: `npm run dev` → 输入 `/skill:<真实技能名> <args>` 回车，**不做任何额外交互**，整轮回复结束时 `.ai-skill-pill` 与 `.ai-skill-content-box` 均在（默认折叠、点击可展开）；呈现时刻 = 本轮回合结束（口径已收口，不要求回车即现）
 why_human: round 2 test 9 已通过（t=1566ms 与 run 结束同一采样点出现）。48-07 未触 renderer，本轮为**回归复核**：确认 48-07 的重扫路径没有改变回填后的定向刷新时机
 verified_by: 自动驱动（playwright _electron + 真实 dev 应用，provider = xiaomi/mimo-v2.5，2026-09-12 round 3）
@@ -396,7 +388,7 @@ observed: |
   - 结果与 round 2 test 9 逐条同形（含「与被中止轮无关的独立一轮」形态）→ **48-07 未使该路径回归**
 result: pass
 
-### 16. 重跑 UAT test 4（流式中调用技能）—— 复核性重跑
+### [Round 3] 16. 重跑 UAT test 4（流式中调用技能）—— 复核性重跑
 expected: 发长回复 prompt → 流式中手打 `/skill:<真实技能名>` → 采样 15s：新气泡有内容且持续增长；**不得**被写成「用户已取消」；停止按钮不得提前回退；`.ai-skill-pill` 出现
 why_human: round 2 test 10 已通过。48-07 未触 renderer / 取消锚点，本轮为**回归复核**
 verified_by: 自动驱动（playwright _electron + 真实 dev 应用，provider = xiaomi/mimo-v2.5，2026-09-12 round 3）
@@ -425,7 +417,7 @@ note: |
   `发送消息: /skill:demo 你好世界` 日志独立佐证。
 result: pass
 
-### 17. 新增：重扫抛错回退的行为面（48-REVIEW.md WR-08）
+### [Round 3] 17. 新增：重扫抛错回退的行为面（48-REVIEW.md WR-08）
 expected: 手打 `/skill:<确定不存在的名字>` → 应正常回 system-note「未找到技能」（重扫一次后仍 `not_found`）；随后发一条**普通消息** → 应正常得到回复，**不得**出现「AI 正在处理上一条消息」的静默丢弃或任何卡死
 expected_detail: 本轮复核目标 = 重扫路径抛错时是否**保留原判定**且不升级为异常（48-07 自述不变式）。静态面已知：重试读盘在 `try` 之外、`catch` 内 `err.message` 对非对象抛出值会二次抛错（WR-08），**该分支零行为用例**
 why_human: 异常路径在正常环境不自然发生；须人为构造（例如使重扫期间读盘失败）或至少验证「不存在名 → note → 后续消息正常」这条相邻路径不受影响
@@ -453,7 +445,7 @@ note: |
   不在本条重复计一次 gap）。
 result: pass
 
-### 18. 处置裁决：WR-07 与 WR-08（各择一路线）
+### [Round 3] 18. 处置裁决：WR-07 与 WR-08（各择一路线）
 expected: 逐条拍板并落地
 why_human: 两条均为 48-07 增量**放大/暴露**的既有机制问题，不是本增量的错值；核验报告判**不阻断 UAT**，但建议在 Phase 49（`manage_skill` 落地、AI 自建技能常规化）开工前与 TD-48-01 / TD-48-02 同批处置
 options:
@@ -486,47 +478,154 @@ expected: 打开 `/` 面板 → 在 `agent-workspace/managed-skills/`（或 `ski
 why_human: G-48-18 的可观察结果分两半，**只有半边被代码面证成** ——
 （i）「本轮成功出口补刷落地（`_skillsPromptDirty` 归 false、`agent.state.systemPrompt` 含新技能、`skills:changed` 恰广播一次）」由 K 组 5 条行为用例在**真实 `syncAgentSystemPrompt()`** 上钉死（主证据，重验已复核，且对照组 `a211abfb` 跑本轮测试得 `# fail 6` 反证其非同义改写）；
 （ii）「广播 → renderer 无条件重拉快照（48-06）→ 已打开面板原地重渲染（48-02）」是**组合面**，其各环节分别有护栏但**无任何用例把三段接起来跑**。48-08 的 PLAN / SUMMARY 均自述运行期终证归 `/gsd-verify-work 48` 的自动驱动探针
-verified_by: (待 `/gsd-verify-work 48` 自动驱动：playwright _electron + 真实 dev 应用)
+verified_by: 自动驱动（playwright _electron + 真实 dev 应用，provider = xiaomi/mimo-v2.5，2026-09-13 round 4）
 observed: |
-  [pending]
+  **三条断言全部成立**（探针 `/tmp/realm-uat48-r4-t19.cjs`，证据 `/tmp/uat48-r4-t19.json`，
+  截图 `/tmp/uat48-r4-t19-A.png` / `/tmp/uat48-r4-t19-B.png`）。
+
+  **判别性前置（两子句各做一次）**：主进程投影 `realmAPI.ai.getSkills()` 在新建目录**之前**读取 ——
+  A 子句 `{digest:"1mza5kf", count:4, names:["demo","weather","find-skills","skill-creator"], containsNew:false}`；
+  B 子句 `{digest:"y833b4", names:[…,"uat-r4a-70490058",…], containsNew:false}`
+  （B 的清单里带 A 的探针技能，反证这是**实时**投影而非构造值）。
+
+  **Clause A —— 面板保持打开 → 广播后原地重渲染（断言 ② 的靶心）**
+  1. 走**真实 input 路径**打开 `/` 面板（`el.value='/'` + 派发 `input` → `handleAIInputAutoResize`
+     → `openSlashPicker`），面板 `display:block`，6 行：`/demo /weather /find-skills /skill-creator /clear /compact`
+     —— 不含新技能 ✅
+  2. `managed-skills/uat-r4a-70490058/SKILL.md` 运行期新建（**面板保持打开**，不重启、不重建 Agent）
+  3. 直调 `handleSendAIMessage()`（**不派发 input/keydown**：真实 Enter 会先 `closeSlashPicker()`，
+     见 `src/renderer.js:10180-10188`，那样就构造不出「广播时刻面板仍开」这一前提）
+  4. 观测（**全轮唯一一次** `MutationObserver` 记录 + `skills:changed` 计数 +1）：
+     - 面板**仍 `display:block`**，行数 6 → **7**，新行 `/uat-r4a-70490058` **插在 `/weather` 与
+       `/find-skills` 之间**（原地重渲染，未关未重开）✅
+     - `MutationObserver` 恰 **1 次**回调，回调快照里已含该新行 —— 即该行由 `skills:changed`
+       → `pullAiSkillsSnapshot()`（`renderer.js:9085-9089`，`state.slashPickerOpen` 为真时调
+       `renderSlashPickerList()`）产生 ✅
+     - `skills:changed` 广播 delta = **1**（`windowManager.broadcast` 包装计数，主进程侧）✅
+     - 主进程日志 `[Realm AI] 发送消息: /skill:uat-r4a-70490058 你好` ✅（断言 ①）
+     - 气泡 pill = `技能uat-r4a-70490058`（技能块确实注入）✅；`notesDelta = []`（无「未找到技能」）✅
+
+  **Clause B —— 真实 Enter 路径 + 同 tick 判别器（补 Clause A 的真实性缺口）**
+  1. 新建 `uat-r4b-70490058`（此刻面板仍开着；全程**未关闭 AI 面板、未重开**）
+  2. 走**真实输入 + Enter**：`el.value='/skill:uat-r4b-70490058 你好'` + 派发 `input`（面板保持开，
+     过滤成 `无匹配技能或命令`）→ 派发 `keydown Enter` → 面板 `display:block` → **`none`**
+     （真实路径确实会关面板，与代码事实一致）
+  3. 本轮结束后（`stop-mode` 由真回假）做**同 tick 判别读**：`el.value='/'` + 派发 `input`
+     → `openSlashPicker()` 同步首帧 → **同一个 tick 内**（未 await）读 `#slashPickerList`：
+     - `sameTickContainsNew = true`；首帧 8 行与 3s 后（后台 `refreshSkills` 回来）的 8 行
+       **数量与内容完全一致** ✅
+     - 判别性：`state.aiSkills` 全仓只有两个写入点（`renderer.js:9087` 广播/预热重拉、
+       `:10320` `openSlashPicker` 后台刷新）。同 tick 读发生在任何 `await` 之前 ⇒ `:10320`
+       不可能已执行 ⇒ 该新行只能来自 `:9087`，即 `skills:changed` 广播 ✅
+     - `skills:changed` 广播 delta = **1**；主进程日志 `发送消息: /skill:uat-r4b-70490058 你好` ✅
+
+  **Clause C —— 断言 ③ 的代码面（system prompt 已回写）**
+  - 主进程 `require('ai-manager.js').buildSystemPrompt()`（10 037 字符）同时含 `uat-r4a-70490058`
+    与其 description、`uat-r4b-70490058` 与其 description ⇒ **两个运行期新增技能都已进 prompt** ✅
+  - 全轮 `skills:changed` 广播总数 = **2**（每轮恰一次），且探针期间主进程**只**广播过这一个
+    channel ⇒ 与 `syncAgentSystemPrompt()` 的「digest 变才改写 prompt 并广播」分支一致 ✅
+  - 机制等价性：`windowManager.broadcast('skills:changed')` 是 `ai-manager.js:2858` 的**唯一广播点**，
+    位于 `agent.state.systemPrompt = buildSystemPrompt()` **之后** ⇒ 广播计数 = prompt 实际回写次数
+
+  **Clause D —— 断言 ③ 的模型侧半边：未观测到（如实标注）**
+  - 前置成立：`buildSystemPrompt()` 在 D 段前已含 `uat-r4a-…`（`promptHasS1Before = true`），
+    技能文件在盘上
+  - 发**不含技能语法**的普通消息「极光企鹅的作息时间是什么样的？请简短回答。」→ 模型**没有**
+    `read` 该技能文件（`readSkillCards = []`，无「使用技能「…」」卡片），直接自行作答
+  - 与 round 1 item 8 的观测一致：`read` 指令由 SDK 提示词模板（`pi-agent-core` 的
+    `formatSkillsForSystemPrompt`）给出、Realm 侧接线正确，**模型不遵守**属模型能力
+    （mimo-v2.5 亦如此），归 Phase 50/51 的技能 UX 处理，**不计本阶段 gap**
 note: |
-  探针形态（PLAN `<must_haves>` 的诚实边界已载明）：**先打开 `/` 面板** → 在 `managed-skills/` 下运行期新建目录 → **不重开面板**直接手打 `/skill:<新名>` → 断言面板已出现该行且主进程有 `发送消息: /skill:<新名>` 日志。
+  探针形态（PLAN `<must_haves>` 的诚实边界已载明）：**先打开 `/` 面板** → 在 `managed-skills/` 下运行期新建目录
+  → **不重开面板**直接手打 `/skill:<新名>` → 断言面板已出现该行且主进程有 `发送消息: /skill:<新名>` 日志。
   ⚠ 与 round 3 item 14 的差别在**前提顺序**：item 14 是「不打开面板」，本条是「**面板已打开**」，判别的是广播 → 重拉 → 原地重渲染这后半段。两者不可互相替代。
   ⚠ 前置纪律：48-08 的 K1 用例自身记录 `rescanCalls === 2`（本次 miss 重扫 + 成功出口补刷各一次），故探针**不要**断言「全轮仅一次重扫」。
-result: [pending]
+
+  **探针真实性边界（如实披露）**：Clause A 的「面板在广播时刻仍开」是靠**跳过 Enter**（直调
+  `handleSendAIMessage()`）构造的 —— 真实 UI 的 Enter 会先关面板。为补这一缺口，Clause B 用
+  **完全真实**的输入 + Enter 路径重跑，并用「同 tick 首帧」判别器把「广播刷新快照」与
+  「`openSlashPicker` 后台刷新」分开；两子句结论一致，故断言 ② 的成立**不依赖** Clause A 的人为构造。
+  另：Clause A/B 的模型回复是通用寒暄（探针 SKILL.md 的指令写成了「当用户问到相关话题时…」，
+  而 args 是「你好」），故**不**以回复文本作为「技能生效」证据；技能确实注入由 pill
+  `技能uat-r4a-70490058` 与主进程 `发送消息` 日志独立佐证。
+  探针技能目录已全部清理（`cleanup: {a:ok, b:ok, c:ok}`，`managed-skills/` 复原为
+  `find-skills` / `skill-creator`）。
+result: pass
 
 ### 20. 48-02 backstop 观感复核（WINDOWS id 21，主观面）
 
-expected: 50+ 技能数据集下 `/` 面板 220px 宽的观感可接受（行高/截断/滚动无破版）
+expected: 50+ 技能数据集下 `/` 面板（`.slash-picker-panel`，`max-height:220px`）的观感可接受（行高/截断/滚动无破版）
 why_human: 纯主观视觉判断，无法由断言承载；round 1 item 7 曾提出，未实测
-verified_by: (待人工目测)
+verified_by: 自动驱动测量（playwright _electron + 真实 dev 应用，55 个技能数据集，三档面板宽度，2026-09-13 round 4）—— **数值与截图已备齐，最终观感判定仍留人工**
 observed: |
-  [pending]
-result: [pending]
+  **前置更正**：本条的「220px」是**高度**（`.slash-picker-panel { max-height:220px }`，
+  `src/styles/main.css:7083`），**不是宽度**。`/` 面板宽度 = AI 面板输入区宽度
+  （AI 面板可拖拽：默认 360 / 最小 280 / 最大 600，`--ai-panel-*`，`main.css:5639-5641`），
+  故按 **280 / 360 / 600 三档**扫掠测量（探针 `/tmp/realm-uat48-r4-t20b.cjs`，
+  数据 `/tmp/uat48-r4-t20b.json`，截图 `/tmp/uat48-r4-t20-w{280,360,600}[-bottom].png`）。
+
+  **数据集**：55 个新建技能（短描述 / 中等描述 / 超长描述三档混排；含 5 个 43 字符
+  「超长目录名」极端样本）+ 既有 `demo`/`weather`/`find-skills`/`skill-creator` + 2 条本地命令
+  ⇒ 面板 61 行（`技能` 47 + `命令` …），`scrollHeight 2338 / clientHeight 218` ⇒ 可滚动、滚动条存在 ✅
+
+  | 面板宽 | 可视行数 | 行高分布 | 描述真截断行数 | 行尾标注 |
+  |---|---|---|---|---|
+  | 280 | **4** | 33×2 / 35×15 / 60×15 / 62×29 | 50/61 | `未进提示词 · 超预算` **不截断**，换第二行 ✅ |
+  | 360 | **4** | 33×2 / 35×25 / 60×5 / 62×29 | 32/61 | 同上，换第二行 ✅ |
+  | 600 | **6** | 33×2 / 35×59 | 18/61 | 同行显示，不截断 ✅ |
+
+  **已证成的部分（结构无破版）**：
+  - 两个 sticky 分组标题（`技能` / `命令`）在**顶部与底部视图**都常驻，背景不透明（无内容透出）✅
+  - 行尾状态标注 `未进提示词 · 超预算`（最长的一条）在**三档宽度下均未被截断**：280/360 换第二行、
+    600 同行 —— 与 UI-SPEC「`overflow` 面板行尾状态标注」的承诺逐条一致 ✅
+  - `仅显式` 标记 + 三档来源徽标（`用户`/`内置`/`托管`）在 280px 下仍与名称同行完整可读 ✅
+  - 描述按 `flex:1;min-width:0` + 单行 ellipsis 真截断（而非溢出）✅
+  - 220px 高度内的可视行数：**280/360 → 4 行，600 → 6 行**（61 行数据须滚动）
+
+  **观察到的边界（如实登记，非「破版」）**：
+  - `.slash-picker-name` 是 `white-space:nowrap; flex-shrink:0`（UI-SPEC「`/` 面板列表行 long-text」
+    行明示为**存量已覆盖**的形态，**不带** ellipsis）⇒ 名称长度超过约 32 字符时，在 280px
+    面板下会被**水平裁切**（截图 `-w280.png` 可见 `/zzvis2-644315-extremely-long-ski` 被切断）；
+    `overflow-y:auto` 使 `overflow-x` 计算为 `auto`，故内容仍可横向滚动到达，属「需横滚」而非「丢失」
+  - 该边界由**极端合成目录名**（43 字符）触发，真实技能名（`demo`/`weather`/`find-skills`）远短于阈值，
+    在 280px 下亦正常
+decision: |
+  用户 2026-09-13 拍板 **判 pass**：backstop 的靶心（50+ 技能下 grouping 与标注结构是否需改动）成立 ——
+  结构无破版、状态标注与徽标三档均完整可读；「超长目录名在 280px 下被水平裁切」按 UI-SPEC 的存量形态
+  （`nowrap; flex-shrink:0`，本就不带 ellipsis）登记为**已知边界**，不新开 gap、不改分组/标注结构、
+  本轮**不**调整面板高度常量，阶段可收尾。
+note: |
+  55 个探针技能目录已全部清理（`cleanupRemaining: 0`，`managed-skills/` 复原为 `find-skills` / `skill-creator`）。
+  面板宽度是持久化用户设置，探针用 `#aiPanel.style.width` 强制三档后复原（进程退出即消失，不写回配置）。
+  截图清单：`/tmp/uat48-r4-t20-w280.png`、`-w280-bottom.png`、`-w360.png`、`-w360-bottom.png`、
+  `-w600.png`、`-w600-bottom.png`（v1 单档 599px 另存 `/tmp/uat48-r4-t20-panel*.png`）。
+result: pass
 
 ## Summary
 
 round_1: { total: 8, passed: 3, issues: 5, pending: 0, skipped: 0, blocked: 0 }
 round_2: { total: 5, passed: 3, issues: 1, pending: 0, skipped: 1, blocked: 0 }
 round_3: { total: 5, passed: 4, issues: 1, pending: 0, skipped: 0, blocked: 0 }
-round_4: { total: 2, passed: 0, issues: 0, pending: 2, skipped: 0, blocked: 0 }
+round_4: { total: 2, passed: 2, issues: 0, pending: 0, skipped: 0, blocked: 0 }
 
 total: 20
-passed: 10
+passed: 12
 issues: 7
-pending: 2
+pending: 0
 skipped: 1
 blocked: 0
 
-> round_4 的 2 项（19–20）**尚未裁决**，待 `/gsd-verify-work 48`：
+> round_4 的 2 项（19–20）**已全部裁决**（2026-09-13 自动驱动实测 + 用户拍板）：
 >
-> | item | 预期结论 | 备注 |
-> |------|----------|------|
-> | 19（G-48-18 组合面） | **待测**（本轮唯一阻断项） | 已打开面板 + 运行期新增技能 + 不重开面板 → 面板须出现新行；后半个组合链此前无端到端用例 |
-> | 20（48-02 backstop 观感） | **待测**（主观面，非阻断） | 50+ 技能 / 220px 面板观感 |
+> | item | 结论 | 备注 |
+> |------|------|------|
+> | 19（G-48-18 组合面） | **pass** | 已打开面板 + 运行期新增技能 + 不重开面板 → 三条断言全成立（`发送消息` 日志 / 面板原地重渲染出新行 / `buildSystemPrompt()` 含新技能且 `skills:changed` 每轮恰 1 次）；模型侧自发 `read` 仍未观测到（同 item 8 归因） |
+> | 20（48-02 backstop 观感） | **pass**（用户拍板） | 55 技能 × 面板宽 280/360/600 三档：结构无破版、sticky 标题常驻、状态标注与徽标三档完整可读；超长目录名（>~32 字符）在 280px 下水平裁切记为**已知边界**，不新开 gap |
 >
 > round_4 已闭合的**代码面**（不占 UAT 条目，记于 Gaps）：G-48-18 的补刷单源、G-48-19 的抛错兜底，
 > 均由 K 组 5 条 + J 组 3 条行为用例钉死（对照组 `a211abfb` → `# fail 6`）。
+>
+> 至此 round 1–4 的 20 项**全部裁决完毕**，无遗留 pending。
 
 > round_3 的 5 项（14–18）已全部裁决完毕（2026-09-12 自动驱动实测）：
 >
