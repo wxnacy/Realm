@@ -1298,3 +1298,99 @@ describe('B 组 · 面板五要素行与转义护栏（T-48-07）', () => {
   });
 });
 
+describe('C 组 · mergeManageSkillMarker（Phase 49 / CR-01 的单一并入实现）', () => {
+  const merge = model.mergeManageSkillMarker;
+  const pickerSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'skill-picker-model.js'), 'utf8');
+
+  test('导出面：mergeManageSkillMarker 是挂在同一 api 对象上的函数（纯 Node 可 require ⇒ 零 DOM / 零 electron）', () => {
+    assert.strictEqual(
+      typeof merge,
+      'function',
+      '必须导出 mergeManageSkillMarker（渲染端经 window.SkillPickerModel 取到的是同一个函数引用）'
+    );
+    assert.ok(
+      pickerSrc.includes('mergeManageSkillMarker,'),
+      'api 对象里必须列出 mergeManageSkillMarker（双模式导出的同一对象）'
+    );
+  });
+
+  test('incoming 为空 → 原样返回 prev 本体（同一引用）：不带标记字段的后续 update 事件不得抹掉已写入的标记', () => {
+    const prev = { action: 'create', name: 'alpha' };
+    assert.strictEqual(merge(prev, null), prev, 'incoming = null 必须原样返回 prev（同一引用）');
+    assert.strictEqual(merge(prev, undefined), prev, 'incoming = undefined 必须原样返回 prev（同一引用）');
+    assert.strictEqual(
+      merge(prev, null),
+      merge(prev, undefined),
+      '两次调用返回的必须是**同一个对象**（不是两份等价拷贝）'
+    );
+    assert.strictEqual(merge(undefined, null), undefined, 'prev 也为空 ⇒ 原样返回（undefined）');
+    assert.strictEqual(merge(null, null), null, 'prev 为 null ⇒ 原样返回 null');
+  });
+
+  test('prev 为空、incoming 非空 → 返回新对象且取值等于 incoming（不返回同一引用）', () => {
+    const incoming = { tier: 'managed', promptIncluded: false };
+    const out = merge(undefined, incoming);
+    assert.notStrictEqual(out, incoming, '必须返回新对象（不把事件载荷本身交给调用方）');
+    assert.deepStrictEqual(out, incoming, '取值必须逐字等于 incoming');
+    assert.strictEqual(merge(null, incoming).constructor, Object);
+  });
+
+  test('两者都非空 → 同名键 incoming 胜出、异名键两边都保留（契约示例逐字）', () => {
+    assert.deepStrictEqual(
+      merge({ action: 'create', name: 'alpha' }, { tier: 'managed', promptIncluded: false }),
+      { action: 'create', name: 'alpha', tier: 'managed', promptIncluded: false },
+      '成功行的两时点并入：start 的 action / name 保留，end 的终态三键叠加'
+    );
+    assert.deepStrictEqual(
+      merge({ action: 'create', name: 'alpha' }, { code: 'seeded_protected', tier: 'builtin' }),
+      { action: 'create', name: 'alpha', code: 'seeded_protected', tier: 'builtin' },
+      '失败行的两时点并入：短原因 code 与可判定的 tier 一并叠加'
+    );
+    assert.deepStrictEqual(
+      merge({ action: 'update', name: 'a', tier: 'managed' }, { tier: 'user' }),
+      { action: 'update', name: 'a', tier: 'user' },
+      '同名键必须由 incoming 覆盖'
+    );
+  });
+
+  test('不修改任何入参，每次返回新对象', () => {
+    const prev = { action: 'create', name: 'alpha' };
+    const incoming = { tier: 'managed', promptIncluded: false };
+    const prevBefore = JSON.stringify(prev);
+    const incomingBefore = JSON.stringify(incoming);
+    const out = merge(prev, incoming);
+    assert.strictEqual(JSON.stringify(prev), prevBefore, '入参 prev 必须逐字未被修改');
+    assert.strictEqual(JSON.stringify(incoming), incomingBefore, '入参 incoming 必须逐字未被修改');
+    assert.notStrictEqual(out, prev);
+    assert.notStrictEqual(out, incoming);
+    out.tier = 'tampered';
+    assert.strictEqual(
+      incoming.tier,
+      'managed',
+      '返回的新对象与入参不共享可写状态（改返回值不得串到事件载荷）'
+    );
+  });
+
+  test('CR-01 反例（本 phase 的靶心）：并入后 action 与 name 仍在 ⇒ 卡片技能变体在终态仍成立', () => {
+    // 覆盖写法（`{ manageSkill: event.manage_skill }`）在此输入下会产出
+    // `{tier:'managed', promptIncluded:false}` —— 于是 `MANAGE_SKILL_ACTION_LABEL[undefined]`
+    // 为 undefined、`manageSkillOk` 恒 false，整张卡片退回工具名标题 + 整份 content 的 JSON 墙。
+    // 本行把「并入」这一语义钉死：改回覆盖语义必然转红（Task 3 的反向验证路径 B）。
+    const startMarker = { action: 'create', name: 'alpha' };
+    const endTerminal = { tier: 'managed', promptIncluded: false };
+    const merged = merge(startMarker, endTerminal);
+    assert.strictEqual(merged.action, 'create', 'CR-01 反例：action 不得被终态载荷抹掉');
+    assert.strictEqual(merged.name, 'alpha', 'CR-01 反例：name 不得被终态载荷抹掉');
+    assert.strictEqual(
+      model.MANAGE_SKILL_ACTION_LABEL[merged.action],
+      '创建技能「{name}」',
+      '标题模板必须仍可查得（manageSkillOk 成立的前提）'
+    );
+    assert.deepStrictEqual(
+      Object.keys(merged).sort(),
+      ['action', 'name', 'promptIncluded', 'tier'],
+      '键集合必须是 start 两键 + 终态三键（不多不少）'
+    );
+  });
+});
+

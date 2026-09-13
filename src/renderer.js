@@ -9370,11 +9370,19 @@ function handleAIStream() {
                 status: event.status,
                 result: event.result,
                 error: event.error,
-                // 49-02（UI-SPEC 硬约束 1）：**终态标记字段的并入**。新条目分支的 `...spread`
-                // 只覆盖首个（start）事件，而 `tier` / `code` / `promptIncluded` 三项只在 end
-                // 事件到达 —— 不追加这一行则来源徽标与内联标注**永不出现**（RESEARCH Pitfall 4）。
-                // **必须条件并入**：后续不带该字段的 update 事件不得把已写入的标记抹成 undefined。
-                ...(event.manage_skill ? { manageSkill: event.manage_skill } : {})
+                // 49-02 / CR-01（UI-SPEC 硬约束 1）：**终态字段必须并入，不能覆盖** ——
+                // start 给 `{action, name}`、end 只给终态三键；覆盖会抹掉 `action` ⇒ 技能
+                // 变体崩塌（标题退回工具名、徽标与短原因永不出现、参数区退回 content JSON 墙）。
+                // **条件**并入：不带该字段的 update 事件不得抹掉已写入的标记。
+                // 单一实现 = window.SkillPickerModel.mergeManageSkillMarker。
+                ...(event.manage_skill
+                  ? {
+                    manageSkill: window.SkillPickerModel.mergeManageSkillMarker(
+                      existing.manageSkill,
+                      event.manage_skill
+                    ),
+                  }
+                  : {})
               };
             } else {
               // 添加新的工具执行

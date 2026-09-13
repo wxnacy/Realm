@@ -392,6 +392,42 @@
     unscannable: '内容含风险',
   });
 
+  /**
+   * `manage_skill` 卡片标记的**终态并入**（Phase 49 UI-SPEC 硬约束 1；CR-01 的修复点）——
+   * **渲染端事件映射与纯 Node 测试共用的唯一合并实现**
+   *
+   * **为什么必须并入而不是覆盖**：`manage_skill` 的标记分**两个时点**给出 ——
+   * `tool_execution_start` 给 `{action, name}`（标题必须运行中即可见，那是唯一携带 `params`
+   * 的时点），`tool_execution_end` 只给终态三键 `{tier?, code?, promptIncluded?}`（`create`
+   * 的目标在调用前并不存在，档位只能等磁盘判定之后）。渲染端若把终态载荷**覆盖**写进标记，
+   * `action` 与 `name` 立刻丢失 ⇒ `MANAGE_SKILL_ACTION_LABEL[undefined]` 为 `undefined`
+   * ⇒ 整个技能变体不成立，卡片退回工具名标题 + 整份 `content` 的 JSON 墙（CR-01）。
+   *
+   * **单源理由**（与文件头的双模式导出同款）：本 phase 的假绿成因正是「测试手搓期望对象、
+   * 渲染端另有实现」。把合并抽成这里的纯函数后，测试与渲染端调用的是**同一个对象引用上的
+   * 同一个函数**，守卫才在表达实现语义而不是意图。
+   *
+   * **契约**：
+   * - `incoming` 为假值（`null` / `undefined`）→ **原样返回 `prev`**（同一引用）——
+   *   这是「后续不带标记字段的 update 事件不得把已写入的标记抹掉」的机械保证。
+   * - `prev` 为假值、`incoming` 非空 → 返回 `incoming` 的**浅拷贝**（不返回同一引用，
+   *   避免调用方后续改动串到事件载荷上）。
+   * - 两者都非空 → `{ ...prev, ...incoming }`：同名键 `incoming` 胜出，异名键两边都保留。
+   * - **不修改任何入参**，每次（非原样返回的路径）都返回**新对象**。
+   *
+   * **纯数据形状运算**：不读路径、不读磁盘、不读技能集，因此**零来源 / 撞名 / 限额判定**
+   * （判定只在主进程 —— UI-SPEC 硬约束 4 / 48-03 的既有纪律）。
+   *
+   * @param {object|null|undefined} prev - 已有标记（start 事件写入的 `{action, name}` 等）
+   * @param {object|null|undefined} incoming - 新到的标记载荷（终态三键或 null）
+   * @returns {object|null|undefined} 并入后的新对象；`incoming` 为空时即 `prev` 本体
+   */
+  function mergeManageSkillMarker(prev, incoming) {
+    if (!incoming) return prev;
+    if (!prev) return { ...incoming };
+    return { ...prev, ...incoming };
+  }
+
   const api = {
     SKILL_PREFIX,
     SKILL_NAME_RE,
@@ -408,6 +444,7 @@
     MANAGE_SKILL_ACTION_LABEL,
     MANAGE_SKILL_ACTION_NAME,
     MANAGE_SKILL_SHORT_REASON,
+    mergeManageSkillMarker,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
