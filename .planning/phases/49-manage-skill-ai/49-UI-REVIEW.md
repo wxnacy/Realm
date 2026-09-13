@@ -21,6 +21,8 @@
 
 **Overall: 19/24**
 
+> **修订（2026-09-14）**：`W6-01` 已由 49-08 闭合 —— Experience Design 的 **2/4** 是**审计当时**的评分，**不回溯改写**（审计报告是历史记录，只加不删）。
+
 ---
 
 ## Top 3 Priority Fixes
@@ -146,6 +148,8 @@
 **成因链**（与 `docs/debug/` 已记录的形态同源）：`.tool-card-content` 用 `max-height: 0` 而非 `display: none` 承载折叠 —— 这是为了 200ms 的 `transition: max-height`。`display: none` 会自动把后代移出 Tab 序，`max-height: 0` 不会。49-02 在**唯一构建实现**上加的 `tabindex` 因此在气泡语境（永远可见，正确）与卡片语境（默认折叠，失效）之间产生了**语境相关的语义分裂** —— 同一份代码在两种宿主下行为不同，而契约只描述了气泡语境。
 
 **修法（二选一）**：① 把可达性上移到卡片头部（`.tool-card-header` 加 `role="button"` / `tabindex="0"` / `aria-expanded` 绑定 `.expanded`），折叠块 header 回到纯视觉 —— 推荐，因为卡片头部的展开/折叠才是用户真正要的操作，且气泡语境不受影响；② 保留现位置但在折叠态给该 header `tabindex="-1"` + `aria-hidden="true"`，卡片展开时（`.tool-card.expanded` 是卡片类，需 JS 在切换时同步）再置回 `0` —— 但要处理 `.ai-skill-content-box` 自身的 `.collapsed` 与卡片 `.expanded` 两层折叠叠加，复杂度更高。
+
+> **Closed by: 49-08-PLAN.md**（2026-09-14）—— 修法 **C**（卡片语境不施加焦点语义：`renderSkillContentBox` 增加 `{ interactive = true }` 语境开关，卡片调用点传 `false`，气泡调用点逐字不动）+ `tests/uat-49-g49-4-card-a11y-tab-order.js` 的真实键盘门禁（**红→绿两轮证据**：红轮 R3 卡片域内 2 站全违反、R5 `tabindex === '0'`；绿轮 R1–R6 全绿、退出码 0）。**未采纳**当时推荐的修法 ① —— 它会推翻契约 `49-UI-SPEC.md:508` 的卡片范式锁定决策（本计划是 gap-closure，职责是闭合而非重设计），且爆炸半径覆盖 `renderToolCard` 的**全部**工具卡片。当时提到的两条修法均为**审计当时的建议**，与最终落地方案不同；本行只追加、不改写原文。
 
 **I6-01（INFO）嵌套滚动的「单一滚动容器」目前靠无高度约束成立** — `main.css:6230-6232` 的卡片语境覆盖只写 `max-height: none`，未重置基线 `overflow-y: auto`（`:5854` 段）。实测无嵌套滚动条（无高度约束 ⇒ 不触发溢出），故功能正确；但契约明文要求「避免嵌套滚动条」，把 `overflow-y: visible` 一并写上会让该意图成为**声明**而非巧合。
 
