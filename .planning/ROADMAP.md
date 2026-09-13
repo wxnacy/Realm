@@ -285,7 +285,20 @@ Plans:
   4. 写入为原子操作（经沙箱 `env.renameFile` 获得双基准路径校验），失败不留半成品文件，且不触及 `ai-memory/`、`attachments/` 等其他工作区路径。
   5. 工具描述引导 AI 优先增强已有技能，而非创建近乎重复的新技能。
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 49-01-PLAN.md — tracer：`create` 端到端主干（校验器 → 字段分离扫描 → 独占创建 → 沙箱原子写 → 刷新链）+ `update` / `delete` 与边界拒绝矩阵 + 值域矩阵与两条护栏（MGMT-01..06、判据 1–4）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 49-02-PLAN.md — 卡片技能化：两时点标记 + 失败态元数据通道 + 渲染端标题 / 徽标 / 参数摘要 / 正文折叠块 / 结果文本化 / 内联标注 + 样式与 48 的两条前置修复（D-02、MGMT-01/05）
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 49-03-PLAN.md — 文档与账本收口：`docs/product/ai-skills.md` §十一 + `AGENTS.md` 维护约定与测试清单 + `49-VALIDATION.md` 矩阵重键与四条 OQ 裁决
 
 **Security gate**: P3 前半（S1）name 二次校验与名称冲突判定——本阶段产出的校验器是 50 / 51 唯一可复用的那一份。
 
