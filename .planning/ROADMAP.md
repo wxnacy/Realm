@@ -285,7 +285,7 @@ Plans:
   4. 写入为原子操作（经沙箱 `env.renameFile` 获得双基准路径校验），失败不留半成品文件，且不触及 `ai-memory/`、`attachments/` 等其他工作区路径。
   5. 工具描述引导 AI 优先增强已有技能，而非创建近乎重复的新技能。
 
-**Plans**: 3/3 plans executed
+**Plans**: 6 plans（3 executed + 3 gap-closure）
 
 Plans:
 **Wave 1**
@@ -299,6 +299,20 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 49-03-PLAN.md — 文档与账本收口：`docs/product/ai-skills.md` §十一 + `AGENTS.md` 维护约定与测试清单 + `49-VALIDATION.md` 矩阵重键与四条 OQ 裁决
+
+**Gap-closure plans** *(49-VERIFICATION.md 判 `gaps_found`；`--gaps-only` 只跑以下三个)*
+
+**Wave 1**
+
+- [ ] 49-04-PLAN.md — Gap 1 写侧闭合（CR-02 / CR-03 / WR-01）：YAML 标量编码 + 净化后复验非空 + 组装全文字节闸 + `getSkillPromptIncluded` 三态（MGMT-01/02/03）
+
+**Wave 2** *(blocked on 49-04)*
+
+- [ ] 49-05-PLAN.md — Gap 2 / Gap 3 闭合（CR-01 / WR-02）：卡片标记并入单源 `mergeManageSkillMarker` + 失败态原因码经消息词缀落库与重载还原 + 三态 `promptIncluded` 消费侧 + 两组假绿守卫纠正（MGMT-01/05）
+
+**Wave 3** *(blocked on 49-05)*
+
+- [ ] 49-06-PLAN.md — 文档纠偏：§11.7 失败态可见性 / §11.8 挂账清单下调 + 词缀成文 + 三处测试例数账本 + `AGENTS.md` 维护约定四条新增不变式
 
 **Security gate**: P3 前半（S1）name 二次校验与名称冲突判定——本阶段产出的校验器是 50 / 51 唯一可复用的那一份。
 
