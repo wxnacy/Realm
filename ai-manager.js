@@ -140,6 +140,26 @@ const skillPickerModel = require('./src/skill-picker-model');
 // Bash 三档权限策略（纯函数零依赖，可直接顶层 require）
 const bashPolicy = require('./ai-bash-policy');
 
+/**
+ * `manage_skill` 失败态原因码的**词缀正则**（Phase 49 / WR-02）—— encode / decode 两侧的**唯一来源**
+ *
+ * **为什么需要词缀**：SDK 在工具 `throw` 时走 `createErrorToolResult(message)`
+ * （`agent-loop.js:519-524`），产出的 `result.details` 恒为 `{}` —— 失败态的机器可读原因码
+ * 只有**消息文本**这一条能跨过持久化边界（消息落进 `tool_results` 的文本列）。UI-SPEC 硬约束 3
+ * 要求「两条链路键集合逐字相等」，失败行因此必须把原因码编码进消息、重载时再解码回来
+ * （不能按当前磁盘状态重算 —— 那会随技能被删除 / 改名而漂移）。
+ *
+ * **锚定消息起始**（`^`）是「成功文案永不误命中」的机械保证：成功文案以「已创建技能「…」」开头，
+ * 不可能以 `[code] ` 起始。词表域 `[a-z_]+` 与九码（`MANAGE_SKILL_ERROR`）及沙箱兜底
+ * `unknown` 的字符集一致 —— 不含被拒内容原文，只含白名单形态的原因码。
+ *
+ * **不可加 `/g`**：本常量同时用于 `.test()`（写入侧的幂等判定）与 `.exec()`（重载侧的解析），
+ * 带 `g` 会让 `lastIndex` 在两次调用间残留而产出间歇性假阴性。
+ *
+ * 写入侧与解析侧**必须逐字引用这一个标识符**（源码门禁按此断言），另起名字会让门禁转红。
+ */
+const MANAGE_SKILL_CODE_TAG = /^\[([a-z_]+)\]\s/;
+
 // ==================== 安全辅助函数 ====================
 
 /**
@@ -1795,14 +1815,19 @@ ${content}
   /**
    * 重载链路：从**已持久化**的 toolExecution 行还原 `manage_skill` 终态元数据
    *
-   * 可还原的两项：
+   * 可还原的三项：
    * - `promptIncluded` —— 取 `tool_results` 列回填的 `details.promptIncluded`（**历史真值**，
    *   即该次调用当时给模型的答复；不重算，因为「当时是否进提示词」事后无法复现）；
+   * - `code` —— 从持久化**文本**（失败消息）起始处的 `[code] ` 词缀解析还原（WR-02）。
+   *   失败态的原因码没有别的通道：SDK 的 `createErrorToolResult(message)` 产出的 `details`
+   *   恒为 `{}`，而工具失败出口把 `[code] ` 写进了**被抛出的消息**（该消息即落进
+   *   `tool_results` 的文本）。三条边界：
+   *   ① **不重算** —— 按当前磁盘状态重判「当时为什么失败」会随技能被删除 / 改名而漂移；
+   *   ② 改动前落库的旧失败消息**没有**词缀 ⇒ 解析失败即**不设键**（宁缺勿猜，与既有
+   *      `tier` 口径一致）—— 旧历史卡片表现为「只有失败、没有短原因」，与改动前一致，零回归；
+   *   ③ 解析**只认消息起始**（`MANAGE_SKILL_CODE_TAG` 锚定 `^`）—— 成功文案不可能误命中。
    * - `tier` —— 按 `name` 查**当前**技能集的收窄投影（与实时链路同一份 `getSkillsForUI`）；
    *   技能事后被删除 / 改名 → 查不到 ⇒ 省略该键（跳过徽标，不猜）。
-   *
-   * `code` 在重载链路上**无法还原**（`isError` 只带完整文案，原因码不落库）⇒ 省略该键
-   * （宁缺勿猜；失败卡片的展开区始终有主进程完整文案）。
    *
    * @param {object} t - 已持久化的 toolExecution 显示形状行
    * @returns {object} 终态元数据（可为 `{}`）
@@ -1814,6 +1839,13 @@ ${content}
     if (details && typeof details.promptIncluded === 'boolean') {
       terminal.promptIncluded = details.promptIncluded;
     }
+    // 失败态原因码：`t.error` 优先（失败行的完整文案）、`t.result` 回退（两条通道都可能是
+    // 载体）；两者都不是非空字符串则不解析。用与写入侧**同一个常量**解析（单源）。
+    const storedText = typeof (t && t.error) === 'string' && t.error
+      ? t.error
+      : (typeof (t && t.result) === 'string' ? t.result : '');
+    const codeMatch = storedText ? MANAGE_SKILL_CODE_TAG.exec(storedText) : null;
+    if (codeMatch) terminal.code = codeMatch[1];
     const name = t && t.params && typeof t.params.name === 'string' ? t.params.name.trim() : '';
     if (name) {
       const hit = this.getSkillsForUI().skills.find((e) => e.name === name);
@@ -6224,15 +6256,24 @@ ${content}
           // 终态元数据**写在重扫之后**：`syncAgentSystemPrompt()` 的首行就是技能目录重扫，
           // 故此刻缓存必定已含本次改动 —— create 的新技能因此能查到 `managed` 档位
           // （写在重扫之前会因缓存陈旧而省略 tier，徽标会永远不出现）。
-          const promptIncluded = action === 'delete'
+          //
+          // `getSkillPromptIncluded` 自 49-04 起是**三态**：命中可用 `true` / 命中但被滤
+          // （超预算 · 禁用 · 被遮蔽）`false` / **未命中（该 name 不在当前技能集快照里）
+          // `undefined`**。消费侧必须按三态收口：只有 **boolean** 才写进短期元数据与
+          // `details`（`undefined` 一律**不写该键** —— 写 `undefined` 值只会依赖 JSON
+          // 序列化把它丢掉这种隐式行为，不得依赖）。把「技能不存在」与「预算已满」合并回
+          // 一个值，等于把 49-04 的修复作废（VERIFICATION Gap 1 的失实文案根因）。
+          const promptIncludedRaw = action === 'delete'
             ? undefined
             : skillsManager.getSkillPromptIncluded(result.name, seededNames);
-          this._manageSkillMeta.set(toolCallId, {
+          const promptIncluded = typeof promptIncludedRaw === 'boolean' ? promptIncludedRaw : undefined;
+          const meta = {
             action,
             name: result.name,
             tier: tierOf(result.name),
-            promptIncluded,
-          });
+          };
+          if (typeof promptIncluded === 'boolean') meta.promptIncluded = promptIncluded;
+          this._manageSkillMeta.set(toolCallId, meta);
 
           const details = {
             action: result.action,
@@ -6242,7 +6283,7 @@ ${content}
           // description / promptIncluded 只对会落盘正文的两个动作有意义
           if (action !== 'delete') {
             details.description = result.description;
-            details.promptIncluded = promptIncluded;
+            if (typeof promptIncluded === 'boolean') details.promptIncluded = promptIncluded;
           }
 
           const actionText = action === 'create' ? '创建' : action === 'update' ? '更新' : '删除';
@@ -6250,13 +6291,33 @@ ${content}
             ? '它从下一条消息起不再可用。'
             : '它从下一条消息起对模型可见。';
           let text = `已${actionText}技能「${result.name}」。${whenText}`;
-          if (details.promptIncluded === false) {
+          // **严格等于 `false`** 才追加：`undefined` 表示「该技能不在当前技能集里」，此时
+          // **不能**断言「预算已满」（预算可能远未满），也**不能**声称「仍可用 /skill:{name}
+          // 手动调用」（该调用同样解析不到）。两句都失实，故一律不加。
+          if (promptIncluded === false) {
             // 不说明会被读成「AI 建的技能没用」（48 D-12：超预算技能仍可显式调用）
             text += `该技能暂未进入模型提示词（技能段预算已满），仍可用 /skill:${result.name} 手动调用。`;
           }
 
           return { content: [{ type: 'text', text }], details };
         } catch (err) {
+          // 失败出口（顺序不可调换）：
+          // ① **先**给错误消息加 `[code] ` 词缀（WR-02）。失败态的原因码没有别的持久化通道
+          //    —— `result.details` 在 throw 路径上恒为 `{}`，而这条消息本身会落进 `tool_results`
+          //    的文本列，重载链路因此能用**同一个常量** `MANAGE_SKILL_CODE_TAG` 解析还原它。
+          //    幂等判定必须用同一个常量做起始匹配（不得另写一份字面量正则，也不得用
+          //    `startsWith('[')` 这类近似判据 —— 近似判据会把「已经带词缀」判成「没带」
+          //    而加出 `[a] [b] msg`）。保持同一个 Error 实例：`code` 与栈不变。
+          //    仅当 `err` 是 Error、`code` 是非空字符串时才加 —— 不得把「意外错误」标成某个码。
+          // ② **再**照原样写元数据（字段与取值一字不动）。
+          // ③ **最后**照原样 `throw err`。
+          // 这个顺序是有约束的：既有的 M2 源码门禁要求 `_manageSkillMeta.set(...)` 与随后的
+          // `throw err;` 相邻（它断言的是「失败出口仍然 throw」这条 LLM 语义）。把加词缀放在
+          // 元数据写入**之前**，那条护栏即可逐字不变。
+          if (err instanceof Error && typeof err.code === 'string' && err.code
+            && !MANAGE_SKILL_CODE_TAG.test(err.message)) {
+            err.message = `[${err.code}] ${err.message}`;
+          }
           // 失败出口：把业务错误对象上的 `code`（九码之一）与目标档位转存为本次工具执行的
           // 元数据；**仍然原样 throw**（不 catch 成返回值，LLM 语义零变化）。
           this._manageSkillMeta.set(toolCallId, {

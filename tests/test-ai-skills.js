@@ -3634,6 +3634,262 @@ describe('M 组 · Phase 49 manage_skill 卡片标记（D-02 / UI-SPEC 硬约束
     assert.strictEqual(read.call(ctx, 'never-written'), null, '未写入的 toolCallId → null');
   });
 
+  /**
+   * 失败态原因码词缀的**观测口径**（与 `ai-manager.js` 的 `MANAGE_SKILL_CODE_TAG` 同形）。
+   *
+   * 测试侧刻意不 import 那个常量：断言的对象是**可观测行为**（消息起始处的 `[code] `），
+   * 而不是实现的某个标识符 —— 换成字面量正则后，「实现改用别的词缀形态」仍会被本组抓到。
+   */
+  const CODE_TAG_RE = /^\[[a-z_]+\]\s/;
+
+  test('M2c（行为 · 词缀）真跑工具失败出口：消息以 [code] 开头、code 与文案逐字不变、只加一次', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root);
+
+    const ctx = promptCtx(env);
+    ctx.isProcessing = true; // 工具执行期恒 true（真实语义）
+    // seeded 判定只查调用方注入的播种登记表（不查磁盘位置）
+    ctx.getSeededSkillNamesSafe = () => ['seeded-one'];
+
+    const tool = ctx._buildManageSkillTool();
+    let tagged = null;
+    try {
+      await tool.execute('call-seeded', {
+        action: 'create',
+        name: 'seeded-one',
+        description: '试图覆盖内置技能',
+        content: '# seeded-one\n\n正文\n',
+      });
+    } catch (err) {
+      tagged = err;
+    }
+    assert.ok(tagged instanceof Error, 'seeded 冲突必须照常 throw（LLM 照常收到 isError toolResult）');
+    assert.strictEqual(
+      tagged.code,
+      'seeded_protected',
+      '错误对象上的 code 必须保持原值（词缀只改 message，不替换 code）'
+    );
+    assert.strictEqual(
+      tagged.message.startsWith('[seeded_protected] '),
+      true,
+      `失败消息必须以 [code] 词缀开头（失败态唯一的持久化通道）：${tagged.message}`
+    );
+    assert.strictEqual(
+      (tagged.message.match(/\[[a-z_]+\]\s/g) || []).length,
+      1,
+      '同一次执行只加一次词缀'
+    );
+
+    // 词缀**只增不改**：与「不经工具」的同一 manager 调用（无词缀）对照，去掉词缀后逐字相等
+    let plain = null;
+    try {
+      await aiSkills.createManagedSkill(env, {
+        name: 'seeded-one', content: 'x', description: 'y', seededNames: ['seeded-one'],
+      });
+    } catch (err) {
+      plain = err;
+    }
+    assert.ok(plain instanceof Error, 'manager 层同样 throw');
+    assert.strictEqual(
+      CODE_TAG_RE.test(plain.message),
+      false,
+      'manager 层消息不带词缀（词缀由工具失败出口**单点**写入）'
+    );
+    assert.strictEqual(
+      tagged.message.replace(CODE_TAG_RE, ''),
+      plain.message,
+      '词缀只增不改：去掉词缀后必须与不带词缀的原消息逐字相等'
+    );
+
+    // 幂等：已带同款词缀的错误不得被再加一次（起始匹配的机械保证）
+    const originalCreate = aiSkills.createManagedSkill;
+    aiSkills.createManagedSkill = async () => {
+      const e = new Error('[seeded_protected] 已经带词缀的消息');
+      e.code = 'seeded_protected';
+      throw e;
+    };
+    t.after(() => { aiSkills.createManagedSkill = originalCreate; });
+    let again = null;
+    try {
+      await tool.execute('call-seeded-2', {
+        action: 'create', name: 'seeded-one', description: 'd', content: 'c',
+      });
+    } catch (err) {
+      again = err;
+    }
+    assert.strictEqual(
+      again.message,
+      '[seeded_protected] 已经带词缀的消息',
+      '已带同款词缀的消息不得被二次加缀（否则会产出 `[a] [b] msg`）'
+    );
+
+    // 非字符串 code（意外错误）不得被标上无意义前缀
+    aiSkills.createManagedSkill = async () => { throw new Error('意外错误'); };
+    let unexpected = null;
+    try {
+      await tool.execute('call-seeded-3', {
+        action: 'create', name: 'any-name', description: 'd', content: 'c',
+      });
+    } catch (err) {
+      unexpected = err;
+    }
+    assert.strictEqual(unexpected.message, '意外错误', 'code 非字符串时不得加词缀');
+  });
+
+  test('M2d（行为 · 重载还原）词缀 → code 还原；无词缀的旧失败行与成功行都不设 code 键；失败行两链路逐字相等', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    writeSkill(workspace.getManagedSkillsDir(), 'alpha');
+    const env = await setupSkillsEnv(root);
+
+    const original = conversationStore.getMessages;
+    conversationStore.getMessages = () => JSON.parse(JSON.stringify([
+      {
+        id: 1, role: 'assistant', content: '', toolExecutions: [
+          {
+            id: 'tc-fail-tagged', name: 'manage_skill', status: 'failed',
+            params: { action: 'create', name: 'alpha', content: '# alpha', description: 'd' },
+            error: '[seeded_protected] 「alpha」是随包内置技能，AI 不能覆盖或删除。',
+            details: {},
+          },
+          {
+            id: 'tc-fail-legacy', name: 'manage_skill', status: 'failed',
+            params: { action: 'create', name: 'alpha', content: '# alpha', description: 'd' },
+            error: '「alpha」是随包内置技能，AI 不能覆盖或删除。',
+            details: {},
+          },
+          {
+            id: 'tc-ok', name: 'manage_skill', status: 'completed',
+            params: { action: 'create', name: 'alpha', content: '# alpha', description: 'd' },
+            result: '已创建技能「alpha」。它从下一条消息起对模型可见。',
+            details: {
+              action: 'create', name: 'alpha', filePath: '/tmp/x/SKILL.md',
+              description: 'd', promptIncluded: true,
+            },
+          },
+        ],
+      },
+    ]));
+    t.after(() => { conversationStore.getMessages = original; });
+
+    const out = aiManager.prototype.getConversationMessages.call(manageReloadCtx(env, []), 'conv-1');
+    const [tagged, legacy, ok] = out[0].toolExecutions;
+    assert.strictEqual(
+      tagged.manageSkill.code,
+      'seeded_protected',
+      '带词缀的失败行必须还原出原因码（WR-02：失败历史卡片保留短原因）'
+    );
+    assert.strictEqual(
+      Object.prototype.hasOwnProperty.call(legacy.manageSkill, 'code'),
+      false,
+      '改动前落库的旧失败消息（无词缀）不得产出 code 键 —— 宁缺勿猜，旧历史零回归'
+    );
+    assert.strictEqual(
+      Object.prototype.hasOwnProperty.call(ok.manageSkill, 'code'),
+      false,
+      '成功行的成功文案不得误命中词缀（`^` 起始锚定的机械保证）'
+    );
+
+    // 失败行：实时链路（共享并入函数）与重载链路（同一装饰构造）的键集合与取值逐字相等
+    const liveCtx = {
+      _buildManageSkillDecoration: aiManager.prototype._buildManageSkillDecoration,
+      _resolveManageSkillMarker: aiManager.prototype._resolveManageSkillMarker,
+      _manageSkillMeta: new Map([['tc-fail-tagged', {
+        action: 'create', name: 'alpha', code: 'seeded_protected', tier: 'managed',
+      }]]),
+    };
+    const live = skillPickerModel.mergeManageSkillMarker(
+      aiManager.prototype._resolveManageSkillMarker.call({}, 'create', 'alpha'),
+      aiManager.prototype._resolveManageSkillTerminal.call(liveCtx, 'tc-fail-tagged')
+    );
+    assert.deepStrictEqual(
+      Object.keys(tagged.manageSkill).sort(),
+      Object.keys(live).sort(),
+      '失败行：两条链路的键集合必须逐字相等（不多键也不少键）'
+    );
+    assert.deepStrictEqual(tagged.manageSkill, live, '失败行：两条链路的取值必须逐字相等');
+    assert.deepStrictEqual(
+      live,
+      { action: 'create', name: 'alpha', code: 'seeded_protected', tier: 'managed' },
+      '前置：失败行的实时合并形状'
+    );
+  });
+
+  test('M2e（行为 · 三态消费侧）未命中（undefined）⇒ details 无 promptIncluded 键、不追加「预算已满」句', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root);
+
+    const ctx = promptCtx(env);
+    ctx.isProcessing = true;
+
+    const original = aiSkills.getSkillPromptIncluded;
+    aiSkills.getSkillPromptIncluded = () => undefined; // 「此刻不在技能集里」
+    t.after(() => { aiSkills.getSkillPromptIncluded = original; });
+
+    const tool = ctx._buildManageSkillTool();
+    const res = await tool.execute('call-undefined', {
+      action: 'create', name: 'ghost-skill', description: '落地用描述', content: '# x\n\n正文\n',
+    });
+
+    assert.strictEqual(
+      Object.prototype.hasOwnProperty.call(res.details, 'promptIncluded'),
+      false,
+      '未命中（undefined）时 details 必须**不含**该键（不得写 undefined 再靠 JSON 序列化丢掉）'
+    );
+    assert.strictEqual(
+      res.content[0].text.includes('预算已满'),
+      false,
+      '未命中时不得断言「技能段预算已满」—— 预算并未满，这是 49-04 三态要消灭的失实文案'
+    );
+    assert.strictEqual(
+      res.content[0].text.includes('/skill:ghost-skill'),
+      false,
+      '未命中时不得声称「仍可用 /skill:{name} 手动调用」—— 该调用同样解析不到'
+    );
+    const meta = ctx._manageSkillMeta.get('call-undefined');
+    assert.strictEqual(
+      Object.prototype.hasOwnProperty.call(meta, 'promptIncluded'),
+      false,
+      '短期元数据同样不得含 promptIncluded 键（终态标记的键集合对「不可判定」是省略）'
+    );
+  });
+
+  test('M2f（行为 · 三态消费侧）命中被滤（false）⇒ 追加「预算已满」句且 details.promptIncluded === false', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root);
+
+    const ctx = promptCtx(env);
+    ctx.isProcessing = true;
+
+    const original = aiSkills.getSkillPromptIncluded;
+    aiSkills.getSkillPromptIncluded = () => false; // 命中但超预算 / 禁用 / 被遮蔽
+    t.after(() => { aiSkills.getSkillPromptIncluded = original; });
+
+    const tool = ctx._buildManageSkillTool();
+    const res = await tool.execute('call-false', {
+      action: 'create', name: 'over-budget', description: '落地用描述', content: '# x\n\n正文\n',
+    });
+
+    assert.strictEqual(
+      res.details.promptIncluded,
+      false,
+      '严格 false 必须写进 details（boolean 才写键）'
+    );
+    assert.strictEqual(
+      res.content[0].text.includes('该技能暂未进入模型提示词（技能段预算已满），仍可用 /skill:over-budget 手动调用。'),
+      true,
+      '严格 false 才追加「预算已满」句（逐字复用既有文案，不改写 —— WR-03 不在本计划范围）'
+    );
+    assert.strictEqual(
+      ctx._manageSkillMeta.get('call-false').promptIncluded,
+      false,
+      '短期元数据同样写 false（超预算标注的数据源）'
+    );
+  });
+
   test('M3（源码 · 合并分支护栏）新条目映射 manageSkill，且已存在条目分支**条件并入**终态字段', () => {
     const { merge, push } = rendererManageRegions();
     assert.ok(/manageSkill/.test(merge), '已存在条目合并分支必须并入 manageSkill（RESEARCH Pitfall 4 的回归护栏）');
