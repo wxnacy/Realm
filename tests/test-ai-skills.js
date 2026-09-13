@@ -3199,47 +3199,51 @@ describe('J 组 · G-48-12 运行期新增技能（miss → 权威重扫一次 �
   });
 });
 
+/**
+ * 延迟补刷出口上下文（**K 组与 L 组共用的唯一夹具**）
+ *
+ * 提到文件级而非各自复制：两组的隔离语义必须逐字一致，第二套 `Object.create`
+ * 拼装必然漂移（K 组 = G-48-18 的纯文本流补刷；L 组 = Phase 49 manage_skill 的刷新链）。
+ *
+ * 与 `skillResolveCtx` 同款纪律：**不** `new AIManager()`（那会触碰真实 userData、
+ * electron 路径与对话数据库）；用 `Object.create(aiManager.prototype)` 取原型方法，
+ * own property 只补出口路径真正读到的字段。
+ *
+ * `_ensureConversation` / `agent.prompt` / `waitForIdle` 的覆写**不是**为测试而设的假状态，
+ * 而是隔离「对话数据库写盘」与「SDK 往返」这两个副作用 —— 本组验的是**出口行为**
+ * （补刷是否落地），不是对话生命周期也不是 SDK。
+ *
+ * `syncAgentSystemPrompt` 用 own-property **包装**（而非重写）计数 —— 真实方法体逐字未改
+ * 这条硬约束因此不被测试绕过（与 J 组同款）。
+ */
+function promptCtx(env, { dirty = false } = {}) {
+  const ctx = Object.create(aiManager.prototype);
+  ctx.isInitialized = true;
+  ctx.sandboxEnv = env;
+  ctx.isProcessing = false;
+  ctx._skillsPromptDirty = dirty;
+  ctx._skillsPromptDigest = '';
+  ctx.currentConversationId = 'conv-flush';
+  ctx.agent = {
+    state: { systemPrompt: 'OLD', isStreaming: false },
+    prompt: async () => {},
+    waitForIdle: async () => {},
+    abort: () => {},
+  };
+  ctx.configStore = { get: (key, fallback) => fallback };
+  ctx.getSeededSkillNamesSafe = () => [];
+  ctx._ensureConversation = () => 'conv-flush';
+  ctx._sendEventsBatch = () => {};
+  ctx.rescanCalls = 0;
+  const realSync = aiManager.prototype.syncAgentSystemPrompt;
+  ctx.syncAgentSystemPrompt = function () {
+    this.rescanCalls += 1;
+    return realSync.call(this);
+  };
+  return ctx;
+}
+
 describe('K 组 · G-48-18 延迟补刷在纯文本流上落地', () => {
-  /**
-   * 延迟补刷出口上下文（K 组夹具）
-   *
-   * 与 `skillResolveCtx` 同款纪律：**不** `new AIManager()`（那会触碰真实 userData、
-   * electron 路径与对话数据库）；用 `Object.create(aiManager.prototype)` 取原型方法，
-   * own property 只补出口路径真正读到的字段。
-   *
-   * `_ensureConversation` / `agent.prompt` / `waitForIdle` 的覆写**不是**为测试而设的假状态，
-   * 而是隔离「对话数据库写盘」与「SDK 往返」这两个副作用 —— 本组验的是**出口行为**
-   * （补刷是否落地），不是对话生命周期也不是 SDK。
-   *
-   * `syncAgentSystemPrompt` 用 own-property **包装**（而非重写）计数 —— 真实方法体逐字未改
-   * 这条硬约束因此不被测试绕过（与 J 组同款）。
-   */
-  function promptCtx(env, { dirty = false } = {}) {
-    const ctx = Object.create(aiManager.prototype);
-    ctx.isInitialized = true;
-    ctx.sandboxEnv = env;
-    ctx.isProcessing = false;
-    ctx._skillsPromptDirty = dirty;
-    ctx._skillsPromptDigest = '';
-    ctx.currentConversationId = 'conv-flush';
-    ctx.agent = {
-      state: { systemPrompt: 'OLD', isStreaming: false },
-      prompt: async () => {},
-      waitForIdle: async () => {},
-      abort: () => {},
-    };
-    ctx.configStore = { get: (key, fallback) => fallback };
-    ctx.getSeededSkillNamesSafe = () => [];
-    ctx._ensureConversation = () => 'conv-flush';
-    ctx._sendEventsBatch = () => {};
-    ctx.rescanCalls = 0;
-    const realSync = aiManager.prototype.syncAgentSystemPrompt;
-    ctx.syncAgentSystemPrompt = function () {
-      this.rescanCalls += 1;
-      return realSync.call(this);
-    };
-    return ctx;
-  }
 
   test('K1（靶心 · 行为）纯文本 /skill: 成功后延迟补刷落地：脏标记归假 + prompt 已含新技能 + 广播恰一次', async (t) => {
     const root = withTempRoot(t);
@@ -3379,6 +3383,113 @@ describe('K 组 · G-48-18 延迟补刷在纯文本流上落地', () => {
       (src.match(/await this\._flushDeferredSkillsPrompt\(\)/g) || []).length,
       2,
       '补刷调用点必须恰 2 处'
+    );
+  });
+});
+
+describe('L 组 · Phase 49 manage_skill 的刷新链', () => {
+  /**
+   * 打桩 `windowManager.broadcast` 收集频道名（写法照 E 组既有先例）
+   * @returns {{channels: string[], restore: Function}}
+   */
+  function captureBroadcasts(t) {
+    const wm = require('../window-manager');
+    const original = wm.broadcast;
+    const channels = [];
+    wm.broadcast = (channel) => {
+      channels.push(channel);
+    };
+    t.after(() => {
+      wm.broadcast = original;
+    });
+    return { channels };
+  }
+
+  test('L1（靶心 · 行为）工具执行期只置脏标记 → 本轮成功出口补刷：prompt 含新技能、广播恰一次、rescanCalls === 2', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root); // 此刻技能集为空
+
+    const { channels } = captureBroadcasts(t);
+    const ctx = promptCtx(env);
+    // 工具执行期 `isProcessing` 恒 true（真实语义：工具在 Agent 轮内执行）
+    ctx.isProcessing = true;
+
+    const tool = ctx._buildManageSkillTool();
+    const res = await tool.execute('call-1', {
+      action: 'create',
+      name: 'flush-probe',
+      description: '落地用描述',
+      content: '# flush-probe\n\n落地用正文\n',
+    });
+    assert.strictEqual(res.details.action, 'create');
+    assert.strictEqual(res.details.name, 'flush-probe');
+
+    // ① 忙时语义：只置脏标记，prompt **尚未**回写（D-13 —— 「下一条消息可见」是设计而非缺陷）
+    assert.strictEqual(ctx._skillsPromptDirty, true, '忙时只置脏标记');
+    assert.strictEqual(
+      ctx.agent.state.systemPrompt.includes('flush-probe'),
+      false,
+      '工具返回时 system prompt **不得**已含新技能（真正的回写在本轮成功出口）'
+    );
+    assert.strictEqual(ctx.rescanCalls, 1, '工具路径恰一次重扫（syncAgentSystemPrompt 内含 refreshSkills）');
+    assert.deepStrictEqual(channels, [], '忙时不广播（prompt 未变）');
+
+    // ② 本轮结束：isProcessing 复位后走 prompt() 的成功出口
+    ctx.isProcessing = false;
+    await aiManager.prototype.prompt.call(ctx, '你好');
+
+    assert.strictEqual(ctx._skillsPromptDirty, false, '成功出口必须把补刷刷落地');
+    assert.ok(
+      ctx.agent.state.systemPrompt.includes('flush-probe'),
+      '补刷后 system prompt 必须含新技能的 name / description'
+    );
+    assert.strictEqual(
+      ctx.agent.state.systemPrompt,
+      aiManager.buildSystemPrompt(),
+      '补刷后 system prompt 必须逐字符等于 buildSystemPrompt()'
+    );
+    assert.deepStrictEqual(channels, ['skills:changed'], '真正改写 prompt 时广播 skills:changed 恰一次');
+    assert.strictEqual(
+      ctx.rescanCalls,
+      2,
+      '工具路径一次 + 出口补刷一次（**不是 3** —— 证明没有 syncAgentSystemPrompt + refreshSkills 双写）'
+    );
+  });
+
+  test('L2（早退零成本 · 行为）不调工具时普通消息既不多付重扫、也不广播', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const env = await setupSkillsEnv(root);
+
+    const { channels } = captureBroadcasts(t);
+    const ctx = promptCtx(env); // dirty 默认 false
+    const res = await aiManager.prototype.prompt.call(ctx, '你好');
+
+    assert.strictEqual(res.skillError, undefined);
+    assert.strictEqual(ctx.rescanCalls, 0, '补刷首行检脏早退 —— 零重扫');
+    assert.strictEqual(ctx.agent.state.systemPrompt, 'OLD', '无待补刷时 prompt 逐字不变');
+    assert.deepStrictEqual(channels, [], '无变化不广播（保 provider 前缀缓存）');
+  });
+
+  test('L3（次数账 · 源码）manage_skill 的工具范围内 syncAgentSystemPrompt() 恰 1 处、refreshSkills( 0 处', () => {
+    const src = readSource('ai-manager.js');
+    const body = methodBody(src, '_buildManageSkillTool');
+    assert.ok(body.length > 500, `工具方法体提取口径失效会假绿（实际 ${body.length}）`);
+    assert.strictEqual(
+      (body.match(/await this\.syncAgentSystemPrompt\(\)/g) || []).length,
+      1,
+      '写成功后**只调一次** syncAgentSystemPrompt（唯一权威入口）'
+    );
+    assert.strictEqual(
+      /refreshSkills\(/.test(body),
+      false,
+      '不得照 ROADMAP 字面再写 refreshSkills() —— 那是三次全量重扫（D-13）'
+    );
+    assert.strictEqual(
+      /requestActionConfirmation/.test(body),
+      false,
+      '三个动作一律自动（D-01），工具内不得出现确认调用'
     );
   });
 });
