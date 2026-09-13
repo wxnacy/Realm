@@ -4,17 +4,17 @@ milestone: v2.6
 milestone_name: AI 助手技能（Skill）能力
 current_phase: 49
 current_phase_name: "`manage_skill` 工具（AI 自建技能）"
-status: verifying
-stopped_at: Completed 49-07-PLAN.md（G-49-3 收口：卡片头部标注改取单源 ≤ 4 字投影 + 真实渲染门禁红→绿 + UI-SPEC E1 收口记录）
-last_updated: "2026-09-13T14:30:54.748Z"
-last_activity: 2026-09-13
+status: executing
+stopped_at: Completed 49-08-PLAN.md（UI-49-W6-01 闭合：语境开关 + 真实键盘门禁红→绿）
+last_updated: "2026-09-13T16:42:42.606Z"
+last_activity: 2026-09-14
 last_activity_desc: Phase 49 execution started
-state_head: 6abd31abdf108c732ee354bd490773f6facf09d0
+state_head: 5403584601fdef7318e711ee27f0d2ff85dc2feb
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 25
-  completed_plans: 25
+  total_plans: 26
+  completed_plans: 26
   percent: 0
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-09-13)
 ## Current Position
 
 Phase: 49 (`manage_skill` 工具（AI 自建技能）) — EXECUTING
-Plan: 7 of 7
-Status: Phase complete — ready for verification
-Last activity: 2026-09-13 — Phase 49 execution started
+Plan: 2 of 8
+Status: Ready to execute
+Last activity: 2026-09-14 — Phase 49 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -117,6 +117,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 49 P05 | 9min | 3 tasks | 5 files |
 | Phase 49 P06 | 4 min | 3 tasks | 2 files |
 | Phase 49 P07 | 8 min | 3 tasks | 10 files |
+| Phase 49 P08 | 26 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -250,6 +251,9 @@ Recent decisions affecting current work:
 - [Phase 49]: 49-06：AGENTS.md 的 manage_skill 维护约定只加不变式（组装全文闸口 / 净化后复验 / 失败态词缀 / 并入单源），关键名词取机制词而不复制产品文档示例串；测试行只做精确替换（其余套件零改动）
 - [Phase 49]: G-49-3 收口：卡片头部超预算标注改取 `/` 面板 `STATUS_TEXT.promptOmitted` 第二段的 ≤ 4 字机械投影（`PROMPT_OMITTED_CARD_NOTE`），面板长串逐字未变 —— 两处共用同一单源、卡片不新写字面量 — 48 D-12 原文 / 48-UI-SPEC「照写不统一」/ 逐字断言 / 产品文档 §10.1 四文案四重锁定；且缩短对面板零收益（面板行可换行、宽 ≥ 280px，该串从不被裁切，只会丢掉「未进提示词」半边语义）
 - [Phase 49]: G-49-3 的验收证据必须是 280px 真实渲染且先红后绿：判据对象改为「标注外接矩形右缘 vs 裁切祖先右缘」（旧驱动的标注自身 scrollWidth/clientWidth 恒相等 ⇒ 无检出力） — 本阶段已记录教训「子串 / 声明扫描会假绿」的直接兑现；红轮缺失即视为判据未成立；「CSS 声明零改动」另由 A9（全轮声明投影 sha 相等）+ css-decl-freeze（四规则块声明集逐字比对）双判据承担
+- [Phase 49]: 修法 C：renderSkillContentBox 增加 { interactive = true } 语境开关 —— 气泡实例施加焦点语义、manage_skill 卡片实例不施加（宿主 .tool-card-content 用 max-height: 0 折叠，overflow: hidden 不移出 Tab 序）。不把可达性上移到卡片头部，因那会推翻 49-UI-SPEC.md:508 的锁定决策且爆炸半径覆盖全部工具卡片
+- [Phase 49]: a11y 类门禁的判据必须挂在命中测试上且只接受「自身或后代」：被 overflow: hidden 裁掉的后代，其中心点真正命中的是承载裁切的祖先 —— 计划原文允许祖先的判据在未修复树上即判绿（自毁形态），按 R6 纪律先修驱动不改源码
+- [Phase 49]: true-render 门禁的 R4（气泡对照）与目标卡片不在同一会话时改为切换会话取对照对象，并把卡片侧断言提到切换之前执行
 
 ### Roadmap Evolution
 
@@ -364,8 +368,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T14:30:23.055Z
-Stopped at: Completed 49-07-PLAN.md（G-49-3 收口：卡片头部标注改取单源 ≤ 4 字投影 + 真实渲染门禁红→绿 + UI-SPEC E1 收口记录）
+Last session: 2026-09-13T16:42:28.172Z
+Stopped at: Completed 49-08-PLAN.md（UI-49-W6-01 闭合：语境开关 + 真实键盘门禁红→绿）
 Resume file: None
 
 ## Operator Next Steps
