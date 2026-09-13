@@ -535,5 +535,21 @@ AI 通过一个 `manage_skill` 工具把流程 / 经验沉淀为自己的技能�
 - 卡片纯逻辑：`node --test tests/test-skill-picker-model.js`（**105 例，实测**）—— 含卡片标记并入函数 `mergeManageSkillMarker` 的值域
 - 人工观察（唯一）：让 AI 建一个技能 → 观察卡片 → **不重开对话**发下一条消息问「你有哪些技能」→ 应答含新技能名。此层需要真实 LLM 往返，**不可自动化**（步骤见 `49-VALIDATION.md` 的 Manual-Only 表）
 
+**例数一致性判据（可重跑，不是人工核对）。** 上述三条计数与 [AGENTS.md](../../AGENTS.md) 测试行的三条计数必须与三个套件的**实测** `# tests` 逐字一致。判据是一条命令：现场跑三个套件读出实测值，再扫描 `AGENTS.md` 与本节的例数账本，**逐账本单元**比对 —— 单元右边界由**同一行内下一个测试文件名**（无后继则行尾）决定，因此 `AGENTS.md` 单行多套件、文件名与例数间距达数百字符的形态也不会漏检（固定宽度窗口会漏检其中至少一个）；任一单元取到的值与实测不符即以非零退出并指名到「文件:行号 + 套件名 + 取到的值」：
+
+```bash
+node -e '
+const cp=require("child_process"),fs=require("fs");
+const suites=["tests/test-manage-skill.js","tests/test-ai-skills.js","tests/test-skill-picker-model.js"];
+const meas={};
+for(const f of suites){const o=cp.execSync("node "+(f.indexOf("picker")>=0?"--test ":"")+f,{encoding:"utf8",stdio:["ignore","pipe","ignore"]});meas[f.split("/").pop()]=String(o.match(/# tests (\d+)/)[1]);}
+const FN=/test-[\w-]+\.js/g;let bad=[],cells=0;
+for(const file of ["AGENTS.md","docs/product/ai-skills.md"]){const hit={};fs.readFileSync(file,"utf8").split("\n").forEach((line,ln)=>{const idx=[];FN.lastIndex=0;let m;while((m=FN.exec(line)))idx.push([m.index,m[0]]);for(let i=0;i<idx.length;i++){const base=idx[i][1];if(!(base in meas))continue;const end=i+1<idx.length?idx[i+1][0]:line.length;const uniq=[...new Set([...line.slice(idx[i][0],end).matchAll(/(\d+)\s*例/g)].map(x=>x[1]))];if(!uniq.length)continue;cells++;hit[base]=(hit[base]||0)+1;if(uniq.length!==1||uniq[0]!==meas[base])bad.push(file+":"+(ln+1)+" "+base+" 账本单元取到 ["+uniq.join("/")+"] ≠ 实测 "+meas[base]);}});for(const base of Object.keys(meas))if(!hit[base])bad.push(file+" 的账本未覆盖 "+base);}
+if(cells<8)bad.push("账本单元数 "+cells+" < 8（§七 两条 + §11.8 三条 + AGENTS.md 测试行三条）");
+if(bad.length)throw new Error("例数不一致: "+bad.join("; "));
+console.log("counts-parity ok");console.log("cells="+cells+" measured="+JSON.stringify(meas));
+'
+```
+
 **未闭合项如实挂账（`48-REVIEW.md` 命名空间）**：本节不声称已闭合 `TD-48-01` / `TD-48-02` / `WR-01` / `WR-02` / `WR-06`（以上五个**均为 `48-REVIEW.md` 的编号**：`TD-48-01` = 面板行属性上下文 `escapeHtml` 不转义引号、`TD-48-02` = 取消分支判据无锚点自校验、`WR-01` = 三档徽标文案两处重复、`WR-02` = 技能解析链三处裸 await、`WR-06` = **已缓存**技能的实时读盘命中路径仍绕过 64 KiB 字节闸；其中 `WR-01` / `WR-02` 与下段 49 号的同名编号**不是同一物**、不得混读）；也不声称失效链已完整闭合 —— 本阶段只补齐其中一段（AI 自建技能这一写入入口），技能集的另一个实际写入入口归 Phase 50 设置页，**合计约 1/3**；`syncAgentSystemPrompt()` 生产调用方的 ⚠️ 同样如实挂账（本阶段只完成 3 分之 1）。
 **本轮（gap closure）已闭合的是 `49-REVIEW.md` 的 `CR-01` / `CR-02` / `CR-03` / `WR-01` / `WR-02`**：`CR-01` = 渲染端终态标记由覆盖改为并入，且并入逻辑**单源**在 `src/skill-picker-model.js` 的 `mergeManageSkillMarker`；`CR-02` = frontmatter 的 `description` 改经 YAML 单引号标量编码；`CR-03` = 净化后对**净化值**复验非空；`WR-01` = 写侧权威字节闸口改按**组装后的 `SKILL.md` 全文**计字节；`WR-02` = 失败态原因码经消息词缀持久化并在重载链路用同一常量还原。`49-REVIEW.md` 的其余条目（`WR-03` / `WR-04` / `IN-01`–`IN-06`）不在本轮范围内、仍逐条挂账。
