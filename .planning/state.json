@@ -21,7 +21,7 @@
     {
       "number": "49",
       "name": "`manage_skill` 工具",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "50",
@@ -39,5 +39,5 @@
     "label": "Advance to the next step",
     "reason": "Phase 49 of 6 · 17% · executing"
   },
-  "updated_at": "2026-09-13T05:42:05.782Z"
+  "updated_at": "2026-09-13T07:14:48.793Z"
 }
