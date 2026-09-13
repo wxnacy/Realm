@@ -291,7 +291,7 @@ describe('create 脊椎（manage_skill 主干）', () => {
     assert.ok(over.reason.includes('1024'), '原因须带上限值');
   });
 
-  test('content 校验：空 → invalid_description；65536 字节通过 / 65537 字节 oversize', () => {
+  test('content 预筛（严格子集，不是权威闸口）：空 → invalid_description；65536 字节通过 / 65537 字节 oversize', () => {
     for (const bad of ['', '   ', null]) {
       const res = aiSkills.validateManagedSkillContent(bad);
       assert.strictEqual(res.ok, false);
@@ -304,6 +304,15 @@ describe('create 脊椎（manage_skill 主干）', () => {
       aiSkills.validateManagedSkillContent('中'.repeat(21846)).code,
       'oversize',
       '必须按 UTF-8 字节计数（与加载期 FileInfo.size 同口径）'
+    );
+    // 严格子集关系（可机械验证）：预筛拒 ⇒ 权威闸口必拒
+    // （组装全文 = content + frontmatter，frontmatter 长度恒为正 ⇒ 预筛只可能更早拒）
+    assert.ok(
+      Buffer.byteLength(
+        aiSkills.buildSkillFileText({ name: 'x', description: 'd', content: 'a'.repeat(65537) }),
+        'utf8'
+      ) > aiSkills.LIMITS.MAX_SKILL_MD_BYTES,
+      '预筛拒 ⇒ 权威闸口必拒（否则预筛口径与权威闸口脱节，会出现「预筛放行、闸口拒」的双判据）'
     );
   });
 
@@ -942,15 +951,23 @@ describe('getSkillPromptIncluded（prompt 段归属的复用判定）', () => {
       true,
       '按 name 查找命中胜出者（user 版），它进 prompt ⇒ true'
     );
+    // 诚实边界：本函数的查找面命中**胜出者**，因此「命中败者（shadowed）⇒ false」这一分支
+    // 在当前定序下不可从本查找面到达。该字段与另两个字段同源地参与计算（见函数实现），
+    // 但**不为它编造一个到不了的用例** —— 下面直接断言败者条目确实带该标记，即判据的输入面成立。
+    assert.strictEqual(
+      entries.filter((e) => e.shadowed === true)[0].shadowed,
+      true,
+      'shadowed 字段是 getSkillPromptIncluded 复用的三字段之一（输入面成立）'
+    );
   });
 });
 
 describe('幽灵技能护栏（写侧权威闸口与加载期闸口判同一个量）', () => {
-  test('正文字节上限：写侧拒的边界值 == 读侧丢弃的边界值（同为 LIMITS.MAX_SKILL_MD_BYTES）', async (t) => {
+  test('正文字节预筛：content 单独超限即拒（权威闸口是整文件，见本组后续行）；读侧取同一条常量', async (t) => {
     const root = withTempRoot(t);
     const env = await makeEnv(root);
 
-    // 写侧预筛
+    // 写侧预筛（按 content 单独计字节；权威闸口见 validateSkillFileSize / 本组后续行）
     assert.strictEqual(aiSkills.validateManagedSkillContent('a'.repeat(65536)).ok, true);
     assert.strictEqual(aiSkills.validateManagedSkillContent('a'.repeat(65537)).code, 'oversize');
     await expectThrowCode(
@@ -968,7 +985,7 @@ describe('幽灵技能护栏（写侧权威闸口与加载期闸口判同一个�
       '写侧预筛必须挡在落盘之前 —— 否则就是「磁盘上有文件、加载管线整条跳过」的幽灵技能'
     );
 
-    // 读侧对照：手工造一个超限文件（绕开写侧预筛）
+    // 读侧对照：手工造一个超限文件（绕开写侧闸口）
     writeSkill(workspace.getManagedSkillsDir(), 'too-big', { body: 'a'.repeat(120 * 1024) });
     await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
     const snap = aiSkills.getSkillsSnapshot();
@@ -978,7 +995,7 @@ describe('幽灵技能护栏（写侧权威闸口与加载期闸口判同一个�
     assert.strictEqual(
       diag.limit,
       aiSkills.LIMITS.MAX_SKILL_MD_BYTES,
-      '两侧判的必须是**同一条**上限（同源同值）—— 这是本护栏的核心「关系」'
+      '写侧与读侧必须取自**同一条常量** LIMITS.MAX_SKILL_MD_BYTES（两侧判的是不是同一个量，见本组后续边界行）'
     );
     assert.ok(diag.currentValue > diag.limit, '诊断须带当前值，便于定位');
     assert.strictEqual(
@@ -1277,14 +1294,30 @@ describe('原子性与幂等（MGMT-01 的 idempotency / concurrency 假设的�
     assert.ok(fs.readFileSync(second.filePath, 'utf8').includes('v1'));
   });
 
-  test('并发假设的机械护栏：manage_skill 声明 executionMode: "sequential"（防同批次并发写）', () => {
+  test('并发假设的机械护栏：manage_skill 工具项**实际**声明 executionMode: "sequential" + 参数键集合恰为四个业务字段（无 path）', () => {
     const tool = require('../ai-manager');
-    const src = readSource('ai-manager.js');
-    assert.ok(src.includes("executionMode: 'sequential'"));
     assert.strictEqual(
       typeof tool.prototype._buildManageSkillTool,
       'function',
       '若为便于测试而把工具构造改成别处，该护栏需要同步复核'
+    );
+    // 构造**真实工具项**再断言 —— 不是对源码做子串扫描（子串在声明被改掉 / 挪到别处时仍会通过）
+    const item = tool.prototype._buildManageSkillTool.call({});
+    assert.strictEqual(item.name, 'manage_skill');
+    assert.strictEqual(
+      item.executionMode,
+      'sequential',
+      '并发写会撕裂「读盘判定 → 原子写」之间的窗口；同批次串行是该假设的唯一防线'
+    );
+    assert.deepStrictEqual(
+      Object.keys(item.parameters.properties).sort(),
+      ['action', 'content', 'description', 'name'],
+      '参数面恰为四个业务字段 —— 少一个参数就少一整类越界面'
+    );
+    assert.strictEqual(
+      JSON.stringify(item.parameters).includes('"path"'),
+      false,
+      'manage_skill 绝不接受 path（沙箱在这一层提供不了保护，接口设计才是边界）'
     );
   });
 
@@ -1473,3 +1506,138 @@ describe('沙箱原语的回归护栏（create 硬前置）', () => {
     assert.strictEqual(fs.readdirSync(dir).length, 1, '文件级 rename 是原子替换，不产生第二个文件');
   });
 });
+
+describe('蕴含关系（Gap 1 的真值面）：写侧未抛错 ⇒ 加载后技能集含该 name 且该条目无诊断', () => {
+  /**
+   * 本 gap 的真值面必须**作为一整块**被断言，而不是分散在各条输入里 ——
+   * 「工具报成功、磁盘有文件、技能永不加载」这一失效族的可失败证据就是这条蕴含关系本身。
+   * 任一条破裂（意外抛错 / 落盘但不在技能集 / 条目带诊断 / 集合出现幽灵诊断码）都进 failures。
+   */
+  const IMPLICATION_CASES = [
+    { label: '普通短描述', name: 'impl-plain', description: 'A perfectly normal description', content: '# plain\n\n正文\n' },
+    { label: '含 ": " 的描述', name: 'impl-colon', description: 'Use it like this: run the weekly report', content: '# colon\n' },
+    { label: '含 "#" 的描述', name: 'impl-hash', description: 'Summarize this #1 priority task', content: '# hash\n' },
+    { label: '裸 YAML 标量 true', name: 'impl-bool', description: 'true', content: '# bool\n' },
+    { label: '含撇号与换行', name: 'impl-quote', description: "it's a\nmulti-line thing", content: '# quote\n' },
+    {
+      label: `字节边界内的长描述（${aiSkills.LIMITS.MAX_SKILL_DESCRIPTION_CHARS} 字符上限）`,
+      name: 'impl-long',
+      description: 'x'.repeat(aiSkills.LIMITS.MAX_SKILL_DESCRIPTION_CHARS),
+      content: '# long\n',
+    },
+    { label: '字节边界内的长正文（60000 B）', name: 'impl-bigbody', description: '边界正文', content: 'a'.repeat(60000) },
+  ];
+
+  test('整块断言：七类输入全部「未抛错 ⇒ 进技能集 ⇒ 无条目诊断 ⇒ 无幽灵诊断码」', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const failures = [];
+
+    for (const c of IMPLICATION_CASES) {
+      let thrown = null;
+      try {
+        await aiSkills.createManagedSkill(env, {
+          name: c.name,
+          content: c.content,
+          description: c.description,
+          seededNames: SEEDED,
+        });
+      } catch (e) {
+        thrown = e;
+      }
+      if (thrown) {
+        failures.push(`${c.label}（${c.name}）：create 意外抛错 ${thrown.code}`);
+        continue;
+      }
+      const snap = await loadSnapshot(env);
+      const entry = snap.skills.find((e) => e.skill.name === c.name);
+      if (!entry) {
+        failures.push(`${c.label}（${c.name}）：落盘成功却不在技能集 —— 幽灵技能`);
+      } else if (Array.isArray(entry.diagnostics) && entry.diagnostics.length > 0) {
+        failures.push(`${c.label}（${c.name}）：条目带诊断 ${entry.diagnostics.map((d) => d.code).join(',')}`);
+      }
+    }
+
+    assert.deepStrictEqual(
+      failures,
+      [],
+      '「写侧未抛错 ⇒ 加载侧收下」是 Gap 1 的真值面（SC1 的完整性半边）；任一条破裂即幽灵技能'
+    );
+
+    const snap = aiSkills.getSkillsSnapshot();
+    assert.strictEqual(
+      snap.skills.length,
+      IMPLICATION_CASES.length,
+      '每一条输入都必须恰好对应一个技能条目（无丢失、无重复）'
+    );
+    // 整轮不得出现幽灵技能的三张签名：解析失败 / 描述不可用 / 整文件超限
+    const ghostDiag = snap.diagnostics.filter(
+      (d) =>
+        d.code === 'parse_failed' ||
+        d.code === 'realm_skill_md_too_large' ||
+        /^description/.test(String(d.message))
+    );
+    assert.deepStrictEqual(
+      ghostDiag.map((d) => `${d.code}:${d.message}`),
+      [],
+      '整轮不得出现幽灵技能的三张签名（解析失败 / 描述不可用 / 整文件超限）'
+    );
+  });
+});
+
+describe('九码闭合白名单的不变式（本计划不增不减不改名）', () => {
+  test('MANAGE_SKILL_ERROR 恰十条键：九码 + 沙箱层兜底 unknown，值集合逐字锁定', () => {
+    assert.deepStrictEqual(
+      Object.keys(aiSkills.MANAGE_SKILL_ERROR).sort(),
+      [
+        'ALREADY_EXISTS',
+        'INVALID_DESCRIPTION',
+        'INVALID_NAME',
+        'LIMIT_EXCEEDED',
+        'NOT_FOUND',
+        'OVERSIZE',
+        'SEEDED_PROTECTED',
+        'UNKNOWN',
+        'UNSCANNABLE',
+        'USER_OWNED_CONFLICT',
+      ].sort(),
+      '新增或删除任一码都必须先改契约（D-07 的闭合白名单），本计划不动它'
+    );
+    assert.deepStrictEqual(
+      Object.values(aiSkills.MANAGE_SKILL_ERROR).sort(),
+      [
+        'already_exists',
+        'invalid_description',
+        'invalid_name',
+        'limit_exceeded',
+        'not_found',
+        'oversize',
+        'seeded_protected',
+        'unknown',
+        'unscannable',
+        'user_owned_conflict',
+      ].sort(),
+      '九码的值逐字未变（UNKNOWN 是沙箱原始码的兜底，不泄漏给调用方）'
+    );
+  });
+
+  test('description 净化后为空仍归 invalid_description（不新立第十码）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const err = await expectThrowCode(
+      () => aiSkills.createManagedSkill(env, {
+        name: 'no-tenth-code',
+        content: '# body\n',
+        description: '\u200B\u200B\n',
+        seededNames: SEEDED,
+      }),
+      'invalid_description'
+    );
+    assert.ok(
+      Object.values(aiSkills.MANAGE_SKILL_ERROR).includes(err.code),
+      '拒绝码必须取自闭合白名单（不得为新失败面新立码）'
+    );
+    assert.deepStrictEqual(managedNames(), [], '被拒路径不得落盘');
+  });
+});
+
