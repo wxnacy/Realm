@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 22
+open_count: 27
 waived_count: 0
 fixed_count: 2
-total_count: 24
-last_updated: 2026-09-12T15:02:36.971Z
+total_count: 29
+last_updated: 2026-09-13T07:13:09.306Z
 ---
 
 # Broken Windows Ledger
@@ -39,6 +39,11 @@ last_updated: 2026-09-12T15:02:36.971Z
 | 22 | 48 | unrun-verify | src/renderer.js |  | 48-05 G-48-6：pill/折叠块「发送后即现」是运行时机行为，node:test 无 DOM 宿主可断言；最终证据为重跑 /gsd-verify-work 48 的自动驱动探针（UAT test 6 clause 1） | open |  | 2026-09-12T11:57:11.239Z |  |
 | 23 | 48 | unrun-verify | src/ai-cancel-state.js |  | 48-05 G-48-4：abort × 新消息的端到端竞态（新气泡不得被写成「用户已取消」）无法在纯 Node 构造；最终证据为重跑 /gsd-verify-work 48 的自动驱动探针（UAT test 4） | open |  | 2026-09-12T11:57:11.319Z |  |
 | 24 | 48 | unrun-verify | src/renderer.js |  | 48-07 已修 + 机制更正：① 原文把机制写成「主进程重扫 → 广播 → IPC 往返」，暗示存在「idle 边界自动重扫」链 —— 该链在代码中并不存在（待回写标记只由同步入口自身在忙时置位，不是独立触发源）；② 真正的失效点是主进程 readSkillForInvocation 的缓存存在性门（缓存未命中即判不存在，读盘路径根本不执行）；③ 48-07 的修法 = 调用侧 miss 后经唯一权威入口 syncAgentSystemPrompt 重扫一次 + 重试读盘（shadowed / disabled / tier 三字段仍来自同一条加载管线，不新增第二套判定）；④ 本条为 unrun-verify，最终证据仍是重跑 /gsd-verify-work 48 的自动驱动探针（在 managed-skills 下新建目录后不打开 / 面板直接手打 /skill:<新名>） | fixed |  | 2026-09-12T12:05:50.272Z | 2026-09-12T15:02:36.971Z |
+| 25 | 49 | deviation | .planning/phases/49-manage-skill-ai/49-02-PLAN.md |  | 计划自带 verify #1(Task1) 的 node -e 脚本缺语句分隔符，字面 SyntaxError 永不通过（执行侧最小语法修正后通过） | open |  | 2026-09-13T07:13:08.952Z |  |
+| 26 | 49 | deviation | .planning/phases/49-manage-skill-ai/49-02-PLAN.md |  | 计划自带 verify #3(Task1)/#1(Task2) 的源码窗口会命中既有代码（状态图标 innerHTML / 通用参数与结果区的 JSON.stringify），字面恒失败；执行侧最小口径修正后通过 | open |  | 2026-09-13T07:13:09.040Z |  |
+| 27 | 49 | deviation | .planning/phases/49-manage-skill-ai/49-02-PLAN.md |  | 计划自带 verify #1(Task3) 的徽标底色计数正则 #\\{0,1\\}var\\(--bg-secondary\\) 含多余 # 前缀，字面恒 0 命中；执行侧去掉前缀后通过（实测 6 处） | open |  | 2026-09-13T07:13:09.128Z |  |
+| 28 | 49 | stub | ai-manager.js |  | manage_skill 重载链路还原不了失败原因码 code（不落库）⇒ 重开对话后失败历史卡片不显示头部短原因（宁缺勿猜；展开区仍有主进程完整文案） | open |  | 2026-09-13T07:13:09.218Z |  |
+| 29 | 49 | stub | ai-manager.js |  | delete 成功卡片的 tier 在删除后不可判定 ⇒ 省略键、不显示来源徽标（不可判定时不猜） | open |  | 2026-09-13T07:13:09.306Z |  |
 
 ````json
 [
@@ -329,6 +334,66 @@ last_updated: 2026-09-12T15:02:36.971Z
     "reason": "",
     "recorded_at": "2026-09-12T12:05:50.272Z",
     "resolved_at": "2026-09-12T15:02:36.971Z"
+  },
+  {
+    "id": 25,
+    "kind": "deviation",
+    "phase": "49",
+    "file": ".planning/phases/49-manage-skill-ai/49-02-PLAN.md",
+    "line": null,
+    "description": "计划自带 verify #1(Task1) 的 node -e 脚本缺语句分隔符，字面 SyntaxError 永不通过（执行侧最小语法修正后通过）",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-13T07:13:08.952Z",
+    "resolved_at": null
+  },
+  {
+    "id": 26,
+    "kind": "deviation",
+    "phase": "49",
+    "file": ".planning/phases/49-manage-skill-ai/49-02-PLAN.md",
+    "line": null,
+    "description": "计划自带 verify #3(Task1)/#1(Task2) 的源码窗口会命中既有代码（状态图标 innerHTML / 通用参数与结果区的 JSON.stringify），字面恒失败；执行侧最小口径修正后通过",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-13T07:13:09.040Z",
+    "resolved_at": null
+  },
+  {
+    "id": 27,
+    "kind": "deviation",
+    "phase": "49",
+    "file": ".planning/phases/49-manage-skill-ai/49-02-PLAN.md",
+    "line": null,
+    "description": "计划自带 verify #1(Task3) 的徽标底色计数正则 #\\{0,1\\}var\\(--bg-secondary\\) 含多余 # 前缀，字面恒 0 命中；执行侧去掉前缀后通过（实测 6 处）",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-13T07:13:09.128Z",
+    "resolved_at": null
+  },
+  {
+    "id": 28,
+    "kind": "stub",
+    "phase": "49",
+    "file": "ai-manager.js",
+    "line": null,
+    "description": "manage_skill 重载链路还原不了失败原因码 code（不落库）⇒ 重开对话后失败历史卡片不显示头部短原因（宁缺勿猜；展开区仍有主进程完整文案）",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-13T07:13:09.218Z",
+    "resolved_at": null
+  },
+  {
+    "id": 29,
+    "kind": "stub",
+    "phase": "49",
+    "file": "ai-manager.js",
+    "line": null,
+    "description": "delete 成功卡片的 tier 在删除后不可判定 ⇒ 省略键、不显示来源徽标（不可判定时不猜）",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-13T07:13:09.306Z",
+    "resolved_at": null
   }
 ]
 ````

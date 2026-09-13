@@ -285,7 +285,7 @@ Plans:
   4. 写入为原子操作（经沙箱 `env.renameFile` 获得双基准路径校验），失败不留半成品文件，且不触及 `ai-memory/`、`attachments/` 等其他工作区路径。
   5. 工具描述引导 AI 优先增强已有技能，而非创建近乎重复的新技能。
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 
 Plans:
 **Wave 1**
@@ -294,7 +294,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 49-02-PLAN.md — 卡片技能化：两时点标记 + 失败态元数据通道 + 渲染端标题 / 徽标 / 参数摘要 / 正文折叠块 / 结果文本化 / 内联标注 + 样式与 48 的两条前置修复（D-02、MGMT-01/05）
+- [x] 49-02-PLAN.md — 卡片技能化：两时点标记 + 失败态元数据通道 + 渲染端标题 / 徽标 / 参数摘要 / 正文折叠块 / 结果文本化 / 内联标注 + 样式与 48 的两条前置修复（D-02、MGMT-01/05）
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -362,6 +362,6 @@ Plans:
 | 46. 技能基础设施 | 4/4 | Complete | 2026-09-11 |
 | 47. 内置技能播种 + bash 策略加固 | 6/6 | In Progress|  |
 | 48. 技能发现与调用 | 8/8 | In Progress|  |
-| 49. `manage_skill` 工具 | 1/3 | In Progress|  |
+| 49. `manage_skill` 工具 | 2/3 | In Progress|  |
 | 50. 设置页技能管理区 + `/api/skills/*` | TBD | Not started | - |
 | 51. 用户技能导入管线 | TBD | Not started | - |
