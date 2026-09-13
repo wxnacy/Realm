@@ -5,16 +5,16 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 49
 current_phase_name: manage_skill 工具（AI 自建技能）
 status: executing
-stopped_at: Completed 49-05-PLAN.md
-last_updated: "2026-09-13T10:21:41.439Z"
+stopped_at: Completed 49-06-PLAN.md（文档纠偏与账本同步：§11.7 口径 / §11.3 词缀成文 / §11.8 双命名空间记账 / 三处例数刷新 + 可重跑一致性命令 / AGENTS.md 四条不变式）
+last_updated: "2026-09-13T10:40:27.428Z"
 last_activity: 2026-09-13
 last_activity_desc: Phase 49 execution started
-state_head: 5a20fe671eb7887badba45c0418856ca1f19424d
+state_head: 1fdfa15dfe7751b6cf926debba18679335a9989d
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 24
-  completed_plans: 23
+  completed_plans: 24
   percent: 0
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-09-13)
 ## Current Position
 
 Phase: 49 (manage_skill 工具（AI 自建技能）) — EXECUTING
-Plan: 5 of 6 (49-01..49-05 已完成；权威计数 = `.planning/phases/49-manage-skill-ai/` 下 5 份 SUMMARY，且与 ROADMAP 的 `summary_count: 5` 一致。`state advance-plan` 的计数器再次滞后（写成 `6 of 6`）—— 执行期手工订正，未依赖该 handler 的输出)
-Status: Ready to execute
-Last activity: 2026-09-13 — Completed 49-05-PLAN.md（卡片终态标记并入 + 失败态原因码词缀 / Gap 2 / Gap 3 / WR-02 闭合）
+Plan: 6 of 6 (49-01..49-06 **全部完成**；权威计数 = `.planning/phases/49-manage-skill-ai/` 下 **6 份 SUMMARY**，且与 ROADMAP 的 `summary_count: 6` 一致。`state advance-plan` 的计数器在本阶段多次滞后（49-04 / 49-05 执行期各手工订正过一次）；本次其输出 `6 of 6` 恰与磁盘实况一致，仍以磁盘 SUMMARY 数为权威)
+Status: Phase complete, ready for verification
+Last activity: 2026-09-13 — Completed 49-06-PLAN.md（文档纠偏与账本同步：§11.7 口径 / §11.3 词缀成文 / §11.8 双命名空间记账 / 三处例数刷新 + 可重跑一致性命令 / AGENTS.md 四条不变式）
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -115,6 +115,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 49 P02 | 19 min | 3 tasks | 8 files |
 | Phase 49 P04 | 6min | 3 tasks | 3 files |
 | Phase 49 P05 | 9min | 3 tasks | 5 files |
+| Phase 49 P06 | 4 min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -243,6 +244,9 @@ Recent decisions affecting current work:
 - [Phase 49]: [Phase 49-05]: 卡片终态标记的并入抽成跨进程单源纯函数 mergeManageSkillMarker（零依赖零 DOM，renderer 经 window.SkillPickerModel、纯 Node 测试经 require 取同一对象引用）—— 否决「把整份 decoration 移进 _resolveManageSkillTerminal」（会重复 start 已给的两键、与 UI-SPEC 两时点分工冲突）；覆盖语义回退由 M3 独占转红，共享函数语义回退由 M5b/M5c 转红，两条路径分开实跑
 - [Phase 49]: [Phase 49-05]: 失败态原因码取「错误消息词缀」—— MANAGE_SKILL_CODE_TAG 锚定消息起始且不加 /g，是 encode（失败出口幂等判定 + err.message 改写）与 decode（_manageSkillTerminalFromStored 解析）的唯一来源；写入位置固定在 catch 块元数据写入之前（保住既有 M2 的「写元数据后仍 throw」正则逐字不变）；不重算、旧消息无词缀不设键、成功文案因起始锚定不误命中
 - [Phase 49]: [Phase 49-05]: 三态 promptIncluded 的消费侧收口 —— 只有 boolean 才写 details / 短期元数据（不写 undefined 再靠 JSON 序列化丢掉），只有严格 false 才追加「技能段预算已满」句；undefined = 不在技能集里，两句都失实故一律不加（49-04 的三态修复不被消费侧合并回去）
+- [Phase 49]: 49-06：本轮闭合的五个编号（CR-01 / CR-02 / CR-03 / WR-01 / WR-02）全部挂在 49-REVIEW.md 名下另起一句；§11.8 挂账句里的五个 48 号编号（TD-48-01 / TD-48-02 / WR-01 / WR-02 / WR-06，含 WR-06）一字未移出，只补 48-REVIEW 命名空间标记与「不是同一物 / 不得混读」提示 —— 两个命名空间各占独立一行是「同名不同物」可机械表达的前提
+- [Phase 49]: 49-06：例数一律取实测值（manage-skill 55 / ai-skills 177 / picker-model 105），三处账本（§七 两条 + §11.8 三条 + AGENTS.md 测试行三条 = 八个单元）在同一任务刷新；一致性命令不硬编码数字、按账本单元切分（右边界 = 同一行内下一个 test-*.js），单点变异 3/3 转红
+- [Phase 49]: 49-06：AGENTS.md 的 manage_skill 维护约定只加不变式（组装全文闸口 / 净化后复验 / 失败态词缀 / 并入单源），关键名词取机制词而不复制产品文档示例串；测试行只做精确替换（其余套件零改动）
 
 ### Roadmap Evolution
 
@@ -357,8 +361,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T10:21:41.399Z
-Stopped at: Completed 49-05-PLAN.md
+Last session: 2026-09-13T10:40:06.046Z
+Stopped at: Completed 49-06-PLAN.md（文档纠偏与账本同步：§11.7 口径 / §11.3 词缀成文 / §11.8 双命名空间记账 / 三处例数刷新 + 可重跑一致性命令 / AGENTS.md 四条不变式）
 Resume file: None
 
 ## Operator Next Steps
