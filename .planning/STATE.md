@@ -5,16 +5,16 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 49
 current_phase_name: manage_skill 工具（AI 自建技能）
 status: executing
-stopped_at: Completed 49-04-PLAN.md
-last_updated: "2026-09-13T10:09:13.065Z"
+stopped_at: Completed 49-05-PLAN.md
+last_updated: "2026-09-13T10:21:41.439Z"
 last_activity: 2026-09-13
 last_activity_desc: Phase 49 execution started
-state_head: 9e7c9e83e22996696d18dbd7fea3cf192b672ca7
+state_head: 5a20fe671eb7887badba45c0418856ca1f19424d
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 24
-  completed_plans: 22
+  completed_plans: 23
   percent: 0
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-09-13)
 ## Current Position
 
 Phase: 49 (manage_skill 工具（AI 自建技能）) — EXECUTING
-Plan: 5 of 6 (49-01..49-04 已完成；`state advance-plan` 计数器滞后已手工订正，权威计数见 frontmatter `completed_plans: 22 / total_plans: 24`)
+Plan: 5 of 6 (49-01..49-05 已完成；权威计数 = `.planning/phases/49-manage-skill-ai/` 下 5 份 SUMMARY，且与 ROADMAP 的 `summary_count: 5` 一致。`state advance-plan` 的计数器再次滞后（写成 `6 of 6`）—— 执行期手工订正，未依赖该 handler 的输出)
 Status: Ready to execute
-Last activity: 2026-09-13 — Completed 49-04-PLAN.md（幽灵技能 gap 闭合）
+Last activity: 2026-09-13 — Completed 49-05-PLAN.md（卡片终态标记并入 + 失败态原因码词缀 / Gap 2 / Gap 3 / WR-02 闭合）
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -114,6 +114,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 49 P01 | 12 min | 3 tasks | 6 files |
 | Phase 49 P02 | 19 min | 3 tasks | 8 files |
 | Phase 49 P04 | 6min | 3 tasks | 3 files |
+| Phase 49 P05 | 9min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -239,6 +240,9 @@ Recent decisions affecting current work:
 - [Phase 49]: [49-04]: 三处（含 docs §四）「写侧与加载期闸口同源同值」的过度声称一并纠正为组装全文口径 —— 改闸口而不改声明会留下与新实现不符的断言，50/51 会照抄
 - [Phase 49]: [49-04]: 反向验证作为「断言不是假绿」的证据：临时改回旧实现记录转红的叶子断言（A 去 YAML 编码 6 条 / B 去净化后复验 3 条 / C 闸口只测 content 3 条 / D 三态退回 false 1 条），恢复后 git diff 为空且 55/55 全绿
 - [Phase 49]: [49-04]: STATE.md 的 advance-plan 计数错（写成 Plan: 2 of 6，实际 49-01..04 四份 SUMMARY 已落盘）—— 执行期手工订正为 5 of 6；frontmatter 的 completed_plans 22/24 由 handler 正确算出，percent 0% 是「按阶段」口径（阶段 49 未 complete）非本次缺陷
+- [Phase 49]: [Phase 49-05]: 卡片终态标记的并入抽成跨进程单源纯函数 mergeManageSkillMarker（零依赖零 DOM，renderer 经 window.SkillPickerModel、纯 Node 测试经 require 取同一对象引用）—— 否决「把整份 decoration 移进 _resolveManageSkillTerminal」（会重复 start 已给的两键、与 UI-SPEC 两时点分工冲突）；覆盖语义回退由 M3 独占转红，共享函数语义回退由 M5b/M5c 转红，两条路径分开实跑
+- [Phase 49]: [Phase 49-05]: 失败态原因码取「错误消息词缀」—— MANAGE_SKILL_CODE_TAG 锚定消息起始且不加 /g，是 encode（失败出口幂等判定 + err.message 改写）与 decode（_manageSkillTerminalFromStored 解析）的唯一来源；写入位置固定在 catch 块元数据写入之前（保住既有 M2 的「写元数据后仍 throw」正则逐字不变）；不重算、旧消息无词缀不设键、成功文案因起始锚定不误命中
+- [Phase 49]: [Phase 49-05]: 三态 promptIncluded 的消费侧收口 —— 只有 boolean 才写 details / 短期元数据（不写 undefined 再靠 JSON 序列化丢掉），只有严格 false 才追加「技能段预算已满」句；undefined = 不在技能集里，两句都失实故一律不加（49-04 的三态修复不被消费侧合并回去）
 
 ### Roadmap Evolution
 
@@ -353,8 +357,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T10:08:49.753Z
-Stopped at: Completed 49-04-PLAN.md
+Last session: 2026-09-13T10:21:41.399Z
+Stopped at: Completed 49-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
