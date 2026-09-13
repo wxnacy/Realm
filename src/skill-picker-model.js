@@ -244,6 +244,29 @@
   });
 
   /**
+   * `manage_skill` 卡片头部**超预算标注**的 ≤ 4 字短形态（Phase 49 · G-49-3 的收口）——
+   * 上面那张表的 `promptOmitted` 条目**第二段的机械投影**，不是第二份文案。
+   *
+   * ① **它是投影而非新写**：取值按分隔符切分上表的面板串后取末段派生 ⇒ 面板串改了，卡片形态
+   *    随之改变，两处不可能分叉。48 的 `D-12` 原文与「照写不统一」契约只约束 `/` 面板那条
+   *    （`promptOmitted` 逐字未变）；卡片头部是本阶段新增的**另一个表面**。
+   * ② **为什么要短形态**：卡片头部在 AI 面板最小宽度（`--ai-panel-min-width` 280px）下
+   *    `.tool-card-name` 只有 129px，而完整的两段式标注实测 100px，与徽标 32px 及两处 8px
+   *    间隙合计 148px > 129px —— 溢出的 19px 被该容器继承的 `overflow: hidden` 裁掉，且唯一
+   *    可压缩项（技能名文本）先被压到 0。面板行可换行、宽 ≥ 280px 且**没有结果区**，因此面板
+   *    保留长文案；卡片有结果区承载完整语义（「暂未进入模型提示词（技能段预算已满），仍可用
+   *    /skill:{name} 手动调用」），头部标注只是**可扫读的短标签**。
+   * ③ **「不新写」的可核对面不是 `includes`**（写死第二份字面量同样能通过该断言），而是源码级
+   *    两条：取值必须以**引用 + 投影的形式**书写（门禁正则锚在
+   *    `PROMPT_OMITTED_CARD_NOTE = STATUS_TEXT.promptOmitted.split(` 上 —— 形态沿用本仓既有先例
+   *    `MANAGE_SKILL_SHORT_REASON.limit_exceeded: STATUS_TEXT.overLimit`），且本文件中**不存在**
+   *    被引号包裹的该值独立字面量（注释里也不许写）。第二条同时封掉「声明处写成引用、导出处
+   *    写死一份」的形态。
+   * ④ `49-UI-SPEC.md` 的 E1 overflow 处置要求短原因 ≤ 4 字；本投影的字符数 = 3。
+   */
+  const PROMPT_OMITTED_CARD_NOTE = STATUS_TEXT.promptOmitted.split(' · ').pop();
+
+  /**
    * 展平单数组（D-01 的唯一顺序权威）
    *
    * 顺序 = `[...技能分区, ...命令分区]`，**数组顺序即视觉渲染顺序**（分组标题只在渲染层
@@ -441,6 +464,7 @@
     buildPickerItems,
     TIER_BADGE,
     STATUS_TEXT,
+    PROMPT_OMITTED_CARD_NOTE,
     MANAGE_SKILL_ACTION_LABEL,
     MANAGE_SKILL_ACTION_NAME,
     MANAGE_SKILL_SHORT_REASON,

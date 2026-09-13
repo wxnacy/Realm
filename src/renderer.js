@@ -9639,7 +9639,11 @@ function renderToolCard(toolExecution) {
       name.appendChild(badgeEl);
     }
     // 头部内联标注（**至多一个**，UI-SPEC §头部三个新增/复用元素 第 3 项）：
-    // 失败 → 九码白名单短原因；成功且未进提示词 → 复用 STATUS_TEXT.promptOmitted。
+    // 失败 → 九码白名单短原因；成功且未进提示词 → 取**单源的 ≤ 4 字投影**
+    // （`PROMPT_OMITTED_CARD_NOTE`，由 `STATUS_TEXT.promptOmitted` 的第二段机械派生 ——
+    // 48 的 `/` 面板串逐字未变，两者共用同一单源，此处不得另写一份字面量）。
+    // 取短形态的理由见 49-UI-SPEC 的 E1 overflow 收口：280px 面板下 `.tool-card-name` 仅 129px，
+    // 完整两段式会越界被祖先裁切；卡片结果区已承载完整语义。
     // 两者互斥（失败态不判提示词归属）；都取不到 ⇒ **不渲染元素**（不占位、不留空元素）。
     let noteText = null;
     let noteClass = null;
@@ -9652,7 +9656,7 @@ function renderToolCard(toolExecution) {
     } else if (toolExecution.status === 'completed'
       && manageSkill.promptIncluded === false
       && manageSkill.action !== 'delete') {
-      noteText = window.SkillPickerModel.STATUS_TEXT.promptOmitted;
+      noteText = window.SkillPickerModel.PROMPT_OMITTED_CARD_NOTE;
       noteClass = 'tool-card-manage-note tool-card-manage-note-limit';
     }
     if (noteText) {
