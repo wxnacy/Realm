@@ -5,17 +5,17 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 49
 current_phase_name: "`manage_skill` 工具（AI 自建技能）"
 status: planning
-stopped_at: Phase 48 complete, ready to plan Phase 49
-last_updated: "2026-09-13T03:56:40.225Z"
+stopped_at: Phase 49 context gathered
+last_updated: "2026-09-13T04:32:27.999Z"
 last_activity: 2026-09-13
 last_activity_desc: Phase 48 complete, transitioned to Phase 49
-state_head: e8024c5e5fecadd2628133ea3ea3d3f568149051
+state_head: 20af806969d4a67d5a68f673cc7e03dea7587916
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 1
   total_plans: 18
   completed_plans: 18
-  percent: 50
+  percent: 17
 ---
 
 # Project State: Realm Browser
@@ -34,7 +34,7 @@ Plan: Not started
 Status: Ready to plan
 Last activity: 2026-09-13 — Phase 48 complete, transitioned to Phase 49
 
-Progress: [█████░░░░░] 50%
+Progress: [██░░░░░░░░] 17%
 
 ## Performance Metrics
 
@@ -266,7 +266,6 @@ None yet.
 - ⚠️ [Phase 48 · 执行期注意 · 仍开] `resolveSkillBubbleArgs` **残留窄洞**：纯 `prompt()` 路径下 args 尾段恰为 `'\n\n' + '/skill:{name}'` 时返回 `''` 而非真 args（病态但可达；48-01 的八例解析表不含该形态 ⇒ 测试可全绿而显示错 args）。判据见 `48-01-PLAN.md` Task 1 ③ 第 4/6 步
 - ⚠️ [Phase 48 · 规划期技术债] **plan-checker 第 4 轮独立门禁未运行** —— 子代理配额 429（重置 2026-09-13 10:53），第 3 轮 checker 查出的 1 blocker（`resolveSkillBubbleArgs` 空 args 分支）+ 1 warning（`regenerateMessage`/`showError` 重试丢技能注入）由 planner 修订后，改由**主会话**做聚焦验证并判定成立。独立 gate 对这两项的属性已降级（非独立上下文）；执行前若配额恢复，可重跑 `/gsd-plan-phase 48 --skip-research` 复验。**【2026-09-13 收尾注记】阶段 48 已收尾，该独立门禁未补跑（见上方「流程性残余」条）**
 
-
 - ⚠️ [技术债 · 无归属阶段] **bash 安装档只读豁免的结构性根因** —— `matchInstall` 用「整段正则 + `FLAG_TOLERANCE` 取值槽」判只读，使三条形态在白名单含裸工具名时**零卡片**：CR-01（`npm -g update` / `npm --global rebuild`）、CR-02（`npm audit --json fix`）、残余 ③（`npm -g update ls`）。三者均在 Phase 47 基线即存在（非回归），已具名写进两份产品文档的残余段与 `47-REVIEW.md`。**根治 = argv 级分词 + 显式「带值旗标」清单**；修的时候须同步改 `tests/test-ai-bash-policy.js:847`（它当前把 CR-01 的词法形态钉成期望的 `allow`）与三份文档口径。另两条同源技术债：`ai-bash-policy.js:249` 的 JSDoc 称旗标容忍「不会吞掉子命令本身」（与 CR-01 矛盾）、`docs` 只读枚举缺机械漂移护栏
 
 **v2.6 待实测风险（plan 期验证，research Gaps）：**
@@ -340,9 +339,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T03:56:40.225Z
-Stopped at: Phase 48 complete, ready to plan Phase 49
-Resume file: None
+Last session: 2026-09-13T04:32:27.937Z
+Stopped at: Phase 49 context gathered
+Resume file: .planning/phases/49-manage-skill-ai/49-CONTEXT.md
 
 ## Operator Next Steps
 
