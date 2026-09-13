@@ -26,9 +26,14 @@ const path = require('path');
  * 技能限额单源（D-11）—— 端点、设置页前端与渲染层不得出现同类字面量。
  *
  * 各条限额单位不同、互不换算，逐条声明口径（升版须逐条复核）：
- * - MAX_SKILL_MD_BYTES：SKILL.md 文件字节数（加载期按 sandbox FileInfo.size 计数，
- *   写入侧按 `Buffer.byteLength(text, 'utf8')` 计数 —— 同为 UTF-8 字节，因此写入侧
- *   预筛与加载期闸口**同源同值**，不会产出「落盘成功但整条被跳过」的幽灵技能）
+ * - MAX_SKILL_MD_BYTES：单个 SKILL.md **整文件**的 UTF-8 字节数。加载期按 sandbox
+ *   `FileInfo.size` 计数；写入侧的**权威闸口**（`validateSkillFileSize`）按
+ *   `buildSkillFileText` 产物（frontmatter + 空行 + 正文）的 `Buffer.byteLength(…, 'utf8')`
+ *   计数 —— 两侧判的是**同一个量（组装后的 SKILL.md 全文）**，因此不会产出
+ *   「落盘成功但整条被跳过」的幽灵技能。`validateManagedSkillContent` 里对 content
+ *   单独计字节只是**提前预筛**（权威闸口的严格子集：组装全文 = content + frontmatter，
+ *   frontmatter 长度恒为正 ⇒ 只可能更早拒、不可能放行权威闸口会拒的输入），
+ *   不是第二套判据。
  * - MAX_USER_SKILLS：user 来源技能个数（`agent-workspace/skills/`）
  * - SKILLS_PROMPT_CHAR_BUDGET：prompt 元数据段的字符数（按 JS string.length 计数）
  * - MAX_MANAGED_SKILLS：**非 seeded 的 managed 技能个数**（AI 自建；读盘统计）。
@@ -1087,16 +1092,23 @@ function validateManagedSkillDescription(text) {
 }
 
 /**
- * 校验技能正文（D-07 + T-49-01-08 幽灵技能护栏的写侧半边）
+ * 校验技能正文（写侧**预筛**，不是权威闸口）
  *
  * 两条判据、两个不同的原因码：
  * - trim 后为空 → `invalid_description`（**不新立第十码**：UI-SPEC 的非阻断建议 2
  *   要求显式指定，而九码内的选择比新码更符合 D-07 的闭合白名单纪律；`oversize`
  *   的文案是「正文超限」、语义是长度而非空）
- * - UTF-8 字节数 > `LIMITS.MAX_SKILL_MD_BYTES` → `oversize`
+ * - content **单独**的 UTF-8 字节数 > `LIMITS.MAX_SKILL_MD_BYTES` → `oversize`
  *
- * 按 `Buffer.byteLength(text, 'utf8')` 计数：与加载期 `createSkillsEnv` 的字节闸
- *（按 `FileInfo.size`）同为 UTF-8 字节，两侧因此同源同值。
+ * **它不是权威闸口**：写侧的权威闸口是 `validateSkillFileSize` —— 对
+ * `buildSkillFileText` 的产物（整文件）计字节，与加载期 `createSkillsEnv` 的
+ * `FileInfo.size` 闸同量。本函数只按 content 计字节，是权威闸口的**严格子集预筛**
+ * （组装全文 = content + frontmatter，frontmatter 长度恒为正 ⇒ 本函数只可能更早拒，
+ * 不可能放行权威闸口会拒的输入）。保留它的理由是**提前量**（纯字符串检查，省掉
+ * 组装与后续步骤），不是为了「再判一次」。
+ *
+ * 历史注记（WR-01）：本函数此前的 JSDoc 声称「与加载期闸口同源同值」—— 该声明已被
+ * 实测证伪（content 65200 B 配 1024 字符 description 时落盘 66260 B > 65536 B 闸口）。
  *
  * @param {string} text - 技能正文（Markdown，不含 frontmatter）
  * @returns {{ok: true} | {ok: false, code: string, reason: string}}
@@ -1192,6 +1204,44 @@ function scanSkillText(text, { includeCredentials = true } = {}) {
 function buildSkillFileText({ name, description, content }) {
   const body = String(content == null ? '' : content).replace(LEADING_FRONTMATTER_RE, '');
   return `---\nname: ${name}\ndescription: ${yamlScalar(description)}\n---\n\n${body}`;
+}
+
+/**
+ * 写侧**权威**字节闸口：对组装后的 SKILL.md **全文**测 UTF-8 字节（WR-01）
+ *
+ * 判据对象是 `buildSkillFileText` 的产物本身 —— 这是唯一**不会漂移**的形态：
+ * frontmatter 形状日后变化时闸口自动跟着变。**不得**改成「`MAX_SKILL_MD_BYTES`
+ * 减去一个硬编码的 frontmatter 开销」：那个常量一旦与实际 frontmatter 形态脱节，
+ * 就会重新开出幽灵技能带（WR-01 实测该带宽约 1.06 KB，不是记录里的约 56 字节）。
+ *
+ * 与加载期 `createSkillsEnv.readTextFile` 的 `FileInfo.size > maxSkillMdBytes`
+ * 判的是**同一个量**（整文件 UTF-8 字节）。`validateManagedSkillContent` 的
+ * content 单独计字节是它的严格子集预筛，不能替代它。
+ *
+ * create / update 两个动作**共用这一份实现** —— 两侧同阈值、同拒绝码、同「不落盘」语义。
+ *
+ * 成功时一并返回被计量的 `text`：调用方**必须**把这一份产物交给原子写
+ * （而不是重新组装一次），使「测的字节」与「写的字节」在对象层面就是同一份。
+ *
+ * @param {{name: string, description: string, content: string}} parts
+ *   组装入参（`description` 必须是**净化后**的值）
+ * @returns {{ok: true, text: string}
+ *           | {ok: false, code: string, reason: string, limit: number, currentValue: number}}
+ */
+function validateSkillFileSize({ name, description, content }) {
+  const text = buildSkillFileText({ name, description, content });
+  const bytes = Buffer.byteLength(text, 'utf8');
+  if (bytes > LIMITS.MAX_SKILL_MD_BYTES) {
+    return {
+      ok: false,
+      code: MANAGE_SKILL_ERROR.OVERSIZE,
+      // 原因文案同时带上限额与当前值（UI-SPEC 的 oversize 文案口径），且**不回显被拒内容原文**
+      reason: `技能文件超过上限：限额 ${LIMITS.MAX_SKILL_MD_BYTES} 字节，当前 ${bytes} 字节（按 frontmatter + 正文的整文件计）`,
+      limit: LIMITS.MAX_SKILL_MD_BYTES,
+      currentValue: bytes,
+    };
+  }
+  return { ok: true, text };
 }
 
 /** 从沙箱 Result 里取可读的错误码（失败 Result 的形状为 `{ ok: false, error: { code } }`） */
@@ -1427,12 +1477,22 @@ async function createManagedSkill(env, { name, content, description, seededNames
     );
   }
 
-  // 6.5 【权威字节闸的位点】必须在**组装之后、任何落盘之前**（WR-01）——
+  // 6.5 权威字节闸（WR-01）—— 必须在**组装之后、任何落盘之前**：
   //     判据对象是 `buildSkillFileText({ name, description: safeDescription, content })`
-  //     的产物 UTF-8 字节数，与加载期 `createSkillsEnv.readTextFile` 的 `FileInfo.size`
+  //     产物的 UTF-8 字节数，与加载期 `createSkillsEnv.readTextFile` 的 `FileInfo.size`
   //     同为「整文件」口径。只按 content 计字节的预筛（步骤 1）是它的**严格子集**，
   //     不能替代它。此位点在数量闸之后、createDir 之前 ⇒ 拒绝即不建目录、零残留。
-  //     （闸口的函数实现与边界断言见本计划 Task 2。）
+  const sizeCheck = validateSkillFileSize({
+    name: skillName,
+    description: safeDescription,
+    content,
+  });
+  if (!sizeCheck.ok) {
+    throw makeManageSkillError(sizeCheck.code, sizeCheck.reason, {
+      limit: sizeCheck.limit,
+      currentValue: sizeCheck.currentValue,
+    });
+  }
 
   // 7. 建目录（renameFile 到缺失父目录必失败 ⇒ createDir 是硬前置）。
   //    走到这里只剩 not_found 一种情形 ⇒ 目标目录必然不存在，本次一定是「新建」。
@@ -1443,11 +1503,7 @@ async function createManagedSkill(env, { name, content, description, seededNames
   // 8. 原子写；失败清理**只在本次确实新建了目录时**执行 —— 否则会误删不属于
   //    本次操作的数据（Pitfall 9）。清理后不留半成品目录 / 半成品文件。
   try {
-    await atomicWriteSkillFile(
-      env,
-      destFile,
-      buildSkillFileText({ name: skillName, description: safeDescription, content })
-    );
+    await atomicWriteSkillFile(env, destFile, sizeCheck.text);
   } catch (err) {
     if (madeDir) await env.remove(destDir, { recursive: true });
     throw err;
@@ -1506,19 +1562,25 @@ async function updateManagedSkill(env, { name, content, description, seededNames
   const target = await resolveManagedTarget(env, skillName, seededNames);
   if (!target.ok) throw makeManageSkillError(target.code, target.message);
 
-  // 4.5 【权威字节闸的位点】必须在**组装之后、原子写之前**（WR-01）：判据对象是
-  //     `buildSkillFileText(...)` 产物的整文件 UTF-8 字节（与加载期 `FileInfo.size`
-  //     同量）。此位点在目标判定之后、rename 之前 ⇒ 拒绝即目标保持操作前状态。
-  //     （闸口的函数实现与边界断言见本计划 Task 2。）
+  // 4.5 权威字节闸（WR-01，与 create 共用同一实现）：判据对象是组装后的整文件
+  //     UTF-8 字节（与加载期 `FileInfo.size` 同量）。此位点在目标判定之后、rename
+  //     之前 ⇒ 拒绝即目标保持操作前状态（原子替换未发生）。
+  const sizeCheck = validateSkillFileSize({
+    name: skillName,
+    description: safeDescription,
+    content,
+  });
+  if (!sizeCheck.ok) {
+    throw makeManageSkillError(sizeCheck.code, sizeCheck.reason, {
+      limit: sizeCheck.limit,
+      currentValue: sizeCheck.currentValue,
+    });
+  }
 
   // 5. 原子写（create / update 共用同一条 tmp → rename 路径）。
   //    **失败直接 throw，不做任何清理** —— 目标目录属于既有数据，
   //    其内容靠 rename 的原子替换天然保持操作前状态。
-  await atomicWriteSkillFile(
-    env,
-    target.destFile,
-    buildSkillFileText({ name: skillName, description: safeDescription, content })
-  );
+  await atomicWriteSkillFile(env, target.destFile, sizeCheck.text);
 
   return { name: skillName, filePath: target.destFile, description: safeDescription, action: 'update' };
 }
@@ -1563,6 +1625,18 @@ async function deleteManagedSkill(env, { name, seededNames } = {}) {
 /**
  * 判定某技能是否进了 prompt 段（`details.promptIncluded`，48 D-12 的可见性精神）
  *
+ * **三态**（不是 boolean）：
+ * - 命中且可用 → `true`
+ * - **命中**但因 `disabled` / `promptOmitted` / `shadowed` 而不进 prompt → `false`
+ * - **该 name 不在当前技能集快照里 → `undefined`**
+ *
+ * **为什么必须区分后两者**：`false` 只表示「技能在技能集里、只是这次没进 prompt」，
+ * `undefined` 才表示「此刻根本没有这个技能」。把两者混成 `false` 会让调用方
+ * （`_buildManageSkillTool`）把「技能不存在」误报成「技能段预算已满」，并追加一句
+ * 「仍可用 `/skill:{name}` 手动调用」—— 预算并未满、该技能也解析不到，双重失实
+ *（VERIFICATION.md Gap 1 的失实文案根因）。消费方只在 `=== false` 时追加「预算已满」
+ * 文案、只在 boolean 时写 `details.promptIncluded`。
+ *
  * **不新写边际成本计算** —— 直接复用加载管线已在条目上算好的三字段
  * （`toUISkillEntry` 的 `shadowed` / `disabled` / `promptOmitted`），因此与 prompt
  * 段的实际归属**同源**。同步、零 IO：只读模块级缓存快照，**不触发重扫**。
@@ -1572,12 +1646,12 @@ async function deleteManagedSkill(env, { name, seededNames } = {}) {
  *
  * @param {string} name - 技能名
  * @param {string[]|Set<string>} [seededNames] - 随包内置技能名集合（当前判定不需要，保持签名稳定）
- * @returns {boolean} 该技能当前是否会被写进 prompt 段
+ * @returns {boolean|undefined} `true` / `false`（命中）/ `undefined`（未命中）
  */
 function getSkillPromptIncluded(name, seededNames) {
   void seededNames;
   const entry = getSkillsSnapshot().skills.find((e) => e.skill.name === name);
-  if (!entry) return false;
+  if (!entry) return undefined;
   return entry.shadowed !== true && entry.disabled !== true && entry.promptOmitted !== true;
 }
 

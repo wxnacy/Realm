@@ -875,7 +875,7 @@ describe('update / delete 的补充边界', () => {
 });
 
 describe('getSkillPromptIncluded（prompt 段归属的复用判定）', () => {
-  test('四个分支：存在且正常 → true；不存在 → false；disabled → false；promptOmitted → false', async (t) => {
+  test('三态 + disabled / promptOmitted：命中可用 → true；命中被滤 → false；**未命中 → undefined**', async (t) => {
     const root = withTempRoot(t);
     workspace.ensureWorkspaceDir();
     const env = await workspace.createSandboxEnv({ cwd: root });
@@ -883,7 +883,19 @@ describe('getSkillPromptIncluded（prompt 段归属的复用判定）', () => {
     writeSkill(workspace.getSkillsDir(), 'normal-one');
     await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
     assert.strictEqual(aiSkills.getSkillPromptIncluded('normal-one'), true, '存在且正常应进 prompt');
-    assert.strictEqual(aiSkills.getSkillPromptIncluded('never-existed'), false, '不存在 → false');
+    // 三态的理由：`false` 只表示「在技能集里、只是没进 prompt」，`undefined` 才表示
+    // 「此刻根本没有这个技能」。混成 `false` 会让工具把「技能不存在」误报成「预算已满」，
+    // 并追加「仍可用 /skill:{name} 手动调用」——预算并未满、该技能也解析不到。
+    assert.strictEqual(
+      aiSkills.getSkillPromptIncluded('never-existed'),
+      undefined,
+      '未命中必须返回 undefined（不是 false）—— 这是「预算已满」失实文案的根因'
+    );
+    assert.strictEqual(
+      typeof aiSkills.getSkillPromptIncluded('never-existed'),
+      'undefined',
+      '必须是严格 undefined，不是 null / false 之类的等价假值'
+    );
 
     // disabled 分支（46 D-09：禁用是消费侧过滤，文件不动）
     await aiSkills.refreshSkills(env, { rootDirs: scanRoots(), disabled: ['normal-one'] });
@@ -933,7 +945,7 @@ describe('getSkillPromptIncluded（prompt 段归属的复用判定）', () => {
   });
 });
 
-describe('幽灵技能护栏（写侧预筛与加载期闸口同源同值）', () => {
+describe('幽灵技能护栏（写侧权威闸口与加载期闸口判同一个量）', () => {
   test('正文字节上限：写侧拒的边界值 == 读侧丢弃的边界值（同为 LIMITS.MAX_SKILL_MD_BYTES）', async (t) => {
     const root = withTempRoot(t);
     const env = await makeEnv(root);
@@ -974,6 +986,171 @@ describe('幽灵技能护栏（写侧预筛与加载期闸口同源同值）', (
       false,
       '超限技能不得进技能集（幽灵技能的可观察形态）'
     );
+  });
+
+  test('WR-01 靶心：content 单独预筛放行、组装全文超限 → oversize 且不落盘；同 content 配短描述成功（对照组）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const content = 'a'.repeat(65200);
+
+    // 前置：单看 content 仍在预筛之内 ⇒ 只有「按组装全文计字节」的权威闸口能挡住它。
+    // 这正是 WR-01 的窗口（预筛放行、加载期整条拒收）—— 实测宽约 1.06 KB。
+    assert.strictEqual(
+      aiSkills.validateManagedSkillContent(content).ok,
+      true,
+      '前置：content 单独不超限'
+    );
+
+    await expectThrowCode(
+      () => aiSkills.createManagedSkill(env, {
+        name: 'wr01',
+        content,
+        description: 'x'.repeat(aiSkills.LIMITS.MAX_SKILL_DESCRIPTION_CHARS),
+        seededNames: SEEDED,
+      }),
+      'oversize'
+    );
+    assert.strictEqual(
+      fs.existsSync(path.join(workspace.getManagedSkillsDir(), 'wr01')),
+      false,
+      'WR-01 转红点：闸口退回「只按 content 计字节」时，本调用会落盘 66260 B > 65536 B 的文件 ⇒ ' +
+        '加载期 read_failed + realm_skill_md_too_large ⇒ 幽灵技能（工具报成功、磁盘有文件、技能永不加载）'
+    );
+
+    // 对照组：同一 content 配 12 字符描述 ⇒ 组装全文落在限额内，必须成功**且可加载**
+    await aiSkills.createManagedSkill(env, {
+      name: 'wr01-ok',
+      content,
+      description: 'd'.repeat(12),
+      seededNames: SEEDED,
+    });
+    const snap = await loadSnapshot(env);
+    assert.ok(
+      snap.skills.some((e) => e.skill.name === 'wr01-ok'),
+      '对照组：拒的是「组装全文超字节」而不是 content 本身超限 —— 故同一 content 必须能落盘并被加载'
+    );
+  });
+
+  test('写↔读闸口边界：组装全文恰等于限额放行、恰多 1 字节拒绝（同一 LIMITS.MAX_SKILL_MD_BYTES）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const LIMIT = aiSkills.LIMITS.MAX_SKILL_MD_BYTES;
+    const name = 'edge';
+    const description = 'short description';
+
+    // 长度用**计算值**而非写死字面量：frontmatter 形状日后变化时，本断言仍表达同一个关系
+    const overhead = Buffer.byteLength(
+      aiSkills.buildSkillFileText({ name, description, content: '' }),
+      'utf8'
+    );
+    const exactContent = 'a'.repeat(LIMIT - overhead);
+    assert.strictEqual(
+      Buffer.byteLength(aiSkills.buildSkillFileText({ name, description, content: exactContent }), 'utf8'),
+      LIMIT,
+      '前置：恰等于限额（由计算得出，不是猜的字面量）'
+    );
+
+    // ① 恰等于限额 ⇒ 放行，且加载后技能集含它
+    await aiSkills.createManagedSkill(env, { name, content: exactContent, description, seededNames: SEEDED });
+    const snap = await loadSnapshot(env);
+    assert.ok(
+      snap.skills.some((e) => e.skill.name === name),
+      '恰等于限额必须放行且可加载（写侧闸口与加载期闸口同为 `>` 判定，边界字节必须落在同一侧）'
+    );
+    assert.deepStrictEqual(
+      snap.diagnostics.filter((d) => d.code === 'realm_skill_md_too_large'),
+      [],
+      '限额之内不得产超限诊断'
+    );
+
+    // ② 恰多 1 字节 ⇒ oversize 且磁盘无残留
+    const overContent = 'a'.repeat(LIMIT - overhead + 1);
+    assert.strictEqual(
+      aiSkills.validateManagedSkillContent(overContent).ok,
+      true,
+      '前置：差 1 字节仍在 content 预筛之内 ⇒ 必须由权威闸口拒绝'
+    );
+    const err = await expectThrowCode(
+      () => aiSkills.createManagedSkill(env, {
+        name: 'edge-over',
+        content: overContent,
+        description,
+        seededNames: SEEDED,
+      }),
+      'oversize'
+    );
+    assert.strictEqual(err.limit, LIMIT, '原因须带限额值');
+    assert.ok(err.currentValue > LIMIT, '原因须带当前值');
+    assert.strictEqual(
+      fs.existsSync(path.join(workspace.getManagedSkillsDir(), 'edge-over')),
+      false,
+      '被权威闸口拒的 create 不得建目录 / 落盘（零残留）'
+    );
+
+    // ③ 读侧对照：手工把超限文件写下去（绕开写侧闸口）⇒ 加载期在**同一阈值**上拒收
+    const dir = path.join(workspace.getManagedSkillsDir(), 'edge-read');
+    fs.mkdirSync(dir, { recursive: true });
+    const readText = aiSkills.buildSkillFileText({ name: 'edge-read', description, content: overContent });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), readText);
+
+    const snap2 = await loadSnapshot(env);
+    const diag = snap2.diagnostics.find((d) => d.code === 'realm_skill_md_too_large');
+    assert.ok(diag, '读侧必须产 realm_skill_md_too_large 诊断（禁止静默失败）');
+    assert.strictEqual(
+      diag.limit,
+      aiSkills.LIMITS.MAX_SKILL_MD_BYTES,
+      '写侧闸口与读侧诊断必须取自**同一个** LIMITS.MAX_SKILL_MD_BYTES —— 这是 WR-01 的核心关系'
+    );
+    assert.strictEqual(
+      diag.currentValue,
+      Buffer.byteLength(readText, 'utf8'),
+      '诊断的当前值 = 实际落盘文件的字节数（两侧同为「整文件」口径）'
+    );
+    assert.ok(diag.currentValue > LIMIT, '前置：该文件确实超限');
+    assert.strictEqual(
+      snap2.skills.some((e) => e.skill.name === 'edge-read'),
+      false,
+      '超限技能不得进技能集（幽灵技能的可观察形态）'
+    );
+  });
+
+  test('update 路径同样经过权威闸口：超限拒且目标文件逐字不变（与 create 同阈值 / 同拒绝码）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const LIMIT = aiSkills.LIMITS.MAX_SKILL_MD_BYTES;
+    await aiSkills.createManagedSkill(env, {
+      name: 'upd-gate',
+      content: '# v1\n',
+      description: '短描述',
+      seededNames: SEEDED,
+    });
+    const file = path.join(workspace.getManagedSkillsDir(), 'upd-gate', 'SKILL.md');
+    const before = fs.readFileSync(file, 'utf8');
+
+    const err = await expectThrowCode(
+      () => aiSkills.updateManagedSkill(env, {
+        name: 'upd-gate',
+        content: 'a'.repeat(65200),
+        description: 'x'.repeat(aiSkills.LIMITS.MAX_SKILL_DESCRIPTION_CHARS),
+        seededNames: SEEDED,
+      }),
+      'oversize'
+    );
+    assert.strictEqual(err.limit, LIMIT, 'create / update 必须共用同一个阈值常量（否则两套判据必然漂移）');
+    assert.strictEqual(
+      fs.readFileSync(file, 'utf8'),
+      before,
+      'update 被闸口拒时 rename 未发生 ⇒ 目标必须逐字保持操作前状态'
+    );
+
+    // 同 content 配短描述 ⇒ 放行（证明拒的是组装全文，不是 content 本身）
+    const okRes = await aiSkills.updateManagedSkill(env, {
+      name: 'upd-gate',
+      content: 'a'.repeat(65200),
+      description: '短描述',
+      seededNames: SEEDED,
+    });
+    assert.strictEqual(okRes.action, 'update', '同一 content 配短描述必须可覆写（拒的是字节总数而非 content）');
   });
 
   test('description 上限：写侧拒超 1024；读侧超长条目被 isDescriptionUnusable 整条跳过', async (t) => {
