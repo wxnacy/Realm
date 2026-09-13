@@ -1,10 +1,11 @@
 ---
 phase: "49"
 slug: "manage-skill-ai"
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: "2026-09-13"
+reviewed_at: "2026-09-13"
 ---
 
 # Phase 49 — UI Design Contract
@@ -32,7 +33,7 @@ created: "2026-09-13"
 | Preset | not applicable |
 | Component library | none（无 `components.json` / 无 `tailwind.config.*` / `package.json` 依赖中无 UI 框架） |
 | Icon library | none（图标为 `renderToolCard` 内联手写 SVG；**本阶段不新增任何图标**） |
-| Font | 系统字体栈 `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`（`src/styles/main.css:107`）；技能名与正文区用等宽 `var(--font-mono, monospace)` / `'SF Mono', Monaco, …`（既有 `.tool-card-name-text` / `.tool-card-value` 用法） |
+| Font | 系统字体栈 `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`（`src/styles/main.css:120`，`body` 规则）；技能名与正文区用等宽 `var(--font-mono, monospace)` / `'SF Mono', Monaco, …`（既有 `.tool-card-name-text` / `.tool-card-value` 用法） |
 
 **样式令牌的实际来源**：全部为 `src/styles/main.css` 顶部两个主题块的**手写 CSS 自定义属性**，
 不是任何设计系统产物：
@@ -529,39 +530,52 @@ LLM 照常收到 `isError: true` toolResult），但主进程必须在**工具�
 
 ## UI Considerations
 
-> 本节按 48 的既有做法**人工梳理**（引擎 `ui-consideration-probe.cjs` 的分类器按散文关键词判种类，
-> 会把「工具卡片」这类复合控件判错，须人工补全元素种类后重跑；**重复运行即整节替换，不追加**）。
+> 本节由**探针引擎**（`$HOME/.codebuddy/gsd-core/bin/lib/ui-consideration-probe.cjs`）产出后人工裁决：
+> 引擎按散文关键词判元素种类，对有损处**人工补全种类**（`elements` 覆盖数组）后重跑，再逐条裁决。
+> **重复运行即整节替换，不追加。**
 >
 > 空态与错误态的**文案**在 `## Copywriting Contract`，本节只记形状根因的状态覆盖，不重复抄写文案。
 
-Applicable state considerations resolved: 16（**12 covered / 1 backstop / 3 dismissed / 0 unresolved**）
+coverage: **applicable 23 / resolved 23 / unresolved 0** ——
+byVerification `{ explicit: 13, backstop: 1 }`，dismissed 9（带理由，非省略）。
 
-元素种类（人工确认）：**(A)** 卡片头部（图标 + 标题 + 徽标 + 内联标注 + 状态文字）·
-**(B)** 参数摘要区 · **(C)** 技能正文折叠块 · **(D)** 结果 / 错误区 · **(E)** 一次回合的多张卡片容器。
+元素清单与种类（人工确认，绕过有损分类器）：
 
-| Category | Element(s) | Status | Resolution / Reason |
-|----------|------------|--------|---------------------|
-| empty | A / D | ✅ dismissed | 卡片由工具调用产生，不存在「无数据」态 —— 没有调用就没有卡片 |
-| empty | C | ✅ dismissed | `content` / `description` 由 D-07 强制 trim 后非空（空正文在写入门即被 `invalid_description` / `oversize` 拒绝）⇒ **永不渲染空折叠块、空描述行** |
-| loading | A | ✅ covered | 运行中：标题 + 技能名立即可见（start 事件零 IO），徽标与内联标注**按设计尚未出现**（终态才判定）；状态文字沿用既有 `正在执行...` + 旋转图标，**无骨架屏 / 无 spinner 新增** |
-| populated | A | ✅ covered | 终态头部 = 标题（三动作白名单）+ 档位徽标（三档 `TIER_BADGE`）+ 内联标注（0 或 1）+ 状态文字（`完成` / `失败`）；运行中为前两者缺省的安全降级形态 |
-| error | A / C / D | ✅ covered | 失败态：既有红 ✗ 图标 + `失败`（存量）+ **头部短原因**（新增，`--skill-error-text`）+ 展开区 `错误` 全文（存量结构）。**不弹确认卡片、不插 system-note**（D-01 / D-02） |
-| partial | A | ✅ dismissed | 无渐进就绪态：整张卡片由一次工具执行的两个事件（start / end）驱动，不存在字段部分到位可交互的中间态 |
-| overflow | A | 🧪 backstop | 最小面板宽（`--ai-panel-min-width` 280px 减气泡内边距）下，同时带徽标 + 内联标注的头部仍为**单行**、徽标与标注**完整可读**（仅技能名缩略）→ `{ statement: "在 AI 面板最小宽度（280px，扣气泡内边距）下，带来源徽标 + 内联标注的 manage_skill 卡片头部保持单行不换行，徽标与短原因完整可读（仅技能名缩略，不出现标注被裁切或头部高度变化）", verification: "backstop" }`；**无显式证据则路由 `human_needed`**。若不成立，处理方式是缩短短原因文案（≤ 4 字），**不得**改成换行头部或加 system-note |
-| overflow | C | ✅ covered | 正文上限 64 KiB：折叠块默认折叠；展开后由 `.tool-card.expanded .tool-card-content` 的 `max-height: 500px; overflow-y: auto` 作**唯一滚动容器**（卡片语境覆盖内层 `max-height: none`，不产生嵌套滚动条） |
-| overflow | B / D | ✅ covered | 两区共用存量 `.tool-card-value`（`white-space: pre-wrap` + `word-break: break-word` + `overflow-x: auto`）⇒ 长描述 / 长错误全文折行，不横向溢出、不撑破卡片宽度 |
-| long-text | A | ✅ covered | 超长技能名由 `.tool-card-name-text` 承担**全部**压缩（`min-width: 0` + ellipsis）；徽标与内联标注 `flex-shrink: 0` + `white-space: nowrap` ⇒ 永不截断、永不换行（头部不设 `flex-wrap`） |
-| long-text | B | ✅ covered | `description` 不截断（受写入门长度约束），`pre-wrap` 强制折行；参数摘要行数固定为 2–3 行 |
-| long-text | C | ✅ covered | 正文 `white-space: pre-wrap` + `word-break: break-word`，长行强制折行、无横向滚动（照抄 48 D-09） |
-| long-text | D | ✅ covered | 结果 / 错误全文经 `textContent` 注入 `<pre>`，`pre-wrap` 折行；失败文案长度由九条白名单固定 |
-| zero-one-many | E | ✅ covered | 0 / 1 / N 张卡片共用存量 `.tool-cards-container` 的 `gap: 8px` 纵向排列；一次回合多次 `manage_skill` 各产一张卡互不影响 —— D-02 拒绝额外 system-note 正是为此时不刷屏 |
-| zero-one-many | A | ✅ covered | 内联标注**至多一个**（短原因与「未进提示词」互斥：失败态不判提示词归属）；0 个时**不渲染元素**（不占位、不留空元素） |
-| error | B | ✅ dismissed | 参数摘要是纯展示，无独立失败路径（参数来自工具调用本身，非异步取数） |
+| ID | 元素 | `elements` 种类 | 补充说明 |
+|----|------|----------------|---------|
+| E1 | 卡片头部（`.tool-card-header`）：三态图标 + 标题 + 来源徽标 + 至多一个内联标注 + 状态文字 | `interactive-control` · `static-content` · `list-collection` | 第三项**人工补**：徽标与标注是「至多一个」的可变成员簇，属 0/1 计数问题，引擎只在 `list-collection` 上建模 `zero-one-many` |
+| E2 | 参数摘要区（`.tool-card-value` 预格式块） | `static-content` | 只读展示，**不补 `form`** —— 参数来自 LLM 而非用户输入，无输入控件、无提交动作 |
+| E3 | 技能正文折叠块（`.ai-skill-content-box`） | `interactive-control` · `static-content` | header 具 `role="button"` + `aria-expanded` |
+| E4 | 结果 / 错误区（`.tool-card-result`） | `static-content` | 标签按状态在 `结果` / `错误` 间切换 |
+| E5 | 一次回合的多张卡片容器（`.tool-cards-container`） | `list-collection` | — |
 
-> **backstop 行（唯一一条）**：280px 最小面板宽下的头部单行不变式无法由静态契约裁决，
-> 需真实数据集的视觉确认（最宽标注 `未进提示词 · 超预算` + 徽标 + 长技能名）。
-> 验证时**无显式证据**则路由到 `human_needed`，不得静默通过。
-> **dismissed 行（3 条）**：均已给出「不存在该状态」的具体理由，不是省略。
+> 未采用 `media`：头部三态 SVG 是**状态字形**而非内容图片（缺它会改变 E1 的 `empty` 计数，故显式记录此判断）。
+
+| requirement_id | category | Status | Resolution / Reason |
+|----------------|----------|--------|---------------------|
+| E1 | empty | ✅ dismissed | 卡片由工具调用产生 —— 本回合没有调用 `manage_skill` 就没有卡片，容器不渲染空壳；不存在「无数据」呈现面 |
+| E1 | loading | ✅ resolved (explicit) | 运行中头部 = 标题（start 事件的 `action` + `name`，零 IO 即时可见）+ 既有旋转图标 + 既有 `正在执行...`；来源徽标与内联标注**按设计尚未出现**（终态才判定）。**无骨架屏、无新增 spinner** |
+| E1 | error | ✅ resolved (explicit) | 失败态头部 = 既有红 ✗ 图标 + 既有 `失败` + **新增 11px 短原因**（`.tool-card-manage-note-error`，取九码白名单，定长 ≤ 6 字且不含技能名）；可判定时同时显示来源徽标。**不弹确认卡片、不插 system-note**（D-01 / D-02） |
+| E1 | populated | ✅ resolved (explicit) | 终态头部恒为 36px 单行：图标 + 标题（三动作白名单文案）+ 来源徽标（三档 `TIER_BADGE`）+ 至多一个内联标注 + 状态文字（`完成` / `失败`） |
+| E1 | partial | ✅ dismissed | 无渐进就绪态 —— 整张卡片由一次工具执行的两个事件（`tool_execution_start` / `_end`）驱动，不存在字段部分到位仍可交互的中间态 |
+| E1 | overflow | 🧪 resolved (backstop) | `{ statement: "在 AI 面板最小宽度（--ai-panel-min-width 280px，扣气泡内边距）下，带来源徽标 + 内联标注的 manage_skill 卡片头部保持单行不换行，徽标与短原因完整可读（仅技能名缩略，不出现标注被裁切或头部高度变化）", verification: "backstop" }` —— 需真实数据集的视觉确认（最宽标注 `未进提示词 · 超预算` + 徽标 + 长技能名）；**无显式证据则路由 `human_needed`**。若不成立，处理方式是缩短短原因文案（≤ 4 字），**不得**改成换行头部或加 system-note |
+| E1 | zero-one-many | ✅ resolved (explicit) | 内联标注**至多一个** —— 失败短原因与「未进提示词 · 超预算」互斥（失败态不判提示词归属）；0 个时**不渲染元素**（不占位、不留空元素） |
+| E1 | long-text | ✅ resolved (explicit) | 超长技能名由 `.tool-card-name-text` 承担**全部**压缩（`min-width: 0` + ellipsis）；徽标与内联标注 `flex-shrink: 0` + `white-space: nowrap` ⇒ **永不截断、永不换行**（`.tool-card-header` 不得声明 `flex-wrap`） |
+| E2 | overflow | ✅ resolved (explicit) | 复用存量 `.tool-card-value`（`pre-wrap` + `word-break: break-word` + `overflow-x: auto`）⇒ 长描述折行，不横向溢出、不撑破卡片宽度 |
+| E2 | long-text | ✅ resolved (explicit) | `description` 不截断（受写入门长度约束），`pre-wrap` 强制折行；参数摘要行数固定为 2–3 行 |
+| E3 | loading | ✅ dismissed | 折叠块不加载 —— `content` 来自本次工具调用的参数，展开即时可用，**无任何异步取数与中间态** |
+| E3 | error | ✅ resolved (explicit) | 失败态下 `create` / `update` **不产生**正文折叠块（写入未落盘，无正文可示）；展开区只有既有 `错误` 区全文 |
+| E3 | overflow | ✅ resolved (explicit) | 正文上限 64 KiB：默认折叠；展开后由 `.tool-card.expanded .tool-card-content` 的 `max-height: 500px; overflow-y: auto` 作**唯一滚动容器**（卡片语境覆盖内层 `max-height: none`，不产生嵌套滚动条） |
+| E3 | long-text | ✅ resolved (explicit) | 正文 `white-space: pre-wrap` + `word-break: break-word`，长行强制折行、无横向滚动（照抄 48 D-09） |
+| E4 | overflow | ✅ resolved (explicit) | 结果 / 错误全文经 `textContent` 注入存量 `.tool-card-value`（`pre-wrap` + `break-word` + `overflow-x: auto`）⇒ 折行不溢出 |
+| E4 | long-text | ✅ resolved (explicit) | 失败文案长度由九条白名单固定（完整文案单点产出于主进程）；成功文案三条定长 |
+| E5 | empty | ✅ dismissed | 容器内 0 张卡片时**不渲染任何东西** —— 没有 `manage_skill` 调用就没有卡片，无空态文案、无占位 |
+| E5 | loading | ✅ dismissed | 容器自身不加载数据 —— 卡片由流式事件逐个插入 `.tool-cards-container`，容器无 loading 态（运行中态由单卡 E1 承载） |
+| E5 | error | ✅ dismissed | 容器无独立失败态 —— 单次调用失败由**该卡片自身**的 error 态（E1）承载，容器继续正常排列其余卡片 |
+| E5 | populated | ✅ dismissed | 容器不定义自身视觉 —— 1 张卡片的 happy path 即存量 `.tool-card` 正常渲染，由 E1–E4 逐区覆盖，容器只提供 `gap: 8px` 纵向排列 |
+| E5 | partial | ✅ dismissed | 无部分就绪 —— 卡片在 `tool_execution_start` 时**原子插入**，不存在「容器已有但内容未齐」的中间态 |
+| E5 | overflow | ✅ dismissed | 容器纵向排列且**不设 `overflow`** —— 卡片数量增长由外层聊天消息滚动区承担（存量链路）；容器自身无滚动 / 裁切行为 |
+| E5 | zero-one-many | ✅ resolved (explicit) | 0 / 1 / N 张卡片共用存量 `.tool-cards-container` 的 `gap: 8px` 纵向排列；一次回合多次 `manage_skill` 各产一张卡互不影响 —— D-02 拒绝额外 system-note 正是为多时刷屏 |
 
 ---
 
@@ -606,12 +620,25 @@ Applicable state considerations resolved: 16（**12 covered / 1 backstop / 3 dis
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
-- [ ] Dimension 7 Inventory Provenance: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
+- [x] Dimension 7 Inventory Provenance: PASS
 
-**Approval:** pending
+**Approval:** approved（2026-09-13）
+
+**非阻断建议（checker 提出，交 plan 期顺手收口）**：
+
+1. **Dimension 7 的 FLAG 无需改动** —— `Could not enumerate` 是设计系统无可枚举导出面时的合法终止态。
+   若欲消灭该 FLAG，可在 `## Component Inventory` 的 provenance 槽补记辅助命令的匹配条数与日期。
+   **在补记之前，该表一律按非穷尽处理**：执行时使用表外既有原语不受阻。
+2. **`invalid_description` 是九条错误行中唯一不给具体上限的一条**，且空正文的原因码归属未指定
+   （`UI Considerations` 的 dismissed 口径把「空 `content`」归给 `invalid_description` / `oversize`，
+   但这两条文案的语义分别是「描述不合法」与「正文超限」）。plan 期应显式指定空正文的原因码与文案，
+   否则头部会给出指向错误字段的短原因（非阻断：展开区始终显示主进程原文）。
+3. **`renderSkillContentBox` 新增 `tabindex="0"` 会引入新的焦点停靠点与 UA 默认焦点环**
+   （项目无全局 `outline: none`，故不会出现不可见焦点）。契约中「零视觉变化」的措辞应理解为
+   「无布局 / 配色 / 文案变化」；若沿用既有视觉语言，可顺手补一条 `:focus-visible`。
