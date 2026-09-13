@@ -1273,7 +1273,7 @@ describe('B 组 · 面板五要素行与转义护栏（T-48-07）', () => {
     assert.ok(Number(m[1]) >= 7, '本计划的 CSS 改动必须推进序号（≥ 7）');
   });
 
-  test('三档徽标修饰类与令牌：白名单 class 名与 TIER_BADGE 一致，四个令牌只消费不新增', () => {
+  test('三档徽标修饰类与令牌：白名单 class 名与 TIER_BADGE 一致，令牌集合随阶段单调增长', () => {
     for (const tier of ['user', 'builtin', 'managed']) {
       const cls = model.TIER_BADGE[tier].className;
       assert.ok(cssSrc.includes('.' + cls), `CSS 缺少白名单 class .${cls}`);
@@ -1281,12 +1281,19 @@ describe('B 组 · 面板五要素行与转义护栏（T-48-07）', () => {
       assert.ok(def.includes(`var(--skill-source-${tier})`), `.${cls} 必须消费 --skill-source-${tier}`);
       assert.ok(/color-mix\(in srgb/.test(def), `.${cls} 必须用 color-mix 低饱和底`);
     }
-    // 本计划不得新增第 5 个技能相关令牌（只消费 48-01 已落的四个）
+    // 令牌集合必须**恰为**截至本阶段的已知集合：48-01 的四个 + 49-02 的 --skill-error-text。
+    // 新增令牌时只允许在此处**追加**（并同时写入两个主题块）—— 不得悄悄引入未登记的令牌。
     const declared = [...cssSrc.matchAll(/^\s*(--skill-[a-z-]+):/gm)].map((m) => m[1]);
     assert.deepStrictEqual(
       [...new Set(declared)].sort(),
-      ['--skill-limit-text', '--skill-source-builtin', '--skill-source-managed', '--skill-source-user'],
-      '令牌集合必须恰为 48-01 已落的四个'
+      [
+        '--skill-error-text',
+        '--skill-limit-text',
+        '--skill-source-builtin',
+        '--skill-source-managed',
+        '--skill-source-user',
+      ],
+      '令牌集合必须恰为「48-01 已落的四个 + 49-02 的 --skill-error-text」'
     );
   });
 });

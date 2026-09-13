@@ -3846,4 +3846,93 @@ describe('M 组 · Phase 49 manage_skill 卡片标记（D-02 / UI-SPEC 硬约束
       '钩子类必须在 manage_skill 变体处恰挂一次（无 CSS 规则的定位钩子）'
     );
   });
+
+  test('M12（源码 · 令牌两处）--skill-error-text 两个主题块各定义一次 + 前置修复 ②', () => {
+    const css = readSource('src/styles/main.css');
+    assert.strictEqual(
+      (css.match(/--skill-error-text\s*:/g) || []).length,
+      2,
+      '--skill-error-text 必须恰 2 处定义（:root/[data-theme="dark"] 与 [data-theme="light"] 各一）'
+    );
+    assert.ok(/--skill-error-text:\s*#FCA5A5/.test(css), '暗色主题值必须是 #FCA5A5');
+    assert.ok(/--skill-error-text:\s*#B91C1C/.test(css), '浅色主题值必须是 #B91C1C');
+    // 前置修复 ②：浅色 --skill-limit-text 由 #B45309 改为 #92400E（原值对浅色 hover 底 3.80:1 不达标）
+    assert.ok(/--skill-limit-text:\s*#92400E/.test(css), '浅色 --skill-limit-text 必须是 #92400E');
+    assert.strictEqual(
+      /--skill-limit-text:\s*#B45309/.test(css),
+      false,
+      '浅色 --skill-limit-text 的旧值 #B45309 必须零命中'
+    );
+  });
+
+  test('M13（源码 · 前置修复 ①）三档徽标的底色基准全部钉死为 var(--bg-secondary)', () => {
+    const css = readSource('src/styles/main.css');
+    for (const tier of ['user', 'builtin', 'managed']) {
+      const at = css.indexOf('.slash-picker-source-badge-' + tier + ' {');
+      assert.ok(at >= 0, `应存在 .slash-picker-source-badge-${tier}`);
+      const seg = css.slice(at, css.indexOf('}', at));
+      assert.strictEqual(
+        seg.includes('transparent'),
+        false,
+        `.slash-picker-source-badge-${tier} 不得再以中性色作底色基准（卡片 hover 态会漂移）`
+      );
+      const mixLines = seg.split('\n').filter((line) => line.includes('color-mix('));
+      assert.strictEqual(mixLines.length, 2, `.slash-picker-source-badge-${tier} 应有 background + border 两条 color-mix`);
+      for (const line of mixLines) {
+        assert.ok(
+          /color-mix\(in srgb, var\(--[a-z-]+\) \d+%, var\(--bg-secondary\)\)/.test(line),
+          `每条 color-mix 的第二个颜色参数必须是 var(--bg-secondary)：${line.trim()}`
+        );
+      }
+    }
+  });
+
+  test('M14（源码 · 标注规格）三条 .tool-card-manage-note* 规则逐字落地，基类零内边距/外边距', () => {
+    const css = readSource('src/styles/main.css');
+    const at = css.indexOf('.tool-card-manage-note {');
+    assert.ok(at >= 0, '缺 .tool-card-manage-note 规则');
+    const seg = css.slice(at, at + 400);
+    for (const prop of ['flex-shrink: 0', 'white-space: nowrap', 'font-size: 11px', 'font-weight: 400', 'line-height: 1.4']) {
+      assert.ok(seg.includes(prop), `标注基类缺 ${prop}`);
+    }
+    assert.strictEqual(
+      /(^|\n)\s*(padding|margin)\s*:/.test(seg),
+      false,
+      '标注基类不得声明内边距 / 外边距（间隙由宿主 .tool-card-name-skill 的存量 gap 提供）'
+    );
+    assert.ok(/\.tool-card-manage-note-error\s*\{[^}]*var\(--skill-error-text\)/.test(css), '-error 规则必须取 --skill-error-text');
+    assert.ok(/\.tool-card-manage-note-limit\s*\{[^}]*var\(--skill-limit-text\)/.test(css), '-limit 规则必须取 --skill-limit-text');
+  });
+
+  test('M15（源码 · 头部单行不变式）.tool-card-header 无 flex-wrap，标注永不截断', () => {
+    const css = readSource('src/styles/main.css');
+    const headerAt = css.indexOf('.tool-card-header {');
+    assert.ok(headerAt >= 0, '应存在 .tool-card-header 规则');
+    const header = css.slice(headerAt, css.indexOf('}', headerAt));
+    assert.strictEqual(
+      header.includes('flex-wrap'),
+      false,
+      '头部恒为 36px 单行 —— 不得声明 flex-wrap（超长技能名由 .tool-card-name-text 承担压缩）'
+    );
+    const noteAt = css.indexOf('.tool-card-manage-note {');
+    const noteSeg = css.slice(noteAt, noteAt + 300);
+    assert.strictEqual(noteSeg.includes('overflow'), false, '标注不得声明 overflow（永久可见，不让位）');
+    assert.strictEqual(noteSeg.includes('text-overflow'), false, '标注不得声明 text-overflow（短原因定长，永不截断）');
+  });
+
+  test('M16（源码 · 卡片语境）两处 scoped 覆盖 + 折叠块 header 焦点环', () => {
+    const css = readSource('src/styles/main.css');
+    assert.ok(
+      /\.tool-card-content \.ai-skill-content-box \{/.test(css),
+      '缺卡片语境覆盖 1（水平内边距与 .tool-card-params 对齐）'
+    );
+    assert.ok(
+      /\.tool-card-content \.ai-skill-content-box-body \{[^}]*max-height: none/.test(css),
+      '缺卡片语境覆盖 2（内层 max-height: none —— 由卡片内容区作唯一滚动容器）'
+    );
+    assert.ok(
+      /\.ai-skill-content-box-header:focus-visible\s*\{/.test(css),
+      '缺折叠块 header 的 :focus-visible 视觉（header 现为 role=button + tabindex=0）'
+    );
+  });
 });

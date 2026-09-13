@@ -27,6 +27,10 @@
   --skill-source-managed: #C4B5FD;
   /* 超限标注文字色（--warning-color 在浅色主题对比度不足，故浅色另有专用值） */
   --skill-limit-text: #F59E0B;
+  /* 失败短原因专用文字色（Phase 49）：--danger-color 作 11px 文字色不达标（实测对卡片底
+     暗 4.07:1 / 亮 3.30:1），故按 48 对 --skill-limit-text 的同款处置定义专用令牌。
+     本值对卡片底与 hover 底四档均 ≥ 4.5:1。缺浅色主题那一处即浅色下失效。 */
+  --skill-error-text: #FCA5A5;
 }
 
 [data-theme="light"] {
@@ -52,7 +56,11 @@
   --skill-source-user: #1D4ED8;
   --skill-source-builtin: #065F46;
   --skill-source-managed: #5B21B6;
-  --skill-limit-text: #B45309;
+  /* #92400E：原值 #B45309 对浅色 hover 底（#e0e0e0）实测仅 3.80:1，11px 小字不达标。
+     卡片头部与面板行同款 hover，可达性要求一致，故按 48-UI-REVIEW priority fix 改值。 */
+  --skill-limit-text: #92400E;
+  /* 失败短原因专用文字色（浅色）：缺这一处即浅色下失效（与暗色块成对） */
+  --skill-error-text: #B91C1C;
 }
 
 /* 布局尺寸变量（与主题无关，须包在 :root 内——裸露在顶层会导致解析错误并吞掉后续规则） */
@@ -5842,6 +5850,14 @@ textarea::placeholder {
   background: var(--bg-hover);
 }
 
+/* 折叠块 header 的键盘焦点环（49-02）：header 现带 role="button" + tabindex="0"
+   （48-UI-REVIEW Pillar 6 的建议），故必须可见地标示焦点。项目无全局 outline 重置，
+   故不会出现「不可见焦点」；此处只按既有视觉语言给一圈描边，**不**写 outline: none。 */
+.ai-skill-content-box-header:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: -2px;
+}
+
 .ai-skill-content-box-chevron {
   margin-left: auto;
   transition: transform 150ms ease;
@@ -6161,6 +6177,32 @@ textarea::placeholder {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+
+/* AI 自建技能卡片（Phase 49）：头部内联标注（失败短原因 / 未进提示词），**至多一个**。
+   纯文本、无底色无边框（与面板的行尾状态标注同族）；零内边距、零外边距 ——
+   与相邻元素的间隙由宿主 .tool-card-name-skill 的存量 gap: 8px 提供（不新增间距声明）。
+   flex-shrink: 0 + white-space: nowrap ⇒ 永不截断、永不让位（头部唯一压缩承担者是
+   .tool-card-name-text）；短原因一律定长 ≤ 6 字且不含技能名，故无需额外截断规则。 */
+.tool-card-manage-note {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+.tool-card-manage-note-error { color: var(--skill-error-text); }
+.tool-card-manage-note-limit { color: var(--skill-limit-text); }
+
+/* 技能正文折叠块在**卡片语境**的覆盖（仅两处，不改 .ai-skill-content-box* 的既有规则）：
+   水平内边距与 .tool-card-params 对齐（照抄其存量 12px）；去掉内层滚动 —— 由
+   .tool-card.expanded .tool-card-content 的 500px + overflow-y: auto 承担**唯一**滚动容器，
+   避免嵌套滚动条。 */
+.tool-card-content .ai-skill-content-box {
+  margin: 4px 12px 8px;
+}
+.tool-card-content .ai-skill-content-box-body {
+  max-height: none;
 }
 
 /* 工具卡片内容（默认折叠） */
@@ -7169,22 +7211,26 @@ textarea::placeholder {
   flex-shrink: 0;
 }
 
+/* 48-UI-REVIEW priority fix #1（Phase 49 的复用面前置条件）：三档徽标的底色基准由「中性色」
+   改为 var(--bg-secondary)（background 15% / border 30% 六处一致）。底色钉死后不再随宿主
+   背景漂移 —— 面板行与卡片头部的任意 hover 态下对比度同时成立（卡片头部在 hover 时底色
+   会切到 --bg-hover，未钉死则复现 48-UI-REVIEW 的同一条 finding）。基类属性一律未动。 */
 .slash-picker-source-badge-user {
   color: var(--skill-source-user);
-  background: color-mix(in srgb, var(--skill-source-user) 15%, transparent);
-  border: 1px solid color-mix(in srgb, var(--skill-source-user) 30%, transparent);
+  background: color-mix(in srgb, var(--skill-source-user) 15%, var(--bg-secondary));
+  border: 1px solid color-mix(in srgb, var(--skill-source-user) 30%, var(--bg-secondary));
 }
 
 .slash-picker-source-badge-builtin {
   color: var(--skill-source-builtin);
-  background: color-mix(in srgb, var(--skill-source-builtin) 15%, transparent);
-  border: 1px solid color-mix(in srgb, var(--skill-source-builtin) 30%, transparent);
+  background: color-mix(in srgb, var(--skill-source-builtin) 15%, var(--bg-secondary));
+  border: 1px solid color-mix(in srgb, var(--skill-source-builtin) 30%, var(--bg-secondary));
 }
 
 .slash-picker-source-badge-managed {
   color: var(--skill-source-managed);
-  background: color-mix(in srgb, var(--skill-source-managed) 15%, transparent);
-  border: 1px solid color-mix(in srgb, var(--skill-source-managed) 30%, transparent);
+  background: color-mix(in srgb, var(--skill-source-managed) 15%, var(--bg-secondary));
+  border: 1px solid color-mix(in srgb, var(--skill-source-managed) 30%, var(--bg-secondary));
 }
 
 /* 「仅显式」标记：与来源徽标严格同尺寸同 padding（否则同行参差），中性色（不引入第 4 个色相） */
