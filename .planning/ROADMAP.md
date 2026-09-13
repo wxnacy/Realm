@@ -285,7 +285,7 @@ Plans:
   4. 写入为原子操作（经沙箱 `env.renameFile` 获得双基准路径校验），失败不留半成品文件，且不触及 `ai-memory/`、`attachments/` 等其他工作区路径。
   5. 工具描述引导 AI 优先增强已有技能，而非创建近乎重复的新技能。
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans executed
 
 Plans:
 **Wave 1**
@@ -298,7 +298,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 49-03-PLAN.md — 文档与账本收口：`docs/product/ai-skills.md` §十一 + `AGENTS.md` 维护约定与测试清单 + `49-VALIDATION.md` 矩阵重键与四条 OQ 裁决
+- [x] 49-03-PLAN.md — 文档与账本收口：`docs/product/ai-skills.md` §十一 + `AGENTS.md` 维护约定与测试清单 + `49-VALIDATION.md` 矩阵重键与四条 OQ 裁决
 
 **Security gate**: P3 前半（S1）name 二次校验与名称冲突判定——本阶段产出的校验器是 50 / 51 唯一可复用的那一份。
 
@@ -362,6 +362,6 @@ Plans:
 | 46. 技能基础设施 | 4/4 | Complete | 2026-09-11 |
 | 47. 内置技能播种 + bash 策略加固 | 6/6 | In Progress|  |
 | 48. 技能发现与调用 | 8/8 | In Progress|  |
-| 49. `manage_skill` 工具 | 2/3 | In Progress|  |
+| 49. `manage_skill` 工具 | 3/3 | In Progress|  |
 | 50. 设置页技能管理区 + `/api/skills/*` | TBD | Not started | - |
 | 51. 用户技能导入管线 | TBD | Not started | - |
