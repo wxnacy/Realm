@@ -1,254 +1,235 @@
 ---
 phase: 49-manage-skill-ai
-reviewed: 2026-09-13T08:12:15Z
+reviewed: 2026-09-13T12:52:52Z
 depth: standard
-files_reviewed: 11
+files_reviewed: 9
 files_reviewed_list:
-  - ai-skills-manager.js
+  - AGENTS.md
   - ai-manager.js
-  - ai-memory-manager.js
-  - ai-conversations-manager.js
-  - src/skill-picker-model.js
+  - ai-skills-manager.js
+  - docs/product/ai-skills.md
   - src/renderer.js
-  - src/index.html
-  - src/styles/main.css
-  - tests/test-manage-skill.js
+  - src/skill-picker-model.js
   - tests/test-ai-skills.js
+  - tests/test-manage-skill.js
   - tests/test-skill-picker-model.js
 findings:
-  critical: 3
+  critical: 0
   warning: 4
-  info: 6
-  total: 13
+  info: 3
+  total: 7
 status: issues_found
 ---
 
-# Phase 49: Code Review Report
+# Phase 49: Code Review Report (re-review · gap-closure round)
 
-**Reviewed:** 2026-09-13T08:12:15Z
+**Reviewed:** 2026-09-13T12:52:52Z
 **Depth:** standard
-**Files Reviewed:** 11
+**Files Reviewed:** 9
 **Status:** issues_found
+**Diff base:** `844f19f5` (previous review) → `03456c1` (HEAD)
 
 ## Summary
 
-Phase 49 delivers `manage_skill` + the AI write path in `ai-skills-manager.js` + the skill-ified card. The structural discipline the phase set out for itself is largely honoured: the tool's top-level parameter key set is exactly `{action, name, content, description}` (no `path`), path ownership is enforced by interface design, the three action functions share one validator set / one scan point / one atomic-write path, `syncAgentSystemPrompt()` is called exactly once per successful write, `ai-skills-manager.js` remains electron-free, and the closed-whitelist tables are used without `undefined` literals leaking into `class` / text.
+This round claims to close exactly five `49-REVIEW.md` items — `CR-01` / `CR-02` / `CR-03` / `WR-01` / `WR-02` — and explicitly declares `WR-03` / `WR-04` / `IN-01`–`IN-06` out of scope. My job was two-fold: verify the closures are real (not false-greens), and find what the closures broke.
 
-Three defects survive, all of them in the "silent false success" family the phase explicitly targeted (T-49-01-08 ghost skills / RESEARCH Pitfall 4):
+**All five closures are real.** I verified each one twice — by reading the code, and by **mutation testing** (revert the fix in a copy, confirm the corresponding guard goes red, restore). Every claimed fixture proved falsifiable:
 
-1. **CR-01** — the renderer's terminal-event branch *replaces* `manageSkill` instead of merging it, so every `manage_skill` card collapses back to the generic card the moment the tool finishes (losing the title, the tier badge, the short reason, the content box, and the params summary — falling back to a JSON dump of the full 64 KiB body). The in-repo guards (M3 source scan + M5b behaviour test) are false-green: M5b hand-builds the merged object the renderer never builds.
-2. **CR-02** — `buildSkillFileText` interpolates the description into YAML without quoting/escaping. A description containing `: `, a leading `-`/`@`/`*`, or the literal `true`/`12345`/`null` produces a file the loader's YAML parse rejects (or silently truncates at `#`), while the tool still reports success. Empirically reproduced end-to-end.
-3. **CR-03** — the description is validated *before* sanitization, and sanitization can empty a previously valid description (`"\u200B"` passes `trim()` validation, sanitizes to `''`) → same ghost-skill outcome, different root cause.
+| claimed closure | code site | guard | mutation result |
+|---|---|---|---|
+| `CR-01` renderer merge | `src/renderer.js:9378-9385` | `tests/test-ai-skills.js:3904-3920` (M3) | revert to `manageSkill: event.manage_skill` → **M31 red** |
+| `CR-02` YAML single-quoted scalar | `ai-skills-manager.js:1204-1207`, `100-105` | `tests/test-manage-skill.js:386-416` + `description 值域` group | revert to bare interpolation → **6 failures** |
+| `CR-03` post-sanitize re-validation | `ai-skills-manager.js:1443-1444` / `1558-1559` | `tests/test-manage-skill.js` (create + update rows) | disable create-side → 2 red; disable update-side → 1 red |
+| `WR-01` whole-file byte gate | `ai-skills-manager.js:1231-1248`, `1485-1495`, `1568-1578` | `tests/test-manage-skill.js:1008-1130` | disable create-side → 2 red; disable update-side → 1 red |
+| `WR-02` failure-code affix | `ai-manager.js:6317-6320` (encode), `1847-1848` (decode) | M2c (`:3656`) + M2d (`:3751`) | disable encode → 1 red; disable decode → 2 red |
 
-Note on the known deferred item (write-side 65536-byte content gate vs the loader's whole-file gate): the direction is already recorded, but the **width is wrong in the record** — see WR-01 (measured window is up to ~1.1 KB, not the recorded ~56 bytes).
+I additionally replayed the renderer's **literal** merge expression (extracted from source, evaluated against the real two-phase payloads) and confirmed the card variant now survives the `tool_execution_end` event — `action`/`name` are preserved, `manageSkillOk === true`, and a field-less update event does not erase the marker. The `yamlScalar` fix was exercised against 25 adversarial descriptions beyond the ones in the suite (bare `true`/`null`/`12345`, leading `-`/`@`/`*`, `!important`, `|`, `>`, `'''`, `C:\path`, `---`, `x\r\nname: injected`, emoji, lone surrogates, `U+FFFE`): **zero ghosts, zero description mismatches** against the real loader. The `counts-parity` judge in `docs/product/ai-skills.md` §11.8 runs clean (`cells=8 measured={"test-manage-skill.js":"55","test-ai-skills.js":"177","test-skill-picker-model.js":"105"}`) and is falsifiable — I perturbed a ledger cell and it exited non-zero.
 
----
+**No Critical findings.** What survives is the guard-strength family: one of the two "semantic-ised" guards (`M3`) is still a substring scan and still admits a full `CR-01` regression; and three residual contract gaps, one of which (WR-07) directly contradicts the key-set-equality invariant that M5b/M5c are cited as establishing.
 
-## Critical Issues
-
-### CR-01: Terminal-event branch replaces `manageSkill`, destroying the whole card variant
-
-**File:** `src/renderer.js:9368-9378` (offending line `9377`); card branch at `src/renderer.js:9603-9610`
-
-**Issue:** `tool_execution_start` delivers `manageSkill = {action, name}` and `tool_execution_end` delivers `{tier?, code?, promptIncluded?}` (see `_resolveManageSkillTerminal`, `ai-manager.js:1780-1793` — it deliberately projects *only* the three terminal keys). The renderer's "existing entry" branch then does:
-
-```js
-toolMsg.toolExecutions[existingIdx] = {
-  ...toolMsg.toolExecutions[existingIdx],
-  status: event.status,
-  result: event.result,
-  error: event.error,
-  ...(event.manage_skill ? { manageSkill: event.manage_skill } : {})   // ← 替换，不是并入
-};
-```
-
-`manageSkill: X` **overrides** the spread value — it does not merge into it. So after the end event the object is `{tier: 'managed', promptIncluded: false}`; `action` and `name` are gone. Consequences at that instant (i.e. for the entire visible life of a finished card):
-
-- `MANAGE_SKILL_ACTION_LABEL[undefined]` → `undefined` → `manageLabel` falsy → `manageSkillOk === false` (`renderer.js:9606-9610`)
-- title falls through to `name.textContent = toolExecution.name` → the card reads `manage_skill` (`renderer.js:9677-9679`)
-- tier badge, failure short reason (`code`), and the `未进提示词 · 超预算` note never render
-- the content collapsed box is not built (`renderer.js:9705-9728` gated on `manageSkillOk`)
-- the params area reverts to `JSON.stringify(toolExecution.params, null, 2)` (`renderer.js:9760-9762`) — dumping the **entire `content` argument (up to 64 KiB, escaped)** as a JSON wall, which is the exact failure mode the phase's params summary exists to prevent
-
-This directly contradicts UI-SPEC 硬约束 1 ("**必须**把标记的终态字段一并并入") and the `{action, name, tier?, code?, promptIncluded?}` data contract.
-
-**Verified** by replaying the renderer's literal semantics against the two real event payloads:
-
-```
-terminal toolExecution.manageSkill = {"tier":"managed","promptIncluded":false}
-manageLabel = undefined | manageSkillOk = false
-```
-
-**Why the guards didn't catch it:** `tests/test-ai-skills.js:3637` (M3) only asserts that the substring `manageSkill` and a `event.manage_skill ?` ternary appear in the merge region. `tests/test-ai-skills.js:3689-3740` (M5b) builds the expected live shape itself with `const live = { ...startMarker, ...endTerminal }` (`:3705`) — it validates the *intended* merge, not the renderer's actual merge. All 172 tests pass. Fix the merge and re-derive M5b from the renderer's real semantics (or move the merge into `_resolveManageSkillTerminal` so the test's `{...start, ...terminal}` becomes literally true).
-
-**Fix:** merge instead of replace (keep the previous marker as the base):
-
-```js
-...(event.manage_skill
-  ? { manageSkill: { ...(toolMsg.toolExecutions[existingIdx].manageSkill || {}), ...event.manage_skill } }
-  : {})
-```
-
-(Alternative single-point fix: have `_resolveManageSkillTerminal` return the full decoration from `_buildManageSkillDecoration` — i.e. include `action` / `name` — so the live and reload paths produce byte-identical shapes by construction. That requires updating the M2b expectation at `tests/test-ai-skills.js:3621-3630`.)
-
----
-
-### CR-02: Description is interpolated into YAML frontmatter unescaped → silently unloadable / truncated skills
-
-**File:** `ai-skills-manager.js:1143-1146` (`buildSkillFileText`), reached from `createManagedSkill` (`:1376-1380`) and `updateManagedSkill` (`:1433-1437`)
-
-**Issue:** The SKILL.md frontmatter is assembled by string concatenation with no YAML escaping:
-
-```js
-return `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}`;
-```
-
-`description` is LLM-authored free text (the tool's own description invites a sentence), and the SDK parses this block with the real `yaml` parser (`@earendil-works/pi-agent-core/dist/harness/skills.js:262-274` → `parse()`; a throw yields `parse_failed` and `skill: null`). Empirically reproduced end-to-end (`createManagedSkill` → `refreshSkills` → `getSkillsForUI`):
-
-| description written | stored file | loader outcome |
-|---|---|---|
-| `Use it like this: run the weekly report` | written verbatim | `parse_failed` → **skill never loads (ghost)** |
-| `Summarize this #1 priority task` | written verbatim | parses, description silently truncated to `Summarize this` |
-| `true` | written verbatim | parsed as boolean → `typeof !== 'string'` → `description is required` → **ghost** |
-| `A perfectly normal description` | written verbatim | loads correctly |
-
-Also rejecting/throwing: leading `-`, leading `@`, leading `*`, `summary: it works`, any `key: value` shape. Also silent-emptying: `!important` (unresolved tag → `''`), `|` / `>` (empty block scalar).
-
-In every ghost case the tool returns a **success** result to the LLM — `已创建技能「x」。它从下一条消息起对模型可见。` — and, because `getSkillPromptIncluded()` cannot find the entry in the cache, it additionally appends `该技能暂未进入模型提示词（技能段预算已满），仍可用 /skill:x 手动调用。` — which is doubly false (the budget is not full, and `/skill:x` cannot resolve either). The model is told a nonexistent skill works, and no diagnostic surfaces to the user.
-
-**Fix:** emit a YAML-safe scalar (single-quoted, with `'` doubled — YAML single-quoted scalars perform no escape processing, which also avoids mangling Windows-style backslashes in the description), and normalise line breaks defensively:
-
-```js
-function yamlScalar(text) {
-  return `'${String(text).replace(/[\r\n\u2028\u2029]+/g, ' ').replace(/'/g, "''")}'`;
-}
-// ...
-return `---\nname: ${name}\ndescription: ${yamlScalar(description)}\n---\n\n${body}`;
-```
-
-Do **not** import the `yaml` package directly — it is an SDK transitive dep and importing it would break this module's stated dependency discipline (`ai-skills-manager.js:18-21`). Add regression cases for all four rows of the table above to `tests/test-manage-skill.js` (today `buildSkillFileText` is only exercised with `描述`, `tests/test-manage-skill.js:375`, and the only `: `-bearing description is rejected earlier by the credential scan, `:316`).
-
----
-
-### CR-03: Description is validated *before* sanitization — the sanitizer can empty a validated description
-
-**File:** `ai-skills-manager.js:1321-1331` (create) / `:1414-1424` (update); `validateManagedSkillDescription` `:1036-1051`; `sanitizeSkillDescription` `:1097-1103`
-
-**Issue:** Steps 1 → 3 are "validate" → "scan" → "sanitize". The D-09 scan-before-sanitize rule is correct, but the **validator runs on the raw value and is never re-checked after sanitization**, while sanitization strictly removes characters (`C0/C1 + \u200B-\u200D \u2060 \uFEFF`), i.e. it can only shrink the string. `String.prototype.trim()` does **not** remove `U+200B`, so a description consisting of zero-width characters passes validity and then sanitizes to the empty string.
-
-Verified end-to-end:
-
-```
-validate passes? {"ok":true}
-create returned description = ""
-file = "---\nname: zw\ndescription: \n---\n\n# body"
-loaded = []            // skill dropped by the loader
-promptIncluded = false // → tool appends the misleading "预算已满" line
-```
-
-Same ghost-skill outcome as CR-02, reached without any YAML punctuation. The result object also exposes `description: ''`, which contradicts D-07's "description 必填、trim 后非空" invariant for a call the tool reports as successful.
-
-**Fix:** sanitize first (into a local), then assert non-emptiness on the sanitized value before scanning/scan-consistent validation — keeping scan-before-sanitize for the *scan* by scanning the raw text:
-
-```js
-const safeDescription = sanitizeSkillDescription(description);
-scanSkillText(description, { includeCredentials: true });   // 先扫描原文（D-09 顺序不变）
-const safeDescCheck = validateManagedSkillDescription(safeDescription); // 净化后再验一次非空
-if (!safeDescCheck.ok) throw makeManageSkillError(safeDescCheck.code, safeDescCheck.reason);
-```
-Apply the same re-check inside `createManagedSkill` before `buildSkillFileText`, and add a `'\u200B'` case to `tests/test-manage-skill.js`.
+Auxiliary files read to trace call chains (not in the configured review scope): `ai-conversations-manager.js` (reload reconstruction), `node_modules/@earendil-works/pi-agent-core/dist/agent-loop.js` (throw → `createErrorToolResult` → emit ordering), `src/index.html` (script load order).
 
 ---
 
 ## Warnings
 
-### WR-01: The documented byte-bound ghost window is an order of magnitude too narrow
+### WR-05: `M3` is still a substring scan — a full `CR-01` regression passes all 282 tests
 
-**File:** `ai-skills-manager.js:1068-1081` vs `:216-238` (loader gate); record: `.planning/phases/49-manage-skill-ai/49-01-SUMMARY.md:300`
+**File:** `tests/test-ai-skills.js:3904-3920`; call site `src/renderer.js:9378-9385`
 
-**Issue:** `validateManagedSkillContent` bounds the **content only** (`Buffer.byteLength(content)`), while the loader gate measures the **whole `SKILL.md`** including the frontmatter that `buildSkillFileText` prepends. The recorded item estimates the window at "约 65 480–65 536" (~56 bytes). The frontmatter is `---\nname: ` + name (≤64) + `\ndescription: ` + description (≤1024) + `\n---\n\n`, so the real window is up to ~1.1 KB (≈1.7 %) — 20× wider. Measured:
+**Issue:** The commit that landed this round advertises "M3 语义化" (guard rewritten from a substring scan into a semantic assertion). M3 still asserts only two things about the merge region:
 
-```
-content = 65 200 bytes (accepted), description = 1024 chars
-written file size = 66 257 (limit 65 536)
-loaded skills  = []                                  ← ghost
-diags          = read_failed, realm_skill_md_too_large
+```js
+merge.includes('mergeManageSkillMarker(')          // presence of the identifier
+!/manageSkill:\s*event\.manage_skill\b/.test(merge) // absence of the old direct assignment
 ```
 
-The existing record therefore understates the exposure; treat this as needing a fix rather than an acceptable band.
+Neither constrains **what the shared function is called with**. The `prev` argument — the only thing that makes the call a *merge* rather than a *replace* — is unverified. Verified by mutation:
 
-**Fix:** bound by the real artifact: `if (Buffer.byteLength(builtText, 'utf8') > LIMITS.MAX_SKILL_MD_BYTES)` on `buildSkillFileText({name, description, content})`, or cap content at `MAX_SKILL_MD_BYTES - (frontmatter 实测开销)`. A single measured check of the assembled text is the only form that cannot drift when the frontmatter shape changes.
+```js
+// src/renderer.js:9380-9383 mutated to:
+manageSkill: window.SkillPickerModel.mergeManageSkillMarker(null, event.manage_skill)
+```
 
----
+`prev === null` ⇒ `mergeManageSkillMarker` takes its `!prev` branch ⇒ returns `{...incoming}` = terminal-only `{tier, promptIncluded}`. That is **byte-for-byte the pre-fix CR-01 defect**: `action` and `name` are gone, `MANAGE_SKILL_ACTION_LABEL[undefined]` is `undefined`, `manageSkillOk` is `false`, and the card collapses to the generic tool-name title with the full 64 KiB `content` JSON wall.
 
-### WR-02: Reload path cannot restore `code`, so failed cards lose the short reason (hard constraint 3 violated for the failure state)
+Measured result of that mutation:
 
-**File:** `ai-manager.js:1811-1823` (`_manageSkillTerminalFromStored`), `:2928-2941` (rebuild loop); contract: `49-UI-SPEC.md` 硬约束 3 + 交互契约「终态（失败）」
+```
+tests/test-ai-skills.js               177 pass / 0 fail
+tests/test-skill-picker-model.js      105 pass / 0 fail
+```
 
-**Issue:** The live failure path decorates with `{action, name, code}` (`ai-manager.js:1780-1793` + `:6247`), but on reload only `promptIncluded` (from persisted `details`) and `tier` (from the current cache) are recoverable — `code` is deliberately omitted. After CR-01 is fixed, the live and reload key sets still differ for every failed row: live `{action, name, code, tier?}` vs reload `{action, name, tier?}`. Visually, a failed card shows `名称不合法` / `内置不可改删` while you are in the conversation, and silently loses that annotation after reopening it. UI-SPEC's stated invariant is "两条链路的产出对象**键集合逐字相等**" and the failure state is specified as "标题 + 档位徽标 + **短原因**".
+M5b/M5c cannot cover it: both call `mergeManageSkillMarker(startMarker, endTerminal)` **themselves** (with the correct argument order) and never touch the renderer's call site — the exact "test verifies the intent, renderer has its own implementation" false-green shape that AGENTS.md invariant ④ and this phase's recorded lesson were written to eliminate. The mutation is semantically distinct from the one M3 does catch, so the guard's negative assertion gives a false sense of coverage.
 
-**Fix (either):** (a) persist the code somewhere it survives — e.g. have Realm wrap the thrown error's message with an explicit `[code]` prefix that `_manageSkillTerminalFromStored` parses back out (the message is what lands in `tool_results`), or (b) if the deviation is intentional, record it in `49-UI-SPEC.md` / `docs/product/ai-skills.md` as a known reload asymmetry and narrow the M5b assertion so it no longer claims byte-identical key sets for failed rows.
+**Fix:** pin the call shape, e.g. add to M3:
 
----
+```js
+assert.ok(
+  /mergeManageSkillMarker\(\s*existing\.manageSkill\s*,\s*event\.manage_skill\s*\)/.test(merge),
+  '并入必须把「已有标记」作为 prev、把终态载荷作为 incoming —— 参数绑定反了/prev 传 null 时'
+    + ' 等价于回到 CR-01 的覆盖语义（M5b/M5c 只测共享函数本身，抓不到这一层）'
+);
+```
 
-### WR-03: Success result text deviates from the UI-SPEC's authoritative copy list
-
-**File:** `ai-manager.js:6248-6252`; contract: `49-UI-SPEC.md:275-282` + `:288-299` ("全部用户可见文案（唯一权威清单）")
-
-**Issue:** Spec vs implementation, all three actions:
-
-| action | UI-SPEC (authoritative) | implementation |
-|---|---|---|
-| create | `已创建技能「{name}」。该技能从下一条消息起可用。` | `已创建技能「{name}」。它从下一条消息起对模型可见。` |
-| update | `已更新技能「{name}」。下一条消息起按新正文生效。` | `已更新技能「{name}」。它从下一条消息起对模型可见。` |
-| delete | `已删除技能「{name}」。下一条消息起不再可用。` | `已删除技能「{name}」。它从下一条消息起不再可用。` |
-
-This string is both the tool result shown to the model and the card's 结果 area, so the drift is user-visible. The `promptIncluded === false` suffix (`:6255`) **does** match the spec. Note the M5b fixture at `tests/test-ai-skills.js:3719` uses the *spec* wording, so the mismatch is invisible to the suite (it is only a canned string, never compared against production output).
-
-**Fix:** emit the three spec strings verbatim (keep the "下一条消息起" clause — it is the D-13 contract), and have the `promptIncluded === false` branch append to them.
+Stronger (removes the class entirely, same move as `mergeManageSkillMarker` itself): move the renderer's whole `tool_execution_update` → `toolExecutions` mapping into a pure function in `src/skill-picker-model.js` (e.g. `applyToolExecutionEvent(prevExec, event)`), have `renderer.js` call that one implementation, and have the tests drive it with real start/end payloads. A source scan can never be the load-bearing guard for behaviour that a pure function can express.
 
 ---
 
-### WR-04: Sanitizer strips zero-width characters but not bidi/format controls
+### WR-06: A ghost write still reports unqualified success — the three-state fix removed the only signal
 
-**File:** `ai-skills-manager.js:1100`
+**File:** `ai-manager.js:6266-6300` (consume side), `ai-skills-manager.js:1651-1656` (`getSkillPromptIncluded`)
 
-**Issue:** `sanitizeSkillDescription` removes `\u0000-\u001F \u007F-\u009F \u200B-\u200D \u2060 \uFEFF`, closing the "零宽字符包裹的注入语" gap (P3). The same mitigation class is left open for bidirectional controls — `U+202A–U+202E` (LRE/RLE/PDF/LRO/RLO), `U+2066–U+2069` (isolates), `U+200E/U+200F` — which are not in the class and are not matched by the injection patterns. A description carrying them reaches the system prompt (description is prompt-visible by design) and the skill panel as visually-reordered text; the user reviewing what an AI-authored skill claims to do can be shown a rendering that differs from the stored bytes (Trojan-Source class).
+**Issue:** `getSkillPromptIncluded()` is now three-state, which is correct, and the consume side now only appends the "预算已满" sentence for strict `false` (`:6297`). But the `undefined` branch — "该 name 不在当前技能集快照里" — is documented as "此时不能断言「预算已满」…故一律不加" (`:6294-6296`) and the M2e fixture (`tests/test-ai-skills.js:3830-3868`) locks that in as desired behaviour.
 
-**Fix:** extend the strip class to the bidi/format range, e.g.
-`/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g` (keep `2028/2029` handled by the following `\s+` collapse), and record the extension in `docs/product/ai-skills.md` §四 as part of the sanitize contract.
+For `create` / `update`, `undefined` is not an ambiguous state — it is the **ghost condition**. `getSkillsSnapshot().skills` (`ai-skills-manager.js:752-759`) contains only entries that survived the load pipeline; the name was just written to `managed-skills/<name>/SKILL.md`; the rescan ran unconditionally inside `syncAgentSystemPrompt()` **before** its busy early-return (`ai-manager.js:3030-3041`), so the snapshot is fresh. "Fresh snapshot + name absent" therefore means the file was written but the loader dropped it — the `T-49-01-08` failure family. In that state the tool returns:
+
+```
+已创建技能「x」。它从下一条消息起对模型可见。
+```
+
+which is false, and is now **unaccompanied by any qualifier**. Before this round the (doubly-wrong) `预算已满 / 仍可用 /skill:x 手动调用` suffix at least marked the row as anomalous; the consumer-side change deleted it without putting anything truthful in its place, and M2e asserts only the absence of the two wrong strings — never that a *true* string is present. The tool has zero positive ghost detection on its success path.
+
+I could not construct a ghost producer against the current tree (25 adversarial descriptions + 9 exotic `content` shapes all round-tripped through the real loader with `diagnostics: []`), so this is a residual risk rather than a demonstrable live regression. It is nonetheless the phase's headline risk class, and the signal is sitting in the code unused.
+
+**Fix:** use the third state as designed — after a successful `create` / `update`, when `promptIncluded === undefined`, append a truthful line instead of nothing:
+
+```js
+if (promptIncluded === false) {
+  text += `该技能暂未进入模型提示词（技能段预算已满），仍可用 /skill:${result.name} 手动调用。`;
+} else if (promptIncluded === undefined) {
+  // 写成功 ⇒ 重扫已跑 ⇒ 名字仍不在技能集 ⇒ 加载管线丢弃了它（幽灵技能）
+  text += `注意：该技能已落盘但未被技能加载管线接受（当前不在技能集里），`
+    + `多半无法被自动匹配或 /skill:${result.name} 调用。请检查描述与正文是否合规后重试。`;
+}
+```
+
+and assert the positive text in M2e (the current M2e only asserts two absences, so it would pass with the string also missing entirely).
+
+---
+
+### WR-07: Live and reload `manageSkill` key sets diverge whenever the tool never executed
+
+**File:** `ai-manager.js:1800-1813` (`_resolveManageSkillTerminal`) vs `:1836-1855` (`_manageSkillTerminalFromStored`); contract asserted at `tests/test-ai-skills.js:3817-3822`, `:4066-4068`; normative claim in `49-UI-SPEC.md` 硬约束 3 / `docs/product/ai-skills.md` §11.7
+
+**Issue:** Both chains are claimed to produce "键集合逐字相等" (`{action, name, tier?, code?, promptIncluded?}`). They do not agree on one reachable class of call: a `manage_skill` call the SDK rejects **before** invoking the tool (`prepareToolCall` argument-schema validation) or never runs at all (output-token-limit truncated arguments).
+
+The SDK emits `tool_execution_start` **before** validation (`agent-loop.js:299-305`, `:335-341`), so the renderer does create the card with the start marker, but no `_manageSkillMeta` entry is ever written. Then:
+
+- live: `_resolveManageSkillTerminal` → `null` (`ai-manager.js:1802`) → renderer keeps the start marker unchanged → **`{action, name}`**, no `tier`
+- reload: `_manageSkillTerminalFromStored` derives `tier` from the *current* skill set by `params.name` (`:1849-1853`) → decoration carries `tier` → **`{action, name, tier}`**
+
+Verified by driving the real functions with the real arm/terminal shapes:
+
+```
+live   = {"action":"create","name":"demo"}                  terminal = null
+reload = {"action":"create","name":"demo","tier":"managed"} terminal = {"tier":"managed"}
+keys equal? false
+```
+
+Consequence: a failed `manage_skill` card shows no tier badge while you are in the conversation, and **gains one** when you reopen the conversation — a visible live/reload asymmetry in the phase's own "两条链路产出同一形状" invariant. This is pre-existing (it is about how `tier` is sourced on the reload side), not introduced by this round, but it is the invariant the `WR-02` closure cites as its justification, and no test covers the never-executed class (M2d/M5c both pre-populate `_manageSkillMeta`, the live path's easy case).
+
+**Fix (either):** (a) make the live path fall back to the same derivation, i.e. in `_resolveManageSkillTerminal`, when the meta entry is missing, derive `{tier: tierOf(params.name)}` from the `tool_execution_start` args — mirroring `_manageSkillTerminalFromStored`'s fallback exactly; or (b) treat `tier` as live-only decoration (it is a property of *this run's* target, and the reload path's "current set" lookup is admittedly a re-derivation), and narrow the M5b/M5c assertions so they no longer claim byte-identical key sets for rows with no terminal metadata. Option (a) is preferable — it makes the claim true.
+
+---
+
+### WR-08: The `[code]` affix's encode predicate is looser than its decode predicate — the "白名单原因码" invariant is documentation-only
+
+**File:** `ai-manager.js:6317-6320` (encode) vs `:161` + `:1847-1848` (decode); invariant stated in `AGENTS.md:273` (不变式 ③) and `docs/product/ai-skills.md` §11.3
+
+**Issue:** The write side accepts **any non-empty string** as a code:
+
+```js
+if (err instanceof Error && typeof err.code === 'string' && err.code
+  && !MANAGE_SKILL_CODE_TAG.test(err.message)) {
+  err.message = `[${err.code}] ${err.message}`;
+}
+```
+
+The read side only ever decodes `/^\[([a-z_]+)\]\s/` (lowercase letters + underscore). The two predicates are therefore not each other's inverse, which contradicts both the JSDoc (`:153-154`: "词表域 `[a-z_]+` 与九码…的字符集一致") and the two normative documents ("词缀只含白名单原因码"). Two consequences:
+
+1. **Permanent visible noise with no payoff.** Any error carrying a non-conforming `code` inside the `try` block (`syncAgentSystemPrompt()` throwing a Node error ⇒ `ENOENT`/`EACCES`; any future caller that sets a `SCREAMING_SNAKE` or namespaced code) gets an affix that the reload path can never decode. The affix is then permanently in the LLM-facing `toolResult` text and the user-facing expanded error, decodes to no short reason, and buys nothing.
+2. **Malformed-affix path.** A `code` containing `]`, a space or a newline (the guard checks none of these) produces e.g. `[a] [b] msg` — precisely the artefact the neighbouring comment (`:6308-6310`) says must not be producible, and `MANAGE_SKILL_CODE_TAG.test()` would then treat the doubly-affixed message as already-tagged, so the mis-form survives.
+
+Reachability today is narrow (every throw inside the block either goes through `makeManageSkillError` with one of the ten whitelisted codes or comes from Node with an uppercase code), which is why this is a Warning and not a Critical — but the invariant is stated as enforced in three places and is enforced in none.
+
+**Fix:** make the encode predicate the decode predicate's inverse:
+
+```js
+if (err instanceof Error
+  && typeof err.code === 'string'
+  && /^[a-z_]+$/.test(err.code)          // 与 MANAGE_SKILL_CODE_TAG 的捕获域一致
+  && !MANAGE_SKILL_CODE_TAG.test(err.message)) {
+  err.message = `[${err.code}] ${err.message}`;
+}
+```
+
+and extend M2c's existing "非字符串 code 不得加词缀" case with a non-conforming-string case (`{code: 'ENOENT'}` → message unchanged).
 
 ---
 
 ## Info
 
-### IN-01: Dead `madeDir` flag; `createDir` result unchecked
+### IN-07: `oversize`'s card annotation now says 正文超限 for a rejection that is not about the body
 
-**File:** `ai-skills-manager.js:1370-1384`
-`const madeDir = true;` is unconditionally true, so the `if (madeDir)` in the catch (`:1382`) is dead code — the comment claims a condition that cannot be false. Either drop the variable (and keep the comment explaining *why* removing is safe given step 5 guarantees `not_found`) or derive it from a real `exists` probe. Related: `await env.createDir(destDir)` ignores its Result (`:1371`); if dir creation fails, the surfaced error is the downstream `技能文件落盘失败：目标路径 …` from `atomicWriteSkillFile` (`:1200-1206`), which misattributes the cause. Check `madeDir.ok` and throw a specific error.
+**File:** `src/skill-picker-model.js:391` (`oversize: '正文超限'`) vs `ai-skills-manager.js:1231-1248`
+`WR-01`'s closure moved the authoritative gate from "content bytes" to "assembled `SKILL.md` bytes". The rejection code stayed `oversize`, so a create that is rejected because *description* pushed the whole file over 64 KiB renders the header annotation 正文超限 while the expanded reason reads `技能文件超过上限：限额 65536 字节，当前 … 字节（按 frontmatter + 正文的整文件计）`. The two texts on one card contradict each other. Same family as the still-open `IN-03` (`invalid_description` used for empty content), so it inherits that tradeoff — but it is newly reachable because of this round's change. Either widen the short reason (e.g. `文件超限`) or state in the UI-SPEC copy table that `oversize` covers the whole file.
 
-### IN-02: `unknown` has no short reason; an illegal `action` is labelled as a name problem
-**File:** `ai-manager.js:6194-6202`, `src/skill-picker-model.js:383-393`
-The tenth code `MANAGE_SKILL_ERROR.UNKNOWN` (sandbox-layer fallback, used by `atomicWriteSkillFile` / `deleteManagedSkill`) has no entry in `MANAGE_SKILL_SHORT_REASON`, so those failures render a bare title with no note. Separately, an out-of-enum `action` is given `err.code = 'invalid_name'` (`ai-manager.js:6194-6202`), which renders the card annotation `名称不合法` for what is actually a bad action. Both are within the closed-whitelist discipline; if intentional, say so in the D-07 code table, otherwise add an `unknown` row.
+### IN-08: `ai-manager.js:159` cites a source gate that does not exist
 
-### IN-03: Empty `content` renders the annotation `描述不合法`
-**File:** `ai-skills-manager.js:1069-1071` → `src/skill-picker-model.js:390`
-`validateManagedSkillContent('')` returns `INVALID_DESCRIPTION`, so the card annotation says 描述不合法 while the expanded error text says 技能正文不能为空. The tradeoff is documented (D-07, no tenth code), but the visible label is misleading; consider mapping the empty-content case to `oversize`'s sibling — or state explicitly in the UI-SPEC copy table that `invalid_description` covers "描述或正文为空".
+**File:** `ai-manager.js:156-161`
+The `MANAGE_SKILL_CODE_TAG` JSDoc asserts "写入侧与解析侧**必须逐字引用这一个标识符**（源码门禁按此断言），另起名字会让门禁转红". There is no such gate: `MANAGE_SKILL_CODE_TAG` occurs zero times under `tests/`. M2c deliberately defines its own `CODE_TAG_RE` (documented, and a *better* behavioural guard), so nothing enforces the single-constant rule. Also note the mutable-regex hazard the same comment warns about (`/g` + `lastIndex`) is currently avoided only because the constant has no `/g` — a future edit adding `/g` for a different reason would silently break both `.test()` and `.exec()`. Either delete the "源码门禁" claim or add the assertion (e.g. count references to the identifier from both the encode site and the decode site).
 
-### IN-04: `MANAGE_SKILL_ACTION_NAME` is the only one of the three tables without a value-domain test
-**File:** `src/skill-picker-model.js:367-371`; tests `tests/test-skill-picker-model.js:924-978`
-The B group title says "两张白名单表" and asserts values/frozenness for `MANAGE_SKILL_ACTION_LABEL` and `MANAGE_SKILL_SHORT_REASON` only. `MANAGE_SKILL_ACTION_NAME` values feed the user-visible `动作：创建/更新/删除` line (`src/renderer.js:9714`) — bring it under the same assertion pattern.
+### IN-09: M2d/M5c hand-build the persisted row — the encode → store → decode join has no guard
 
-### IN-05: `_manageSkillMeta` is reclaimed only by the end event
-**File:** `ai-manager.js:736`, `:1780-1793`
-`set` happens in both tool exits; the only `delete` is inside `_resolveManageSkillTerminal`. If a run is torn down between tool completion and `tool_execution_end`, the entry survives for the process lifetime, and a later execution that reuses the same `toolCallId` would receive a stale decoration instead of `null`. The SDK's sequential path does always emit the end event (`agent-loop.js:295-330`), so this is forward-looking hardening: clear the map in `_cleanupCurrentAgent()` / the new-run entry, and state the invariant where the field is declared.
-
-### IN-06: Card params summary shows the raw description while the file carries the sanitized one
-**File:** `src/renderer.js:9717-9719` vs `ai-skills-manager.js:1331/1424`
-`描述：` is taken from `params.description` (raw, may contain control / zero-width / newline characters); the persisted frontmatter holds `safeDescription`. Since the description is the field that reaches the prompt, the card can show the user something other than what is actually stored. Preferring the sanitized value (it is already returned as `result.description`, persisted in `details.description`) would remove the discrepancy — `details` is available on reload rows too.
+**File:** `tests/test-ai-skills.js:3764` and `:4053` (`error: '[seeded_protected] …'`)
+The `WR-02` fixtures construct the persisted `toolExecution` row by hand, which is the "assert against the object the implementation is supposed to produce" pattern this phase flags. The two *halves* are covered behaviourally (M2c drives the real tool failure exit; M2d/M5c drive the real `_manageSkillTerminalFromStored`), but the **join** — that the affixed message actually survives SDK → `toolResult.content` → the `messages.content` column → `target.error` on reload — is untested. I traced it and it holds (`agent-loop.js:509-524` builds the error result from `error.message`; `ai-conversations-manager.js:633-639` sets `target.error = text` for `isError` rows, and `parseStoredContent` returns the raw column text at `:311-315`), and the affix sits at the message start so the 100 KiB `TOOL_RESULT_TRUNCATE_SIZE` prefix-truncation cannot strip it. Recorded so the closure's evidence chain is honest about which link is manual.
 
 ---
 
-_Reviewed: 2026-09-13T08:12:15Z_
+## Closure verification & traceability
+
+**Closed this round (verified real, mutation-tested):** `CR-01`, `CR-02`, `CR-03`, `WR-01`, `WR-02` (all in the `49-REVIEW.md` namespace).
+
+**Still open, declared out of scope, and confirmed still present in the tree (not re-counted as findings above):**
+
+| item | evidence it is still open |
+|---|---|
+| `WR-03` success copy vs UI-SPEC | `ai-manager.js:6290-6293` still emits `它从下一条消息起对模型可见。`; the suite still carries both wordings (`tests/test-ai-skills.js:3776` implementation vs `:3997` spec) |
+| `WR-04` bidi/format controls not stripped | `ai-skills-manager.js:1153` still stops at `\u200D \u2060 \uFEFF`; probe: description `a\u202Eb` round-trips with the RLO intact |
+| `IN-01` dead `madeDir` | `ai-skills-manager.js:1500` `const madeDir = true;` unchanged |
+| `IN-02` `unknown` has no short reason | `src/skill-picker-model.js:383-393` — nine keys only |
+| `IN-03` empty content labelled `invalid_description` | `ai-skills-manager.js:1117-1119` unchanged |
+| `IN-04` `MANAGE_SKILL_ACTION_NAME` value-domain test | still absent from `tests/test-skill-picker-model.js` (grep: zero occurrences) |
+| `IN-05` `_manageSkillMeta` reclaimed only by the end event | `ai-manager.js:756` / `:1803` unchanged |
+| `IN-06` card shows raw description, file carries sanitized | `src/renderer.js:9717-9719` unchanged |
+
+**Not conflated:** Phase 48's `TD-48-01` / `TD-48-02` / `WR-01` / `WR-02` / `WR-06` are a different namespace and were not evaluated here; `docs/product/ai-skills.md` §11.8 now namespaces them correctly, which resolves the one place the two `WR-01`/`WR-02` pairs could be misread.
+
+**Ledger accuracy:** the three example counts (`55` / `177` / `105`) match the suites' measured `# tests` in all eight ledger cells, and the `§11.8` parity command is falsifiable. The gap-closure list in `§11.8` and the four invariants in `AGENTS.md` match the code — except for invariant ③'s "只含白名单原因码" clause (see WR-08) and the non-existent gate cited at `ai-manager.js:159` (IN-08).
+
+---
+
+_Reviewed: 2026-09-13T12:52:52Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
