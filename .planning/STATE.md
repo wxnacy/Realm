@@ -5,11 +5,11 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 49
 current_phase_name: "`manage_skill` 工具（AI 自建技能）"
 status: planning
-stopped_at: Phase 49 context gathered
-last_updated: "2026-09-13T04:32:27.999Z"
+stopped_at: Phase 49 UI-SPEC approved
+last_updated: "2026-09-13T04:48:26.896Z"
 last_activity: 2026-09-13
 last_activity_desc: Phase 48 complete, transitioned to Phase 49
-state_head: 20af806969d4a67d5a68f673cc7e03dea7587916
+state_head: f11c77b05b1d6be7803e35909fb911a7e2a295cc
 progress:
   total_phases: 6
   completed_phases: 1
@@ -339,9 +339,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T04:32:27.937Z
-Stopped at: Phase 49 context gathered
-Resume file: .planning/phases/49-manage-skill-ai/49-CONTEXT.md
+Last session: 2026-09-13T04:48:26.835Z
+Stopped at: Phase 49 UI-SPEC approved
+Resume file: .planning/phases/49-manage-skill-ai/49-UI-SPEC.md
 
 ## Operator Next Steps
 
