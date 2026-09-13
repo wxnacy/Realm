@@ -1,9 +1,20 @@
 ---
 phase: 49-manage-skill-ai
-reviewed: 2026-09-13T12:52:52Z
+reviewed: 2026-09-13T14:39:43Z
 depth: standard
-files_reviewed: 9
+round: 4
+diff_base: a52f09de47c8fb0c5c40179978eb8d076ea20301
+files_reviewed: 8
 files_reviewed_list:
+  - AGENTS.md
+  - docs/product/ai-skills.md
+  - src/renderer.js
+  - src/skill-picker-model.js
+  - src/styles/main.css
+  - tests/test-ai-skills.js
+  - tests/test-skill-picker-model.js
+  - tests/uat-49-g49-3-panel-layout.js
+files_reviewed_list_rounds_1_3:
   - AGENTS.md
   - ai-manager.js
   - ai-skills-manager.js
@@ -15,9 +26,10 @@ files_reviewed_list:
   - tests/test-skill-picker-model.js
 findings:
   critical: 0
-  warning: 4
-  info: 3
-  total: 7
+  warning: 7
+  info: 7
+  total: 14
+findings_scope: 累计（本文件全部轮次）—— 轮 1–3 的 7 条（WR-05..WR-08 / IN-07..IN-09）+ 轮 4 新增 7 条（WR-09..WR-11 / IN-10..IN-13）
 status: issues_found
 ---
 
@@ -230,6 +242,234 @@ The `WR-02` fixtures construct the persisted `toolExecution` row by hand, which 
 
 ---
 
-_Reviewed: 2026-09-13T12:52:52Z_
+## Round 4 (49-07 / G-49-3 收口)
+
+**Reviewed:** 2026-09-13T14:39:43Z
+**Scope:** `git diff a52f09d..HEAD` 中在册的 8 个文件 —— `49-07` 的唯一目标是把 `manage_skill` 卡片头部的超预算标注从面板长串改成单源投影的 3 字短形态，使 280px 面板最小宽度下「徽标 + 标注」不再越界裁切。
+**判决:** **收口本身是真的**（红轮证据真实存在、红→绿可复现、`main.css` 确实只动了注释、例数账本与 §11.8 判据仍然可跑）；本轮的问题**全部落在新判据的承重能力上** —— 两条「双判据」中有一条在仓内根本不存在，另一条的基准活在 `/tmp`；而真实渲染门禁的 A1–A6 是**单向**判据，标注从布局里消失时它会全绿。
+
+### 本轮增量（逐条独立复核为真）
+
+| 声明 | 我的复核手段 | 结果 |
+|---|---|---|
+| 渲染端改取 `PROMPT_OMITTED_CARD_NOTE` | `git diff`：只改了 `noteText =` 一行 + 注释；挂载结构仍是单 `createElement` / `textContent` / 单 `appendChild`（`src/renderer.js:9662-9667`） | ✅ 真 |
+| 该常量是面板串第二段的机械投影 | 读 `src/skill-picker-model.js:269`；值域用例（`includes` + `split(' · ').pop()`）实跑通过 | ✅ 真 |
+| `main.css` **声明零改动** | **独立复算**（不依赖驱动的 sha 台账）：`git show a52f09d:src/styles/main.css` 与 HEAD 各自剥注释后 sha256 **都是** `69899a4f2a42c56aa5b102ee828ab49ccaf6ca9b23032674759b6a88d7a293db`，原文本不等 ⇒ 只动了注释 | ✅ 真 |
+| 280px 下的溢出曾真实存在（G-49-3 不是编造） | 读 `/tmp/uat49/g49-3-red.log`：A1 越界 11.84px、A2 祖先 148 > 136、A3 技能名 `clientWidth = 0`、A6 仍是长串；四档几何量齐全 | ✅ 真 |
+| 修复后 A1–A9 全绿 | 读 `/tmp/uat49/g49-3-green.log` + `evidence-g49-3.json`：A1 越界 0.00px、A2 136 ≤ 136、A3 = 54、A6 = `超预算`、`arithmetic.fits = true`，且 `errorNoteCovered = true` | ✅ 真 |
+| 红轮 `cssDeclProjection.red` 不是伪造的 | 该 sha 与我独立复算的**修复前**投影 sha 逐字相等（见上） | ✅ 真 |
+| 例数账本（111 / 177 / 55） | 现场跑三个套件：`111 / 177 / 55`；§11.8 的 `counts-parity` 判据输出 `counts-parity ok cells=8 measured={"test-manage-skill.js":"55","test-ai-skills.js":"177","test-skill-picker-model.js":"111"}` | ✅ 真 |
+| `48 D-12` 原文与另三键冻结 | 新用例逐字断言；`未进提示词 · 超预算` 未动 | ✅ 真 |
+| 驱动选择器 / 前置自检有效 | `src/index.html` 有 `#aiPanel`/`#aiPanelBtn`/`#aiPanelResizeHandle`/`#aiHistoryBtn`/`#aiConvDropdown`/`#aiConvList`/`#aiMessageList`；`E-DATA` 判负即 `exit 12`（fail-closed，**不**在缺前提的树上判绿） | ✅ 真（设计正确） |
+
+### 注入 → 守卫矩阵（本轮问题的集中面）
+
+按「注入一处具体缺陷」逐条跑**本轮的**判据。判据表达式逐字取自源码，在内存中的变异文本上求值（**未改动工作区任何文件**；旧版本文本经 `git show a52f09d:…` 取得）：
+
+| 注入 | 判据 | 结果 |
+|---|---|---|
+| `skill-picker-model.js` 把常量写成 `'超预算'` 字面量 | `test-skill-picker-model.js:1011`（引用形式）+ `:1015-1016`（零第二份字面量） | **转红** ✅ 可失败性成立 |
+| 渲染端回落到旧**长串** | `test-ai-skills.js:4173`（M10）在 `a52f09d` 的旧文本上实跑 | **转红** ✅ |
+| 渲染端写死 `'超预算'`，**且**同行留一句提及常量名的注释 | 同上 M10（`stripComments(branch)` 之后） | **全绿** ❌ → `WR-11` |
+| `skill-picker-model.js` 写死拼接 `'超' + '预算'`（仅此一项） | `:1011` / `:1015-1016` | **转红** ✅（正则是承重的） |
+| 同上，**且**用一行注释承载所要求的书写形式 | `:1011` / `:1015-1016` | **全绿** ❌ → `IN-10` |
+| `.tool-card-manage-note` 加 `max-width: 60px` | M14（`test-ai-skills.js:4233-4248`）/ M15（`:4250-4264`） | **全绿** ❌（与 `49-07-PLAN.md` 的记载一致） |
+| 同上 | A9（声明投影 sha） | 有 `/tmp` 基准时**转红**；基准缺失（新机器 / `/tmp` 被清 / 证据文件被删）时**恒真** ❌ → `WR-09` |
+| 同上 | `css-decl-freeze` | 能拦住（我在当前树上复跑该片段通过），但**该判据不在仓内** —— 只存在于 `49-07-PLAN.md:161-190` 的 `<verify>` ❌ → `WR-09` |
+| `.tool-card-manage-note { display: none }`（标注从布局里消失） | A1–A6（几何 + textContent） | **全绿** ❌ → `WR-10`（A3 反而更绿：技能名宽度 98） |
+
+### WR-09: `A9` 的红轮基准只活在 `/tmp`，缺失即恒真；第二条判据（`css-decl-freeze`）不在仓内 —— 「CSS 声明零改动」至今没有可重跑的判据
+
+**File:** `tests/uat-49-g49-3-panel-layout.js:274-287`（基准获取）、`:628-634`（A9 判定）；`:33-36`（docstring 的「能检出任意位置的声明改动」）；第二条判据唯一出现处 `.planning/phases/49-manage-skill-ai/49-07-PLAN.md:161-190`
+
+**Issue:** A9 的语义是「全轮 `cssDeclProjection` 的 sha 彼此相等」。而 `sha[0]`（`red` 记录）的取值有两条路径（`:284-287`）：
+
+```js
+const priorRed = prior ? (prior.cssDeclProjection.find(e => e.round === 'red') || null) : null;
+const shaAtStart = cssDeclProjectionSha();
+const redRecord = priorRed
+  ? { round: 'red', sha: priorRed.sha, note: 'carried forward from the pre-fix run（红轮，改源码之前）' }
+  : { round: 'red', sha: shaAtStart, note: '本次运行的起始投影（首次运行 = 未修复的当前树）' };
+```
+
+`prior` 来自 `/tmp/uat49/evidence-g49-3.json`。**该文件不存在时，`redRecord.sha` 就是本次运行开始时把同一个文件算出来的 sha，于是各轮与之比较必然相等 —— A9 与 CSS 内容完全无关，恒真。** 我在内存变异（给标注加 `max-width: 60px`）上实测的两种口径：
+
+```
+A9 有 /tmp 基准：            FAIL（拦住）
+A9 无基准（新机器/CI/清理后）： PASS  <== 恒真，与 CSS 内容无关
+```
+
+同时 `priorRed` 一旦存在就**永不更新**（只搬运旧 `red.sha`），因此任何**合法的**声明改动都会让 A9 永久转红，而唯一自然的处置就是删掉那个 `/tmp` 文件 —— 一删 A9 又回到恒真。docstring（`:33-36`）称 A9「**能检出任意位置的声明改动**」，这句话只在 `/tmp` 状态存活时成立，而它的落盘位置（`/tmp`）与信度不匹配；`49-UI-SPEC.md:695` 与 `49-07-SUMMARY.md:158` 都以「A9 + `css-decl-freeze` 双判据、`max-width: 60px` 实测双红」作为 G-49-3 的收口证据，但 `css-decl-freeze` **从未进入仓库**：`grep -rn css-decl-freeze` 只命中驱动 docstring、`STATE.md`、`49-07-PLAN.md`、`49-UI-SPEC.md`、`49-07-SUMMARY.md` —— 全是**散文**，没有一处是可执行断言；`grep -rn 69899a4f` 同理只命中 `49-07-SUMMARY.md:112` 的散文。于是「声明零改动」这条被写进 `<done>`、写进 T-49-07-03 的 mitigation、写进两份文档的约束，**在仓内没有任何可重跑的判据承担**（M14/M15 对它全绿，已实测）。
+
+**Fix（两条，建议都做）：**
+
+1. 驱动自带冻结基准，去掉 `/tmp` 依赖（我已独立验算该 sha 就是修复前树的投影，可安全入源码）：
+
+```js
+/** 修复前（a52f09d）的声明投影 sha —— 冻在源码里：不依赖 /tmp 证据文件，缺基准不再退化为恒真 */
+const FROZEN_DECL_SHA = '69899a4f2a42c56aa5b102ee828ab49ccaf6ca9b23032674759b6a88d7a293db';
+...
+assertions.A9 = {
+  pass: shas.every((s) => s === FROZEN_DECL_SHA),
+  detail: `声明投影 sha 必须全等于冻结值 ${FROZEN_DECL_SHA.slice(0, 12)}：${shas.join(' ')}`,
+};
+```
+
+（同时删除 `:274-287` 的 `priorRed` 搬运块，并让 `evidence.cssDeclProjection` 只记本次各轮值。）
+
+2. 把 `49-07-PLAN.md` 的 `css-decl-freeze` 落成一个**提交进仓**的判据（例如 `tests/test-49-css-decl-freeze.js`，或在 `tests/test-ai-skills.js` 的 M14 旁补一组「四规则块声明集逐字相等」断言）。我在当前树上复跑该片段，四块声明集为
+
+```
+note:     flex-shrink,font-size,font-weight,line-height,white-space
+-error:   color
+-limit:   color
+nameText: font-family,min-width,overflow,text-overflow,white-space
+```
+
+判据本身是健全的（对 `max-width: 60px` 转红），缺的只是「它是一件随包/随仓的产物」。补完后把该判据同时登记进 `AGENTS.md:267` 的测试行与 `docs/product/ai-skills.md` §11.8 的清单，使它可被发现。
+
+### WR-10: 真实渲染门禁 A1–A6 全是「不越界」单向判据 —— 标注被 `display:none` 从布局里移除时 A1–A9 全绿
+
+**File:** `tests/uat-49-g49-3-panel-layout.js:575-587`（A1–A3）、`:604-609`（A6）、`:614-627`（A8）
+
+**Issue:** 四条几何判据都是**否命题**：A1「标注右缘 ≤ 裁切祖先右缘」、A2「祖先 `scrollWidth ≤ clientWidth`」、A3「技能名 `clientWidth > 0`」、A6「textContent 与类名正确」。它们在「标注**根本不占位**」时全部成立，且 A3 会变得更绿。用逐字照抄的表达式在合成几何量上求值（基线 = 本次绿轮实测值；变异 = 给 `.tool-card-manage-note` 加 `display: none`）：
+
+```
+基线（当前实现）: {"A1":true,"A2":true,"A3":true,"A4":true,"A5":true,"A6":true}
+变异 display:none : {"A1":true,"A2":true,"A3":true,"A4":true,"A5":true,"A6":true}   ← 全绿
+```
+
+`display:none` 的元素仍被 `querySelector` 命中，因此驱动的定位逻辑（`:371-377`、`:456-467`）与前置断言 `noteCount === 1` 也照样成立 —— 门禁会**判绿**并且 `sourcePath` 走复用路径，把一张「标注消失」的卡片记成 G-49-3 已收口。叠加 `WR-09`（A9 无基准即恒真、`css-decl-freeze` 不在仓内），这条注入在**所有**本轮判据下都是绿的。A8（失败态标注）是条件性的（`:624-626` 未覆盖时 `pass:true`），因此也补不上这个洞。真·红轮证明的只是「越界消失了」，不是「标注被渲染出来且可见」。
+
+**Fix:** 加一条**正命题**判据（`measureInPage` 里补采元素自身的可见性，`:196-243` 的返回对象一并给字段）：
+
+```js
+// measureInPage() 内补充：
+const cs = getComputedStyle(note);
+// ... note: { ..., rectCount: note.getClientRects().length,
+//            display: cs.display, visibility: cs.visibility, color: cs.color }
+
+assertions.A10 = {
+  pass: r280.note.rectCount === 1
+    && r280.note.rect.width > 0 && r280.note.rect.height > 0
+    && r280.note.display !== 'none' && r280.note.visibility !== 'hidden'
+    && r280.note.rect.left >= r280.nameWrap.rect.left - EPS
+    && r280.note.rect.right >= r280.nameWrap.rect.left,
+  detail: `标注必须真的被渲染且落在裁切祖先内：rects=${r280.note.rectCount} `
+    + `w=${r280.note.rect.width.toFixed(2)} display=${r280.note.display} visibility=${r280.note.visibility}`,
+};
+```
+
+顺带把 A8 的 `covered: false` 从「静默通过」改成显式记录 + 输出醒目告警（或在 `E-DATA` 同款意义上作为非零退出的可选项），因为 `docs/product/ai-skills.md:529` 的诚实边界是以「是否覆盖」为陈述对象的（见 `IN-11`）。
+
+### WR-11: M10 的新判据只对「整行注释」免疫 —— 行尾注释仍能满足它（本轮正是为消除这一形态才改的）
+
+**File:** `tests/test-ai-skills.js:4160-4180`（M10）；`stripComments` 定义在 `:3548-3550`
+
+**Issue:** 本轮的改动理由写在用例注释里（`:4163-4166`）：「本分支区域内有一条**提及**新常量名的注释，裸 `branch.includes(...)` 会被那段散文满足 —— 关于代码的判断不得被同区域散文满足」。为此把判据对象换成 `stripComments(branch)`。但 `stripComments` 只剥 `/* … */` 与**整行** `//`（`/^\s*\/\/.*$/gm`），**行尾注释不在其列**；而新判据是正则
+
+```js
+/noteText\s*=\s*window\.SkillPickerModel\.PROMPT_OMITTED_CARD_NOTE\b/.test(code)
+```
+
+它能被行尾散文满足，也不需要 `readSource` 另外做什么。实测（同一段真实分支文本，仅替换那条赋值）：
+
+```
+A. 修复前（a52f09d）的渲染端分支          RED   ← 判据可失败性成立
+B. 当前树                                 GREEN
+C2. noteText = '超预算'; // noteText = window.SkillPickerModel.PROMPT_OMITTED_CARD_NOTE
+                                          GREEN ← 假绿：写死第二份字面量仍未被拦下
+```
+
+剥注释后该行原样保留（`stripComments` 只删整行注释），所以「同区域散文不得满足判据」这条本轮新写下的纪律，**对行尾散文没有生效**。同类形态的第二个面：`src/skill-picker-model.js` 的字面量扫描只覆盖**该文件**（`:1009`），因此渲染端写死短串不会被它拦下，唯一拦它的是 M10 —— 而 M10 正是这里被绕开的。
+
+**Fix:** 把判据从「正则能匹配到某个赋值」改成「**所有** `noteText` 赋值都不得含字符串字面量」（形态判据，不依赖注释剥离策略，也不会被行尾散文满足）：
+
+```js
+const assigns = [...code.matchAll(/\bnoteText\s*=\s*([^;]+);/g)].map((m) => m[1].trim());
+assert.ok(assigns.length >= 2, `noteText 的赋值点提取口径失效（实得 ${assigns.length}）`);
+assert.ok(
+  assigns.filter((a) => a !== 'null').every((a) => !/['"]/.test(a)),
+  'noteText 的两处取值必须来自白名单查表 / 单源常量，不得出现字符串字面量（'
+    + '写死第二份文案时，行尾注释里的常量名不再能顶替真实取值）：' + assigns.join(' | ')
+);
+```
+
+（若偏好改助手，也可让 `stripComments` 额外剥行尾 `//`；但那会影响 M7/M8 的既有度量口径，上面的 `matchAll` 方案不动它们。）
+
+---
+
+## Round 4 · Info
+
+### IN-10: 新源码护栏的「承重判据」半个是散文可及的
+
+**File:** `tests/test-skill-picker-model.js:1008-1019`；被扫描文件 `src/skill-picker-model.js:246-269`
+
+**Issue:** 该用例的两条断言里，正形式判据 `/PROMPT_OMITTED_CARD_NOTE\s*=\s*STATUS_TEXT\.promptOmitted\.split\(/` 跑在**未剥注释的整份源码**上，而 `src/skill-picker-model.js` 的 JSDoc 同时宣称「第一条的门禁正则锚在源码上」「注释里也不许写」「第二条是**承重判据**」。实测（内存变异）：
+
+```
+0. 当前树                                    两条护栏均绿
+1. const X = '超预算';                       有红 ✅
+2. const X = '超' + '预算';                  有红 ✅（正形式判据承重）
+3. 拼接字面量 + 一行注释承载所要求的形式         两条护栏均绿 ❌
+4. split(' ') 换掉分隔符（形式不变、今日同值）    两条护栏均绿
+```
+
+即：**朴素注入能被拦下**（这一点值得肯定，也不是「纸糊护栏」），但第 3 种形态（注释里写出那条引用式表达式 + 真实取值写成拼接字面量）让两条同时转绿 —— 与 `WR-11` 是同一缺陷类（散文满足代码判据），只是这里需要刻意写一行模仿式注释，故降一档记为 Info。第 4 种（换掉分隔符）说明该护栏只管**书写形式**、不管分隔符，值域由 `:1000-1004` 的 `split(' · ').pop()` 用例兜住，今日无实害，一并记录以免日后误以为分隔符也被钉死。
+
+**Fix:** 正形式判据改跑在剥注释后的副本上（与 `WR-11` 同一处置，可共用一个小助手），或干脆删掉这条源码扫描 —— 它的可核对面（「是第二段的投影」）已由 `:993-1006` 的**值域**用例表达，而值域用例是行为判据、不可被散文满足。
+
+### IN-11: `docs/product/ai-skills.md:529` 的「诚实边界」与已落盘证据相反
+
+**File:** `docs/product/ai-skills.md:529`
+
+**Issue:** 本轮新增的诚实边界写的是「真实渲染门禁**未用真实渲染**逐条覆盖它 —— 它**只覆盖超预算那条**（即本次整改的形态）」。但已落盘的证据里，失败态标注**恰好在同一次真实渲染中被覆盖了**：`/tmp/uat49/evidence-g49-3.json` 的 `errorNoteRounds[280]` 抓到的是一张真实失败卡片（`note.textContent = 描述不合法`，注意宽 56px、同行技能名 `clientWidth = 32`、状态 `失败`），`errorNoteCovered = true`，A8 对它做了「标注右缘 ≤ 裁切祖先右缘 + 祖先不溢出」的判定。所以**准确的说法**是：「门禁对失败态的覆盖是**条件性**的（找到真实失败卡片才判；找不到时 A8 自动通过并记 `covered:false`），本轮实测覆盖到九码中的一条（`描述不合法`），其余八条未覆盖」。当前的措辞把**已发生的覆盖**说成未发生，也掩盖了「条件性判据 = 覆盖率随数据集浮动」这个真正的边界。
+
+**Fix:** 按上述准确说法改写该句，并把 `errorNoteRounds` / `errorNoteCovered` 作为引用锚点写进去（证据可查、口径可复核）。
+
+### IN-12: 「卡片的**结果区**已承载完整语义」在默认折叠态下不成立
+
+**File:** `docs/product/ai-skills.md:528`；`src/skill-picker-model.js:256-258`（JSDoc ② 同款措辞）；`src/styles/main.css:6235-6239`
+
+**Issue:** 两处新文档（产品文档与常量 JSDoc）用同一条理由为短形态背书：「卡片有结果区承载完整语义（『该技能暂未进入模型提示词（技能段预算已满），仍可用 /skill:{name} 手动调用』），头部标注只是可扫读的短标签而非唯一信息载体」。我核对过那句话确实由主进程产出（`ai-manager.js:6298-6300`，且只在 `promptIncluded === false` 时追加），**但结果区默认是折叠的**：
+
+```css
+.tool-card-content { max-height: 0; overflow: hidden; }   /* main.css:6235-6239 */
+.tool-card.expanded .tool-card-content { max-height: 500px; overflow-y: auto; }
+```
+
+卡片默认不展开，所以用户**不点开**时唯一可见的仍是 3 个字 `超预算`——「未进提示词」这半边语义与「仍可用 /skill:{name} 手动调用」的引导都在一次点击之后。文档的措辞（「已承载完整语义」）读起来像「无需额外操作即可获得」，与实现不符；这也是 D-12 的「可见性」初衷在本轮被部分让出的事实，值得显式写出来而不是靠结果区兜底。
+
+**Fix（三选一，建议 ①）：** ① 给标注元素加 `title`（如「该技能暂未进入模型提示词（技能段预算已满），仍可用 /skill:{name} 手动调用」），使悬停即可得完整语义（`title` 走 `textContent` 之外的单源字符串，需注意 CSSOM 不受 CSP 限制、且不得写入 `innerHTML`）；② `promptIncluded === false` 时默认展开卡片；③ 至少在文档里把措辞改成「**展开后**结果区承载完整语义」。
+
+### IN-13: `main.css:6196-6198` 的实测口径自相矛盾
+
+**File:** `src/styles/main.css:6192-6198`
+
+**Issue:** 该注释段自称「修复前的实测（非估算）—— 两轮口径并列，来源可查」，但其中两句与两份日志对不上：
+
+1. 「两轮的**标注** `scrollWidth` 同为 **148**」—— 两轮日志里标注自身的 `scrollWidth` **都是 100**（`note=100`）；148 是**祖先** `.tool-card-name-skill` 的 `scrollWidth`（绿轮 `nameWrap=136/136`、红轮 `nameWrap=136/148`），也正是 `49-UAT.md` 那句「不可压缩内容 148px」（= 8 + 32 + 8 + 100 的簇合计）被搬过来的数。三个量级被写成同一个名字。
+2. 「8 + 30 + 8 + 100 = 146 > 136，**越界 11.84px**」—— `146 - 136 = 10`，不是 11.84；11.84 是 A1 的**外接矩形**口径（红轮 A1：标注右缘 2477.08 vs 祖先右缘 2465.23），与上面这条整数算式不是同一个量（标注的 rect 宽比取整后的 `scrollWidth` 略大）。
+
+数值本身都能在日志里查到，问题在于**把两种口径写成了一个等式**，而该段落的全部价值就是「来源可查、实测与估算分离」。同一段后文（`≈` 与「估算」标注）做得是对的，这里属漏改。
+
+**Fix:** 改成「两轮的**标注** `scrollWidth` 同为 100；**祖先**的 `scrollWidth` 同为 148（即不可压缩簇 8 + 32 + 8 + 100 的合计值，与 49-UAT.md 的几何表同源）」，越界值改写为「A1 的外接矩形口径实测 11.84px（标注右缘 2477.08 − 祖先右缘 2465.23，`/tmp/uat49/g49-3-red.log`）」，与整数算式各自标明口径。
+
+---
+
+## Round 4 · 复核后的挂账状态
+
+**本轮（49-07 / G-49-3）闭合的是**：`manage_skill` 卡片头部的超预算标注在 280px 面板最小宽度下不再被祖先裁切，且卡片的默认可见高度、徽标、技能名退化行为均回到契约（真实渲染 A1–A9 全绿，`arithmetic.fits = true`），而 48 的 `/` 面板长串逐字未动。这条**是真的**。
+
+**本轮新挂账（7 条，编号避开既有 ID）**：`WR-09`（A9 基准活在 `/tmp` + `css-decl-freeze` 不在仓内 ⇒ 「声明零改动」无可重跑判据）、`WR-10`（A1–A6 单向判据 ⇒ 标注消失也全绿）、`WR-11`（M10 只对整行注释免疫 ⇒ 行尾注释仍可满足）、`IN-10`（`skill-picker-model` 正形式判据可被注释满足）、`IN-11`（诚实边界与已落盘证据相反）、`IN-12`（结果区默认折叠 ⇒ 短标签成了唯一常驻信息载体）、`IN-13`（`main.css` 注释里两种口径被写成一个等式）。
+
+**仍未复核、仍按上一轮挂账**：`WR-03`（成功文案 vs UI-SPEC）、`WR-04`（bidi 控制符未剥离）、`IN-01`–`IN-06`、以及 Phase 48 命名空间的 `TD-48-01` / `TD-48-02` / `WR-01` / `WR-02` / `WR-06` —— 这些文件的当前内容未被本轮扫描（不在 `files_reviewed_list` 内），其「仍开放」的判断继承自上一轮，本轮**未重新验证**。
+
+**非本轮新增、但本轮证据暴露的一处结构性事实**：本阶段真正的「唯一有效证据」是 `/tmp` 下的三个文件（`g49-3-red.log` / `g49-3-green.log` / `evidence-g49-3.json`）与一条不在仓内的 `node -e` 片段。`/tmp` 不是证据保存地、计划内联门禁也不是产物；凡是「验收依赖 /tmp 或依赖计划文本」的判据，在下一轮复核时都应视为**未保存证据**。这与本仓既有的两条教训同源（`feedback_false_green_guards`：门禁假绿；`feedback_plan_authored_gates`：计划自带门禁必须先落到当前树实跑）。
+
+---
+
+_Reviewed: 2026-09-13T14:39:43Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+_Round: 4（`a52f09d..HEAD`，49-07 / G-49-3 收口）· 累计 findings: critical 0 / warning 7 / info 7 / total 14_
