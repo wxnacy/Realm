@@ -285,7 +285,7 @@ Plans:
   4. 写入为原子操作（经沙箱 `env.renameFile` 获得双基准路径校验），失败不留半成品文件，且不触及 `ai-memory/`、`attachments/` 等其他工作区路径。
   5. 工具描述引导 AI 优先增强已有技能，而非创建近乎重复的新技能。
 
-**Plans**: 6 plans（3 executed + 3 gap-closure）
+**Plans**: 4/6 plans executed（3 executed + 3 gap-closure）
 
 Plans:
 **Wave 1**
@@ -304,7 +304,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 49-04-PLAN.md — Gap 1 写侧闭合（CR-02 / CR-03 / WR-01）：YAML 标量编码 + 净化后复验非空 + 组装全文字节闸 + `getSkillPromptIncluded` 三态（MGMT-01/02/03）
+- [x] 49-04-PLAN.md — Gap 1 写侧闭合（CR-02 / CR-03 / WR-01）：YAML 标量编码 + 净化后复验非空 + 组装全文字节闸 + `getSkillPromptIncluded` 三态（MGMT-01/02/03）
 
 **Wave 2** *(blocked on 49-04)*
 
@@ -376,6 +376,6 @@ Plans:
 | 46. 技能基础设施 | 4/4 | Complete | 2026-09-11 |
 | 47. 内置技能播种 + bash 策略加固 | 6/6 | In Progress|  |
 | 48. 技能发现与调用 | 8/8 | In Progress|  |
-| 49. `manage_skill` 工具 | 3/3 | In Progress|  |
+| 49. `manage_skill` 工具 | 4/6 | In Progress|  |
 | 50. 设置页技能管理区 + `/api/skills/*` | TBD | Not started | - |
 | 51. 用户技能导入管线 | TBD | Not started | - |

@@ -3,18 +3,18 @@ gsd_state_version: "1.0"
 milestone: v2.6
 milestone_name: AI 助手技能（Skill）能力
 current_phase: 49
-current_phase_name: manage-skill-ai
+current_phase_name: manage_skill 工具（AI 自建技能）
 status: executing
-stopped_at: Completed 49-02-PLAN.md
-last_updated: "2026-09-13T09:52:41.856Z"
+stopped_at: Completed 49-04-PLAN.md
+last_updated: "2026-09-13T10:09:13.065Z"
 last_activity: 2026-09-13
 last_activity_desc: Phase 49 execution started
-state_head: 2b46c37052d5886148384f5119e302efed945b3b
+state_head: 9e7c9e83e22996696d18dbd7fea3cf192b672ca7
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 0
   total_plans: 24
-  completed_plans: 20
+  completed_plans: 22
   percent: 0
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-13)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 49 — manage-skill-ai
+**Current focus:** Phase 49 — manage_skill 工具（AI 自建技能）
 
 ## Current Position
 
-Phase: 49 (manage-skill-ai) — READY TO EXECUTE
-Plan: 3 of 3
+Phase: 49 (manage_skill 工具（AI 自建技能）) — EXECUTING
+Plan: 5 of 6 (49-01..49-04 已完成；`state advance-plan` 计数器滞后已手工订正，权威计数见 frontmatter `completed_plans: 22 / total_plans: 24`)
 Status: Ready to execute
-Last activity: 2026-09-13 — Phase 49 execution started
+Last activity: 2026-09-13 — Completed 49-04-PLAN.md（幽灵技能 gap 闭合）
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -113,6 +113,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 48 P08 | 4 min | 3 tasks | 5 files |
 | Phase 49 P01 | 12 min | 3 tasks | 6 files |
 | Phase 49 P02 | 19 min | 3 tasks | 8 files |
+| Phase 49 P04 | 6min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -231,6 +232,13 @@ Recent decisions affecting current work:
 - [Phase 49-01]: 字段分离扫描取「给 ai-memory-manager.scanInjectionPatterns 加向后兼容可选参」方案：description 跑注入组+凭据组，content 只跑注入组 — description 无条件进每次请求的 system prompt（与两层记忆同构）故两组都要跑；content 不进 prompt 且技能文档合法地会写配置示例（api_key: YOUR_KEY_HERE 实测被凭据组命中），跑两组会误伤合法技能创建。加可选参改动最小、向后兼容（既有全部单参调用零影响），且 Phase 51 可沿同一选项面扩表。
 - [Phase 49-01]: 撞名 / seeded / 数量闸一律读盘（env.exists / env.listDir），绝不用 createDir 的返回值；原子写失败清理只在 create 且本次确实新建目录时执行 — 实测 createDir 对已存在目录返回 ok:true（幂等），据此判「不存在」会把既有技能静默覆写；bash 可随时改盘，缓存快照只反映上次重扫时刻。update 失败不得删目标目录——其内容靠文件级 rename 的原子替换天然保持操作前状态，删目录反而毁用户数据。
 - [Phase 49-01]: 工具业务错误引入单源常量表 MANAGE_SKILL_ERROR（九码 + 沙箱兜底 UNKNOWN），字面量不出现在 code: 位置 — ai-skills-manager.js 的既有护栏把任何 code: '<字面量>' 当作 Realm 诊断码并要求 realm_ 前缀——而那是针对诊断码的真实约束，不该为工具错误放宽。工具 Error.code 与 realm_ 诊断码是两套命名空间，常量表既保住护栏原样不改，又让 D-07 的「闭合白名单」成为字面数据。
+- [Phase 49]: [49-04]: description 落盘取 YAML **单引号**标量（撇号双写 + 换行归一化），不取双引号 —— 单引号标量不做转义处理，描述里的 Windows 反斜杠不会被误当转义序列损坏；双引号需要自己实现整套反斜杠/控制字符转义表。绝不 import `yaml` 包（SDK 传递依赖），编码函数自持住模块内部、不导出
+- [Phase 49]: [49-04]: CR-03 的修法是「净化后对净化值复验非空」，而不是把校验器整体挪到净化之后 —— 后者会挤掉 D-09 的「先扫描原文」铁律（净化后再扫描等于扫净化值，零宽字符包裹的注入语会重新放行）
+- [Phase 49]: [49-04]: WR-01 的修法是对**组装后的 SKILL.md 全文**测一次字节作为权威闸口（与加载期 FileInfo.size 同量），闸口成功时返回被计量的 text 供调用方直接写盘（测的与写的是同一份对象）；content 单独计字节保留为严格子集预筛（只能更早拒）。禁止改成「限额减去硬编码 frontmatter 开销」
+- [Phase 49]: [49-04]: getSkillPromptIncluded 改三态（命中可用 true / 命中被滤 false / 未命中 undefined）—— 混成 false 会让工具把「技能不存在」误报成「技能预算已满」并追加一句解析不到的 /skill:{name} 提示；消费方只在 === false 时追加文案
+- [Phase 49]: [49-04]: 三处（含 docs §四）「写侧与加载期闸口同源同值」的过度声称一并纠正为组装全文口径 —— 改闸口而不改声明会留下与新实现不符的断言，50/51 会照抄
+- [Phase 49]: [49-04]: 反向验证作为「断言不是假绿」的证据：临时改回旧实现记录转红的叶子断言（A 去 YAML 编码 6 条 / B 去净化后复验 3 条 / C 闸口只测 content 3 条 / D 三态退回 false 1 条），恢复后 git diff 为空且 55/55 全绿
+- [Phase 49]: [49-04]: STATE.md 的 advance-plan 计数错（写成 Plan: 2 of 6，实际 49-01..04 四份 SUMMARY 已落盘）—— 执行期手工订正为 5 of 6；frontmatter 的 completed_plans 22/24 由 handler 正确算出，percent 0% 是「按阶段」口径（阶段 49 未 complete）非本次缺陷
 
 ### Roadmap Evolution
 
@@ -345,8 +353,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T07:14:49.385Z
-Stopped at: Completed 49-02-PLAN.md
+Last session: 2026-09-13T10:08:49.753Z
+Stopped at: Completed 49-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
