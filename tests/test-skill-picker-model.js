@@ -985,6 +985,77 @@ describe('B 组 · MANAGE_SKILL_* 两张白名单表（Phase 49 / D-02 / D-07，
       'limit_exceeded 的取值必须写成 STATUS_TEXT.overLimit（引用同一常量，机械保证同值）'
     );
   });
+
+  // ===== G-49-3 收口（Phase 49 07）：卡片头部超预算标注的 ≤ 4 字投影 =====
+  // 这 6 组是 280px 布局的前提条件护栏（标注必须短到 129px 预算内），**不替代**真实渲染门禁
+  // （tests/uat-49-g49-3-panel-layout.js 的 A1–A9）。
+
+  test('G-49-3 · PROMPT_OMITTED_CARD_NOTE 的值域：是 STATUS_TEXT.promptOmitted 的第二段投影', () => {
+    const note = model.PROMPT_OMITTED_CARD_NOTE;
+    assert.strictEqual(typeof note, 'string', 'PROMPT_OMITTED_CARD_NOTE 必须导出为字符串');
+    assert.strictEqual(
+      model.STATUS_TEXT.promptOmitted.includes(note),
+      true,
+      '短形态必须是面板长串的子串（值域护栏，**不是**「不新写」的证明 —— 写死第二份字面量同样满足本条）'
+    );
+    assert.strictEqual(
+      model.STATUS_TEXT.promptOmitted.split(' · ').pop(),
+      note,
+      '短形态必须是该串按分隔符切分后的**第二段**（第一段 5 字，不满足 E1 的 ≤ 4 字）'
+    );
+  });
+
+  test('G-49-3 · 「不新写」的机械保证：源码级两条同时成立（引用形式 + 零第二份字面量）', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'skill-picker-model.js'), 'utf8');
+    assert.ok(
+      /PROMPT_OMITTED_CARD_NOTE\s*=\s*STATUS_TEXT\.promptOmitted\.split\(/.test(src),
+      "短形态的唯一合法书写是 STATUS_TEXT.promptOmitted.split(' · ').pop() 的**引用形式**（形态沿用本仓既有先例 MANAGE_SKILL_SHORT_REASON.limit_exceeded: STATUS_TEXT.overLimit）；写成被引号包裹的独立字符串会让本断言转红"
+    );
+    assert.strictEqual(
+      /['"]超预算['"]/.test(src),
+      false,
+      'skill-picker-model.js 中不得存在第二个被引号包裹的短形态独立字面量（**注释里也不许写**）—— 这条同时封掉「声明处写成引用、导出处写死一份」的形态'
+    );
+  });
+
+  test('G-49-3 · E1 的 ≤ 4 字收口：短形态 length <= 4（实测 3）', () => {
+    const len = model.PROMPT_OMITTED_CARD_NOTE.length;
+    assert.ok(
+      len <= 4,
+      `49-UI-SPEC.md 的 E1 overflow 处置要求短原因 ≤ 4 字，且 280px 面板下 .tool-card-name 仅 129px —— 实得 ${len} 字`
+    );
+  });
+
+  test('G-49-3 · 48 D-12 原文冻结：STATUS_TEXT.promptOmitted 逐字未变（防「顺手统一」面板串）', () => {
+    assert.strictEqual(
+      model.STATUS_TEXT.promptOmitted,
+      '未进提示词 · 超预算',
+      '这是 48-CONTEXT.md D-12 的**原文**与 48-UI-SPEC.md「照写不统一」的契约面 —— 本轮只新增派生键，不得改动该串'
+    );
+  });
+
+  test('G-49-3 · STATUS_TEXT 另三键契约冻结（shadowed / nameClash / overLimit 逐字未变）', () => {
+    assert.strictEqual(model.STATUS_TEXT.shadowed, '已遮蔽 · 由用户同名技能胜出');
+    assert.strictEqual(model.STATUS_TEXT.nameClash, '与本地命令同名 · 本地命令优先');
+    assert.strictEqual(model.STATUS_TEXT.overLimit, '超数量上限');
+  });
+
+  test('G-49-3 · 九码短原因长度上限：每值非空字符串且 ≤ 6 字；limit_exceeded 引用同一常量', () => {
+    const table = model.MANAGE_SKILL_SHORT_REASON;
+    for (const [code, text] of Object.entries(table)) {
+      assert.strictEqual(typeof text, 'string', `${code} 的短原因必须是字符串`);
+      assert.ok(text.length > 0, `${code} 的短原因不得为空`);
+      assert.ok(
+        text.length <= 6,
+        `${code} 的短原因「${text}」超过 6 字 —— 卡片头部 129px 预算下最宽 6 字（字体度量**估算** ≈ 66px）仍成立，任何加长都会在这里被拦下`
+      );
+    }
+    assert.strictEqual(
+      table.limit_exceeded,
+      model.STATUS_TEXT.overLimit,
+      '同值必须引用同一常量（不得改写成第二份拷贝）'
+    );
+  });
 });
 
 describe('B 组 · 面板接线源码扫描（renderer 侧消费点）', () => {

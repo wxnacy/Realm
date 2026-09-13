@@ -4159,17 +4159,24 @@ describe('M 组 · Phase 49 manage_skill 卡片标记（D-02 / UI-SPEC 硬约束
 
   test('M10（源码 · 标注至多一个）单一挂载点 + 两处取值来自既有单源', () => {
     const { branch } = rendererManageRegions();
+    // **判据对象是剥注释后的代码**（本文件既有助手 `stripComments`，M7/M8 已用它度量代码
+    // 而不是散文）。原因：本分支区域内有一条**提及**新常量名的注释（G-49-3 的取值切换说明），
+    // 裸 `branch.includes(...)` 会被那段散文满足 —— 「关于代码的判断不得被同区域散文满足」。
+    const code = stripComments(branch);
     assert.strictEqual(
-      (branch.match(/appendChild\(noteEl\)/g) || []).length,
+      (code.match(/appendChild\(noteEl\)/g) || []).length,
       1,
       '内联标注的 createElement 挂载点必须**恰 1 处**（不是两条 if 各自 append —— 那会有两个标注）'
     );
-    assert.ok(branch.includes('MANAGE_SKILL_SHORT_REASON['), '失败短原因必须查九码白名单表');
-    assert.ok(branch.includes('STATUS_TEXT.promptOmitted'), '「未进提示词」必须逐字复用既有字符串');
-    assert.ok(branch.includes('tool-card-manage-note-error'), '失败态标注类必须存在');
-    assert.ok(branch.includes('tool-card-manage-note-limit'), '超预算标注类必须存在');
+    assert.ok(code.includes('MANAGE_SKILL_SHORT_REASON['), '失败短原因必须查九码白名单表');
     assert.ok(
-      /if \(noteText\)/.test(branch),
+      /noteText\s*=\s*window\.SkillPickerModel\.PROMPT_OMITTED_CARD_NOTE\b/.test(code),
+      '卡片头部超预算标注的取值必须以该常量作为**赋值值**来自单源投影（48 的面板串逐字未变，见 49-UI-SPEC 的 E1 收口）；仅在同一分支的注释里**提及**常量名不算 —— 本条判据跑在剥注释后的代码上'
+    );
+    assert.ok(code.includes('tool-card-manage-note-error'), '失败态标注类必须存在');
+    assert.ok(code.includes('tool-card-manage-note-limit'), '超预算标注类必须存在');
+    assert.ok(
+      /if \(noteText\)/.test(code),
       '0 个标注时**不渲染元素**（不占位、不留空元素）'
     );
   });
