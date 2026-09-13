@@ -143,7 +143,8 @@ Exceptions 的 **B 表** —— 偏离值必须逐条登记并附理由与既有
 
 - **Body 12px / 400** —— 参数摘要（复用 `.tool-card-value` 存量 12px）、结果 / 错误全文
   （同）、正文折叠块正文（复用 `.ai-skill-content-box-body` 存量 12px）
-- **Label 11px / 400** —— **本阶段新增的两条内联标注**（头部短原因 / `未进提示词 · 超预算`），
+- **Label 11px / 400** —— **本阶段新增的两条内联标注**（失败短原因 / 成功那条的 `超预算`
+  —— 后者取自 `/` 面板行尾未进提示词标注的短形态投影 `PROMPT_OMITTED_CARD_NOTE`），
   与同处头部「元数据簇」的来源徽标（既有 11px）同档
 - **Heading 13px / 600** —— 本阶段**未使用**（保留；面板行名 `/{name}` 属 48 面）
 - **Display 14px / 400** —— 本阶段**未使用**（保留以免执行时误用第 5 个字号）
@@ -170,7 +171,7 @@ Exceptions：
 | Dominant (60%) | `--bg-primary` — 暗 `#1a1a1a` / 亮 `#ffffff` | 聊天面板底色（卡片浮在其上） |
 | Secondary (30%) | `--bg-secondary` — 暗 `#2a2a2a` / 亮 `#f5f5f5`；卡片底 `--ai-tool-card-bg` — 暗 `#252525` / 亮 `#f0f0f0` | 卡片底（存量）、参数值底与正文折叠块底（存量 `--bg-secondary`）、头部 hover 底 `--bg-hover`（暗 `#404040` / 亮 `#e0e0e0`） |
 | Accent (10%) | `--accent-color` `#3B82F6` | **本阶段不新增任何 accent 使用点** |
-| Warning | `--skill-limit-text` — 暗 `#F59E0B` / 亮 `#92400E`（**修值，见前置修复 ②**） | 仅「未进提示词」标注 |
+| Warning | `--skill-limit-text` — 暗 `#F59E0B` / 亮 `#92400E`（**修值，见前置修复 ②**） | 仅 `/` 面板行尾的「未进提示词」标注；卡片头部的超预算形态取该来源的短投影（同一令牌，见 E1 overflow 收口记录） |
 | Destructive | `--danger-color` `#EF4444` | **仅状态图标的既有用色**（失败 ✗）。**不得**用作文本色 —— 4.5:1 不达标（实测对卡片底 4.07:1 暗 / 3.30:1 亮） |
 
 **Accent reserved for（显式清单，非「所有可交互元素」）**：
@@ -201,7 +202,7 @@ Exceptions：
 | 元素 | 暗 · 卡片底 `#252525` | 暗 · hover 底 `#404040` | 亮 · 卡片底 `#f0f0f0` | 亮 · hover 底 `#e0e0e0` | 判定 |
 |------|----------------------|------------------------|----------------------|------------------------|------|
 | 失败短原因 `--skill-error-text` | 8.08:1 | 5.46:1 | 5.68:1 | 4.90:1 | ✅ 全档达标 |
-| 「未进提示词」标注 `--skill-limit-text` | 7.14:1 | 4.83:1 | 6.22:1 | 5.37:1 | ✅ 全档达标（暗色 hover 余量较薄，见下注） |
+| `/` 面板行尾「未进提示词」标注 + 卡片头部的超预算形态投影（同一 `--skill-limit-text`） | 7.14:1 | 4.83:1 | 6.22:1 | 5.37:1 | ✅ 全档达标（暗色 hover 余量较薄，见下注） |
 | 三档来源徽标（`用户` / `内置` / `托管`） | 5.72 / 6.58 / 5.59 | 同左（**底色已钉死**） | 4.89 / 4.70 / 5.30 | 同左 | ✅ 见前置修复 ① |
 
 > **暗色 hover 余量提示**：`--skill-limit-text` 暗色值对 `--bg-hover` 仅 4.83:1。任何调值都
@@ -263,8 +264,9 @@ Exceptions：
 **纪律**：
 
 - 短原因表是**闭合白名单**：表外 code → **不渲染标注**（不得回落到 `undefined` 字面量）。
-- 短原因**一律不含技能名 / 不含变量**（定长 ≤ 6 字，唯一更长的 `未进提示词 · 超预算` 是复用
-  48 的既有字符串）—— 这是头部单行不变式成立的前提（见 `## 卡片结构契约`）。
+- 短原因**一律不含技能名 / 不含变量**（失败态定长 ≤ 6 字；成功那条渲染 `超预算` —— 由 `/` 面板
+  那段行尾原文（含「未进提示词」）的 `STATUS_TEXT.promptOmitted` 第二段**机械投影**而来，见
+  `## UI Considerations` 的 E1 overflow 收口记录），故卡片域最宽只是 6 字 —— 这是头部单行不变式成立的前提（见 `## 卡片结构契约`）。
 - 完整文案是**单点实现**（主进程抛出的业务错误消息即其载体）。渲染端**不得**含这九条文案
   —— 沿用 48-06 的跨文件护栏思路（两侧不可能被同时删改而无人发现）。
 - `limit_exceeded` 的短原因**必须**与面板行尾标注 `超数量上限`（`STATUS_TEXT.overLimit`）**同值**
@@ -293,7 +295,7 @@ Exceptions：
 | 卡片标题（变体不成立） | 既有工具名 `manage_skill` | 48-03 的「非法标记 → 普通卡片」同款回落 |
 | 来源徽标文字 / `title` | `用户` / `内置` / `托管` + 三条 `title` | **零新增** —— 查 `TIER_BADGE`（D-14 判定，Phase 47 D-11 锁定） |
 | 头部短原因（九条） | 见上方原因码表 | 本契约（对应 D-07 的九码） |
-| 头部「未进提示词」标注 | `未进提示词 · 超预算` | **逐字复用 48 的 `STATUS_TEXT.promptOmitted`**（不新写） |
+| 头部「未进提示词」标注 | `超预算` | 复用 48 的 `STATUS_TEXT.promptOmitted`（`/` 面板行尾用**完整两段式**），取该单源的 **≤ 4 字第二段投影**（`PROMPT_OMITTED_CARD_NOTE`），48 的面板串逐字未变 |
 | 正文折叠块 header | `技能正文（N 字符）` | **逐字复用 48 D-09**；N = `content.length`（JS `String.length`，与 prompt 段预算同口径，**不是字节数**） |
 | 参数区标签 / 值 | 标签 `参数`（既有）；值三行：`动作：创建`/`更新`/`删除`、`技能名：{name}`、`描述：{description}`（`delete` 只有前两行） | 本契约（D-02「用户感知」的可核对面） |
 | 结果 / 错误区标签 | `结果` / `错误` | 既有（按状态切换），**零改动** |
@@ -340,12 +342,12 @@ Exceptions：
 |---|------|----------|------|
 | 1 | 标题文本 | `.tool-card-name-text`（**存量，零改动**） | 三动作白名单文案；等宽；**头部唯一承担压缩的元素**（`min-width:0` + ellipsis） |
 | 2 | 来源徽标 | `.slash-picker-source-badge` + `.slash-picker-source-badge-{user,builtin,managed}`（**存量，零改动**类，仅按前置修复 ① 调底色基准） | 档位来自终态元数据 `tier`；查 `TIER_BADGE` 白名单取 `label` / `className` / `title`；表外 / 缺失 → **跳过** |
-| 3 | 内联标注 | `.tool-card-manage-note`（新增） + `-error` / `-limit`（新增） | **至多一个**。失败 → 短原因 + `-error`；成功且 `promptIncluded === false` → `未进提示词 · 超预算` + `-limit`。无内容时**不渲染元素**（不占位） |
+| 3 | 内联标注 | `.tool-card-manage-note`（新增） + `-error` / `-limit`（新增） | **至多一个**。失败 → 短原因 + `-error`；成功且 `promptIncluded === false` → `超预算` + `-limit`。无内容时**不渲染元素**（不占位） |
 
 **新增标注类的完整 CSS 规格**（唯一新增的排版规则，零间距值）：
 
 ```css
-/* AI 自建技能卡片（Phase 49）：头部内联标注（失败短原因 / 未进提示词）。
+/* AI 自建技能卡片（Phase 49）：头部内联标注（失败短原因 / 面板「未进提示词」标注的短形态投影）。
    纯文本、无底色无边框（与 .slash-picker-status 同族）；零 padding / 零 margin ——
    与相邻元素的间隙由宿主 .tool-card-name-skill 的存量 gap: 8px 提供（不新增间距声明）。 */
 .tool-card-manage-note {
@@ -501,7 +503,7 @@ LLM 照常收到 `isError: true` toolResult），但主进程必须在**工具�
 |------|------|
 | 触发 | 模型调用 `manage_skill` → 卡片出现在所属 assistant 气泡的 `.tool-cards-container` 内（既有链路，零改动） |
 | 运行中 | 标题与技能名立即可见（start 事件的 `action` + `name`）；**徽标与内联标注尚未出现**（终态才判定）；状态沿用既有 `正在执行...` + 旋转图标 |
-| 终态（成功） | 标题 + 档位徽标（`托管`）+（`promptIncluded === false` 时）`未进提示词 · 超预算` 标注 + `完成`；展开区 = 参数摘要 +（create/update）正文折叠块 + 结果文本 |
+| 终态（成功） | 标题 + 档位徽标（`托管`）+（`promptIncluded === false` 时）`超预算` 标注 + `完成`；展开区 = 参数摘要 +（create/update）正文折叠块 + 结果文本 |
 | 终态（失败） | 标题 + 档位徽标（可判定时）+ **短原因**（`-error` 色）+ `失败`；展开区 = 参数摘要 + `错误` 全文。**不弹确认卡片、不插 system-note**（D-01 / D-02） |
 | 展开 / 折叠（卡片） | 既有行为：点击 `.tool-card-header` 切换 `.tool-card.expanded`；**本阶段零改动**（不新增键盘语义 —— 全仓所有工具卡片同一范式） |
 | 展开 / 折叠（正文块） | 点击折叠块 header 切换 `.collapsed`；**新增** `role="button"` + `tabindex="0"` + `aria-expanded` + Enter/Space。默认折叠、状态不持久化 |
@@ -558,8 +560,8 @@ byVerification `{ explicit: 13, backstop: 1 }`，dismissed 9（带理由，非�
 | E1 | error | ✅ resolved (explicit) | 失败态头部 = 既有红 ✗ 图标 + 既有 `失败` + **新增 11px 短原因**（`.tool-card-manage-note-error`，取九码白名单，定长 ≤ 6 字且不含技能名）；可判定时同时显示来源徽标。**不弹确认卡片、不插 system-note**（D-01 / D-02） |
 | E1 | populated | ✅ resolved (explicit) | 终态头部恒为 36px 单行：图标 + 标题（三动作白名单文案）+ 来源徽标（三档 `TIER_BADGE`）+ 至多一个内联标注 + 状态文字（`完成` / `失败`） |
 | E1 | partial | ✅ dismissed | 无渐进就绪态 —— 整张卡片由一次工具执行的两个事件（`tool_execution_start` / `_end`）驱动，不存在字段部分到位仍可交互的中间态 |
-| E1 | overflow | 🧪 resolved (backstop) | `{ statement: "在 AI 面板最小宽度（--ai-panel-min-width 280px，扣气泡内边距）下，带来源徽标 + 内联标注的 manage_skill 卡片头部保持单行不换行，徽标与短原因完整可读（仅技能名缩略，不出现标注被裁切或头部高度变化）", verification: "backstop" }` —— 需真实数据集的视觉确认（最宽标注 `未进提示词 · 超预算` + 徽标 + 长技能名）；**无显式证据则路由 `human_needed`**。若不成立，处理方式是缩短短原因文案（≤ 4 字），**不得**改成换行头部或加 system-note |
-| E1 | zero-one-many | ✅ resolved (explicit) | 内联标注**至多一个** —— 失败短原因与「未进提示词 · 超预算」互斥（失败态不判提示词归属）；0 个时**不渲染元素**（不占位、不留空元素） |
+| E1 | overflow | 🧪 resolved (backstop) | `{ statement: "在 AI 面板最小宽度（--ai-panel-min-width 280px，扣气泡内边距）下，带来源徽标 + 内联标注的 manage_skill 卡片头部保持单行不换行，徽标与短原因完整可读（仅技能名缩略，不出现标注被裁切或头部高度变化）", verification: "backstop" }` —— 需真实数据集的视觉确认（最宽为 6 字失败短原因；超预算形态 `超预算` 3 字 + 徽标 + 长技能名）；**无显式证据则路由 `human_needed`**。已按该处置收口：卡片头部的超预算标注改为 `/` 面板那条 `STATUS_TEXT.promptOmitted` 的 **≤ 4 字第二段投影**（`PROMPT_OMITTED_CARD_NOTE`），**不得**改成换行头部或加 system-note（收口记录见文件末尾） |
+| E1 | zero-one-many | ✅ resolved (explicit) | 内联标注**至多一个** —— 失败短原因与成功那条 `超预算`（`/` 面板标注的短形态投影）互斥（失败态不判提示词归属）；0 个时**不渲染元素**（不占位、不留空元素） |
 | E1 | long-text | ✅ resolved (explicit) | 超长技能名由 `.tool-card-name-text` 承担**全部**压缩（`min-width: 0` + ellipsis）；徽标与内联标注 `flex-shrink: 0` + `white-space: nowrap` ⇒ **永不截断、永不换行**（`.tool-card-header` 不得声明 `flex-wrap`） |
 | E2 | overflow | ✅ resolved (explicit) | 复用存量 `.tool-card-value`（`pre-wrap` + `word-break: break-word` + `overflow-x: auto`）⇒ 长描述折行，不横向溢出、不撑破卡片宽度 |
 | E2 | long-text | ✅ resolved (explicit) | `description` 不截断（受写入门长度约束），`pre-wrap` 强制折行；参数摘要行数固定为 2–3 行 |
@@ -599,7 +601,7 @@ byVerification `{ explicit: 13, backstop: 1 }`，dismissed 9（带理由，非�
 | 用「技能名 / 描述 / 正文一律 textContent」把属性注入面钉死 | 48 D-15 / T-48-10 + TD-48-01 的教训 |
 | 九条原因码 → 短原因 + 完整文案（单点产出于主进程） | D-07 的原因码表 + D-08 的「命中即 throw」语义 |
 | 「超数量上限」短原因与面板 `STATUS_TEXT.overLimit` 同值 | 48-02 的既有权威表（复用，不新写） |
-| 「未进提示词 · 超预算」标注复用 48 同款文案与 `--skill-limit-text` | 用户（本次 ui-phase 问答）+ 48 D-12 的可见性精神 |
+| `/` 面板行尾「未进提示词」标注复用 48 同款文案与 `--skill-limit-text`；卡片头部的超预算形态则取该单源的短投影 | 用户（本次 ui-phase 问答）+ 48 D-12 的可见性精神 |
 | 引用同一 `STATUS_TEXT.promptOmitted` 字符串（不新写） | 48 契约的「唯一权威清单」纪律 |
 | 成功文案含「下一条消息起可用」 | D-13 的忙时语义（对用户不可见，不说明会被读成「AI 建的技能没用」）+ CONTEXT 的 Claude's Discretion |
 | `promptIncluded` 进终态元数据并可呈现 | CONTEXT 的 Claude's Discretion + 48 D-12 的可见性精神 |
@@ -642,3 +644,54 @@ byVerification `{ explicit: 13, backstop: 1 }`，dismissed 9（带理由，非�
 3. **`renderSkillContentBox` 新增 `tabindex="0"` 会引入新的焦点停靠点与 UA 默认焦点环**
    （项目无全局 `outline: none`，故不会出现不可见焦点）。契约中「零视觉变化」的措辞应理解为
    「无布局 / 配色 / 文案变化」；若沿用既有视觉语言，可顺手补一条 `:focus-visible`。
+
+---
+
+## Backstop 收口记录（E1 overflow）
+
+> 本节是 `## UI Considerations` 的 `E1 / overflow` 那条 backstop 的**收口记录**（Phase 49 · 计划 07，gap `G-49-3`）。
+> 它是**追加**节 —— 正文的改动只落在七处陈述卡片渲染文案的位置与四行表面标注上，两者由可重跑的
+> 「七锚点 + 表面规则」判据机械覆盖，不靠人工核对。
+
+**① 失败事实（自动化实测，非人工报告）。** 2026-09-13 的真实渲染驱动（playwright `_electron`
++ 真实拖拽到 `--ai-panel-min-width` = 280px）实测：面板 280px → 卡片实宽 210px →
+`.tool-card-name`（`.tool-card-name-skill`）`clientWidth` **129**px < 其不可压缩内容 **148**px
+（= 8 + 32 + 8 + 100：两处宿主 `gap: 8px` + 来源徽标 32px + 当时沿用的两段式标注 100px）。
+后果有两条：**标注右端 19px 被祖先 `.tool-card-name` 继承的 `overflow: hidden` 裁掉**；
+而唯一可压缩项 `.tool-card-name-text`（`min-width: 0`）被压到 `clientWidth = 0` ——
+技能名**整段消失**、连省略号都没有空间渲染。
+
+**② 收口的是什么。** E1 给出的处置（**缩短短原因文案至 ≤ 4 字**）照做，落点是**卡片头部那条
+超预算标注**：它改为取 `/` 面板行尾 `STATUS_TEXT.promptOmitted` 的**第二段机械投影**
+（新常量 `PROMPT_OMITTED_CARD_NOTE`，3 字），于是不可压缩簇回到 8 + 32 + 8 + 34 = 82 ≤ 129，
+退化重新回到契约允许的唯一形态：「技能名被压缩到仅剩省略号」。收口由**真实渲染**门禁承担
+（`tests/uat-49-g49-3-panel-layout.js` 的 A1–A9，见 ⑥），**不由声明扫描或子串扫描承担**。
+
+**③ 收口的不是什么。** `/` 面板行尾那条长串**逐字未变**（`STATUS_TEXT.promptOmitted
+=== "未进提示词 · 超预算"`）。四条依据：48-CONTEXT 的 **D-12 原文**、48-UI-SPEC 的
+「超限两条刻意长度不对称、**照写不统一**」契约、`tests/test-skill-picker-model.js` 的用例名与
+逐字断言、以及产品文档 §10.1 的四条定长文案之一。**缩短对面板零收益**：面板行 `flex-wrap: wrap`
+且宽 ≥ 280px，该串在面板里从不被裁切；缩短只会丢掉「未进提示词」这半边语义（效果），
+只剩「超预算」（原因）。因此本契约把一个串拆成**两个表面**：面板用完整两段式、卡片用其第二段投影
+（同一单源，不是第二份文案）。
+
+**④ 排除的两条路线。** **不**改成换行头部 —— `.tool-card-header` 恒 36px 单行是硬不变式
+（`flex-wrap` 明文禁止，见 `## 卡片结构契约` 的头部单行不变式）；**不**加 system-note ——
+D-02 已明确否决（信息重复 + 多技能时刷屏）。故 E1 原文的两条禁令**一字未破**。
+
+**⑤ 契约级纪律（本节新增，防日后回归）。** 「凡提到『未进提示词』的位置，必须显式标明它属于
+`/` 面板行尾标注，或作为卡片短形态的投影来源」—— 该纪律的作用是让后续改动**无法再把长串
+悄悄读作卡片渲染文案**：本文件正文里所有提到该串的行都已按此标注（Color 的 Warning 行、
+对比度核算表、CSS 规格代码块的注释、决策来源表末行），`/` 面板与卡片两个表面因此各自可机械区分。
+
+**⑥ 真实渲染证据的位置。**
+- 驱动脚本：`tests/uat-49-g49-3-panel-layout.js`（脚本名以 `uat-` 开头，故永不被 `test-*.js` 类套件拾取）
+- 红轮日志（**改源码之前**，A1/A2/A3/A6 为红、A4/A5/A7/A8/A9 为绿）：`/tmp/uat49/g49-3-red.log`
+- 绿轮日志（A1–A9 全绿、退出码 0）：`/tmp/uat49/g49-3-green.log`
+- 证据 JSON（四档完整几何量 + 全轮 `cssDeclProjection` sha + `preflight`）：`/tmp/uat49/evidence-g49-3.json`
+- 截图：`/tmp/uat49/g49-3-card-280.png`、`g49-3-card-520.png`、`g49-3-window-280.png`、
+  `g49-3-zoom-280-header.png`（4× 放大，供人工目视复核标注尾部字符完整）
+- 「CSS 声明零改动」由两条判据共同承担：A9（全轮声明投影 sha 相等 ⇒ 只动了注释）与纯 Node 的
+  `css-decl-freeze`（四个规则块的声明集逐字比对）。单点变异 实测：给标注加 `max-width: 60px`
+  会让两者**同时转红**，而 M14 / M15 / A1–A7 对它全部保持绿（盒子窄于文本时字形画到盒外，
+  矩形判据看不见）—— 这正是本阶段「声明扫描会假绿」教训的兑现面。
