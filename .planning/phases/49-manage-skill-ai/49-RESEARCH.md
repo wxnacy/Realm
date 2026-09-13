@@ -1063,25 +1063,27 @@ async function atomicWriteSkill(env, destFile, content) {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **D-08 的字段分离扫描如何实现（阻塞级）**
+> 四条均已在执行期裁定并落地，裁定记录见 `49-VALIDATION.md` 的 OQ-1..OQ-4 与 `49-03-PLAN.md`。逐条落点如下（原文保留，不再改动）：
+
+1. **D-08 的字段分离扫描如何实现（阻塞级）** — **RESOLVED：取推荐方案 A**（可选参）。落地为 `ai-memory-manager.js` 的 `scanInjectionPatterns(content, { includeCredentials })`（49-01）；`test/memory/threat-scan.test.js` 的既有单参调用 33/33 全绿。`ai-memory-manager.js` 已按本条要求列入 49-01 的显式改动文件。
    - What we know: `ai-memory-manager.js` 只导出 `scanInjectionPatterns(content)`，该函数无条件连跑两组；两张表均未导出（本会话 `require` 实测）；`atomicWrite` 同样未导出。
    - What's unclear: 采「加可选参」（推荐 A）还是「导出两张表」（B）。两者都能满足 D-08，代价不同。
    - Recommendation: **A**。理由：改动最小（函数体两行 + 一处默认值）、向后兼容（既有单参调用零影响，本会话 grep 确认 `test/memory/threat-scan.test.js` 全部单参）、Phase 51 扩 `SKILL_THREAT_PATTERNS` 时可继续沿同一选项面扩展（满足 D-08「单点扫描 + 51 只扩表」）。**须在 plan 中把 `ai-memory-manager.js` 列为显式改动文件**（CONTEXT 的 Integration Points 当前只写了「无需改 `ai-memory-manager.js`」，与事实不符）。
 
-2. **`description` 上限（1024）的常量归属**
+2. **`description` 上限（1024）的常量归属** — **RESOLVED：在 `LIMITS` 加第四项** `MAX_SKILL_DESCRIPTION_CHARS`，注释写明与 SDK `harness/skills.js:5` 的 `MAX_DESCRIPTION_LENGTH` 对齐、升版须复核。`LIMITS` 现为四项（49-VERIFICATION 的 Artifact 表已核对两项新增限额均在位）。
    - What we know: SDK `skills.js:5` 有 `MAX_DESCRIPTION_LENGTH = 1024`；`ai-skills-manager.js` 的 `LIMITS` 当前只有三项，且被源码扫描断言钉住「三限额单源齐全」（`tests/test-ai-skills.js:1192-1203`）。
    - What's unclear: 是在 `LIMITS` 加第四项（`MAX_SKILL_DESCRIPTION_CHARS`）还是引用 SDK 常量（SDK 不导出该常量 —— 它只是模块内 `const`）。D-10 明文「只允许在 `LIMITS` 内新增一项」是指数量闸那一项，未说不能加 description 项。
    - Recommendation: 在 `LIMITS` 加一项，注释里写明「与 SDK `harness/skills.js:5` 的 `MAX_DESCRIPTION_LENGTH` 对齐，升版须复核」。既遵守常量单源（防止写入侧与加载期分叉），也不破坏既有三项的断言（该断言只 `includes` 三条字面量，**加项不转红**）。
 
-3. **测试文件组织**
+3. **测试文件组织** — **RESOLVED：新建 `tests/test-manage-skill.js`（41 例，实测）承载 manager 级值域矩阵，同时在 `tests/test-ai-skills.js` 补接线类断言**（M 组卡片标记两时点与终态元数据通道 / L 组刷新链时序与次数账，172 例实测）。两者均已落地。
    - What we know: `tests/test-ai-skills.js` 已达 **3286 行 / 147 例**（本会话实跑 `# pass 147`）；本阶段可复用的夹具（`withTempRoot` / `writeSkill` / `setupSkillsEnv` / `scanRoots` / K 组 `promptCtx` / H 组 `markerCtx`）**全部是文件内局部定义**，新文件需自带副本。
    - What's unclear: 新增 `tests/test-manage-skill.js` 还是并入既有文件。
    - Recommendation: **新建 `tests/test-manage-skill.js`** 承载 manager 级单测（校验器七种非法 name / description 超长 / 正文超 64 KiB / 四类撞名 / seeded 三入口保护 / 原子性与清理 / 越界 / 字段分离扫描 / 扫描-净化顺序 / `MAX_MANAGED_SKILLS` 到顶）—— 该域有独立的输入空间与失败矩阵，且新文件可自带最小夹具（`withTempRoot` + `createSandboxEnv` + 显式 `seededNames` 注入，约 30 行，无需复制 `promptCtx`）。**同时**在 `tests/test-ai-skills.js` 补**接线类**断言（`manage_skill` 工具项 schema 键集合 = 判据 2 / 标记重建 / 出口补刷链）—— 因为这些断言依赖该文件的 `readSource` / `methodBody` 源码扫描基建与 K/H 组夹具。
    - **理由要点**：判据 2 的验收面（工具 `parameters.properties` 键集合）与判据 1（刷新链）是**接线断言**，天然属于 `test-ai-skills.js`；而写入侧的值域矩阵是**新域**，独立文件更清晰。
 
-4. **`content` 内含 frontmatter 的处理（见 Assumptions A5）**
+4. **`content` 内含 frontmatter 的处理（见 Assumptions A5）** — **RESOLVED：静默剥除（宽容）**，工具描述写明「`content` 只含正文，不含 frontmatter」。单层剥除行为由 `LEADING_FRONTMATTER_RE` 承担，49-04 Task 1 断言该行为逐字不变。
    - Recommendation: 静默剥除（宽容），工具描述写明「`content` 只含正文，不含 frontmatter」。
 
 ---
