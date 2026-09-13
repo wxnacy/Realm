@@ -25,9 +25,9 @@ affects: [Phase 50（设置页技能管理区，可复用同三张白名单表�
 actuals:
   tokens: 18051
   tasks: 3
-  commits: 3
+  commits: 5
 plan_head_before: 0ae16d933dd9d4edaee4572101ac70b91a57a679
-commits: 3
+commits: 5
 
 # Tech tracking
 tech-stack:
@@ -362,7 +362,7 @@ None - no external service configuration required.
 
 - 交付物文件全部在盘（`[ -f ]` 逐个命中）：`src/skill-picker-model.js` / `ai-manager.js` / `src/renderer.js` / `src/styles/main.css` / `src/index.html` / `ai-conversations-manager.js` / `tests/test-ai-skills.js` / `tests/test-skill-picker-model.js` / 本 SUMMARY
 - 任务提交 `e33ce1f` / `9bffeed` / `aa90a9b` — FOUND（`git log --oneline --all` 三条均可命中）
-- `plan_head_before` = `0ae16d933dd9d4edaee4572101ac70b91a57a679`（取自 `.git/gsd-plan-head-before-49-02` 台账）；`commits` = `git rev-list --count <base>..HEAD` = **3**（实测值，非叙述值）
+- `plan_head_before` = `0ae16d933dd9d4edaee4572101ac70b91a57a679`（取自 `.git/gsd-plan-head-before-49-02` 台账）；`commits` = **5** —— 在写本 SUMMARY 的时点由台账实测的第二仪器读数 `git rev-list --count <base>..HEAD`（3 个任务提交 + 1 个元数据提交 + 1 个 planning mirror 提交）。本 SUMMARY 自身的提交按 #3968 的约定落在测量之后，故 verify-work 的同一仪器会读到 `commits + 1`（= 6），属预期一致区间。
 - 计划级 `<verification>` 全项复跑通过：`node --check` ×3 通过；`test-skill-picker-model.js` **99/99**（`# fail 0`，≥ 95）；`test-ai-skills.js` **172/172**（`# fail 0`，≥ 166）
 - 4 条计划自带 `<verify>` 判据中 1 条（Task 1 verify #1）与 3 条（Task 1 verify #3 / Task 2 verify #1 / Task 3 verify #1）需最小修正 —— 全部以「断言集逐条保留、不放宽任何判据」的方式执行通过，缺陷已入 `.planning/WINDOWS.md`（#25–#27）
 - 「不动项」逐条实测零 diff：`agent-workspace.js` / `ai-skills-manager.js` / `builtin-skills-seeder.js` 三文件零 diff；`syncAgentSystemPrompt()` / `_flushDeferredSkillsPrompt()` / `_resolveSkillMarker` / `_decorateSkillUserMessage` / `renderAISkillPill` / `renderAIMessages` / `renderToolCards` / `renderSlashPickerList` / `buildUserMessageContent` / `escapeHtml` 的方法体**逐字节未变**（base vs HEAD 抽取比对）
