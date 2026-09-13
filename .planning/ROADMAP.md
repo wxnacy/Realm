@@ -144,7 +144,7 @@ v2.6 把 AI 助手推进到**可扩展能力体系**：接入 pi-agent-core 原�
 
 - [x] **Phase 46: 技能基础设施（目录 + 沙箱归属 + 加载接线 + prompt 注入）** - 双目录进沙箱 + `<available_skills>` 注入 + 技能集变更即时生效 (completed 2026-09-11)
 - [x] **Phase 47: 内置技能播种 + bash 策略加固** - find-skills / skill-creator 去 CLI 化随包分发 + 包管理器安装档强制确认 (completed 2026-09-11)
-- [ ] **Phase 48: 技能发现与调用（`/` 面板 + `/skill:name`）** - `/` 面板并入技能列表 + 显式调用进对话历史 + 模型按 description 自动匹配
+- [x] **Phase 48: 技能发现与调用（`/` 面板 + `/skill:name`）** - `/` 面板并入技能列表 + 显式调用进对话历史 + 模型按 description 自动匹配 (completed 2026-09-13)
 - [ ] **Phase 49: `manage_skill` 工具（AI 自建技能）** - create / update / delete + 不吃 `path` 参数 + seeded 边界保护
 - [ ] **Phase 50: 设置页技能管理区 + `/api/skills/*`** - 列表 / 诊断 / 启停 / 卸载 + 双入口同一权威
 - [ ] **Phase 51: 用户技能导入管线（zip + 网络地址）** - 两阶段预览 + 恶意包整包拒绝 + 网络导入 SSRF 防护
@@ -235,7 +235,7 @@ Plans:
   4. 模型可仅凭 description 自动匹配技能并通过 `read` 打开其正文（用户不显式调用也能生效）。
   5. 调用不存在的技能给出明确错误提示（不出现"点了没反应"）；`disable-model-invocation` 技能不进 system prompt 但可经 `/skill:` 显式调用且在 UI 有标记。
 
-**Plans:** 8/8 plans executed（48-01..08 全部执行完毕；**48-08** 为 UAT round 3 test 18 裁决出的 G-48-18 / G-48-19 gap 收敛，见文末 Gap closure —— 代码面已闭合，运行期组合面待 `/gsd-verify-work 48`）
+**Plans:** 8/8 plans complete
 
 Plans:
 

@@ -2,45 +2,45 @@
 gsd_state_version: "1.0"
 milestone: v2.6
 milestone_name: AI 助手技能（Skill）能力
-current_phase: 48
-current_phase_name: "技能发现与调用（`/` 面板 + `/skill:name`）"
-status: executing
-stopped_at: Completed 48-08-PLAN.md
-last_updated: "2026-09-12T16:12:43.310Z"
+current_phase: 49
+current_phase_name: "`manage_skill` 工具（AI 自建技能）"
+status: planning
+stopped_at: Phase 48 complete, ready to plan Phase 49
+last_updated: "2026-09-13T03:56:40.225Z"
 last_activity: 2026-09-13
-last_activity_desc: Phase 48 execution started
-state_head: 4ef828cab6d644a983af363abbe41652f659feb8
+last_activity_desc: Phase 48 complete, transitioned to Phase 49
+state_head: e8024c5e5fecadd2628133ea3ea3d3f568149051
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 3
   total_plans: 18
   completed_plans: 18
-  percent: 0
+  percent: 50
 ---
 
 # Project State: Realm Browser
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-11)
+See: .planning/PROJECT.md (updated 2026-09-13)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 48 — 技能发现与调用（`/` 面板 + `/skill:name`）
+**Current focus:** Phase 49 — `manage_skill` 工具（AI 自建技能）
 
 ## Current Position
 
-Phase: 48 (技能发现与调用（`/` 面板 + `/skill:name`）) — EXECUTING
-Plan: 8 of 8
-Status: Phase complete — ready for /gsd-verify-work
-Last activity: 2026-09-13 — Phase 48 execution started
+Phase: 49 — `manage_skill` 工具（AI 自建技能）
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-09-13 — Phase 48 complete, transitioned to Phase 49
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 57+ (v1.0 through v2.4)
+- Total plans completed: 65+ (v1.0 through v2.4)
 - Previous milestones: 39 phases complete
 
 **By Phase:**
@@ -58,6 +58,7 @@ Progress: [░░░░░░░░░░] 0%
 | 44 | 18 | - | - |
 | 46 | 4 | - | - |
 | 47 | 6 | - | - |
+| 48 | 8 | - | - |
 
 *Updated after each plan completion*
 **Per-Plan Metrics:**
@@ -253,11 +254,18 @@ None yet.
 - O5（51）：frontmatter 是否显式 require `yaml`——若 require 必须提升为直接 `dependencies`（否则换 pnpm 立刻 MODULE_NOT_FOUND）
 - ~~O7（46/50）：`MAX_SKILL_MD_BYTES` / `MAX_USER_SKILLS` / prompt 段字符预算具体数值需结合实测用量定~~ — **已在 Phase 46 落定**（`ai-skills-manager.js LIMITS`：64 KiB / 50 / 8000）。Phase 50 只负责把这些数值渲染给用户，不得重新定义
 - ~~O8（46）：`/compact` 不保留技能正文，须写进 `docs/product/ai-skills.md` 已知限制~~ — **已在 Phase 46 落定**（文档「六、已知限制」）
-- ⚠️ [Phase 48/49/50/51] `syncAgentSystemPrompt()` **本阶段无生产调用方** —— 技能集写路径（`/` 面板 48 / `manage_skill` 49 / 设置页启停卸载 50 / 导入 51）落地时**必须**把「写成功后调用 `syncAgentSystemPrompt()`」写成显式交付项与验收项；P8 失效链本阶段只闭合 3/6 —— **2026-09-12 规划期注记**：Phase 48 已新增**读侧**生产调用方 `refreshSkillsForPanel()` → `await this.syncAgentSystemPrompt()`（D-17 / P8 触发点，48-01 Task 2）；但「写成功后回写」仍归 49/50/51，**该 ⚠️ 不因 48 闭合**
-- ⚠️ [Phase 48] `/skill:name` **显式调用必须实时读盘**（用户 2026-09-11 UAT 明确要求）—— 技能正文当场从磁盘读取，不得依赖 prompt 快照或对话历史里的旧回答。背景：46-UAT Test 3 实测「切回老对话看不到磁盘改动」，根因是模型复读自身历史答案（两次回答 1801 字符逐字相同），非重扫失效
-- ⚠️ [Phase 48] prompt 未区分「工具 / 技能」两个概念 —— 模型被问「你有哪些技能」时会把 27 个 tool 也称作技能（仅 demo 是真技能）；无历史污染时模型自行区分正确。做 `/` 面板时可考虑补一句措辞
-- ⚠️ [Phase 48 · 规划期技术债] **plan-checker 第 4 轮独立门禁未运行** —— 子代理配额 429（重置 2026-09-13 10:53），第 3 轮 checker 查出的 1 blocker（`resolveSkillBubbleArgs` 空 args 分支）+ 1 warning（`regenerateMessage`/`showError` 重试丢技能注入）由 planner 修订后，改由**主会话**做聚焦验证并判定成立。独立 gate 对这两项的属性已降级（非独立上下文）；执行前若配额恢复，可重跑 `/gsd-plan-phase 48 --skip-research` 复验。
-- ⚠️ [Phase 48 · 执行期注意] `resolveSkillBubbleArgs` **残留窄洞**：纯 `prompt()` 路径下，若 args 的尾段恰为 `'\n\n' + '/skill:{name}'`（用户手打 `/skill:alpha 第一段` + 空行 + `/skill:alpha`），pass1 无非空解、pass2 命中该假候选 → 返回 `''` 而非真 args（`promptWithContext` 形态因尾段 `用户消息：` 使 pass1 命中而不受影响）。触发需 args 末尾逐字重复同一技能 token，属病态但可达。48-01 Task 1 的八例解析表不含该形态 → 测试可全绿而该输入显示错 args。判据见 `48-01-PLAN.md` Task 1 ③ 第 4/6 步。
+- ⚠️ [Phase 49/50/51] `syncAgentSystemPrompt()` **本阶段无生产调用方** —— 技能集写路径（`manage_skill` 49 / 设置页启停卸载 50 / 导入 51）落地时**必须**把「写成功后调用 `syncAgentSystemPrompt()`」写成显式交付项与验收项；P8 失效链本阶段只闭合 3/6 —— **2026-09-12 规划期注记**：Phase 48 已新增**读侧**生产调用方 `refreshSkillsForPanel()` → `await this.syncAgentSystemPrompt()`（D-17 / P8 触发点，48-01 Task 2），并在 48-08 把「延迟回写 + 广播」补到两个**成功出口**（含纯文本轮）；但「写成功后回写」仍归 49/50/51，**该 ⚠️ 不因 48 闭合**
+- ~~⚠️ [Phase 48] `/skill:name` **显式调用必须实时读盘**~~ — ✅ **已闭合（2026-09-13 Phase 48 收尾）**：运行期新增技能目录 → `/skill:<新名>` 经 `syncAgentSystemPrompt()` 重扫一次后当场读盘成功（48-07），纯文本轮的延迟回写与广播也在成功出口落地（48-08）；UAT round 3 test 14 + round 4 test 19 端到端实测通过
+- ~~⚠️ [Phase 48] prompt 未区分「工具 / 技能」两个概念~~ — ✅ **已闭合（D-18）**：`REALM_SYSTEM_PROMPT` 已含「技能」与「工具」两段并有源码断言钉住（`buildSystemPrompt()` 的技能段 === `buildSkillsPrompt()`）；round 1 test 8 判定交付物①通过，②（模型自发遵守 `read` 指令）归模型能力、记 REVIEW IN-04
+- ⚠️ [Phase 48 · 收尾带出 · 无归属阶段] **TD-48-01**（原 CR-01，用户已裁决「阶段 48 不发版 → 延后」）：`src/renderer.js:10426-10431` 的面板行 `rowTitle` / 徽标 `title` / 标注 `title` 三处属性上下文里，`escapeHtml` 是 DOM 版、**只转义 `& < >` 不转义引号** ⇒ 技能名含 `"` 时可逃逸属性。Phase 49 开工前与 TD-48-02 同批处置
+- ⚠️ [Phase 48 · 收尾带出 · 无归属阶段] **TD-48-02**（原 CR-05）：`src/renderer.js:9388` 的取消分支判据仍只有 flag（无锚点自校验），`finalizeAIStreamingBubble`（`:8272-8278`）只清 `aiStreaming` / `aiCurrentMessageId`。与 TD-48-01 同批处置
+- ⚠️ [Phase 48 · 继续挂账，**不得**读成已修] **WR-02 / WR-06**（用户裁决）：WR-02 = `ai-manager.js:1046` / `:1174` 两处 `_resolveSkillInvocation` 裸调 + 首次读盘 + 动态 import 未包 `try`（异常逃逸时 `isProcessing` 可能不复位，48-08 只纳入了**新增的那个**调用点）；WR-06 = **已缓存**技能的实时读盘命中路径仍绕过 64 KiB 字节闸（`docs/product/ai-skills.md` §10.7 明文「仍开放」）。另 WR-01 / WR-03 / WR-04 与 IN-01~IN-17 仍在台账（IN-16 是唯一有潜在翻转风险的：若 `refreshSkills()` 日后改成「整批失败即抛错」，`if (rescanned)` 的跳过会把已刷新成功的技能判成 `not_found`）。全量见 `48-REVIEW.md`
+- ⚠️ [Phase 48 · 收尾带出] **UI-REVIEW 18/24，0 blocker、8 Warning、3 条 priority fix**（`48-UI-REVIEW.md`）：① `.ai-skill-pill .ai-message-ref-title` **缺 `font-family: var(--font-mono); font-weight: 600` 规则**（类名在、规则不在，三族 pill 形状不可辨；既有测试是「类名在即通过」断言，检不出）；② 行 hover/active 下三枚徽标与 `--skill-limit-text` 对比度跌破契约自定的 4.5:1（浅色 `#B45309` → `#92400E` 实测 3.80 → 5.37）；③ 长名行（≤360px）把来源徽标挤到第二行，「元素 1–3 不可换行组」契约未成立。三者均为观感/无障碍级，不阻断收尾
+- ⚠️ [Phase 48 · 执行期发现 · 既有环境问题] **D-48-A**：`tests/test-builtin-skills-seeder.js` 的「DOC-02 计数断言」在 Node 22 下**基线即红**（`node --test` 嵌套 spawnSync 继承 `NODE_TEST_CONTEXT=child-v8` ⇒ 孙进程不输出 TAP）。与 48 改动无关；修法（`env: { ...process.env, NODE_TEST_CONTEXT: undefined }`）见 `.planning/phases/48-skill-name/deferred-items.md`
+- ⚠️ [Phase 48 · 流程性残余] plan-checker 第 4 轮独立门禁**未补跑**（子代理 429 配额）；第 3 轮查出的 1 blocker + 1 warning 由 planner 修订后改由主会话聚焦验证。阶段已收尾，若后续需要独立复核可重跑 `/gsd-plan-phase 48 --skip-research`
+- ⚠️ [Phase 48 · 执行期注意 · 仍开] `resolveSkillBubbleArgs` **残留窄洞**：纯 `prompt()` 路径下 args 尾段恰为 `'\n\n' + '/skill:{name}'` 时返回 `''` 而非真 args（病态但可达；48-01 的八例解析表不含该形态 ⇒ 测试可全绿而显示错 args）。判据见 `48-01-PLAN.md` Task 1 ③ 第 4/6 步
+- ⚠️ [Phase 48 · 规划期技术债] **plan-checker 第 4 轮独立门禁未运行** —— 子代理配额 429（重置 2026-09-13 10:53），第 3 轮 checker 查出的 1 blocker（`resolveSkillBubbleArgs` 空 args 分支）+ 1 warning（`regenerateMessage`/`showError` 重试丢技能注入）由 planner 修订后，改由**主会话**做聚焦验证并判定成立。独立 gate 对这两项的属性已降级（非独立上下文）；执行前若配额恢复，可重跑 `/gsd-plan-phase 48 --skip-research` 复验。**【2026-09-13 收尾注记】阶段 48 已收尾，该独立门禁未补跑（见上方「流程性残余」条）**
+
 
 - ⚠️ [技术债 · 无归属阶段] **bash 安装档只读豁免的结构性根因** —— `matchInstall` 用「整段正则 + `FLAG_TOLERANCE` 取值槽」判只读，使三条形态在白名单含裸工具名时**零卡片**：CR-01（`npm -g update` / `npm --global rebuild`）、CR-02（`npm audit --json fix`）、残余 ③（`npm -g update ls`）。三者均在 Phase 47 基线即存在（非回归），已具名写进两份产品文档的残余段与 `47-REVIEW.md`。**根治 = argv 级分词 + 显式「带值旗标」清单**；修的时候须同步改 `tests/test-ai-bash-policy.js:847`（它当前把 CR-01 的词法形态钉成期望的 `allow`）与三份文档口径。另两条同源技术债：`ai-bash-policy.js:249` 的 JSDoc 称旗标容忍「不会吞掉子命令本身」（与 CR-01 矛盾）、`docs` 只读枚举缺机械漂移护栏
 
@@ -332,14 +340,16 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-12T16:12:43.275Z
-Stopped at: Completed 48-08-PLAN.md
+Last session: 2026-09-13T03:56:40.225Z
+Stopped at: Phase 48 complete, ready to plan Phase 49
 Resume file: None
 
 ## Operator Next Steps
 
+- **Phase 48 已收尾**（8/8 计划，UAT 20/20 全裁决，`post-merge` 三门禁全过）：`validate-phase` 零 gap（`nyquist_compliant: true`）、`secure-phase` `threats_open: 0`（36 条登记项全闭合）、`ui-review` 18/24（0 blocker）。**收尾时按「归档轮次加 `[Round N]` 前缀」修了 UAT 多轮编号门禁**（round 2/3 的历史 issue 条目不再永久阻塞 `uat-passed`；正文与结果一字未改），并把 `48-VALIDATION.md` 回填后重算的 `covered_digest` 写回 VERIFICATION（回填 VALIDATION 会让指纹 stale）
+- **Phase 49 开工前第一条**：处置 **TD-48-01**（`escapeHtml` 不转义引号 → 面板行属性上下文逃逸）与 **TD-48-02**（取消分支无锚点自校验）；两条为 Phase 48 用户明确裁决「延后」的 Critical，形态与修法见 `48-REVIEW.md` 的 Disposition 表。同批建议顺手清 UI-REVIEW 的 3 条 priority fix（pill 字体缺规则 / 徽标与超限标注对比度 / 长名行分组）
 - **Phase 47 已收尾**（override 收尾：SC3 普遍性表述 + CR-01/CR-02 记技术债）。技术债与建议修法见 `.planning/phases/47-bash/47-REVIEW.md` 的 Disposition 与处置补记：CR-01（`npm -g update` 类旗标取值槽吞子命令）、CR-02（`npm audit --json fix` 类）、残余 ③（`npm -g update ls`）、`matchDangerous` 未同源归一化、`sweepSeedResidue` 缺陈旧性判据、`npm version` 被列只读、`ai-bash-policy.js:249` JSDoc 不准确、docs 只读枚举缺漂移护栏 —— 根治走 **argv 级分词 + 显式「带值旗标」清单**（可一次消除 CR-01/CR-02/残余 ③）
 - ⚠ **发布前必办**：生产包 `/Applications/Realm.app` 仍是 2026-09-10 构建（无 `skills-builtin/` 与 `THIRD_PARTY_NOTICES.md`、仍含 `.planning`/`tests`）；SC5 的打包面证据经 47-04 的 Nightly 路线取得，**正式发布前必须重跑 `make install`**
-- 用户已定：Phase 48 的 `/skill:name` 必须实时读盘（写路径接线 + 实时正文两条都是显式验收项）
-- 遗留验证待办：Phase 46 的 P8 失效链 3/6 需在 48/49/50/51 逐点闭合
-- Phase 47 收尾时 `phase.complete` 报两条非阻断警告：① 各 SUMMARY 的「files referenced」误报（把代码块里的命令当文件路径）；② `REQUIREMENTS.md` 正文含 `ECO-01..06` 但 Traceability 表未登记（属后续阶段的 ID，收尾时未擅自补录）
+- 用户已定：Phase 48 的 `/skill:name` 必须实时读盘（写路径接线 + 实时正文两条都是显式验收项）—— ✅ 已闭合（48-07 / 48-08 + UAT round 3 test 14 / round 4 test 19）
+- 遗留验证待办：Phase 46 的 P8 失效链 3/6 需在 49/50/51 逐点闭合（Phase 48 已落下**读侧**调用方与两个成功出口的延迟回写，**写路径回写**仍待补）
+- Phase 47 收尾时 `phase.complete` 报两条非阻断警告：① 各 SUMMARY 的「files referenced」误报（把代码块里的命令当文件路径）；② `REQUIREMENTS.md` 正文含 `ECO-01..06` 但 Traceability 表未登记（属 `## v2 Requirements` 的**延后生态项**，非本里程碑交付，收尾时未擅自补录 —— 该警告在 Phase 48 收尾时**再次出现**，属同一已知误报类）

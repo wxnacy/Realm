@@ -144,6 +144,8 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ SKILL-01..08 + DOC-01: AI 技能基础设施（`agent-workspace/skills/` 与 `managed-skills/` 双目录入硬沙箱 + SDK 加载接线 + `<available_skills>` 注入 system prompt 第 4 段 + 契约布局过滤/目录名权威/同名遮蔽去重 + 三限额与诊断不静默 + 启停只标记不删文件 + 不重建 Agent 的 prompt 回写与 `skills:changed` 跨窗口广播 + `docs/product/ai-skills.md` 骨架） — Phase 46
 - ✓ SKILL-09 + SEED-01~05 + SEC-01 + DOC-02: 内置技能随包播种与 bash 策略加固（`skills-builtin/` 两技能 + 播种模块自愈式播种/差异诊断/原子替换 + 打包排除项与 `asarUnpack` 成对 + 打包后正式环境实跑验证 + bash 安装档改「首 token 默认拒绝 + 显式只读清单」+ 共用词法归一化 `stripShellQuoting` + 只读豁免三条承重墙（空只读清单不生成动词式正则 / 纵深优先 / `init`·`audit` 形态化）+ WR-01 白名单 `*` 条目双向关闭 + 三份文档逐句为真） — Phase 47
   > **收尾方式**：SC3 的**普遍性**表述（「不再可能被白名单免确认」）由用户裁定以 **override** 收尾 —— CR-01（旗标取值槽吞末尾子命令：`npm -g update`）与 CR-02（`audit` 与 `fix` 之间夹旗标：`npm audit --json fix`）两条**零卡片残余**在阶段基线 `0bbb6c4` 即存在（非本阶段回归），已由三份文档具名披露并记入 `47-REVIEW.md` 技术债，根治走 argv 级分词（见 Active）
+- ✓ DISC-01..07: 技能发现与调用（`/` 斜杠面板并入技能列表 + 实时过滤 + 扁平索引直绑；`/skill:name [args]` 经 `formatSkillInvocation` 注入 `<skill>` 块；技能调用进历史并触发 LLM；三档来源徽标 + 遮蔽可见；`read` 技能卡片变体；两码两文案的明确错误提示与气泡回滚；`disable-model-invocation` 不进 prompt 但可显式调用并打 `仅显式` 标） — Phase 48
+  > **收尾方式**：8/8 计划，UAT 20/20 全裁决（round 1–4）；三门禁全过 —— `validate-phase` 零 gap（`nyquist_compliant: true`）、`secure-phase` `threats_open: 0`（36 条登记项闭合、10 条 accepted risks）、`ui-review` 18/24（0 blocker、3 条 priority fix 记技术债）。已闭合的 gap：G-48-3/4/6（48-05/48-06）、G-48-12（48-07）、G-48-18/19（48-08）。**关键实现语义**：运行期新增技能经 miss 重扫**至多一次**后当场读盘；延迟回写 + `skills:changed` 广播落在**任一轮成功出口（含纯文本轮）**、由唯一实现 `_flushDeferredSkillsPrompt()` 承担。**挂账未修**：TD-48-01（`escapeHtml` 不转义引号）、TD-48-02（取消分支无锚点自校验）、WR-02（两处裸调未包 try）、WR-06（已缓存技能绕过 64 KiB 字节闸）、UI-REVIEW 3 条 priority fix
 
 ### Active
 
@@ -364,6 +366,17 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | 播种 `detectDiff === 'same'` 时**不写盘**（D-08 的精度化），目录项以 `rel + '/'` 参与差异判定、size/sha256 层只遍历文件条目 | 内容一致仍整目录重建会每次启动白算最贵的 sha256 层并制造 `rename(dst → bak)` 空窗（崩溃残留的触发源）；目录条目不进哈希层则 `readFileSync(dir)` 抛 EISDIR 被 fail-safe 吞成 different，本 gap 以更隐蔽的形式复发 | ✓ 已验证 — Phase 47（47-06，inode 不变实测） |
 | 播种失败的三条**并列**可见面：顶层 `catch` 的 `console.error` + `finally { _flushDiagnostics() }` + 结构化 `getSeedDiagnostics()` | `finally` 只输出 `_diagnostics`，而顶层 catch 覆盖循环之外、早于任何诊断 push 的异常（此时诊断为空、flush 零输出）；删掉 catch 的 console.error 会让该路径彻底静默 | ✓ 已验证 — Phase 47（47-06，ENOTDIR 注入用例） |
 | Phase 47 的 SC3 普遍性表述以 **override** 收尾，CR-01/CR-02 记技术债 | 两条零卡片残余在阶段基线即存在（非回归）、修复需改判定核心与既有锁定断言（`:847` 把该形态钉成期望的 `allow`），属独立计划规模；用户 2026-09-11 裁定「只修文档面」，文档已逐条具名披露残余 | ✓ 用户裁定 — Phase 47（`47-REVIEW.md` Disposition） |
+| 技能是**第二命令源**，绝不并入 `SLASH_COMMANDS` 注册表 | 并入即被本地 handler 吞掉（命令走「清空输入框 + 执行 handler」，技能必须走「组装语法文本 → 既有发送链路 → 主进程权威解析」），两者语义不可合一 | ✓ 已验证 — Phase 48（D-04 / 48-02） |
+| `/skill:` 的语法解析与 args 取值只有**一份实现**（`src/skill-picker-model.js`），渲染端与主进程共用 | 两份实现必然漂移；按名长切片取 args 在 `/skill:<前缀>` 形态下会吞掉 args 开头（P-48-01），改为 token 取值法并要求两侧同源 | ✓ 已验证 — Phase 48（48-01 / 48-02） |
+| 面板行点击绑定改**扁平索引直绑**（`data-index`），取消按名字反查 | 技能名与本地命令同名时两行并存，按名反查恒命中第一行 ⇒ 「点了没反应 / 点了做错事」（P-48-04）；不可选中行不绑处理器 | ✓ 已验证 — Phase 48（48-02 T-48-09） |
+| 发送路径**删除渲染端本地否决**，存在性与启停一律由主进程当场读盘裁定 | 用可能陈旧的 `state.aiSkills` 快照否决会拒掉运行期新增技能（G-48-3，用户 2026-09-11 明确要求「显式调用必须实时读盘」） | ✓ 已验证 — Phase 48（48-06 / UAT round 1 test 3 + round 3 test 14） |
+| 缓存未命中时经**唯一权威入口** `syncAgentSystemPrompt()` 重扫**至多一次**后重试读盘 | 读盘口的存在性判据取自模块级缓存，运行期新增目录永不自动进缓存（全仓无 watcher / 无定时器 / 无写工具钩子）；重扫走同一加载管线以保住 shadowed / disabled / tier 三字段的单源，禁止循环与第二套判定 | ✓ 已验证 — Phase 48（48-07 / UAT round 3 test 14） |
+| 延迟回写 + `skills:changed` 广播由**唯一实现** `_flushDeferredSkillsPrompt()` 承担，两个**成功**出口（含纯文本轮）共用，首行检脏早退 | 旧形态只在 `promptWithContext()`（带引用/附件）内联消费，而常规 `/skill:` 走 `prompt()` ⇒ 脏标记无限期保持真、运行期新增技能对模型自动匹配与已开面板长期不可见（G-48-18）；无条件调用则让每条普通消息多付一次全量重扫，故检脏必须早退且只在成功出口执行 | ✓ 已验证 — Phase 48（48-08 / UAT round 4 test 19） |
+| `skills:changed` 消费侧**只重拉快照 + digest 早退**，不得再触发 `refreshSkills()` | 「广播 → 刷新 → 再广播」是自激回路（P-48-06）；面板刷新只保留「打开面板那一次」这一个触发源 | ✓ 已验证 — Phase 48（48-02 / 48-06，renderer `.refreshSkills(` 恒 1 处） |
+| `read` 技能卡片用事件携带的**结构化 `skill_invocation`**，重载路径用同一 `matchSkillByPath` 重建标记 | renderer 侧按路径字符串匹配会随 SDK 文案/路径形态漂移；事件契约是唯一权威，重载不能另起一套判定 | ✓ 已验证 — Phase 48（48-03 / UAT round 1 test 8） |
+| 技能徽标只表达**来源分类**（user / builtin / managed）；`仅显式` 标记只由 `disableModelInvocation` 决定且**不改变可选中性**；`allowed-tools` 不展示 | 徽标若被读成「技能授予了额外权限」即为虚假安全感（SDK `Skill` 接口根本没有工具授权字段、运行时也不强制）；`仅显式` 是可见性提示、不是拒绝条件 | ✓ 已验证 — Phase 48（48-02/48-03 / T-48-12） |
+| `escapeHtml` 对属性上下文不转义引号（TD-48-01）与取消分支无锚点自校验（TD-48-02）**用户裁定延后** | 阶段 48 不发版；两条为 48-REVIEW 的 Critical，但形态在阶段基线即存在、修复属独立规模；用户 2026-09-12 裁定「延后至 Phase 49 开工前与 TD-48-01/02 同批处置」 | ✓ 用户裁定 — Phase 48（`48-REVIEW.md` Disposition） |
+| UAT 多轮同文件用**轮次前缀**（`### [Round N] M.`）隔断编号，正文与结果一字不改 | `uat-predicate` 按 `^###\s*(\d+)\.` 扫全文件，多轮共用编号时历史 issue / skipped 会**永久**把 `phase uat-passed` 判为 false；加前缀后只有当前轮次参与门禁 | ✓ 已验证 — Phase 48 收尾（round 1–3 归档，round 4 全 pass ⇒ `uat-passed: true`） |
 
 ## Evolution
 
@@ -383,4 +396,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-11 after Phase 47 (内置技能播种 + bash 策略加固) complete*
+*Last updated: 2026-09-13 after Phase 48 (技能发现与调用) complete*

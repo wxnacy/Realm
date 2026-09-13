@@ -6,7 +6,7 @@ started: 2026-09-12T06:55:00Z
 updated: 2026-09-13T03:45:00Z
 round: 4
 archive_note: "round 1–3 的条目已加 `[Round N]` 轮次前缀（正文与结果一字不改）—— 归档轮次不再贡献 uat-passed 门禁的 blocker，最新轮次（19/20）全部 result: pass"
-round_1_status: diagnosed
+round_1_status: "diagnosed（round 1 的 5 个 issue 已由 gap 计划 48-04 / 48-05 / 48-06 处置并执行完毕，见 ## Gaps）"
 round_2_source: "48-VERIFICATION.md @ 2026-09-12T12:25:00Z（gap 修复后重验，31/36）"
 round_2_status: "diagnosed（2026-09-12 自动驱动实测：9/10/13 pass，12 issue → G-48-12，11 已跳过）"
 round_2_driver: "playwright _electron + 真实 dev 应用；provider = xiaomi/mimo-v2.5（XIAOMI_API_KEY）"
