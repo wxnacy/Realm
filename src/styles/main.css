@@ -5850,9 +5850,14 @@ textarea::placeholder {
   background: var(--bg-hover);
 }
 
-/* 折叠块 header 的键盘焦点环（49-02）：header 现带 role="button" + tabindex="0"
+/* 折叠块 header 的键盘焦点环（49-02）：header 带 role="button" + tabindex="0"
    （48-UI-REVIEW Pillar 6 的建议），故必须可见地标示焦点。项目无全局 outline 重置，
-   故不会出现「不可见焦点」；此处只按既有视觉语言给一圈描边，**不**写 outline: none。 */
+   故不会出现「不可见焦点」；此处只按既有视觉语言给一圈描边，**不**写 outline: none。
+   —— 49-08（UI-49-W6-01）补注：本规则的服务对象是**气泡实例**。卡片实例的 header
+   位于默认折叠的 .tool-card-content 内（max-height: 0，overflow: hidden 不移出 Tab 序），
+   故卡片调用点传 { interactive: false }、**不施加焦点语义** —— 也就是说，
+   本规则对卡片实例既不生效、也不该生效（卡片上没有可聚焦的 header 需要标示焦点）。
+   卡片头部（.tool-card-header）的展开 / 折叠沿用全仓既有的鼠标语义（契约 :508）。 */
 .ai-skill-content-box-header:focus-visible {
   outline: 2px solid var(--accent-color);
   outline-offset: -2px;

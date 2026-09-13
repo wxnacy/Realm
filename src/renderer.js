@@ -8925,27 +8925,50 @@ function renderAISkillPill(skillInvocation) {
  * 传 `{content: params.content}` —— 两种语境复用**同一份** DOM 构建实现（不得新建第二份）。
  * 类名与 N 口径逐字未变。
  *
- * **a11y（49-02 增量，48-UI-REVIEW Pillar 6 的建议）**：header 带 `role="button"` +
- * `tabindex="0"` + 随态更新的 `aria-expanded`，并响应 Enter / Space。补齐作用于**唯一构建
- * 实现** ⇒ 气泡实例同时获得，属纯增量（零布局 / 配色 / 文案变化）。
+ * **a11y 增量的语境开关 `interactive`（49-08 / UI-49-W6-01）**
+ *
+ * ① 含义与缺省：`interactive = true` 时给 header 补 `role="button"` + `tabindex="0"` +
+ *    随态更新的 `aria-expanded`，并响应 Enter / Space（49-02 的增量，48-UI-REVIEW Pillar 6
+ *    的建议）。缺省 `true` 是为了让**不传参的调用点**（气泡）逐字保持既有行为。
+ *
+ * ② **卡片语境必须传 `false`，原因**：`manage_skill` 卡片把本构建产物放进 `.tool-card-content`，
+ *    该容器用 `max-height: 0; overflow: hidden` 承载默认折叠。而 `overflow: hidden`
+ *    **不会**把后代移出顺序焦点导航（只有 `display: none` 会）⇒ 折叠卡片上会出现一个
+ *    **零可见高度**的 Tab 停靠点：焦点环被祖先裁掉、命中测试取不到它，
+ *    即键盘焦点停在一个看不见的控件上（WCAG 2.4.7 Focus Visible 不达标）。
+ *
+ * ③ **为什么不用 `display: none` 替代**：那会把整条 `transition: max-height 200ms` 的
+ *    展开 / 折叠动画一并杀掉，爆炸半径覆盖全仓**所有**工具卡片 —— 等于用一个视觉回归
+ *    换一个 a11y 修复。`visibility: hidden` 的等价方案同样要动过渡与全部卡片，一并排除。
+ *
+ * ④ **气泡语境不受影响**：气泡里该 header 恒可见，控件可见则焦点语义成立，
+ *    故增量在原位完整保留。卡片的展开 / 折叠沿用全仓既有的**鼠标语义**
+ *    （契约 `49-UI-SPEC.md:508` 锁定"本阶段零改动"），本计划不改变该范式。
  *
  * @param {{name?: string, content: string}} skillInvocation - 技能正文元数据（只用 `content`）
+ * @param {{interactive?: boolean}} [options] - 语境开关（缺省 `true`；卡片调用点传 `false`）
  * @returns {HTMLElement} 折叠块元素
  */
-function renderSkillContentBox(skillInvocation) {
+function renderSkillContentBox(skillInvocation, { interactive = true } = {}) {
   const box = document.createElement('div');
   box.className = 'ai-skill-content-box collapsed';
 
   const header = document.createElement('div');
   header.className = 'ai-skill-content-box-header';
-  header.setAttribute('role', 'button');
-  header.setAttribute('tabindex', '0');
-  header.setAttribute('aria-expanded', 'false');
+  // 焦点语义只在**可见**的宿主下施加：卡片语境的宿主默认零高（见上方 JSDoc ②）
+  if (interactive) {
+    header.setAttribute('role', 'button');
+    header.setAttribute('tabindex', '0');
+    header.setAttribute('aria-expanded', 'false');
+  }
 
   /** 折叠态切换 + `aria-expanded` 同步（点击与键盘共用同一个出口） */
   const toggleCollapsed = () => {
     box.classList.toggle('collapsed');
-    header.setAttribute('aria-expanded', String(!box.classList.contains('collapsed')));
+    // 无属性可同步的语境（卡片）不得凭空造出 `aria-expanded`
+    if (interactive) {
+      header.setAttribute('aria-expanded', String(!box.classList.contains('collapsed')));
+    }
   };
 
   const title = document.createElement('span');
@@ -8958,13 +8981,16 @@ function renderSkillContentBox(skillInvocation) {
 
   header.appendChild(title);
   header.appendChild(chevron);
+  // 点击（鼠标语义）两种语境都保留 —— 卡片范式本就是鼠标语义
   header.addEventListener('click', toggleCollapsed);
-  header.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault(); // Space 默认滚动页面 —— 折叠块不接管滚动
-      toggleCollapsed();
-    }
-  });
+  if (interactive) {
+    header.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault(); // Space 默认滚动页面 —— 折叠块不接管滚动
+        toggleCollapsed();
+      }
+    });
+  }
 
   const body = document.createElement('div');
   body.className = 'ai-skill-content-box-body';
@@ -9736,7 +9762,7 @@ function renderToolCard(toolExecution) {
     if (manageSkill.action !== 'delete'
       && toolExecution.status !== 'failed'
       && typeof params.content === 'string') {
-      manageContentBox = renderSkillContentBox({ content: params.content });
+      manageContentBox = renderSkillContentBox({ content: params.content }, { interactive: false });
     }
 
     // 结果区渲染**文本**而非 JSON：对象形状取 content[] 的 text 块、字符串形状原样 ——
