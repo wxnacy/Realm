@@ -285,7 +285,7 @@ Plans:
   4. 写入为原子操作（经沙箱 `env.renameFile` 获得双基准路径校验），失败不留半成品文件，且不触及 `ai-memory/`、`attachments/` 等其他工作区路径。
   5. 工具描述引导 AI 优先增强已有技能，而非创建近乎重复的新技能。
 
-**Plans**: 6/6 plans executed（3 executed + 3 gap-closure）
+**Plans**: 7 plans（3 executed + 3 gap-closure executed；49-07 gap-closure 待执行）
 
 Plans:
 **Wave 1**
@@ -313,6 +313,10 @@ Plans:
 **Wave 3** *(blocked on 49-05)*
 
 - [x] 49-06-PLAN.md — 文档纠偏：§11.7 失败态可见性 / §11.8 命名空间分账（48 号挂账句不动 + 49 号闭合另起一句）+ 词缀成文 + 三处测试例数账本 + `AGENTS.md` 维护约定四条新增不变式
+
+**Wave 4** *(blocked on 49-02 / 49-03；49-UAT.md 判 `diagnosed` 的 `G-49-3` 收口)*
+
+- [ ] 49-07-PLAN.md — **G-49-3**：卡片头部超预算标注改渲染单源的 ≤ 4 字机械投影（`PROMPT_OMITTED_CARD_NOTE`；48 D-12 的面板串 `未进提示词 · 超预算` 逐字未变）+ 新增可重跑的真实渲染驱动（280px 真实拖拽，红→绿两轮证据，判据取「标注右缘 vs 裁切祖先右缘」以避开旧驱动的假绿）+ 派生投影 / ≤ 4 字 / 48 原文冻结 / 九码长度上限四组护栏 + 产品文档、例数账本与 `49-UI-SPEC.md` 的 E1 收口记录（MGMT-01/05）
 
 **Security gate**: P3 前半（S1）name 二次校验与名称冲突判定——本阶段产出的校验器是 50 / 51 唯一可复用的那一份。
 
