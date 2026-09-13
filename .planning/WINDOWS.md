@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 27
+open_count: 28
 waived_count: 0
 fixed_count: 2
-total_count: 29
-last_updated: 2026-09-13T07:13:09.306Z
+total_count: 30
+last_updated: 2026-09-13T14:29:15.698Z
 ---
 
 # Broken Windows Ledger
@@ -44,6 +44,7 @@ last_updated: 2026-09-13T07:13:09.306Z
 | 27 | 49 | deviation | .planning/phases/49-manage-skill-ai/49-02-PLAN.md |  | 计划自带 verify #1(Task3) 的徽标底色计数正则 #\\{0,1\\}var\\(--bg-secondary\\) 含多余 # 前缀，字面恒 0 命中；执行侧去掉前缀后通过（实测 6 处） | open |  | 2026-09-13T07:13:09.128Z |  |
 | 28 | 49 | stub | ai-manager.js |  | manage_skill 重载链路还原不了失败原因码 code（不落库）⇒ 重开对话后失败历史卡片不显示头部短原因（宁缺勿猜；展开区仍有主进程完整文案） | open |  | 2026-09-13T07:13:09.218Z |  |
 | 29 | 49 | stub | ai-manager.js |  | delete 成功卡片的 tier 在删除后不可判定 ⇒ 省略键、不显示来源徽标（不可判定时不猜） | open |  | 2026-09-13T07:13:09.306Z |  |
+| 30 | 49 | unrun-verify | docs/product/ai-skills.md |  | 失败态短原因（≤ 6 字）在 280px 面板下的宽度仅由算术保证（8+32+8+66≈114≤129），未用真实渲染逐条覆盖 —— G-49-3 的渲染门禁只覆盖超预算那条形态 | open |  | 2026-09-13T14:29:15.698Z |  |
 
 ````json
 [
@@ -393,6 +394,18 @@ last_updated: 2026-09-13T07:13:09.306Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-13T07:13:09.306Z",
+    "resolved_at": null
+  },
+  {
+    "id": 30,
+    "kind": "unrun-verify",
+    "phase": "49",
+    "file": "docs/product/ai-skills.md",
+    "line": null,
+    "description": "失败态短原因（≤ 6 字）在 280px 面板下的宽度仅由算术保证（8+32+8+66≈114≤129），未用真实渲染逐条覆盖 —— G-49-3 的渲染门禁只覆盖超预算那条形态",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-13T14:29:15.698Z",
     "resolved_at": null
   }
 ]

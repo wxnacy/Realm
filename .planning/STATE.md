@@ -3,18 +3,18 @@ gsd_state_version: "1.0"
 milestone: v2.6
 milestone_name: AI 助手技能（Skill）能力
 current_phase: 49
-current_phase_name: manage_skill 工具（AI 自建技能）
-status: executing
-stopped_at: Completed 49-06-PLAN.md（文档纠偏与账本同步：§11.7 口径 / §11.3 词缀成文 / §11.8 双命名空间记账 / 三处例数刷新 + 可重跑一致性命令 / AGENTS.md 四条不变式）
-last_updated: "2026-09-13T10:40:27.428Z"
+current_phase_name: "`manage_skill` 工具（AI 自建技能）"
+status: verifying
+stopped_at: Completed 49-07-PLAN.md（G-49-3 收口：卡片头部标注改取单源 ≤ 4 字投影 + 真实渲染门禁红→绿 + UI-SPEC E1 收口记录）
+last_updated: "2026-09-13T14:30:54.748Z"
 last_activity: 2026-09-13
 last_activity_desc: Phase 49 execution started
-state_head: 1fdfa15dfe7751b6cf926debba18679335a9989d
+state_head: 6abd31abdf108c732ee354bd490773f6facf09d0
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 24
-  completed_plans: 24
+  total_plans: 25
+  completed_plans: 25
   percent: 0
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-13)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 49 — manage_skill 工具（AI 自建技能）
+**Current focus:** Phase 49 — `manage_skill` 工具（AI 自建技能）
 
 ## Current Position
 
-Phase: 49 (manage_skill 工具（AI 自建技能）) — EXECUTING
-Plan: 6 of 6 (49-01..49-06 **全部完成**；权威计数 = `.planning/phases/49-manage-skill-ai/` 下 **6 份 SUMMARY**，且与 ROADMAP 的 `summary_count: 6` 一致。`state advance-plan` 的计数器在本阶段多次滞后（49-04 / 49-05 执行期各手工订正过一次）；本次其输出 `6 of 6` 恰与磁盘实况一致，仍以磁盘 SUMMARY 数为权威)
-Status: Phase complete, ready for verification
-Last activity: 2026-09-13 — Completed 49-06-PLAN.md（文档纠偏与账本同步：§11.7 口径 / §11.3 词缀成文 / §11.8 双命名空间记账 / 三处例数刷新 + 可重跑一致性命令 / AGENTS.md 四条不变式）
+Phase: 49 (`manage_skill` 工具（AI 自建技能）) — EXECUTING
+Plan: 7 of 7
+Status: Phase complete — ready for verification
+Last activity: 2026-09-13 — Phase 49 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -116,6 +116,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 49 P04 | 6min | 3 tasks | 3 files |
 | Phase 49 P05 | 9min | 3 tasks | 5 files |
 | Phase 49 P06 | 4 min | 3 tasks | 2 files |
+| Phase 49 P07 | 8 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -247,6 +248,8 @@ Recent decisions affecting current work:
 - [Phase 49]: 49-06：本轮闭合的五个编号（CR-01 / CR-02 / CR-03 / WR-01 / WR-02）全部挂在 49-REVIEW.md 名下另起一句；§11.8 挂账句里的五个 48 号编号（TD-48-01 / TD-48-02 / WR-01 / WR-02 / WR-06，含 WR-06）一字未移出，只补 48-REVIEW 命名空间标记与「不是同一物 / 不得混读」提示 —— 两个命名空间各占独立一行是「同名不同物」可机械表达的前提
 - [Phase 49]: 49-06：例数一律取实测值（manage-skill 55 / ai-skills 177 / picker-model 105），三处账本（§七 两条 + §11.8 三条 + AGENTS.md 测试行三条 = 八个单元）在同一任务刷新；一致性命令不硬编码数字、按账本单元切分（右边界 = 同一行内下一个 test-*.js），单点变异 3/3 转红
 - [Phase 49]: 49-06：AGENTS.md 的 manage_skill 维护约定只加不变式（组装全文闸口 / 净化后复验 / 失败态词缀 / 并入单源），关键名词取机制词而不复制产品文档示例串；测试行只做精确替换（其余套件零改动）
+- [Phase 49]: G-49-3 收口：卡片头部超预算标注改取 `/` 面板 `STATUS_TEXT.promptOmitted` 第二段的 ≤ 4 字机械投影（`PROMPT_OMITTED_CARD_NOTE`），面板长串逐字未变 —— 两处共用同一单源、卡片不新写字面量 — 48 D-12 原文 / 48-UI-SPEC「照写不统一」/ 逐字断言 / 产品文档 §10.1 四文案四重锁定；且缩短对面板零收益（面板行可换行、宽 ≥ 280px，该串从不被裁切，只会丢掉「未进提示词」半边语义）
+- [Phase 49]: G-49-3 的验收证据必须是 280px 真实渲染且先红后绿：判据对象改为「标注外接矩形右缘 vs 裁切祖先右缘」（旧驱动的标注自身 scrollWidth/clientWidth 恒相等 ⇒ 无检出力） — 本阶段已记录教训「子串 / 声明扫描会假绿」的直接兑现；红轮缺失即视为判据未成立；「CSS 声明零改动」另由 A9（全轮声明投影 sha 相等）+ css-decl-freeze（四规则块声明集逐字比对）双判据承担
 
 ### Roadmap Evolution
 
@@ -361,8 +364,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T10:40:06.046Z
-Stopped at: Completed 49-06-PLAN.md（文档纠偏与账本同步：§11.7 口径 / §11.3 词缀成文 / §11.8 双命名空间记账 / 三处例数刷新 + 可重跑一致性命令 / AGENTS.md 四条不变式）
+Last session: 2026-09-13T14:30:23.055Z
+Stopped at: Completed 49-07-PLAN.md（G-49-3 收口：卡片头部标注改取单源 ≤ 4 字投影 + 真实渲染门禁红→绿 + UI-SPEC E1 收口记录）
 Resume file: None
 
 ## Operator Next Steps

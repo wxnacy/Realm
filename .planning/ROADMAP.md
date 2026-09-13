@@ -285,7 +285,7 @@ Plans:
   4. 写入为原子操作（经沙箱 `env.renameFile` 获得双基准路径校验），失败不留半成品文件，且不触及 `ai-memory/`、`attachments/` 等其他工作区路径。
   5. 工具描述引导 AI 优先增强已有技能，而非创建近乎重复的新技能。
 
-**Plans**: 7 plans（3 executed + 3 gap-closure executed；49-07 gap-closure 待执行）
+**Plans**: 7/7 plans executed（3 executed + 3 gap-closure executed；49-07 gap-closure 待执行）
 
 Plans:
 **Wave 1**
@@ -316,7 +316,7 @@ Plans:
 
 **Wave 4** *(blocked on 49-02 / 49-03；49-UAT.md 判 `diagnosed` 的 `G-49-3` 收口)*
 
-- [ ] 49-07-PLAN.md — **G-49-3**：卡片头部超预算标注改渲染单源的 ≤ 4 字机械投影（`PROMPT_OMITTED_CARD_NOTE`；48 D-12 的面板串 `未进提示词 · 超预算` 逐字未变）+ 新增可重跑的真实渲染驱动（280px 真实拖拽，红→绿两轮证据，判据取「标注右缘 vs 裁切祖先右缘」以避开旧驱动的假绿）+ 派生投影 / ≤ 4 字 / 48 原文冻结 / 九码长度上限四组护栏 + 产品文档、例数账本与 `49-UI-SPEC.md` 的 E1 收口记录（MGMT-01/05）
+- [x] 49-07-PLAN.md — **G-49-3**：卡片头部超预算标注改渲染单源的 ≤ 4 字机械投影（`PROMPT_OMITTED_CARD_NOTE`；48 D-12 的面板串 `未进提示词 · 超预算` 逐字未变）+ 新增可重跑的真实渲染驱动（280px 真实拖拽，红→绿两轮证据，判据取「标注右缘 vs 裁切祖先右缘」以避开旧驱动的假绿）+ 派生投影 / ≤ 4 字 / 48 原文冻结 / 九码长度上限四组护栏 + 产品文档、例数账本与 `49-UI-SPEC.md` 的 E1 收口记录（MGMT-01/05）
 
 **Security gate**: P3 前半（S1）name 二次校验与名称冲突判定——本阶段产出的校验器是 50 / 51 唯一可复用的那一份。
 
@@ -380,6 +380,6 @@ Plans:
 | 46. 技能基础设施 | 4/4 | Complete | 2026-09-11 |
 | 47. 内置技能播种 + bash 策略加固 | 6/6 | In Progress|  |
 | 48. 技能发现与调用 | 8/8 | In Progress|  |
-| 49. `manage_skill` 工具 | 6/6 | In Progress|  |
+| 49. `manage_skill` 工具 | 7/7 | In Progress|  |
 | 50. 设置页技能管理区 + `/api/skills/*` | TBD | Not started | - |
 | 51. 用户技能导入管线 | TBD | Not started | - |
