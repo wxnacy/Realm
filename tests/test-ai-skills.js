@@ -3544,9 +3544,17 @@ describe('M 组 · Phase 49 manage_skill 卡片标记（D-02 / UI-SPEC 硬约束
     };
   }
 
-  /** 剥离行注释与块注释（源码门禁度量**代码**而不是散文；不改动被扫描文件） */
+  /**
+   * 剥离块注释、整行注释与**行尾注释**（源码门禁度量**代码**而不是散文；不改动被扫描文件）。
+   *
+   * 49-08 起行尾注释同样剥掉：只剥整行注释时，`noteText = X; // 注释里写 role` 这类形态
+   * 仍可让「关于代码的断言」被同一行里的散文满足（本阶段反复记录过的假绿来源）。
+   * 正则用 `[^:]` 前置守卫，避免把 `http://` 这类协议串当注释起点。
+   */
   function stripComments(text) {
-    return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    return text
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
   }
 
   /** 组装 getConversationMessages 的最小调用上下文（manage_skill 版：多注入三处新方法） */
@@ -4155,6 +4163,77 @@ describe('M 组 · Phase 49 manage_skill 卡片标记（D-02 / UI-SPEC 硬约束
       content.includes('renderSkillContentBox('),
       '卡片语境必须复用同一实现（而不是第二份折叠外观）'
     );
+  });
+
+  test('M9b（源码 · a11y 增量的条件施加）守卫内施加 + 两个调用点取值 + 单源未破', () => {
+    // **判据对象是剥注释后的代码（含行尾注释）**：关于代码的断言不得被同一文件里的散文
+    // 满足。`stripComments` 本任务已扩到剥行尾注释（`noteText = X; // 注释里写 role`
+    // 这类形态曾可让判据假绿）。
+    const rendererSrc = stripComments(readSource('src/renderer.js'));
+
+    // ① 单源未破：`renderSkillContentBox` 恰 1 处定义
+    assert.strictEqual(
+      (rendererSrc.match(/function renderSkillContentBox\s*\(/g) || []).length,
+      1,
+      '技能正文折叠块的构建函数必须恰 1 处定义（不得新建第二份折叠实现）'
+    );
+    const box = functionBody(rendererSrc, 'renderSkillContentBox');
+
+    // ② 签名形态：选项参数带**缺省 `true`** 的解构 —— 缺省值不可省，
+    //    它决定「气泡调用点不传参」时的行为（49-08 的语境开关）
+    assert.ok(
+      /function\s+renderSkillContentBox\s*\(\s*skillInvocation\s*,\s*\{[^}]*interactive\s*=\s*true[^}]*\}\s*=\s*\{\}\s*\)/.test(
+        box
+      ),
+      '签名必须是 `(skillInvocation, { interactive = true } = {})` 的解构形态'
+    );
+
+    // ③ 属性受守卫：三条 `setAttribute` 必须落在 `if (interactive) {` 之后 200 字符窗口内
+    //    （窗口是**为了绑定距离**，不是为了放宽 —— 允许 `interactive && header.setAttribute()`
+    //    这类散句会让「先加后删」的形态也过闸）
+    for (const attr of ['role', 'tabindex', 'aria-expanded']) {
+      assert.ok(
+        new RegExp(
+          `if\\s*\\(interactive\\)\\s*\\{[\\s\\S]{0,200}?setAttribute\\(\\s*['"]${attr}['"]`
+        ).test(box),
+        `\`${attr}\` 必须落在 \`if (interactive)\` 守卫之内（不得写成散句，也不得先加后删）`
+      );
+    }
+
+    // ④ `keydown` 绑定受守卫
+    assert.ok(
+      /if\s*\(interactive\)\s*\{[\s\S]{0,400}?addEventListener\(\s*['"]keydown['"]/.test(box),
+      '`keydown` 绑定必须落在 `if (interactive)` 守卫之内'
+    );
+
+    // ⑤ 卡片调用点传 `{ interactive: false }`（卡片宿主默认零高，焦点语义不可见）
+    assert.ok(
+      /renderSkillContentBox\(\s*\{\s*content:\s*params\.content\s*\}\s*,\s*\{\s*interactive:\s*false\s*\}\s*\)/.test(
+        rendererSrc
+      ),
+      '卡片调用点必须传 `{ interactive: false }`'
+    );
+
+    // ⑥ 气泡调用点逐字未动（48-UI-REVIEW Pillar 6 的修复在原位保留；缺省 true ⇒ 增量保留）
+    assert.ok(
+      /renderSkillContentBox\(\s*msg\.skillInvocation\s*\)/.test(rendererSrc),
+      '气泡调用点必须保持 `renderSkillContentBox(msg.skillInvocation)` 原样'
+    );
+
+    // ⑦ 调用点总数恰 2（全文件出现次数 − 1 处定义）—— 防新增第三个使用面而漏传选项
+    const calls = (rendererSrc.match(/renderSkillContentBox\s*\(/g) || []).length - 1;
+    assert.strictEqual(calls, 2, `调用点总数必须恰 2（气泡 / 卡片），实测 ${calls}`);
+
+    // ⑧ 反向断言：不得用「事后清除」形态（先加后删）
+    for (const pattern of ['deleteAttribute', 'removeAttribute']) {
+      for (const attr of ['role', 'tabindex', 'aria-expanded']) {
+        assert.strictEqual(
+          new RegExp(`${pattern}\\(\\s*['"]${attr}['"]`).test(rendererSrc),
+          false,
+          `不得用 ${pattern}('${attr}') 事后清除 —— 必须在守卫内施加`
+        );
+      }
+    }
   });
 
   test('M10（源码 · 标注至多一个）单一挂载点 + 两处取值来自既有单源', () => {
