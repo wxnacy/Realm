@@ -8921,7 +8921,15 @@ function renderAISkillPill(skillInvocation) {
  * N 口径 = JS `String.length`（与`LIMITS.SKILLS_PROMPT_CHAR_BUDGET` 同口径，**不是字节数**）；
  * 正文经 `textContent` 注入；展开状态不持久化（与 `/compact` 摘要框一致，零新状态）。
  *
- * @param {{name: string, content: string}} skillInvocation - 响应的技能调用元数据
+ * **入参是最小形状 `{content}`**（49-02）：气泡实例传 `{name, content}`，`manage_skill` 卡片
+ * 传 `{content: params.content}` —— 两种语境复用**同一份** DOM 构建实现（不得新建第二份）。
+ * 类名与 N 口径逐字未变。
+ *
+ * **a11y（49-02 增量，48-UI-REVIEW Pillar 6 的建议）**：header 带 `role="button"` +
+ * `tabindex="0"` + 随态更新的 `aria-expanded`，并响应 Enter / Space。补齐作用于**唯一构建
+ * 实现** ⇒ 气泡实例同时获得，属纯增量（零布局 / 配色 / 文案变化）。
+ *
+ * @param {{name?: string, content: string}} skillInvocation - 技能正文元数据（只用 `content`）
  * @returns {HTMLElement} 折叠块元素
  */
 function renderSkillContentBox(skillInvocation) {
@@ -8930,6 +8938,15 @@ function renderSkillContentBox(skillInvocation) {
 
   const header = document.createElement('div');
   header.className = 'ai-skill-content-box-header';
+  header.setAttribute('role', 'button');
+  header.setAttribute('tabindex', '0');
+  header.setAttribute('aria-expanded', 'false');
+
+  /** 折叠态切换 + `aria-expanded` 同步（点击与键盘共用同一个出口） */
+  const toggleCollapsed = () => {
+    box.classList.toggle('collapsed');
+    header.setAttribute('aria-expanded', String(!box.classList.contains('collapsed')));
+  };
 
   const title = document.createElement('span');
   title.className = 'ai-skill-content-box-title';
@@ -8941,8 +8958,12 @@ function renderSkillContentBox(skillInvocation) {
 
   header.appendChild(title);
   header.appendChild(chevron);
-  header.addEventListener('click', () => {
-    box.classList.toggle('collapsed');
+  header.addEventListener('click', toggleCollapsed);
+  header.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault(); // Space 默认滚动页面 —— 折叠块不接管滚动
+      toggleCollapsed();
+    }
   });
 
   const body = document.createElement('div');
@@ -9581,10 +9602,15 @@ function renderToolCard(toolExecution) {
   name.className = 'tool-card-name';
   const manageSkill = toolExecution.manageSkill;
   const skillInvocation = toolExecution.skillInvocation;
-  if (manageSkill && typeof manageSkill.name === 'string' && manageSkill.name.trim() !== ''
-      && window.SkillPickerModel.MANAGE_SKILL_ACTION_LABEL[manageSkill.action]) {
+  // 白名单查表：动作标题表外 / 缺失 ⇒ 整个技能变体不成立（回落既有普通卡片，零回归）
+  const manageLabel = manageSkill
+    ? window.SkillPickerModel.MANAGE_SKILL_ACTION_LABEL[manageSkill.action]
+    : null;
+  const manageSkillOk = !!(manageSkill && typeof manageSkill.name === 'string'
+    && manageSkill.name.trim() !== '' && manageLabel);
+  if (manageSkillOk) {
     // 49-02（D-02）：`manage_skill` 技能变体。判定已在工具事件生成侧完成
-    // （`_resolveManageSkillMarker`），此处只查两张白名单表（动作标题 / 来源徽标）——
+    // （`_resolveManageSkillMarker`），此处只查三张白名单表（动作标题 / 来源徽标 / 短原因）——
     // **零**路径字符串匹配、**零**来源档位 / 撞名 / 限额判定（硬约束 4）。
     // 技能名一律 DOM API + textContent，不写进 HTML 模板拼接、不写进属性值
     // （TD-48-01 的教训面）。
@@ -9594,8 +9620,7 @@ function renderToolCard(toolExecution) {
     nameText.className = 'tool-card-name-text';
     // 用函数式替换：模板里的 {name} 是唯一占位符，函数式可避免 name 中的 `$` 被
     // String.replace 当作替换模式解释（技能名虽受字符集约束，此处仍不做假设）。
-    nameText.textContent = window.SkillPickerModel.MANAGE_SKILL_ACTION_LABEL[manageSkill.action]
-      .replace('{name}', () => manageSkill.name);
+    nameText.textContent = manageLabel.replace('{name}', () => manageSkill.name);
     name.appendChild(nameText);
     const badge = window.SkillPickerModel.TIER_BADGE[manageSkill.tier];
     if (badge) {
@@ -9604,6 +9629,29 @@ function renderToolCard(toolExecution) {
       badgeEl.textContent = badge.label;
       badgeEl.title = badge.title;
       name.appendChild(badgeEl);
+    }
+    // 头部内联标注（**至多一个**，UI-SPEC §头部三个新增/复用元素 第 3 项）：
+    // 失败 → 九码白名单短原因；成功且未进提示词 → 复用 STATUS_TEXT.promptOmitted。
+    // 两者互斥（失败态不判提示词归属）；都取不到 ⇒ **不渲染元素**（不占位、不留空元素）。
+    let noteText = null;
+    let noteClass = null;
+    if (toolExecution.status === 'failed') {
+      const shortReason = window.SkillPickerModel.MANAGE_SKILL_SHORT_REASON[manageSkill.code];
+      if (shortReason) {
+        noteText = shortReason;
+        noteClass = 'tool-card-manage-note tool-card-manage-note-error';
+      }
+    } else if (toolExecution.status === 'completed'
+      && manageSkill.promptIncluded === false
+      && manageSkill.action !== 'delete') {
+      noteText = window.SkillPickerModel.STATUS_TEXT.promptOmitted;
+      noteClass = 'tool-card-manage-note tool-card-manage-note-limit';
+    }
+    if (noteText) {
+      const noteEl = document.createElement('span');
+      noteEl.className = noteClass;
+      noteEl.textContent = noteText;
+      name.appendChild(noteEl);
     }
   } else if (skillInvocation && skillInvocation.name) {
     // 48-03（D-15）：模型按 description 自动匹配并 read 技能正文时把卡片标题技能化。
@@ -9648,6 +9696,53 @@ function renderToolCard(toolExecution) {
   header.appendChild(name);
   header.appendChild(statusText);
 
+  // ===== manage_skill 变体的三个内容块（参数摘要 / 正文折叠块 / 结果文本）=====
+  // 全部在此构造（内容区后续只做挂载）—— 使「本变体的渲染路径」是一段可整体核对的区域：
+  // 参数区**不含 content**、结果区**不 JSON 序列化**、正文只在默认折叠的折叠块里出现。
+  let manageParamsText = null;
+  let manageContentBox = null;
+  let manageResultText = null;
+  if (manageSkillOk) {
+    // 钩子类：**刻意的无 CSS 规则钩子**（供测试与后续阶段定位本变体，不承担任何样式职责；
+    // 它不是可用样式钩子 —— 任何样式都必须落在具体元素类上）。
+    card.classList.add('tool-card-manage');
+
+    const params = toolExecution.params || {};
+    // 参数摘要：剔除 content（64 KiB 正文 overall JSON 化会变成一整面 JSON 墙，
+    // 且正文在 JSON 里被二次转义而不可读）。载体仍是存量 .tool-card-value（pre-wrap）。
+    const summaryLines = [
+      '动作：' + window.SkillPickerModel.MANAGE_SKILL_ACTION_NAME[manageSkill.action],
+      '技能名：' + (typeof params.name === 'string' ? params.name : manageSkill.name),
+    ];
+    if (manageSkill.action !== 'delete') {
+      summaryLines.push('描述：' + (typeof params.description === 'string' ? params.description : ''));
+    }
+    manageParamsText = summaryLines.join('\n');
+
+    // 正文折叠块（复用 48 D-09 的**唯一**构建实现）：create / update 且**非失败态**才有
+    // —— 写入未落盘时无正文可示；delete 没有正文。
+    if (manageSkill.action !== 'delete'
+      && toolExecution.status !== 'failed'
+      && typeof params.content === 'string') {
+      manageContentBox = renderSkillContentBox({ content: params.content });
+    }
+
+    // 结果区渲染**文本**而非 JSON：对象形状取 content[] 的 text 块、字符串形状原样 ——
+    // 重载链路的 result 本就是文本字符串，两条链路因此渲染逐字一致（硬约束 3）。
+    // details **不进**结果区（对用户无意义；code / tier / promptIncluded 已由头部承载）。
+    const textOf = (value) => {
+      if (typeof value === 'string') return value;
+      if (value && Array.isArray(value.content)) {
+        const block = value.content.find(c => c && c.type === 'text');
+        if (block && typeof block.text === 'string') return block.text;
+      }
+      return '';
+    };
+    manageResultText = toolExecution.status === 'failed'
+      ? (typeof toolExecution.error === 'string' ? toolExecution.error : '')
+      : textOf(toolExecution.result);
+  }
+
   // 展开内容
   const content = document.createElement('div');
   content.className = 'tool-card-content';
@@ -9661,11 +9756,17 @@ function renderToolCard(toolExecution) {
     paramsLabel.textContent = '参数';
     const paramsValue = document.createElement('pre');
     paramsValue.className = 'tool-card-value';
-    paramsValue.textContent = JSON.stringify(toolExecution.params, null, 2);
+    // manage_skill 变体走上面的可读摘要；其余工具的参数区渲染路径逐字未变
+    paramsValue.textContent = manageParamsText !== null
+      ? manageParamsText
+      : JSON.stringify(toolExecution.params, null, 2);
     paramsSection.appendChild(paramsLabel);
     paramsSection.appendChild(paramsValue);
     content.appendChild(paramsSection);
   }
+
+  // 技能正文折叠块（卡片语境复用同一实例：参数区之后、结果区之前）
+  if (manageContentBox) content.appendChild(manageContentBox);
 
   // 结果区域（使用 textContent 防止 XSS）
   if (toolExecution.result || toolExecution.error) {
@@ -9676,7 +9777,9 @@ function renderToolCard(toolExecution) {
     resultLabel.textContent = toolExecution.status === 'failed' ? '错误' : '结果';
     const resultValue = document.createElement('pre');
     resultValue.className = 'tool-card-value';
-    if (toolExecution.status === 'failed') {
+    if (manageSkillOk) {
+      resultValue.textContent = manageResultText || (toolExecution.status === 'failed' ? '未知错误' : '');
+    } else if (toolExecution.status === 'failed') {
       resultValue.textContent = toolExecution.error || '未知错误';
     } else {
       resultValue.textContent = typeof toolExecution.result === 'string'

@@ -3527,7 +3527,15 @@ describe('M 组 · Phase 49 manage_skill 卡片标记（D-02 / UI-SPEC 硬约束
       merge: src.slice(mergeIdx, mergeIdx + 900),
       push: src.slice(pushIdx, pushIdx + 900),
       branch: src.slice(bStart, bEnd),
+      // 本变体自己的内容构造区（分支起点 → 通用参数区起点）：参数摘要 / 正文折叠块挂载 /
+      // 结果文本提取都在这里；`manage_skill` 之外的**既有通用**渲染路径不在其中。
+      content: src.slice(bStart, src.indexOf('// 参数区域（使用 textContent 防止 XSS）', bStart)),
     };
+  }
+
+  /** 剥离行注释与块注释（源码门禁度量**代码**而不是散文；不改动被扫描文件） */
+  function stripComments(text) {
+    return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   }
 
   /** 组装 getConversationMessages 的最小调用上下文（manage_skill 版：多注入三处新方法） */
@@ -3747,5 +3755,95 @@ describe('M 组 · Phase 49 manage_skill 卡片标记（D-02 / UI-SPEC 硬约束
     assert.strictEqual(call('create', '   '), null, 'name 全空白 → 不成立');
     assert.strictEqual(call('create', 123), null, 'name 非字符串 → 不成立');
     assert.strictEqual(call('create', null), null, 'name 缺失 → 不成立');
+  });
+
+  test('M7（源码 · 参数区）三行可读摘要且**剔除 content**（不再整体 JSON 化）', () => {
+    const { content } = rendererManageRegions();
+    const code = stripComments(content);
+    for (const label of ['动作：', '技能名：', '描述：']) {
+      assert.ok(content.includes(label), `参数摘要必须含「${label}」一行`);
+    }
+    assert.ok(
+      content.includes('MANAGE_SKILL_ACTION_NAME'),
+      '「动作：」的取值必须查动作中文短名表（不得从标题模板做字符串手术）'
+    );
+    assert.strictEqual(
+      /JSON\.stringify\(toolExecution\.params/.test(code),
+      false,
+      '本变体不得把整个 params JSON 化（64 KiB 正文会变成一整面 JSON 墙且被二次转义）'
+    );
+    assert.ok(
+      content.includes("manageSkill.action !== 'delete'"),
+      'delete 只有动作 / 技能名两行（不渲染描述，也不渲染正文折叠块）'
+    );
+  });
+
+  test('M8（源码 · 结果区）渲染文本（取 text 块）而非 JSON 序列化', () => {
+    const { content } = rendererManageRegions();
+    const code = stripComments(content);
+    assert.ok(/type === 'text'/.test(code), '结果区必须取 content[] 中的 text 块（对象形状）');
+    assert.ok(
+      /typeof value === 'string'/.test(code) || /typeof v === 'string'/.test(code),
+      '字符串形状必须原样返回（重载链路的 result 本就是文本 ⇒ 两条链路逐字一致）'
+    );
+    assert.strictEqual(
+      /JSON\.stringify\(.*result/.test(code),
+      false,
+      '结果区不得 JSON.stringify(result)（details 也不进结果区）'
+    );
+    assert.strictEqual(code.includes('details'), false, 'details 不进结果区');
+  });
+
+  test('M9（源码 · 折叠块复用）唯一构建实现 + a11y 增量 + 两条件挂载', () => {
+    const rendererSrc = readSource('src/renderer.js');
+    assert.strictEqual(
+      (rendererSrc.match(/function renderSkillContentBox\s*\(/g) || []).length,
+      1,
+      '技能正文折叠块的构建函数必须恰 1 处定义（不得新建第二份折叠实现）'
+    );
+    const box = functionBody(rendererSrc, 'renderSkillContentBox');
+    for (const need of ['role', 'tabindex', 'aria-expanded', 'keydown', 'Enter', 'preventDefault']) {
+      assert.ok(box.includes(need), `折叠块 a11y 增量缺 ${need}`);
+    }
+    assert.ok(box.includes('ai-skill-content-box'), '折叠块必须复用 48 D-09 的既有类名');
+    assert.ok(box.includes('技能正文（'), 'header 文案逐字复用「技能正文（N 字符）」');
+    assert.strictEqual(box.includes('innerHTML'), false, '折叠块不得写 HTML 拼接');
+
+    const { content } = rendererManageRegions();
+    assert.ok(
+      content.includes("toolExecution.status !== 'failed'"),
+      '展开区失败态不得渲染正文折叠块（写入未落盘，无正文可示）'
+    );
+    assert.ok(content.includes("manageSkill.action !== 'delete'"), 'delete 不渲染折叠块');
+    assert.ok(
+      content.includes('renderSkillContentBox('),
+      '卡片语境必须复用同一实现（而不是第二份折叠外观）'
+    );
+  });
+
+  test('M10（源码 · 标注至多一个）单一挂载点 + 两处取值来自既有单源', () => {
+    const { branch } = rendererManageRegions();
+    assert.strictEqual(
+      (branch.match(/appendChild\(noteEl\)/g) || []).length,
+      1,
+      '内联标注的 createElement 挂载点必须**恰 1 处**（不是两条 if 各自 append —— 那会有两个标注）'
+    );
+    assert.ok(branch.includes('MANAGE_SKILL_SHORT_REASON['), '失败短原因必须查九码白名单表');
+    assert.ok(branch.includes('STATUS_TEXT.promptOmitted'), '「未进提示词」必须逐字复用既有字符串');
+    assert.ok(branch.includes('tool-card-manage-note-error'), '失败态标注类必须存在');
+    assert.ok(branch.includes('tool-card-manage-note-limit'), '超预算标注类必须存在');
+    assert.ok(
+      /if \(noteText\)/.test(branch),
+      '0 个标注时**不渲染元素**（不占位、不留空元素）'
+    );
+  });
+
+  test('M11（源码 · 钩子类）card.classList.add(\'tool-card-manage\') 恰 1 处', () => {
+    const rendererSrc = readSource('src/renderer.js');
+    assert.strictEqual(
+      (rendererSrc.match(/card\.classList\.add\('tool-card-manage'\)/g) || []).length,
+      1,
+      '钩子类必须在 manage_skill 变体处恰挂一次（无 CSS 规则的定位钩子）'
+    );
   });
 });

@@ -358,6 +358,19 @@
   });
 
   /**
+   * `manage_skill` 三动作的**中文短名**（Phase 49 UI-SPEC §卡片结构契约的参数区）
+   *
+   * 与上一张表**同址**（不新立第三张表）：参数摘要的第一行「动作：创建」即取本表。
+   * 不从 `MANAGE_SKILL_ACTION_LABEL` 反推（剥掉 `技能「…」` 后缀是不可靠的字符串手术）。
+   * 同样是**闭合白名单**（表外键 `undefined`）。
+   */
+  const MANAGE_SKILL_ACTION_NAME = Object.freeze({
+    create: '创建',
+    update: '更新',
+    delete: '删除',
+  });
+
+  /**
    * `manage_skill` 九条失败原因码 → 卡片头部**短原因**（Phase 49 D-07）—— **跨进程单源**
    *
    * 纪律：
@@ -393,6 +406,7 @@
     TIER_BADGE,
     STATUS_TEXT,
     MANAGE_SKILL_ACTION_LABEL,
+    MANAGE_SKILL_ACTION_NAME,
     MANAGE_SKILL_SHORT_REASON,
   };
 
