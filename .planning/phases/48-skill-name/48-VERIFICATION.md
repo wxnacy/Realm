@@ -1,10 +1,10 @@
 ---
 phase: 48-skill-name
 verified: 2026-09-12T16:50:43Z
-status: human_needed
+status: passed
 score: 66/68 must-haves verified
 covered_files: [".planning/REQUIREMENTS.md",".planning/phases/48-skill-name/48-01-PLAN.md",".planning/phases/48-skill-name/48-01-SUMMARY.md",".planning/phases/48-skill-name/48-02-PLAN.md",".planning/phases/48-skill-name/48-02-SUMMARY.md",".planning/phases/48-skill-name/48-03-PLAN.md",".planning/phases/48-skill-name/48-03-SUMMARY.md",".planning/phases/48-skill-name/48-04-PLAN.md",".planning/phases/48-skill-name/48-04-SUMMARY.md",".planning/phases/48-skill-name/48-05-PLAN.md",".planning/phases/48-skill-name/48-05-SUMMARY.md",".planning/phases/48-skill-name/48-06-PLAN.md",".planning/phases/48-skill-name/48-06-SUMMARY.md",".planning/phases/48-skill-name/48-07-PLAN.md",".planning/phases/48-skill-name/48-07-SUMMARY.md",".planning/phases/48-skill-name/48-08-PLAN.md",".planning/phases/48-skill-name/48-08-SUMMARY.md",".planning/phases/48-skill-name/48-REVIEW.md",".planning/phases/48-skill-name/48-VALIDATION.md","AGENTS.md","ai-manager.js","ai-skills-manager.js","docs/product/ai-skills.md","ipc-handlers.js","src/ai-cancel-state.js","src/index.html","src/preload.js","src/renderer.js","src/skill-picker-model.js","src/styles/main.css","tests/test-ai-cancel-state.js","tests/test-ai-skills.js","tests/test-skill-picker-model.js"]
-covered_digest: "v1:sha256:edbf57945fd50aa99416626cd1f6a050d9cf0828912bf797dadd78357fcba614"
+covered_digest: "v1:sha256:73202aff0c3ab084da31f91761327c852f017bbb309fb224248d3b8a310a24b5"
 behavior_unverified: 2
 overrides_applied: 0
 re_verification:
@@ -23,7 +23,9 @@ re_verification:
     - "round 2 | verified 2026-09-12T12:25:00Z | status human_needed | score 31/36 | gaps_closed [G-48-2 / CR-02 判据改目录路径全等 + 注入名重写（48-04）; G-48-3 / CR-04 renderer 两段陈旧快照本地否决整段删除 + skills:changed 无条件重拉（48-06）; G-48-4 / CR-03 源码面 取消归属改锚点解算 + 独立纯逻辑模块（48-05）; G-48-6 气泡构建单源 + 回填后定向刷新（48-05）] | gaps_remaining [G-48-12] | regressions []"
     - "round 3 | verified 2026-09-12T14:33:42Z | status human_needed | score 44/52 | gaps_closed [G-48-12 代码面 —— miss 一次性权威重扫 + 重试读盘，rescanCalls === 1，ai-skills-manager.js 零 diff] | gaps_remaining [G-48-12 运行期面（UAT test 12 / WINDOWS.md id 24）] | regressions []"
     - "round 4（本轮 · 48-08 / G-48-18 + G-48-19）| verified 2026-09-12T16:50:43Z | status human_needed | score 66/68 | gaps_closed [G-48-18 代码面（唯一补刷实现 + 两处成功出口共用 + 检脏早退 + K1-K5）; G-48-19 代码面（两个独立 try + rescanned + 可判别告警 + 安全 err 取值 + J8/J9/J10）; G-48-12 运行期面（UAT test 14 回填 + WINDOWS id 24 fixed）] | gaps_remaining [] | regressions []"
+
 open_deferrals:
+
   - id: TD-48-01
     origin: "48-REVIEW.md CR-01（面板行 `title` 属性经 `escapeHtml` 注入 —— `escapeHtml` = DOM `textContent → innerHTML`，不转义 `\"`）"
     adjudicated: 2026-09-12
@@ -48,6 +50,7 @@ open_deferrals:
     disposition: "用户裁决**保持开放**，随 Phase 49 一并处置；`ai-skills-manager.js` 本增量**零 diff**；`docs/product/ai-skills.md` §10.7 显式写明「本条**未被修复**…**不得**据此声称已修」（本轮实读确认原文在册）——账本诚实"
     must_have_effect: "无 —— 48-01 的字节闸 truth 只约束扫描路径的长度常量语义，不宣称调用路径复查"
 behavior_unverified_items:
+
   - truth: "G-48-18 的**组合面**（48-08 诚实边界声明里的「②」）：已打开的 `/` 面板或模型自动匹配面，在**纯文本轮**补刷落地后**随之**可见运行期新增技能"
     test: "重跑 `/gsd-verify-work 48` 自动驱动探针（48-08 SUMMARY 已给出形态）：先打开 `/` 面板 → 在 `agent-workspace/managed-skills/` 下运行期新建目录 → **不重开面板**直接手打 `/skill:<新名>` → 断言面板已出现该行且主进程有 `发送消息: /skill:<新名>` 日志；再追问「你有哪些技能？」验证模型是否已能列出该新技能"
     expected: "面板（已打开、未重开）出现新行；模型侧 system prompt 已含该技能（K1 已在 Node 宿主证成 `systemPrompt === buildSystemPrompt()` 且含该技能名），故模型应能按其 description 匹配"
@@ -57,6 +60,7 @@ behavior_unverified_items:
     expected: "分组标题 sticky 常驻；行五要素可读；行尾标注 flex-wrap 后无一截断"
     why_human: "纯视觉观感（sticky 常驻、换行行高、徽标对比度）无法由源码扫描或 node:test 裁决。UAT test 7 已由自动驱动实测判 pass（sticky 偏移 1px、截断计数 0、emptyDesc 0、限额标注 14+1 与算术一致），本项保留为人工可推翻的观感裁决；`.planning/WINDOWS.md` id 21 仍 `open`"
 advisory:
+
   - finding: "WR-02（部分收敛、仍开）：`ai-manager.js:1048` / `:1182` 两处裸调 `_resolveSkillInvocation(message)`、`:1447` 首次 `readSkillForInvocation`、`ai-skills-manager.js:808` 位于其自身 `try` 之前的动态 import —— 任一抛出都会穿透到 IPC，而 `isProcessing` 已在 `:1043` / `:1179` 置真且不复位，之后所有消息被「AI 正在处理上一条消息」拒绝，直到重建 Agent"
     category: architectural
     reason: "48-08 只把**本次新增的调用点**（重试读盘）纳入 try，且其 prohibition P5 **明文禁止**顺手闭合 WR-02（用户未裁定）。本轮独立复核三处仍为裸调（源码实读 `:1048` / `:1182` / `:1447`），但**无**任何命名测试变红或可复现运行期观测，按 re-verification evidence gate 记 Advisory、不计入 Step 9 Rule 1，不阻断本阶段"
@@ -78,6 +82,7 @@ advisory:
     reason: "均为已记档的技术债 / 观测项 / 死代码，无一 falsify 已登记 must-have 真值；48-08 的 prohibition 明文禁止顺手修 WR-01 / WR-04 / WR-05 / WR-06 与两条 TD，本增量遵守"
     evidence_status: "carried-forward（48-REVIEW.md §A 台账逐条实读，本轮未独立复跑其探针）"
 human_verification:
+
   - test: "重跑 `/gsd-verify-work 48` 的自动驱动探针 —— **G-48-18 组合面**（本轮唯一的功能性待证项，也是唯一阻断收尾的项）：先打开 `/` 面板 → 在 `agent-workspace/managed-skills/` 下**运行期**新建一个技能目录 → **不重开面板** → 直接手打 `/skill:<新名>`"
     expected: "① 面板已出现该新行（广播 → renderer 无条件重拉快照 → 面板原地重渲染）；② 主进程日志出现 `发送消息: /skill:<新名>`；③ 零 system-note；④ 随后追问「你有哪些技能？」时模型能列出该新技能（其 description 已进 system prompt）。失败面（例如面板未刷新）会 falsify 组合面，但**不**推翻 K1 已证成的主进程半（补刷确实落地）"
     why_human: "组合面 = 「广播 → renderer 重拉 → 面板重渲染」+「systemPrompt 更新 → 模型可见」两条运行时链的相交，node:test 无 DOM 宿主也无真实 IPC。48-08 SUMMARY 自己声明「其运行时终证可由下一轮 `/gsd-verify-work 48` 的自动驱动探针复核，形态与判据写进 SUMMARY」，本轮**未**驱动真实应用"
