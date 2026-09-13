@@ -70,19 +70,34 @@ const CREDENTIAL_PATTERNS = [
  * validateScript 配套拒绝执行，本场景是拒绝写入——write() 命中即 throw。
  * 正则级匹配（<1ms），不引入 LLM 判断（AI-SPEC §4b 拍板）。
  *
- * @param {string} content - 待写入的条目正文
+ * **本函数是记忆域与技能域共用的单点扫描（D-08）**：技能写入侧
+ * （`ai-skills-manager.js` 的 `scanSkillText`）也复用它，因此**不得**在本函数
+ * 之外复制 `INJECTION_PATTERNS` / `CREDENTIAL_PATTERNS` 两张表 —— 第二份表
+ * 必然独立漂移，而语料库增长机制只更新这里这一份。
+ *
+ * `options.includeCredentials` 的语义：技能域按字段分离扫描 ——
+ * `description` 无条件进每次请求的 system prompt（与两层记忆同构）⇒ 跑两组；
+ * `content` 是技能文档正文、**不进 prompt**，而技能文档合法地会写配置示例
+ * （`api_key: YOUR_KEY_HERE` 会被凭据组命中）⇒ 跑凭据组会误伤合法技能创建。
+ * 唯一的 `false` 调用方即 `ai-skills-manager.js` 的 content 侧。
+ *
+ * @param {string} content - 待扫描文本（记忆条目正文 / 技能 description / 技能正文）
+ * @param {{includeCredentials?: boolean}} [options] - 字段分离开关（缺省 true = 向后兼容）
  * @returns {{safe: boolean, reason?: string}} 扫描结果
  */
-function scanInjectionPatterns(content) {
+function scanInjectionPatterns(content, options = {}) {
+  const includeCredentials = options.includeCredentials !== false;
   const text = String(content || '');
   for (const { pattern, name } of INJECTION_PATTERNS) {
     if (pattern.test(text)) {
       return { safe: false, reason: `检测到注入指令（${name}）` };
     }
   }
-  for (const { pattern, name } of CREDENTIAL_PATTERNS) {
-    if (pattern.test(text)) {
-      return { safe: false, reason: `检测到疑似凭据内容（${name}）。只记录登录状态等事实，不要记录凭据本身` };
+  if (includeCredentials) {
+    for (const { pattern, name } of CREDENTIAL_PATTERNS) {
+      if (pattern.test(text)) {
+        return { safe: false, reason: `检测到疑似凭据内容（${name}）。只记录登录状态等事实，不要记录凭据本身` };
+      }
     }
   }
   return { safe: true };

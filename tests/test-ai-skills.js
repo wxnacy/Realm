@@ -1363,6 +1363,107 @@ describe('Agent prompt 回写（SKILL-04）', () => {
   });
 });
 
+/**
+ * `manage_skill` 工具项的**实际对象形状**（不是朴素正则）
+ *
+ * 取运行时对象而非源码文本：`Object.keys(parameters.properties)` 是判别
+ * 「键集合恰为四参数、绝无 path」的唯一可靠方式 —— 用会误收嵌套键的正则会让
+ * 判据 2 的验收面假绿。
+ */
+function buildManageSkillTool() {
+  const tool = aiManager.prototype._buildManageSkillTool.call({});
+  assert.ok(tool && typeof tool === 'object', '必须存在 _buildManageSkillTool()');
+  return tool;
+}
+
+/** 取 `manage_skill` 工具项在 ai-manager.js 源码中的片段（从 name 字面量起 6000 字符） */
+function manageSkillToolSource() {
+  const src = readSource('ai-manager.js');
+  const idx = src.indexOf("name: 'manage_skill'");
+  assert.ok(idx >= 0, 'ai-manager.js 必须存在 manage_skill 工具项');
+  return src.slice(idx, idx + 6000);
+}
+
+describe('manage_skill 工具项（Phase 49 / MGMT-02 / MGMT-03 / MGMT-06）', () => {
+  test('工具已注册进 _buildRealmTools()，且 properties 顶层键集合恰为四参数、无 path', () => {
+    const src = readSource('ai-manager.js');
+    assert.ok(
+      methodBody(src, '_buildRealmTools').includes('this._buildManageSkillTool()'),
+      'manage_skill 必须经 _buildManageSkillTool() 注册进 _buildRealmTools()'
+    );
+
+    const tool = buildManageSkillTool();
+    assert.strictEqual(tool.name, 'manage_skill');
+    assert.deepStrictEqual(
+      Object.keys(tool.parameters.properties).sort(),
+      ['action', 'content', 'description', 'name'],
+      'properties 顶层键集合必须**恰为** {action, name, content, description}'
+    );
+    assert.strictEqual(
+      Object.prototype.hasOwnProperty.call(tool.parameters.properties, 'path'),
+      false,
+      'prop 键集合里绝不能出现 path（判据 2：路径由 manager 用 path.join 计算）'
+    );
+    assert.strictEqual(
+      /"path"\s*:/.test(JSON.stringify(tool.parameters)),
+      false,
+      'parameters 整体不得出现 path 参数（ARCHITECTURE Anti-Pattern 1：接口设计才是边界）'
+    );
+    assert.deepStrictEqual(tool.parameters.required, ['action', 'name']);
+    assert.strictEqual(tool.executionMode, 'sequential', 'executionMode 必须为 sequential（防同批次并发写）');
+  });
+
+  test('action 的 enum 恰为 create / update / delete 三值', () => {
+    const tool = buildManageSkillTool();
+    assert.deepStrictEqual(tool.parameters.properties.action.enum, ['create', 'update', 'delete']);
+  });
+
+  test('工具描述含 D-03 / MGMT-06 的两条文案，且不写进 REALM_SYSTEM_PROMPT', () => {
+    const desc = buildManageSkillTool().description;
+    // 判据必须用**完整**的两条文案：REALM_SYSTEM_PROMPT 里本就有一句「仅在用户明确要求
+    // 「在当前标签页打开」时使用」（open_link 的规则），短片段「仅在用户明确要求」会在
+    // prompt 里误命中 ⇒ 断言必须锚定 D-03 的完整措辞，否则该判据恒假失败
+    const RULE_A = '仅在用户明确要求把某套流程或经验沉淀为技能时调用';
+    const RULE_B = '优先增强已有技能，而非创建近乎重复的新技能';
+    assert.ok(desc.includes(RULE_A), '必须含 D-03 文案 ①（落地 anti-feature：不做 autolearn 推促）');
+    assert.ok(desc.includes(RULE_B), '必须含 D-03 文案 ②（MGMT-06 / Capture sparingly）');
+    assert.ok(desc.includes('下一条消息'), '描述须给出生效时间语义（D-13 的忙时语义对用户不可见）');
+
+    const src = readSource('ai-manager.js');
+    const promptStart = src.indexOf('const REALM_SYSTEM_PROMPT');
+    assert.ok(promptStart >= 0, '应存在 REALM_SYSTEM_PROMPT');
+    const promptEnd = src.indexOf('`;', promptStart);
+    assert.ok(promptEnd > promptStart, 'REALM_SYSTEM_PROMPT 应为模板字符串常量');
+    const promptText = src.slice(promptStart, promptEnd);
+    assert.strictEqual(
+      promptText.includes(RULE_A),
+      false,
+      '两条文案**不得**进 REALM_SYSTEM_PROMPT（D-03：避免第 1 段改动重建 provider 前缀缓存）'
+    );
+    assert.strictEqual(promptText.includes(RULE_B), false);
+  });
+
+  test('execute 内刷新链唯一：恰 1 处 syncAgentSystemPrompt()、0 处 refreshSkills(、0 处确认调用', () => {
+    const seg = manageSkillToolSource();
+    assert.ok(
+      seg.includes('await this.syncAgentSystemPrompt()'),
+      '成功后必须接唯一权威入口 syncAgentSystemPrompt()'
+    );
+    // syncAgentSystemPrompt() 函数体内**已含** refreshSkills 重扫；再写一行就是三次全量重扫（D-13）
+    assert.strictEqual(
+      (seg.match(/await this\.syncAgentSystemPrompt\(\)/g) || []).length,
+      1,
+      'syncAgentSystemPrompt() 必须恰 1 处'
+    );
+    assert.strictEqual(/refreshSkills\(/.test(seg), false, '工具内不得直接调 refreshSkills（D-13 禁止）');
+    assert.strictEqual(
+      seg.includes('requestActionConfirmation'),
+      false,
+      'execute 内不得出现确认调用（D-01 锁定三动作一律自动）'
+    );
+  });
+});
+
 describe('P8 失效链机制断言（源码扫描）', () => {
   test('覆盖断言：每个 new Agent( 之前 60 行内都存在 refreshSkills( 调用', () => {
     const src = readSource('ai-manager.js');

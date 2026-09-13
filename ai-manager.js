@@ -5925,9 +5925,115 @@ ${content}
         },
       },
 
+      // ==================== manage_skill 工具（Phase 49：技能集的 AI 写入路径） ====================
+      this._buildManageSkillTool(),
+
       // ==================== SDK 内置文件/Bash 工具（agent 工作区沙箱） ====================
       ...this._buildFilesystemTools(),
     ];
+  }
+
+  /**
+   * `manage_skill` 工具项（Phase 49 的 create / update / delete 三动作）
+   *
+   * **形状照 `memory` 工具**（`:5813`）：`action` enum + `executionMode: 'sequential'`
+   * + 委托 manager + 中文 label/description + `details` 回传可操作信息。
+   *
+   * 三条硬约束（改本方法前必须复核）：
+   * 1. `parameters.properties` 的顶层键集合**恰为** `{action, name, content, description}`
+   *    —— **绝不出现 `path`**。路径由 `ai-skills-manager` 用 `path.join` 计算：沙箱在
+   *    这里提供不了保护，接口设计才是边界（ARCHITECTURE Anti-Pattern 1）。
+   * 2. 本方法内**不得**调用 `requestActionConfirmation` —— 三个动作一律自动（D-01：
+   *    破坏面已被硬沙箱限定在 AI 专用数据区，且 AI 本就能用 `write` 直写同一路径，
+   *    单独加确认会被轻易绕道，成为只在合作路径上生效的虚假安全感）。
+   * 3. 成功后**恰一次** `await this.syncAgentSystemPrompt()` —— 该方法的函数体内**已含**
+   *    `refreshSkills()` 重扫，**不得**再写第二行，那是三次全量重扫（D-13）。忙碌时它
+   *    只置 `_skillsPromptDirty`，真正的 prompt 回写与 `skills:changed` 广播由
+   *    `_flushDeferredSkillsPrompt()` 在本轮成功出口落地 ⇒ 「下一条消息起可用」。
+   *
+   * @returns {Object} manage_skill 工具定义
+   * @private
+   */
+  _buildManageSkillTool() {
+    return {
+      name: 'manage_skill',
+      label: '创建/更新/删除技能',
+      description: '把一套可复用的流程或经验沉淀为技能，或修改、删除已创建的技能。'
+        + 'action: create(新建技能)/update(全量覆写正文)/delete(删除技能)。'
+        + 'name: 技能名，只能用小写字母、数字与连字符（例如 my-workflow）。'
+        + 'description: 一句话说明这个技能做什么、什么时候用（模型靠它判断何时使用该技能），必填。'
+        + 'content: 技能正文（Markdown），必填，只写正文、不要写 frontmatter（frontmatter 由本工具生成）。'
+        + '仅在用户明确要求把某套流程或经验沉淀为技能时调用，不要主动推断用户想沉淀技能。'
+        + '优先增强已有技能，而非创建近乎重复的新技能：同一主题请先 read 现有技能再用 update 补充。'
+        + 'update 是整体覆写：要先 read 当前正文、改好后传入完整新正文；只改几行也可以直接用 edit 工具。'
+        + '不支持改名（技能名就是目录名）：要改名请先 delete 再 create。'
+        + '写入成功后，新技能从下一条消息起对模型可见。',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['create', 'update', 'delete'],
+            description: '操作类型',
+          },
+          name: {
+            type: 'string',
+            pattern: '^[a-z0-9]+(-[a-z0-9]+)*$',
+            description: '技能名（小写字母、数字、连字符；不能以连字符开头结尾，不能有连续连字符）',
+          },
+          content: {
+            type: 'string',
+            description: '技能正文（Markdown），只含正文不含 frontmatter；create / update 必填',
+          },
+          description: {
+            type: 'string',
+            description: '技能用途与适用时机的说明；create / update 必填，模型靠它判断何时使用该技能',
+          },
+        },
+        required: ['action', 'name'],
+      },
+      executionMode: 'sequential',
+      execute: async (toolCallId, params) => {
+        const action = params && params.action;
+        const rawName = params && params.name;
+        const name = typeof rawName === 'string' ? rawName.trim() : '';
+        const seededNames = this.getSeededSkillNamesSafe();
+        const skillsManager = getAiSkillsManagerLazy();
+
+        if (action !== 'create' && action !== 'update' && action !== 'delete') {
+          // 九码是闭合白名单，不新增第十码：action 非法属参数不合法
+          const err = new Error(
+            `未知的 manage_skill action: ${action}（合法值：create / update / delete）`
+          );
+          err.code = 'invalid_name';
+          throw err;
+        }
+
+        let result;
+        if (action === 'create') {
+          result = await skillsManager.createManagedSkill(this.sandboxEnv, {
+            name,
+            content: params.content,
+            description: params.description,
+            seededNames,
+          });
+        } else {
+          throw new Error(`manage_skill 的 ${action} 动作尚未实现`);
+        }
+
+        await this.syncAgentSystemPrompt();
+
+        return {
+          content: [{ type: 'text', text: `已创建技能「${result.name}」。它从下一条消息起对模型可见。` }],
+          details: {
+            action: result.action,
+            name: result.name,
+            filePath: result.filePath,
+            description: result.description,
+          },
+        };
+      },
+    };
   }
 
   /**

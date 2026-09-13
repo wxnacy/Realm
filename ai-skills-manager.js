@@ -25,15 +25,70 @@ const path = require('path');
 /**
  * 技能限额单源（D-11）—— 端点、设置页前端与渲染层不得出现同类字面量。
  *
- * 两条独立限额，单位不同、互不换算：
- * - MAX_SKILL_MD_BYTES：SKILL.md 正文字节数（按 sandbox FileInfo.size 计数）
+ * 各条限额单位不同、互不换算，逐条声明口径（升版须逐条复核）：
+ * - MAX_SKILL_MD_BYTES：SKILL.md 文件字节数（加载期按 sandbox FileInfo.size 计数，
+ *   写入侧按 `Buffer.byteLength(text, 'utf8')` 计数 —— 同为 UTF-8 字节，因此写入侧
+ *   预筛与加载期闸口**同源同值**，不会产出「落盘成功但整条被跳过」的幽灵技能）
+ * - MAX_USER_SKILLS：user 来源技能个数（`agent-workspace/skills/`）
  * - SKILLS_PROMPT_CHAR_BUDGET：prompt 元数据段的字符数（按 JS string.length 计数）
+ * - MAX_MANAGED_SKILLS：**非 seeded 的 managed 技能个数**（AI 自建；读盘统计）。
+ *   管**磁盘与每次 Agent 重建的重扫成本**，与 SKILLS_PROMPT_CHAR_BUDGET 的
+ *   **请求成本**闸职责不同，二者不互相替代；**不得**用后者做创建拒绝（48 D-12：
+ *   超预算技能仍可显式调用、本身完全可用）。
+ * - MAX_SKILL_DESCRIPTION_CHARS：description 字符数，与 SDK
+ *   `@earendil-works/pi-agent-core/dist/harness/skills.js` 的 `MAX_DESCRIPTION_LENGTH`
+ *   对齐（**升版须复核**）。写成单源常量而非在写入侧硬编码第二份字面量，是为了让
+ *   写入侧预筛与加载期 `isDescriptionUnusable` 的判据同源。
  */
 const LIMITS = {
   MAX_SKILL_MD_BYTES: 64 * 1024,
   MAX_USER_SKILLS: 50,
   SKILLS_PROMPT_CHAR_BUDGET: 8000,
+  MAX_MANAGED_SKILLS: 50,
+  MAX_SKILL_DESCRIPTION_CHARS: 1024,
 };
+
+/**
+ * 技能名长度上限，与 SDK `harness/skills.js` 的 `MAX_NAME_LENGTH` 对齐（升版须复核）。
+ *
+ * 写成模块常量而非 `LIMITS` 项：它不是「Realm 自定的额度」而是 SDK 判据的提前执行
+ * （见 `validateManagedSkillName`）。
+ */
+const MAX_SKILL_NAME_CHARS = 64;
+
+/** 合法技能名形态（D-06 判据字面；`/`、`\`、`.` 均不在字符集内 ⇒ 无路径穿越面） */
+const MANAGED_SKILL_NAME_RE = /^[a-z0-9-]+$/;
+
+/**
+ * 内容首部 YAML frontmatter 块（A5 裁决：技能正文若自带 frontmatter 一律**静默剥除**）
+ *
+ * 不剥除会产生双层 `---` 头、SDK 解析结果不确定（可能 parse_failed → 幽灵技能），
+ * 而 D-07 的九码闭合白名单里没有 invalid_content，不为此新立第十码。
+ */
+const LEADING_FRONTMATTER_RE = /^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/;
+
+/**
+ * 惰性 require 记忆管理模块（技能域与记忆域共用同一份扫描单点，D-08）
+ *
+ * 照 `ai-manager.js` 的惰性模板：避开模块加载顺序问题，无循环依赖
+ *（ai-memory-manager 不反向 require 本模块），本模块因此保持零 electron 依赖。
+ *
+ * @returns {object} ai-memory-manager 模块导出
+ */
+function getAiMemoryManagerLazy() {
+  return require('./ai-memory-manager');
+}
+
+/**
+ * 惰性 require AI 工作区模块（managed 技能目录 / 用户技能目录的唯一解析入口）
+ *
+ * agent-workspace 的 electron 依赖同样是惰性获取的，纯 Node 下可加载。
+ *
+ * @returns {object} agent-workspace 模块导出
+ */
+function getAgentWorkspaceLazy() {
+  return require('./agent-workspace');
+}
 
 /** 空缓存形状（模块级唯一权威的初始值与复位值） */
 const EMPTY_CACHE = () => ({
@@ -833,6 +888,451 @@ async function readSkillForInvocation(env, name) {
   return { ok: true, skill: { ...fresh, name }, source: entry.source };
 }
 
+// ==================== Phase 49：技能集的 AI 写入路径（manage_skill 的权威实现层） ====================
+//
+// 六条不可回退的纪律（CONTEXT D-01..D-13 的落点）：
+// 1. 写目标恒为 `agent-workspace/managed-skills/<name>/SKILL.md` —— **绝不动
+//    `agent-workspace/skills/`**（那是用户目录）。边界由**接口设计**保证
+//    （工具不吃 `path`，路径由本模块 `path.join` 计算），不是靠沙箱 —— 沙箱的
+//    `exec` 不校验命令内容，无法表达目录级只读（ARCHITECTURE Anti-Pattern 1）。
+// 2. seeded 身份 = **播种登记表**（调用方注入的 `seededNames`），不是目录位置。
+// 3. 业务校验失败一律 `throw`（对齐 ai-memory-manager.write 先例）→ SDK 转
+//    `isError: true` toolResult → LLM 可见并自行修正；**不返回错误对象**。
+// 4. 撞名 / seeded / 数量闸一律**读盘**（`env.exists` / `env.listDir`），
+//    不用缓存快照 —— bash 可随时改盘，缓存只反映上次重扫时刻。
+// 5. 净化顺序铁律：**先扫描、后净化**（净化会剥掉零宽字符，顺序颠倒会让
+//    零宽字符变体绕过检测）。净化只作用于 description。
+// 6. 校验器与写函数住本模块（零 electron 依赖）⇒ Phase 50/51 可直接 require
+//    同一份，不各写一份而漂移。
+
+/**
+ * `manage_skill` 的**闭合原因码白名单**（D-07）—— 九码 + 沙箱层兜底码
+ *
+ * **与 Realm 诊断码是两套命名空间**：诊断码（`_cache.diagnostics` /
+ * `entry.diagnostics`）一律 `realm_` 前缀、经 `toRealmDiag` 映射；本表是
+ * **工具业务错误**的 `Error.code`（经 SDK 转 `isError: true` toolResult 回给 LLM，
+ * 并供 Phase 50/51 与测试消费）。两者语义不同、不可混用。
+ *
+ * 因此本表的字符串一律不写在 `code: '<字面量>'` 的位置 —— 那会被
+ * 「Realm 自建诊断码必须以 realm_ 前缀」的源码护栏（`tests/test-ai-skills.js`）
+ * 误判为诊断码，而该护栏是对**诊断码**的真实约束、不应为工具错误放宽。
+ *
+ * 九码（D-07）：SEEDED_PROTECTED / USER_OWNED_CONFLICT / ALREADY_EXISTS /
+ * NOT_FOUND / LIMIT_EXCEEDED / INVALID_NAME / INVALID_DESCRIPTION / OVERSIZE /
+ * UNSCANNABLE。`UNKNOWN` 是沙箱层（`permission_denied` / `not_found` 等原始码）
+ * 统一折叠后的兜底 —— 不把第九码之外的沙箱原始码泄漏给调用方。
+ */
+const MANAGE_SKILL_ERROR = {
+  SEEDED_PROTECTED: 'seeded_protected',
+  USER_OWNED_CONFLICT: 'user_owned_conflict',
+  ALREADY_EXISTS: 'already_exists',
+  NOT_FOUND: 'not_found',
+  LIMIT_EXCEEDED: 'limit_exceeded',
+  INVALID_NAME: 'invalid_name',
+  INVALID_DESCRIPTION: 'invalid_description',
+  OVERSIZE: 'oversize',
+  UNSCANNABLE: 'unscannable',
+  UNKNOWN: 'unknown',
+};
+
+/**
+ * 构造带机器可读原因码的业务错误 —— 九码的**唯一构造点**
+ *
+ * 业务失败一律 `throw`（对齐 `ai-memory-manager.write` 先例）→ SDK 转
+ * `isError: true` toolResult → LLM 可见并自行修正；**不返回错误对象**。
+ * 错误消息只给原因码 + 可操作提示 + 限额 / 当前值，**不回显被拒内容原文**。
+ *
+ * @param {string} code - 原因码（取 `MANAGE_SKILL_ERROR` 之一）
+ * @param {string} message - 中文可读原因
+ * @param {object} [extra] - 附加结构化字段（如 limit / currentValue）
+ * @returns {Error} 带 code 的错误对象
+ */
+function makeManageSkillError(code, message, extra = {}) {
+  const err = new Error(message);
+  err.code = code;
+  Object.assign(err, extra);
+  return err;
+}
+
+/**
+ * seeded 判定：`name` 是否属于随包内置技能（判据 3 的判定靶心）
+ *
+ * 只查注入集合，**不查磁盘存在性、不查目录位置** —— 内置身份来自播种登记表。
+ * 容错形态对齐 `sourceTierOf`（数组 / Set 均可）。
+ *
+ * @param {string} name - 技能名
+ * @param {string[]|Set<string>} seededNames - 随包内置技能名集合（调用方注入）
+ * @returns {boolean}
+ */
+function isSeededName(name, seededNames) {
+  const set = seededNames instanceof Set ? seededNames : new Set(seededNames || []);
+  return set.has(name);
+}
+
+/**
+ * 校验技能名（D-06）—— **SDK `validateName` 判据集的提前执行**，不是发明新规则
+ *
+ * 四条判据（`harness/skills.js` 的 `validateName` 恰为这四条，且 SDK 侧只产
+ * warning **不拒绝** —— 这正是 D-06 的动机：超长 / 非法 name 会带着 warning
+ * 进 system prompt）：
+ *   ① 长度 ≤ `MAX_SKILL_NAME_CHARS`（64）
+ *   ② `^[a-z0-9-]+$`
+ *   ③ 无首尾连字符（目录名以 `-` 开头会让 AI 用 bash 调技能自带 script 时被当选项）
+ *   ④ 无连续连字符
+ *
+ * **只 trim 首尾空白、不自动 lowercase** —— 静默规范化会让判据 2 的「非法 name
+ * 被拒绝并说明原因」失去触发面。
+ *
+ * **故意的不对称：写入门严、读入门宽**（D-06）。加载管线对磁盘上已存在的技能
+ * 保持宽松（46 D-08「不丢弃命名不规范的合法技能」），因此本校验器**只被写入侧
+ * 调用**，绝不在加载管线上加闸。
+ *
+ * @param {string} name - 技能名（未 trim）
+ * @returns {{ok: true} | {ok: false, code: MANAGE_SKILL_ERROR.INVALID_NAME, reason: string}}
+ */
+function validateManagedSkillName(name) {
+  if (typeof name !== 'string') {
+    return { ok: false, code: MANAGE_SKILL_ERROR.INVALID_NAME, reason: '技能名必须是字符串' };
+  }
+  const value = name.trim();
+  if (!value) {
+    return { ok: false, code: MANAGE_SKILL_ERROR.INVALID_NAME, reason: '技能名不能为空' };
+  }
+  if (value.length > MAX_SKILL_NAME_CHARS) {
+    return {
+      ok: false,
+      code: MANAGE_SKILL_ERROR.INVALID_NAME,
+      reason: `技能名不能超过 ${MAX_SKILL_NAME_CHARS} 个字符（当前 ${value.length} 个）`,
+    };
+  }
+  if (!MANAGED_SKILL_NAME_RE.test(value)) {
+    return {
+      ok: false,
+      code: MANAGE_SKILL_ERROR.INVALID_NAME,
+      reason: '技能名只能包含小写字母、数字与连字符（a-z、0-9、-），例如 my-workflow',
+    };
+  }
+  if (value.startsWith('-') || value.endsWith('-')) {
+    return { ok: false, code: MANAGE_SKILL_ERROR.INVALID_NAME, reason: '技能名不能以连字符开头或结尾' };
+  }
+  if (value.includes('--')) {
+    return { ok: false, code: MANAGE_SKILL_ERROR.INVALID_NAME, reason: '技能名不能包含连续的连字符' };
+  }
+  return { ok: true };
+}
+
+/**
+ * 校验技能 description（D-07：**必填、trim 后非空**）
+ *
+ * description 是模型按 description 自动匹配技能的**唯一触发机制**
+ *（渐进式披露契约只注入 name / description / location），因此不允许为空。
+ * 上限取 `LIMITS.MAX_SKILL_DESCRIPTION_CHARS`（与 SDK `MAX_DESCRIPTION_LENGTH`
+ * 对齐、与加载期 `isDescriptionUnusable` 同源）—— 超长 description 会被加载管线
+ * 整条跳过，不预筛就会产出幽灵技能。
+ *
+ * @param {string} text - description 原文（未净化）
+ * @returns {{ok: true} | {ok: false, code: MANAGE_SKILL_ERROR.INVALID_DESCRIPTION, reason: string}}
+ */
+function validateManagedSkillDescription(text) {
+  if (typeof text !== 'string') {
+    return { ok: false, code: MANAGE_SKILL_ERROR.INVALID_DESCRIPTION, reason: '技能描述必须是字符串' };
+  }
+  if (!text.trim()) {
+    return { ok: false, code: MANAGE_SKILL_ERROR.INVALID_DESCRIPTION, reason: '技能描述不能为空（模型靠它判断何时使用该技能）' };
+  }
+  if (text.length > LIMITS.MAX_SKILL_DESCRIPTION_CHARS) {
+    return {
+      ok: false,
+      code: MANAGE_SKILL_ERROR.INVALID_DESCRIPTION,
+      reason: `技能描述不能超过 ${LIMITS.MAX_SKILL_DESCRIPTION_CHARS} 个字符（当前 ${text.length} 个）`,
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * 校验技能正文（D-07 + T-49-01-08 幽灵技能护栏的写侧半边）
+ *
+ * 两条判据、两个不同的原因码：
+ * - trim 后为空 → `invalid_description`（**不新立第十码**：UI-SPEC 的非阻断建议 2
+ *   要求显式指定，而九码内的选择比新码更符合 D-07 的闭合白名单纪律；`oversize`
+ *   的文案是「正文超限」、语义是长度而非空）
+ * - UTF-8 字节数 > `LIMITS.MAX_SKILL_MD_BYTES` → `oversize`
+ *
+ * 按 `Buffer.byteLength(text, 'utf8')` 计数：与加载期 `createSkillsEnv` 的字节闸
+ *（按 `FileInfo.size`）同为 UTF-8 字节，两侧因此同源同值。
+ *
+ * @param {string} text - 技能正文（Markdown，不含 frontmatter）
+ * @returns {{ok: true} | {ok: false, code: string, reason: string}}
+ */
+function validateManagedSkillContent(text) {
+  if (typeof text !== 'string' || !text.trim()) {
+    return { ok: false, code: MANAGE_SKILL_ERROR.INVALID_DESCRIPTION, reason: '技能正文不能为空' };
+  }
+  const bytes = Buffer.byteLength(text, 'utf8');
+  if (bytes > LIMITS.MAX_SKILL_MD_BYTES) {
+    return {
+      ok: false,
+      code: MANAGE_SKILL_ERROR.OVERSIZE,
+      reason: `技能正文超过上限：限额 ${LIMITS.MAX_SKILL_MD_BYTES} 字节，当前 ${bytes} 字节`,
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * 净化 description（D-09）—— **只作用于 description，content 不净化**
+ *
+ * 两步：剥控制字符（C0/C1）与零宽字符 → 压单行 + trim。
+ *
+ * **顺序铁律：先扫描、后净化**（D-09）。本函数是**变形**操作、`scanSkillText` 是
+ * **判定**操作；先净化会剥掉零宽字符，让 P3 实测的「零宽字符包裹的注入语」绕过检测，
+ * 因此调用方必须严格按「扫描 → 净化」排序（三个动作函数的步骤 2 / 3 即此）。
+ *
+ * content 不净化：技能正文可能含代码 / 脚本，剥字符会破坏合法内容，且它不进 prompt。
+ *
+ * @param {string} text - description 原文
+ * @returns {string} 单行、无控制字符与零宽字符的描述
+ */
+function sanitizeSkillDescription(text) {
+  return String(text == null ? '' : text)
+    // 控制字符（C0/C1）与零宽字符 → 空格（随后由空白折叠统一收敛）
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\u2060\uFEFF]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * 扫描技能文本 —— **技能域扫描的唯一调用点**（D-08）
+ *
+ * 委托 `ai-memory-manager.scanInjectionPatterns`（记忆域与技能域共用同一份模式表与
+ * 同一份判定逻辑）。命中即 `throw`（对齐 memory 工具「拒绝写入」的语义先例，
+ * **不是** `validateScript` 的「拒绝执行」）。Phase 51 的 `SKILL_THREAT_PATTERNS`
+ * 技能域模式组只需扩表，**不加接线**。
+ *
+ * 字段分离（调用方口径，不可调换）：
+ * - `description` → `{ includeCredentials: true }`（无条件进每个请求的 system prompt，
+ *   与两层记忆同构：秘密入库 = 上传第三方）
+ * - `content` → `{ includeCredentials: false }`（不进 prompt，且技能文档合法地会写
+ *   配置示例，跑凭据组会误伤合法技能创建）
+ *
+ * @param {string} text - 待扫描文本
+ * @param {{includeCredentials?: boolean}} [options] - 字段分离开关
+ * @throws {Error} 命中任何模式（code: MANAGE_SKILL_ERROR.UNSCANNABLE）
+ */
+function scanSkillText(text, { includeCredentials = true } = {}) {
+  const result = getAiMemoryManagerLazy().scanInjectionPatterns(text, { includeCredentials });
+  if (!result || result.safe !== true) {
+    throw makeManageSkillError(
+      MANAGE_SKILL_ERROR.UNSCANNABLE,
+      `技能内容被拒绝：${(result && result.reason) || '命中安全扫描'}。请调整措辞后重试`
+    );
+  }
+}
+
+/**
+ * 组装 SKILL.md 全文（frontmatter 恰 `name` + `description` 两行）
+ *
+ * `content` 首部若自带 YAML frontmatter 块一律**静默剥除**（A5 裁决）——
+ * 不剥除会产生双层 `---` 头、SDK 解析结果不确定，而九码里没有 `invalid_content`。
+ *
+ * @param {{name: string, description: string, content: string}} parts
+ * @returns {string} SKILL.md 全文（frontmatter + 空行 + 正文）
+ */
+function buildSkillFileText({ name, description, content }) {
+  const body = String(content == null ? '' : content).replace(LEADING_FRONTMATTER_RE, '');
+  return `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}`;
+}
+
+/** 从沙箱 Result 里取可读的错误码（失败 Result 的形状为 `{ ok: false, error: { code } }`） */
+function sandboxErrorCode(result) {
+  return (result && result.error && result.error.code) || MANAGE_SKILL_ERROR.UNKNOWN;
+}
+
+/**
+ * 原子写技能文件的**唯一写路径**（create 与 update 共用）
+ *
+ * `env.createTempFile()` → `env.writeFile(tmp)` → `env.renameFile(tmp, destFile)`：
+ * POSIX 文件级 rename 对**已存在目标**是原子替换 ⇒ 不会留半成品文件。
+ *
+ * 三条实测硬约束（改实现前必须重新实测）：
+ * 1. `createTempFile` 的 suffix 经 `sanitizeNamePart` 剥掉点号（`.md` → `md`）——
+ *    无功能影响，但**不得**写依赖扩展名的断言。
+ * 2. `renameFile` 到缺失父目录返回 `not_found` ⇒ **`createDir` 是硬前置**
+ *    （update 的目标目录必然已存在，故只有 create 需要先建）。
+ * 3. 每次调用在 `.tmp/` 留下一个空 `tmp-XXXXXX/` 目录（`.tmp/` 不是技能扫描根，
+ *    无功能影响；已知且接受的累积，**不为此加清理代码**）。
+ *
+ * 沙箱错误与业务错误**分层**（assumptions 6）：沙箱返回 Result，本函数把它转成带
+ * `code` 的业务错误对象再 throw；两者都**不裸传**底层 message 给 LLM。
+ *
+ * @param {object} env - 沙箱 ExecutionEnv
+ * @param {string} destFile - 目标 SKILL.md 绝对路径（由调用方 `path.join` 计算）
+ * @param {string} text - 文件全文
+ * @throws {Error} 任一步失败（空路径、创建临时文件、写入、rename）
+ */
+async function atomicWriteSkillFile(env, destFile, text) {
+  // 空 / 非字符串路径不做任何 IO：沙箱会把空路径 resolve 到 root 本身，
+  // 把这种输入交给沙箱等于让它去猜语义（assumptions 5）
+  if (typeof destFile !== 'string' || !destFile.trim()) {
+    throw makeManageSkillError(MANAGE_SKILL_ERROR.UNKNOWN, '技能文件目标路径非法（空路径不做任何 IO）');
+  }
+
+  const tmp = await env.createTempFile({ prefix: 'skill-', suffix: '.md' });
+  if (!tmp || tmp.ok !== true) {
+    throw makeManageSkillError(
+      MANAGE_SKILL_ERROR.UNKNOWN,
+      `创建技能临时文件失败（沙箱码 ${sandboxErrorCode(tmp)}）`
+    );
+  }
+
+  const written = await env.writeFile(tmp.value, text);
+  if (!written || written.ok !== true) {
+    await env.remove(tmp.value, { force: true });
+    throw makeManageSkillError(
+      MANAGE_SKILL_ERROR.UNKNOWN,
+      `写入技能临时文件失败（沙箱码 ${sandboxErrorCode(written)}）`
+    );
+  }
+
+  const renamed = await env.renameFile(tmp.value, destFile);
+  if (!renamed || renamed.ok !== true) {
+    await env.remove(tmp.value, { force: true });
+    throw makeManageSkillError(
+      MANAGE_SKILL_ERROR.UNKNOWN,
+      `技能文件落盘失败：目标路径 ${destFile}（沙箱码 ${sandboxErrorCode(renamed)}）`
+    );
+  }
+}
+
+/**
+ * 计算 managed 技能的三段路径（`<managedDir>` / `<managedDir>/<name>` / 其下 SKILL.md）
+ *
+ * 路径恒由 `path.join` 计算 —— 工具层**不吃 `path` 参数**，这是路径边界的唯一实现处
+ *（T-49-01-01 / ARCHITECTURE Anti-Pattern 1：沙箱在这里提供不了保护，接口设计才是边界）。
+ *
+ * @param {string} name - 已 trim 的技能名
+ * @returns {{managedDir: string, destDir: string, destFile: string}}
+ */
+function managedSkillPaths(name) {
+  const managedDir = getAgentWorkspaceLazy().getManagedSkillsDir();
+  const destDir = path.join(managedDir, name);
+  return { managedDir, destDir, destFile: path.join(destDir, 'SKILL.md') };
+}
+
+/**
+ * 统计**非 seeded** 的 managed 技能目录数（D-10 数量闸的统计对象，一律读盘）
+ *
+ * 对齐 `MAX_USER_SKILLS`「只统计 user 来源」的写法**是错的** —— 那条注释的理由
+ *（「managed 由应用自身投递，不计入配额」）在 AI 也能投递 managed 之后不再成立。
+ * 读目录失败时按 0 计（不因读目录失败而拒绝创建）。
+ *
+ * @param {object} env - 沙箱 ExecutionEnv
+ * @param {string} managedDir - managed 技能目录
+ * @param {string[]|Set<string>} seededNames - 随包内置技能名集合
+ * @returns {Promise<number>} 非 seeded managed 目录数
+ */
+async function countManagedSkills(env, managedDir, seededNames) {
+  const entries = await env.listDir(managedDir);
+  if (!entries || entries.ok !== true || !Array.isArray(entries.value)) return 0;
+  // listDir 的 entry 形状是 `{ name, path, kind, size, mtimeMs }`（实测）——
+  // 是 `kind === 'directory'` 而**不是** `isDirectory()` 方法
+  return entries.value.filter(
+    (entry) => entry && entry.kind === 'directory' && !isSeededName(entry.name, seededNames)
+  ).length;
+}
+
+/**
+ * 创建 managed 技能（`manage_skill` 的 create 动作，MGMT-01）
+ *
+ * **独占创建**（D-07，对齐 oh-my-pi 与 FEATURES §5.3）：目标已存在（任何来源）
+ * 即拒绝且**不落盘**，四类来源给不同可读原因。不是 upsert。
+ *
+ * 步骤顺序**本身就是纪律**：先纯校验 → 后 IO；扫描在净化之前；撞名判定在写之前。
+ *
+ * @param {object} env - 沙箱 ExecutionEnv
+ * @param {{name: string, content: string, description: string,
+ *          seededNames?: string[]|Set<string>}} params
+ * @returns {Promise<{name: string, filePath: string, description: string, action: 'create'}>}
+ * @throws {Error} 校验 / 扫描 / 撞名 / 数量闸 / 写入失败（均带 `code`）
+ */
+async function createManagedSkill(env, { name, content, description, seededNames } = {}) {
+  // 1. 三个纯校验器（name 只 trim、不 lowercase）
+  const skillName = typeof name === 'string' ? name.trim() : name;
+  const nameCheck = validateManagedSkillName(skillName);
+  if (!nameCheck.ok) throw makeManageSkillError(nameCheck.code, nameCheck.reason);
+  const descCheck = validateManagedSkillDescription(description);
+  if (!descCheck.ok) throw makeManageSkillError(descCheck.code, descCheck.reason);
+  const contentCheck = validateManagedSkillContent(content);
+  if (!contentCheck.ok) throw makeManageSkillError(contentCheck.code, contentCheck.reason);
+
+  // 2. 先扫描（description 跑两组；content 只跑注入组）
+  scanSkillText(description, { includeCredentials: true });
+  scanSkillText(content, { includeCredentials: false });
+
+  // 3. 后净化（只作用于 description）
+  const safeDescription = sanitizeSkillDescription(description);
+
+  // 4. 路径（恒由 path.join 计算）
+  const { managedDir, destDir, destFile } = managedSkillPaths(skillName);
+
+  // 5. 撞名判定：一律读盘，**绝不用 createDir 的返回值**（它对已存在目录返回
+  //    ok:true 幂等，据此判「不存在」会把既有技能静默覆写 —— E2 回归护栏）
+  const existsManaged = await env.exists(destDir);
+  const existsUser = await env.exists(path.join(getAgentWorkspaceLazy().getSkillsDir(), skillName));
+  if ((existsManaged && existsManaged.ok === true && existsManaged.value === true) ||
+      (existsUser && existsUser.ok === true && existsUser.value === true)) {
+    // seeded 判定先于其它三类（内置优先给内置的原因）；managed 侧「已存在」与
+    //「用户手放在 managed-skills/ 下的」同形（工具无法区分）→ 同走 already_exists
+    if (isSeededName(skillName, seededNames)) {
+      throw makeManageSkillError(
+        MANAGE_SKILL_ERROR.SEEDED_PROTECTED,
+        `"${skillName}" 是随包内置技能，不能覆盖。请换一个名字创建新技能，或增强你自己创建的技能`
+      );
+    }
+    if (existsUser && existsUser.ok === true && existsUser.value === true) {
+      throw makeManageSkillError(
+        MANAGE_SKILL_ERROR.USER_OWNED_CONFLICT,
+        `已存在同名用户技能 "${skillName}"，它优先级更高、会永久遮蔽 AI 创建的技能，因此未写入。请换一个名字`
+      );
+    }
+    throw makeManageSkillError(
+      MANAGE_SKILL_ERROR.ALREADY_EXISTS,
+      `技能 "${skillName}" 已存在。请改用 update 覆写它的正文，或换一个名字`
+    );
+  }
+
+  // 6. 数量闸（只约束 create；update / delete 不受限，否则到顶后无法自救）
+  const managedCount = await countManagedSkills(env, managedDir, seededNames);
+  if (managedCount >= LIMITS.MAX_MANAGED_SKILLS) {
+    throw makeManageSkillError(
+      MANAGE_SKILL_ERROR.LIMIT_EXCEEDED,
+      `AI 自建技能数量已达上限（${LIMITS.MAX_MANAGED_SKILLS} 个，seeded 内置技能不计入）。请先删除不再需要的技能再创建`,
+      { limit: LIMITS.MAX_MANAGED_SKILLS, currentValue: managedCount }
+    );
+  }
+
+  // 7. 建目录（renameFile 到缺失父目录必失败 ⇒ createDir 是硬前置）。
+  //    createDir 的返回值不参与任何判定（幂等，E2）。
+  const madeDir = !(existsManaged && existsManaged.ok === true && existsManaged.value === true);
+  await env.createDir(destDir);
+
+  // 8. 原子写；失败清理**只在本次确实新建了目录时**执行 —— 否则会误删不属于
+  //    本次操作的数据（Pitfall 9）。清理后不留半成品目录 / 半成品文件。
+  try {
+    await atomicWriteSkillFile(
+      env,
+      destFile,
+      buildSkillFileText({ name: skillName, description: safeDescription, content })
+    );
+  } catch (err) {
+    if (madeDir) await env.remove(destDir, { recursive: true });
+    throw err;
+  }
+
+  return { name: skillName, filePath: destFile, description: safeDescription, action: 'create' };
+}
+
 /** 复位模块级缓存（仅测试用；跨用例污染会让「空技能集」断言假失败） */
 function _resetCacheForTest() {
   _cache = EMPTY_CACHE();
@@ -849,5 +1349,13 @@ module.exports = {
   matchSkillByPath,
   getSkillsForUI,
   readSkillForInvocation,
+  // 49 新增（技能集 AI 写入路径：校验器 / 净化 / 扫描单点 / 组装 / 三动作）
+  validateManagedSkillName,
+  validateManagedSkillDescription,
+  validateManagedSkillContent,
+  sanitizeSkillDescription,
+  scanSkillText,
+  buildSkillFileText,
+  createManagedSkill,
   _resetCacheForTest,
 };
