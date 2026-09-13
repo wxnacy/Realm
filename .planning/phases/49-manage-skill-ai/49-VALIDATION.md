@@ -5,7 +5,7 @@ slug: "manage-skill-ai"
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
 status: draft
 nyquist_compliant: false
-wave_0_complete: false
+wave_0_complete: true
 created: "2026-09-13"
 ---
 
@@ -30,10 +30,12 @@ created: "2026-09-13"
 **实测基线（地板）**：`node tests/test-ai-skills.js` → **147/147**；`node tests/test-agent-workspace.js` → **21/21**。
 任何回归都以下列基线为地板，不得下降。
 
-**⚠ 豁免口径（既有红项，非本阶段引入）**：`node tests/test-builtin-skills-seeder.js` 的「DOC-02 计数断言」
-在 Node 22 下**基线即红**（D-48-A，与 49 无关，修法见 `48-skill-name/deferred-items.md`）。
-该文件不在本阶段任何计划的 `files_modified` 内 → 若纳入门禁必须显式标注该已知红点，或先按 deferred-items 修掉；
-**不得**把这一红项算作本阶段的引入回归。
+**⚠ 豁免口径（既有红项，非本阶段引入）—— 执行期复核：该红项未复现，已按实测更正。**
+plan 期记录的「`node tests/test-builtin-skills-seeder.js` 的 DOC-02 计数断言在 Node 22 下**基线即红**（D-48-A）」
+在执行期（2026-09-13，49-03-T2）复核时**未复现**：该文件实跑 **101/101 全绿**，其中
+`AGENTS.md 的「测试：」行计数与实跑输出一致` 子测试（编号 14）**通过**。本阶段对该文件的唯一改动面是
+`AGENTS.md:267` 的测试清单行（49-03-T2），实测改动前后该套件均全绿 ⇒ 既不是本阶段引入的回归，也不再是
+基线红点。原「不得算作本阶段引入回归」的约束继续成立且已被实测满足（见 `49-03-SUMMARY.md` 的 Issues）。
 
 ---
 
@@ -50,23 +52,24 @@ created: "2026-09-13"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| （回填） | — | — | MGMT-01 | T-49-01 | 工具存在且 `action` enum 含 `create` / `update` / `delete` 三值；`executionMode === 'sequential'` | 源码扫描 | `node tests/test-ai-skills.js` | ✅ 基建在 | ⬜ pending |
-| （回填） | — | — | MGMT-01 | T-49-01 | 三动作各产生正确磁盘终态（create 建目录+文件；update 覆写正文；delete 递归删整目录含 `scripts/`） | 行为 | `node tests/test-manage-skill.js` | ❌ W0 | ⬜ pending |
-| （回填） | — | — | MGMT-02 | T-49-02 | `parameters.properties` 键集合 == `{action, name, content, description}`，**无 `path`** | 源码扫描 | `node tests/test-ai-skills.js` | ✅ 基建在 | ⬜ pending |
-| （回填） | — | — | MGMT-02 | T-49-02 | 服务端二次校验：七种非法 name / description 超长 / 正文超 64 KiB 被拒且原因可读（LLM 参数不可信） | 单元 | `node tests/test-manage-skill.js` | ❌ W0 | ⬜ pending |
-| （回填） | — | — | MGMT-03 | T-49-03 | 原子写：失败不留半成品（操作前后 `readdirSync` deepStrictEqual）；dest 逃逸被拒 `permission_denied` | 行为 | `node tests/test-manage-skill.js` | ❌ W0 | ⬜ pending |
-| （回填） | — | — | MGMT-04 | T-49-04 | seeded 的 create / update / delete **三入口**一律被拒，`code === 'seeded_protected'`（**显式注入 `seededNames`**） | 单元（关键靶心） | `node tests/test-manage-skill.js` | ❌ W0 | ⬜ pending |
-| （回填） | — | — | MGMT-04 | T-49-04 | 反向例：`managed-skills/ai-made/` 且**不**列入 seededNames → 允许创建（证明不是「managed 目录一律拒」） | 单元 | `node tests/test-manage-skill.js` | ❌ W0 | ⬜ pending |
-| （回填） | — | — | MGMT-05 | T-49-05 | 忙时语义：工具执行期 `_skillsPromptDirty === true` 且 prompt **不含**新技能名 → 下一轮成功出口 `false` + prompt 含新技能名 + `skills:changed` 广播**恰一次** + `rescanCalls === 2` | 行为（K 组 `promptCtx` 风格） | `node tests/test-ai-skills.js` | ✅ 夹具在 | ⬜ pending |
-| （回填） | — | — | MGMT-06 | T-49-01 | 工具描述含「优先增强已有技能」与「仅在用户明确要求时」两条文案 | 源码扫描 | `node tests/test-ai-skills.js` | ✅ 基建在 | ⬜ pending |
-| （回填） | — | — | 判据 4 | T-49-03 | 写入不触及 `ai-memory/` / `attachments/`（操作后二者目录快照不变） | 行为 | `node tests/test-manage-skill.js` | ❌ W0 | ⬜ pending |
-| （回填） | — | — | D-02 | T-49-06 | 卡片标记：start 打 `{action, name}`、end 并入 `{tier, code, promptIncluded}`；重载链路同形；失败态 code/tier 经工具注册层元数据（SDK `details` 恒为 `{}`，不可依赖） | 源码扫描 + 行为 | `node tests/test-ai-skills.js` | ✅ H 组 `markerCtx` 可复用 | ⬜ pending |
-| （回填） | — | — | D-07 | T-49-04 | 四类撞名分别返回 `seeded_protected` / `user_owned_conflict` / `already_exists` / `not_found` 且 `create` 不落盘 | 单元 | `node tests/test-manage-skill.js` | ❌ W0 | ⬜ pending |
-| （回填） | — | — | D-08 | T-49-02 | `description` 跑 `INJECTION_PATTERNS` + `CREDENTIAL_PATTERNS` 两组；`content` **只**跑注入组（`content: 'api_key: YOUR_KEY_HERE'` 放行，`description: 'api_key: real-key-123'` 被拒） | 单元 | `node tests/test-manage-skill.js` | ❌ W0 | ⬜ pending |
-| （回填） | — | — | D-09 | T-49-02 | 顺序：零宽字符包裹的注入措辞**仍被拒**（先扫描后净化；顺序颠倒则放行 ⇒ 用例必然转红） | 单元 | `node tests/test-manage-skill.js` | ❌ W0 | ⬜ pending |
-| （回填） | — | — | D-10 | T-49-07 | 第 `MAX_MANAGED_SKILLS + 1` 个**非 seeded** managed 技能创建被拒；`update` / `delete` 不受限 | 单元 | `node tests/test-manage-skill.js` | ❌ W0 | ⬜ pending |
-| （回填） | — | — | — | — | 新增模块零 electron 依赖（`ai-skills-manager.js` 仍不含 `require('electron')`） | 源码扫描（既有依赖纪律 describe 自动覆盖） | `node tests/test-ai-skills.js` | ✅ 基建在 | ⬜ pending |
-| （回填） | — | — | — | — | 幽灵技能护栏：写侧预筛上限与加载期闸口**同源同值**（手工造超限文件 → `refreshSkills` 产 `realm_skill_md_too_large`；description 同理 `isDescriptionUnusable` 跳过） | 自动化 | `node tests/test-manage-skill.js` | ❌ W0 | ⬜ pending |
+| 49-01-T1 | 01 | 1 | MGMT-01 / MGMT-02 | T-49-01-01 | 工具存在且 `action` enum 含三值、`executionMode === 'sequential'`；`parameters.properties` 键集合恒为 `{action, name, content, description}`（**无 `path`**） | 源码扫描 | `node tests/test-ai-skills.js` | ✅ | ⬜ pending |
+| 49-01-T1 | 01 | 1 | MGMT-06 | T-49-01-05 | 工具描述含「仅在用户明确要求时」与「优先增强已有技能而非创建近乎重复的新技能」两条文案 | 源码扫描 | `node tests/test-ai-skills.js` | ✅ | ⬜ pending |
+| 49-01-T1 | 01 | 1 | MGMT-02 | T-49-01-02 | 服务端二次校验：七种非法 name / description 超 1024 字符 / 正文超 64 KiB 被拒且原因可读（LLM 参数不可信） | 单元 | `node tests/test-manage-skill.js` | ✅ | ⬜ pending |
+| 49-01-T1 | 01 | 1 | MGMT-03 | T-49-01-03 | 原子写：失败不留半成品（操作前后 `readdirSync` deepStrictEqual）；dest 逃逸被拒 `permission_denied`；`renameFile` 到缺失父目录 `not_found` ⇒ `createDir` 是硬前置 | 行为 | `node tests/test-manage-skill.js` | ✅ | ⬜ pending |
+| 49-01-T1 | 01 | 1 | D-08 | T-49-01-04 | `description` 跑注入 + 凭据两组，`content` **只**跑注入组（`content: 'api_key: YOUR_KEY_HERE'` 放行，`description: 'api_key: real-key-123'` 被拒） | 单元 | `node tests/test-manage-skill.js` | ✅ | ⬜ pending |
+| 49-01-T1 | 01 | 1 | D-09 | T-49-01-04 | 顺序：零宽字符包裹的注入措辞**仍被拒**（先扫描后净化；顺序颠倒则放行 ⇒ 用例必然转红） | 单元 | `node tests/test-manage-skill.js` | ✅ | ⬜ pending |
+| 49-01-T1 | 01 | 1 | — | — | 校验器宿主零 electron 依赖（`ai-skills-manager.js` 不含 `require('electron')`）⇒ Phase 50/51 可直接复用同一份 | 源码扫描 | `node tests/test-ai-skills.js` | ✅ | ⬜ pending |
+| 49-01-T2 | 01 | 1 | MGMT-01 | T-49-01-01 | 三动作各产生正确磁盘终态（create 建目录 + 文件；update 覆写正文；delete 递归删整目录含 `scripts/`） | 行为 | `node tests/test-manage-skill.js` | ✅ | ⬜ pending |
+| 49-01-T2 | 01 | 1 | MGMT-04 | T-49-01-06 | seeded 的 create / update / delete **三入口**一律被拒且 `code === 'seeded_protected'`（**显式注入 `seededNames`**）；反向例：未列入 seededNames 的 `managed-skills/` 技能允许创建 | 单元（关键靶心） | `node tests/test-manage-skill.js` | ✅ | ⬜ pending |
+| 49-01-T2 | 01 | 1 | D-07 | T-49-01-07 | 四类撞名分别返回 `seeded_protected` / `user_owned_conflict` / `already_exists` / `not_found`，且被拒时**不落盘** | 单元 | `node tests/test-manage-skill.js` | ✅ | ⬜ pending |
+| 49-01-T2 | 01 | 1 | D-10 | T-49-01-10 | 第 `MAX_MANAGED_SKILLS + 1` 个**非 seeded** managed 技能创建被拒；`update` / `delete` 不受限（到顶后仍可自救）；预算是请求成本闸、不得用于创建拒绝 | 单元 | `node tests/test-manage-skill.js` | ✅ | ⬜ pending |
+| 49-01-T3 | 01 | 1 | MGMT-05 | T-49-01-05 | 忙时语义：工具执行期 `_skillsPromptDirty === true` 且 prompt **不含**新技能名 → 下一轮成功出口 `false` + prompt 含新技能名 + `skills:changed` 广播**恰一次** + `rescanCalls === 2` | 行为（L 组） | `node tests/test-ai-skills.js` | ✅ | ⬜ pending |
+| 49-01-T3 | 01 | 1 | 判据 4 | T-49-01-09 | 写入不触及 `ai-memory/` / `attachments/` / 用户技能目录（操作后目录快照不变） | 行为 | `node tests/test-manage-skill.js` | ✅ | ⬜ pending |
+| 49-01-T3 | 01 | 1 | — | T-49-01-08 | 幽灵技能护栏：写侧预筛上限与加载期闸口**同源同值**（手工造超限文件 → `refreshSkills` 产 `realm_skill_md_too_large`；description 同理按不可用跳过） | 自动化 | `node tests/test-manage-skill.js` | ✅ | ⬜ pending |
+| 49-02-T1 | 02 | 2 | D-02 | T-49-02-01 | 卡片标记：start 打 `{action, name}`、end 并入 `{tier, code, promptIncluded}`；重载链路同形；失败态 code/tier 经工具注册层元数据（SDK `details` 恒为 `{}`，不可依赖） | 源码扫描 + 行为（M 组） | `node tests/test-ai-skills.js` | ✅ | ⬜ pending |
+| 49-02-T1 | 02 | 2 | D-02 | T-49-02-02 | 两处「不可判定即省略」退化：`delete` 成功卡片**无**来源徽标（目标已消失）、重开对话后的失败卡片**无**短原因（原因码不落库） | 行为 | `node tests/test-ai-skills.js` | ✅ | ⬜ pending |
+| 49-02-T2 | 02 | 2 | D-02 | T-49-02-03 | 参数摘要剔除 `content`；正文折叠块复用同一容器类与 a11y 契约；结果区文本化；**至多一条**标注（失败短原因 / 未进提示词） | 源码扫描 + 行为 | `node tests/test-ai-skills.js` | ✅ | ⬜ pending |
+| 49-02-T3 | 02 | 2 | D-02 | T-49-02-04 | 样式与令牌：标注规则、`--skill-error-text` 双主题、卡片语境 scoped 覆盖与焦点环；定位钩子类在 `manage_skill` 变体处**恰挂一次**（无 CSS 规则的纯定位钩子） | 源码扫描 | `node tests/test-ai-skills.js` + `node --test tests/test-skill-picker-model.js` | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -119,17 +122,15 @@ created: "2026-09-13"
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test-manage-skill.js` —— 新建；承载 MGMT-01/02/03/04 的全部值域矩阵 + D-08/D-09/D-10 + 判据 4
+- [x] `tests/test-manage-skill.js` —— 新建；承载 MGMT-01/02/03/04 的全部值域矩阵 + D-08/D-09/D-10 + 判据 4 —— **落地于 49-01-T1/T2/T3**（create 脊椎 / 两动作与统一目标判定 / 端到端护栏），实测 41 例
   - 最小夹具（照抄既有风格）：`withTempRoot(t)`（`mkdtempSync` + `t.after` 清理 + `workspace.setWorkspaceDir(null)` + `aiSkills._resetCacheForTest()`）、`createSandboxEnv({ cwd: root })`、`writeSkill(dir, name, {description, body, frontmatterName})` 造型
   - **seeded 注入方式（硬约束）**：直接向 manager 函数传 `seededNames: [...]` 数组，**严禁走 `getSeededSkillNamesSafe()`** —— 后者在纯 Node 下降级为 `[]`，会让 seeded 保护用例**假绿**（这正是 D-11 签名设计的目的）
-- [ ] `tests/test-ai-skills.js` 扩三组：
+- [x] `tests/test-ai-skills.js` 扩三组 —— **落地于 49-01-T1（工具项源码断言）/ 49-01-T3（刷新链行为用例，L 组）/ 49-02-T1..T3（标记两时点与重载同形，M 组）**，实测 172 例：
   - `manage_skill` 工具项源码断言（schema 键集合 / `executionMode` / 描述两条文案）
   - `manage_skill` 标记两时点 + 重载同形（复用 H 组 `markerCtx` 风格）
   - 刷新链行为用例（复用 K 组 `promptCtx` 风格，断言 `rescanCalls === 2` + 脏标记流转 + 广播恰一次）
-- [ ] **D-08 阻塞级裁决的连带 Wave 0**：若采纳 RESEARCH 的方案 A（给 `scanInjectionPatterns` 加可选参 `{ includeCredentials = true }`），
-      则 `ai-memory-manager.js` 进入本阶段改动文件集，必须保留既有 `node --test test/memory/*.test.js` 全绿；
-      若采纳方案 B（导出两张模式表），则 Wave 0 需为新导出补断言
-- [ ] Framework install: **不需要**（`node:test` 内置）
+- [x] **D-08 阻塞级裁决的连带 Wave 0** —— **采纳方案 A 并已落地于 49-01-T1**：`scanInjectionPatterns` 加可选参 `{ includeCredentials = true }`，`ai-memory-manager.js` 进入本阶段 `files_modified`；既有 `node --test test/memory/*.test.js` 保持全绿（56/56 实测）
+- [x] Framework install: **不需要**（`node:test` 内置）
 
 ---
 
@@ -143,14 +144,16 @@ created: "2026-09-13"
 
 ---
 
-## Known-Open Items（plan 期必须裁决，影响文件集）
+## Known-Open Items（plan 期裁决，执行期已逐条落定）
 
-| # | 事项 | 影响的产物 | 状态 |
+| # | 事项 | 裁决与落点 | 状态 |
 |---|------|-----------|------|
-| OQ-1 | **D-08 字段分离扫描的实现方式**：`scanInjectionPatterns` 当前**无条件连跑**两组模式且两张表均未导出 ⇒ 按现有导出实现 D-08 会误伤合法技能的配置示例。方案 A：加可选参 `{ includeCredentials = true }`（向后兼容）；方案 B：导出两张模式表由调用方组合 | `ai-memory-manager.js` 是否进入 `files_modified` | ⬜ 待裁决 |
-| OQ-2 | `description` 上限 1024 的常量归属（加入 `LIMITS` 第四项，不破坏既有三限额断言） | `ai-skills-manager.js` 的 `LIMITS` | ⬜ 待裁决 |
-| OQ-3 | 测试文件组织（RESEARCH 推荐：新建 `tests/test-manage-skill.js` 承载值域矩阵，`test-ai-skills.js` 补接线断言） | Wave 0 清单 | ⬜ 待裁决 |
-| OQ-4 | `content` 内含 frontmatter 时的处理（RESEARCH 推荐静默剥除，不引入新错误码） | 校验器语义 | ⬜ 待裁决 |
+| OQ-1 | **D-08 字段分离扫描的实现方式**（`scanInjectionPatterns` 当前无条件连跑两组模式且两张表均未导出） | **采纳方案 A**：`scanInjectionPatterns(text, { includeCredentials = true })` 加可选参（向后兼容），`content` 侧传 `false`。**连带**：`ai-memory-manager.js` 随之进入本阶段 `files_modified`（CONTEXT 的「无需改动」表述已被 RESEARCH 的阻塞级发现纠正）；连带回归 = `node --test test/memory/*.test.js` 全绿（56/56 实测）。落点：49-01-T1 | ✅ 已裁决 |
+| OQ-2 | `description` 上限常量归属 | **加入 `LIMITS` 第四项** `MAX_SKILL_DESCRIPTION_CHARS = 1024`，注释声明与 SDK `MAX_DESCRIPTION_LENGTH` 对齐、升版须复核；**既有三项数值不动**（加项不破坏既有断言）。落点：49-01-T1 | ✅ 已裁决 |
+| OQ-3 | 测试文件组织 | **新建 `tests/test-manage-skill.js`** 承载 manager 级值域矩阵与护栏（41 例实测）；`tests/test-ai-skills.js` 补 **M 组**（卡片标记与接线）与 **L 组**（刷新链时序）两组接线类断言（172 例实测）。落点：49-01-T3（manager 侧）/ 49-02-T1..T3（接线侧） | ✅ 已裁决 |
+| OQ-4 | `content` 内含 frontmatter 的处理 | **静默剥除**首部 YAML 块；工具描述写明「content 只含正文」；**不引入新错误码**（九码保持闭合）。落点：49-01-T1 | ✅ 已裁决 |
+
+**执行期补充裁决（plan 期未预见，按 Rule 4 记录）**：`ai-skills-manager.js` 的 `validateManagedSkillContent` 与加载期闸口在**内容恰为 65536 字节**处存在窄边界不一致（加载期量的是含 frontmatter 的整个 `SKILL.md`）。按计划 `<behavior>` 字面实现（放行内容 = 65536 字节），已记入 `49-01-SUMMARY.md` 的 Issues 供 verify-work 裁决。
 
 ---
 
