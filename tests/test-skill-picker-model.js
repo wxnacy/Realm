@@ -921,6 +921,72 @@ describe('B 组 · TIER_BADGE 三档徽标唯一权威查表（D-14 消费方）
   });
 });
 
+describe('B 组 · MANAGE_SKILL_* 两张白名单表（Phase 49 / D-02 / D-07，跨进程单源）', () => {
+  test('MANAGE_SKILL_ACTION_LABEL：恰三键、值域逐字、模板恰一个 {name} 占位符、已冻结', () => {
+    const table = model.MANAGE_SKILL_ACTION_LABEL;
+    assert.ok(table, '必须导出 MANAGE_SKILL_ACTION_LABEL');
+    assert.strictEqual(Object.isFrozen(table), true, '动作标题表必须是 Object.freeze（闭合白名单）');
+    assert.deepStrictEqual(Object.keys(table).sort(), ['create', 'delete', 'update']);
+    assert.strictEqual(table.create, '创建技能「{name}」');
+    assert.strictEqual(table.update, '更新技能「{name}」');
+    assert.strictEqual(table.delete, '删除技能「{name}」');
+    for (const action of ['create', 'update', 'delete']) {
+      assert.strictEqual(
+        (table[action].match(/\{name\}/g) || []).length,
+        1,
+        `${action} 的模板必须恰含一个 {name} 占位符（渲染端 replace 只替换首个）`
+      );
+    }
+  });
+
+  test('MANAGE_SKILL_SHORT_REASON：恰九键、值域逐字、已冻结', () => {
+    const table = model.MANAGE_SKILL_SHORT_REASON;
+    assert.ok(table, '必须导出 MANAGE_SKILL_SHORT_REASON');
+    assert.strictEqual(Object.isFrozen(table), true, '短原因表必须是 Object.freeze（闭合白名单）');
+    assert.strictEqual(Object.keys(table).length, 9, '短原因表必须恰九条（D-07 的九码，不增不减）');
+    assert.deepStrictEqual(table, {
+      seeded_protected: '内置不可改删',
+      user_owned_conflict: '用户技能占用',
+      already_exists: '已存在',
+      not_found: '不存在',
+      limit_exceeded: '超数量上限',
+      invalid_name: '名称不合法',
+      invalid_description: '描述不合法',
+      oversize: '正文超限',
+      unscannable: '内容含风险',
+    });
+  });
+
+  test('短原因一律定长 ≤ 6 字且不含技能名占位符（头部单行不变式的前提）', () => {
+    const table = model.MANAGE_SKILL_SHORT_REASON;
+    for (const [code, text] of Object.entries(table)) {
+      assert.ok(text.length <= 6, `${code} 的短原因「${text}」超过 6 字（会挤破卡片头部的单行不变式）`);
+      assert.strictEqual(
+        text.includes('{name}') || text.includes('{'),
+        false,
+        `${code} 的短原因不得含变量 / 技能名（必须是定长文案）`
+      );
+    }
+  });
+
+  test('闭合白名单：表外键取值为 undefined（不回落任何默认文案）；limit_exceeded 与 STATUS_TEXT.overLimit 同值', () => {
+    assert.strictEqual(model.MANAGE_SKILL_ACTION_LABEL.rename, undefined);
+    assert.strictEqual(model.MANAGE_SKILL_ACTION_LABEL[''], undefined);
+    assert.strictEqual(model.MANAGE_SKILL_SHORT_REASON.unknown_code, undefined);
+    assert.strictEqual(
+      model.MANAGE_SKILL_SHORT_REASON.limit_exceeded,
+      model.STATUS_TEXT.overLimit,
+      'limit_exceeded 必须与面板行尾标注 STATUS_TEXT.overLimit **同值**（查同一张表，不新写一份）'
+    );
+    // 同值时也必须真的是「复用同一常量」而非巧合同文案：源码里该键的值必须是引用形式
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'skill-picker-model.js'), 'utf8');
+    assert.ok(
+      /limit_exceeded:\s*STATUS_TEXT\.overLimit/.test(src),
+      'limit_exceeded 的取值必须写成 STATUS_TEXT.overLimit（引用同一常量，机械保证同值）'
+    );
+  });
+});
+
 describe('B 组 · 面板接线源码扫描（renderer 侧消费点）', () => {
   const rendererSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer.js'), 'utf8');
 

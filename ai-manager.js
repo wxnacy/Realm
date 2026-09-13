@@ -721,6 +721,19 @@ class AIManager {
      * （不写、不广播），以保 provider 的前缀缓存。
      */
     this._skillsPromptDigest = '';
+    /**
+     * @type {Map<string, {action: string, name: string, tier?: string, code?: string, promptIncluded?: boolean}>}
+     * `manage_skill` 一次工具执行的**短期**元数据（Phase 49 D-02），键 = `toolCallId`
+     *
+     * **为什么需要它**：SDK 在工具 `throw` 时走 `createErrorToolResult(message)`
+     * （`agent-loop.js:519-524`），产出的 `result.details` **恒为 `{}`** —— 失败态的
+     * `code` / `tier` 若经 `details` 传递等于永远丢给渲染端（RESEARCH Pitfall 3 /
+     * UI-SPEC 硬约束 2）。故两条路径**统一**从本 Map 取标记输入：
+     * `_buildManageSkillTool` 的 `execute` 在成功与失败**两个出口**各写一次，
+     * `tool_execution_end` 经 `_resolveManageSkillTerminal()` **读后即删** ——
+     * 不跨轮累积、不越过一次工具执行的生命周期。
+     */
+    this._manageSkillMeta = new Map();
     /** @type {Object|null} SDK compaction 工具缓存（calculateContextTokens/estimateTokens，init 动态 import） */
     this._contextUsageFns = null;
   }
@@ -1690,6 +1703,126 @@ ${content}
   }
 
   /**
+   * 判定一次 `manage_skill` 调用的**基础标记**（Phase 49 D-02 / UI-SPEC 数据契约）
+   *
+   * 与 `_resolveSkillMarker` 同款约束：**同步、零 IO**。本函数只在
+   * `tool_execution_start` 的同步上下文里跑 —— 那是**唯一**携带 `params` 的时点
+   * （`tool_execution_end` 不带 params），错过就没有第二次机会。
+   *
+   * **`tier` 不在此判定**：`create` 的目标在调用前并不存在，磁盘判定只能等执行之后
+   * （UI-SPEC 的两时点分工）。渲染端**不**自行判定任何东西（硬约束 4），只查白名单表。
+   *
+   * 判定顺序：非字符串 / trim 后为空 → `null`；`action` 不在三值白名单内 → `null`。
+   * 任一不满足即「**整个技能变体不成立**」→ 渲染端回落既有普通卡片（标题 = 工具名），
+   * 零回归（照抄 48-03 的非法标记回落口径）。
+   *
+   * @param {string} action - 工具参数 `action`
+   * @param {string} name - 工具参数 `name`
+   * @returns {{action: string, name: string}|null} 成立返回基础标记，否则 null
+   * @private
+   */
+  _resolveManageSkillMarker(action, name) {
+    if (typeof name !== 'string' || !name) return null;
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    if (action !== 'create' && action !== 'update' && action !== 'delete') return null;
+    return { action, name: trimmed };
+  }
+
+  /**
+   * 构造 `manage_skill` 卡片标记的**唯一实现**（Phase 49 UI-SPEC 硬约束 3）
+   *
+   * 两条链路共用本函数，因此**不可能**出现「实时链路给一套键、重载链路给另一套键」的漂移：
+   * - 实时链路：`terminal` 传工具执行期写入的**内存元数据**（经 `_resolveManageSkillTerminal`）；
+   * - 重载链路：`terminal` 传从**已持久化**的 toolExecution 行还原的对象
+   *   （经 `_manageSkillTerminalFromStored`）。
+   *
+   * 键的形状固定为 `{action, name, tier?, code?, promptIncluded?}` —— **不可判定时省略该键**
+   * （宁缺勿猜：省略 ⇒ 渲染端跳过徽标 / 标注，不产出 `undefined` 字面量）。
+   *
+   * @param {object|undefined} params - 工具参数（`{action, name}` 的来源）
+   * @param {object|null} terminal - 终态元数据（`{tier?, code?, promptIncluded?}`）
+   * @returns {{action: string, name: string, tier?: string, code?: string, promptIncluded?: boolean}|null}
+   * @private
+   */
+  _buildManageSkillDecoration(params, terminal) {
+    const marker = this._resolveManageSkillMarker(
+      params && params.action,
+      params && params.name
+    );
+    if (!marker) return null;
+    const decoration = { action: marker.action, name: marker.name };
+    const src = terminal || {};
+    if (typeof src.tier === 'string' && src.tier) decoration.tier = src.tier;
+    if (typeof src.code === 'string' && src.code) decoration.code = src.code;
+    // `promptIncluded === false` 是有意义的值（超预算标注），故按 boolean 判定存在性
+    if (typeof src.promptIncluded === 'boolean') decoration.promptIncluded = src.promptIncluded;
+    return decoration;
+  }
+
+  /**
+   * 取**并清除**一次 `manage_skill` 执行的终态元数据（Phase 49 D-02 / UI-SPEC 硬约束 2）
+   *
+   * 失败态的原因码 / 档位**不经** `result.details`（SDK 的 `createErrorToolResult` 产出
+   * `details` 恒为 `{}`），而经 `this._manageSkillMeta` 的按 `toolCallId` 短期元数据。
+   *
+   * 产出经 `_buildManageSkillDecoration` 过滤后**只投影出终态三键** —— 渲染端的「已存在条目」
+   * 合并分支把它并入 start 事件给的 `{action, name}`（`tool_execution_end` 不带 params，
+   * 故这里无法也不应该重复 action / name）。
+   *
+   * **读后即删**：同一 `toolCallId` 若被重复发送 end 事件，第二次得 `null` 是**正确**行为
+   * —— 标记已在第一次完整给出，Map 不累积、不跨轮残留。
+   *
+   * @param {string} toolCallId - 工具调用 ID
+   * @returns {{tier?: string, code?: string, promptIncluded?: boolean}|null}
+   * @private
+   */
+  _resolveManageSkillTerminal(toolCallId) {
+    const meta = this._manageSkillMeta.get(toolCallId);
+    if (!meta) return null;
+    this._manageSkillMeta.delete(toolCallId);
+    const decoration = this._buildManageSkillDecoration(meta, meta);
+    if (!decoration) return null;
+    const terminal = {};
+    if (decoration.tier) terminal.tier = decoration.tier;
+    if (decoration.code) terminal.code = decoration.code;
+    if (typeof decoration.promptIncluded === 'boolean') {
+      terminal.promptIncluded = decoration.promptIncluded;
+    }
+    return Object.keys(terminal).length > 0 ? terminal : null;
+  }
+
+  /**
+   * 重载链路：从**已持久化**的 toolExecution 行还原 `manage_skill` 终态元数据
+   *
+   * 可还原的两项：
+   * - `promptIncluded` —— 取 `tool_results` 列回填的 `details.promptIncluded`（**历史真值**，
+   *   即该次调用当时给模型的答复；不重算，因为「当时是否进提示词」事后无法复现）；
+   * - `tier` —— 按 `name` 查**当前**技能集的收窄投影（与实时链路同一份 `getSkillsForUI`）；
+   *   技能事后被删除 / 改名 → 查不到 ⇒ 省略该键（跳过徽标，不猜）。
+   *
+   * `code` 在重载链路上**无法还原**（`isError` 只带完整文案，原因码不落库）⇒ 省略该键
+   * （宁缺勿猜；失败卡片的展开区始终有主进程完整文案）。
+   *
+   * @param {object} t - 已持久化的 toolExecution 显示形状行
+   * @returns {object} 终态元数据（可为 `{}`）
+   * @private
+   */
+  _manageSkillTerminalFromStored(t) {
+    const terminal = {};
+    const details = t && t.details;
+    if (details && typeof details.promptIncluded === 'boolean') {
+      terminal.promptIncluded = details.promptIncluded;
+    }
+    const name = t && t.params && typeof t.params.name === 'string' ? t.params.name.trim() : '';
+    if (name) {
+      const hit = this.getSkillsForUI().skills.find((e) => e.name === name);
+      if (hit && hit.tier) terminal.tier = hit.tier;
+    }
+    return terminal;
+  }
+
+  /**
    * 设置事件广播机制（per D-05~D-08）
    *
    * 订阅 Agent 事件，翻译为渲染端 UI 契约后广播：
@@ -1762,6 +1895,14 @@ ${content}
             // renderer 的更新分支用 ...spread 保留既有字段，标记在后续状态更新中自然留存。
             // 非技能 read / 非 read 工具 / 非法参数 → null（渲染普通卡片，零回归）。
             skill_invocation: this._resolveSkillMarker(event.toolName, event.args),
+            // Phase 49（D-02）的第一时点：`manage_skill` 的**基础标记**（action + name）。
+            // 与 `skill_invocation` 同款命名法（snake_case → 渲染端 camelCase）。
+            // 只有本时点携带 `params`，且标题必须**在运行中即可见**；`tier` / `code` /
+            // `promptIncluded` **只在 end 给出**（`create` 的目标在调用前并不存在，
+            // 磁盘判定只能等执行之后）。非 `manage_skill` 工具 / 非法参数 → null。
+            manage_skill: event.toolName === 'manage_skill'
+              ? this._resolveManageSkillMarker(event.args && event.args.action, event.args && event.args.name)
+              : null,
           });
           break;
         }
@@ -1788,6 +1929,14 @@ ${content}
             status,
             result: event.result,
             error: event.isError ? resultText : undefined,
+            // Phase 49（D-02）的第二时点：并入终态三键 `{tier?, code?, promptIncluded?}`。
+            // 来源是工具执行期按 toolCallId 写入的短期元数据（成功与失败**两个出口**各写一次）
+            // —— **不是** `result.details`：SDK 的 `createErrorToolResult()` 产出 details
+            // 恒为 `{}`，失败态的原因码经它传递等于永远丢给渲染端（RESEARCH Pitfall 3 /
+            // UI-SPEC 硬约束 2）。读取后即删（同一 toolCallId 重复发 end 得 null 是正确行为）。
+            manage_skill: event.toolName === 'manage_skill'
+              ? this._resolveManageSkillTerminal(event.toolCallId)
+              : null,
           });
           break;
         }
@@ -2760,6 +2909,9 @@ ${content}
     // (b) assistant 行 toolExecutions 的 read 标记重建（48-03 D-15 / DISC-05）：用与实时链路
     //     **同一个** _resolveSkillMarker 判定，使两条链路产出的形状逐字一致；技能已删除 / 改名时
     //     静默不标（不挂键，与实时链路「匹配不到就是普通卡片」一致）。
+    // (c) assistant 行 toolExecutions 的 manage_skill 标记重建（49-02 D-02 / 硬约束 3）：与实时
+    //     链路共用同一个 _buildManageSkillDecoration 构造；终态元数据从**已持久化**的
+    //     `details`（promptIncluded）与当前技能集投影（tier）还原，不可还原的 code 省略键。
     // **不做**的替代方案：把标记写进 `tool_calls` 列 —— 会污染 getAgentMessages 读同一列的
     // LLM 上下文重建路径。
     // 整段包 try/catch：装饰失败只告警并返回未装饰结果，**不因元数据缺失丢消息**（与 48-01 的
@@ -2776,7 +2928,18 @@ ${content}
         if (Array.isArray(msg.toolExecutions)) {
           const rebuilt = msg.toolExecutions.map((t) => {
             const marker = this._resolveSkillMarker(t.name, t.params);
-            return marker ? { ...t, skillInvocation: marker } : t;
+            // 49-02（Phase 49 D-02 / UI-SPEC 硬约束 3）：`manage_skill` 卡片的标记重建 ——
+            // 与**实时链路共用同一个** `_buildManageSkillDecoration` 构造，两条链路的键集合
+            // 因此逐字相等（参数已持久化在 `t.params`，终态元数据从持久化行还原）。
+            // 只对 `manage_skill` 行求值 ⇒ 其它工具零成本、`read` 行的既有行为逐字不变。
+            const decoration = t.name === 'manage_skill'
+              ? this._buildManageSkillDecoration(t.params, this._manageSkillTerminalFromStored(t))
+              : null;
+            if (!marker && !decoration) return t;
+            const next = { ...t };
+            if (marker) next.skillInvocation = marker;
+            if (decoration) next.manageSkill = decoration;
+            return next;
           });
           return { ...msg, toolExecutions: rebuilt };
         }
@@ -6009,57 +6172,101 @@ ${content}
           throw err;
         }
 
-        // 参数只做解析与转发，判定与写入全在 ai-skills-manager（校验器只有一份实现，
-        // Phase 50/51 可直接 require 同一份）。业务失败**照常向外 throw** ——
-        // 不 catch、不转成返回值；失败态的元数据转存是 49-02 的职责。
-        let result;
-        if (action === 'create') {
-          result = await skillsManager.createManagedSkill(this.sandboxEnv, {
-            name,
-            content: params.content,
-            description: params.description,
-            seededNames,
-          });
-        } else if (action === 'update') {
-          result = await skillsManager.updateManagedSkill(this.sandboxEnv, {
-            name,
-            content: params.content,
-            description: params.description,
-            seededNames,
-          });
-        } else {
-          result = await skillsManager.deleteManagedSkill(this.sandboxEnv, {
-            name,
-            seededNames,
-          });
-        }
-
-        // 三动作共用同一句刷新链：该方法的函数体内已含 refreshSkills 重扫，
-        // 忙碌时只置脏标记，回写与广播由本轮成功出口的补刷落地（D-13）。
-        await this.syncAgentSystemPrompt();
-
-        const details = {
-          action: result.action,
-          name: result.name,
-          filePath: result.filePath,
+        /**
+         * 按 name 查**当前**技能集的档位（消费 `toUISkillEntry` 的既有输出）。
+         *
+         * **不**在工具层重新实现来源判定（Phase 47 D-11 的 `sourceTierOf` 是唯一判据）。
+         * 目标不存在时（create 之前 / delete 之后 / 被拒）→ `undefined` ⇒ 标记省略该键
+         * ⇒ 渲染端跳过徽标（宁缺勿猜）。
+         */
+        const tierOf = (targetName) => {
+          if (!targetName) return undefined;
+          const hit = skillsManager.getSkillsForUI(seededNames).skills
+            .find((e) => e.name === targetName);
+          return hit ? hit.tier : undefined;
         };
-        // description / promptIncluded 只对会落盘正文的两个动作有意义
-        if (action !== 'delete') {
-          details.description = result.description;
-          details.promptIncluded = skillsManager.getSkillPromptIncluded(result.name, seededNames);
-        }
 
-        const actionText = action === 'create' ? '创建' : action === 'update' ? '更新' : '删除';
-        const whenText = action === 'delete'
-          ? '它从下一条消息起不再可用。'
-          : '它从下一条消息起对模型可见。';
-        let text = `已${actionText}技能「${result.name}」。${whenText}`;
-        if (details.promptIncluded === false) {
-          // 不说明会被读成「AI 建的技能没用」（48 D-12：超预算技能仍可显式调用）
-          text += `该技能暂未进入模型提示词（技能段预算已满），仍可用 /skill:${result.name} 手动调用。`;
-        }
+        // 业务失败**照常向外 throw**（49-01 的语义不变，LLM 照常收到 `isError: true`
+        // 的 toolResult）；包一层只为把原因码 / 档位转存到**按 toolCallId 的短期元数据**。
+        // **绝不能**改走 `result.details`：SDK 的 `createErrorToolResult(message)`
+        // （`agent-loop.js:519-524`）产出的 `details` 恒为 `{}` —— 失败态的原因码经它
+        // 传递等于永远丢给渲染端（RESEARCH Pitfall 3 / UI-SPEC 硬约束 2）。
+        // 两条路径（成功 / 失败）的标记来源与形状因此**逐字一致**（单一读法）。
+        try {
+          // 参数只做解析与转发，判定与写入全在 ai-skills-manager（校验器只有一份实现，
+          // Phase 50/51 可直接 require 同一份）。
+          let result;
+          if (action === 'create') {
+            result = await skillsManager.createManagedSkill(this.sandboxEnv, {
+              name,
+              content: params.content,
+              description: params.description,
+              seededNames,
+            });
+          } else if (action === 'update') {
+            result = await skillsManager.updateManagedSkill(this.sandboxEnv, {
+              name,
+              content: params.content,
+              description: params.description,
+              seededNames,
+            });
+          } else {
+            result = await skillsManager.deleteManagedSkill(this.sandboxEnv, {
+              name,
+              seededNames,
+            });
+          }
 
-        return { content: [{ type: 'text', text }], details };
+          // 三动作共用同一句刷新链：该方法的函数体内已含 refreshSkills 重扫，
+          // 忙碌时只置脏标记，回写与广播由本轮成功出口的补刷落地（D-13）。
+          await this.syncAgentSystemPrompt();
+
+          // 终态元数据**写在重扫之后**：`syncAgentSystemPrompt()` 的首行就是技能目录重扫，
+          // 故此刻缓存必定已含本次改动 —— create 的新技能因此能查到 `managed` 档位
+          // （写在重扫之前会因缓存陈旧而省略 tier，徽标会永远不出现）。
+          const promptIncluded = action === 'delete'
+            ? undefined
+            : skillsManager.getSkillPromptIncluded(result.name, seededNames);
+          this._manageSkillMeta.set(toolCallId, {
+            action,
+            name: result.name,
+            tier: tierOf(result.name),
+            promptIncluded,
+          });
+
+          const details = {
+            action: result.action,
+            name: result.name,
+            filePath: result.filePath,
+          };
+          // description / promptIncluded 只对会落盘正文的两个动作有意义
+          if (action !== 'delete') {
+            details.description = result.description;
+            details.promptIncluded = promptIncluded;
+          }
+
+          const actionText = action === 'create' ? '创建' : action === 'update' ? '更新' : '删除';
+          const whenText = action === 'delete'
+            ? '它从下一条消息起不再可用。'
+            : '它从下一条消息起对模型可见。';
+          let text = `已${actionText}技能「${result.name}」。${whenText}`;
+          if (details.promptIncluded === false) {
+            // 不说明会被读成「AI 建的技能没用」（48 D-12：超预算技能仍可显式调用）
+            text += `该技能暂未进入模型提示词（技能段预算已满），仍可用 /skill:${result.name} 手动调用。`;
+          }
+
+          return { content: [{ type: 'text', text }], details };
+        } catch (err) {
+          // 失败出口：把业务错误对象上的 `code`（九码之一）与目标档位转存为本次工具执行的
+          // 元数据；**仍然原样 throw**（不 catch 成返回值，LLM 语义零变化）。
+          this._manageSkillMeta.set(toolCallId, {
+            action,
+            name,
+            tier: tierOf(name),
+            code: err && err.code ? err.code : undefined,
+          });
+          throw err;
+        }
       },
     };
   }

@@ -9348,7 +9348,12 @@ function handleAIStream() {
                 ...toolMsg.toolExecutions[existingIdx],
                 status: event.status,
                 result: event.result,
-                error: event.error
+                error: event.error,
+                // 49-02（UI-SPEC 硬约束 1）：**终态标记字段的并入**。新条目分支的 `...spread`
+                // 只覆盖首个（start）事件，而 `tier` / `code` / `promptIncluded` 三项只在 end
+                // 事件到达 —— 不追加这一行则来源徽标与内联标注**永不出现**（RESEARCH Pitfall 4）。
+                // **必须条件并入**：后续不带该字段的 update 事件不得把已写入的标记抹成 undefined。
+                ...(event.manage_skill ? { manageSkill: event.manage_skill } : {})
               };
             } else {
               // 添加新的工具执行
@@ -9361,7 +9366,10 @@ function handleAIStream() {
                 error: event.error,
                 // 48-03（D-15）：主进程在 start 事件打好的技能标记（snake_case，与
                 // tool_execution_id / tool_name 同款）。后续状态更新走 ...spread 保留。
-                skillInvocation: event.skill_invocation
+                skillInvocation: event.skill_invocation,
+                // 49-02（D-02）：`manage_skill` 的**基础标记**（action + name，start 时点）。
+                // 终态三键由「已存在条目」合并分支在 end 再加 —— 见该分支的条件并入。
+                manageSkill: event.manage_skill
               });
             }
             renderToolCards(state.aiCurrentMessageId);
@@ -9568,11 +9576,36 @@ function renderToolCard(toolExecution) {
     statusIcon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>';
   }
 
-  // 工具名称（execute_action 显示具体 action；技能读取变体显示技能化标题）
+  // 工具名称（execute_action 显示具体 action；技能读取变体 / manage_skill 变体显示技能化标题）
   const name = document.createElement('span');
   name.className = 'tool-card-name';
+  const manageSkill = toolExecution.manageSkill;
   const skillInvocation = toolExecution.skillInvocation;
-  if (skillInvocation && skillInvocation.name) {
+  if (manageSkill && typeof manageSkill.name === 'string' && manageSkill.name.trim() !== ''
+      && window.SkillPickerModel.MANAGE_SKILL_ACTION_LABEL[manageSkill.action]) {
+    // 49-02（D-02）：`manage_skill` 技能变体。判定已在工具事件生成侧完成
+    // （`_resolveManageSkillMarker`），此处只查两张白名单表（动作标题 / 来源徽标）——
+    // **零**路径字符串匹配、**零**来源档位 / 撞名 / 限额判定（硬约束 4）。
+    // 技能名一律 DOM API + textContent，不写进 HTML 模板拼接、不写进属性值
+    // （TD-48-01 的教训面）。
+    // 徽标 tier 缺失 / 表外 → 跳过（不产出 undefined 字面量进 class）。
+    name.classList.add('tool-card-name-skill');
+    const nameText = document.createElement('span');
+    nameText.className = 'tool-card-name-text';
+    // 用函数式替换：模板里的 {name} 是唯一占位符，函数式可避免 name 中的 `$` 被
+    // String.replace 当作替换模式解释（技能名虽受字符集约束，此处仍不做假设）。
+    nameText.textContent = window.SkillPickerModel.MANAGE_SKILL_ACTION_LABEL[manageSkill.action]
+      .replace('{name}', () => manageSkill.name);
+    name.appendChild(nameText);
+    const badge = window.SkillPickerModel.TIER_BADGE[manageSkill.tier];
+    if (badge) {
+      const badgeEl = document.createElement('span');
+      badgeEl.className = 'slash-picker-source-badge ' + badge.className;
+      badgeEl.textContent = badge.label;
+      badgeEl.title = badge.title;
+      name.appendChild(badgeEl);
+    }
+  } else if (skillInvocation && skillInvocation.name) {
     // 48-03（D-15）：模型按 description 自动匹配并 read 技能正文时把卡片标题技能化。
     // 判定已在工具事件生成侧完成（主进程），此处**不**按路径字符串自行匹配。
     // 技能名与徽标一律走 DOM API + textContent（T-48-10 缓解）；tier → class / label /

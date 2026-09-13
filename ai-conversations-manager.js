@@ -633,6 +633,10 @@ function getMessages(conversationId) {
       target.result = text;
       target.status = meta.isError ? 'failed' : 'completed';
       if (meta.isError) target.error = text;
+      // 工具结果的结构化元数据（有则带上）：`manage_skill`（Phase 49）的重载链路需要
+      // `details.promptIncluded` 才能把「未进提示词 · 超预算」标注与实时链路渲染成同一形状
+      // （失败态 SDK 产出 `details: {}` 且没有该键，故为条件携带 —— 既有工具卡片形状零变化）。
+      if (meta.details !== undefined) target.details = meta.details;
       continue;
     }
 

@@ -339,6 +339,46 @@
     }),
   });
 
+  /**
+   * `manage_skill` 三动作的卡片标题模板（Phase 49 D-02）—— **跨进程单源**
+   *
+   * `ai-manager.js`（工具事件生成侧）与 renderer（卡片渲染侧）**共用** `window.SkillPickerModel`
+   * / `module.exports` 的**同一个** api 对象（与 `TIER_BADGE` 同款），不得在任一侧另写一份映射。
+   *
+   * 纪律：
+   * - **闭合白名单**：表外键取值为 `undefined`（不回落任何默认文案）—— 渲染端判定「整个
+   *   `manage_skill` 技能变体不成立」并回落既有普通卡片（标题 = 工具名），零回归。
+   * - 模板含**一个** `{name}` 占位符，由**渲染端**替换（主进程不拼 DOM 文案）；
+   *   `name` 一律经 `textContent` 注入，**不得**进 `innerHTML` / 属性值（TD-48-01 的教训面）。
+   */
+  const MANAGE_SKILL_ACTION_LABEL = Object.freeze({
+    create: '创建技能「{name}」',
+    update: '更新技能「{name}」',
+    delete: '删除技能「{name}」',
+  });
+
+  /**
+   * `manage_skill` 九条失败原因码 → 卡片头部**短原因**（Phase 49 D-07）—— **跨进程单源**
+   *
+   * 纪律：
+   * - **闭合白名单**：表外 code → 渲染端**不渲染标注**（不得回落到 `undefined` 字面量）。
+   * - 短原因一律**定长 ≤ 6 字、不含技能名、不含变量** —— 这是卡片头部「恒 36px 单行」不变式
+   *   在 AI 面板最小宽度下成立的前提（完整文案由主进程的业务错误消息单点产出）。
+   * - `limit_exceeded` 与面板行尾标注 `STATUS_TEXT.overLimit` **同值**：此处**引用同一常量**
+   *   （而非重复字面量）—— 这是「同值」的机械保证，不得改写成第二份拷贝。
+   */
+  const MANAGE_SKILL_SHORT_REASON = Object.freeze({
+    seeded_protected: '内置不可改删',
+    user_owned_conflict: '用户技能占用',
+    already_exists: '已存在',
+    not_found: '不存在',
+    limit_exceeded: STATUS_TEXT.overLimit,
+    invalid_name: '名称不合法',
+    invalid_description: '描述不合法',
+    oversize: '正文超限',
+    unscannable: '内容含风险',
+  });
+
   const api = {
     SKILL_PREFIX,
     SKILL_NAME_RE,
@@ -351,6 +391,9 @@
     filterPickerItems,
     buildPickerItems,
     TIER_BADGE,
+    STATUS_TEXT,
+    MANAGE_SKILL_ACTION_LABEL,
+    MANAGE_SKILL_SHORT_REASON,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

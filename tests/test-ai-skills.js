@@ -3232,6 +3232,9 @@ function promptCtx(env, { dirty = false } = {}) {
   };
   ctx.configStore = { get: (key, fallback) => fallback };
   ctx.getSeededSkillNamesSafe = () => [];
+  // 49-02 起 `_buildManageSkillTool().execute` 会在成功出口写入本次执行的短期元数据
+  // （按 toolCallId），该字段由构造函数初始化为 own property —— 本夹具不跑构造函数，故显式补上。
+  ctx._manageSkillMeta = new Map();
   ctx._ensureConversation = () => 'conv-flush';
   ctx._sendEventsBatch = () => {};
   ctx.rescanCalls = 0;
@@ -3496,3 +3499,253 @@ describe('L 组 · Phase 49 manage_skill 的刷新链', () => {
 
 
 
+
+// ==================== M 组 · Phase 49 manage_skill 卡片标记（D-02 / UI-SPEC 硬约束 1–4） ====================
+
+describe('M 组 · Phase 49 manage_skill 卡片标记（D-02 / UI-SPEC 硬约束 1–4）', () => {
+  /**
+   * `manage_skill` 在 `src/renderer.js` 的**三处接线区域**（事件映射两处 + 卡片分支一处）。
+   *
+   * 三处都是「必须同时成立」的接线点：漏任一处都是静默失效（卡片退化为普通卡片 / 徽标与
+   * 短原因永不出现），因此断言必须落在具体区域而不是整文件 `includes`。
+   */
+  function rendererManageRegions() {
+    const src = readSource('src/renderer.js');
+    const mergeIdx = src.indexOf('toolExecutions[existingIdx]');
+    assert.ok(mergeIdx >= 0, '应存在「已存在条目」合并分支');
+    const pushIdx = src.indexOf('toolExecutions.push(');
+    assert.ok(pushIdx >= 0, '应存在新条目分支');
+    const bStart = src.indexOf('const manageSkill = toolExecution.manageSkill');
+    assert.ok(bStart >= 0, '应存在 manage_skill 卡片分支起点');
+    const bEnd = src.indexOf('} else if (skillInvocation && skillInvocation.name)', bStart);
+    assert.ok(
+      bEnd > bStart,
+      'manage_skill 分支必须以 read 技能变体收尾（两种标记互斥，前者更具体）'
+    );
+    return {
+      src,
+      merge: src.slice(mergeIdx, mergeIdx + 900),
+      push: src.slice(pushIdx, pushIdx + 900),
+      branch: src.slice(bStart, bEnd),
+    };
+  }
+
+  /** 组装 getConversationMessages 的最小调用上下文（manage_skill 版：多注入三处新方法） */
+  function manageReloadCtx(env, seeded) {
+    return {
+      _decorateSkillUserMessage: aiManager.prototype._decorateSkillUserMessage,
+      _resolveSkillMarker: aiManager.prototype._resolveSkillMarker,
+      _resolveManageSkillMarker: aiManager.prototype._resolveManageSkillMarker,
+      _buildManageSkillDecoration: aiManager.prototype._buildManageSkillDecoration,
+      _manageSkillTerminalFromStored: aiManager.prototype._manageSkillTerminalFromStored,
+      getSkillsForUI: aiManager.prototype.getSkillsForUI,
+      getSeededSkillNamesSafe: () => (seeded || []),
+      sandboxEnv: env,
+    };
+  }
+
+  test('M1（源码）_resolveManageSkillMarker 零 IO、同步、三值白名单 + trim', () => {
+    const body = methodBody(readSource('ai-manager.js'), '_resolveManageSkillMarker');
+    assert.ok(body.length > 200, `方法体提取口径失效会假绿（实际 ${body.length}）`);
+    assert.ok(body.includes('trim()'), '必须对 name 做 trim');
+    for (const action of ["'create'", "'update'", "'delete'"]) {
+      assert.ok(body.includes(action), `三值白名单必须显式列出 ${action}`);
+    }
+    assert.strictEqual(/\bawait\b/.test(body), false, 'start 事件是同步上下文 —— 不得有 await（零 IO 证据）');
+    assert.strictEqual(
+      body.includes('getSkillsForUI'),
+      false,
+      'tier 不在此判定（create 的目标在调用前并不存在），本函数不得读技能集'
+    );
+    assert.strictEqual(
+      body.includes('filePath'),
+      false,
+      '不得按路径字符串判定（判定只在主进程的权威数据上做）'
+    );
+  });
+
+  test('M2（源码）两时点事件字段 + 成功/失败两个出口各写一次元数据、失败仍 throw', () => {
+    const src = readSource('ai-manager.js');
+    const s = src.indexOf("case 'tool_execution_start'");
+    const e = src.indexOf("case 'tool_execution_end'");
+    assert.ok(s >= 0 && e >= 0, '两个事件分支都必须存在');
+    const seg1 = src.slice(s, src.indexOf('break;', s));
+    const seg2 = src.slice(e, src.indexOf('break;', e));
+    assert.ok(/manage_skill:/.test(seg1), 'start 事件必须携带 manage_skill 字段');
+    assert.ok(seg1.includes('_resolveManageSkillMarker('), 'start 必须经唯一的基础标记解析器');
+    assert.ok(/_resolveManageSkillTerminal\(/.test(seg2), 'end 事件必须取终态元数据');
+
+    const body = methodBody(src, '_buildManageSkillTool');
+    assert.ok(body.length > 500, `工具方法体提取口径失效会假绿（实际 ${body.length}）`);
+    assert.strictEqual(
+      (body.match(/this\._manageSkillMeta\.set\(/g) || []).length,
+      2,
+      '成功与失败**两个出口**必须各写一次（单一读法的前提）'
+    );
+    assert.ok(
+      /this\._manageSkillMeta\.set\([\s\S]*?\}\s*\);\s*throw err;/.test(body),
+      '失败出口写入元数据后必须**仍然 throw**（LLM 语义零变化）'
+    );
+    // 硬约束 2 的根因必须可被后来者读到：失败态不依赖恒为 {} 的 details
+    assert.ok(
+      /createErrorToolResult/.test(src) && /details/.test(src),
+      '源码必须记录「SDK 的 createErrorToolResult 产出 details 恒为 {}」这一根因'
+    );
+    assert.strictEqual(
+      (body.match(/result\.details\s*\./g) || []).length,
+      0,
+      '不得从 result.details 读失败态原因码（该通道在 throw 路径上恒为空）'
+    );
+  });
+
+  test('M2b（行为）终态元数据通道：读后即删、只投影终态三键、非法标记得 null', () => {
+    const ctx = {
+      _buildManageSkillDecoration: aiManager.prototype._buildManageSkillDecoration,
+      _resolveManageSkillMarker: aiManager.prototype._resolveManageSkillMarker,
+      _manageSkillMeta: new Map([
+        ['tc-ok', { action: 'update', name: 'foo', tier: 'user', promptIncluded: true }],
+        ['tc-fail', { action: 'create', name: 'bar', code: 'seeded_protected', tier: 'builtin' }],
+        ['tc-bad', { action: 'rename', name: 'baz', code: 'invalid_name' }],
+      ]),
+    };
+    const read = aiManager.prototype._resolveManageSkillTerminal;
+
+    assert.deepStrictEqual(
+      read.call(ctx, 'tc-ok'),
+      { tier: 'user', promptIncluded: true },
+      '成功路径只投影终态三键（action / name 由 start 事件承载，不重复）'
+    );
+    assert.deepStrictEqual(
+      read.call(ctx, 'tc-fail'),
+      { code: 'seeded_protected', tier: 'builtin' },
+      '失败路径与成功路径同一形状（单一读法）'
+    );
+    assert.strictEqual(read.call(ctx, 'tc-bad'), null, 'action 表外 → 整个标记作废（回落普通卡片）');
+    assert.strictEqual(read.call(ctx, 'tc-ok'), null, '读后即删 —— 重复 end 事件得 null 是正确行为');
+    assert.strictEqual(ctx._manageSkillMeta.has('tc-ok'), false, 'Map 不得累积');
+    assert.strictEqual(read.call(ctx, 'never-written'), null, '未写入的 toolCallId → null');
+  });
+
+  test('M3（源码 · 合并分支护栏）新条目映射 manageSkill，且已存在条目分支**条件并入**终态字段', () => {
+    const { merge, push } = rendererManageRegions();
+    assert.ok(/manageSkill/.test(merge), '已存在条目合并分支必须并入 manageSkill（RESEARCH Pitfall 4 的回归护栏）');
+    assert.ok(/manageSkill/.test(push), '新条目分支必须映射 manageSkill');
+    assert.ok(
+      /event\.manage_skill\s*\?/.test(merge),
+      '必须**条件**并入：后续不带该字段的 update 事件不得把已写入的标记抹成 undefined'
+    );
+  });
+
+  test('M4（源码 · 渲染端零判定）三处接线区域零来源判定素材、零 HTML 拼接', () => {
+    const { merge, push, branch } = rendererManageRegions();
+    for (const [label, seg] of [['合并分支', merge], ['新条目分支', push], ['卡片分支', branch]]) {
+      assert.strictEqual(
+        /seededNames|managed-skills|skills-builtin/.test(seg),
+        false,
+        `${label}不得出现来源判定素材（硬约束 4：判定只在主进程）`
+      );
+      assert.strictEqual(
+        /innerHTML/.test(seg),
+        false,
+        `${label}不得写 HTML 模板拼接（注入纪律）`
+      );
+      assert.strictEqual(
+        /filePath/.test(seg),
+        false,
+        `${label}不得按路径字符串判定技能`
+      );
+    }
+    assert.ok(
+      branch.includes('MANAGE_SKILL_ACTION_LABEL') && branch.includes('TIER_BADGE'),
+      '卡片分支只能查两张白名单表'
+    );
+  });
+
+  test('M5（源码 · 重载同形）两条链路共用一个装饰构造（恰 1 处定义）', () => {
+    const src = readSource('ai-manager.js');
+    assert.strictEqual(
+      (src.match(/^\s*_buildManageSkillDecoration\(/gm) || []).length,
+      1,
+      '装饰构造必须恰 1 处定义（不得写两份对象字面量）'
+    );
+    assert.strictEqual(
+      (src.match(/_buildManageSkillDecoration\s*\(/g) || []).length,
+      3,
+      '恰 1 处定义 + 2 处调用（实时链路取终态 + 重载链路重建）'
+    );
+    const body = methodBody(src, 'getConversationMessages');
+    assert.ok(body.includes('_buildManageSkillDecoration('), '重载链路的装饰段必须经共用构造');
+    assert.ok(body.includes("t.name === 'manage_skill'"), '只对 manage_skill 行求值（其它工具零成本）');
+  });
+
+  test('M5b（行为 · 重载同形）重载链路与实时链路合并后的 manageSkill 逐字相等', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    writeSkill(workspace.getManagedSkillsDir(), 'alpha');
+    const env = await setupSkillsEnv(root);
+
+    // 实时链路：start 给 {action, name}，end 给终态三键 —— 渲染端合并两者
+    const startMarker = aiManager.prototype._resolveManageSkillMarker.call({}, 'create', 'alpha');
+    const endCtx = {
+      _buildManageSkillDecoration: aiManager.prototype._buildManageSkillDecoration,
+      _resolveManageSkillMarker: aiManager.prototype._resolveManageSkillMarker,
+      _manageSkillMeta: new Map([['tc1', {
+        action: 'create', name: 'alpha', tier: 'managed', promptIncluded: false,
+      }]]),
+    };
+    const endTerminal = aiManager.prototype._resolveManageSkillTerminal.call(endCtx, 'tc1');
+    const live = { ...startMarker, ...endTerminal };
+    assert.deepStrictEqual(
+      live,
+      { action: 'create', name: 'alpha', tier: 'managed', promptIncluded: false },
+      '前置：实时链路合并后的标记形状'
+    );
+
+    const original = conversationStore.getMessages;
+    conversationStore.getMessages = () => JSON.parse(JSON.stringify([
+      {
+        id: 1, role: 'assistant', content: '', toolExecutions: [
+          {
+            id: 'tc1', name: 'manage_skill', status: 'completed',
+            params: { action: 'create', name: 'alpha', content: '# alpha', description: 'd' },
+            result: '已创建技能「alpha」。该技能从下一条消息起可用。',
+            details: { action: 'create', name: 'alpha', filePath: '/tmp/x/SKILL.md', description: 'd', promptIncluded: false },
+          },
+        ],
+      },
+    ]));
+    t.after(() => { conversationStore.getMessages = original; });
+
+    const out = aiManager.prototype.getConversationMessages.call(manageReloadCtx(env, []), 'conv-1');
+    const exec = out[0].toolExecutions[0];
+    assert.ok(exec.manageSkill, '重载路径必须重建 manage_skill 标记');
+    assert.deepStrictEqual(
+      Object.keys(exec.manageSkill).sort(),
+      Object.keys(live).sort(),
+      '键集合必须与实时链路逐字相等'
+    );
+    assert.deepStrictEqual(exec.manageSkill, live, '取值必须与实时链路逐字相等');
+    // 既有字段的存在性与取值不得改变（renderer 普通卡片路径逐字节不变）
+    assert.strictEqual(exec.name, 'manage_skill');
+    assert.strictEqual(exec.status, 'completed');
+    assert.deepStrictEqual(exec.params.action, 'create');
+  });
+
+  test('M6（行为）_resolveManageSkillMarker 四分支打表', () => {
+    const call = (action, name) => aiManager.prototype._resolveManageSkillMarker.call({}, action, name);
+    for (const action of ['create', 'update', 'delete']) {
+      assert.deepStrictEqual(
+        call(action, 'foo'),
+        { action, name: 'foo' },
+        `${action} + 合法 name → 成立`
+      );
+    }
+    assert.deepStrictEqual(call('create', '  foo  '), { action: 'create', name: 'foo' }, 'name 必须 trim');
+    assert.strictEqual(call('rename', 'foo'), null, 'action 表外 → 整个技能变体不成立');
+    assert.strictEqual(call(undefined, 'foo'), null, 'action 缺失 → 不成立');
+    assert.strictEqual(call('create', ''), null, 'name 空串 → 不成立');
+    assert.strictEqual(call('create', '   '), null, 'name 全空白 → 不成立');
+    assert.strictEqual(call('create', 123), null, 'name 非字符串 → 不成立');
+    assert.strictEqual(call('create', null), null, 'name 缺失 → 不成立');
+  });
+});
