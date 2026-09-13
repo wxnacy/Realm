@@ -149,7 +149,10 @@ describe('create 脊椎（manage_skill 主干）', () => {
     // frontmatter 恰 `name` + `description` 两行（两行 `---` 定界）
     assert.strictEqual((text.match(/^---$/gm) || []).length, 2, 'frontmatter 必须恰一层（两条 --- 定界）');
     assert.ok(text.includes('name: ai-made'), 'frontmatter 必须含 name');
-    assert.ok(text.includes('description: 用于测试的技能'), 'frontmatter 必须含 description');
+    assert.ok(
+      text.includes("description: '用于测试的技能'"),
+      'frontmatter 的 description 必须是 YAML 单引号标量（CR-02：裸插值会被 : / # / 裸标量形态击穿）'
+    );
     assert.ok(text.includes('# ai-made'), '正文必须原样落盘');
   });
 
@@ -371,9 +374,24 @@ describe('create 脊椎（manage_skill 主干）', () => {
     assert.strictEqual(aiSkills.sanitizeSkillDescription('  收尾空白  '), '收尾空白');
   });
 
-  test('buildSkillFileText：frontmatter 恰两行；content 自带 frontmatter 时静默剥除（单层）', () => {
+  test('buildSkillFileText：frontmatter 恰两行；description 走单引号标量；content 自带 frontmatter 时静默剥除（单层）', () => {
     const text = aiSkills.buildSkillFileText({ name: 'foo', description: '描述', content: '正文' });
-    assert.strictEqual(text, '---\nname: foo\ndescription: 描述\n---\n\n正文');
+    // 逐字断言组装产物（不是「子串存在」）：改回旧的无引号拼接必然转红
+    assert.strictEqual(text, "---\nname: foo\ndescription: '描述'\n---\n\n正文");
+
+    // 含单引号的描述：撇号必须成对（YAML 单引号标量的唯一变形）
+    assert.strictEqual(
+      aiSkills.buildSkillFileText({ name: 'q', description: "it's fine", content: 'b' }),
+      "---\nname: q\ndescription: 'it''s fine'\n---\n\nb",
+      '撇号必须双写 —— 不双写会让标量在中途提前闭合（CR-02 的同类缺口）'
+    );
+
+    // 换行归一化：编码层不得允许换行穿透进 frontmatter（净化职责在调用方，这里兜底）
+    assert.strictEqual(
+      aiSkills.buildSkillFileText({ name: 'n', description: 'a\nb\r\nc', content: 'b' }),
+      "---\nname: n\ndescription: 'a b c'\n---\n\nb",
+      '换行必须在编码层被压成空格（否则 frontmatter 折行语义随缩进漂移）'
+    );
 
     const layered = aiSkills.buildSkillFileText({
       name: 'foo',
@@ -386,6 +404,15 @@ describe('create 脊椎（manage_skill 主干）', () => {
       '必须只剩单层 frontmatter（不剥除会产生双层 --- 头 → 解析不确定 → 幽灵技能）'
     );
     assert.ok(layered.endsWith('正文'), '剥除后正文应原样保留');
+  });
+
+  test('buildSkillFileText 不引入 yaml 依赖（依赖纪律：SDK 传递依赖不得直接 require）', () => {
+    const src = readSource('ai-skills-manager.js');
+    assert.strictEqual(
+      /require\(\s*['"]yaml['"]\s*\)|from\s+['"]yaml['"]|import\(\s*['"]yaml['"]\s*\)/.test(src),
+      false,
+      'frontmatter 编码必须自持（单引号标量），不得引入 yaml 包 —— 它是 SDK 的传递依赖且会破坏零 electron 依赖纪律'
+    );
   });
 });
 
@@ -408,6 +435,176 @@ function snapshotTree(dir) {
   walk(dir);
   return out;
 }
+
+/** 重扫后取技能快照（description 值域行的统一观测点） */
+async function loadSnapshot(env) {
+  await aiSkills.refreshSkills(env, { rootDirs: scanRoots() });
+  return aiSkills.getSkillsSnapshot();
+}
+
+describe('description 值域：落盘 ⇒ 可加载（CR-02 / CR-03 的靶心）', () => {
+  // 本组每条都断言**加载结果**而非只断言工具返回值 —— 「工具报成功、磁盘有文件、
+  // 技能永不加载」正是本计划要消灭的假绿形态（VERIFICATION.md Gap 1 的失实根因）。
+  // 每条消息文本都写明「实现改回旧写法时它必然转红」的那一条输入。
+
+  test('CR-02：description 含 ": "（冒号 + 空格）→ 加载后 description 逐字等于净化值', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const desc = 'Use it like this: run the weekly report';
+
+    const res = await aiSkills.createManagedSkill(env, {
+      name: 'colon-desc',
+      content: '# body\n',
+      description: desc,
+      seededNames: SEEDED,
+    });
+    assert.strictEqual(res.action, 'create');
+
+    const snap = await loadSnapshot(env);
+    const entry = snap.skills.find((e) => e.skill.name === 'colon-desc');
+    assert.ok(
+      entry,
+      'CR-02 转红点：description 未编码时会写成 `description: Use it like this: run …`，' +
+        'YAML 读成嵌套映射 → parse_failed → 技能集为空（幽灵技能）'
+    );
+    assert.strictEqual(entry.skill.description, aiSkills.sanitizeSkillDescription(desc));
+    assert.deepStrictEqual(snap.diagnostics, [], '可加载的技能不得伴随任何加载期诊断');
+  });
+
+  test('CR-02：description 含 "#" → 加载后 description 完整（不在 # 处被注释截断）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const desc = 'Summarize this #1 priority task';
+
+    await aiSkills.createManagedSkill(env, {
+      name: 'hash-desc',
+      content: '# body\n',
+      description: desc,
+      seededNames: SEEDED,
+    });
+
+    const snap = await loadSnapshot(env);
+    const entry = snap.skills.find((e) => e.skill.name === 'hash-desc');
+    assert.ok(entry, 'CR-02 转红点：裸插值时该技能会静默截断而非消失，故这里同时断言 description 全文');
+    assert.strictEqual(
+      entry.skill.description,
+      desc,
+      'CR-02 转红点：裸插值时 YAML 会把 `#1 priority task` 当注释 ⇒ 加载到的只有 `Summarize this`'
+    );
+  });
+
+  test('CR-02：description 为裸 "true" → 加载后是**字符串** "true"（不被解析成布尔值整条跳过）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+
+    await aiSkills.createManagedSkill(env, {
+      name: 'bool-desc',
+      content: '# body\n',
+      description: 'true',
+      seededNames: SEEDED,
+    });
+
+    const snap = await loadSnapshot(env);
+    const entry = snap.skills.find((e) => e.skill.name === 'bool-desc');
+    assert.ok(entry, 'CR-02 转红点：裸插值 `description: true` 会被解析成布尔 → SDK 判 description 不可用 → 整条跳过');
+    assert.strictEqual(typeof entry.skill.description, 'string', '必须是字符串，不是布尔值');
+    assert.strictEqual(entry.skill.description, 'true');
+  });
+
+  test('CR-03：description 仅由零宽字符组成（U+200B）→ invalid_description，且磁盘逐字不变（不落盘）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const before = snapshotTree(workspace.getManagedSkillsDir());
+
+    const err = await expectThrowCode(
+      () => aiSkills.createManagedSkill(env, {
+        name: 'zero-width',
+        content: '# body\n',
+        description: '\u200B',
+        seededNames: SEEDED,
+      }),
+      'invalid_description'
+    );
+    assert.ok(err.message.length > 0, '必须给可读原因（禁止静默失败）');
+    assert.deepStrictEqual(
+      snapshotTree(workspace.getManagedSkillsDir()),
+      before,
+      'CR-03 转红点：删掉「净化后复验」这一步时，本调用会落盘 `description: `（空描述）→ 加载期整条跳过（幽灵技能）'
+    );
+    assert.strictEqual(
+      fs.existsSync(path.join(workspace.getManagedSkillsDir(), 'zero-width')),
+      false,
+      '被拒的技能目录不得存在'
+    );
+  });
+
+  test('CR-03：update 路径同样复验净化后非空（目标文件逐字不变）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    await aiSkills.createManagedSkill(env, {
+      name: 'zw-update',
+      content: '# v1\n',
+      description: '正常描述',
+      seededNames: SEEDED,
+    });
+    const file = path.join(workspace.getManagedSkillsDir(), 'zw-update', 'SKILL.md');
+    const before = fs.readFileSync(file, 'utf8');
+
+    await expectThrowCode(
+      () => aiSkills.updateManagedSkill(env, {
+        name: 'zw-update',
+        content: '# v2\n',
+        description: '\u200B',
+        seededNames: SEEDED,
+      }),
+      'invalid_description'
+    );
+    assert.strictEqual(
+      fs.readFileSync(file, 'utf8'),
+      before,
+      'CR-03 转红点（update 半边）：复验缺失时 `description: ` 会经 rename 原子替换掉原文件'
+    );
+  });
+
+  test('description 含单引号与换行：加载后与净化值逐字相等（编码可被 YAML 无损还原）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const raw = "it's a\nmulti-line \"quoted\" thing";
+
+    await aiSkills.createManagedSkill(env, {
+      name: 'quoted-desc',
+      content: '# body\n',
+      description: raw,
+      seededNames: SEEDED,
+    });
+
+    const snap = await loadSnapshot(env);
+    const entry = snap.skills.find((e) => e.skill.name === 'quoted-desc');
+    assert.ok(entry, '撇号双写 + 换行归一化后必须仍可加载');
+    assert.strictEqual(
+      entry.skill.description,
+      aiSkills.sanitizeSkillDescription(raw),
+      '撇号必须成对、换行必须已被压成空格（否则标量提前闭合或穿透 frontmatter）'
+    );
+  });
+
+  test('对照组：普通短描述走同一条链路，产出可加载技能（证明上面拒的是值域而非链路本身）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+
+    await aiSkills.createManagedSkill(env, {
+      name: 'plain-desc',
+      content: '# body\n',
+      description: 'A perfectly normal description',
+      seededNames: SEEDED,
+    });
+
+    const snap = await loadSnapshot(env);
+    const entry = snap.skills.find((e) => e.skill.name === 'plain-desc');
+    assert.ok(entry, '普通描述必须可加载');
+    assert.strictEqual(entry.skill.description, 'A perfectly normal description');
+  });
+});
 
 describe('update / delete 两动作与统一的目标判定', () => {
   test('update 快乐路径：全量覆写（旧正文消失）+ 目录内文件数恒 1 + action === "update"', async (t) => {

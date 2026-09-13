@@ -68,6 +68,38 @@ const MANAGED_SKILL_NAME_RE = /^[a-z0-9-]+$/;
 const LEADING_FRONTMATTER_RE = /^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/;
 
 /**
+ * 把任意文本编码成 YAML **单引号标量**（CR-02 的修法）
+ *
+ * 解决的正是三类会把 frontmatter 结构击穿的 description 输入（LLM 自由文本）：
+ * - 含 `": "`（冒号 + 空格）：裸插值被 YAML 读成嵌套映射 → SDK `parse()` 抛错 →
+ *   `parse_failed` → 幽灵技能；
+ * - 含 `#`：裸插值在 `#` 处被当作注释**静默截断**（技能在、描述错）；
+ * - 裸标量形态（`true` / `12345` / `null` / 前导 `-` / `@` / `*`）：裸插值被解析成
+ *   非字符串或抛错 → SDK 判 description 不可用后**整条跳过**。
+ * 三类后果同归一类失效族：工具报成功、磁盘有文件、技能永不加载。
+ *
+ * **为什么用单引号而不是双引号**：YAML 单引号标量**不做转义处理**（唯一变形是撇号
+ * 双写），因此描述里的 Windows 风格反斜杠（`C:\path`）不会被误当成转义序列而损坏；
+ * 双引号标量要求自己实现一整套反斜杠 / 控制字符转义表，等于把半个 YAML 解析器抄进
+ * 本模块。
+ *
+ * 换行归一化是**防御性**的：净化职责在调用方（`sanitizeSkillDescription`），但编码层
+ * 不得允许换行穿透进 frontmatter（YAML 折行标量的语义会随缩进漂移）。
+ *
+ * **不得 import `yaml` 包**（也不动态 import）：它是 SDK 的传递依赖，本模块只经 SDK
+ * 往返获得 frontmatter 解析能力（见文件头「依赖纪律」）。本函数自持，不导出。
+ *
+ * @param {string} text - 任意文本
+ * @returns {string} YAML 单引号标量（含首尾引号）
+ */
+function yamlScalar(text) {
+  const flat = String(text == null ? '' : text)
+    .replace(/[\r\n\u2028\u2029]+/g, ' ')
+    .replace(/'/g, "''");
+  return `'${flat}'`;
+}
+
+/**
  * 惰性 require 记忆管理模块（技能域与记忆域共用同一份扫描单点，D-08）
  *
  * 照 `ai-manager.js` 的惰性模板：避开模块加载顺序问题，无循环依赖
@@ -900,8 +932,12 @@ async function readSkillForInvocation(env, name) {
 //    `isError: true` toolResult → LLM 可见并自行修正；**不返回错误对象**。
 // 4. 撞名 / seeded / 数量闸一律**读盘**（`env.exists` / `env.listDir`），
 //    不用缓存快照 —— bash 可随时改盘，缓存只反映上次重扫时刻。
-// 5. 净化顺序铁律：**先扫描、后净化**（净化会剥掉零宽字符，顺序颠倒会让
-//    零宽字符变体绕过检测）。净化只作用于 description。
+// 5. 顺序铁律两条，各有归属：
+//    - **先扫描、后净化**（D-09）：净化会剥掉零宽字符，顺序颠倒会让零宽字符变体
+//      绕过检测。净化只作用于 description。
+//    - **净化后必须复验非空**（CR-03）：净化只能缩减，纯零宽字符描述会被净化为空。
+//    - **字节闸必须在组装之后**（WR-01）：判据对象是落盘的 SKILL.md 全文（与加载期
+//      `FileInfo.size` 同量），不是 content 单独的长度。
 // 6. 校验器与写函数住本模块（零 electron 依赖）⇒ Phase 50/51 可直接 require
 //    同一份，不各写一份而漂移。
 
@@ -1089,6 +1125,11 @@ function validateManagedSkillContent(text) {
  * **判定**操作；先净化会剥掉零宽字符，让 P3 实测的「零宽字符包裹的注入语」绕过检测，
  * 因此调用方必须严格按「扫描 → 净化」排序（三个动作函数的步骤 2 / 3 即此）。
  *
+ * **调用方必须对净化值复验非空**（CR-03）：本函数只能做**缩减**（剥字符 + trim），
+ * 因此「校验通过但净化后为空」在原理上必然存在窗口 —— `String.prototype.trim()`
+ * 不移除 U+200B，纯零宽字符组成的 description 正好落在窗口里。两个动作函数在
+ * 净化之后都会再跑一次 `validateManagedSkillDescription(safeDescription)`。
+ *
  * content 不净化：技能正文可能含代码 / 脚本，剥字符会破坏合法内容，且它不进 prompt。
  *
  * @param {string} text - description 原文
@@ -1137,12 +1178,20 @@ function scanSkillText(text, { includeCredentials = true } = {}) {
  * `content` 首部若自带 YAML frontmatter 块一律**静默剥除**（A5 裁决）——
  * 不剥除会产生双层 `---` 头、SDK 解析结果不确定，而九码里没有 `invalid_content`。
  *
+ * `description` 一律经 `yamlScalar` 编码成 YAML 单引号标量（CR-02）——
+ * 它是 LLM 自由文本，裸插值会被 `: ` / `#` / 裸标量形态击穿 frontmatter 结构。
+ *
+ * **`name` 不编码是有前提的**：`validateManagedSkillName` 已把字符集收窄为
+ * `[a-z0-9-]`（无 `:` / `#` / 引号 / 换行 / 前导 `-` / 前导 `@`），且该校验器
+ * **只被写入侧调用**（读入门宽的不对称见 D-06）。日后若放宽 name 字符集，
+ * 这里的「不编码」立刻变成 CR-02 的同款缺口。
+ *
  * @param {{name: string, description: string, content: string}} parts
  * @returns {string} SKILL.md 全文（frontmatter + 空行 + 正文）
  */
 function buildSkillFileText({ name, description, content }) {
   const body = String(content == null ? '' : content).replace(LEADING_FRONTMATTER_RE, '');
-  return `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}`;
+  return `---\nname: ${name}\ndescription: ${yamlScalar(description)}\n---\n\n${body}`;
 }
 
 /** 从沙箱 Result 里取可读的错误码（失败 Result 的形状为 `{ ok: false, error: { code } }`） */
@@ -1305,16 +1354,23 @@ async function resolveManagedTarget(env, name, seededNames) {
  * **独占创建**（D-07，对齐 oh-my-pi 与 FEATURES §5.3）：目标已存在（任何来源）
  * 即拒绝且**不落盘**，四类来源给不同可读原因。不是 upsert。
  *
- * 步骤顺序**本身就是纪律**：先纯校验 → 后 IO；扫描在净化之前；撞名判定在写之前。
+ * 步骤顺序**本身就是纪律**（两条顺序不变式各有归属）：
+ *   ① 纯校验（name / description **原文** / content）→ ② 扫描**原文** →
+ *   ③ 净化 description → ④ **净化值复验非空** → ⑤ 路径 / 撞名判定 / 数量闸 →
+ *   ⑥ **组装全文字节闸** → ⑦ 组装 → 原子写。
+ * - 扫描必须在净化**之前**（D-09）：净化会剥零宽字符，顺序颠倒会让
+ *   「零宽字符包裹的注入语」绕过检测。
+ * - 字节闸必须在组装**之后**（WR-01）：判据对象是落盘产物本身（整文件字节），
+ *   与加载期 `FileInfo.size` 同量；只按 content 计字节会留下约 1 KB 的幽灵技能带。
  *
  * @param {object} env - 沙箱 ExecutionEnv
  * @param {{name: string, content: string, description: string,
  *          seededNames?: string[]|Set<string>}} params
  * @returns {Promise<{name: string, filePath: string, description: string, action: 'create'}>}
- * @throws {Error} 校验 / 扫描 / 撞名 / 数量闸 / 写入失败（均带 `code`）
+ * @throws {Error} 校验 / 扫描 / 撞名 / 数量闸 / 字节闸 / 写入失败（均带 `code`）
  */
 async function createManagedSkill(env, { name, content, description, seededNames } = {}) {
-  // 1. 三个纯校验器（name 只 trim、不 lowercase）
+  // 1. 三个纯校验器（name 只 trim、不 lowercase；description 的长度与类型按**原文**判）
   const skillName = typeof name === 'string' ? name.trim() : name;
   const nameCheck = validateManagedSkillName(skillName);
   if (!nameCheck.ok) throw makeManageSkillError(nameCheck.code, nameCheck.reason);
@@ -1323,12 +1379,19 @@ async function createManagedSkill(env, { name, content, description, seededNames
   const contentCheck = validateManagedSkillContent(content);
   if (!contentCheck.ok) throw makeManageSkillError(contentCheck.code, contentCheck.reason);
 
-  // 2. 先扫描（description 跑两组；content 只跑注入组）
+  // 2. 先扫描（description 跑两组；content 只跑注入组）；扫的是**原文**（D-09）
   scanSkillText(description, { includeCredentials: true });
   scanSkillText(content, { includeCredentials: false });
 
   // 3. 后净化（只作用于 description）
   const safeDescription = sanitizeSkillDescription(description);
+
+  // 3.5 净化值复验（CR-03）：净化是**只能缩减**的变形，因此这里唯一可能新增的失败
+  //     是「复验后为空」—— String.prototype.trim() 不移除 U+200B，纯零宽字符组成的
+  //     描述会正好落在这个窗口里。校验器直接复用，拒绝码原样透传（invalid_description），
+  //     不新立第十码。
+  const safeDescCheck = validateManagedSkillDescription(safeDescription);
+  if (!safeDescCheck.ok) throw makeManageSkillError(safeDescCheck.code, safeDescCheck.reason);
 
   // 4. 路径（恒由 path.join 计算）
   const { managedDir, destDir, destFile } = managedSkillPaths(skillName);
@@ -1363,6 +1426,13 @@ async function createManagedSkill(env, { name, content, description, seededNames
       { limit: LIMITS.MAX_MANAGED_SKILLS, currentValue: managedCount }
     );
   }
+
+  // 6.5 【权威字节闸的位点】必须在**组装之后、任何落盘之前**（WR-01）——
+  //     判据对象是 `buildSkillFileText({ name, description: safeDescription, content })`
+  //     的产物 UTF-8 字节数，与加载期 `createSkillsEnv.readTextFile` 的 `FileInfo.size`
+  //     同为「整文件」口径。只按 content 计字节的预筛（步骤 1）是它的**严格子集**，
+  //     不能替代它。此位点在数量闸之后、createDir 之前 ⇒ 拒绝即不建目录、零残留。
+  //     （闸口的函数实现与边界断言见本计划 Task 2。）
 
   // 7. 建目录（renameFile 到缺失父目录必失败 ⇒ createDir 是硬前置）。
   //    走到这里只剩 not_found 一种情形 ⇒ 目标目录必然不存在，本次一定是「新建」。
@@ -1400,14 +1470,18 @@ async function createManagedSkill(env, { name, content, description, seededNames
  * 与 create 的唯一结构性差异：**失败不做任何清理**。目标目录本就存在，其内容由
  * `renameFile` 的原子替换保证保持操作前状态；删目录反而会毁掉用户数据。
  *
+ * 步骤顺序与 create **逐字同构**（两条顺序不变式各有归属）：① 纯校验（description
+ * **原文**）→ ② 扫描**原文** → ③ 净化 → ④ **净化值复验非空** → ⑤ 目标判定 →
+ * ⑥ **组装全文字节闸** → ⑦ 组装 → 原子写。扫描在净化前（D-09）、字节闸在组装后（WR-01）。
+ *
  * @param {object} env - 沙箱 ExecutionEnv
  * @param {{name: string, content: string, description: string,
  *          seededNames?: string[]|Set<string>}} params
  * @returns {Promise<{name: string, filePath: string, description: string, action: 'update'}>}
- * @throws {Error} 校验 / 扫描 / 目标判定 / 写入失败（均带 `code`）
+ * @throws {Error} 校验 / 扫描 / 目标判定 / 字节闸 / 写入失败（均带 `code`）
  */
 async function updateManagedSkill(env, { name, content, description, seededNames } = {}) {
-  // 1. 三个纯校验器
+  // 1. 三个纯校验器（description 的长度与类型按**原文**判）
   const skillName = typeof name === 'string' ? name.trim() : name;
   const nameCheck = validateManagedSkillName(skillName);
   if (!nameCheck.ok) throw makeManageSkillError(nameCheck.code, nameCheck.reason);
@@ -1416,16 +1490,26 @@ async function updateManagedSkill(env, { name, content, description, seededNames
   const contentCheck = validateManagedSkillContent(content);
   if (!contentCheck.ok) throw makeManageSkillError(contentCheck.code, contentCheck.reason);
 
-  // 2. 先扫描（description 两组；content 一组）
+  // 2. 先扫描（description 两组；content 一组）；扫的是**原文**（D-09）
   scanSkillText(description, { includeCredentials: true });
   scanSkillText(content, { includeCredentials: false });
 
   // 3. 后净化
   const safeDescription = sanitizeSkillDescription(description);
 
+  // 3.5 净化值复验（CR-03，与 create 同一步骤）：净化只能缩减 ⇒ 唯一可能新增的
+  //     失败是「复验后为空」（纯零宽字符描述）。拒绝码原样透传，不新立第十码。
+  const safeDescCheck = validateManagedSkillDescription(safeDescription);
+  if (!safeDescCheck.ok) throw makeManageSkillError(safeDescCheck.code, safeDescCheck.reason);
+
   // 4. 统一的目标判定（seeded / user / not_found 三态即三类拒绝）
   const target = await resolveManagedTarget(env, skillName, seededNames);
   if (!target.ok) throw makeManageSkillError(target.code, target.message);
+
+  // 4.5 【权威字节闸的位点】必须在**组装之后、原子写之前**（WR-01）：判据对象是
+  //     `buildSkillFileText(...)` 产物的整文件 UTF-8 字节（与加载期 `FileInfo.size`
+  //     同量）。此位点在目标判定之后、rename 之前 ⇒ 拒绝即目标保持操作前状态。
+  //     （闸口的函数实现与边界断言见本计划 Task 2。）
 
   // 5. 原子写（create / update 共用同一条 tmp → rename 路径）。
   //    **失败直接 throw，不做任何清理** —— 目标目录属于既有数据，
