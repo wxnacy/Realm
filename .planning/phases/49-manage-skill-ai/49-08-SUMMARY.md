@@ -214,3 +214,11 @@ None - no external service configuration required.
 
 *Phase: 49-manage-skill-ai*
 *Completed: 2026-09-14*
+
+## Self-Check: PASSED
+
+- 创建的产物全部在盘：`tests/uat-49-g49-4-card-a11y-tab-order.js`、本 SUMMARY、`/tmp/uat49/evidence-g49-4.json`、`/tmp/uat49/g49-4-red.log`、`/tmp/uat49/g49-4-green.log`（`[ -f ]` 全部 FOUND）
+- 四个提交全部存在：`d68d7d6` / `7b88452` / `5403584` / `447e497`
+- 证据 JSON 保留红绿两轮与全量明细：`runs = red(exit 1 / pass false) + green(exit 0 / pass true)`、`tabStops = 80`、`mutation = card-call-without-interactive-false`、红轮 R3 卡片域内 2 站 / 违反 2 站、绿轮 0 站 / 0 站
+- 邻接证据未被覆盖：`evidence.json`（21:23）/`evidence3.json`（21:27）/`evidence-g49-3.json`（22:52）mtime 均早于本次运行（00:36）
+- 计划自带的每一条 `<verify>` 均**在红、绿两态实跑过**：a11y-guard-form 红 6 条 → 绿；css-decl-freeze 两态皆绿（冻结门禁，非红→绿型）；驱动 R1–R6 红→绿；copy-parity 与 counts-parity 绿；`tests/test-*.js` 全量退出码 0
