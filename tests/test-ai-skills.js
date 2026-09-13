@@ -3508,13 +3508,23 @@ describe('M 组 · Phase 49 manage_skill 卡片标记（D-02 / UI-SPEC 硬约束
    *
    * 三处都是「必须同时成立」的接线点：漏任一处都是静默失效（卡片退化为普通卡片 / 徽标与
    * 短原因永不出现），因此断言必须落在具体区域而不是整文件 `includes`。
+   *
+   * **窗口纪律（两处切片都按锚点定界，不用固定长度）**：
+   * - 合并区 = `toolExecutions[existingIdx]` → **该起点之后的第一个** `toolExecutions.push(`
+   *   ⇒ 判据对象是「已存在条目分支的本体」，且随分支增长 / 缩短自动跟随。
+   *   固定长度窗口（曾为 `mergeIdx + 900`）是启发式：分支一变长就把本分支内容留在窗口外
+   *   （断言假红），一变短就把相邻分支纳入（断言假绿）；两种漂移都让区域不再等于分支本体。
+   * - 终点锚点必须**相对起点解析**（`indexOf(mark, mergeIdx)`）：`toolExecutions.push(` 在文件里
+   *   另有同名出现，全局 `indexOf` 会取到文件里**第一个** —— 一旦它在起点之前，切片即恒为空串，
+   *   所有区域断言无论实现对不对都恒失败（固定长度窗口与全局终点锚点是同一类缺陷）。
+   * - 内容构造区以注释锚点（`// 参数区域（…）`）收尾，不依赖 `merge` 的长度。
    */
   function rendererManageRegions() {
     const src = readSource('src/renderer.js');
     const mergeIdx = src.indexOf('toolExecutions[existingIdx]');
     assert.ok(mergeIdx >= 0, '应存在「已存在条目」合并分支');
-    const pushIdx = src.indexOf('toolExecutions.push(');
-    assert.ok(pushIdx >= 0, '应存在新条目分支');
+    const pushIdx = src.indexOf('toolExecutions.push(', mergeIdx);
+    assert.ok(pushIdx > mergeIdx, '应存在新条目分支（且位于合并分支起点之后）');
     const bStart = src.indexOf('const manageSkill = toolExecution.manageSkill');
     assert.ok(bStart >= 0, '应存在 manage_skill 卡片分支起点');
     const bEnd = src.indexOf('} else if (skillInvocation && skillInvocation.name)', bStart);
@@ -3524,7 +3534,8 @@ describe('M 组 · Phase 49 manage_skill 卡片标记（D-02 / UI-SPEC 硬约束
     );
     return {
       src,
-      merge: src.slice(mergeIdx, mergeIdx + 900),
+      // 终点 = 下一个分支的起点（锚点定界，不是「起点 + 固定长度」的近似偏移）
+      merge: src.slice(mergeIdx, pushIdx),
       push: src.slice(pushIdx, pushIdx + 900),
       branch: src.slice(bStart, bEnd),
       // 本变体自己的内容构造区（分支起点 → 通用参数区起点）：参数摘要 / 正文折叠块挂载 /
@@ -3890,14 +3901,22 @@ describe('M 组 · Phase 49 manage_skill 卡片标记（D-02 / UI-SPEC 硬约束
     );
   });
 
-  test('M3（源码 · 合并分支护栏）新条目映射 manageSkill，且已存在条目分支**条件并入**终态字段', () => {
+  test('M3（源码 · 合并分支护栏）新条目映射 manageSkill，且已存在条目分支**经共享合并函数并入**终态字段', () => {
     const { merge, push } = rendererManageRegions();
-    assert.ok(/manageSkill/.test(merge), '已存在条目合并分支必须并入 manageSkill（RESEARCH Pitfall 4 的回归护栏）');
-    assert.ok(/manageSkill/.test(push), '新条目分支必须映射 manageSkill');
+    // 判据都是**具体区域 + 语义调用**，不是整文件子串存在性（旧版只查 `manageSkill` 子串与一个
+    // 三元表达式 —— 覆盖写法同样满足，正是 CR-01 得以漏绿的假绿形态）。
     assert.ok(
-      /event\.manage_skill\s*\?/.test(merge),
-      '必须**条件**并入：后续不带该字段的 update 事件不得把已写入的标记抹成 undefined'
+      merge.includes('mergeManageSkillMarker('),
+      '已存在条目合并分支必须调用跨进程单源的共享合并函数 —— **把渲染端改回 `manageSkill: event.manage_skill`'
+        + ' 覆盖写法时本断言必然转红**（M5b 读不到渲染端源码，那条路径由本断言独占）'
     );
+    assert.strictEqual(
+      /manageSkill:\s*event\.manage_skill\b/.test(merge),
+      false,
+      '已存在条目合并分支不得再用事件载荷**直接赋值**给标记字段（那是 CR-01 的覆盖写法，'
+        + '会抹掉 start 的 action / name ⇒ 整张卡片的技能变体崩塌）'
+    );
+    assert.ok(/manageSkill/.test(push), '新条目分支必须映射 manageSkill（首个事件无对象可并入，直接写入等价）');
   });
 
   test('M4（源码 · 渲染端零判定）三处接线区域零来源判定素材、零 HTML 拼接', () => {
@@ -3942,13 +3961,16 @@ describe('M 组 · Phase 49 manage_skill 卡片标记（D-02 / UI-SPEC 硬约束
     assert.ok(body.includes("t.name === 'manage_skill'"), '只对 manage_skill 行求值（其它工具零成本）');
   });
 
-  test('M5b（行为 · 重载同形）重载链路与实时链路合并后的 manageSkill 逐字相等', async (t) => {
+  test('M5b（行为 · 重载同形 · 成功行）重载链路与实时链路**经共享合并函数**产出的 manageSkill 逐字相等', async (t) => {
     const root = withTempRoot(t);
     workspace.ensureWorkspaceDir();
     writeSkill(workspace.getManagedSkillsDir(), 'alpha');
     const env = await setupSkillsEnv(root);
 
-    // 实时链路：start 给 {action, name}，end 给终态三键 —— 渲染端合并两者
+    // 实时链路：start 给 {action, name}，end 给终态三键 —— 渲染端合并两者。
+    // `live` 由**渲染端真正调用的那个合并函数**算出（`require` 与 `window.SkillPickerModel`
+    // 是同一个 api 对象引用）—— 手搓 `{ ...startMarker, ...endTerminal }` 验证的是**意图**
+    // 而非渲染端的真实语义（那正是 CR-01 得以漏绿的假绿形态）。
     const startMarker = aiManager.prototype._resolveManageSkillMarker.call({}, 'create', 'alpha');
     const endCtx = {
       _buildManageSkillDecoration: aiManager.prototype._buildManageSkillDecoration,
@@ -3958,7 +3980,7 @@ describe('M 组 · Phase 49 manage_skill 卡片标记（D-02 / UI-SPEC 硬约束
       }]]),
     };
     const endTerminal = aiManager.prototype._resolveManageSkillTerminal.call(endCtx, 'tc1');
-    const live = { ...startMarker, ...endTerminal };
+    const live = skillPickerModel.mergeManageSkillMarker(startMarker, endTerminal);
     assert.deepStrictEqual(
       live,
       { action: 'create', name: 'alpha', tier: 'managed', promptIncluded: false },
@@ -3993,6 +4015,64 @@ describe('M 组 · Phase 49 manage_skill 卡片标记（D-02 / UI-SPEC 硬约束
     assert.strictEqual(exec.name, 'manage_skill');
     assert.strictEqual(exec.status, 'completed');
     assert.deepStrictEqual(exec.params.action, 'create');
+  });
+
+  test('M5c（行为 · 重载同形 · 失败行）短原因经词缀复原，且两条链路键集合与取值逐字相等', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    // 可判定 tier 的造法：目标名进 `manageReloadCtx` 的 seeded 第二参 + `managed-skills/` 下
+    // 有同名目录 ⇒ `sourceTierOf` 判为 `builtin`（Phase 47 D-11 的播种登记表口径）。
+    writeSkill(workspace.getManagedSkillsDir(), 'seeded-one');
+    const env = await setupSkillsEnv(root);
+
+    // 实时链路：失败态由**同一个共享合并函数**并入（渲染端真正调用的那个）
+    const liveCtx = {
+      _buildManageSkillDecoration: aiManager.prototype._buildManageSkillDecoration,
+      _resolveManageSkillMarker: aiManager.prototype._resolveManageSkillMarker,
+      _manageSkillMeta: new Map([['tc-fail', {
+        action: 'create', name: 'seeded-one', code: 'seeded_protected', tier: 'builtin',
+      }]]),
+    };
+    const live = skillPickerModel.mergeManageSkillMarker(
+      aiManager.prototype._resolveManageSkillMarker.call({}, 'create', 'seeded-one'),
+      aiManager.prototype._resolveManageSkillTerminal.call(liveCtx, 'tc-fail')
+    );
+    assert.deepStrictEqual(
+      live,
+      { action: 'create', name: 'seeded-one', code: 'seeded_protected', tier: 'builtin' },
+      '前置：失败行的实时合并形状（短原因 + 可判定档位）'
+    );
+
+    const original = conversationStore.getMessages;
+    conversationStore.getMessages = () => JSON.parse(JSON.stringify([
+      {
+        id: 1, role: 'assistant', content: '', toolExecutions: [
+          {
+            id: 'tc-fail', name: 'manage_skill', status: 'failed',
+            params: { action: 'create', name: 'seeded-one', content: '# seeded-one', description: 'd' },
+            error: '[seeded_protected] 「seeded-one」是随包内置技能，AI 不能覆盖或删除。',
+            details: {},
+          },
+        ],
+      },
+    ]));
+    t.after(() => { conversationStore.getMessages = original; });
+
+    const out = aiManager.prototype.getConversationMessages.call(manageReloadCtx(env, ['seeded-one']), 'conv-1');
+    const exec = out[0].toolExecutions[0];
+    assert.ok(exec.manageSkill, '重载路径必须重建 manage_skill 标记（失败行同样）');
+    // **双向**断言键集合：不多键（实时多出来的键必须也在重载侧）也不少键
+    assert.deepStrictEqual(
+      Object.keys(exec.manageSkill).sort(),
+      Object.keys(live).sort(),
+      '失败行：键集合必须与实时链路逐字相等（不多键也不少键）'
+    );
+    assert.deepStrictEqual(exec.manageSkill, live, '失败行：取值必须与实时链路逐字相等');
+    assert.strictEqual(
+      exec.manageSkill.code,
+      'seeded_protected',
+      '失败历史卡片必须保留短原因（原因码经事务内的词缀落库并还原）'
+    );
   });
 
   test('M6（行为）_resolveManageSkillMarker 四分支打表', () => {
