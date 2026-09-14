@@ -4460,6 +4460,29 @@ describe('N 组 · Phase 50-02 管理写路径（重扫恰一次 + 调用侧补�
     assert.strictEqual(findSkillItem(projection, 'toggle-back').disabled, false, '恢复后 disabled 必须为 false');
   });
 
+  test('N2b（行为）增量载荷语义：连续操作两条技能后名单是**并集**（不是「后写覆盖先写」的全量语义）', async (t) => {
+    const root = withTempRoot(t);
+    writeSkill(workspace.getSkillsDir(), 'multi-a');
+    writeSkill(workspace.getSkillsDir(), 'multi-b');
+    const env = await setupSkillsEnv(root);
+
+    const ctx = promptCtx(env);
+    await ctx.setSkillDisabled('multi-a', true);
+    await ctx.setSkillDisabled('multi-b', true);
+    assert.deepStrictEqual(
+      ctx.configStore.get('settings.aiSkills.disabled', []),
+      ['multi-a', 'multi-b'],
+      '增量载荷语义：第二次写不得抹掉第一次的改动（全量载荷 + 陈旧读会丢更新）'
+    );
+
+    await ctx.setSkillDisabled('multi-a', false);
+    assert.deepStrictEqual(
+      ctx.configStore.get('settings.aiSkills.disabled', []),
+      ['multi-b'],
+      '启用只摘掉自己那一条，不得影响其它条目'
+    );
+  });
+
   test('N3（靶心 · 行为）忙时补播：isProcessing === true 时补播仍然发出（恰一次），且 prompt 未变', async (t) => {
     const root = withTempRoot(t);
     writeSkill(workspace.getSkillsDir(), 'busy-toggle');
