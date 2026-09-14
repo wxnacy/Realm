@@ -336,7 +336,25 @@ Plans:
   4. 设置页（realm:// guest）走 `/api/skills/*` + token，主窗口走 `realmAPI` IPC，两入口读同一权威数据；任一入口的变更跨窗口即时同步。
   5. 超过体积上限的请求体（如未压缩 zip 的 base64）在 `/api/*` 层被拒绝并返回明确错误，不无上限读入内存。
 
-**Plans**: TBD
+**Plans**: 5 plans / 4 waves（已规划，未执行）
+
+**Wave 1**
+
+- [ ] 50-01-PLAN.md — tracer：管理读路径端到端纵切（管理投影 + `ensureSkillsFresh` 读路径初始化 + `GET /api/skills/list` + 设置页只读分组列表 + 体积/文件数递归统计进重扫管线）（USER-01、USER-07）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 50-02-PLAN.md — 管理写路径端到端（仅 user 可卸载的三态判据 + 第十码 + 两个管理面谓词 + 失效链收口 + 两条写路由 + `/api/settings/update` 双键校验）（USER-02、USER-06）
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 50-03-PLAN.md — SEC-09 体积闸 + 双入口 IPC（`readJsonBody(req, res, {maxBytes})` + `res` 缺失降级分支 + 413 形态 + `sendJson` 幂等护栏 + 全部调用点改签名 + 两个书签端点显式放大 + 三个 IPC 通道）（SEC-09、USER-07）
+- [ ] 50-04-PLAN.md — 设置页写交互与样式完成面（启停开关乐观翻转/回滚 + 卸载二次确认弹框 + 诊断两层承载 + 「仅显式」单源化）（USER-01、USER-02、USER-06）
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 50-05-PLAN.md — 文档与账本收口（`docs/product/ai-skills.md` §十二 + §11.3 修订 + `AGENTS.md` 维护约定与测试清单 + `50-VALIDATION.md` 回填 + counts-parity 扩到 5 套件）（USER-01、USER-02）
+
 **UI hint**: yes
 
 **Security gate**: SEC-09 请求体体积上限（安全项，非优化项）；P8 多窗口广播与失效链。
@@ -384,5 +402,5 @@ Plans:
 | 47. 内置技能播种 + bash 策略加固 | 6/6 | In Progress|  |
 | 48. 技能发现与调用 | 8/8 | In Progress|  |
 | 49. `manage_skill` 工具 | 8/8 | In Progress|  |
-| 50. 设置页技能管理区 + `/api/skills/*` | TBD | Not started | - |
+| 50. 设置页技能管理区 + `/api/skills/*` | 0/5 | Planned    |  |
 | 51. 用户技能导入管线 | TBD | Not started | - |
