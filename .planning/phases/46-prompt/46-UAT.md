@@ -61,7 +61,7 @@ evidence: |
   dev 对话「测试46」(b732654e，2026-09-11 10:49-10:50，mimo-v2.5/xiaomi) 实录：
   (1) 问「你现在有哪些技能」→ 应答中 demo 被单列为「插件技能」，name/description 与 prompt 段一致；
   (2) 发「把「今天天气很好」翻译成日文」→ assistant 推理「根据技能描述…必须使用 demo 技能」
-      并发起 tool_calls: read {"path":"/Users/wxnacy/Library/Application Support/realm-dev/agent-workspace/skills/demo/SKILL.md"}
+      并发起 tool_calls: read {"path":"/Users/<user>/Library/Application Support/realm-dev/agent-workspace/skills/demo/SKILL.md"}
       —— 该绝对路径与 prompt 中 <location> 的值逐字符相同，证实模型是凭 <location> 打开的；
   (3) toolResult 返回 SKILL.md 全文（含 UAT 标记 REALM-DEMO-SKILL-LOADED），证实沙箱 read 真读到正文（truth #2 端到端复现）；
   (4) 最终回复「今日はいい天気ですね。」。

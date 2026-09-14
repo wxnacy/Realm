@@ -1,7 +1,7 @@
 ---
 phase: 39-vimium
 fixed_at: 2026-08-24T12:30:00Z
-review_path: /Users/wxnacy/Projects/Realm/.planning/phases/39-vimium/39-REVIEW.md
+review_path: ~/Projects/Realm/.planning/phases/39-vimium/39-REVIEW.md
 iteration: 1
 findings_in_scope: 5
 fixed: 5
@@ -12,7 +12,7 @@ status: all_fixed
 # Phase 39: Code Review Fix Report
 
 **Fixed at:** 2026-08-24T12:30:00Z
-**Source review:** /Users/wxnacy/Projects/Realm/.planning/phases/39-vimium/39-REVIEW.md
+**Source review:** ~/Projects/Realm/.planning/phases/39-vimium/39-REVIEW.md
 **Iteration:** 1
 
 **Summary:**

@@ -57,7 +57,7 @@ None
 
 ### history-manager.js
 
-**位置：** `/Users/wxnacy/Projects/Realm/history-manager.js`
+**位置：** `~/Projects/Realm/history-manager.js`
 
 **关键方法：**
 - `searchRecords(containerId, { keyword, offset, limit })` — 按 URL 或标题模糊匹配（LIKE 模式）
@@ -89,7 +89,7 @@ CREATE INDEX idx_{tableName}_url ON {tableName} (url);
 
 ### favorites-manager.js
 
-**位置：** `/Users/wxnacy/Projects/Realm/favorites-manager.js`
+**位置：** `~/Projects/Realm/favorites-manager.js`
 
 **关键方法：**
 - `searchFulltext({ keyword, limit })` — FTS5 全文搜索（支持中文分词）
@@ -122,7 +122,7 @@ CREATE VIRTUAL TABLE favorites_fts USING fts5(content, tokenize = 'unicode61');
 
 ### frequent-sites-manager.js
 
-**位置：** `/Users/wxnacy/Projects/Realm/frequent-sites-manager.js`
+**位置：** `~/Projects/Realm/frequent-sites-manager.js`
 
 **关键方法：**
 - `getFrequentSites(limit)` — 获取常用网站列表（frecency 排序）
@@ -149,7 +149,7 @@ const FRECENCY_WEIGHTS = {
 
 ### src/renderer.js
 
-**位置：** `/Users/wxnacy/Projects/Realm/src/renderer.js`
+**位置：** `~/Projects/Realm/src/renderer.js`
 
 **URL 输入框处理（第 4181-4224 行）：**
 ```javascript
@@ -178,7 +178,7 @@ elements.urlInput.addEventListener('keydown', async (e) => {
 
 ### src/preload.js
 
-**位置：** `/Users/wxnacy/Projects/Realm/src/preload.js`
+**位置：** `~/Projects/Realm/src/preload.js`
 
 **IPC 暴露模式：**
 ```javascript
@@ -194,7 +194,7 @@ contextBridge.exposeInMainWorld('realmAPI', {
 
 ### ipc-handlers.js
 
-**位置：** `/Users/wxnacy/Projects/Realm/ipc-handlers.js`
+**位置：** `~/Projects/Realm/ipc-handlers.js`
 
 **IPC 注册模式：**
 ```javascript
@@ -217,7 +217,7 @@ ipcMain.handle('history:search', (event, data) => {
 
 ### src/index.html
 
-**位置：** `/Users/wxnacy/Projects/Realm/src/index.html`
+**位置：** `~/Projects/Realm/src/index.html`
 
 **URL 输入框结构（第 186-192 行）：**
 ```html
@@ -238,7 +238,7 @@ ipcMain.handle('history:search', (event, data) => {
 
 ### src/styles/main.css
 
-**位置：** `/Users/wxnacy/Projects/Realm/src/styles/main.css`
+**位置：** `~/Projects/Realm/src/styles/main.css`
 
 **CSS 变量系统：**
 ```css
@@ -355,7 +355,7 @@ ipcMain.handle('autocomplete:query', (event, data) => {
 
 #### 2. 新增 autocomplete-manager.js
 
-**位置：** `/Users/wxnacy/Projects/Realm/autocomplete-manager.js`
+**位置：** `~/Projects/Realm/autocomplete-manager.js`
 
 **职责：**
 - 合并三个数据源的查询结果
@@ -1026,7 +1026,7 @@ getAutocompleteSuggestions: (keyword) => ipcRenderer.invoke('autocomplete:query'
 
 ### 6. 新增文件：autocomplete-manager.js
 
-**位置：** `/Users/wxnacy/Projects/Realm/autocomplete-manager.js`
+**位置：** `~/Projects/Realm/autocomplete-manager.js`
 
 **职责：** 合并三个数据源的查询结果，实现匹配和排序算法
 

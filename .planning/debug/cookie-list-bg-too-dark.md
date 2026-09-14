@@ -19,7 +19,7 @@ next_action: 返回 ROOT CAUSE FOUND 给 team-lead（diagnose-only 模式）
 ## Symptoms
 
 expected: Cookie 管理面板宽度 750px，标签页、过滤栏、列表、分页控件样式与应用整体深色主题一致，且文字清晰可读（足够对比度）。
-actual: cookie 显示区域背景太黑了，文字有点看不清（列表区背景过深，与文字对比度不足）。截图见 /Users/wxnacy/Downloads/ScreenShot_2026-07-27_000605_155.png
+actual: cookie 显示区域背景太黑了，文字有点看不清（列表区背景过深，与文字对比度不足）。截图见 ~/Downloads/ScreenShot_2026-07-27_000605_155.png
 errors: None reported
 reproduction: Test 7 in UAT - 打开 Cookie 管理面板查看 Cookie 列表
 started: Discovered during UAT Phase 10

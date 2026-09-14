@@ -22,7 +22,7 @@ evidence: |
   真实驱动（playwright _electron 启动 `electron .`，NODE_ENV=development；驱动脚本 /tmp/realm-uat47-coldstart2.js、
   /tmp/realm-uat47-probe.js、/tmp/realm-uat47-probe2.js，原始结果 /tmp/realm-uat47-result.json / -probe.json / -probe2.json）：
   - 前置：`~/Library/Application Support/realm-dev/agent-workspace/managed-skills/{find-skills,skill-creator}` 递归删除（15:45:23Z）。
-  - 启动：Electron 主进程 PID 83387，2s 内出现主窗口 `file:///Users/wxnacy/Projects/Realm/src/index.html`，未崩溃、未卡启动。
+  - 启动：Electron 主进程 PID 83387，2s 内出现主窗口 `file:///Users/<user>/Projects/Realm/src/index.html`，未崩溃、未卡启动。
   - 自愈重播：约 10s 内两个目录重新出现且各含 `SKILL.md`（mtime 15:45:25Z）。
   - 字节一致：`find-skills`（2 文件）/ `skill-creator`（19 文件 + 5 目录）整棵树与 `skills-builtin/` 对应目录逐文件 sha256 全等。
   - 加载器：进程内取真实 app 的 `ai-skills-manager.getSkillsSnapshot()` → `count=4`（2 user + 2 managed）、`diagnostics=[]`、`errors=[]`。

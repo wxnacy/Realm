@@ -566,13 +566,13 @@ searchConfigAPI: {
 ## Sources
 
 ### Primary (HIGH confidence)
-- `/Users/wxnacy/Projects/Realm/search-manager.js` — isPrivateHost、PRIVATE_IP_RANGES、SearchRateLimiter、doSearch、initSearchManager
-- `/Users/wxnacy/Projects/Realm/ai-manager.js` line 1567-2974 — _buildRealmTools() 工具注册模式、web_search 工具参考
-- `/Users/wxnacy/Projects/Realm/ipc-handlers.js` — IPC 通道注册模式、assertTrustedSender
-- `/Users/wxnacy/Projects/Realm/src/preload.js` — contextBridge API 暴露模式
-- `/Users/wxnacy/Projects/Realm/src/settings-page.js` — AI 助手分区 UI 模式
-- `/Users/wxnacy/Projects/Realm/src/settings.html` — AI 助手分区 HTML 结构
-- `/Users/wxnacy/Projects/Realm/main.js` — HTTP API 路由、searchManager 初始化
+- `~/Projects/Realm/search-manager.js` — isPrivateHost、PRIVATE_IP_RANGES、SearchRateLimiter、doSearch、initSearchManager
+- `~/Projects/Realm/ai-manager.js` line 1567-2974 — _buildRealmTools() 工具注册模式、web_search 工具参考
+- `~/Projects/Realm/ipc-handlers.js` — IPC 通道注册模式、assertTrustedSender
+- `~/Projects/Realm/src/preload.js` — contextBridge API 暴露模式
+- `~/Projects/Realm/src/settings-page.js` — AI 助手分区 UI 模式
+- `~/Projects/Realm/src/settings.html` — AI 助手分区 HTML 结构
+- `~/Projects/Realm/main.js` — HTTP API 路由、searchManager 初始化
 - `/Volumes/ZhiTai/Projects/github/openhanako/lib/tools/web-fetch.ts` — web_fetch 参考实现、SSRF 逐跳防护
 - `/Volumes/ZhiTai/Projects/github/openhanako/lib/tools/web-reader.ts` — jsdom + Readability + 自定义 Markdown 渲染器
 

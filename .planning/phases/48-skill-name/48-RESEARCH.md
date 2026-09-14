@@ -1666,7 +1666,7 @@ ipcMain.handle('ai:refresh-skills', async (event) => { assertTrustedSender(event
 | `@earendil-works/pi-agent-core` | 技能加载 / `formatSkillInvocation` | ✓ | 0.84.3（`node_modules` 实测） | — |
 | Electron | 手动 UAT / Playwright 路线 | ✓ | 43（AGENTS.md 记录） | — |
 | better-sqlite3（对话库） | 重载装饰断言 | ✓ | 既有依赖 | 无需外部服务 |
-| Playwright（全局） | 仅可选 E2E 路线 | ✓（`/Users/wxnacy/.nvm/.../lib/node_modules/playwright`，`tests/test-unified-navigation.js:21` 在用） | — | 走 §Validation Architecture 的 Node 纯函数路线即可 |
+| Playwright（全局） | 仅可选 E2E 路线 | ✓（`~/.nvm/.../lib/node_modules/playwright`，`tests/test-unified-navigation.js:21` 在用） | — | 走 §Validation Architecture 的 Node 纯函数路线即可 |
 | 图形界面 | 手动 UAT / Playwright | ✓ | — | — |
 
 **Missing dependencies with no fallback:** 无

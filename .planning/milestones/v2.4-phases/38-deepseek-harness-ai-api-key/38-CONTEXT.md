@@ -83,8 +83,8 @@
 - `src/preload.js` — contextBridge 暴露 realmAPI
 
 ### 参考项目
-- `/Users/wxnacy/Projects/github/deepseek-harness/packages/llm/llm-pi-ai/src/config.ts` — deepseek-harness 的 provider 配置模型：apiKeyEnv 环境变量引用、profile 结构、模型目录解析
-- `/Users/wxnacy/Projects/github/deepseek-harness/` — 整体架构参考
+- `~/Projects/github/deepseek-harness/packages/llm/llm-pi-ai/src/config.ts` — deepseek-harness 的 provider 配置模型：apiKeyEnv 环境变量引用、profile 结构、模型目录解析
+- `~/Projects/github/deepseek-harness/` — 整体架构参考
 
 ### pi-ai SDK
 - `@earendil-works/pi-ai/providers/all` — builtinModels 导入路径，内置 38 个提供商

@@ -615,7 +615,7 @@ tests/test-agent-workspace.js  → # tests 21 # pass 21 # fail 0
 
 ### Pitfall 3: `make install` 会删掉正在运行的 `/Applications/Realm.app`
 
-**What goes wrong:** `make install` 的第 2 步是 `rm -rf "/Applications/Realm.app"`。**本机此刻正在运行该 app**（`pgrep -fl Realm` → PID 25922 主进程 + 一组 helper，user-data-dir 为 `/Users/wxnacy/Library/Application Support/realm`）。若在运行中执行，会删除运行中的 bundle 并强制用户丢失当前会话。
+**What goes wrong:** `make install` 的第 2 步是 `rm -rf "/Applications/Realm.app"`。**本机此刻正在运行该 app**（`pgrep -fl Realm` → PID 25922 主进程 + 一组 helper，user-data-dir 为 `~/Library/Application Support/realm`）。若在运行中执行，会删除运行中的 bundle 并强制用户丢失当前会话。
 
 **Why it happens:** Makefile 的 install target 没有任何"应用是否在运行"的检查：
 
@@ -1323,12 +1323,12 @@ install:
 
 ```
 25922 /Applications/Realm.app/Contents/MacOS/Realm                          ← 主进程
-21896 /Applications/Realm.app/Contents/Frameworks/Realm Helper (Renderer)...  --user-data-dir=/Users/wxnacy/Library/Application Support/realm
+21896 /Applications/Realm.app/Contents/Frameworks/Realm Helper (Renderer)...  --user-data-dir=~/Library/Application Support/realm
 22229 /Applications/Realm.app/Contents/Frameworks/Realm Helper... (VideoCaptureService)
 26519 /Applications/Realm.app/Contents/Frameworks/Realm Helper... (gpu-process)
 26520 /Applications/Realm.app/Contents/Frameworks/Realm Helper... (NetworkService)
 26654 /Applications/Realm.app/Contents/Frameworks/Realm Helper (Renderer)...
-... （共 10 条匹配，全部 user-data-dir=/Users/wxnacy/Library/Application Support/realm）
+... （共 10 条匹配，全部 user-data-dir=~/Library/Application Support/realm）
 ```
 
 **这意味着：现在跑 `make install` 会 `rm -rf` 掉用户正在使用的 app bundle。**

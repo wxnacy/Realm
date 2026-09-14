@@ -213,7 +213,7 @@
 - **npm registry 实测（2026-09-10，`npm view` + `api.npmjs.org`）**：`yauzl@3.4.0`（2026-06-07，109,901 B，唯一依赖 `pend@1.2.0` 且 pend 零依赖，27,060,107 次/周，MIT，纯 JS）、`node-stream-zip@1.16.0`、`extract-zip@2.0.1`（2020-06-10）、`adm-zip@0.6.0`、`unzipper@0.12.5`、`jszip@3.10.2`（`MIT OR GPL-3.0-or-later`）、`fflate@0.8.3`、`yaml@2.9.0`、`ignore@7.0.9`、`chokidar@4.0.3`/`5.0.0`
 - **GitHub 端点实测（2026-09-10，`curl -D -`）**：`api.github.com/repos/anthropics/skills` → `x-ratelimit-limit: 60`；`codeload.github.com/anthropics/skills/zip/refs/heads/main` → **无任何 `x-ratelimit-*` 头**，3,984,611 B / 512 条目 / 唯一顶层前缀 `skills-main`；`raw.githubusercontent.com` → **无 `x-ratelimit-*` 头**；`anthropics/skills/skills/` → 19 个技能目录含 `skill-creator`；`vercel-labs/skills/skills/` → 含 `find-skills`（仓库根为 CLI 项目）
 - **项目文档**：`.planning/PROJECT.md`（v2.6 里程碑目标与 target features、D-04 系统提示词冻结、Key Decisions 全表）、`AGENTS.md`（环境差异/asarUnpack/原生模块发布规则、CSP、弹框、guest 无 realmAPI、导航入口维护约定）、`docs/product/ai-agent-workspace.md`、`docs/plan/{ai-file-bash-tools-integration,ai-memory-system,ai-slash-commands}.md`
-- **本机技能副本实测**：`/Users/wxnacy/.codebuddy/skills/skill-creator/`（5 目录 15 文件含 8 个 `.py`）；CodeBuddy 变体 `find-skills/SKILL.md`
+- **本机技能副本实测**：`~/.codebuddy/skills/skill-creator/`（5 目录 15 文件含 8 个 `.py`）；CodeBuddy 变体 `find-skills/SKILL.md`
 
 ### Secondary（MEDIUM confidence — 官方规范 / 官方文档 / 安全公告，多源交叉验证）
 

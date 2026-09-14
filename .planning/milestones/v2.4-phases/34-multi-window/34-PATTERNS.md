@@ -17,7 +17,7 @@
 
 ### `window-manager.js` (module, CRUD)
 
-**Analog:** 自身现有实现（`/Users/wxnacy/Projects/Realm/window-manager.js`）
+**Analog:** 自身现有实现（`~/Projects/Realm/window-manager.js`）
 
 **当前 Imports 模式** (lines 1-8):
 ```javascript
@@ -117,7 +117,7 @@ module.exports = {
 
 ### `ipc-handlers.js` (middleware, request-response)
 
-**Analog:** 自身 `assertTrustedSender`（`/Users/wxnacy/Projects/Realm/ipc-handlers.js` lines 76-83）+ `assertPlayerSender`（lines 1570-1576）
+**Analog:** 自身 `assertTrustedSender`（`~/Projects/Realm/ipc-handlers.js` lines 76-83）+ `assertPlayerSender`（lines 1570-1576）
 
 **当前 assertTrustedSender 模式** (lines 76-83):
 ```javascript
@@ -190,7 +190,7 @@ ipcMain.handle('shortcut:set', (event, action, accelerator) => {
 
 ### `shortcut-manager.js` (middleware, event-driven)
 
-**Analog:** 自身 `attachInputListener`（`/Users/wxnacy/Projects/Realm/shortcut-manager.js` lines 219-247）+ `registerShortcuts`（lines 271-281）
+**Analog:** 自身 `attachInputListener`（`~/Projects/Realm/shortcut-manager.js` lines 219-247）+ `registerShortcuts`（lines 271-281）
 
 **当前 currentWindow 单例模式** (lines 25-26):
 ```javascript
@@ -290,7 +290,7 @@ const DEFAULT_SHORTCUTS = {
 
 ### `main.js` (controller, event-driven)
 
-**Analog:** 自身 `app.whenReady` 启动流程（`/Users/wxnacy/Projects/Realm/main.js` lines 2375-2388）+ `app.on('activate')`（lines 2470-2483）
+**Analog:** 自身 `app.whenReady` 启动流程（`~/Projects/Realm/main.js` lines 2375-2388）+ `app.on('activate')`（lines 2470-2483）
 
 **当前窗口创建入口模式** (lines 2381-2388):
 ```javascript
@@ -502,7 +502,7 @@ windowManager.broadcast('bookmarks-bar:refresh');
 
 ## Metadata
 
-**Analog search scope:** `/Users/wxnacy/Projects/Realm/`（项目根目录）
+**Analog search scope:** `~/Projects/Realm/`（项目根目录）
 **Files scanned:** 4（window-manager.js, ipc-handlers.js, shortcut-manager.js, main.js）
 **Pattern extraction date:** 2026-08-14
 

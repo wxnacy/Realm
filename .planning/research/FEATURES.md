@@ -388,7 +388,7 @@ oh-my-pi 有一套 `autolearn` 机制：agent 停止后**推促**它去总结可
 | **技能来源与体积可视化** | 用户要能判断"这个技能哪来的、多大、值不值得开" | **MEDIUM** | 设置页展示 source（user/managed/AI-seeded）、SKILL.md 字节数、文件数；对齐 oh-my-pi 的 `/skill-doctor`（上下文成本 + 使用频率）的理念，但 v1 只做静态成本 |
 | **`hide` 语义与 `disable-model-invocation` 分离** | 生态里 `hide: true` **不等于禁用**（仍可 `/skill:name` 触达，只是不进提示词）；这个区分让"省 token 但保留手动通道"成为可能 | **LOW** | SDK 只读 `disable-model-invocation`，`hide` 需 Realm 自己解析 frontmatter（`loadSkills` 会丢未知字段 → 需要额外读一次文件或改用 `disable-model-invocation` 同义写法） |
 
-> **内置技能警告（本机实测，务必先改后打包）**：`/Users/wxnacy/.codebuddy/skills/skill-creator/` 与 `/Users/wxnacy/.codebuddy/plugins/cache/codebuddy-plugins-official/find-skills/1.0.0/skills/find-skills/SKILL.md` 是当前可得的两个参考副本，**都不可直接打包进 Realm**：
+> **内置技能警告（本机实测，务必先改后打包）**：`~/.codebuddy/skills/skill-creator/` 与 `~/.codebuddy/plugins/cache/codebuddy-plugins-official/find-skills/1.0.0/skills/find-skills/SKILL.md` 是当前可得的两个参考副本，**都不可直接打包进 Realm**：
 >
 > - `find-skills`（CodeBuddy 变体）硬编码 `~/.workbuddy/skills` / `~/.codebuddy/skills` 作为目标目录、要求 `npx skills add` / `npx clawhub install`、主源是 SkillHub `https://lightmake.site` API——这些路径在 Realm 沙箱外，命令会全部撞上确认卡片或被拒，**且会教模型去写沙箱外目录**。Realm 版应改为：技能目录 = `agent-workspace/skills/`；搜索走 Realm 现有 `web_search`；安装走 Realm 的 URL 导入（或直接把链接给用户）。
 > - `skill-creator` 的 `agents/`（grader/comparator/analyzer）、`eval-viewer/generate_review.py`、`scripts/`（run_loop/run_eval/package_skill/quick_validate）全部依赖 Realm 没有的运行时。
@@ -579,7 +579,7 @@ oh-my-pi 有一套 `autolearn` 机制：agent 停止后**推促**它去总结可
 - Anthropic Engineering — *Equipping agents for the real world with Agent Skills*（2025-10-16；progressive disclosure 三层定义、文件系统使上下文"effectively unbounded"、代码执行与 token 的关系、四条作者指南、安全提示；2025-12-18 成为开放标准）
 - Claude Code Docs — Skills — https://code.claude.com/docs/en/skills（全部 frontmatter 字段表含必需性、1536 字符截断、`skillOverrides` 四态表、发现位置与同名解析优先级表、命名来源表、`` !`cmd` `` 动态注入与 `$ARGUMENTS` 系列、`context: fork`、自动压缩 5000/25000 token 预算、claude.ai/Skills API 允许字段硬校验报错原文、`/skill-doctor`）
 - skills.sh Docs / CLI Reference — https://www.skills.sh/docs 、https://www.skills.sh/docs/cli（生态定位、`npx skills add`、packs、遥测排行榜、badge、安全声明与免责）
-- anthropics/skills — `skills/skill-creator/SKILL.md`（本机副本 `/Users/wxnacy/.codebuddy/skills/skill-creator/SKILL.md` 逐行阅读：作者指南全文、评测循环与依赖、description 优化循环、undertrigger 现象与"pushy description"建议、packaging、Claude.ai/Cowork 差异）
+- anthropics/skills — `skills/skill-creator/SKILL.md`（本机副本 `~/.codebuddy/skills/skill-creator/SKILL.md` 逐行阅读：作者指南全文、评测循环与依赖、description 优化循环、undertrigger 现象与"pushy description"建议、packaging、Claude.ai/Cowork 差异）
 
 **参考实现（HIGH — 源码/文档级）**
 
@@ -598,7 +598,7 @@ oh-my-pi 有一套 `autolearn` 机制：agent 停止后**推促**它去总结可
 - `src/renderer.js`（`SLASH_COMMANDS` 注册表与注释语义、`handleSendAIMessage` 的 `/` 前缀拦截与"未知命令不入历史"、`renderSlashPickerList` 渲染与过滤管线）
 - `src/settings-page.js`（`aiBashWhitelist` 即改即存 + `whitelist-tag` UI 先例、`/api/settings/update` 服务端校验先例）
 - `AGENTS.md`（内部页面 CSP「markup 内联 style 被拦截」、guest 走 `/api/*` 而非 realmAPI、主窗口 `file://` 不能 fetch localhost、`_recreateAgent` 与记忆冻结快照的既有约束）
-- 本机技能副本实测：`/Users/wxnacy/.codebuddy/skills/skill-creator/`（含 `agents/` `assets/` `eval-viewer/` `references/` `scripts/` 五目录）、`/Users/wxnacy/.codebuddy/plugins/cache/codebuddy-plugins-official/find-skills/1.0.0/skills/find-skills/SKILL.md`（CodeBuddy 变体，硬编码 WorkBuddy / CodeBuddy 目录与 SkillHub API）
+- 本机技能副本实测：`~/.codebuddy/skills/skill-creator/`（含 `agents/` `assets/` `eval-viewer/` `references/` `scripts/` 五目录）、`~/.codebuddy/plugins/cache/codebuddy-plugins-official/find-skills/1.0.0/skills/find-skills/SKILL.md`（CodeBuddy 变体，硬编码 WorkBuddy / CodeBuddy 目录与 SkillHub API）
 - `package.json` 依赖实测（**无 zip 库**；`yaml` / `ignore` 仅为 pi-agent-core 传递依赖）
 
 **置信度说明**：规范与 Claude Code 部分为官方文档 HIGH；oh-my-pi 为源码/文档级阅读 HIGH；pi-agent-core 为逐行源码核对 HIGHEST；「Realm 侧的实现成本评估」为基于现有代码结构的工程判断 MEDIUM。

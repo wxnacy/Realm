@@ -1439,7 +1439,7 @@ function scanFiles(files, patterns, exemptions = []) {
 
 ```js
 // tests/test-unified-navigation.js:23-26 + :70-85（全局 playwright _electron 驱动真实 dev 应用）
-const { _electron } = require('/Users/wxnacy/.nvm/versions/node/v22.22.0/lib/node_modules/playwright');
+const { _electron } = require('/Users/<user>/.nvm/versions/node/v22.22.0/lib/node_modules/playwright');
 const REALM_ROOT = path.join(__dirname, '..');
 // …
   const app = await _electron.launch({

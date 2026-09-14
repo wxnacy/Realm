@@ -607,8 +607,8 @@ function classifySearchError(err) {
 - `/Volumes/ZhiTai/Projects/github/openhanako/lib/tools/web-search.ts` — 搜索 Provider 体系、Auto Fallback、低质量检测核心逻辑
 - `/Volumes/ZhiTai/Projects/github/openhanako/lib/tools/search-rate-limiter.ts` — 速率限制器实现（DEFAULT_POLICIES 参数表）
 - `/Volumes/ZhiTai/Projects/github/openhanako/shared/search-providers.ts` — Provider ID 定义和分类
-- `/Users/wxnacy/Projects/Realm/ai-manager.js` — 工具注册模式 `_buildRealmTools()` (line 1566)
-- `/Users/wxnacy/Projects/Realm/main.js` — 模块实例化和配置读取模式
+- `~/Projects/Realm/ai-manager.js` — 工具注册模式 `_buildRealmTools()` (line 1566)
+- `~/Projects/Realm/main.js` — 模块实例化和配置读取模式
 
 ### Secondary (MEDIUM confidence)
 
