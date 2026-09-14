@@ -336,7 +336,7 @@ Plans:
   4. 设置页（realm:// guest）走 `/api/skills/*` + token，主窗口走 `realmAPI` IPC，两入口读同一权威数据；任一入口的变更跨窗口即时同步。
   5. 超过体积上限的请求体（如未压缩 zip 的 base64）在 `/api/*` 层被拒绝并返回明确错误，不无上限读入内存。
 
-**Plans**: 3/5 plans executed / 4 waves（已规划，未执行）
+**Plans**: 4/5 plans executed / 4 waves（已规划，未执行）
 
 **Wave 1**
 
@@ -349,7 +349,7 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 50-03-PLAN.md — SEC-09 体积闸 + 双入口 IPC（`readJsonBody(req, res, {maxBytes})` + `res` 缺失降级分支 + 413 形态 + `sendJson` 幂等护栏 + 全部调用点改签名 + 两个书签端点显式放大 + 三个 IPC 通道）（SEC-09、USER-07）
-- [ ] 50-04-PLAN.md — 设置页写交互与样式完成面（启停开关乐观翻转/回滚 + 卸载二次确认弹框 + 诊断两层承载 + 「仅显式」单源化）（USER-01、USER-02、USER-06）
+- [x] 50-04-PLAN.md — 设置页写交互与样式完成面（启停开关乐观翻转/回滚 + 卸载二次确认弹框 + 诊断两层承载 + 「仅显式」单源化）（USER-01、USER-02、USER-06）
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -402,5 +402,5 @@ Plans:
 | 47. 内置技能播种 + bash 策略加固 | 6/6 | In Progress|  |
 | 48. 技能发现与调用 | 8/8 | In Progress|  |
 | 49. `manage_skill` 工具 | 8/8 | In Progress|  |
-| 50. 设置页技能管理区 + `/api/skills/*` | 3/5 | In Progress|  |
+| 50. 设置页技能管理区 + `/api/skills/*` | 4/5 | In Progress|  |
 | 51. 用户技能导入管线 | TBD | Not started | - |

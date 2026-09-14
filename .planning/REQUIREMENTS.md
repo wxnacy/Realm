@@ -53,7 +53,7 @@ Requirements for v2.6. Each maps to roadmap phases.
 - [ ] **USER-03**: 用户可通过上传 **zip 包**导入技能（单技能包语义；0 个或多个技能根 → 报错并提示）
 - [ ] **USER-04**: 用户可通过**网络地址**导入技能，自动分流 GitHub 仓库/目录地址 与 SKILL.md 直链
 - [ ] **USER-05**: 导入采用两阶段（预览 → 确认落盘），预览展示名称 / description 原文 / 目录树 / 字节数 / 脚本清单（标红）/ 威胁扫描结论
-- [ ] **USER-06**: 卸载仅允许 `source === 'user'` 的技能（手改 URL 不得删内置技能）
+- [x] **USER-06**: 卸载仅允许 `source === 'user'` 的技能（手改 URL 不得删内置技能）
 - [x] **USER-07**: 设置页经 `/api/skills/*` + token 访问（webview guest 无 realmAPI）；主窗口经 `realmAPI` IPC——同一后端权威、两个前端入口
 - [ ] **USER-08**: 导入失败给出真实原因（命中哪个限额 / 扫描结论 / 校验错误），不静默
 
@@ -145,7 +145,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | USER-03 | Phase 51 | Pending |
 | USER-04 | Phase 51 | Pending |
 | USER-05 | Phase 51 | Pending |
-| USER-06 | Phase 50 | Pending |
+| USER-06 | Phase 50 | Complete |
 | USER-07 | Phase 50 | Complete |
 | USER-08 | Phase 51 | Pending |
 | SEED-01 | Phase 47 | Complete |
