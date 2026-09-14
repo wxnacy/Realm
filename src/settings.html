@@ -538,9 +538,33 @@
           <p class="setting-description">禁用只过滤、不删除文件 —— 禁用后该技能不再进入提示词，也不再出现在 <code>/</code> 面板，重新启用即恢复；变更在下一条消息起生效，AI 正在回复时会延迟到本轮结束后应用。</p>
           <p class="setting-description">内置技能与 AI 创建的技能不可在此卸载（AI 创建的技能请让 AI 用 <code>manage_skill</code> 删除，内置技能只可禁用）</p>
           <p class="setting-description">体积与文件数为该技能目录的递归合计（含 <code>SKILL.md</code>，不含隐藏文件）。</p>
+          <!-- 模块级 errors[] 的顶部汇总条容器（D-11）。**默认无类、无内容** ⇒ 零高度、
+               不占位、无空态文案；有 errors 时由渲染端补上 .ai-skill-content-box.skill-manage-summary
+               并填充内容（默认展开）。0 条时保持现状即「整条不渲染」。 -->
+          <div id="skillManageSummary" class="skill-manage-summary"></div>
           <div id="skillManageState" class="skill-manage-state"></div>
           <div id="skillManageGroups" class="skill-manage-groups"></div>
           <p id="skillManageHint" class="skill-manage-hint"></p>
+
+          <!-- 卸载确认弹框（D-05 的二次确认）。外壳复用 .ai-modal-overlay + .ai-modal（既有类），
+               初始隐藏走 .ai-modal-overlay 的既有 display:none 规则 —— realm://settings 的 CSP
+               style-src 'self' 会拦掉 markup 内联 style（元素反而常驻可见）；打开/关闭一律用
+               JS 的 CSSOM 具体值。绝不把 .ai-modal-overlay 用到 <dialog> 元素上（会把盒子钉在左上角）。
+               已知边界（有理由，非静默省略）：不实现完整焦点陷阱（Tab 循环），与设置页既有的
+               2 个 .ai-modal-overlay 弹框同范式；引入焦点陷阱属跨页面新机制，须单独立项。 -->
+          <div id="skillManageConfirm" class="ai-modal-overlay">
+            <div class="ai-modal skill-manage-confirm">
+              <div class="ai-modal-header">
+                <h3 id="skillManageConfirmTitle"></h3>
+              </div>
+              <div id="skillManageConfirmBody" class="skill-manage-confirm-body"></div>
+              <div id="skillManageConfirmNote" class="skill-manage-confirm-note"></div>
+              <div class="skill-manage-confirm-actions">
+                <button type="button" class="btn btn-secondary btn-sm" id="skillManageConfirmCancel">取消</button>
+                <button type="button" class="btn btn-secondary btn-sm skill-manage-danger-btn" id="skillManageConfirmOk">卸载</button>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 

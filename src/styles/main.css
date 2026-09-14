@@ -10618,3 +10618,53 @@ textarea::placeholder {
 }
 .skill-manage-hint-success { color: var(--skill-success-text); }
 .skill-manage-hint-danger { color: var(--skill-error-text); }
+
+/* ---- 行内操作区（50-04-T2）---- */
+
+/* 操作区：诊断徽标在它左边、状态标注也在它左边（顺序由 DOM 决定，这里只管排布） */
+.skill-manage-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+/* 开关在途态：乐观翻转后置 disabled，用透明度 + 进度光标表达「请求在途」
+   （既有 .ai-switch 没有 disabled 规则，故本阶段补一条；不做全局遮罩、不做列表 loading 态） */
+.skill-manage-actions .ai-switch:disabled { opacity: 0.6; cursor: progress; }
+
+/* 开关的焦点环（作用域收敛：`.ai-switch` 另有一个宿主 —— provider 区的启用开关，
+   全局补焦点环会改动本阶段以外的面） */
+.skill-manage-section .ai-switch:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+
+/* 「仅显式」标记在本页宿主底下的对比度修复（作用域收敛 —— 与 ① 同款理由：
+   不改动 / 面板与 48/49 卡片的既有宿主）。
+   底数：宿主 .settings-group 的 --bg-secondary（不透明）+ 自身 rgba(127,127,127,0.16)
+   ⇒ 暗 #383838 / 亮 #e2e2e2；--text-secondary 实测 4.48 / 4.43 < 4.5（11px 小字）。
+   换 --text-primary 后 10.29 / 13.43；两套主题下**都是中性灰** ⇒ 仍满足 48 的
+   「中性色、不引入第 4 个色相」；几何值（font-size / padding / radius / 填充）一字未改。
+   面板侧不达标值的登记见 UI-SPEC Color 的表 D 与前置修复 ④。 */
+.skill-manage-section .slash-picker-tag-explicit { color: var(--text-primary); }
+
+/* 折叠块 header 文字色的作用域收敛覆盖：48/49 宿主与 / 面板零变化
+   （本页是第三处宿主；`.ai-skill-content-box*` 的既有规则本体一字不改） */
+.skill-manage-section .ai-skill-content-box-header:hover { color: var(--text-primary); }
+
+/* 危险按钮：中性底 + 危险**文字色**。**不使用 `.btn-danger`** —— 它的白字对
+   --danger-color 实测 3.76:1 < 4.5，不达标（UI-SPEC「危险语义的表达方式」）。
+   尺寸不另行声明：由既有 .btn + .btn-secondary + .btn-sm 提供（font-size 12px /
+   padding 4px 8px / height 28px）。本规则落在专属段内 ⇒ 与 .btn-secondary 同特异性、
+   靠**后出现**覆盖 color。 */
+.skill-manage-danger-btn { color: var(--skill-error-text); }
+
+/* 卸载确认弹框的内层修饰（外壳复用 .ai-modal-overlay / .ai-modal —— 后者自带
+   gap: 10px，承担「标题 → 正文 → 条件行 → 按钮排」的全部子元素间距） */
+.skill-manage-confirm { width: 420px; max-width: 94vw; }
+.skill-manage-confirm-body {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+.skill-manage-confirm-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--skill-limit-text);
+  word-break: break-word;
+}
+.skill-manage-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }

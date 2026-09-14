@@ -123,6 +123,71 @@ function phase50CssSection() {
   return raw.slice(start).replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
+/**
+ * 词法级剥注释（单引号 / 双引号 / 模板反引号字符串、正则字面量、行注释、块注释四态
+ * 逐字符扫描 + **等长空白化**）—— 与计划自带门禁的 `stripC` 逐字同款。
+ *
+ * **为什么要词法级而不是正则**：斜杠可能出现在字符串或正则字面量里（如 URL，或一个用于
+ * 匹配块注释起止的正则）；用正则一刀切会把真实代码吞掉，判据随之失真。等长空白化保证字符
+ * 偏移与原文一致，切片断言才有意义。
+ *
+ * @param {string} x - 源码
+ * @returns {string} 与入参**等长**、注释被空白化的源码
+ */
+function stripCodeComments(x) {
+  let o = '';
+  let i = 0;
+  let s = 0;
+  let p = '';
+  const N = x.length;
+  while (i !== N) {
+    const c = x[i];
+    const d = x[i + 1];
+    if (s === 1) { o += c === '\n' ? '\n' : ' '; if (c === '\n') s = 0; i++; continue; }
+    if (s === 2) {
+      if (c === '*' && d === '/') { o += '  '; i += 2; s = 0; continue; }
+      o += c === '\n' ? '\n' : ' '; i++; continue;
+    }
+    if (s === 3 || s === 4 || s === 5) {
+      if (c === '\\') { o += c + (d === undefined ? '' : d); i += d === undefined ? 1 : 2; continue; }
+      o += c;
+      if ((s === 3 && c === "'") || (s === 4 && c === '"') || (s === 5 && c === '`')) s = 0;
+      i++;
+      continue;
+    }
+    if (s === 6) {
+      if (c === '\\') { o += c + (d === undefined ? '' : d); i += d === undefined ? 1 : 2; continue; }
+      o += c;
+      if (c === '/') s = 0;
+      i++;
+      continue;
+    }
+    if (c === '/' && d === '/') { o += '  '; i += 2; s = 1; continue; }
+    if (c === '/' && d === '*') { o += '  '; i += 2; s = 2; continue; }
+    if (c === "'") { o += c; s = 3; i++; p = c; continue; }
+    if (c === '"') { o += c; s = 4; i++; p = c; continue; }
+    if (c === '`') { o += c; s = 5; i++; p = c; continue; }
+    if (c === '/' && (p === '' || '[=(,;:![{&|?+-*%~^'.indexOf(p) !== -1)) {
+      o += c; s = 6; i++; p = c; continue;
+    }
+    o += c;
+    if (c.trim()) p = c;
+    i++;
+  }
+  return o;
+}
+
+/** Phase 50 技能管理区（`src/settings-page.js`，**已剥注释**）—— 本阶段前端新增代码的边界 */
+function skillManageRegion() {
+  const raw = readSource('src/settings-page.js');
+  const S = '/* Phase 50 skill-manage region: start */';
+  const E = '/* Phase 50 skill-manage region: end */';
+  const a = raw.indexOf(S);
+  const b = raw.indexOf(E);
+  assert.ok(a >= 0 && b > a, '技能管理区 region 标记必须齐备（本阶段前端代码的边界）');
+  return stripCodeComments(raw.slice(a, b + E.length));
+}
+
 /** 在管理投影的三档分组里按名字查条目（渲染层的消费方式：只 forEach、不重排） */
 function findItem(projection, name) {
   for (const g of projection.groups) {
@@ -922,3 +987,150 @@ describe('服务端拒绝不经 handler：拒绝码必须取自闭合白名单�
   });
 });
 
+
+// ==================== 设置页交互面（50-04-T2 的判据） ====================
+//
+// `realm://` guest 的 DOM 不能在纯 Node 下驱动（无 electron / 无 HTTP 端点测试基建），
+// 故本组全部是**源码级扫描**。为不被「一条如实写明的注释」假绿，扫描前一律先经
+// `stripCodeComments()` 词法级剥注释（与计划自带门禁逐字同款 —— 测试与门禁必须测量同一个量）。
+
+describe('设置页交互面：注入纪律 / hint 复位 / 失败文案 / 危险按钮 / 位置保持', () => {
+  test('注入纪律：region 内零 innerHTML / insertAdjacentHTML，且 DOM 构建命题为真', () => {
+    const r = skillManageRegion();
+    assert.strictEqual(
+      /\binnerHTML\b|insertAdjacentHTML/.test(r),
+      false,
+      'region 内不得出现 innerHTML / insertAdjacentHTML（TD-48-01 仍开未修 ⇒ 本阶段不扩大缺口）'
+    );
+    // 正命题（WR-12 的教训）：只断言「没有别的」会退化成否命题空集真
+    assert.ok(r.includes('document.createElement('), 'region 内必须有 DOM 构建（正命题）');
+    assert.ok(r.includes('textContent'), 'region 内必须有 textContent 注入（正命题）');
+  });
+
+  test('反馈通道锁定：region 内不得调用 showToast（D-06 = inline hint）', () => {
+    const r = skillManageRegion();
+    assert.strictEqual(/\bshowToast\(/.test(r), false, '本区反馈面是 inline hint，不是全页 toast');
+  });
+
+  test('hint 复位纪律：clearTimeout 必须先于 setTimeout（陈旧复位不得清掉新消息）', () => {
+    const r = skillManageRegion();
+    const start = r.indexOf('function setSkillManageHint(');
+    assert.ok(start >= 0, '必须存在 setSkillManageHint');
+    const body = r.slice(start, start + 1600);
+    const ci = body.indexOf('clearTimeout(');
+    const si = body.indexOf('setTimeout(');
+    assert.ok(ci >= 0, 'setSkillManageHint 体内必须 clearTimeout 上一次的定时器');
+    assert.ok(si >= 0, 'setSkillManageHint 体内必须有 2 秒复位定时器');
+    assert.ok(ci < si, 'clearTimeout 必须出现在 setTimeout **之前**（否则定时器永远不被清）');
+    // 文本与色调一并设置（不允许「只改文字不改色」⇒ 绿色文案说失败）
+    assert.ok(body.includes('textContent'), 'hint 必须先设置文本');
+    assert.ok(body.includes('classList.remove('), 'hint 必须先清除旧色调');
+    assert.ok(/style\.display\s*=/.test(body), '空文本必须用 CSSOM 置 display（不走 markup 内联 style）');
+    assert.strictEqual(
+      /style\.display\s*=\s*''/.test(body),
+      false,
+      "不得用 '' 回落到 markup 状态（CSP 下 markup 初始态不可靠）"
+    );
+  });
+
+  test('失败文案：闭合白名单四键齐备，且不解析后端 message', () => {
+    const r = skillManageRegion();
+    for (const code of ['not_found', 'not_user_owned', 'invalid_name', 'BODY_TOO_LARGE']) {
+      assert.ok(r.includes(code), `失败文案白名单缺 ${code}`);
+    }
+    assert.strictEqual(
+      /JSON\.parse\(\s*err\.message|err\.message\.match\(/.test(r),
+      false,
+      '前端只按 code 查表，不得解析 message（message 可能含被拒内容）'
+    );
+    assert.ok(
+      r.includes('操作失败，请重试') || r.includes('操作失败：'),
+      '表外 code 必须有兜底文案（不得回落 undefined 字面量）'
+    );
+  });
+
+  test('危险语义用文字色承担：region 内零 .btn-danger', () => {
+    const r = skillManageRegion();
+    assert.strictEqual(
+      /\bbtn-danger\b/.test(r),
+      false,
+      '.btn-danger 的白字对 --danger-color 实测 3.76:1 不达标 ⇒ 改用 .skill-manage-danger-btn'
+    );
+    assert.ok(r.includes('skill-manage-danger-btn'), '必须使用本阶段的危险按钮类（正命题）');
+  });
+
+  test('启停开关四态齐备：乐观翻转 → 在途 → 成功用响应体重渲染 / 失败回滚', () => {
+    const r = skillManageRegion();
+    const start = r.indexOf('async function toggleSkillDisabled(');
+    assert.ok(start >= 0, '必须存在 toggleSkillDisabled');
+    const body = r.slice(start, r.indexOf('\n}', start));
+    assert.ok(body, 'toggleSkillDisabled 函数体必须可定位（否则下面的顺序判据窗口失效）');
+    const flip = body.indexOf("classList.toggle('on'");
+    const req = body.indexOf('await skillsApi(');
+    assert.ok(flip >= 0 && req >= 0, '翻转与请求都必须在函数体内');
+    assert.ok(flip < req, '乐观翻转必须发生在请求**之前**（即改即存的观感）');
+    assert.ok(/sw\.disabled\s*=\s*true/.test(body), '在途态必须置 disabled');
+    assert.ok(/aria-checked/.test(body), '必须同步 aria-checked（与 .on 双写）');
+    // 成功：用响应体回传的最新投影就地重渲染（**零二次请求**）
+    assert.ok(body.includes('renderSkillManagement(projection)'), '成功必须用响应体投影就地重渲染');
+    assert.ok(
+      /setSkillManageHint\([^)]*'success'\)/.test(body),
+      '成功必须给 success 色调的 hint'
+    );
+    // 失败：回滚 .on / aria-checked + 解除 disabled + danger hint
+    assert.ok(/setSkillManageHint\(skillManageErrorText\(err\)\s*,\s*'danger'\)/.test(body), '失败必须走 code 查表 + danger 色调');
+    assert.ok(/sw\.disabled\s*=\s*false/.test(body), '失败必须解除在途态');
+    // `not_found` 例外：额外重拉一次让该行自然消失
+    assert.ok(/code\s*===\s*'not_found'/.test(body), 'not_found 必须额外触发一次列表重拉');
+  });
+
+  test('卸载：仅 tier === \'user\' 渲染按钮；确认链路与失败语义齐备', () => {
+    const r = skillManageRegion();
+    assert.ok(
+      /if\s*\(item\.tier\s*===\s*'user'\)/.test(r),
+      "卸载按钮必须受 `item.tier === 'user'` 条件约束（builtin / managed 不渲染）"
+    );
+    const start = r.indexOf('async function confirmSkillUninstall(');
+    assert.ok(start >= 0, '必须存在 confirmSkillUninstall');
+    const body = r.slice(start, r.indexOf('\n}', start));
+    assert.ok(body, 'confirmSkillUninstall 函数体必须可定位');
+    // 确认中：按钮置 disabled，弹框**保持打开**直到响应到达（关闭语句必须在 await 之后）
+    const awaitIdx = body.indexOf('await skillsApi(');
+    const disableIdx = body.indexOf('.disabled = true');
+    assert.ok(disableIdx >= 0 && awaitIdx > disableIdx, '确认按钮必须在发请求前置 disabled');
+    // 成功：用 result.management 重渲染
+    assert.ok(body.includes('result.management'), '成功必须用响应体的 management 投影重渲染');
+    assert.ok(
+      /setSkillManageHint\(`已卸载/.test(body) || /已卸载「/.test(body),
+      '成功必须给「已卸载」的成功 hint'
+    );
+  });
+
+  test('位置保持：重渲染前后回写 scrollTop，并按 data-skill-name 归还焦点', () => {
+    const r = skillManageRegion();
+    assert.ok(/scrollTop/.test(r), '必须回写滚动位置（重渲染会重建整棵行 DOM）');
+    assert.ok(/dataset\.skillName/.test(r), '必须按 data-skill-name 定位同一技能行');
+    assert.ok(/\.focus\(\)/.test(r), '必须把焦点归还到同一技能行的开关');
+    assert.strictEqual(
+      /querySelector\('\.skill-manage-row\[data-skill-name/.test(r),
+      false,
+      '不得把技能名拼进属性选择器（技能名可含引号 ⇒ 既是转义负担又是不必要的拼装）'
+    );
+  });
+
+  test('弹框 CSP 纪律：设置页新增弹框块内零 markup 内联 style', () => {
+    const html = readSource('src/settings.html');
+    const start = html.indexOf('id="skillManageConfirm"');
+    assert.ok(start >= 0, '卸载确认弹框必须存在于 settings.html');
+    const end = html.indexOf('</section>', start);
+    assert.ok(end > start, '弹框必须落在技能管理区所在的 section 内（窗口定位前提）');
+    const block = html.slice(start, end);
+    assert.ok(block.includes('id="skillManageConfirmOk"'), '窗口必须覆盖到确认按钮（正命题：窗口没取错）');
+    assert.strictEqual(
+      /\sstyle\s*=/.test(block),
+      false,
+      '初始隐藏必须走 .ai-modal-overlay 的 CSS 类规则 —— markup 内联 style 会被 realm:// 的 CSP 静默拦掉'
+    );
+    assert.ok(/class="ai-modal-overlay"/.test(block), '弹框外壳必须复用既有 .ai-modal-overlay（零新遮罩实现）');
+  });
+});

@@ -4809,18 +4809,39 @@ const SKILL_MANAGE_GROUP_TITLE = Object.freeze({
   managed: 'AI 创建',
 });
 
-/**
- * 「仅显式」标记的可见文字 —— **待 50-04 提升为 src/skill-picker-model.js 的单源**。
- *
- * 今日的第二份拷贝在 `src/renderer.js` 的面板渲染函数里（`/` 面板行）。UI-SPEC 的
- * 「硬前置条件」明文要求把它与它的 title 一并提升为单源冻结表、并**同时改写
- * `tests/test-skill-picker-model.js` 的三条既有断言**（其中一条 `modelSrc.includes('仅显式') === false`
- * 会被新设计直接证伪）—— 那是一整批改动，归 50-04；本计划先落地渲染面。
+/*
+ * 「仅显式」标记的 label 与 title 的**唯一权威**是 `src/skill-picker-model.js` 的
+ * `EXPLICIT_TAG`（Phase 50 硬前置条件：本页与 `/` 面板两个宿主共用同一份表）。
+ * 本页**不得**再写一份字面量 —— 48 / 49 反复付过「第二份拷贝」的代价
+ * （`49-UI-REVIEW` 的 `W1-04`）。消费形态一律 `window.SkillPickerModel.EXPLICIT_TAG`。
  */
-const SKILL_MANAGE_EXPLICIT_TAG = '仅显式';
 
-/** 同上（title 侧）；50-04 一并提升 */
-const SKILL_MANAGE_EXPLICIT_TITLE = '该技能不进模型提示词，只能手动调用（/skill:名字）';
+/* ---- 本区模块级状态（三处，各自单一职责，互不复用） ---- */
+
+/** inline hint 的 2 秒复位定时器（**模块级**：陈旧复位不得清掉新消息，T-50-26） */
+let skillManageHintTimer = null;
+
+/** 最近一次渲染的管理投影（供弹框做**纯数据查找**的条件行判定；不跨页持久化） */
+let skillManageProjection = null;
+
+/** 弹框当前的目标（`{name, triggerBtn}`；`null` 表示弹框未打开） */
+let skillManageUninstallTarget = null;
+
+/**
+ * 管理面失败文案的**闭合白名单**（UI-SPEC 的失败文案映射表）—— 前端**只按 `code` 查表、
+ * 不解析 `message`**（与 49 的 `manage_skill` 卡片同款纪律）。
+ *
+ * 本表是**单消费者新文案**（今日只有设置页读它）；一旦出现第二个消费者，必须提升到
+ * `src/skill-picker-model.js` —— 否则就是 48/49 打击过的「第二份拷贝」。
+ *
+ * 表外 / 缺失 / `unknown` 一律走兜底（见 `skillManageErrorText`），**不回落 `undefined` 字面量**。
+ */
+const SKILL_MANAGE_ERROR_TEXT = Object.freeze({
+  not_found: '技能已不存在，列表已刷新',
+  not_user_owned: '该技能不是你的技能，无法在此卸载（内置技能只可禁用，AI 创建的技能请让 AI 用 manage_skill 删除）',
+  invalid_name: '技能名不合法，无法操作',
+  BODY_TOO_LARGE: '请求体超过上限，操作未执行',
+});
 
 /**
  * 调用技能管理 HTTP API（`/api/skills/*`，设置页「技能管理」区数据层）
@@ -4951,16 +4972,18 @@ function buildSkillManageRow(item) {
     main.appendChild(badgeEl);
   }
 
-  // 「仅显式」标记：条件由 disableModelInvocation 唯一决定（与 / 面板同款语义）
+  // 「仅显式」标记：条件由 disableModelInvocation 唯一决定（与 / 面板同款语义）；
+  // label / title 取 `SkillPickerModel.EXPLICIT_TAG`（跨进程单源，本页零第二份字面量）
   if (item.disableModelInvocation === true) {
     const tagEl = document.createElement('span');
     tagEl.className = 'slash-picker-tag-explicit';
-    tagEl.textContent = SKILL_MANAGE_EXPLICIT_TAG;
-    tagEl.title = SKILL_MANAGE_EXPLICIT_TITLE;
+    tagEl.textContent = window.SkillPickerModel.EXPLICIT_TAG.label;
+    tagEl.title = window.SkillPickerModel.EXPLICIT_TAG.title;
     main.appendChild(tagEl);
   }
 
-  // 右对齐簇：本计划**只放**行尾状态标注（诊断徽标 / 开关 / 卸载按钮归 50-04）
+  // 右对齐簇：`[诊断徽标] → 状态标注 → 操作区`（第一行元素顺序是契约）。
+  // 诊断徽标（条件渲染）归 50-04-T3；本任务落操作区。
   const tail = document.createElement('div');
   tail.className = 'skill-manage-tail';
 
@@ -4976,6 +4999,15 @@ function buildSkillManageRow(item) {
     statusEl.textContent = window.SkillPickerModel.STATUS_TEXT[statusKey] || '';
     tail.appendChild(statusEl);
   }
+
+  // 操作区：启停开关（**所有行**都可启停）+ 卸载按钮（**仅** tier === 'user' 渲染）。
+  // builtin / managed 行不渲染卸载按钮（不给「点了才知道不行」的挫败），限制说明由区说明 ② 承担。
+  const actions = document.createElement('div');
+  actions.className = 'skill-manage-actions';
+  actions.appendChild(createSkillSwitch(item));
+  if (item.tier === 'user') actions.appendChild(createSkillUninstallButton(item));
+  tail.appendChild(actions);
+
   main.appendChild(tail);
   li.appendChild(main);
 
@@ -4999,6 +5031,243 @@ function buildSkillManageRow(item) {
 
   li.appendChild(sub);
   return li;
+}
+
+/**
+ * 取失败 hint 文案（闭合白名单查表；**不解析 `message`**）
+ *
+ * 表外 / 缺失 / `unknown` 一律走兜底：兜底承载后端 `error` 原文（长度不可控 ⇒ hint 允许换行、不截断），
+ * 连原文都取不到时给一句可重试的中性文案。**绝不回落 `undefined` 字面量**。
+ *
+ * @param {Error|null} err - `skillsApi` 抛出的错误（`code` 由 50-02/50-03 的 `{error, code}` 形状回传）
+ * @returns {string}
+ */
+function skillManageErrorText(err) {
+  const code = err && typeof err.code === 'string' ? err.code : '';
+  if (Object.prototype.hasOwnProperty.call(SKILL_MANAGE_ERROR_TEXT, code)) {
+    return SKILL_MANAGE_ERROR_TEXT[code];
+  }
+  const detail = err && err.message ? err.message : '';
+  return detail ? `操作失败：${detail}` : '操作失败，请重试';
+}
+
+/**
+ * 设置本区 inline hint 的**文案与色调**（D-06）
+ *
+ * 三条纪律：
+ * 1. **文本与色调一并设置** —— 不允许「只改文字不改色」的路径，否则会出现绿色文案说失败。
+ * 2. **每次设置前先 `clearTimeout` 上一次的复位定时器** —— 连续操作（快速连点两个开关）时，
+ *    陈旧的 2 秒复位**不得**清掉后写入的新消息（T-50-26 的加固）。
+ * 3. 空文本用 **CSSOM** 置 `display: 'none'`（有文本置 `'block'`）：既不留 8px 残留外边距，
+ *    也不走 markup 内联 style（`realm://` 的 CSP `style-src 'self'` 会拦），更不用 `''` 回落。
+ *
+ * @param {string} text - hint 文案（空串表示清空）
+ * @param {''|'success'|'danger'} [tone] - 色调（默认中性，用于「正在加载…」一类）
+ */
+function setSkillManageHint(text, tone = '') {
+  const hintEl = document.getElementById('skillManageHint');
+  if (!hintEl) return;
+  clearTimeout(skillManageHintTimer);
+  hintEl.textContent = text;
+  hintEl.classList.remove('skill-manage-hint-success', 'skill-manage-hint-danger');
+  if (tone === 'success') hintEl.classList.add('skill-manage-hint-success');
+  if (tone === 'danger') hintEl.classList.add('skill-manage-hint-danger');
+  hintEl.style.display = text ? 'block' : 'none';
+  skillManageHintTimer = setTimeout(() => {
+    hintEl.textContent = '';
+    hintEl.style.display = 'none';
+  }, 2000);
+}
+
+/** 复位本区 hint（2 秒无条件复位的显式入口；同样先清旧定时器） */
+function resetSkillManageHint() {
+  setSkillManageHint('');
+}
+
+/**
+ * 构造启停开关（`button.ai-switch`，**既有类零改动** + a11y 属性）
+ *
+ * 语义：`aria-checked === 'true'` ⇔ 技能**启用**（未在 `settings.aiSkills.disabled` 名单里）。
+ * 逐行 `aria-label` 随当前状态给「禁用技能『{name}』」/「启用技能『{name}』」。
+ *
+ * @param {object} item - 管理投影条目（含 `name` / `disabled`）
+ * @returns {HTMLButtonElement}
+ */
+function createSkillSwitch(item) {
+  const sw = document.createElement('button');
+  sw.type = 'button';
+  sw.className = 'ai-switch';
+  const enabled = item.disabled !== true;
+  if (enabled) sw.classList.add('on');
+  sw.setAttribute('role', 'switch');
+  sw.setAttribute('aria-checked', enabled ? 'true' : 'false');
+  sw.setAttribute('aria-label', enabled ? `禁用技能「${item.name}」` : `启用技能「${item.name}」`);
+  sw.addEventListener('click', () => {
+    toggleSkillDisabled(item.name, sw);
+  });
+  return sw;
+}
+
+/**
+ * 切换一个技能的启用状态（D-05 即改即存 + D-06 失败回滚）
+ *
+ * 链路：**乐观翻转**（立即改 `.on` / `aria-checked` + 置 `disabled`，不发二次确认）
+ * → 增量载荷 `{name, disabled}` → 成功用**响应体回传的最新投影**就地重渲染（**零二次请求**）
+ * + hint(success)；失败 ⇒ 回滚两个状态、解除在途、hint(danger) 按 `code` 查表，
+ * **列表不因失败改变**（`not_found` 例外：额外重拉一次让该行自然消失）。
+ *
+ * @param {string} name - 技能名
+ * @param {HTMLButtonElement} sw - 被点击的开关（在途态与回滚的载体）
+ */
+async function toggleSkillDisabled(name, sw) {
+  const wasOn = sw.classList.contains('on');
+  const targetDisabled = wasOn;
+  // 乐观翻转：立即给「即改即存」的观感（在途态样式由 .skill-manage-actions .ai-switch:disabled 承担）
+  sw.classList.toggle('on', !wasOn);
+  sw.setAttribute('aria-checked', wasOn ? 'false' : 'true');
+  sw.disabled = true;
+  try {
+    const projection = await skillsApi('set-disabled', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, disabled: targetDisabled }),
+    });
+    renderSkillManagement(projection);
+    setSkillManageHint(targetDisabled ? `已禁用「${name}」` : `已启用「${name}」`, 'success');
+  } catch (err) {
+    console.error('[Realm] 切换技能启用状态失败:', err && err.message ? err.message : err);
+    sw.classList.toggle('on', wasOn);
+    sw.setAttribute('aria-checked', wasOn ? 'true' : 'false');
+    sw.disabled = false;
+    setSkillManageHint(skillManageErrorText(err), 'danger');
+    if (err && err.code === 'not_found') {
+      await loadSkillManagement();
+    }
+  }
+}
+
+/**
+ * 构造行内卸载按钮（**仅** `tier === 'user'` 的行调用本函数）
+ *
+ * 文案是**单动词 `卸载`** —— UI-SPEC「破坏性 CTA 的用词纪律」的成文取舍（宽度预算 +
+ * 上下文已由分组与来源徽标消歧），不得改成「卸载技能」。
+ * 危险语义由 `.skill-manage-danger-btn` 的**文字色**承担（不使用 `.btn-danger`：其白字对
+ * `--danger-color` 实测 3.76:1 不达标）。
+ *
+ * @param {object} item - 管理投影条目
+ * @returns {HTMLButtonElement}
+ */
+function createSkillUninstallButton(item) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn-secondary btn-sm skill-manage-danger-btn';
+  btn.textContent = '卸载';
+  btn.addEventListener('click', () => {
+    openSkillUninstallConfirm(item.name, btn);
+  });
+  return btn;
+}
+
+/**
+ * 「同名内置 / 托管技能将在删除后重新可见」条件追加行的判定
+ *
+ * **纯数据查找**（不重判任何优先级 / 遮蔽）：最近一次投影里存在 `tier !== 'user'` 且
+ * `shadowed === true` 且 `shadowedBy === 该技能名` 的条目 ⇒ 渲染该行；**查找不到即不渲染**（宁缺勿猜）。
+ *
+ * 这是「同名技能将重新可见」的**唯一**提示面：50-02 已裁决不在卸载响应里回传 `shadowNotice`
+ * 一类字段（提示必须在**删除前**给出；删完再提示是事后告示，且该字段无第二个消费者）。
+ *
+ * @param {string} name - 待卸载的技能名
+ * @returns {boolean}
+ */
+function skillHasShadowedTwin(name) {
+  const projection = skillManageProjection;
+  if (!projection || !Array.isArray(projection.groups) || !name) return false;
+  for (const group of projection.groups) {
+    const items = Array.isArray(group.items) ? group.items : [];
+    for (const it of items) {
+      if (it.tier !== 'user' && it.shadowed === true && it.shadowedBy === name) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 打开卸载确认弹框（D-05 的二次确认）
+ *
+ * 初始隐藏走 `.ai-modal-overlay` 的**既有 CSS 类规则**（markup 内联 style 会被 CSP 拦），
+ * 显隐一律用 CSSOM 的具体值（`'flex'` / `'none'`，不用 `''` 回落）。
+ * 初始焦点落在**「取消」**（默认焦点 = 安全选项）。
+ *
+ * @param {string} name - 待卸载技能名
+ * @param {HTMLButtonElement} triggerBtn - 触发的行内卸载按钮（关闭后焦点归还给它）
+ */
+function openSkillUninstallConfirm(name, triggerBtn) {
+  const overlay = document.getElementById('skillManageConfirm');
+  const titleEl = document.getElementById('skillManageConfirmTitle');
+  const bodyEl = document.getElementById('skillManageConfirmBody');
+  const noteEl = document.getElementById('skillManageConfirmNote');
+  const okBtn = document.getElementById('skillManageConfirmOk');
+  const cancelBtn = document.getElementById('skillManageConfirmCancel');
+  if (!overlay || !titleEl || !bodyEl || !noteEl || !okBtn || !cancelBtn) return;
+
+  skillManageUninstallTarget = { name, triggerBtn };
+  titleEl.textContent = `卸载技能「${name}」？`;
+  // 目录路径是**文本节点**（不是 HTML 拼接）
+  bodyEl.textContent = `将删除 skills/${name}/ 整个目录（含其中的脚本与引用文件），此操作无法恢复。`;
+  const showNote = skillHasShadowedTwin(name);
+  noteEl.textContent = showNote ? '同名内置 / 托管技能将在删除后重新可见。' : '';
+  noteEl.style.display = showNote ? 'block' : 'none';
+  okBtn.disabled = false;
+  overlay.style.display = 'flex';
+  cancelBtn.focus();
+}
+
+/**
+ * 关闭卸载确认弹框
+ *
+ * @param {{restoreFocus?: boolean}} [options] - `restoreFocus: false` 时不归还焦点
+ */
+function closeSkillUninstallConfirm(options = {}) {
+  const overlay = document.getElementById('skillManageConfirm');
+  const target = skillManageUninstallTarget;
+  skillManageUninstallTarget = null;
+  if (overlay) overlay.style.display = 'none';
+  // 焦点归还触发行内的卸载按钮；**该行已不存在则不移动**（卸载成功后行已被重渲染移除）
+  if (options.restoreFocus !== false && target && target.triggerBtn && target.triggerBtn.isConnected) {
+    target.triggerBtn.focus();
+  }
+}
+
+/**
+ * 确认卸载（失败 ⇒ 关闭弹框 + hint(danger)，**不再**改变行内任何状态）
+ *
+ * 确认后确认按钮置 `disabled`，弹框**保持打开**直到响应到达。
+ * 成功：关闭弹框 → 用响应体投影（`{...result, management}`）重渲染 → hint(success)。
+ */
+async function confirmSkillUninstall() {
+  const target = skillManageUninstallTarget;
+  if (!target) return;
+  const { name } = target;
+  const okBtn = document.getElementById('skillManageConfirmOk');
+  if (okBtn) okBtn.disabled = true;
+  try {
+    const result = await skillsApi('uninstall', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    closeSkillUninstallConfirm();
+    if (result && result.management) renderSkillManagement(result.management);
+    setSkillManageHint(`已卸载「${name}」`, 'success');
+  } catch (err) {
+    console.error('[Realm] 卸载技能失败:', err && err.message ? err.message : err);
+    closeSkillUninstallConfirm();
+    setSkillManageHint(skillManageErrorText(err), 'danger');
+    if (err && err.code === 'not_found') {
+      await loadSkillManagement();
+    }
+  }
 }
 
 /**
@@ -5083,6 +5352,11 @@ function renderSkillManageFailure(err) {
 
 /**
  * 渲染整区（**零 HTML 字符串模板**：全树 createElement + textContent）
+ *
+ * **一次操作只影响一行的可见承诺**：重渲染会重建整棵行 DOM ⇒ 本函数在重建前后
+ * 记录并回写 `.settings-content.scrollTop`，并按 `data-skill-name` 把焦点归还到
+ * **同一技能行**的开关（找不到则**不移动**焦点；被删行已不存在 ⇒ 自然不移动）。
+ *
  * @param {object} projection - `GET /api/skills/list` 的响应（管理面投影）
  */
 function renderSkillManagement(projection) {
@@ -5090,8 +5364,17 @@ function renderSkillManagement(projection) {
   const total = groups.reduce((sum, g) => sum + (Array.isArray(g.items) ? g.items.length : 0), 0);
   const refreshedAt = projection && typeof projection.refreshedAt === 'number' ? projection.refreshedAt : 0;
 
+  // 最近一次投影：弹框的条件行判定据此做**纯数据查找**（不重判优先级 / 遮蔽）
+  skillManageProjection = projection || null;
+
+  const scroller = document.querySelector('.settings-content');
+  const prevScrollTop = scroller ? scroller.scrollTop : 0;
+  const prevRow = focusedSkillRowName();
+  const prevWasSwitch = isFocusedSkillSwitch();
+
   if (total === 0) {
     renderSkillManageEmptyState(refreshedAt);
+    restoreSkillManageViewport(scroller, prevScrollTop);
     return;
   }
 
@@ -5103,6 +5386,46 @@ function renderSkillManagement(projection) {
 
   for (const group of groups) {
     groupsEl.appendChild(buildSkillManageGroup(group));
+  }
+
+  restoreSkillManageViewport(scroller, prevScrollTop);
+  restoreSkillManageFocus(prevRow, prevWasSwitch);
+}
+
+/** 当前焦点所在的技能行名（不在技能行内则为空串） */
+function focusedSkillRowName() {
+  const active = document.activeElement;
+  if (!active || typeof active.closest !== 'function') return '';
+  const row = active.closest('.skill-manage-row');
+  return row && row.dataset ? row.dataset.skillName || '' : '';
+}
+
+/** 当前焦点是否落在某个启停开关上（只有这种情形才需要归还焦点） */
+function isFocusedSkillSwitch() {
+  const active = document.activeElement;
+  return !!(active && active.classList && active.classList.contains('ai-switch'));
+}
+
+/** 回写滚动位置（重渲染重建整棵树 ⇒ 不回写会让用户的滚动位置被重置） */
+function restoreSkillManageViewport(scroller, prevScrollTop) {
+  if (scroller) scroller.scrollTop = prevScrollTop;
+}
+
+/**
+ * 按 `data-skill-name` 把焦点归还到同一技能行的开关
+ *
+ * 用**遍历比对**而不是属性选择器：技能名可能含引号 / 反斜杠等字符，
+ * 拼进选择器既需要转义又是一条注入面（TD-48-01 未修时的纪律：不引入新的字符串拼装）。
+ */
+function restoreSkillManageFocus(name, wasSwitch) {
+  if (!wasSwitch || !name) return;
+  const groupsEl = document.getElementById('skillManageGroups');
+  if (!groupsEl) return;
+  for (const row of groupsEl.querySelectorAll('.skill-manage-row')) {
+    if (row.dataset.skillName !== name) continue;
+    const sw = row.querySelector('.ai-switch');
+    if (sw && typeof sw.focus === 'function') sw.focus();
+    return;
   }
 }
 
@@ -5117,12 +5440,35 @@ async function loadSkillManagement() {
   }
 }
 
-/** 绑定本区监听，并**进入页面即拉一次**（设置页收不到主进程广播，见上方说明） */
+/**
+ * 绑定本区监听，并**进入页面即拉一次**（设置页收不到主进程广播，见上方说明）
+ *
+ * 弹框的键盘契约：`Esc` 关闭；打开时初始焦点在「取消」（安全选项）；关闭后焦点归还
+ * 触发行内的卸载按钮。**不实现完整焦点陷阱**（Tab 循环）—— 与设置页既有的 2 个
+ * `.ai-modal-overlay` 弹框同范式，这是**有理由的边界**，不是静默省略。
+ */
 function setupSkillManageListeners() {
   const hintEl = document.getElementById('skillManageHint');
   // 空文本的 hint 用 CSSOM 隐藏（不留 8px 残留外边距）。**不走 markup 内联 style**
   //（realm:// 的 CSP style-src 'self' 会拦），也不用 '' 回落到 markup 状态。
   if (hintEl) hintEl.style.display = 'none';
+
+  const overlay = document.getElementById('skillManageConfirm');
+  const cancelBtn = document.getElementById('skillManageConfirmCancel');
+  const okBtn = document.getElementById('skillManageConfirmOk');
+  if (overlay) {
+    // 点遮罩关闭（与既有 aiAddDialog / aiFetchDialog 同款）
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) closeSkillUninstallConfirm();
+    });
+    // Esc 关闭：焦点在弹框内时 keydown 冒泡到这里（无需全局监听器）
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeSkillUninstallConfirm();
+    });
+  }
+  if (cancelBtn) cancelBtn.addEventListener('click', () => closeSkillUninstallConfirm());
+  if (okBtn) okBtn.addEventListener('click', () => { confirmSkillUninstall(); });
+
   loadSkillManagement();
 }
 /* Phase 50 skill-manage region: end */
