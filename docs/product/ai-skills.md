@@ -95,12 +95,14 @@
 
 ## 七、测试与验证
 
-- 单元测试：`node tests/test-ai-skills.js`（**178 例，实测**）—— 加载管线 / 诊断 / 限额 / 启停 / prompt 注入 / Agent 回写 / P8 机制断言；覆盖已扩到**显式调用解析与实时读盘 / 面板投影收窄 / 三档 tier / `promptOmitted` / `read` 卡片标记 / 重载装饰 / 运行期新增技能的调用瞬间重扫 + 当场读盘（G-48-12） / 延迟补刷在纯文本流的成功出口落地（G-48-18） / 重扫或重试读盘抛错沿用原判定（G-48-19） / `manage_skill` 卡片标记的两时点与终态元数据通道（M 组） / `manage_skill` 的刷新链时序与次数账（L 组） / 失败态原因码的词缀与重载还原 / 三态 `promptIncluded` 的消费侧 / a11y 增量的条件施加（M9b：三条属性与 `keydown` 落在守卫内 + 卡片调用点传 `false` + 气泡调用点原样 + 单源未破）**
+- 单元测试：`node tests/test-ai-skills.js`（**187 例，实测**）—— 加载管线 / 诊断 / 限额 / 启停 / prompt 注入 / Agent 回写 / P8 机制断言；覆盖已扩到**显式调用解析与实时读盘 / 面板投影收窄 / 三档 tier / `promptOmitted` / `read` 卡片标记 / 重载装饰 / 运行期新增技能的调用瞬间重扫 + 当场读盘（G-48-12） / 延迟补刷在纯文本流的成功出口落地（G-48-18） / 重扫或重试读盘抛错沿用原判定（G-48-19） / `manage_skill` 卡片标记的两时点与终态元数据通道（M 组） / `manage_skill` 的刷新链时序与次数账（L 组） / 失败态原因码的词缀与重载还原 / 三态 `promptIncluded` 的消费侧 / a11y 增量的条件施加（M9b：三条属性与 `keydown` 落在守卫内 + 卡片调用点传 `false` + 气泡调用点原样 + 单源未破）**
 - 自建技能域：`node tests/test-manage-skill.js`（**55 例，实测**）—— `manage_skill` 三动作（create / update / delete）/ 校验器值域（name 四判据、description 与正文上限，含 description 值域与写↔读闸口边界：`: ` / `#` / 裸标量 / 纯零宽）/ 四类撞名与 seeded 三入口保护 / 原子写与失败清理 / 字段分离扫描（description 两组、content 一组）/ 扫描-净化顺序 / 数量闸 / 幽灵技能与越界护栏
 - 面板纯逻辑：`node --test tests/test-skill-picker-model.js`（解析与 args 取值 / 过滤两档 / 展平与可选中性 / 导航取模 / 三条接线扫描）
 - 取消归属与用户气泡时序：`node --test tests/test-ai-cancel-state.js`（取消归属判定与用户气泡时序的纯逻辑用例 + renderer 接线护栏）
 - 内置技能播种：`node tests/test-builtin-skills-seeder.js`（随包源解析 / 自愈式播种 / 差异诊断 / 零安装语义扫描 / 上游快照与归属门禁）
 - 回归：`node tests/test-agent-workspace.js`（沙箱与工作区目录）
+- 技能管理数据面：`node tests/test-skills-management.js`（**47 例，实测**）—— 管理投影形状与三档分组 / 体积与文件数口径（含「统计不可用」分支与「不进 digest」的值副本用例）/ 仅 user 可卸载的三态拒绝面（**直接调 manager 函数**，不经 handler）/ 管理面名称谓词与禁用名单校验 / 样式硬禁令 / 交互面（启停四态 / 卸载确认 / inline hint / 位置保持）/ 诊断两层承载
+- 技能管理 HTTP 与传输面：`node tests/test-skills-http-api.js`（**32 例，实测**）—— 两个写子路由与转发目标 / `{ error, code }` 形状 / `/api/settings/update` 双键覆盖与「拒绝时不落盘」/ 体积闸的真实 `http` 行为（413 可达 / 无 `unhandledRejection` / 堆不线性增长 / 反向对照）/ 调用点覆盖度与常量单源 / 双入口跨文件一致性
 - 端到端（人工）：`npm run dev` → 确认两个技能目录已创建 → 问 AI「你有哪些技能」应答出 name / description → 问一个命中 description 的任务，观察是否调 `read` 打开 `location` → 直接编辑 `agent-workspace/skills/<x>/SKILL.md` 后切换对话，下一条消息应反映改动
 - 打包态（人工，**不可用 `npm run dev` 替代**）：`make install-nightly` 后启动 .app，确认 `Contents/Resources/app.asar.unpacked/skills-builtin/` 与 `~/Library/Application Support/realm-nightly/agent-workspace/managed-skills/` 下两个内置技能都在
 
@@ -454,9 +456,9 @@ AI 通过一个 `manage_skill` 工具把流程 / 经验沉淀为自己的技能�
 
 这条是**接口设计即边界**：沙箱在这一层提供不了保护（沙箱只回答「解析后的路径是否越界」，不回答「该不该允许工具自选目标」），因此把「不能指向别处」做进参数面本身 —— 少一个参数就少一整类越界面。改参数面时**不得**加回 `path`。
 
-### 11.3 九条拒绝原因
+### 11.3 九条拒绝原因（工具面）
 
-业务失败一律以错误（`isError` 工具结果）返回给模型并**不落盘**，原因码取下列**闭合白名单**之一 —— **不新增第十码**：
+业务失败一律以错误（`isError` 工具结果）返回给模型并**不落盘**，原因码取下列**闭合白名单**之一 —— **工具侧九条不变**；管理面另有 `not_user_owned`（第十码，见 §十二）：
 
 | 原因码 | 触发条件 |
 |--------|---------|
@@ -469,6 +471,8 @@ AI 通过一个 `manage_skill` 工具把流程 / 经验沉淀为自己的技能�
 | `invalid_description` | 描述缺失、trim 后为空、或超过 1024 字符；**正文 trim 后为空**也归此码 |
 | `oversize` | **组装后的 `SKILL.md` 全文**（frontmatter + 空行 + 正文）超过 64 KiB（按 UTF-8 **字节**计）时拒绝。写入侧闸口的判据对象就是落盘产物本身，与加载期闸口判的是**同一个量**（整文件的字节数）—— 因此不存在「写侧放行、加载期整条跳过」的边界带。正文单独计字节的检查只是**更早的预筛**（严格子集），不是第二套判据 |
 | `unscannable` | 文本命中内容扫描（见 11.5） |
+
+**工具面与流程面是两张不许混读的表。** `MANAGE_SKILL_ERROR` 是**工具面与流程面共用的闭合白名单常量表**（本阶段加第四行的 `NOT_USER_OWNED` ⇒ **11 键 / 十码**）；`MANAGE_SKILL_SHORT_REASON` 是**工具面的卡片短原因表**，**保持恰 9 键、不随新码扩表** —— 第十码只经 HTTP 400 的 `{ code }` 返回给设置页，由**设置页自己的失败文案表**承载（见 §十二 12.5）。把新码塞进短原因表会让「工具卡片短原因」变成管理面文案的第二份拷贝。
 
 **故意的不对称：写入门严、读入门宽。** 加载管线对磁盘上已存在的技能保持宽松（不丢弃命名不规范的合法技能），上述判据**只作用于写入侧**，绝不反向给加载管线加闸。
 
@@ -536,21 +540,24 @@ AI 通过一个 `manage_skill` 工具把流程 / 经验沉淀为自己的技能�
 维护约定在 [AGENTS.md](../../AGENTS.md) 的「AI 自建技能（`manage_skill`）的维护约定」条目：产品说明权威 = 本节；改动**校验器 / 三动作 / 限额常量 / 扫描与净化口径 / 拒绝面 / 卡片形态**时**必须同步本节与该节测试清单**。
 
 - 自建技能域：`node tests/test-manage-skill.js`（**55 例，实测**）—— 三动作 / 校验器值域（含 description 值域与写↔读闸口边界：`: ` / `#` / 裸标量 / 纯零宽） / 四类撞名与 seeded 三入口 / 原子写与失败清理 / 字段分离扫描 / 扫描-净化顺序 / 数量闸 / 幽灵技能与越界护栏
-- 接线与刷新链：`node tests/test-ai-skills.js`（**178 例，实测**）的 M 组（卡片标记两时点与终态元数据通道，含失败态原因码的词缀与重载还原）与 L 组（刷新链时序与次数账，含三态 `promptIncluded` 的消费侧）；M9b：a11y 增量的条件施加（守卫内施加 + 两个调用点取值 + 单源未破）
-- 卡片纯逻辑：`node --test tests/test-skill-picker-model.js`（**111 例，实测**）—— 含卡片标记并入函数 `mergeManageSkillMarker` 的值域，以及本轮新增的卡片头部超预算标注面：**≤ 4 字投影**（`PROMPT_OMITTED_CARD_NOTE` 的投影性 / 第二段 / 值域）、**48 原文冻结**（`STATUS_TEXT.promptOmitted` 逐字未变 + 另三键冻结）与**九码长度上限**（失败短原因每值非空且 ≤ 6 字）
+- 接线与刷新链：`node tests/test-ai-skills.js`（**187 例，实测**）的 M 组（卡片标记两时点与终态元数据通道，含失败态原因码的词缀与重载还原）与 L 组（刷新链时序与次数账，含三态 `promptIncluded` 的消费侧）；M9b：a11y 增量的条件施加（守卫内施加 + 两个调用点取值 + 单源未破）
+- 卡片纯逻辑：`node --test tests/test-skill-picker-model.js`（**115 例，实测**）—— 含卡片标记并入函数 `mergeManageSkillMarker` 的值域，以及本轮新增的卡片头部超预算标注面：**≤ 4 字投影**（`PROMPT_OMITTED_CARD_NOTE` 的投影性 / 第二段 / 值域）、**48 原文冻结**（`STATUS_TEXT.promptOmitted` 逐字未变 + 另三键冻结）与**九码长度上限**（失败短原因每值非空且 ≤ 6 字）
+- 技能管理数据面：`node tests/test-skills-management.js`（**47 例，实测**）—— 管理投影 / 尺寸口径 / 启停 / 卸载三态 / 名单清理 / 双入口与注入纪律源码扫描
+- 技能管理 HTTP 与传输面：`node tests/test-skills-http-api.js`（**32 例，实测**）—— 写路由与转发 / 双键校验「拒绝时不落盘」 / SEC-09 体积闸与降级分支 / 调用点覆盖度 / 双入口跨文件
 - 人工观察（唯一）：让 AI 建一个技能 → 观察卡片 → **不重开对话**发下一条消息问「你有哪些技能」→ 应答含新技能名。此层需要真实 LLM 往返，**不可自动化**（步骤见 `49-VALIDATION.md` 的 Manual-Only 表）
 
-**例数一致性判据（可重跑，不是人工核对）。** 上述三条计数与 [AGENTS.md](../../AGENTS.md) 测试行的三条计数必须与三个套件的**实测** `# tests` 逐字一致。判据是一条命令：现场跑三个套件读出实测值，再扫描 `AGENTS.md` 与本节的例数账本，**逐账本单元**比对 —— 单元右边界由**同一行内下一个测试文件名**（无后继则行尾）决定，因此 `AGENTS.md` 单行多套件、文件名与例数间距达数百字符的形态也不会漏检（固定宽度窗口会漏检其中至少一个）；任一单元取到的值与实测不符即以非零退出并指名到「文件:行号 + 套件名 + 取到的值」：
+**例数一致性判据（可重跑，不是人工核对）。** 上述五条计数与 [AGENTS.md](../../AGENTS.md) 测试行的五条计数必须与五个套件的**实测** `# tests` 逐字一致。判据是一条命令：现场跑五个套件读出实测值，再扫描 `AGENTS.md` 与本节的例数账本，**逐账本单元**比对 —— 单元右边界由**同一行内下一个测试文件名**（无后继则行尾）决定，因此 `AGENTS.md` 单行多套件、文件名与例数间距达数百字符的形态也不会漏检（固定宽度窗口会漏检其中至少一个）；任一单元取到的值与实测不符即以非零退出并指名到「文件:行号 + 套件名 + 取到的值」：
 
 ```bash
 node -e '
 const cp=require("child_process"),fs=require("fs");
-const suites=["tests/test-manage-skill.js","tests/test-ai-skills.js","tests/test-skill-picker-model.js"];
+const suites=["tests/test-manage-skill.js","tests/test-ai-skills.js","tests/test-skill-picker-model.js","tests/test-skills-management.js","tests/test-skills-http-api.js"];
+// 两个新套件各 2 个账本单元（本文件 §七/§11.8 + AGENTS.md 测试行）⇒ cells 基线由 8 提到 12
 const meas={};
 for(const f of suites){const o=cp.execSync("node "+(f.indexOf("picker")>=0?"--test ":"")+f,{encoding:"utf8",stdio:["ignore","pipe","ignore"]});meas[f.split("/").pop()]=String(o.match(/# tests (\d+)/)[1]);}
 const FN=/test-[\w-]+\.js/g;let bad=[],cells=0;
 for(const file of ["AGENTS.md","docs/product/ai-skills.md"]){const hit={};fs.readFileSync(file,"utf8").split("\n").forEach((line,ln)=>{const idx=[];FN.lastIndex=0;let m;while((m=FN.exec(line)))idx.push([m.index,m[0]]);for(let i=0;i<idx.length;i++){const base=idx[i][1];if(!(base in meas))continue;const end=i+1<idx.length?idx[i+1][0]:line.length;const uniq=[...new Set([...line.slice(idx[i][0],end).matchAll(/(\d+)\s*例/g)].map(x=>x[1]))];if(!uniq.length)continue;cells++;hit[base]=(hit[base]||0)+1;if(uniq.length!==1||uniq[0]!==meas[base])bad.push(file+":"+(ln+1)+" "+base+" 账本单元取到 ["+uniq.join("/")+"] ≠ 实测 "+meas[base]);}});for(const base of Object.keys(meas))if(!hit[base])bad.push(file+" 的账本未覆盖 "+base);}
-if(cells<8)bad.push("账本单元数 "+cells+" < 8（§七 两条 + §11.8 三条 + AGENTS.md 测试行三条）");
+if(cells<12)bad.push("账本单元数 "+cells+" < 12（§七/§11.8 与 AGENTS.md 测试行共四个既有套件 + 两个新套件各 2 个账本单元）");
 if(bad.length)throw new Error("例数不一致: "+bad.join("; "));
 console.log("counts-parity ok");console.log("cells="+cells+" measured="+JSON.stringify(meas));
 '
@@ -558,3 +565,123 @@ console.log("counts-parity ok");console.log("cells="+cells+" measured="+JSON.str
 
 **未闭合项如实挂账（`48-REVIEW.md` 命名空间）**：本节不声称已闭合 `TD-48-01` / `TD-48-02` / `WR-01` / `WR-02` / `WR-06`（以上五个**均为 `48-REVIEW.md` 的编号**：`TD-48-01` = 面板行属性上下文 `escapeHtml` 不转义引号、`TD-48-02` = 取消分支判据无锚点自校验、`WR-01` = 三档徽标文案两处重复、`WR-02` = 技能解析链三处裸 await、`WR-06` = **已缓存**技能的实时读盘命中路径仍绕过 64 KiB 字节闸；其中 `WR-01` / `WR-02` 与下段 49 号的同名编号**不是同一物**、不得混读）；也不声称失效链已完整闭合 —— 本阶段只补齐其中一段（AI 自建技能这一写入入口），技能集的另一个实际写入入口归 Phase 50 设置页，**合计约 1/3**；`syncAgentSystemPrompt()` 生产调用方的 ⚠️ 同样如实挂账（本阶段只完成 3 分之 1）。
 **本轮（gap closure）已闭合的是 `49-REVIEW.md` 的 `CR-01` / `CR-02` / `CR-03` / `WR-01` / `WR-02`**：`CR-01` = 渲染端终态标记由覆盖改为并入，且并入逻辑**单源**在 `src/skill-picker-model.js` 的 `mergeManageSkillMarker`；`CR-02` = frontmatter 的 `description` 改经 YAML 单引号标量编码；`CR-03` = 净化后对**净化值**复验非空；`WR-01` = 写侧权威字节闸口改按**组装后的 `SKILL.md` 全文**计字节；`WR-02` = 失败态原因码经消息词缀持久化并在重载链路用同一常量还原。`49-REVIEW.md` 的其余条目（`WR-03` / `WR-04` / `IN-01`–`IN-06`）不在本轮范围内、仍逐条挂账。
+
+---
+
+## 十二、管理面（设置页 + `/api/skills/*`）
+
+> 本节是**技能集管理面**（设置页 AI 分区的「技能管理」区 + `/api/skills/*` HTTP 端点 + 主窗口 `realmAPI` IPC）的**权威口径**。维护约定见 [AGENTS.md](../../AGENTS.md) 的「技能管理面（设置页 + `/api/skills/*`）的维护约定」条目：改动**列表字段与口径 / 体积计量口径 / 启停与卸载语义 / 拒绝面与错误码 / 两入口的转发层 / 状态链与单源文案表 / `/api/*` 的请求体体积闸**时，**必须同步本节与该节测试清单**。
+
+管理面（**用户**对技能集的直接操作）与 §十一的 AI 自建技能（**AI** 对技能集的直接操作）在概念上并列，两者共用**同一份**数据权威（`ai-skills-manager.js`，零 electron 依赖）—— 因此不存在「管理面版本」的加载语义与校验口径。
+
+### 12.1 列表字段与口径
+
+「技能管理」区列出全部技能，每行六项信息：
+
+| 字段 | 来源 | 口径 |
+|------|------|------|
+| 名称 | 目录名（§三「名称以目录名为权威」） | 只读（改名 = 卸载 + 重装） |
+| 描述 | `SKILL.md` frontmatter 的 `description` | CSS 单行截断，`title` 放全文 |
+| 来源 | 三档来源徽标（与 §10.5 共用同一张查表） | 与 `/` 面板同源 |
+| 体积 | 管理投影的 `bytes` | 见 12.2 |
+| 文件数 | 管理投影的 `fileCount` | 见 12.2 |
+| 诊断 | 该技能条目的 `diagnostics[]` | 见 12.5 |
+
+- **三档分组**：**我的技能**（`source === 'user'`）/ **内置技能**（随包 `skills-builtin/` 播种来的，§八）/ **AI 创建**（AI 经 `manage_skill` 自建的托管技能）。三档即 §10.5 的三个来源档位，**只消费、零判定实现**。
+- **分组与排序都在主进程完成**：组内顺序是 `bySkillPriority` 全序（§三）在分组上的**稳定投影**，前端只渲染、不重排（与「渲染端不重实现优先级」的既有纪律一致）。
+- **空组不渲染**：某档一条技能都没有时，该组标题整个不输出。
+- **不展示 `allowed-tools`**：理由见 12.6 第 ② 条。
+- **限额数值一律取主进程回传值**：投影携带 `limits`（五个限额的语义化命名视图），设置页**零字面量**（§四的既有纪律）—— 超限标注与开关都不得写死数值。
+
+### 12.2 体积与文件数的计量口径
+
+- **递归合计**该技能目录下的全部子项（`scripts/` / `references/` / 任意嵌套），累加字节数与文件数。
+- **含 `SKILL.md` 本身** —— 因此一个技能的体积可以逼近 §四的 `MAX_SKILL_MD_BYTES`（64 KiB）而不矛盾。用户看到「64.1 KB」时**不应**被读成「越过了 64 KiB 上限」：两条量的口径不同（前者是整个技能目录，后者只约束那一个文件）。
+- **不含隐藏文件**（`.` 前缀，如 `.DS_Store`）：它们不是技能内容，且 macOS 下会因 Finder 浏览而随机增减。
+- **不穿符号链接**：链接条目本身既不计入体积也不递归进入（内部链接会构成环 ⇒ 朴素递归无限循环）；外逃链接另会被沙箱拒绝。
+- **目录条目的 `size` 不计**：只对文件条目累加。
+- **超条目 / 深度上限时截断并给出诊断**：技能**仍然可用**，显示的体积是**下限值**（详情区说明「统计已截断」）。
+- **统计不可用时显示「统计不可用」** —— **不得**渲染成 `0 B · 0 个文件`（那是失实文案）。判据是一个**显式布尔**（`bytes` 与 `fileCount` 双零），不依赖「此时必有诊断」这类隐式契约。
+- **逐技能隔离失败**：单个技能目录读不到只产诊断、不冒泡 —— 其余技能照常统计，技能集不因局部问题整批消失。
+- **计算时机**：在**重扫管线内顺带算好并随缓存条目失效**（随 `refreshedAt`），**不在**打开设置页时对全部技能目录做一次递归遍历 —— 否则「打开设置页」就是一次重 IO。
+
+### 12.3 启停（启用 / 禁用）
+
+- **写 `settings.aiSkills.disabled`**（技能名数组，§六的既有键）：**只过滤、不删文件** —— 两个技能目录下的内容一字不动。
+- 禁用后该技能**不进 system prompt**、**不出现在 `/` 面板**；**重新启用即恢复**（§10.4 的边界技能行为表）。
+- **禁用的技能仍可卸载**（卸载不因 `disabled` 而置灰）：禁用是「先别进 prompt 试试」的轻量试探，卸载是「确实不要了」；要求用户先启用再卸载是反直觉的两步操作。
+- **即改即存**（switch，无保存按钮）。载荷取**增量** `{ name, disabled }` 而非全量名单：读-改-写全程在主进程内同步完成，两个并发的设置页操作不会互相覆盖（全量载荷会丢更新）。
+- **该键在 `/api/settings/update` 上有服务端校验**（与 `aiBashWhitelist` / `cacheMaxGB` 并列）：必须是数组、每项须过管理面名称谓词、条数不超过 `MAX_USER_SKILLS` + `MAX_MANAGED_SKILLS`；**两种键形态**（`aiSkills.disabled` 与 `aiSkills`）都覆盖，且**校验失败时不落盘**。
+- **名称谓词故意比写入门宽**（见 12.6 第 ④ 条）：禁用名单是「按名字过滤」的**消费侧信号**，不需要名字合法到能写盘。
+- **同名技能共享启用 / 禁用状态**（§六既有条目）：禁用键是技能名、不区分来源。
+
+### 12.4 卸载
+
+- **仅「我的技能」可卸载**（`source === 'user'`）。判据是**存在性 + 类型**：`skills/<name>/` 存在**且是目录**才允许 —— 只判存在性不够（普通文件也会被判「存在」，而递归删除会把它一起删掉）。
+- **三态拒绝面**（服务端判据；前端不渲染按钮只是 UX，不是拒绝面）：
+
+| 情形 | 结果 | 用户可见 |
+|------|------|---------|
+| `skills/<name>/` 不存在（含存在但读不到） | `not_found` | 「技能已不存在，列表已刷新」（列表随之重拉） |
+| `skills/<name>/` 存在，且同名托管 / 内置技能也存在 | **允许** | 允许；确认弹框提示「同名托管 / 内置技能将在删除后重新可见」 |
+| `skills/<name>/` 不存在，但同名托管 / 内置技能存在 | `not_user_owned` | 「该技能不是你的技能，无法在此卸载」 |
+
+- **判据在数据层（manager），不在 handler**：设置页的 HTTP 端点与主窗口的 IPC 通道只是转发层 ⇒ **手改 URL 直接调端点同样被拒**。
+- **判据读盘，不用缓存快照**：bash / Finder 可随时改写磁盘，缓存只反映上次重扫的时刻。
+- **删除是递归的且无备份**：`skills/<name>/` 整目录删除（含用户自带的 `scripts/` / `references/`）。**二次确认弹框是唯一防线**；v1 不提供备份 / 恢复。
+- **同名双存在时允许卸载**：不把「同名托管技能存在」当作拒绝条件 —— 否则用户点自己列表里那条「我的技能」会被告知「这不是你的技能」。
+- **卸载成功后同步清理禁用名单**：从 `settings.aiSkills.disabled` 摘掉该名字。否则残留名单会随技能名复用而误伤 —— 同名新技能一装上就被**静默禁用**。（失败路径**不**清理。）
+- **内置技能与 AI 创建的技能不在此卸载**：内置技能只可禁用（手删会自愈重播，§八），AI 创建的技能请让 AI 用 `manage_skill`（§十一）删除。区说明里有一行提示，避免用户困惑「为什么这条没有卸载按钮」。
+
+### 12.5 诊断与状态
+
+- **两层承载**：① 模块级 `errors[]`（无归属技能的整批 / 环境级失败，如技能目录缺失）→ 区顶部**默认展开**的汇总条（异常状态，禁止静默失败）；② 每条技能的 `diagnostics[]` → 行尾「诊断 N」徽标 + **列表内联可展开详情区**（默认折叠）。两层条件是两个**独立**判断，不合并。
+- **诊断条目**展示级别（错误 / 警告 / 提示三档，表外级别不渲染标签）、可读 `message` 与服务端 `code`（`realm_*`，作次要文本）。诊断的 `path` **不上屏**（沙箱内绝对路径对用户无意义）。
+- **行尾状态标注按单源优先级链取首条**：`disabled > shadowed > overLimit > promptOmitted`。链本身与「多命中取首条」的实现是 `src/skill-picker-model.js` 的一张**冻结表 + 纯函数**（面板与设置页共用同一份），渲染端只消费、不重写 if 链。
+- **`nameClash`（「与本地命令同名」）是 `/` 面板独有的维度，不在设置页的状态链上** —— 它依赖浏览器侧的本地命令注册表，`realm://` 设置页拿不到。两条链**不可合并**。
+- **「仅显式」（`disable-model-invocation`）是独立维度、不在链上**：可与其他状态并存、单独一枚标记；文案单源在 `src/skill-picker-model.js` 的 `EXPLICIT_TAG`（`/` 面板与设置页共用，零第二份拷贝）。
+- **失败文案按服务端 `code` 查表，前端不解析 `message`**：设置页持一张**闭合白名单**文案表（`not_found` / `not_user_owned` / `invalid_name` / `BODY_TOO_LARGE` + 兜底），与 §11.7 的卡片短原因同款纪律。表外 / 缺失 / 未知一律走兜底，**不回落 `undefined` 字面量**。该表是**单消费者新文案** —— 出现第二个消费者时必须提升为跨进程单源。
+
+### 12.6 五条诚实边界
+
+① **设置页收不到任何主进程广播** —— `windowManager.broadcast` 只发到各 `BrowserWindow` 的 webContents，**不到 webview guest**，而设置页是 `realm://` guest（纯 HTTP 客户端、零 `realmAPI`）。因此**多个设置页实例之间不做即时同步**：设置页靠「操作后用响应体回传的最新投影就地重渲染 + 每次进入该页重拉」保持自洽。写「任一入口的变更跨窗口即时同步」会误导后续阶段省掉这条必要机制。
+
+② **`allowed-tools` 在管理面缺席，且这是有理由的缺席** —— 该字段**尚未被解析**（解析半边归 Phase 51）⇒ 管理面**无数据可展示**。因此 ROADMAP 的 Doc sync 条款（「该字段展示时**必须**带免责标注」）按「**不展示**」满足（条件句的前置条件不成立）。**交接**：Phase 51 若在管理面展示它，**必须**带「当前运行时不被强制，仅供参考」的**免责标注**（§六第 1 条与 [ai-agent-workspace.md](ai-agent-workspace.md) 第七节第 6 条的既有口径）。
+
+③ **`computeDigest` 的字段集是跨窗口失效链的承重面** —— 禁止把 `disabled` / `shadowed` / `overLimit` 摘掉（任何「digest 只该反映 prompt 内容」的『优化』都会静默破坏失效链：渲染端也按摘要相等早退）；同样**禁止把 `bytes` / `fileCount` 加进去** —— 尺寸不影响 prompt 段，加进去会让「给技能加一个引用文件」触发 systemPrompt 改写 + 广播（provider 前缀缓存 miss，纯性能回归）。
+
+④ **管理面名称谓词故意比写入门宽** —— 它是「安全超集」（非空 + 长度上限 + 无路径分隔符 / 控制字符），不是写入门那种严格字符集。理由：禁用名单是消费侧信号，而加载管线对磁盘上的技能名**故意宽松**（§11.6 第 1 条）；统一成严格形态会 render 出一个「点了必然失败」的开关（手动放进 `skills/My_Skill/` 的技能将无法被禁用 / 卸载）。**这是设计，不是缺陷，不得「统一」。**
+
+⑤ **「仅 user 可删」是判据而非能力边界** —— 用户仍可经 Finder / 终端直接删 `managed-skills/` 或 `skills/` 下的目录。管理面提供的是**安全、可解释的路径**，不是唯一的写入口。
+
+### 12.7 两个前端入口与不可互换的理由
+
+| 入口 | 载体 | 鉴权 | 为什么不能换成另一个 |
+|------|------|------|---------------------|
+| `/api/skills/*` | 设置页（`realm://settings` guest） | URL 上的 `token`（无 / 错 ⇒ 403，且在**任何副作用之前**） | guest **没有 `realmAPI`**（contextBridge 不注入 webview guest） |
+| 主窗口 IPC（`realmAPI.ai.*`） | 主窗口（`file://`） | `assertTrustedSender` | 主窗口 **不能** fetch 本地 HTTP（`file://` 跨域被 CORS 拦，Phase 38 事故） |
+
+子路由三个：`GET /api/skills/list`、`POST /api/skills/set-disabled`、`POST /api/skills/uninstall`。
+
+**两入口转发到同一组 manager 函数，handler 只做转发、零判定**：判据 / 校验 / 投影全部住 `ai-skills-manager.js` ⇒ 两个前端入口的**行为恒等**由「同一份函数」保证，而不是靠两处对齐。IPC 通道逐字照抄既有 AI 通道的三行形状（来源校验 → 空值守卫 → 转发），通道段内**零判定素材**是可源码断言的不变式。错误形状统一 `{ error, code }`（HTTP 400；`code` 供前端查表）。
+
+### 12.8 请求体体积闸（`/api/*` 通用机制）
+
+- **默认 fail-closed**：`/api/*` 的 POST body 有全局默认上限（`MAX_JSON_BODY_BYTES` = **1 MiB**）。需要大 body 的端点**显式放大** —— 今天只有两个书签导入端点（body 是用户书签文件全文，显式 **32 MiB**）。
+- **超限在累积过程中即停收**：立刻答 **413** + JSON，并用 `req.resume()` 排水（内存 O(1)，且 413 在客户端可见）。**不 `destroy()`、不设 `Connection: close`** —— 只写这条**可复现的规则**；「连接头会让客户端拿不到响应」这一因果在本仓的重研会话中**不可复现**，不得写成事实。
+- **`sendJson` 幂等**：已应答后再次调用是 no-op（否则外层 catch 的二次写头会抛 `ERR_HTTP_HEADERS_SENT` ⇒ unhandled rejection ⇒ 主进程退出）。
+- **调用点漏传响应对象时降级不崩**：能力不足时体积闸只 reject（由外层 catch 答 400），不会在流事件里对 `undefined` 调用发送函数。
+- **技能域三个端点的载荷远小于 1 MiB**（技能名 ≤64 字符 / 布尔 / 无 body）⇒ `BODY_TOO_LARGE` 在技能域**正常不可达**，它是兜底而非日常路径。
+- **交接给 Phase 51**：zip base64 导入端点届时**一处**声明自己的 `maxBytes` 即可；**不得**为给大 body 让路去改默认值，也**不得**另写第二个请求体读取函数。
+
+### 12.9 维护约定与测试
+
+维护约定见 [AGENTS.md](../../AGENTS.md) 的「技能管理面（设置页 + `/api/skills/*`）的维护约定」条目（权威指针 + 同步义务 + 四条硬约束 + 测试口径）。
+
+- 管理数据面：`node tests/test-skills-management.js`（**47 例，实测**）—— 管理投影形状与三档分组 / 体积与文件数口径（含「统计不可用」分支与「不进 `digest`」的值副本用例）/ 仅 user 可卸载的三态拒绝面（**直接调 manager 函数**，不经 handler）/ 管理面名称谓词与禁用名单校验 / 服务端拒绝不经 handler / 样式硬禁令 / 交互面（启停四态 / 卸载确认 / inline hint / 位置保持）/ 诊断两层承载
+- HTTP 与传输面：`node tests/test-skills-http-api.js`（**32 例，实测**）—— 写子路由与转发目标 / `{ error, code }` 形状 / `/api/settings/update` 双键覆盖与「拒绝时不落盘」/ 体积闸的真实 `http` 行为（413 可达 / 无 `unhandledRejection` / 堆不线性增长 / 反向对照）/ 降级分支 / 调用点覆盖度与常量单源 / 双入口跨文件一致性
+- **本项目没有 `npm test` 脚本**：所有命令一律用具名形式（`node tests/<file>.js` / `node --test tests/<file>.js`）。
+
+**进度账本必须分开记两个数（不得合并）**：本阶段完成后 `syncAgentSystemPrompt()` 的**写路径**收口达 **2/3**（§十一的 `manage_skill` 三动作 + 本节的设置页启停 / 卸载；只剩 Phase 51 的导入）；本阶段新增的**读侧 / 兜底**初始化调用方（管理读路径的初始化，不依赖 Agent）**另计**，**不得并入**「6 个触发点」的分子 —— 合并会被读成 P8 失效链已 6/6 全覆盖。
+
+**挂账状态（本节不作任何越界声明）**：`TD-48-01` / `TD-48-02` / `WR-02` / `WR-06` 一律保持挂账（`48-REVIEW.md` 命名空间），本阶段**不声称**其中任何一条已修复或已闭合；P8 失效链的挂账状态同样不变，本阶段**不声称**已 6/6 全覆盖（写路径只到 2/3）。
