@@ -47,6 +47,53 @@ function readSource(file) {
 }
 
 /**
+ * 词法级剥除注释（与计划自带门禁的 `stripC` **逐字同款**）
+ *
+ * 按单引号 / 双引号 / 模板反引号字符串、正则字面量、行注释、块注释四态**单遍**逐字符
+ * 扫描，并把注释字符**等长空白化**（等长必须：否则索引会与原始源码错位）。
+ *
+ * 用途：凡「计数 / token 禁令」类判据一律**先剥注释再判** —— 注释里可以如实写明被禁的
+ * 形态（例如「本仓没有 `process.on('uncaughtException')` 全局兜底」），那不构成违规。
+ */
+function stripCodeComments(x) {
+  let o = '';
+  let i = 0;
+  let s = 0;
+  let p = '';
+  const N = x.length;
+  while (i !== N) {
+    const c = x[i];
+    const d = x[i + 1];
+    if (s === 1) { o += c === '\n' ? '\n' : ' '; if (c === '\n') s = 0; i++; continue; }
+    if (s === 2) { if (c === '*' && d === '/') { o += '  '; i += 2; s = 0; continue; } o += c === '\n' ? '\n' : ' '; i++; continue; }
+    if (s === 3 || s === 4 || s === 5) {
+      if (c === '\\') { o += c + (d === undefined ? '' : d); i += d === undefined ? 1 : 2; continue; }
+      o += c;
+      if ((s === 3 && c === "'") || (s === 4 && c === '"') || (s === 5 && c === '`')) s = 0;
+      i++;
+      continue;
+    }
+    if (s === 6) {
+      if (c === '\\') { o += c + (d === undefined ? '' : d); i += d === undefined ? 1 : 2; continue; }
+      o += c;
+      if (c === '/') s = 0;
+      i++;
+      continue;
+    }
+    if (c === '/' && d === '/') { o += '  '; i += 2; s = 1; continue; }
+    if (c === '/' && d === '*') { o += '  '; i += 2; s = 2; continue; }
+    if (c === "'") { o += c; s = 3; i++; p = c; continue; }
+    if (c === '"') { o += c; s = 4; i++; p = c; continue; }
+    if (c === '`') { o += c; s = 5; i++; p = c; continue; }
+    if (c === '/' && (p === '' || "[=(,;:![{&|?+-*%~^".indexOf(p) !== -1)) { o += c; s = 6; i++; p = c; continue; }
+    o += c;
+    if (c.trim()) p = c;
+    i++;
+  }
+  return o;
+}
+
+/**
  * 取 `main.js` 里「校验循环 → settings:updated 广播」之间的窗口（双键判据的判读窗口）
  *
  * 与计划自带门禁同款口径：**只在这段窗口内**判键形态是否存在，
@@ -566,5 +613,124 @@ describe('SEC-09 源码契约（main.js）：三参签名 + res 缺失降级分�
       iBody > iLimit,
       '必须在**比较之后**才拼 body（把 body += chunk 提到比较之前 ⇒ 堆随 body 线性增长）'
     );
+  });
+});
+
+// ==================== ④ 调用点覆盖度 + 降级分支行为 + 既有端点回归 ====================
+
+describe('sendJson 幂等护栏与体积常量单源（源码扫描）', () => {
+  test('sendJson 幂等护栏：同时具备 headersSent 与 writableEnded，且位于 res.writeHead 之前', () => {
+    const src = readSource('main.js');
+    const start = src.indexOf('function sendJson(');
+    assert.ok(start >= 0, '缺 sendJson');
+    const body = src.slice(start, src.indexOf('\n  }\n', start));
+    assert.ok(/res\.headersSent/.test(body), '缺 res.headersSent 条件');
+    assert.ok(/res\.writableEnded/.test(body), '缺 res.writableEnded 条件');
+    assert.strictEqual(
+      (body.match(/res\.writeHead\(/g) || []).length,
+      1,
+      'sendJson 内必须恰 1 处发送点（新增第二处会绕过护栏）'
+    );
+    assert.ok(
+      body.indexOf('res.headersSent') < body.indexOf('res.writeHead('),
+      '护栏必须在 res.writeHead( 之前（顺序反 ⇒ 二次写头不被吸收 ⇒ unhandled rejection）'
+    );
+  });
+
+  test('体积常量单源：两个常量各恰出现 1 次（数值只此一份）', () => {
+    const src = readSource('main.js');
+    assert.strictEqual(
+      (src.match(/const MAX_JSON_BODY_BYTES = 1024 \* 1024;/g) || []).length,
+      1,
+      'MAX_JSON_BODY_BYTES 必须恰一处（1 MiB 全局默认）'
+    );
+    assert.strictEqual(
+      (src.match(/const MAX_JSON_BODY_BYTES_LARGE = 32 \* 1024 \* 1024;/g) || []).length,
+      1,
+      'MAX_JSON_BODY_BYTES_LARGE 必须恰一处（需大 body 的端点专用）'
+    );
+  });
+
+  test('res.writeHead( 的总数冻结在实测基线 14 处（不得新增响应发送点，T-50-19）', () => {
+    const code = stripCodeComments(readSource('main.js'));
+    const heads = (code.match(/res\.writeHead\(/g) || []).length;
+    assert.strictEqual(
+      heads,
+      14,
+      '基线 = 既有 13 处非 JSON 发送点（媒体代理 / 静态资源 / realm:// 静态兜底）+ sendJson 1 处；' +
+        '新增第二个发送点会绕过幂等护栏（删既有发送点同样要显式说明）。计数已剥注释。'
+    );
+  });
+});
+
+describe('调用点覆盖度（源码扫描）：全部 /api/* POST 端点都传 res', () => {
+  test('`await readJsonBody(req` 的次数 == 传 res 的次数，且 ≥ 57（既有调用点一个都不许丢）', () => {
+    const code = stripCodeComments(readSource('main.js'));
+    const total = (code.match(/await readJsonBody\(req/g) || []).length;
+    const withRes = (code.match(/await readJsonBody\(req, res/g) || []).length;
+    assert.strictEqual(
+      total,
+      withRes,
+      `调用点未全部传 res：总计 ${total} / 传 res ${withRes}（漏改一处 ⇒ 该端点超限答 400 而非 413）`
+    );
+    assert.ok(total >= 57, `读盘调用点数 ${total} < 57（既有调用点被误删）`);
+    // 本阶段实测值：59 = 既有 57 + 50-02 新增的两处写路由（计数已剥注释 ⇒ 注释不影响）
+    assert.strictEqual(total, 59, `本阶段实测调用点数应为 59，实测 ${total}`);
+  });
+
+  test('两个书签导入端点**显式放大**到 32 MiB，且恰 2 处覆盖（T-50-23）', () => {
+    const src = readSource('main.js');
+    const favStart = src.indexOf('async function handleFavoritesApi(');
+    assert.ok(favStart >= 0, '缺 handleFavoritesApi（口径失效）');
+    const favBody = src.slice(favStart, src.indexOf('\n  }\n', favStart));
+    for (const route of ['import-chrome', 'import-html']) {
+      const i = favBody.indexOf(`route === '${route}'`);
+      assert.ok(i >= 0, `handleFavoritesApi 必须含 ${route} 子路由`);
+      assert.ok(
+        favBody.slice(i, i + 400).includes('maxBytes: MAX_JSON_BODY_BYTES_LARGE'),
+        `${route} 必须显式放大上限（body 是用户书签文件全文，1 MiB 默认会静默破坏既有功能）`
+      );
+    }
+    assert.strictEqual(
+      (src.match(/maxBytes: MAX_JSON_BODY_BYTES_LARGE/g) || []).length,
+      2,
+      '显式覆盖必须恰 2 处（逐端点评审结论：除这两个端点外无「用户文件全文」级 body）'
+    );
+  });
+
+  test('既有端点回归 smoke：/api/settings/update 的调用点仍在且走**默认上限**（两参、无第三参）', () => {
+    const src = readSource('main.js');
+    const start = src.indexOf('async function handleSettingsApi(');
+    assert.ok(start >= 0, '缺 handleSettingsApi（口径失效）');
+    const body = src.slice(start, src.indexOf('\n  }\n', start));
+    assert.ok(
+      /const updates = await readJsonBody\(req, res\);/.test(body),
+      '/api/settings/update 的调用点必须仍在且为两参形态（走 MAX_JSON_BODY_BYTES 默认值）'
+    );
+  });
+});
+
+describe('降级分支的行为断言：旧两参形态只 reject，不崩主进程（裁决 A 的强制项）', () => {
+  test('res 为 undefined ⇒ 外层 catch 得到 { code: BODY_TOO_LARGE } 的 400（不是 TypeError）', async () => {
+    const { server, port } = await startSec09Server({ maxBytes: 1024, passRes: false });
+    try {
+      const res = await postStream(port, { payloadBytes: 4 * 1024 });
+      assert.strictEqual(
+        res.status,
+        400,
+        '漏改调用点的后果必须是「外层 catch 答 400」，而不是在 data 监听器里 TypeError（无全局兜底 ⇒ 主进程退出）'
+      );
+      const parsed = JSON.parse(res.text);
+      assert.strictEqual(parsed.code, 'BODY_TOO_LARGE', '必须回传机器可读的错误码');
+      assert.strictEqual(
+        /TypeError/.test(String(parsed.error)),
+        false,
+        '错误消息不得是 TypeError（那正是降级分支要避免的形态）'
+      );
+      // 走到这里即证明进程未退出（本仓没有 process.on('uncaughtException') 兜底）
+      assert.ok(typeof process.pid === 'number' && process.pid > 0);
+    } finally {
+      closeSec09Server(server);
+    }
   });
 });

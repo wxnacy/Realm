@@ -890,11 +890,22 @@ app.whenReady().then(async () => {
 
   /**
    * 发送 JSON 响应
+   *
+   * **幂等护栏是「一次修好全部发送点」的形状**：13 处宿主（12 个具名 handler + `realmServer`
+   * 内 `/api/bookmarks-bar/toggle` 的内联分支）的 `catch → sendJson` 全都依赖它。
+   * `readJsonBody` 自己答了 413 又 reject 时，外层 `catch` 的二次发送会在此 no-op ——
+   * 否则 `ERR_HTTP_HEADERS_SENT`，而服务器回调是 `async`（HTTP 层不接管返回的 Promise）
+   * ⇒ unhandled rejection ⇒ 本仓无全局兜底 ⇒ **主进程退出**。
+   *
+   * ⚠️ **不得新增**任何 `res.writeHead` 响应发送点（`main.js` 的累计基线是 14 处：
+   * 既有 13 处非 JSON 发送点 + 本函数 1 处），也不得在本函数之外写 JSON 响应。
+   *
    * @param {http.ServerResponse} res - 响应对象
    * @param {number} status - HTTP 状态码
    * @param {*} data - 响应数据
    */
   function sendJson(res, status, data) {
+    if (res.headersSent || res.writableEnded) return; // 已答过即 no-op（拒收路径必需）
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(data));
   }
@@ -1000,19 +1011,19 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'delete' && req.method === 'POST') {
-        const { containerId, id } = await readJsonBody(req);
+        const { containerId, id } = await readJsonBody(req, res);
         sendJson(res, 200, historyManager.deleteRecord(containerId, id));
         return;
       }
 
       if (route === 'delete-batch' && req.method === 'POST') {
-        const { containerId, ids } = await readJsonBody(req);
+        const { containerId, ids } = await readJsonBody(req, res);
         sendJson(res, 200, historyManager.deleteRecords(containerId, ids));
         return;
       }
 
       if (route === 'clear' && req.method === 'POST') {
-        const { containerId } = await readJsonBody(req);
+        const { containerId } = await readJsonBody(req, res);
         sendJson(res, 200, historyManager.clearRecords(containerId));
         return;
       }
@@ -1074,7 +1085,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'add' && req.method === 'POST') {
-        const { url, title, faviconUrl: rawFaviconUrl } = await readJsonBody(req);
+        const { url, title, faviconUrl: rawFaviconUrl } = await readJsonBody(req, res);
         // 远程 favicon URL 统一经 favicon-fetcher 转 data URL（与 IPC favorites:add 同一实现）；
         // 抓取失败得 '' 以空图标入库，之后访问时回写补齐
         const faviconUrl = rawFaviconUrl
@@ -1087,7 +1098,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'update' && req.method === 'POST') {
-        const { id, title } = await readJsonBody(req);
+        const { id, title } = await readJsonBody(req, res);
         const result = favoritesManager.updateRecord(id, { title });
         _notifyBookmarksBarRefresh();
         sendJson(res, 200, result);
@@ -1095,7 +1106,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'delete' && req.method === 'POST') {
-        const { id } = await readJsonBody(req);
+        const { id } = await readJsonBody(req, res);
         const result = favoritesManager.deleteRecord(id);
         _notifyBookmarksBarRefresh();
         sendJson(res, 200, result);
@@ -1103,7 +1114,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'delete-batch' && req.method === 'POST') {
-        const { ids } = await readJsonBody(req);
+        const { ids } = await readJsonBody(req, res);
         const result = favoritesManager.deleteRecords(ids);
         _notifyBookmarksBarRefresh();
         sendJson(res, 200, result);
@@ -1113,7 +1124,7 @@ app.whenReady().then(async () => {
       // ==================== 收藏夹文件夹 API ====================
 
       if (route === 'create-folder' && req.method === 'POST') {
-        const { name, parentId } = await readJsonBody(req);
+        const { name, parentId } = await readJsonBody(req, res);
         const result = favoritesManager.createFolder({ name, parentId });
         _notifyBookmarksBarRefresh();
         sendJson(res, 200, result);
@@ -1121,7 +1132,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'rename-folder' && req.method === 'POST') {
-        const { id, name } = await readJsonBody(req);
+        const { id, name } = await readJsonBody(req, res);
         const result = favoritesManager.renameFolder(id, { name });
         _notifyBookmarksBarRefresh();
         sendJson(res, 200, result);
@@ -1129,7 +1140,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'delete-folder' && req.method === 'POST') {
-        const { id } = await readJsonBody(req);
+        const { id } = await readJsonBody(req, res);
         const result = favoritesManager.deleteFolder(id);
         _notifyBookmarksBarRefresh();
         sendJson(res, 200, result);
@@ -1148,7 +1159,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'move-folder' && req.method === 'POST') {
-        const { id, parentId } = await readJsonBody(req);
+        const { id, parentId } = await readJsonBody(req, res);
         const result = favoritesManager.moveFolder(id, { parentId });
         _notifyBookmarksBarRefresh();
         sendJson(res, 200, result);
@@ -1156,7 +1167,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'move-favorite' && req.method === 'POST') {
-        const { id, folderId } = await readJsonBody(req);
+        const { id, folderId } = await readJsonBody(req, res);
         const result = favoritesManager.moveFavorite(id, { folderId });
         _notifyBookmarksBarRefresh();
         sendJson(res, 200, result);
@@ -1164,7 +1175,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'move-favorites' && req.method === 'POST') {
-        const { ids, folderId } = await readJsonBody(req);
+        const { ids, folderId } = await readJsonBody(req, res);
         const result = favoritesManager.moveFavorites(ids, { folderId });
         _notifyBookmarksBarRefresh();
         sendJson(res, 200, result);
@@ -1172,7 +1183,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'update-folder-sort' && req.method === 'POST') {
-        const { id, sortOrder } = await readJsonBody(req);
+        const { id, sortOrder } = await readJsonBody(req, res);
         const result = favoritesManager.updateFolderSort(id, { sortOrder });
         _notifyBookmarksBarRefresh();
         sendJson(res, 200, result);
@@ -1180,7 +1191,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'update-favorite-sort' && req.method === 'POST') {
-        const { id, sortOrder } = await readJsonBody(req);
+        const { id, sortOrder } = await readJsonBody(req, res);
         const result = favoritesManager.updateFavoriteSort(id, { sortOrder });
         _notifyBookmarksBarRefresh();
         sendJson(res, 200, result);
@@ -1188,7 +1199,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'compute-sort-keys' && req.method === 'POST') {
-        const { beforeKey, afterKey, count } = await readJsonBody(req);
+        const { beforeKey, afterKey, count } = await readJsonBody(req, res);
         const { generateNKeysBetween } = require('./vendor/fractional-indexing');
         const keys = generateNKeysBetween(beforeKey, afterKey, count);
         sendJson(res, 200, { keys });
@@ -1196,7 +1207,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'update-batch-sort' && req.method === 'POST') {
-        const { items } = await readJsonBody(req);
+        const { items } = await readJsonBody(req, res);
         const result = favoritesManager.batchUpdateSort(items);
         _notifyBookmarksBarRefresh();
         sendJson(res, 200, result);
@@ -1204,7 +1215,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'update-batch-folder-sort' && req.method === 'POST') {
-        const { folders } = await readJsonBody(req);
+        const { folders } = await readJsonBody(req, res);
         const result = favoritesManager.batchUpdateFolderSort(folders);
         _notifyBookmarksBarRefresh();
         sendJson(res, 200, result);
@@ -1439,7 +1450,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'update' && req.method === 'POST') {
-        const updates = await readJsonBody(req);
+        const updates = await readJsonBody(req, res);
         // 安全策略键服务端双保险校验（Pitfall 8：不能只依赖设置页前端校验）
         for (const [key, value] of Object.entries(updates)) {
           if (key === 'aiBashWhitelist') {
@@ -1577,7 +1588,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'open-url' && req.method === 'POST') {
-        const { url } = await readJsonBody(req);
+        const { url } = await readJsonBody(req, res);
         if (url) {
           const { shell } = require('electron');
           await shell.openExternal(url);
@@ -1600,28 +1611,28 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'set-devmode' && req.method === 'POST') {
-        const { enabled } = await readJsonBody(req);
+        const { enabled } = await readJsonBody(req, res);
         cdpManager.setEnabled(!!enabled);
         sendJson(res, 200, { success: true });
         return;
       }
 
       if (route === 'add-devdomain' && req.method === 'POST') {
-        const { domain } = await readJsonBody(req);
+        const { domain } = await readJsonBody(req, res);
         const result = cdpManager.addDomain(domain);
         sendJson(res, result.success ? 200 : 400, result);
         return;
       }
 
       if (route === 'remove-devdomain' && req.method === 'POST') {
-        const { domain } = await readJsonBody(req);
+        const { domain } = await readJsonBody(req, res);
         const result = cdpManager.removeDomain(domain);
         sendJson(res, result.success ? 200 : 400, result);
         return;
       }
 
       if (route === 'set-dev-retention' && req.method === 'POST') {
-        const { days } = await readJsonBody(req);
+        const { days } = await readJsonBody(req, res);
         cdpManager.setRetentionDays(days);
         sendJson(res, 200, { success: true });
         return;
@@ -1655,7 +1666,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'ai/configure' && req.method === 'POST') {
-        const config = await readJsonBody(req);
+        const config = await readJsonBody(req, res);
         if (!config || !config.provider || !config.apiKey) {
           sendJson(res, 400, { error: '提供商和 API Key 不能为空' });
           return;
@@ -1689,7 +1700,7 @@ app.whenReady().then(async () => {
           sendJson(res, 500, { error: 'AI Manager 未初始化' });
           return;
         }
-        const config = await readJsonBody(req);
+        const config = await readJsonBody(req, res);
         await aiManager.setVisionModel(config);
         sendJson(res, 200, { success: true });
         return;
@@ -1707,7 +1718,7 @@ app.whenReady().then(async () => {
 
       // POST /api/ai/providers — 保存供应商配置
       if (route === 'ai/providers' && req.method === 'POST') {
-        const config = await readJsonBody(req);
+        const config = await readJsonBody(req, res);
         if (!config || !config.provider) {
           sendJson(res, 400, { error: '提供商不能为空' });
           return;
@@ -1738,7 +1749,7 @@ app.whenReady().then(async () => {
       if (route.match(/^ai\/providers\/[^/]+\/detect-models$/) && req.method === 'POST') {
         const parts = route.split('/');
         const providerId = parts[2];
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, res);
         let apiKey = body && body.apiKey;
         const baseURL = body && body.baseURL;
         const envVarName = body && body.envVarName;
@@ -1827,7 +1838,7 @@ app.whenReady().then(async () => {
 
       // POST /api/search-config/set
       if (route === 'set' && req.method === 'POST') {
-        const updates = await readJsonBody(req);
+        const updates = await readJsonBody(req, res);
         // 校验 provider 为已知字符串
         const VALID_PROVIDERS = ['auto', 'tavily', 'brave', 'serper', 'anysearch', 'anysearch_free'];
         if (updates.provider) {
@@ -1871,7 +1882,7 @@ app.whenReady().then(async () => {
 
       // POST /api/search-config/verify-key
       if (route === 'verify-key' && req.method === 'POST') {
-        const { provider, apiKey } = await readJsonBody(req);
+        const { provider, apiKey } = await readJsonBody(req, res);
 
         // 如果 apiKey 为空，检查环境变量
         let keyToVerify = apiKey;
@@ -2048,7 +2059,7 @@ app.whenReady().then(async () => {
 
       // POST /api/devrequests/delete — 删除单条记录
       if (route === 'delete' && req.method === 'POST') {
-        const { containerId, id } = await readJsonBody(req);
+        const { containerId, id } = await readJsonBody(req, res);
         const result = devRequestsWriter.deleteRecord(containerId || 'default', id);
         sendJson(res, 200, result);
         return;
@@ -2056,7 +2067,7 @@ app.whenReady().then(async () => {
 
       // POST /api/devrequests/clear — 清空容器的所有记录
       if (route === 'clear' && req.method === 'POST') {
-        const { containerId } = await readJsonBody(req);
+        const { containerId } = await readJsonBody(req, res);
         const result = devRequestsWriter.clearRecords(containerId || 'default');
         sendJson(res, 200, { success: result.success, deletedCount: result.deleted });
         return;
@@ -2113,7 +2124,7 @@ app.whenReady().then(async () => {
 
       // POST /api/downloads/delete — 删除单条下载记录
       if (route === 'delete' && req.method === 'POST') {
-        const { downloadId, deleteFile } = await readJsonBody(req);
+        const { downloadId, deleteFile } = await readJsonBody(req, res);
         sendJson(res, 200, downloadManager.deleteDownload(downloadId, !!deleteFile));
         return;
       }
@@ -2126,28 +2137,28 @@ app.whenReady().then(async () => {
 
       // POST /api/downloads/pause — 暂停下载
       if (route === 'pause' && req.method === 'POST') {
-        const { downloadId } = await readJsonBody(req);
+        const { downloadId } = await readJsonBody(req, res);
         sendJson(res, 200, { success: downloadManager.pauseDownload(downloadId) });
         return;
       }
 
       // POST /api/downloads/resume — 恢复下载
       if (route === 'resume' && req.method === 'POST') {
-        const { downloadId } = await readJsonBody(req);
+        const { downloadId } = await readJsonBody(req, res);
         sendJson(res, 200, { success: downloadManager.resumeDownload(downloadId) });
         return;
       }
 
       // POST /api/downloads/cancel — 取消下载
       if (route === 'cancel' && req.method === 'POST') {
-        const { downloadId } = await readJsonBody(req);
+        const { downloadId } = await readJsonBody(req, res);
         sendJson(res, 200, { success: downloadManager.cancelDownload(downloadId) });
         return;
       }
 
       // POST /api/downloads/open — 打开文件
       if (route === 'open' && req.method === 'POST') {
-        const { filePath } = await readJsonBody(req);
+        const { filePath } = await readJsonBody(req, res);
         // 路径安全验证：限制在用户下载目录内（防路径遍历）
         if (!isPathInDownloadsDir(filePath)) {
           sendJson(res, 403, { success: false, error: '路径不在允许范围内' });
@@ -2160,7 +2171,7 @@ app.whenReady().then(async () => {
 
       // POST /api/downloads/show-in-folder — Finder 显示
       if (route === 'show-in-folder' && req.method === 'POST') {
-        const { filePath } = await readJsonBody(req);
+        const { filePath } = await readJsonBody(req, res);
         // 路径安全验证：限制在用户下载目录内（防路径遍历）
         if (!isPathInDownloadsDir(filePath)) {
           sendJson(res, 403, { success: false, error: '路径不在允许范围内' });
@@ -2288,7 +2299,7 @@ app.whenReady().then(async () => {
       //   status 标记（cancelTask）仅覆盖：非 running 取消（维持 400 非法流转）、引擎已停后兜底、
       //     非 record/convert 类型
       if (route === 'cancel' && req.method === 'POST') {
-        const { taskId } = await readJsonBody(req);
+        const { taskId } = await readJsonBody(req, res);
         if (!mediaTaskManager) {
           sendJson(res, 503, { success: false, error: '任务注册表未初始化' });
           return;
@@ -2359,7 +2370,7 @@ app.whenReady().then(async () => {
 
       // POST /api/tasks/show-in-folder — Finder 定位产物（仅 completed/interrupted 且产物存在）
       if (route === 'show-in-folder' && req.method === 'POST') {
-        const { taskId } = await readJsonBody(req);
+        const { taskId } = await readJsonBody(req, res);
         const task = (mediaTaskManager ? mediaTaskManager.listTasks() : []).find((t) => t.id === taskId);
         if (!task) {
           sendJson(res, 404, { success: false, error: '任务不存在' });
@@ -2381,7 +2392,7 @@ app.whenReady().then(async () => {
       // POST /api/tasks/convert-resume — 已落盘部分续转（44-05 落地 44-03 预留路由）：
       // record 任务的录制目录分片 → startConvertTask（弹框选目录在主进程发起）
       if (route === 'convert-resume' && req.method === 'POST') {
-        const { taskId } = await readJsonBody(req);
+        const { taskId } = await readJsonBody(req, res);
         if (!mediaTaskManager) {
           sendJson(res, 503, { success: false, error: '任务注册表未初始化' });
           return;
@@ -2468,7 +2479,7 @@ app.whenReady().then(async () => {
 
       // POST /api/credentials/delete — 删除单条凭据
       if (route === 'delete' && req.method === 'POST') {
-        const { containerId, origin } = await readJsonBody(req);
+        const { containerId, origin } = await readJsonBody(req, res);
         if (!containerId || !origin) {
           sendJson(res, 400, { error: '缺少必要参数' });
           return;
@@ -2480,7 +2491,7 @@ app.whenReady().then(async () => {
 
       // POST /api/credentials/batch-delete — 批量删除凭据
       if (route === 'batch-delete' && req.method === 'POST') {
-        const { containerId, origins } = await readJsonBody(req);
+        const { containerId, origins } = await readJsonBody(req, res);
         if (!containerId || !Array.isArray(origins)) {
           sendJson(res, 400, { error: '缺少必要参数' });
           return;
@@ -2492,7 +2503,7 @@ app.whenReady().then(async () => {
 
       // POST /api/credentials/get-by-id — 获取解密后的凭据详情（展开详情用）
       if (route === 'get-by-id' && req.method === 'POST') {
-        const { credentialId } = await readJsonBody(req);
+        const { credentialId } = await readJsonBody(req, res);
         if (!credentialId) {
           sendJson(res, 400, { error: '缺少 credentialId 参数' });
           return;
@@ -2544,7 +2555,7 @@ app.whenReady().then(async () => {
 
       // POST /api/address/save — 保存地址
       if (route === 'save' && req.method === 'POST') {
-        const { containerId, name, phone, address } = await readJsonBody(req);
+        const { containerId, name, phone, address } = await readJsonBody(req, res);
         if (!containerId || !name || !phone || !address) {
           sendJson(res, 400, { error: '缺少必要参数' });
           return;
@@ -2556,7 +2567,7 @@ app.whenReady().then(async () => {
 
       // POST /api/address/delete — 删除地址
       if (route === 'delete' && req.method === 'POST') {
-        const { containerId } = await readJsonBody(req);
+        const { containerId } = await readJsonBody(req, res);
         if (!containerId) {
           sendJson(res, 400, { error: '缺少 containerId 参数' });
           return;
@@ -2623,28 +2634,28 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'create' && req.method === 'POST') {
-        const { containerId, pattern } = await readJsonBody(req);
+        const { containerId, pattern } = await readJsonBody(req, res);
         const result = assignmentRules.createRule(containerId, pattern);
         sendJson(res, 200, result);
         return;
       }
 
       if (route === 'update' && req.method === 'POST') {
-        const { ruleId, updates } = await readJsonBody(req);
+        const { ruleId, updates } = await readJsonBody(req, res);
         const result = assignmentRules.updateRule(ruleId, updates);
         sendJson(res, 200, result);
         return;
       }
 
       if (route === 'delete' && req.method === 'POST') {
-        const { ruleId } = await readJsonBody(req);
+        const { ruleId } = await readJsonBody(req, res);
         const result = assignmentRules.deleteRule(ruleId);
         sendJson(res, 200, result);
         return;
       }
 
       if (route === 'reorder' && req.method === 'POST') {
-        const { orderedIds } = await readJsonBody(req);
+        const { orderedIds } = await readJsonBody(req, res);
         const result = assignmentRules.reorderRules(orderedIds);
         sendJson(res, 200, result);
         return;
@@ -2657,7 +2668,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'import' && req.method === 'POST') {
-        const payload = await readJsonBody(req);
+        const payload = await readJsonBody(req, res);
         const result = assignmentRules.importRules(assignmentRules.normalizeRulesPayload(payload));
         sendJson(res, 200, result);
         return;
@@ -2692,7 +2703,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'set' && req.method === 'POST') {
-        const { action, accelerator } = await readJsonBody(req);
+        const { action, accelerator } = await readJsonBody(req, res);
         const result = shortcutManager.setShortcut(action, accelerator);
         if (result) {
           shortcutManager.rebuildShortcuts();
@@ -2702,7 +2713,7 @@ app.whenReady().then(async () => {
       }
 
       if (route === 'reset' && req.method === 'POST') {
-        const { action } = await readJsonBody(req);
+        const { action } = await readJsonBody(req, res);
         const result = shortcutManager.resetShortcut(action);
         if (result) {
           shortcutManager.rebuildShortcuts();
@@ -2766,7 +2777,7 @@ app.whenReady().then(async () => {
       }
 
       if (req.method === 'POST') {
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, res);
         const scope = parseAiMemoryScope(body && body.scope);
         const content = body && body.content;
         if (!scope) {
@@ -2851,7 +2862,7 @@ app.whenReady().then(async () => {
           sendJson(res, 503, { error: 'AI 服务尚未就绪' });
           return;
         }
-        const { name, disabled } = await readJsonBody(req);
+        const { name, disabled } = await readJsonBody(req, res);
         sendJson(res, 200, await aiManager.setSkillDisabled(name, disabled));
         return;
       }
@@ -2864,7 +2875,7 @@ app.whenReady().then(async () => {
           sendJson(res, 503, { error: 'AI 服务尚未就绪' });
           return;
         }
-        const { name } = await readJsonBody(req);
+        const { name } = await readJsonBody(req, res);
         sendJson(res, 200, await aiManager.uninstallUserSkill(name));
         return;
       }
@@ -3005,7 +3016,7 @@ app.whenReady().then(async () => {
         return;
       }
       try {
-        const { visible } = await readJsonBody(req);
+        const { visible } = await readJsonBody(req, res);
         configStore.set('bookmarksBar.visible', !!visible);
         configStore.set('settings.bookmarksBar.visible', !!visible);
         // 通知所有窗口渲染进程
