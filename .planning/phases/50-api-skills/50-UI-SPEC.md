@@ -1,10 +1,11 @@
 ---
 phase: "50"
 slug: "api-skills"
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: "2026-09-14"
+reviewed_at: "2026-09-14"
 ---
 
 # Phase 50 — UI Design Contract
@@ -1087,11 +1088,85 @@ li.skill-manage-row
 
 ## UI Considerations
 
-> 本节由 `ui-phase` 探针在 checker 通过后写入（形状根因的 UI 状态覆盖：empty / loading / error /
-> populated / partial / overflow / zero-one-many / long-text）。**本节留空，等待探针填表。**
+> 本节由**探针引擎**（`$HOME/.codebuddy/gsd-core/bin/lib/ui-consideration-probe.cjs`）产出后人工裁决：
+> 引擎按散文关键词判元素种类，**有损明显**（9 个元素里 5 个判为 `unclassified`），故按既有先例
+> **人工补全种类**（`elements` 覆盖数组）后重跑，再逐条裁决 —— 补全清单已与用户确认
+> （`AskUserQuestion`，选择「按补全清单即可」）。**重复运行即整节替换，不追加。**
 >
-> 空态与错误态的**文案**在 `## Copywriting Contract`（三态空态 + 按 `code` 的失败映射表 +
-> 加载中文案），本节只记**形状**覆盖，不重复抄写文案。
+> 空态与错误态的**文案**在 `## Copywriting Contract`（三态空态 A/B/C + 按 `code` 的失败映射表 +
+> 加载中文案），本节只记**形状根因**的状态覆盖，不重复抄写文案。
+
+coverage: **applicable 41 / resolved 41 / unresolved 0** ——
+byVerification `{ explicit: 33, backstop: 1 }`，dismissed 7（带理由，非省略）。
+
+元素清单与种类（人工确认，绕过有损分类器）：
+
+| ID | 元素 | `elements` 种类 | 补充说明 |
+|----|------|----------------|---------|
+| E1 | 区外壳 + 区说明（`h2.settings-group-title` + 三段 `p.setting-description`） | `static-content` | 引擎判 `unclassified`；**人工补** —— 三段静态说明只读、无输入控件、无异步取数 |
+| E2 | 模块级汇总条 `#skillManageSummary`（默认展开，header 兼开关） | `interactive-control` · `static-content` · `list-collection` | 引擎只给出 loading / error / long-text；**人工补** `interactive-control`（header 可点可键盘）与 `list-collection`（内部是诊断条目列表 ⇒ `empty` / `zero-one-many` 需在此建模） |
+| E3 | 状态区 `#skillManageState`（加载中 + 空态 A/B/C，各配 `重新加载`） | `static-content` · `interactive-control` | 引擎判 `unclassified`；**人工补** 两项（静态标题/正文 + 一个按钮）。**未**补 `list-collection` —— 该元素本身就是「列表无数据时显示什么」，按列表集合建模会与 E4 重复且自指（用户已确认） |
+| E4 | 三组容器 `#skillManageGroups` + 组内 `ul/li` 行列表 | `list-collection` | 引擎判 `unclassified`；**人工补** —— 这是本阶段唯一的真正集合（0..100 行 × 1..3 组），`empty` / `partial` / `zero-one-many` / `populated` 四个类别的承载面 |
+| E5 | 行首行 `div.skill-manage-row-main`（技能名 + 徽标 + 仅显式 + 右对齐簇） | `interactive-control` · `static-content` | 引擎给出 loading / error / overflow / long-text；**人工补** 两项（簇内含 `role="switch"` 开关、诊断徽标按钮与卸载按钮；技能名/徽标/状态标注是静态内容）。**未**补 `list-collection`（与 E4 重复，用户已确认） |
+| E6 | 行副行 `div.skill-manage-row-sub`（描述 + 元信息） | `static-content` | 与引擎判定一致 |
+| E7 | 诊断详情区 `div.skill-manage-diag`（行内徽标切换展开） | `interactive-control` · `static-content` · `list-collection` | 引擎判 `unclassified`；**人工补** 三项（徽标是开关、正文是静态内容、内部为诊断条目列表） |
+| E8 | 卸载确认弹框（`.ai-modal-overlay` + `.ai-modal`） | `interactive-control` · `static-content` | 引擎判 `unclassified`；**人工补** 两项。**未**补 `form` —— 它是确认对话而非数据录入表单（无输入控件、无提交校验），补 `form` 会引入 `empty` / `partial` 两条必然 dismissed 的条目（用户已确认） |
+| E9 | 区级 inline hint `#skillManageHint` | `static-content` | 引擎判 `unclassified`；**人工补** —— 单行提示文本，2 秒复位 |
+
+> 未采用 `media`：本阶段无任何图片 / 视频 / 音频元素（无图标位图，chevron 是文本字形 + CSS 旋转）。
+> 8 个状态类别在补全后**全部有元素承载**，无类别缺口。
+
+| requirement_id | category | Status | Resolution / Reason |
+|----------------|----------|--------|---------------------|
+| E1 | overflow | ✅ resolved (explicit) | 区说明三段静态文案允许换行（word-break: break-word）、不截断；窗口收窄时随 .settings-group 卡片折行，不横向溢出。 |
+| E1 | long-text | ✅ resolved (explicit) | 区说明是定长静态文案（含 `<code>manage_skill</code>` / `<code>SKILL.md</code>` 等静态字面量），不来自技能数据、无长度上限风险；最长段在 476px 行宽下按 word-break 折行。 |
+| E2 | empty | ✅ dismissed | 契约锁定：errors[] 为 0 时整条不渲染（不占位、无空态文案）——汇总条的存在本身就以「有模块级错误」为前提。 |
+| E2 | loading | ✅ dismissed | 汇总条不加载数据——内容与列表加载结果同一次 /api/skills/list 抵达，自身无异步取数与中间态；加载期间整个区由 E3 状态区承载。 |
+| E2 | error | ✅ resolved (explicit) | 汇总条就是 errors[] 的承载面：每条显示级别（错误/警告/提示）+ 可读 message + realm_* 诊断码；默认展开（禁止静默失败）。 |
+| E2 | populated | ✅ resolved (explicit) | 常态展开显示「技能加载问题（N）」，N = errors.length；N ≥ 1 时恒渲染。 |
+| E2 | partial | ✅ dismissed | 汇总条无部分就绪态——它由列表加载的同一响应原子填充；不存在「容器已在、条目未齐」的中间态。 |
+| E2 | overflow | ✅ resolved (explicit) | 条目正文落在既有 .ai-skill-content-box-body（max-height: 260px; overflow-y: auto）内层滚动里，超长 message 在块内滚动、不带动整页（契约「列表滚动归属」已如实登记该内层容器）。 |
+| E2 | zero-one-many | ✅ resolved (explicit) | 0 条不渲染；1 条显示「技能加载问题（1）」；N 条显示 N——标题用括号计数而非单复数文案（中文无单复数形态）。 |
+| E2 | long-text | ✅ resolved (explicit) | 诊断 message 允许换行（word-break: break-word，照抄既有 body 声明）、不截断；code 等宽 + nowrap。 |
+| E3 | loading | ✅ resolved (explicit) | 加载中呈现为单行纯文本「正在加载技能…」——无标题、无按钮、无 spinner、无骨架屏（沿设置页 AI 记忆子区「加载中…」既有先例）。 |
+| E3 | error | ✅ resolved (explicit) | 拉取失败走空态 C：标题「技能列表加载失败」+ 后端 error 原文 + 「重新加载」按钮（.btn-secondary）。 |
+| E3 | overflow | ✅ resolved (explicit) | 空态标题 / 正文允许换行（word-break: break-word），不截断；容器 padding 16px 0，不横向溢出。 |
+| E3 | long-text | ✅ resolved (explicit) | 空态 C 的正文承载后端 error 原文（长度不可控）⇒ 允许折行、不截断；空态 A/B 为定长文案；按钮「重新加载」定长。 |
+| E4 | empty | ✅ resolved (explicit) | 两种空态必须区分（D-19 硬要求）：refreshedAt === 0 ⇒ 空态 A「技能列表尚未加载」（禁止渲染成「无技能」）；refreshedAt > 0 且总数 0 ⇒ 空态 B「尚无任何技能」+「未检测到随包内置技能」。文案见 `## Copywriting Contract`。 |
+| E4 | loading | ✅ resolved (explicit) | 加载中由 E3 承载（单行纯文本），列表不渲染、不出骨架屏、不出占位行。 |
+| E4 | error | ✅ resolved (explicit) | 拉取失败由 E3 的空态 C 承载，列表整体不渲染；操作失败不改列表（只有成功才用响应体回传的管理投影重渲染）。 |
+| E4 | populated | ✅ resolved (explicit) | 常态势：1–3 组（我的技能 / 内置技能 / AI 创建）+ 组内行式列表；排序与分组由主进程按 bySkillPriority 全序投影，前端只 groups.forEach、不重排。 |
+| E4 | partial | ✅ resolved (explicit) | 空组不渲染由主进程剔除，渲染层零判定；因此「部分组有内容」天然成立（如只有内置技能时只渲染 1 组），不产出占位标题。 |
+| E4 | overflow | ✅ resolved (explicit) | 列表不新建滚动容器（区与组均不设 max-height / overflow），滚动归既有 .settings-content（页面级）；诊断详情区展开时其正文在复用块的 260px 内层滚动里（契约「列表滚动归属」已如实登记两级）。 |
+| E4 | zero-one-many | ✅ resolved (explicit) | 0 条走空态 A/B（列表不渲染）；1 条只渲染 1 组 1 行；N 条（上限 100 = user 50 + managed 50）纵向排列，组间 margin-top + padding-top 各 16px。 |
+| E5 | loading | ✅ resolved (explicit) | 启停开关在途态：立即乐观翻转 .on / aria-checked 并置 disabled（opacity: .6 / cursor: progress）；不做全局遮罩、不做列表 loading 态。 |
+| E5 | error | ✅ resolved (explicit) | 启停失败 ⇒ 回滚 .on / aria-checked、解除 disabled、区级 hint（按 code 查表、2 秒复位）；卸载失败同走 hint，列表不因失败改变。 |
+| E5 | overflow | 🧪 resolved (backstop) | `{ statement: "在设置页最小可用窗口（800px：行宽约 476px）下，最宽形态的行首行（诊断 N + 状态标注「已遮蔽 · 由用户同名技能胜出」+ 启停开关 + 卸载按钮 + 4×8px 间隙约 330px）保持单行不换行、右对齐簇不被裁切，仅技能名缩到省略号（title 仍可读全名）；不出现徽标被挤出首行或头部高度变化", verification: "backstop" }` —— 需真实数据集的视觉确认（右簇 330px 是**由 CSS 值推算的估值**，非实测）。**无显式证据则路由 `human_needed`**。 |
+| E5 | long-text | ✅ resolved (explicit) | .skill-manage-row-main 不得声明 flex-wrap（硬禁令）；可压缩项只有 .skill-manage-name（min-width: 0 + ellipsis），右对齐簇与徽标 flex-shrink: 0 + nowrap 永不让位。超长技能名由 title 放全文；状态标注最长为 `STATUS_TEXT.shadowed` 的 14 字定长。 |
+| E6 | overflow | ✅ resolved (explicit) | 描述单行截断（text-overflow: ellipsis）；元信息 flex-shrink: 0 + nowrap 永不截断、永不让位。 |
+| E6 | long-text | ✅ resolved (explicit) | 超长描述由 CSS 截断 + title 放全文（D-02 锁定；截断用 CSS 而非 JS，避免「截断逻辑」成为第二份实现）；元信息是定长格式「N KB · N 个文件」。 |
+| E7 | empty | ✅ dismissed | 契约锁定：diagnostics.length === 0 时诊断徽标与详情区都不渲染（不占位、不留空元素）——详情区的存在以「有诊断」为前提。 |
+| E7 | loading | ✅ dismissed | 详情区不加载数据——条目随列表响应一同抵达，展开即时可用，无异步取数与中间态。 |
+| E7 | error | ✅ resolved (explicit) | 诊断条目按级别上色：错误 ⇒ --skill-error-text、警告 ⇒ --skill-limit-text、提示 ⇒ --text-secondary（三档均已四档对比度核算）。详情区本身不承载操作失败——操作失败走区级 hint（E9）。 |
+| E7 | populated | ✅ resolved (explicit) | 常态折叠；展开后显示 diagnostics[] 每条三项：级别标签 + 可读 message（可换行不截断）+ realm_* 诊断码（次要、等宽）；诊断条目自带的 path 不上屏。 |
+| E7 | partial | ✅ dismissed | 无部分就绪态——条目随列表响应原子填充，不存在「容器已在、条目未齐」的中间态。 |
+| E7 | overflow | ✅ resolved (explicit) | 正文落在既有 .ai-skill-content-box-body（max-height: 260px; overflow-y: auto）内层滚动里；本阶段不新建、不改动该声明（改动会命中 48/49 两个宿主）。 |
+| E7 | zero-one-many | ✅ resolved (explicit) | 0 条整个详情区与徽标均不渲染；1 条徽标显示「诊断 1」；N 条显示「诊断 N」，条目在列表内纵向排列、gap: 8px。 |
+| E7 | long-text | ✅ resolved (explicit) | 诊断 message 用 white-space: pre-wrap + word-break: break-word 不截断；code 等宽 + nowrap（realm_* 定长形态，不会溢出）。 |
+| E8 | loading | ✅ dismissed | 弹框无加载态——确认后立即执行、不做乐观删除；在途态由被触发行内控件自身承载（E5）。 |
+| E8 | error | ✅ resolved (explicit) | 弹框内不显示错误：卸载失败关闭弹框后由区级 hint（E9）按 code 报出，2 秒复位。 |
+| E8 | overflow | ✅ resolved (explicit) | 正文含目录路径 skills/{name}/（技能名受 64 字符写入上限约束）+ 条件追加行；正文允许换行（word-break: break-word），内层间距由既有 .ai-modal 的 gap: 10px 承担。 |
+| E8 | long-text | ✅ resolved (explicit) | 弹框标题「卸载技能「{name}」？」中的 {name} 最长 64 字符——允许换行、不截断（弹框宽度由既有 .ai-modal 决定）；条件追加行是定长文案、查不到即不渲染。 |
+| E9 | overflow | ✅ resolved (explicit) | hint 允许换行（word-break: break-word），不截断；文本为空时不可见（不占位）。 |
+| E9 | long-text | ✅ resolved (explicit) | 失败 hint 的兜底文案承载后端 error 原文（长度不可控）⇒ 允许折行、不截断；常规成功 / 失败文案由闭合白名单定长。 |
+
+<!-- Status vocabulary (locked by probe-core projectTruths):
+     ✅ resolved (explicit) → a plain truth string lifted into must_haves.truths
+     🧪 resolved (backstop) → a flat scalar { statement, verification: backstop }; at verify time, no explicit
+                              evidence → insufficient_spec → human_needed (never a silent pass, #1154)
+     ✅ dismissed           → closed with an authored reason (NOT an omission — every dismissal carries one)
+     ⚠ unresolved           → an explicit planner assumption (surfaced, never silently dropped). 本轮为 0 条。
+     Rows are REPLACED (not appended) on a probe re-run — idempotent. -->
 
 ---
 
@@ -1156,12 +1231,14 @@ li.skill-manage-row
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
-- [ ] Dimension 7 Inventory Provenance: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
+- [x] Dimension 7 Inventory Provenance: FLAG（非阻断）
 
-**Approval:** pending
+**Approval:** approved（2026-09-14，第 3 轮复验 —— round 1 / round 2 各返回 1 条 Dimension 3 BLOCK，均已于当轮修复并独立复算确认）
+
+**非阻断 FLAG（Dimension 7，无需修复项）**：`Component Inventory` 是**诚实的非穷尽清单**（14 族既有原语 + provenance 槽的 `Could not enumerate: <真实理由>` + 可重跑清点命令，实跑 = 61 条），而非可机械复现的封闭枚举。项目 `Tool: none`、无包可列 ⇒ `<package>@<version>` 物理上不可得，**任何「补版本号」的建议都与项目事实冲突**。下游只需保持契约已写明的框定：使用表外既有原语是**预期路径**，不是例外；该表**不是允许使用的上限**。
