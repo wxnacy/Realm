@@ -2701,6 +2701,58 @@ app.whenReady().then(async () => {
     }
   }
 
+  /**
+   * 处理 /api/skills/* 技能管理 API 请求（Phase 50 D-15）—— 设置页数据层
+   *
+   * 首四行逐字照抄 `handleSettingsApi` 的范式：token 鉴权 → `route = pathname.replace(前缀,'')`
+   * → 分支 → `sendJson`。分发用 `startsWith` 而非 `===`（要承载多个子路由）。
+   *
+   * **本 handler 只是转发层**：判定 / 校验 / 写函数全部住 `ai-skills-manager.js`
+   * （技能集单一数据权威，零 electron 依赖）—— 在这里加工一份就是第二份实现
+   * （49-01 的「写权威与读权威同源」纪律，本阶段沿用）。
+   *
+   * 设置页是 `realm://` guest、**没有 `realmAPI`** ⇒ 它只能走本端点；主窗口
+   * `file://` **不能** fetch 本地 HTTP（Phase 38 事故的 CORS 拦截）⇒ 主窗口走
+   * `realmAPI` IPC。两条**不可互换**（D-17）。
+   *
+   * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} res - 响应对象
+   * @param {URL} reqUrl - 解析后的请求 URL
+   */
+  async function handleSkillsApi(req, res, reqUrl) {
+    // token 鉴权（T-50-01）：无 token / 错 token 必须在任何副作用之前 403
+    if (reqUrl.searchParams.get('token') !== REALM_TOKEN) {
+      sendJson(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    try {
+      const route = reqUrl.pathname.replace('/api/skills/', '');
+
+      if (route === 'list' && req.method === 'GET') {
+        // AI Manager 尚未就绪（whenReady 早期请求）：返回**空投影**而非 500 ——
+        // 设置页据此走「技能列表尚未加载」空态（refreshedAt === 0 的既有语义），
+        // 用户看到的仍是可理解的页面而不是一个报错。
+        if (!aiManager) {
+          sendJson(res, 200, { groups: [], errors: [], refreshedAt: 0, digest: '', limits: {} });
+          return;
+        }
+        // 读路径初始化（D-19）：无 Agent / 未配 provider 时也必须能列出盘上的技能。
+        // 恰一次重扫由该方法内部保证（有 Agent 走 syncAgentSystemPrompt，无 Agent 直接 refreshSkills）。
+        await aiManager.ensureSkillsFresh();
+        // getSkillsForManagement() 是**同步**的（零 IO 的缓存投影），不要 await 它
+        sendJson(res, 200, aiManager.getSkillsForManagement());
+        return;
+      }
+
+      sendJson(res, 404, { error: 'Not Found' });
+    } catch (err) {
+      console.error('[Realm] 技能 API 处理失败:', err.message);
+      // code 必须回传：设置页按 code 查失败文案表，**不解析 message**（UI-SPEC Copywriting 纪律）
+      sendJson(res, 400, { error: err.message, code: err.code || undefined });
+    }
+  }
+
   const realmServer = http.createServer(async (req, res) => {
     const reqUrl = new URL(req.url, 'http://localhost');
     const reqPath = reqUrl.pathname;
@@ -2750,6 +2802,13 @@ app.whenReady().then(async () => {
     // 快捷键 JSON API（设置页面数据层）
     if (reqPath.startsWith('/api/shortcuts/')) {
       handleShortcutsApi(req, res, reqUrl);
+      return;
+    }
+
+    // 技能管理 JSON API（设置页面「技能管理」分区数据层，Phase 50 D-15）。
+    // 用 startsWith 而非 ===：该前缀承载多个子路由（list / 后续的 set-disabled、uninstall）。
+    if (reqPath.startsWith('/api/skills/')) {
+      handleSkillsApi(req, res, reqUrl);
       return;
     }
 

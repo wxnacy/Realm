@@ -65,6 +65,27 @@ const MAX_SKILL_NAME_CHARS = 64;
 const MANAGED_SKILL_NAME_RE = /^[a-z0-9-]+$/;
 
 /**
+ * 尺寸遍历的两条**防御上限**（OQ-4 裁决）—— 超限截断 + 产 warning 诊断，**不拒绝加载**
+ *
+ * 为什么必须有：`MAX_USER_SKILLS` / `MAX_MANAGED_SKILLS` 只约束**技能个数**，
+ * 不约束**单个技能目录的深度与条目数**（`research/PITFALLS.md` 的 P7 把
+ * 「深目录递归」列为资源耗尽面）。而尺寸遍历发生在**每次 Agent 创建 / 重建**
+ * 的重扫管线里（`refreshSkills`），一次无界的深目录递归等于卡死主进程。
+ *
+ * 截断语义（T-50-02 的缓解面）：越过任一上限即**停止遍历**并产一条 warning 诊断，
+ * 该技能**仍照常加载**，只是体积显示为**下限值**（用户不会因此失去技能）。
+ * 不拒绝加载的理由与 `refreshSkills` 的单技能失败纪律一致：局部问题不该升级为整条消失。
+ *
+ * 写成模块常量而非 `LIMITS` 项：它们**不是 Realm 自定的用户额度**（不该经
+ * `getSkillsForManagement().limits` 回传给设置页、也不该出现在 UI 文案里），
+ * 而是遍历自身的资源护栏。导出仅供单测使用。
+ */
+const SKILL_SIZE_WALK_MAX_ENTRIES = 5000;
+
+/** 见 `SKILL_SIZE_WALK_MAX_ENTRIES`（深度上限，从 1 起计） */
+const SKILL_SIZE_WALK_MAX_DEPTH = 16;
+
+/**
  * 内容首部 YAML frontmatter 块（A5 裁决：技能正文若自带 frontmatter 一律**静默剥除**）
  *
  * 不剥除会产生双层 `---` 头、SDK 解析结果不确定（可能 parse_failed → 幽灵技能），
@@ -504,6 +525,37 @@ function bySkillPriority(a, b) {
 }
 
 /**
+ * 递归统计单个技能目录的**体积（字节）与文件数**（D-13 的口径实现，T-50-02/T-50-03）
+ *
+ * 三条纪律（改实现前必须逐条复核）：
+ * 1. **只经沙箱 env 遍历**（`env.listDir`），**不得**直接 `require('fs')` 或
+ *    `fs.readdir/stat/lstat/readFile` —— 直接 `fs` 绕过 `agent-workspace.resolveInside`
+ *    的双基准 + realpath 复核，等于给「运维 / 统计」开一个新的越界读入口（T-50-03）。
+ * 2. **必须显式跳过 symlink**（`e.kind === 'symlink'` ⇒ continue）：`listDir` 实测
+ *    会返回 symlink 条目，而**内部链接可穿入** ⇒ naive 递归在内部链接环上无限循环。
+ *    该遍历发生在**每次 Agent 创建 / 重建**，无界循环 = 卡死主进程（T-50-02）。
+ * 3. **一切失败都编码进返回值、绝不 throw**：沙箱 FileSystem 契约是「永不 throw，
+ *    失败编码进 Result」，且调用方（`refreshSkills`）的整体 `catch` 是**整批回滚**语义
+ *    —— 让一次 stat 失败冒泡上去会把「一个技能读不到」放大成「技能集消失」（T-50-04）。
+ *
+ * 目录名才是权威：调用方按 `path.dirname(entry.skill.filePath)` 派生目录，SDK 的
+ * `Skill` 只有五字段、没有位置字段。
+ *
+ * 本函数**不导出**（单测经公开函数的行为面覆盖，不测内部实现）。
+ *
+ * @param {object} env - 沙箱 ExecutionEnv（agent-workspace.createSandboxEnv 的返回值）
+ * @param {string} dir - 技能目录绝对路径
+ * @returns {Promise<{bytes: number, fileCount: number, errors: object[]}>}
+ *   `errors` 为 entry 级诊断对象数组（调用方经 `pushEntryDiag` 落到条目与模块级容器）
+ */
+async function measureSkillDir(env, dir) {
+  void env;
+  void dir;
+  // 遍历规则由 50-01 Task 3 落地（签名与返回三键形状在此定死）
+  return { bytes: 0, fileCount: 0, errors: [] };
+}
+
+/**
  * 异步刷新技能集（唯一加载入口，D-04）
  *
  * 每次 Agent 创建/重建之前无条件调用一次：这是唯一能自动覆盖「模型经
@@ -855,6 +907,82 @@ function getSkillsForUI(seededNames) {
     skills: _cache.skills.map((e) => toUISkillEntry(e, seededNames)),
     refreshedAt: _cache.refreshedAt,
     digest: _cache.digest,
+  };
+}
+
+/**
+ * 设置页「技能管理」区的数据源投影（Phase 50 D-13 / D-03）—— **同步、零 IO**
+ *
+ * ## 为什么不扩展 `getSkillsForUI()`（这条判断只在注释里活着就会在下个阶段被合并回去）
+ *
+ * 两个投影的**消费者字段需求本就不同**，`getSkillsForUI()` 是 `/` 面板的
+ * **有意收窄投影**（48 明文剔除 `content` / `filePath` / `diagnostics`，
+ * 防一次 IPC 送最坏 ~3 MB 正文）。本投影**新增** `bytes` / `fileCount` /
+ * `statsUnavailable` / `diagnostics` 四项（**仍不带正文**），
+ * 并把「按来源分组 + 组内定序」也一并做完（D-03：分组与排序都在主进程）。
+ *
+ * 合并两个投影的代价是**实打实的负优化**：`/` 面板每次打开都要白传 100 条技能的
+ * 目录遍历结果与诊断数组，而它一条都不消费。因此**「消除重复」在这里是错的**。
+ *
+ * ## 形状
+ *
+ * - `groups`：按 `user → builtin → managed` 的固定档位顺序产出的数组，
+ *   **空组已剔除**（D-03 要求空组剔除在主进程完成 ⇒ 渲染层零判定）；
+ *   组内顺序 = `_cache.skills` 既有顺序（即 `bySkillPriority` 全序的稳定投影，
+ *   本函数**不重排**）。每组形状 `{ tier, items }`。
+ * - 条目 = `toUISkillEntry()` 的**全部**字段 + 四个管理面字段：
+ *   - `bytes` / `fileCount`：重扫管线内算好并挂在缓存条目上（**读取时零 IO**，D-13）
+ *   - `statsUnavailable`：`bytes === 0 && fileCount === 0` 的**显式布尔**，
+ *     表达「统计不可用」而非「0 字节」。**不得**依赖「此时必有诊断」这类隐式契约
+ *     —— 它会被后续「顺手去掉冗余诊断」打翻（T-50-05）
+ *   - `diagnostics`：**必须 `slice()` 深拷数组**。条目级 `diagnostics` 是 `_cache`
+ *     内的**活数组**，浅拷会让设置页的展开操作把数据写回权威快照
+ * - `errors` / `refreshedAt` / `digest`：`_cache` 同名键的浅拷贝视图
+ * - `limits`：`LIMITS` 的五个数值投影（键名与常量名一一对应但**语义化命名**）——
+ *   设置页**不得写死任何限额数值**（45/46 建立的「端点与前端零字面量」纪律），
+ *   限额一律取本字段回传值
+ *
+ * **仍不携带 `content` 与 `filePath`**：正文没有任何管理面消费者，而 `filePath` 是
+ * 沙箱内绝对路径（对用户无意义，且 UI-SPEC 明文「诊断 path 不上屏」）。
+ *
+ * ## 为什么 `computeDigest` 里没有 `bytes` / `fileCount`（反向禁令）
+ *
+ * 尺寸不影响 prompt 段。把它加进 digest 会让「给技能加一个 `references/notes.md`」
+ * 触发 systemPrompt 改写 + 广播 ⇒ provider 前缀缓存 miss，是一条**纯性能回归**。
+ * 尺寸因此只随 `refreshedAt` 失效、**不进 digest**（D-13 / D-18 双禁令）。
+ *
+ * @param {string[]|Set<string>} [seededNames] - 随包内置技能名集合（调用方注入）
+ * @returns {{groups: Array<{tier: string, items: Array<object>}>, errors: Array<object>,
+ *            refreshedAt: number, digest: string, limits: object}}
+ */
+function getSkillsForManagement(seededNames) {
+  const seeded = seededNames instanceof Set ? seededNames : new Set(seededNames || []);
+  const groups = [];
+  for (const tier of ['user', 'builtin', 'managed']) {
+    const items = [];
+    for (const entry of _cache.skills) {
+      if (sourceTierOf(entry, seeded) !== tier) continue;
+      const item = toUISkillEntry(entry, seeded);
+      item.bytes = typeof entry.bytes === 'number' ? entry.bytes : 0;
+      item.fileCount = typeof entry.fileCount === 'number' ? entry.fileCount : 0;
+      item.statsUnavailable = item.bytes === 0 && item.fileCount === 0;
+      item.diagnostics = Array.isArray(entry.diagnostics) ? entry.diagnostics.slice() : [];
+      items.push(item);
+    }
+    if (items.length > 0) groups.push({ tier, items });
+  }
+  return {
+    groups,
+    errors: _cache.errors.slice(),
+    refreshedAt: _cache.refreshedAt,
+    digest: _cache.digest,
+    limits: {
+      maxSkillMdBytes: LIMITS.MAX_SKILL_MD_BYTES,
+      maxUserSkills: LIMITS.MAX_USER_SKILLS,
+      maxManagedSkills: LIMITS.MAX_MANAGED_SKILLS,
+      skillsPromptCharBudget: LIMITS.SKILLS_PROMPT_CHAR_BUDGET,
+      maxDescriptionChars: LIMITS.MAX_SKILL_DESCRIPTION_CHARS,
+    },
   };
 }
 
@@ -1683,5 +1811,11 @@ module.exports = {
   deleteManagedSkill,
   getSkillPromptIncluded,
   MANAGE_SKILL_ERROR,
+  // 50 新增（设置页「技能管理」区的管理面投影 + 尺寸遍历的防御上限常量）
+  // 注：measureSkillDir **刻意不导出** —— 它是内部实现，单测经 getSkillsForManagement()
+  //     与 refreshSkills() 的行为面覆盖（测行为不测实现）。
+  getSkillsForManagement,
+  SKILL_SIZE_WALK_MAX_ENTRIES,
+  SKILL_SIZE_WALK_MAX_DEPTH,
   _resetCacheForTest,
 };

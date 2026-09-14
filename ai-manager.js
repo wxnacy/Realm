@@ -1585,6 +1585,26 @@ class AIManager {
   }
 
   /**
+   * 设置页「技能管理」区的数据源投影（Phase 50 D-13）—— **同步、零 IO** 的转发层
+   *
+   * 与 `getSkillsForUI()` 同款形状的转发：判定 / 分组 / 排序 / 尺寸全部住在
+   * `ai-skills-manager.js`（技能集的单一数据权威，零 electron 依赖），本方法只做
+   * **seeded 集合注入**（`ai-skills-manager` 不自行解析随包目录，见 `sourceTierOf`）
+   * 与转发。**不在这里做任何加工** —— 加工一份就等于第二份实现。
+   *
+   * `getSkillsForUI()` 与 `getSkillsForManagement()` **并列共存、不得合并**：
+   * 前者是 `/` 面板的有意收窄投影，后者多带 `bytes` / `fileCount` /
+   * `statsUnavailable` / `diagnostics` 与分组结构。理由详见
+   * `ai-skills-manager.getSkillsForManagement()` 的 JSDoc。
+   *
+   * @returns {{groups: Array<object>, errors: Array<object>, refreshedAt: number,
+   *            digest: string, limits: object}} 管理面投影
+   */
+  getSkillsForManagement() {
+    return getAiSkillsManagerLazy().getSkillsForManagement(this.getSeededSkillNamesSafe());
+  }
+
+  /**
    * 由技能文件路径求 tier（重载路径的元数据还原）—— 唯一的 `matchSkillByPath` 调用点
    *
    * @param {string} location - 技能文件绝对路径（入库存的是 `skill.filePath`）
@@ -3072,6 +3092,58 @@ ${content}
   async refreshSkillsForPanel() {
     await this.syncAgentSystemPrompt();
     return this.getSkillsForUI();
+  }
+
+  /**
+   * 管理读路径的**初始化**（Phase 50 D-19）—— 不依赖 Agent 的兜底重扫
+   *
+   * ## 为什么必须存在（否则设置页判据 1 在无 provider 用户处**整体空白**）
+   *
+   * `init()` 有**两条**早退，都在 `createSandboxEnv()` 与首次 `refreshSkills()` **之前**：
+   * - 无任何 provider API Key（`if (configuredIds.length === 0) return;`）
+   * - 已配置但模型名解析不到（`if (!model) return;`）
+   *
+   * 两条早退都会让 `this.sandboxEnv` 与模块级技能缓存一起**永远停在初始态**
+   * （`skills: []` / `refreshedAt: 0`），而 `builtinSkillsSeeder.seedBuiltinSkills()`
+   * 在 `main.js` 的 whenReady 里是**无条件**执行 ⇒ 内置技能**早已在盘上**。
+   * 此时 `syncAgentSystemPrompt()` 首行 `if (!this.agent || !this.sandboxEnv) return;`
+   * 连重扫都不执行 ⇒ 用户看到空列表且**无法自查原因**（属「静默失败」反模式）。
+   *
+   * ## 判据是「Agent 存在与否」—— **不得**按「有没有 provider」判
+   *
+   * 上面那两条早退是**并列**的，按 provider 判会漏掉第二条（配了 Key 但模型名写错 ⇒
+   * 管理区又空白）。而 `createSandboxEnv()` 只依赖 `agent-workspace` + SDK，
+   * **与 provider 配置无关** ⇒ 无 Agent 时直接建沙箱再重扫这条路完全可行。
+   *
+   * ## 三条约束
+   *
+   * ① **恰一次重扫**（次数账）：有 Agent 时走 `syncAgentSystemPrompt()`（其函数体内**已含**
+   *    恰一次 `refreshSkills()`）；无 Agent 时直接 `refreshSkills()`。
+   *    **不得两条都执行** —— 那是两次全量重扫（49-01 的 L 组断言付过这个代价）。
+   * ② **不进 `syncAgentSystemPrompt()` 的函数体**（46-04 的方法体源码扫描断言 +
+   *    48 的广播次数断言同时钉着它）。
+   * ③ 它**不是写路径**（读侧 / 兜底）⇒ **不并入** `syncAgentSystemPrompt()` 的写侧份额账
+   *    （OQ-5：`STATE.md` 与产品文档的读写两个数**分别记**，读侧不并入「6 个触发点」分子）。
+   *
+   * @returns {Promise<void>}
+   */
+  async ensureSkillsFresh() {
+    if (!this.sandboxEnv) {
+      this.sandboxEnv = await getAgentWorkspaceLazy().createSandboxEnv();
+    }
+
+    if (this.agent) {
+      await this.syncAgentSystemPrompt();
+      return;
+    }
+
+    await getAiSkillsManagerLazy().refreshSkills(this.sandboxEnv, {
+      disabled: this.configStore ? this.configStore.get('settings.aiSkills.disabled', []) : [],
+      rootDirs: [
+        getAgentWorkspaceLazy().getManagedSkillsDir(),
+        getAgentWorkspaceLazy().getSkillsDir(),
+      ],
+    });
   }
 
   /**
