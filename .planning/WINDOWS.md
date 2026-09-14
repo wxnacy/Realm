@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 30
+open_count: 33
 waived_count: 0
 fixed_count: 2
-total_count: 32
-last_updated: 2026-09-14T13:23:22.986Z
+total_count: 35
+last_updated: 2026-09-14T13:50:38.408Z
 ---
 
 # Broken Windows Ledger
@@ -47,6 +47,9 @@ last_updated: 2026-09-14T13:23:22.986Z
 | 30 | 49 | unrun-verify | docs/product/ai-skills.md |  | 失败态短原因（≤ 6 字）在 280px 面板下的宽度仅由算术保证（8+32+8+66≈114≤129），未用真实渲染逐条覆盖 —— G-49-3 的渲染门禁只覆盖超预算那条形态 | open |  | 2026-09-13T14:29:15.698Z |  |
 | 31 | 50 | deviation | src/styles/main.css |  | 计划自带的样式硬禁令判据只扫单个规则块：另起 .skill-manage-row:hover { background: var(--bg-hover) } 可完整绕过（变异实测仍绿）。已由 tests/test-skills-management.js 的样式硬禁令组按选择器形态补判据 | open |  | 2026-09-14T13:23:22.903Z |  |
 | 32 | 50 | deviation | ai-skills-manager.js |  | 计划自带的尺寸口径判据只扫「e.kind === 'directory'」起始那一行：把 bytes += 加在下一行（自然写法）不转红。已由 tests/test-skills-management.js 的 3 条行为用例承担该不变式 | open |  | 2026-09-14T13:23:22.986Z |  |
+| 33 | 50 | deviation | ai-manager.js |  | 计划文本的「非忙时 channels 恰一次」与 D-18 双广播事实冲突，已拆成合成账/忙时账并如实披露 | open |  | 2026-09-14T13:50:32.895Z |  |
+| 34 | 50 | deviation | main.js |  | 计划建议的取值写法（key === 'aiSkills' 三元表达式）会让自带门禁的变异不转红（双键假绿）；改为 !key.includes('.') 后变异如实转红 | open |  | 2026-09-14T13:50:38.325Z |  |
+| 35 | 50 | deviation | main.js |  | 两个新写子路由补 aiManager 空值守卫（503），对齐 50-01 的既有范式，避免早期请求撞 null ⇒ 500 | open |  | 2026-09-14T13:50:38.408Z |  |
 
 ````json
 [
@@ -432,6 +435,42 @@ last_updated: 2026-09-14T13:23:22.986Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-14T13:23:22.986Z",
+    "resolved_at": null
+  },
+  {
+    "id": 33,
+    "kind": "deviation",
+    "phase": "50",
+    "file": "ai-manager.js",
+    "line": null,
+    "description": "计划文本的「非忙时 channels 恰一次」与 D-18 双广播事实冲突，已拆成合成账/忙时账并如实披露",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-14T13:50:32.895Z",
+    "resolved_at": null
+  },
+  {
+    "id": 34,
+    "kind": "deviation",
+    "phase": "50",
+    "file": "main.js",
+    "line": null,
+    "description": "计划建议的取值写法（key === 'aiSkills' 三元表达式）会让自带门禁的变异不转红（双键假绿）；改为 !key.includes('.') 后变异如实转红",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-14T13:50:38.325Z",
+    "resolved_at": null
+  },
+  {
+    "id": 35,
+    "kind": "deviation",
+    "phase": "50",
+    "file": "main.js",
+    "line": null,
+    "description": "两个新写子路由补 aiManager 空值守卫（503），对齐 50-01 的既有范式，避免早期请求撞 null ⇒ 500",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-14T13:50:38.408Z",
     "resolved_at": null
   }
 ]

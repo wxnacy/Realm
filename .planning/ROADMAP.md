@@ -336,7 +336,7 @@ Plans:
   4. 设置页（realm:// guest）走 `/api/skills/*` + token，主窗口走 `realmAPI` IPC，两入口读同一权威数据；任一入口的变更跨窗口即时同步。
   5. 超过体积上限的请求体（如未压缩 zip 的 base64）在 `/api/*` 层被拒绝并返回明确错误，不无上限读入内存。
 
-**Plans**: 1/5 plans executed / 4 waves（已规划，未执行）
+**Plans**: 2/5 plans executed / 4 waves（已规划，未执行）
 
 **Wave 1**
 
@@ -344,7 +344,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 50-02-PLAN.md — 管理写路径端到端（仅 user 可卸载的三态判据 + 第十码 + 两个管理面谓词 + 失效链收口 + 两条写路由 + `/api/settings/update` 双键校验）（USER-02、USER-06）
+- [x] 50-02-PLAN.md — 管理写路径端到端（仅 user 可卸载的三态判据 + 第十码 + 两个管理面谓词 + 失效链收口 + 两条写路由 + `/api/settings/update` 双键校验）（USER-02、USER-06）
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -402,5 +402,5 @@ Plans:
 | 47. 内置技能播种 + bash 策略加固 | 6/6 | In Progress|  |
 | 48. 技能发现与调用 | 8/8 | In Progress|  |
 | 49. `manage_skill` 工具 | 8/8 | In Progress|  |
-| 50. 设置页技能管理区 + `/api/skills/*` | 1/5 | In Progress|  |
+| 50. 设置页技能管理区 + `/api/skills/*` | 2/5 | In Progress|  |
 | 51. 用户技能导入管线 | TBD | Not started | - |

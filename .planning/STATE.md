@@ -5,16 +5,16 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 50
 current_phase_name: 设置页技能管理区 + /api/skills/*
 status: executing
-stopped_at: Completed 50-01-PLAN.md
-last_updated: "2026-09-14T13:23:01.083Z"
+stopped_at: Completed 50-02-PLAN.md
+last_updated: "2026-09-14T13:52:05.188Z"
 last_activity: 2026-09-14
 last_activity_desc: Phase 50 execution started
-state_head: e91970b3e2050b5d0bde0aa71ff372888745327f
+state_head: 1752a337e166c764daffee2c45f2f3e0f7be5009
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 31
-  completed_plans: 27
+  completed_plans: 28
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-14)
 ## Current Position
 
 Phase: 50 (设置页技能管理区 + /api/skills/*) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-09-14 — Phase 50 execution started
 
@@ -120,6 +120,7 @@ Progress: [████████████████████] 27/31 p
 | Phase 49 P07 | 8 min | 3 tasks | 10 files |
 | Phase 49 P08 | 26 min | 3 tasks | 8 files |
 | Phase 50 P01 | 14 min | 3 tasks | 9 files |
+| Phase 50 P02 | 10 min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -267,6 +268,8 @@ Recent decisions affecting current work:
 - [Phase 50]: [Phase 50-01] 状态链抽成冻结数组 SETTINGS_STATUS_CHAIN + 纯函数 pickStatusKey（住 skill-picker-model.js），把「多命中取首条」从渲染端 if 顺序升格为可断言数据；链不含 nameClash（依赖浏览器侧 SLASH_COMMANDS，realm:// guest 拿不到），面板链保持原样不动
 - [Phase 50]: [Phase 50-01] 技能目录真读不到时该技能会整条从列表消失（SDK 的 listDir 同样失败）⇒ statsUnavailable 分支只能经读盘时序注入覆盖，chmod 场景不可达；计划文本的「chmod ⇒ statsUnavailable」为不可满足断言
 - [Phase 50]: [Phase 50-01] 计划自带的两条样式硬禁令判据只扫单个规则块 ⇒ 另起 .skill-manage-row:hover 规则可完整绕过（实测仍绿）；已由新套件按选择器形态补判据，计划判据一字未改
+- [Phase 50]: 管理写路径收口 = 重扫恰一次 + 调用侧补播恰一次（补播理由 = 覆盖忙时早退，不是「prompt 不变」——digest 含 disabled ⇒ 会广播） — 补播必须住调用侧：syncAgentSystemPrompt() 的函数体被 46-04 方法体扫描与 48 广播次数断言同时钉住
+- [Phase 50]: 仅 user 可卸载的判据 = 「skills/<name> 存在且 kind === directory」，用 env.fileInfo 判（env.exists 对普通文件也返回 true，会连文件一起删）；同名双存在（user + managed）**允许**卸载 — OQ-1 用户裁决；managed-skills 的存在只用来区分拒绝态，不作拒绝条件（否则用户点自己列表里的用户技能会被告知「这不是你的技能」）
 
 ### Roadmap Evolution
 
@@ -386,8 +389,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-14T13:23:01.033Z
-Stopped at: Completed 50-01-PLAN.md
+Last session: 2026-09-14T13:52:05.138Z
+Stopped at: Completed 50-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
