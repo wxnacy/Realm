@@ -549,10 +549,90 @@ function bySkillPriority(a, b) {
  *   `errors` 为 entry 级诊断对象数组（调用方经 `pushEntryDiag` 落到条目与模块级容器）
  */
 async function measureSkillDir(env, dir) {
-  void env;
-  void dir;
-  // 遍历规则由 50-01 Task 3 落地（签名与返回三键形状在此定死）
-  return { bytes: 0, fileCount: 0, errors: [] };
+  const errors = [];
+  let bytes = 0;
+  let fileCount = 0;
+  let seenEntries = 0;
+  let tooManyEntries = false;
+  let tooDeep = false;
+
+  /**
+   * 局部递归遍历。**子路径一律由 `path.join` 拼接**（不得字符串相加 —— 相邻段的
+   * 分隔符语义会因尾部斜杠与否而漂移）。
+   *
+   * @param {string} p - 当前目录
+   * @param {number} depth - 当前深度（从 1 起）
+   */
+  const walk = async (p, depth) => {
+    const res = await env.listDir(p);
+    if (!res || res.ok !== true || !Array.isArray(res.value)) {
+      // 「读不到」是**正常分支**而非异常：沙箱 FileSystem 契约是永不 throw、
+      // 失败编码进 Result（`nodejs.js` 的 listDir 内层失败是 `return err` ⇒ 整目录失败）。
+      // 产一条 entry 级 warning 诊断后正常返回，**不 throw**。
+      errors.push({
+        level: 'warning',
+        code: 'realm_skill_dir_unreadable',
+        message: `技能目录的内容读不到，体积与文件数统计不可用：${p}（沙箱码 ${sandboxErrorCode(res)}）`,
+        path: p,
+      });
+      return;
+    }
+
+    for (const e of res.value) {
+      if (tooManyEntries || tooDeep) return;
+      // symlink **必须显式跳过**：kind 为 'symlink' 的条目既不是技能内容，
+      // 又可能指回自身祖先（内部链接环）⇒ 跟随即无限递归。本遍历发生在
+      // **每次 Agent 创建 / 重建**的重扫管线里，无界递归等于卡死主进程（T-50-02）。
+      if (e.kind === 'symlink') continue;
+      // 隐藏文件不计入（`.DS_Store` 一类不是技能内容，且在 macOS 下会因 Finder
+      // 浏览而随机增减 —— 计入会让体积无故跳动）。
+      if (e.name.startsWith('.')) continue;
+
+      seenEntries += 1;
+      if (seenEntries > SKILL_SIZE_WALK_MAX_ENTRIES) {
+        tooManyEntries = true;
+        return;
+      }
+
+      if (e.kind === 'directory') {
+        if (depth >= SKILL_SIZE_WALK_MAX_DEPTH) {
+          tooDeep = true;
+          return;
+        }
+        await walk(path.join(p, e.name), depth + 1);
+        continue;
+      }
+
+      if (e.kind === 'file') {
+        // 只有**文件**条目累加字节。目录条目的 size 来自 lstat、是 inode 数据
+        //（实测目录恒为 96 字节），把它当内容累加会让体积凭空膨胀。
+        bytes += Number.isFinite(e.size) ? e.size : 0;
+        fileCount += 1;
+      }
+    }
+  };
+
+  await walk(dir, 1);
+
+  // 两种截断**各产一条独立诊断**且都**不拒绝加载**（技能仍照常可用，体积显示为下限值）。
+  if (tooManyEntries) {
+    errors.push({
+      level: 'warning',
+      code: 'realm_skill_dir_too_many_entries',
+      message: `技能目录条目数超过 ${SKILL_SIZE_WALK_MAX_ENTRIES} 条，统计已截断（显示的体积为下限值）：${dir}`,
+      path: dir,
+    });
+  }
+  if (tooDeep) {
+    errors.push({
+      level: 'warning',
+      code: 'realm_skill_dir_too_deep',
+      message: `技能目录层级超过 ${SKILL_SIZE_WALK_MAX_DEPTH} 层，统计已截断（显示的体积为下限值）：${dir}`,
+      path: dir,
+    });
+  }
+
+  return { bytes, fileCount, errors };
 }
 
 /**
@@ -698,6 +778,24 @@ async function refreshSkills(env, { disabled = [], rootDirs = [] } = {}) {
     // ④ 确定性定序：bySkillPriority 是全序，排序结果与输入顺序无关（跨机一致）。
     //    定序必须在遮蔽之后 —— 胜负由输入顺序决定，与可观测顺序无关。
     _cache.skills = applyShadowing(entries).sort(bySkillPriority);
+
+    // ④.5 尺寸统计（D-13）：**只在此处算一次**，结果挂在缓存条目上、随 refreshedAt 失效；
+    //      读取侧（getSkillsForManagement）因此保持**同步零 IO**。
+    //      ⚠️ 算在 ④ 定序**之后**（顺序无关，但让「尺寸挂在最终条目上」这件事与顺序解耦）、
+    //      ⑤ 禁用标记**之前**（该段只读 name 集合，不被尺寸影响）。
+    //      ⚠️ **逐技能隔离失败**：任何异常都在本循环内被 measureSkillDir 消化为诊断
+    //      （它永不 throw）—— **绝不允许**冒泡到 :catch 的整体回滚，那会把一次
+    //      「某个子目录读不到」放大成「整个技能集消失」（T-50-04）。
+    //      ⚠️ **尺寸不进 computeDigest**：它不影响 prompt 段。加进去会让「给技能加一个
+    //      references/notes.md」触发 systemPrompt 改写 + 广播 ⇒ provider 前缀缓存 miss，
+    //      是一条纯性能回归（D-13 / D-18 的双向禁令）。
+    for (const entry of _cache.skills) {
+      const skillDir = path.dirname(entry.skill.filePath);
+      const measured = await measureSkillDir(env, skillDir);
+      entry.bytes = measured.bytes;
+      entry.fileCount = measured.fileCount;
+      for (const d of measured.errors) pushEntryDiag(entry, d);
+    }
 
     // ⑤ 启用/禁用（D-09）：禁用是**消费侧过滤的下游信号** —— 数据层保留完整条目，
     //    过滤只发生在 prompt 段组装（此处）与未来的 /skill: 解析（Phase 48）；

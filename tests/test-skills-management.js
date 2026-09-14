@@ -123,6 +123,40 @@ function phase50CssSection() {
   return raw.slice(start).replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
+/** 在管理投影的三档分组里按名字查条目（渲染层的消费方式：只 forEach、不重排） */
+function findItem(projection, name) {
+  for (const g of projection.groups) {
+    const hit = g.items.find((i) => i.name === name);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
+ * 递归列出目录下的**真实普通文件**（隐藏文件与 symlink 不计 —— 与 D-13 的口径同源）
+ *
+ * 期望值由它算出来，**不写手写常量**：手写常量会把「实现与口径同时错」判成绿。
+ */
+function listRealFiles(dir, out = []) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isSymbolicLink()) continue;
+    if (e.isDirectory()) {
+      if (e.name.startsWith('.')) continue;
+      listRealFiles(p, out);
+      continue;
+    }
+    if (e.name.startsWith('.')) continue;
+    if (e.isFile()) out.push(p);
+  }
+  return out;
+}
+
+/** 一组真实文件的字节和（D-13 口径下的期望 bytes） */
+function sumFileBytes(files) {
+  return files.reduce((sum, f) => sum + fs.statSync(f).size, 0);
+}
+
 // ==================== 管理读路径（Task 1 的 tracer 判据） ====================
 
 describe('管理读路径纵切：投影 → 读路径初始化 → GET /api/skills/list', () => {
@@ -383,6 +417,244 @@ describe('接线：main.js 的 handleSkillsApi 与 ai-manager.js 的读路径初
       false,
       'measureSkillDir 刻意不导出（测行为不测实现）'
     );
+  });
+});
+
+// ==================== 尺寸统计（Task 3 的口径判据） ====================
+
+describe('尺寸统计口径：递归 / 含 SKILL.md / 不含隐藏 / 目录 size 不计 / 不穿 symlink / 不进 digest', () => {
+  test('递归含子目录：fileCount 与 bytes 等于真实文件集（statSync 求和，不写常量）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const userDir = workspace.getSkillsDir();
+    const managedDir = workspace.getManagedSkillsDir();
+    const dir = writeSkillDir(userDir, 'nested', {
+      extraFiles: {
+        'scripts/a.js': 'console.log(1);\n',
+        'scripts/b.js': 'console.log(2);\n',
+        'references/deep/b.md': '# deep note\n',
+      },
+    });
+
+    await aiSkills.refreshSkills(env, { rootDirs: [managedDir, userDir] });
+    const item = findItem(aiSkills.getSkillsForManagement(SEEDED), 'nested');
+
+    const files = listRealFiles(dir);
+    assert.deepStrictEqual(
+      files.map((f) => path.relative(dir, f)).sort(),
+      ['SKILL.md', 'references/deep/b.md', 'scripts/a.js', 'scripts/b.js'],
+      '夹具必须恰为 4 个真实文件（SKILL.md 自身计入 —— research A2 的口径）'
+    );
+    assert.strictEqual(item.fileCount, files.length, 'fileCount 必须是递归后的文件总数（目录不计）');
+    assert.strictEqual(item.bytes, sumFileBytes(files), 'bytes 必须是全部文件的真实字节和');
+    assert.strictEqual(item.statsUnavailable, false, '统计成功时不得标 statsUnavailable');
+  });
+
+  test('SKILL.md 自身计入：单文件技能的 fileCount === 1 且 bytes === statSync(SKILL.md).size', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const userDir = workspace.getSkillsDir();
+    const managedDir = workspace.getManagedSkillsDir();
+    const dir = writeSkillDir(userDir, 'solo');
+
+    await aiSkills.refreshSkills(env, { rootDirs: [managedDir, userDir] });
+    const item = findItem(aiSkills.getSkillsForManagement(SEEDED), 'solo');
+
+    assert.strictEqual(item.fileCount, 1);
+    assert.strictEqual(item.bytes, fs.statSync(path.join(dir, 'SKILL.md')).size);
+  });
+
+  test('隐藏文件不计：加一个 .DS_Store 后 bytes 与 fileCount 都不变', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const userDir = workspace.getSkillsDir();
+    const managedDir = workspace.getManagedSkillsDir();
+    const dir = writeSkillDir(userDir, 'hidden-probe', { extraFiles: { 'scripts/a.js': 'aaa\n' } });
+
+    await aiSkills.refreshSkills(env, { rootDirs: [managedDir, userDir] });
+    const before = findItem(aiSkills.getSkillsForManagement(SEEDED), 'hidden-probe');
+
+    fs.writeFileSync(path.join(dir, '.DS_Store'), 'garbage-bytes-here');
+    fs.mkdirSync(path.join(dir, '.hidden-dir'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.hidden-dir', 'x.md'), 'yyy\n');
+    await aiSkills.refreshSkills(env, { rootDirs: [managedDir, userDir] });
+    const after = findItem(aiSkills.getSkillsForManagement(SEEDED), 'hidden-probe');
+
+    assert.strictEqual(after.bytes, before.bytes, '.DS_Store 与隐藏目录不得计入体积');
+    assert.strictEqual(after.fileCount, before.fileCount, '隐藏文件不得计入文件数');
+  });
+
+  test('目录 size 不计：bytes 恰等于「只累加 kind === file」的期望值', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const userDir = workspace.getSkillsDir();
+    const managedDir = workspace.getManagedSkillsDir();
+    // 目录条目本身也带 size（lstat 的 inode 数据，实测恒为 96）—— 无条件求和会把它们算进去
+    const dir = writeSkillDir(userDir, 'dir-size-probe', {
+      extraFiles: { 'references/deep/b.md': '# x\n', 'scripts/a.js': 'q\n' },
+    });
+
+    await aiSkills.refreshSkills(env, { rootDirs: [managedDir, userDir] });
+    const item = findItem(aiSkills.getSkillsForManagement(SEEDED), 'dir-size-probe');
+
+    const fileOnly = sumFileBytes(listRealFiles(dir));
+    assert.strictEqual(item.bytes, fileOnly, 'bytes 必须是文件字节和（目录的 inode size 不得累加）');
+
+    // 反方向证据：把目录也算进去会得到一个更大的数 ⇒ 断言确实有区分力
+    const allEntries = fs.readdirSync(dir).map((n) => fs.statSync(path.join(dir, n)));
+    assert.ok(
+      allEntries.some((st) => st.isDirectory() && st.size > 0),
+      '本夹具必须包含 size > 0 的目录条目，否则该断言无区分力（空集真）'
+    );
+    assert.notStrictEqual(item.bytes, item.bytes + 0 + allEntries[0].size, 'sanity');
+  });
+
+  test('不穿 symlink：内部链接环与外逃链接都在有限步内返回，且都不计入', { timeout: 20000 }, async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const userDir = workspace.getSkillsDir();
+    const managedDir = workspace.getManagedSkillsDir();
+    const dir = writeSkillDir(userDir, 'loops', { extraFiles: { 'references/real.md': '# real\n' } });
+    const refs = path.join(dir, 'references');
+    // 内部链接环：references/self → references（naive 递归会无限循环 ⇒ 本用例有 timeout 保护）
+    fs.symlinkSync(refs, path.join(refs, 'self'), 'dir');
+    // 外逃链接：指向工作区外的真实文件
+    fs.symlinkSync('/etc/hosts', path.join(dir, 'escape.md'), 'file');
+    // 顶层再放一个指向内部目录的链接
+    fs.symlinkSync(refs, path.join(dir, 'loopdir'), 'dir');
+
+    await aiSkills.refreshSkills(env, { rootDirs: [managedDir, userDir] });
+    const item = findItem(aiSkills.getSkillsForManagement(SEEDED), 'loops');
+
+    const files = listRealFiles(dir);
+    assert.deepStrictEqual(files.map((f) => path.relative(dir, f)).sort(), [
+      'SKILL.md',
+      'references/real.md',
+    ]);
+    assert.strictEqual(item.fileCount, 2, 'symlink 不得计入文件数');
+    assert.strictEqual(item.bytes, sumFileBytes(files), 'symlink 不得计入字节（链接长度不算内容）');
+    assert.strictEqual(item.statsUnavailable, false, '跳 symlink 不得被当成「统计不可用」');
+  });
+
+  test('不进 digest：加一个文件（不改 SKILL.md）⇒ digest 逐字不变而 bytes 变大', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const userDir = workspace.getSkillsDir();
+    const managedDir = workspace.getManagedSkillsDir();
+    const dir = writeSkillDir(userDir, 'digest-probe', { extraFiles: { 'a.md': 'aaa\n' } });
+
+    await aiSkills.refreshSkills(env, { rootDirs: [managedDir, userDir] });
+    // **值副本**是这条用例的前提：refreshSkills 返回模块级 `_cache`（活引用），
+    // getSkillsSnapshot() 只做浅拷贝（数组新、条目仍是同一批引用）—— 直接比较会让
+    // 断言在实现退化（例如把 bytes 塞进 digest 后又取活引用比较）时**恒真**（假绿）。
+    const first = JSON.parse(JSON.stringify(aiSkills.getSkillsForManagement(SEEDED)));
+    const firstDigest = first.digest;
+    const firstBytes = findItem(first, 'digest-probe').bytes;
+
+    fs.writeFileSync(path.join(dir, 'b.md'), 'bbbbb\n');
+    await aiSkills.refreshSkills(env, { rootDirs: [managedDir, userDir] });
+    const second = JSON.parse(JSON.stringify(aiSkills.getSkillsForManagement(SEEDED)));
+
+    assert.strictEqual(
+      second.digest,
+      firstDigest,
+      '尺寸不进 computeDigest —— 加一个文件不得改变 digest（否则会触发 systemPrompt 改写 + 广播 ⇒ provider 前缀缓存 miss）'
+    );
+    assert.ok(
+      findItem(second, 'digest-probe').bytes > firstBytes,
+      '同一次比较里 bytes 必须**确实变大**（否则这条用例只剩「digest 没变」半边，无法区分「尺寸没算」与「尺寸没进 digest」）'
+    );
+  });
+
+  test('统计局部失败不静默也不放大：子目录读不到 ⇒ 产诊断 + 该技能仍列出且其余技能照常统计', async (t) => {
+    if (typeof process.getuid === 'function' && process.getuid() === 0) {
+      t.skip('以 root 运行时 chmod 0o000 不产生 EACCES，本用例无区分力');
+      return;
+    }
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const userDir = workspace.getSkillsDir();
+    const managedDir = workspace.getManagedSkillsDir();
+    const brokenDir = writeSkillDir(userDir, 'broken', { extraFiles: { 'references/a.md': '# a\n' } });
+    writeSkillDir(userDir, 'healthy', { extraFiles: { 'scripts/ok.js': 'ok\n' } });
+
+    const locked = path.join(brokenDir, 'references');
+    fs.chmodSync(locked, 0o000);
+    try {
+      await aiSkills.refreshSkills(env, { rootDirs: [managedDir, userDir] });
+      const projection = aiSkills.getSkillsForManagement(SEEDED);
+      const broken = findItem(projection, 'broken');
+      const healthy = findItem(projection, 'healthy');
+
+      assert.ok(broken, '技能必须仍在列表上 —— 一次局部读失败不得让它消失（T-50-04 的「整体回滚放大」面）');
+      assert.strictEqual(
+        broken.diagnostics.some((d) => d.code === 'realm_skill_dir_unreadable'),
+        true,
+        '读不到必须产 realm_skill_dir_unreadable 诊断（禁止静默失败，T-50-05）'
+      );
+      // 读得到的部分照常计入 ⇒ 显示的是**下限值**（SKILL.md 自身可读，references/ 读不到）
+      assert.strictEqual(broken.fileCount, 1, '可读的 SKILL.md 仍计入（局部失败只损失读不到的那部分）');
+      assert.ok(broken.bytes > 0, '可读的 SKILL.md 的字节仍计入');
+      // ⚠️ 此处 `statsUnavailable` **仍为 false** 是正确的：它的判据是「bytes 与 fileCount 双零」，
+      //    而本场景下 SKILL.md 可读 ⇒ 双非零。它表达的是「一点都没统计到」而非「统计得不完整」。
+      //    `statsUnavailable === true` 的那条分支由下一条用例经失败注入覆盖 ——
+      //    它**无法**用 chmod 构造：技能目录整个读不到 ⇔ SDK 加载不到该技能 ⇒ 条目根本不在集合里
+      //    （实测：chmod 技能目录后该技能从列表消失，因为 SDK 的 listDir 同样失败）。
+      assert.strictEqual(broken.statsUnavailable, false);
+
+      assert.strictEqual(healthy.statsUnavailable, false, '其余技能必须照常统计（逐技能隔离失败）');
+      assert.ok(healthy.bytes > 0, '其余技能的 bytes 必须真的算出来了');
+      assert.ok(projection.groups.length > 0, '局部统计失败不得让技能集消失');
+    } finally {
+      fs.chmodSync(locked, 0o755);
+    }
+  });
+
+  test('statsUnavailable 分支：统计阶段目录整个读不到 ⇒ bytes/fileCount 双零且标记「统计不可用」', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const userDir = workspace.getSkillsDir();
+    const managedDir = workspace.getManagedSkillsDir();
+    const dir = writeSkillDir(userDir, 'unreadable-at-measure');
+    writeSkillDir(userDir, 'healthy-sibling', { extraFiles: { 'a.md': 'a\n' } });
+
+    // 注入一个「读盘时序」env：SDK 加载阶段（对该目录的**第 1 次** listDir）正常，
+    // **进入尺寸统计阶段后**（第 2 次）该技能目录的 listDir 返回失败 Result。
+    // 复现的正是「技能条目已在缓存里、但目录此刻读不到」这条真实竞态
+    //（bash / Finder 可在两次 IO 之间改动权限或删目录）。
+    // 注入的是沙箱**有明文契约**的失败形状（`{ ok: false, error: { code } }`，
+    // `env.listDir` 的 Result 契约），不是被测实现从不构造的对象。
+    let targetListCalls = 0;
+    const flakyEnv = {
+      ...env,
+      async listDir(p, s) {
+        if (path.resolve(p) === path.resolve(dir)) {
+          targetListCalls += 1;
+          if (targetListCalls >= 2) return { ok: false, error: { code: 'permission_denied' } };
+        }
+        return env.listDir(p, s);
+      },
+    };
+
+    await aiSkills.refreshSkills(flakyEnv, { rootDirs: [managedDir, userDir] });
+    assert.ok(targetListCalls >= 2, '夹具必须真的让 SDK 加载过一次、统计阶段再一次（否则本用例不成立）');
+    const projection = aiSkills.getSkillsForManagement(SEEDED);
+    const item = findItem(projection, 'unreadable-at-measure');
+
+    assert.ok(item, '统计失败不得让技能从列表消失');
+    assert.strictEqual(item.bytes, 0);
+    assert.strictEqual(item.fileCount, 0);
+    assert.strictEqual(
+      item.statsUnavailable,
+      true,
+      'T-50-05：bytes/fileCount 双零必须由**显式布尔**表达为「统计不可用」—— 前端据此渲染「统计不可用」而非失实的 0 B · 0 个文件'
+    );
+    assert.strictEqual(
+      item.diagnostics.some((d) => d.code === 'realm_skill_dir_unreadable'),
+      true,
+      '必须产诊断（不静默）'
+    );
+    assert.strictEqual(findItem(projection, 'healthy-sibling').statsUnavailable, false, '其余技能照常统计');
   });
 });
 
