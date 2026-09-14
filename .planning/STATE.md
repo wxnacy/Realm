@@ -5,16 +5,16 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 50
 current_phase_name: 设置页技能管理区 + /api/skills/*
 status: executing
-stopped_at: Completed 50-02-PLAN.md
-last_updated: "2026-09-14T13:52:05.188Z"
+stopped_at: Completed 50-03-PLAN.md
+last_updated: "2026-09-14T14:08:30.508Z"
 last_activity: 2026-09-14
 last_activity_desc: Phase 50 execution started
-state_head: 1752a337e166c764daffee2c45f2f3e0f7be5009
+state_head: 4963d3ed0dc28a76711bf2a82b65fdcc688b76cb
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 31
-  completed_plans: 28
+  completed_plans: 29
   percent: 0
 ---
 
@@ -30,11 +30,11 @@ See: .planning/PROJECT.md (updated 2026-09-14)
 ## Current Position
 
 Phase: 50 (设置页技能管理区 + /api/skills/*) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-09-14 — Phase 50 execution started
 
-Progress: [████████████████████] 28/31 plans ([░░░░░░░░░░] 0%)
+Progress: [████████████████████] 29/31 plans ([░░░░░░░░░░] 0%)
 
 ## Performance Metrics
 
@@ -121,6 +121,7 @@ Progress: [████████████████████] 28/31 p
 | Phase 49 P08 | 26 min | 3 tasks | 8 files |
 | Phase 50 P01 | 14 min | 3 tasks | 9 files |
 | Phase 50 P02 | 10 min | 3 tasks | 7 files |
+| Phase 50 P03 | 12min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -270,6 +271,9 @@ Recent decisions affecting current work:
 - [Phase 50]: [Phase 50-01] 计划自带的两条样式硬禁令判据只扫单个规则块 ⇒ 另起 .skill-manage-row:hover 规则可完整绕过（实测仍绿）；已由新套件按选择器形态补判据，计划判据一字未改
 - [Phase 50]: 管理写路径收口 = 重扫恰一次 + 调用侧补播恰一次（补播理由 = 覆盖忙时早退，不是「prompt 不变」——digest 含 disabled ⇒ 会广播） — 补播必须住调用侧：syncAgentSystemPrompt() 的函数体被 46-04 方法体扫描与 48 广播次数断言同时钉住
 - [Phase 50]: 仅 user 可卸载的判据 = 「skills/<name> 存在且 kind === directory」，用 env.fileInfo 判（env.exists 对普通文件也返回 true，会连文件一起删）；同名双存在（user + managed）**允许**卸载 — OQ-1 用户裁决；managed-skills 的存在只用来区分拒绝态，不作拒绝条件（否则用户点自己列表里的用户技能会被告知「这不是你的技能」）
+- [Phase 50]: SEC-09 的形状 = 「默认 1 MiB fail-closed + 需大者显式放大」：MAX_JSON_BODY_BYTES(1 MiB) 是 /api/* POST 全局默认，MAX_JSON_BODY_BYTES_LARGE(32 MiB) 只给两个 by-design 的大 body 端点（import-chrome / import-html，body 是用户书签文件全文）；rules/import 虽也是用户选定文件的内容但非 by-design 大 body，不做第三处覆盖（计划在 5 处把「恰 2 处」写成锁定口径，且 1 MiB 对它的后果是可读 413 而非静默破坏）
+- [Phase 50]: sendJson 幂等护栏 + res 缺失降级分支 = 一次关闭两条会崩主进程的隐患（本仓零 process.on(uncaughtException/unhandledRejection) 兜底）：① 13 处宿主 catch → sendJson 的二次写头由 headersSent||writableEnded 吸收；② 漏改调用点（res 为 undefined）在 data 监听器里只 reject BODY_TOO_LARGE，外层 catch 答 400 而非 TypeError 退出
+- [Phase 50]: 双入口 IPC 接线（USER-07 的 IPC 半边）：三通道 ai:get-skills-management / ai:set-skill-disabled / ai:uninstall-skill 只做转发（assertTrustedSender(event) → aiManager 空值守卫 → 同一 manager 函数），零判定素材是可源码断言的不变式；preload 三方法名与通道名逐字一致。IPC 写侧当前无 UI 消费者（D-17）⇒ 本计划只接线、不新建主窗口管理 UI
 
 ### Roadmap Evolution
 
@@ -389,8 +393,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-14T13:52:05.138Z
-Stopped at: Completed 50-02-PLAN.md
+Last session: 2026-09-14T14:08:20.314Z
+Stopped at: Completed 50-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

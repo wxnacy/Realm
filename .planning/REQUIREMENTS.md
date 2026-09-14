@@ -54,7 +54,7 @@ Requirements for v2.6. Each maps to roadmap phases.
 - [ ] **USER-04**: 用户可通过**网络地址**导入技能，自动分流 GitHub 仓库/目录地址 与 SKILL.md 直链
 - [ ] **USER-05**: 导入采用两阶段（预览 → 确认落盘），预览展示名称 / description 原文 / 目录树 / 字节数 / 脚本清单（标红）/ 威胁扫描结论
 - [ ] **USER-06**: 卸载仅允许 `source === 'user'` 的技能（手改 URL 不得删内置技能）
-- [ ] **USER-07**: 设置页经 `/api/skills/*` + token 访问（webview guest 无 realmAPI）；主窗口经 `realmAPI` IPC——同一后端权威、两个前端入口
+- [x] **USER-07**: 设置页经 `/api/skills/*` + token 访问（webview guest 无 realmAPI）；主窗口经 `realmAPI` IPC——同一后端权威、两个前端入口
 - [ ] **USER-08**: 导入失败给出真实原因（命中哪个限额 / 扫描结论 / 校验错误），不静默
 
 ### SEED — 内置技能播种
@@ -75,7 +75,7 @@ Requirements for v2.6. Each maps to roadmap phases.
 - [ ] **SEC-06**: 导入时同时扫描 `description` 与 body：复用 `scanInjectionPatterns`，并新增技能域 `SKILL_THREAT_PATTERNS`（文件外发 / 凭据回显 / 诱导跳过确认三类）
 - [ ] **SEC-07**: 与内置技能同名 → 拒绝导入；与已有用户技能同名 → 显式策略（覆盖 / 改名 / 取消），不静默覆盖
 - [ ] **SEC-08**: 网络导入 https-only + 主机白名单 + 逐跳 `isPrivateHost` 校验 + 流式字节上限 + magic bytes 校验；**不复用** `search-manager.fetchUrl`（它会把内容转 Markdown，对二进制是破坏性的），复用其 SSRF 判据
-- [ ] **SEC-09**: `readJsonBody` 增加体积上限（防 zip base64 放大无上限）
+- [x] **SEC-09**: `readJsonBody` 增加体积上限（防 zip base64 放大无上限）
 - [ ] **SEC-10**: 加固既有沙箱 `writeFile` 的 ENOENT symlink 缺口（与导入路径同一根因，一次修完）
 
 ### DOC — 产品文档同步（AGENTS.md 强制约定）
@@ -146,7 +146,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | USER-04 | Phase 51 | Pending |
 | USER-05 | Phase 51 | Pending |
 | USER-06 | Phase 50 | Pending |
-| USER-07 | Phase 50 | Pending |
+| USER-07 | Phase 50 | Complete |
 | USER-08 | Phase 51 | Pending |
 | SEED-01 | Phase 47 | Complete |
 | SEED-02 | Phase 47 | Complete |
@@ -161,7 +161,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SEC-06 | Phase 51 | Pending |
 | SEC-07 | Phase 51 | Pending |
 | SEC-08 | Phase 51 | Pending |
-| SEC-09 | Phase 50 | Pending |
+| SEC-09 | Phase 50 | Complete |
 | SEC-10 | Phase 51 | Pending |
 | DOC-01 | Phase 46 | Complete |
 | DOC-02 | Phase 47 | Complete |
