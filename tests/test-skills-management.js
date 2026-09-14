@@ -1134,3 +1134,83 @@ describe('设置页交互面：注入纪律 / hint 复位 / 失败文案 / 危�
     assert.ok(/class="ai-modal-overlay"/.test(block), '弹框外壳必须复用既有 .ai-modal-overlay（零新遮罩实现）');
   });
 });
+
+// ==================== 诊断的两层承载（50-04-T3 的判据） ====================
+
+describe('诊断两层承载：跨文件折叠契约 / 折叠态单点写入 / 两层条件独立', () => {
+  test('跨文件折叠契约：设置页与 renderer 复用同一组类名与同一组 aria 属性（带正命题）', () => {
+    const region = skillManageRegion();
+    const renderer = stripCodeComments(readSource('src/renderer.js'));
+    const CLASSES = [
+      'ai-skill-content-box',
+      'ai-skill-content-box-header',
+      'ai-skill-content-box-title',
+      'ai-skill-content-box-chevron',
+      'ai-skill-content-box-body',
+    ];
+    for (const cls of CLASSES) {
+      // 正命题（WR-12 的教训）：两文件都必须**确实出现**该类名，而不是只断言「没有别的」
+      assert.ok(region.includes(cls), `设置页必须复用折叠类 ${cls}`);
+      assert.ok(renderer.includes(cls), `renderer 折叠块必须使用同类名 ${cls}（否则第三处宿主会漂移成第二套控件）`);
+    }
+    assert.ok(/classList\.toggle\(\s*'collapsed'/.test(region), '设置页必须经 classList.toggle 写 collapsed 类');
+    assert.ok(/classList\.toggle\(\s*'collapsed'/.test(renderer), 'renderer 必须经 classList.toggle 写 collapsed 类');
+    // aria 契约：两文件都用**同一种写入形态**（DOM API），键名逐字一致
+    for (const attr of ['role', 'tabindex', 'aria-expanded']) {
+      const re = new RegExp(`setAttribute\\(\\s*'${attr}'`);
+      assert.ok(re.test(region), `设置页缺 ${attr} 的真实写入形态（setAttribute）`);
+      assert.ok(re.test(renderer), `renderer 缺 ${attr} 的真实写入形态（setAttribute）`);
+    }
+    assert.ok(/preventDefault\(\)/.test(region), '设置页折叠开关必须 preventDefault（Space 默认滚动页面）');
+    assert.ok(/preventDefault\(\)/.test(renderer), 'renderer 折叠开关必须 preventDefault');
+  });
+
+  test('折叠态单点写入：setCollapsed 恰 1 处定义，且类与属性在同一点双写', () => {
+    const region = skillManageRegion();
+    const defs = region.match(/function setCollapsed\s*\(/g) || [];
+    assert.strictEqual(defs.length, 1, `折叠赋值函数必须恰 1 处定义（单点写入），实得 ${defs.length}`);
+    const start = region.indexOf('function setCollapsed(');
+    const end = region.indexOf('\n}', start);
+    const body = start >= 0 && end > start ? region.slice(start, end) : '';
+    assert.ok(body, 'setCollapsed 函数体必须可定位（否则下面的窗口判据失效）');
+    assert.ok(/classList\.toggle\('collapsed'/.test(body), 'setCollapsed 必须写 collapsed 类');
+    assert.ok(/setAttribute\('aria-expanded'/.test(body), 'setCollapsed 必须写 aria-expanded（类与属性同点双写）');
+    // 不存在第二处只含其一的写入：两个 token 在 region 内各恰出现一次
+    assert.strictEqual(
+      (region.match(/classList\.toggle\('collapsed'/g) || []).length,
+      1,
+      'region 内只允许 setCollapsed 一处写 collapsed 类（第二处必然与属性脱钩）'
+    );
+    assert.strictEqual(
+      (region.match(/setAttribute\('aria-expanded'/g) || []).length,
+      1,
+      'region 内只允许 setCollapsed 一处写 aria-expanded'
+    );
+    // 本页两处折叠（行内详情区 + 汇模块级总条）各有一处调用点
+    const calls = region.match(/\bsetCollapsed\(/g) || [];
+    assert.ok(calls.length >= 3, `两处折叠的调用点 + 1 处定义，实得 ${calls.length} 处 setCollapsed 出现`);
+  });
+
+  test('两层独立：errors 走模块级汇总条容器，diagnostics 走行内详情区，两个条件不合并', () => {
+    const r = skillManageRegion();
+    assert.ok(r.includes('skillManageSummary'), '模块级 errors 必须绑定到 #skillManageSummary 容器');
+    assert.ok(r.includes('skill-manage-diag'), '行内 diagnostics 必须绑定到 .skill-manage-diag 详情区');
+    assert.ok(/errors\.length\s*>\s*0/.test(r), 'errors 必须有独立的非空条件');
+    assert.ok(/diagnostics\.length\s*>\s*0/.test(r), 'diagnostics 必须有独立的非空条件');
+    // 反向：不得出现把两层合成一个开关的形态
+    assert.strictEqual(
+      /errors\.length\s*\+\s*diagnostics\.length/.test(r),
+      false,
+      '两层不得合并成一个计数条件（模块级 vs 每技能是两类不同的诊断）'
+    );
+    // path 不上屏（负向；剥注释后判）
+    assert.strictEqual(
+      /skill-manage-diag[\s\S]{0,80}\.path\b/.test(r),
+      false,
+      '诊断条目自带的 path 不上屏（沙箱内绝对路径，对用户无意义）'
+    );
+    // 级别表外的取值不加级别类、不渲染标签（闭合白名单）
+    assert.ok(r.includes("skill-manage-diag-item-${d.level}"), '级别类必须取自闭合白名单的键');
+    assert.ok(/levelText/.test(r), '表外级别必须走「无标签」分支（不得回落 undefined 字面量）');
+  });
+});

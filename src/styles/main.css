@@ -10668,3 +10668,81 @@ textarea::placeholder {
   word-break: break-word;
 }
 .skill-manage-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+/* ---- 诊断的两层承载（50-04-T3）---- */
+
+/* 行内诊断徽标：**无底色**的文本按钮（有底色会压低暗色主题下的对比度）。
+   `padding: 1px 4px` 是本阶段**唯一非 4 倍数**的新增间距值 —— 已登记 Spacing Exceptions B 表
+   （理由：11px 文本按钮；首行并列的三档徽标与「仅显式」同款取值；垂直取 4px 会把 chip 撑到
+   约 23px、超出宿主行高）。**不放大、不改值**。 */
+.skill-manage-diag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.skill-manage-diag-badge:hover { color: var(--text-primary); }
+
+/* chevron 的旋转**以 aria-expanded 为唯一状态源**：本页是**新类**，
+   没有既有类规则要兼容 ⇒ 可以让属性成为它的唯一状态源（区别于汇总条那处，
+   它踩在 48 的既有类规则上、只能类 + 属性双写）。 */
+.skill-manage-diag-badge-chevron { transition: transform 150ms ease; }
+.skill-manage-diag-badge[aria-expanded="true"] { color: var(--text-primary); }
+.skill-manage-diag-badge[aria-expanded="false"] .skill-manage-diag-badge-chevron { transform: rotate(-90deg); }
+
+/* 诊断条目列表（行内详情区与模块级汇总条**共用**同一组条目外观） */
+.skill-manage-diag-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 级别上色落在**条目**上、由级别标签继承（color 是可继承属性 ⇒ 与 UI-SPEC 的
+   「级别标签三档上色」视觉等价）。message / code 各自显式声明次级色 ⇒ 不会继承级别色。 */
+.skill-manage-diag-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+.skill-manage-diag-item-error { color: var(--skill-error-text); }
+.skill-manage-diag-item-warning { color: var(--skill-limit-text); }
+.skill-manage-diag-item-info { color: var(--text-secondary); }
+
+.skill-manage-diag-level {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+.skill-manage-diag-message {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  word-break: break-word;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.skill-manage-diag-code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 模块级汇总条：**零新增外观声明** —— 外壳完全复用 .ai-skill-content-box 家族
+   （border / border-radius / 底色 / overflow 由它提供；header 的 gap 与 padding、
+   body 的 max-height: 260px 内层滚动同样是既有声明）。本段只保留上面那条
+   「与下方列表的段间距」的相邻兄弟规则（.ai-skill-content-box.skill-manage-summary
+   + .skill-manage-groups { margin-top: 16px }）。 */

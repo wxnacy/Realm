@@ -4828,6 +4828,21 @@ let skillManageProjection = null;
 let skillManageUninstallTarget = null;
 
 /**
+ * 诊断详情区 id 的序号（每次整表重渲染**重置**）
+ *
+ * 详情区 id 只用于 `aria-controls` 的指向，**不含技能名** —— 技能名可含引号 / 空格等
+ * 任意字符，拼进 id 与选择器既需转义又是一条不必要的拼装面（TD-48-01 未修时的纪律）。
+ */
+let skillManageDiagSeq = 0;
+
+/** 诊断级别标签的闭合白名单（UI-SPEC Copywriting #22）；表外 `level` ⇒ **不渲染标签** */
+const SKILL_MANAGE_DIAG_LEVEL = Object.freeze({
+  error: '错误',
+  warning: '警告',
+  info: '提示',
+});
+
+/**
  * 管理面失败文案的**闭合白名单**（UI-SPEC 的失败文案映射表）—— 前端**只按 `code` 查表、
  * 不解析 `message`**（与 49 的 `manage_skill` 卡片同款纪律）。
  *
@@ -4982,10 +4997,20 @@ function buildSkillManageRow(item) {
     main.appendChild(tagEl);
   }
 
-  // 右对齐簇：`[诊断徽标] → 状态标注 → 操作区`（第一行元素顺序是契约）。
-  // 诊断徽标（条件渲染）归 50-04-T3；本任务落操作区。
+  // 右对齐簇：`[诊断徽标] → 状态标注 → 操作区`（第一行元素顺序是契约、不得调换）。
   const tail = document.createElement('div');
   tail.className = 'skill-manage-tail';
+
+  // 诊断的两层承载之一：**行内**徽标（条件 `diagnostics.length > 0`）。
+  // 它是详情区的唯一开关（详情区**不再渲染 header** —— 一个区域两个控件会产出两份状态）。
+  // `diagnostics.length === 0` 时徽标与详情区**都不渲染**（不占位、不留空元素）。
+  const diagnostics = Array.isArray(item.diagnostics) ? item.diagnostics : [];
+  let diagBox = null;
+  if (diagnostics.length > 0) {
+    const detailId = `skillManageDiag${++skillManageDiagSeq}`;
+    diagBox = buildSkillManageDiagBox(diagnostics, detailId);
+    tail.appendChild(buildSkillManageDiagBadge(diagnostics.length, detailId, diagBox));
+  }
 
   // 状态标注：键由 pickStatusKey 单源给出（**不得在本页重写状态链的 if 顺序**），
   // 文案再查 STATUS_TEXT。两个维度的色调判定**只看返回的键字符串**，不直读字段。
@@ -5030,7 +5055,204 @@ function buildSkillManageRow(item) {
   sub.appendChild(metaEl);
 
   li.appendChild(sub);
+  // 诊断详情区在第二行**之后**（条件同徽标）；初始折叠态由 `setCollapsed` 单点写入
+  if (diagBox) li.appendChild(diagBox);
   return li;
+}
+
+/**
+ * 折叠态的**唯一赋值点**（本页两处折叠共用：行内诊断详情区 + 模块级汇总条）
+ *
+ * **为什么必须单点双写**：显隐规则是 48 的既有**类**规则
+ * （`.ai-skill-content-box:not(.collapsed) .ai-skill-content-box-body { display: block }`），
+ * 而本页 chevron 的旋转**以 `aria-expanded` 属性为准** ⇒ 两个状态源。
+ * 把类规则改成属性驱动意味着改动 48/49 两个实名宿主（气泡 / 工具卡片），属跨阶段视觉决策；
+ * 因此取舍是**保留既有类 + 强制单点同步** —— 全页**禁止**第二处单独改 `classList` 或
+ * 单独改 `aria-expanded` 的地方（否则会产出「图标翻转了但内容没展开」这类不可复现故障）。
+ *
+ * 语义：`collapsed === true` ⇒ 加 `.collapsed` 类、`aria-expanded="false"`。
+ *
+ * @param {HTMLElement} box - 折叠容器（`display` 型：`.ai-skill-content-box`）
+ * @param {HTMLElement} toggleEl - 承载 `aria-expanded` 的开关元素
+ * @param {boolean} collapsed - 目标态
+ */
+function setCollapsed(box, toggleEl, collapsed) {
+  if (box) box.classList.toggle('collapsed', collapsed);
+  if (toggleEl) toggleEl.setAttribute('aria-expanded', String(!collapsed));
+}
+
+/**
+ * 构造行内诊断徽标（`button.skill-manage-diag-badge`）—— 详情区的**唯一开关**
+ *
+ * `button` 元素原生支持 Enter / Space ⇒ **不需要**自定义 `keydown`。
+ * **无底色**：有底色会压低暗色主题下的对比度（UI-SPEC Color 表）。
+ * chevron 的旋转由本页**新类** `[aria-expanded="false"] .skill-manage-diag-badge-chevron`
+ * 驱动（新类没有既有规则要兼容 ⇒ 可以让属性成为它的唯一状态源）。
+ *
+ * @param {number} count - 诊断条数（文案 `诊断 {N}`）
+ * @param {string} detailId - 详情区 id（`aria-controls` 的指向）
+ * @param {HTMLElement} box - 该徽标控制的详情区
+ * @returns {HTMLButtonElement}
+ */
+function buildSkillManageDiagBadge(count, detailId, box) {
+  const badge = document.createElement('button');
+  badge.type = 'button';
+  badge.className = 'skill-manage-diag-badge';
+  badge.title = '展开 / 折叠诊断详情';
+  badge.setAttribute('aria-controls', detailId);
+
+  const label = document.createElement('span');
+  label.textContent = `诊断 ${count}`;
+  badge.appendChild(label);
+
+  const chevron = document.createElement('span');
+  chevron.className = 'skill-manage-diag-badge-chevron';
+  chevron.setAttribute('aria-hidden', 'true');
+  chevron.textContent = '▾';
+  badge.appendChild(chevron);
+
+  // 初始态：**默认折叠**（诊断是少数技能的异常信息，默认展开会让列表被灰块打断）
+  setCollapsed(box, badge, true);
+
+  badge.addEventListener('click', () => {
+    // 当前态从**类**读（显隐规则的唯一权威就是它）；两者恒同步由 setCollapsed 保证
+    setCollapsed(box, badge, !box.classList.contains('collapsed'));
+  });
+  return badge;
+}
+
+/**
+ * 构造单条诊断条目（`li.skill-manage-diag-item[-{level}]`）
+ *
+ * 只渲染**三项**：级别标签 + 可读 `message` + `realm_*` 码。
+ * 诊断条目自带的 **`path` 字段不上屏** —— 它是沙箱内绝对路径，对用户无意义且冗余。
+ * `level` 是**闭合白名单**：表外取值**不渲染标签**，也**不**加级别类
+ * （不得回落到 `undefined` 字面量进 class / 文案）。
+ *
+ * @param {object} diag - 投影里的诊断条目
+ * @returns {HTMLLIElement}
+ */
+function buildSkillManageDiagItem(diag) {
+  const d = diag && typeof diag === 'object' ? diag : {};
+  const item = document.createElement('li');
+  item.className = 'skill-manage-diag-item';
+
+  const levelText = SKILL_MANAGE_DIAG_LEVEL[d.level];
+  if (levelText) {
+    item.classList.add(`skill-manage-diag-item-${d.level}`);
+    const levelEl = document.createElement('span');
+    levelEl.className = 'skill-manage-diag-level';
+    levelEl.textContent = levelText;
+    item.appendChild(levelEl);
+  }
+
+  const msgEl = document.createElement('span');
+  msgEl.className = 'skill-manage-diag-message';
+  msgEl.textContent = typeof d.message === 'string' ? d.message : '';
+  item.appendChild(msgEl);
+
+  const codeEl = document.createElement('code');
+  codeEl.className = 'skill-manage-diag-code';
+  codeEl.textContent = typeof d.code === 'string' ? d.code : '';
+  item.appendChild(codeEl);
+
+  return item;
+}
+
+/**
+ * 构造**每条技能**的诊断详情区（`div.ai-skill-content-box.skill-manage-diag`）
+ *
+ * 复用 48/49 折叠块家族的 **shell + body 两件**，**不取 header**：开关已在行内徽标上，
+ * 再渲染一个 header 会产出「一个区域两个控件、两份状态」（`aria-expanded` 需双向同步）。
+ * 折叠/展开的显隐由**既有**规则 `.ai-skill-content-box:not(.collapsed) .ai-skill-content-box-body`
+ * 提供 ⇒ 折叠态**不在 Tab 序内**，不可能产出「零可见高度的隐形焦点停靠点」。
+ *
+ * @param {Array<object>} diagnostics - 该技能的诊断条目
+ * @param {string} detailId - 详情区 id（徽标 `aria-controls` 指向它）
+ * @returns {HTMLDivElement}
+ */
+function buildSkillManageDiagBox(diagnostics, detailId) {
+  const box = document.createElement('div');
+  box.className = 'ai-skill-content-box skill-manage-diag';
+  box.id = detailId;
+
+  const body = document.createElement('div');
+  body.className = 'ai-skill-content-box-body';
+
+  const list = document.createElement('ul');
+  list.className = 'skill-manage-diag-list';
+  for (const d of diagnostics) list.appendChild(buildSkillManageDiagItem(d));
+
+  body.appendChild(list);
+  box.appendChild(body);
+  return box;
+}
+
+/**
+ * 渲染**模块级** `errors[]` 的顶部汇总条（D-11）—— 诊断的第二层承载
+ *
+ * 与「每条技能的诊断详情区」是**两层独立容器**、互不复用：
+ * `errors[]` 是**无归属技能**的模块级容器（46 D-07），塞进行内不可能。
+ *
+ * 形态差异（契约明文）：本处用**完整家族（含 header）**且**默认展开** —— 行内徽标那处
+ * 有开关可借用，而这里没有，故 header 就是开关；模块级错误是**异常状态**，
+ * 默认折叠会把它们藏起来（「禁止静默失败」）。
+ *
+ * `errors.length === 0` 时**整条不渲染**（清空容器、摘掉外观类 ⇒ 不占位、无空态文案）。
+ *
+ * @param {Array<object>} errors - 投影的模块级诊断
+ */
+function renderSkillManageSummary(errors) {
+  const summaryEl = document.getElementById('skillManageSummary');
+  if (!summaryEl) return;
+  clearNode(summaryEl);
+  summaryEl.className = 'skill-manage-summary';
+
+  const list = Array.isArray(errors) ? errors : [];
+  if (list.length === 0) return;
+
+  summaryEl.classList.add('ai-skill-content-box');
+
+  const header = document.createElement('div');
+  header.className = 'ai-skill-content-box-header';
+  // header 就是开关 ⇒ 必须有真实的可聚焦语义（写形态而非仅注释里提到）
+  header.setAttribute('role', 'button');
+  header.setAttribute('tabindex', '0');
+
+  const title = document.createElement('span');
+  title.className = 'ai-skill-content-box-title';
+  title.textContent = `技能加载问题（${list.length}）`;
+
+  const chevron = document.createElement('span');
+  chevron.className = 'ai-skill-content-box-chevron';
+  chevron.textContent = '▾';
+
+  header.appendChild(title);
+  header.appendChild(chevron);
+
+  const body = document.createElement('div');
+  body.className = 'ai-skill-content-box-body';
+  const ul = document.createElement('ul');
+  ul.className = 'skill-manage-diag-list';
+  for (const e of list) ul.appendChild(buildSkillManageDiagItem(e));
+  body.appendChild(ul);
+
+  summaryEl.appendChild(header);
+  summaryEl.appendChild(body);
+
+  // 默认**展开**：不初始化 `.collapsed`；这里仍然过一遍单点赋值函数，把 aria-expanded 写成 'true'
+  setCollapsed(summaryEl, header, false);
+
+  const toggle = () => {
+    setCollapsed(summaryEl, header, !summaryEl.classList.contains('collapsed'));
+  };
+  header.addEventListener('click', toggle);
+  header.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault(); // Space 默认滚动页面 —— 折叠块不接管滚动
+      toggle();
+    }
+  });
 }
 
 /**
@@ -5297,13 +5519,14 @@ function buildSkillManageGroup(group) {
   return section;
 }
 
-/** 渲染「加载中」态：单行纯文本，**无标题 / 无按钮 / 无 spinner / 无骨架屏** */
+/** 渲染「加载中」态：单行纯文本，**无标题 / 无按钮 / 无 spinner / 无骨架屏**（汇总条与列表都不渲染） */
 function renderSkillManageLoading() {
   const stateEl = document.getElementById('skillManageState');
   const groupsEl = document.getElementById('skillManageGroups');
   if (!stateEl || !groupsEl) return;
   clearNode(stateEl);
   clearNode(groupsEl);
+  renderSkillManageSummary([]);
 
   const bodyEl = document.createElement('div');
   bodyEl.className = 'skill-manage-state-body';
@@ -5318,16 +5541,25 @@ function renderSkillManageLoading() {
  * 无 Agent 且读路径初始化未跑），渲染成「尚无任何技能」会让用户以为内置技能不存在
  * —— 而它们其实早已在盘上（播种在启动时无条件执行）。这是「禁止静默失败」的直接兑现。
  *
- * @param {number} refreshedAt - 投影的 refreshedAt 时间戳
+ * 两种空态对汇总条的处置**不同**：A 态整条不渲染；B 态（`refreshedAt > 0` 且 0 条）
+ * **可以同时渲染汇总条** —— 那正是「为什么一条都没有」的解释面。
+ *
+ * @param {object} projection - 管理面投影（读 `refreshedAt` 与 `errors`）
  */
-function renderSkillManageEmptyState(refreshedAt) {
+function renderSkillManageEmptyState(projection) {
   const stateEl = document.getElementById('skillManageState');
   const groupsEl = document.getElementById('skillManageGroups');
   if (!stateEl || !groupsEl) return;
   clearNode(stateEl);
   clearNode(groupsEl);
 
-  const notLoaded = !(typeof refreshedAt === 'number' && refreshedAt > 0);
+  const refreshedAt = projection && typeof projection.refreshedAt === 'number' ? projection.refreshedAt : 0;
+  const notLoaded = refreshedAt === 0;
+  const loadedButEmpty = refreshedAt > 0;
+  renderSkillManageSummary(
+    loadedButEmpty && projection && Array.isArray(projection.errors) ? projection.errors : []
+  );
+
   const title = notLoaded ? '技能列表尚未加载' : '尚无任何技能';
   const body = notLoaded
     ? '技能集尚未完成首次加载，因此这里没有内容。点「重新加载」重试。'
@@ -5336,7 +5568,7 @@ function renderSkillManageEmptyState(refreshedAt) {
 }
 
 /**
- * 渲染空态 C（拉取失败）：标题 + **后端 error 原文** + 「重新加载」
+ * 渲染空态 C（拉取失败）：标题 + **后端 error 原文** + 「重新加载」（汇总条与列表都不渲染）
  * @param {Error} err - `skillsApi` 抛出的错误（message 即后端 error 原文）
  */
 function renderSkillManageFailure(err) {
@@ -5345,6 +5577,7 @@ function renderSkillManageFailure(err) {
   if (!stateEl || !groupsEl) return;
   clearNode(stateEl);
   clearNode(groupsEl);
+  renderSkillManageSummary([]);
 
   const detail = err && err.message ? err.message : '技能列表加载失败，请重试';
   stateEl.appendChild(buildSkillManageStateBlock('技能列表加载失败', detail, true));
@@ -5357,15 +5590,19 @@ function renderSkillManageFailure(err) {
  * 记录并回写 `.settings-content.scrollTop`，并按 `data-skill-name` 把焦点归还到
  * **同一技能行**的开关（找不到则**不移动**焦点；被删行已不存在 ⇒ 自然不移动）。
  *
+ * 诊断的**两层**在此各自独立接线：`errors[]` → 顶部汇总条（模块级、无归属技能）；
+ * `diagnostics[]` → 行内徽标 + 内联详情区（每技能）。两层**不得**合并成一个开关。
+ *
  * @param {object} projection - `GET /api/skills/list` 的响应（管理面投影）
  */
 function renderSkillManagement(projection) {
   const groups = projection && Array.isArray(projection.groups) ? projection.groups : [];
   const total = groups.reduce((sum, g) => sum + (Array.isArray(g.items) ? g.items.length : 0), 0);
-  const refreshedAt = projection && typeof projection.refreshedAt === 'number' ? projection.refreshedAt : 0;
 
   // 最近一次投影：弹框的条件行判定据此做**纯数据查找**（不重判优先级 / 遮蔽）
   skillManageProjection = projection || null;
+  // 详情区 id 序号：整表重渲染从 0 重来（id 只需在本文档内唯一）
+  skillManageDiagSeq = 0;
 
   const scroller = document.querySelector('.settings-content');
   const prevScrollTop = scroller ? scroller.scrollTop : 0;
@@ -5373,7 +5610,7 @@ function renderSkillManagement(projection) {
   const prevWasSwitch = isFocusedSkillSwitch();
 
   if (total === 0) {
-    renderSkillManageEmptyState(refreshedAt);
+    renderSkillManageEmptyState(projection);
     restoreSkillManageViewport(scroller, prevScrollTop);
     return;
   }
@@ -5383,6 +5620,11 @@ function renderSkillManagement(projection) {
   if (!stateEl || !groupsEl) return;
   clearNode(stateEl);
   clearNode(groupsEl);
+
+  // 模块级 errors[] 的承载面：**有 errors 时渲染**（0 条时整条不渲染、不占位）。
+  // 与行内 diagnostics 是**两个独立条件**，不得合并成一个「有没有诊断」的开关。
+  const errors = projection && Array.isArray(projection.errors) ? projection.errors : [];
+  renderSkillManageSummary(errors.length > 0 ? errors : []);
 
   for (const group of groups) {
     groupsEl.appendChild(buildSkillManageGroup(group));
