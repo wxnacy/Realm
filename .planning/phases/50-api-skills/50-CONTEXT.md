@@ -141,7 +141,7 @@
 
 ### 本阶段自身产物（plan / execute / verify 必读）
 
-- `.planning/phases/50-api-skills/50-RESEARCH.md` — **本阶段实现的直接依据，且权威度高于本 CONTEXT 的实现细节**：§「CONTEXT 事实核查（三条需修正）」是 D-16 / D-18 / D-19 的改写来源（含运行时实测矩阵与堆数字）；§Pattern 1（体积/文件数的递归遍历：`listDir` 返回形状、symlink 穿透陷阱、隐藏文件与目录 `size` 的处理）；§Pattern 2（管理面投影，不扩展 `getSkillsForUI()`）；§Pattern 3（两入口共用同一 manager 函数）；§Pattern 4（写路径收口 + 补播）；§Pitfall 1–12（尤其 1「413 形态」/ 2「`sendJson` 幂等」/ 3「两个书签端点」/ 4「symlink 无限递归」/ 6「`refreshSkills` 返回值是活引用」/ 8「无 provider 时管理区空白」/ 9「禁用名单校验宽严」）；§Assumptions Log（A2/A3/A6 需 plan 期补实测）；§Open Questions（OQ-1..5 的处置见本文件「研究校正与 plan 期待裁决项」）；§Validation Architecture（`50-VALIDATION.md` 的来源）；§Phase 51 体积上限交接
+- `.planning/phases/50-api-skills/50-RESEARCH.md` — **本阶段实现的直接依据，且权威度高于本 CONTEXT 的实现细节**：§「CONTEXT 事实核查（三条需修正）」是 D-16 / D-18 / D-19 的改写来源（含运行时实测矩阵与堆数字）；§Pattern 1（体积/文件数的递归遍历：`listDir` 返回形状、symlink 穿透陷阱、隐藏文件与目录 `size` 的处理）；§Pattern 2（管理面投影，不扩展 `getSkillsForUI()`）；§Pattern 3（两入口共用同一 manager 函数）；§Pattern 4（写路径收口 + 补播）；§Pitfall 1–12（尤其 1「413 形态」/ 2「`sendJson` 幂等」/ 3「两个书签端点」/ 4「symlink 无限递归」/ 6「`refreshSkills` 返回值是活引用」/ 8「无 provider 时管理区空白」/ 9「禁用名单校验宽严」）；§Assumptions Log（A2/A3/A6 需 plan 期补实测）；§Open Questions（OQ-1..5 的处置见本文件「研究校正与开放问题处置」，其中 OQ-1 已由用户裁决并落进 D-07）；§Validation Architecture（`50-VALIDATION.md` 的来源）；§Phase 51 体积上限交接
 - `.planning/phases/50-api-skills/50-VALIDATION.md` — Nyquist 验证契约：测试跑法（**本项目无 `npm test`**）、逐需求 → 命令映射、Wave 0 缺口、counts-parity 机械判据、Manual-Only 清单
 
 ### 里程碑、需求与门禁
