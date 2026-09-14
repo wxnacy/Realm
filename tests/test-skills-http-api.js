@@ -734,3 +734,99 @@ describe('降级分支的行为断言：旧两参形态只 reject，不崩主进
     }
   });
 });
+
+// ==================== ⑤ 双入口（HTTP + IPC）跨文件一致性 ====================
+
+/**
+ * 三个管理通道 → 它们必须转发到的 manager 方法名
+ *
+ * 这张表是「**两入口同一权威**」的可核形式：左侧由 `ipc-handlers.js` 消费，
+ * 右侧必须同时出现在 `ipc-handlers.js`（IPC 入口）与 `main.js`（HTTP 入口）里。
+ */
+const DUAL_ENTRY_CHANNELS = [
+  ['ai:get-skills-management', 'getSkillsForManagement'],
+  ['ai:set-skill-disabled', 'setSkillDisabled'],
+  ['ai:uninstall-skill', 'uninstallUserSkill'],
+];
+
+describe('双入口（跨文件）：三个 IPC 通道只做转发，判定住在 manager 层', () => {
+  /** 取 `ipc-handlers.js` 里某个通道的 handler 段（已剥注释） */
+  function channelSegment(src, channel) {
+    const i = src.indexOf(`ipcMain.handle('${channel}'`);
+    assert.ok(i >= 0, `缺 IPC 通道 ${channel}`);
+    const end = src.indexOf('\n  });', i);
+    assert.ok(end > i, `${channel} 的 handler 段口径失效`);
+    return src.slice(i, end);
+  }
+
+  test('三个通道各注册且首行做 assertTrustedSender(event)（拒 webview guest / DevTools / 非受管窗口）', () => {
+    const ih = stripCodeComments(readSource('ipc-handlers.js'));
+    for (const [ch] of DUAL_ENTRY_CHANNELS) {
+      const seg = channelSegment(ih, ch);
+      assert.ok(/assertTrustedSender\(event\)/.test(seg), `${ch} 未做 assertTrustedSender（写能力会暴露给不受信来源）`);
+    }
+  });
+
+  test('三个通道各转发到对应 manager 方法，且来源校验在转发**之前**', () => {
+    const ih = stripCodeComments(readSource('ipc-handlers.js'));
+    for (const [ch, method] of DUAL_ENTRY_CHANNELS) {
+      const seg = channelSegment(ih, ch);
+      assert.ok(seg.includes(`aiManager.${method}(`), `${ch} 未转发到同一 manager 函数 ${method}（两入口同一权威）`);
+      assert.ok(
+        seg.indexOf('assertTrustedSender(event)') < seg.indexOf(`aiManager.${method}(`),
+        `${ch} 的来源校验必须早于转发`
+      );
+    }
+  });
+
+  test('通道段内**零判定素材**（kind === / source === / isSeededName / managed-skills）', () => {
+    const ih = stripCodeComments(readSource('ipc-handlers.js'));
+    for (const [ch] of DUAL_ENTRY_CHANNELS) {
+      const seg = channelSegment(ih, ch);
+      assert.strictEqual(
+        /kind ===|source ===|isSeededName|managed-skills/.test(seg),
+        false,
+        `${ch} 出现判定逻辑 —— handler 只做转发，判定单源在 ai-skills-manager.js（判据已剥注释，如实解释禁令的注释不构成违规）`
+      );
+    }
+  });
+
+  test('src/preload.js 的三个 realmAPI.ai 方法名与通道名逐字一致', () => {
+    const pl = stripCodeComments(readSource('src/preload.js'));
+    const pairs = [
+      ['getSkillsManagement', 'ai:get-skills-management'],
+      ['setSkillDisabled', 'ai:set-skill-disabled'],
+      ['uninstallSkill', 'ai:uninstall-skill'],
+    ];
+    for (const [api, ch] of pairs) {
+      const k = pl.indexOf(`${api}:`);
+      assert.ok(k >= 0, `preload 缺 realmAPI.ai.${api}`);
+      assert.ok(pl.slice(k, k + 160).includes(ch), `preload.${api} 未绑定通道 ${ch}（通道名必须逐字一致）`);
+    }
+  });
+
+  test('跨文件一致性：main.js 的三个 REST 子路由与三个 IPC 通道转发到**同一组**方法名', () => {
+    const main = stripCodeComments(readSource('main.js'));
+    for (const [, method] of DUAL_ENTRY_CHANNELS) {
+      assert.ok(main.includes(`aiManager.${method}(`), `main.js 未转发到 ${method}（两入口判定必然漂移）`);
+    }
+    assert.ok(main.includes('await aiManager.setSkillDisabled(name, disabled)'), 'HTTP set-disabled 未转发到 setSkillDisabled');
+    assert.ok(main.includes('await aiManager.uninstallUserSkill(name)'), 'HTTP uninstall 未转发到 uninstallUserSkill');
+    for (const route of ['set-disabled', 'uninstall']) {
+      assert.ok(new RegExp(`route === '${route}'`).test(main), `handleSkillsApi 缺子路由 ${route}`);
+    }
+  });
+
+  test('token 403 前置：handleSkillsApi 首段先鉴权，且早于任何 manager 调用', () => {
+    const code = stripCodeComments(readSource('main.js'));
+    const start = code.indexOf('async function handleSkillsApi(');
+    assert.ok(start >= 0, '缺 handleSkillsApi');
+    const head = code.slice(start, start + 700);
+    const iTok = head.search(/searchParams\.get\('token'\)\s*!==\s*REALM_TOKEN/);
+    assert.ok(iTok >= 0, 'handleSkillsApi 首段必须做 token 鉴权');
+    const i403 = head.indexOf('sendJson(res, 403', iTok);
+    assert.ok(i403 > iTok && i403 - iTok < 200, 'token 不通过时必须**立刻**答 403（鉴权必须早于任何副作用）');
+    const iEffect = head.indexOf('await aiManager.');
+    assert.ok(iEffect === -1 || iEffect > i403, '鉴权必须早于任何 manager 调用（副作用不得先于鉴权）');
+  });
+});

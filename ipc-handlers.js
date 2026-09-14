@@ -1768,6 +1768,58 @@ function registerHandlers() {
     return aiManager.refreshSkillsForPanel();
   });
 
+  /**
+   * 读取技能集的**管理面投影**（Phase 50 D-13 / D-17）—— 主窗口侧入口
+   *
+   * 与 HTTP `GET /api/skills/list` 是**同一 manager 函数**（`getSkillsForManagement`），
+   * 两个入口读同一权威；判定与投影一律住 `ai-skills-manager.js`，本 handler **只做转发**。
+   *
+   * 注意：主窗口 **不得**走 `/api/skills/*`（`file://` 不能 fetch 本地 HTTP —— Phase 38 事故）。
+   *
+   * @returns {Promise<{groups: Array<object>, errors: Array<object>, refreshedAt: number, digest: string, limits: object}>}
+   */
+  ipcMain.handle('ai:get-skills-management', async (event) => {
+    assertTrustedSender(event);
+    if (!aiManager) {
+      throw new Error('AI Manager 未初始化');
+    }
+    return aiManager.getSkillsForManagement();
+  });
+
+  /**
+   * 启用 / 禁用一条技能（Phase 50 D-17）—— 主窗口侧入口
+   *
+   * 与 HTTP `POST /api/skills/set-disabled` 是**同一 manager 函数**（`setSkillDisabled`）。
+   * 载荷取**增量** `{ name, disabled }`（全量载荷会在并发操作下互相覆盖）。
+   *
+   * @param {{name?: string, disabled?: boolean}} payload - 增量载荷
+   * @returns {Promise<Object>} 最新管理面投影
+   */
+  ipcMain.handle('ai:set-skill-disabled', async (event, { name, disabled } = {}) => {
+    assertTrustedSender(event);
+    if (!aiManager) {
+      throw new Error('AI Manager 未初始化');
+    }
+    return aiManager.setSkillDisabled(name, disabled);
+  });
+
+  /**
+   * 卸载一条**用户**技能（Phase 50 D-17）—— 主窗口侧入口
+   *
+   * 与 HTTP `POST /api/skills/uninstall` 是**同一 manager 函数**（`uninstallUserSkill`）。
+   * 「仅 user 可删」的三态判据在 manager 层（手改 URL 直调端点同样被拒）。
+   *
+   * @param {{name?: string}} payload - 技能名
+   * @returns {Promise<Object>} { ...删除结果, management }
+   */
+  ipcMain.handle('ai:uninstall-skill', async (event, { name } = {}) => {
+    assertTrustedSender(event);
+    if (!aiManager) {
+      throw new Error('AI Manager 未初始化');
+    }
+    return aiManager.uninstallUserSkill(name);
+  });
+
   // ==================== AI 聊天附件 ====================
 
   /**

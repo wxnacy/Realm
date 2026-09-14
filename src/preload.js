@@ -1040,6 +1040,28 @@ contextBridge.exposeInMainWorld('realmAPI', {
     refreshSkills: () => ipcRenderer.invoke('ai:refresh-skills'),
 
     /**
+     * 读取技能集的**管理面投影**（Phase 50 D-17）
+     * 与设置页的 HTTP `/api/skills/list` 转发到同一 manager 函数（两入口读同一权威）
+     * @returns {Promise<Object>} { groups, errors, refreshedAt, digest, limits }
+     */
+    getSkillsManagement: () => ipcRenderer.invoke('ai:get-skills-management'),
+
+    /**
+     * 启用 / 禁用一条技能（增量载荷；主进程内同步读-改-写）
+     * @param {string} name - 技能名
+     * @param {boolean} disabled - true = 禁用
+     * @returns {Promise<Object>} 最新管理面投影
+     */
+    setSkillDisabled: (name, disabled) => ipcRenderer.invoke('ai:set-skill-disabled', { name, disabled }),
+
+    /**
+     * 卸载一条**用户**技能（「仅 user 可删」的判定在 manager 层，本方法只转发）
+     * @param {string} name - 技能名
+     * @returns {Promise<Object>} { ...删除结果, management }
+     */
+    uninstallSkill: (name) => ipcRenderer.invoke('ai:uninstall-skill', { name }),
+
+    /**
      * 取消当前 Agent 执行
      * @returns {Promise<{success: boolean}>}
      */
