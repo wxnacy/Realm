@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
-package-lock.json
+# package-lock.json 必须入库（npm 官方：intended to be committed into source repositories）——
+# 原生模块（better-sqlite3 / nodejieba）与 Electron ABI 绑定，依赖树必须可复现
 
 # Build output
 dist/
