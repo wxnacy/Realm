@@ -6,7 +6,7 @@
 
 ## 当前现象（2026-08-03 16:46 一轮，GitHub 登录页）
 
-用户输入「帮我填写邮箱 wxnacy@gmail.com 和 密码 123456」：
+用户输入「帮我填写邮箱 user@example.com 和 密码 123456」：
 
 | # | 动作 | 结果 |
 |---|------|------|
@@ -109,7 +109,7 @@
 
 ## 修复记录（2026-08-03 第三轮 · 决定性证据）
 
-**截图证据**：首次 fill 失败后，**AI 面板输入框出现 `wxnacy@gmail.com123456`** ——
+**截图证据**：首次 fill 失败后，**AI 面板输入框出现 `user@example.com123456`** ——
 insertText 并未被"丢弃"，而是打进了 embedder（主窗口渲染进程）中持有真实键盘
 焦点的聊天输入框。这证实 H1/H3：**Input.insertText 打进的是输入管线焦点元素，
 与 guest 内的 DOM activeElement 无关**；`wc.focus()` / `this.focus()` 均不改变
