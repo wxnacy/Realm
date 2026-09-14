@@ -3,18 +3,18 @@ gsd_state_version: "1.0"
 milestone: v2.6
 milestone_name: AI 助手技能（Skill）能力
 current_phase: 50
-current_phase_name: api-skills
+current_phase_name: 设置页技能管理区 + /api/skills/*
 status: executing
-stopped_at: Phase 50 UI-SPEC approved
-last_updated: "2026-09-14T09:46:14.137Z"
+stopped_at: Completed 50-01-PLAN.md
+last_updated: "2026-09-14T13:23:01.083Z"
 last_activity: 2026-09-14
-last_activity_desc: Phase 49 complete, transitioned to Phase 50
-state_head: a9a03423dc4db7b9eeb9fe00a5d34ccfb85f89b2
+last_activity_desc: Phase 50 execution started
+state_head: e91970b3e2050b5d0bde0aa71ff372888745327f
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 0
   total_plans: 31
-  completed_plans: 26
+  completed_plans: 27
   percent: 0
 ---
 
@@ -25,16 +25,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-14)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 50 — 设置页技能管理区 + `/api/skills/*`
+**Current focus:** Phase 50 — 设置页技能管理区 + /api/skills/*
 
 ## Current Position
 
-Phase: 50 (api-skills) — READY TO EXECUTE
-Plan: Not started
+Phase: 50 (设置页技能管理区 + /api/skills/*) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-09-14 — Phase 49 complete, transitioned to Phase 50
+Last activity: 2026-09-14 — Phase 50 execution started
 
-Progress: [████████████████████] 26/26 plans ([░░░░░░░░░░] 0%)
+Progress: [████████████████████] 27/31 plans ([░░░░░░░░░░] 0%)
 
 ## Performance Metrics
 
@@ -119,6 +119,7 @@ Progress: [████████████████████] 26/26 p
 | Phase 49 P06 | 4 min | 3 tasks | 2 files |
 | Phase 49 P07 | 8 min | 3 tasks | 10 files |
 | Phase 49 P08 | 26 min | 3 tasks | 8 files |
+| Phase 50 P01 | 14 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -260,6 +261,12 @@ Recent decisions affecting current work:
 - [Phase 49]: [49-08] IN-15 的修法选**按名引用**（`49-UI-SPEC.md` 的「展开 / 折叠（卡片）」行）而非把行号改成 `:525` —— 与 `49-UI-SPEC.md:445` 自身引用惯例一致，且对后续往该文件前部插行免疫（裸行号正是这次漂空的机制）。裸 `契约 :508` 形态 filename-anchored grep 抓不到，须单独 grep `契约\s*:[0-9]`
 - [Phase 49]: [49-08] 改动落在 `covered_files` 内的文件后**必须重跑 verifier 刷新指纹，不得手改 `covered_digest`**（手改即本阶段反复打击的假绿形态）；正确顺序是「先提交修复 → 再派 verifier」，使新指纹覆盖修复后的树
 - [Phase 49]: [49-08] 「已通过但证据不可复跑」**≠**「待人工测试」—— SC1 层 2 证据已由 UAT test 1 记 pass（含逐字应答 + `manage_skill` 创建日志 + SKILL.md mtime 窗口核验），残余只是 `IN-16` 一族可复现性债；这条区分是重验判 `passed` 的关键，也是把 `human_needed` 从惯性状态里摘出来的依据
+- [Phase 50]: [Phase 50-01] 管理面投影 getSkillsForManagement 与面板投影 getSkillsForUI 并列共存、不得合并：后者是 / 面板的有意收窄投影，多带诊断与目录遍历结果会让 / 面板每次打开白传 100 条技能的数据
+- [Phase 50]: [Phase 50-01] 读路径初始化 ensureSkillsFresh 的判据取「Agent 存在与否」而非「有没有 provider」——init() 有两条 provider 早退（无 Key / 模型名解析不到），按 provider 判会漏掉第二条；且它是读侧兜底、不并入 syncAgentSystemPrompt 的写侧份额账
+- [Phase 50]: [Phase 50-01] 尺寸不进 computeDigest：它不影响 prompt 段，加进去会让「给技能加一个 references/notes.md」触发 systemPrompt 改写 + 广播 ⇒ provider 前缀缓存 miss；尺寸只随 refreshedAt 失效
+- [Phase 50]: [Phase 50-01] 状态链抽成冻结数组 SETTINGS_STATUS_CHAIN + 纯函数 pickStatusKey（住 skill-picker-model.js），把「多命中取首条」从渲染端 if 顺序升格为可断言数据；链不含 nameClash（依赖浏览器侧 SLASH_COMMANDS，realm:// guest 拿不到），面板链保持原样不动
+- [Phase 50]: [Phase 50-01] 技能目录真读不到时该技能会整条从列表消失（SDK 的 listDir 同样失败）⇒ statsUnavailable 分支只能经读盘时序注入覆盖，chmod 场景不可达；计划文本的「chmod ⇒ statsUnavailable」为不可满足断言
+- [Phase 50]: [Phase 50-01] 计划自带的两条样式硬禁令判据只扫单个规则块 ⇒ 另起 .skill-manage-row:hover 规则可完整绕过（实测仍绿）；已由新套件按选择器形态补判据，计划判据一字未改
 
 ### Roadmap Evolution
 
@@ -379,9 +386,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-14T05:15:16.892Z
-Stopped at: Phase 50 UI-SPEC approved
-Resume file: .planning/phases/50-api-skills/50-UI-SPEC.md
+Last session: 2026-09-14T13:23:01.033Z
+Stopped at: Completed 50-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 28
+open_count: 30
 waived_count: 0
 fixed_count: 2
-total_count: 30
-last_updated: 2026-09-13T14:29:15.698Z
+total_count: 32
+last_updated: 2026-09-14T13:23:22.986Z
 ---
 
 # Broken Windows Ledger
@@ -45,6 +45,8 @@ last_updated: 2026-09-13T14:29:15.698Z
 | 28 | 49 | stub | ai-manager.js |  | manage_skill 重载链路还原不了失败原因码 code（不落库）⇒ 重开对话后失败历史卡片不显示头部短原因（宁缺勿猜；展开区仍有主进程完整文案） | open |  | 2026-09-13T07:13:09.218Z |  |
 | 29 | 49 | stub | ai-manager.js |  | delete 成功卡片的 tier 在删除后不可判定 ⇒ 省略键、不显示来源徽标（不可判定时不猜） | open |  | 2026-09-13T07:13:09.306Z |  |
 | 30 | 49 | unrun-verify | docs/product/ai-skills.md |  | 失败态短原因（≤ 6 字）在 280px 面板下的宽度仅由算术保证（8+32+8+66≈114≤129），未用真实渲染逐条覆盖 —— G-49-3 的渲染门禁只覆盖超预算那条形态 | open |  | 2026-09-13T14:29:15.698Z |  |
+| 31 | 50 | deviation | src/styles/main.css |  | 计划自带的样式硬禁令判据只扫单个规则块：另起 .skill-manage-row:hover { background: var(--bg-hover) } 可完整绕过（变异实测仍绿）。已由 tests/test-skills-management.js 的样式硬禁令组按选择器形态补判据 | open |  | 2026-09-14T13:23:22.903Z |  |
+| 32 | 50 | deviation | ai-skills-manager.js |  | 计划自带的尺寸口径判据只扫「e.kind === 'directory'」起始那一行：把 bytes += 加在下一行（自然写法）不转红。已由 tests/test-skills-management.js 的 3 条行为用例承担该不变式 | open |  | 2026-09-14T13:23:22.986Z |  |
 
 ````json
 [
@@ -406,6 +408,30 @@ last_updated: 2026-09-13T14:29:15.698Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-13T14:29:15.698Z",
+    "resolved_at": null
+  },
+  {
+    "id": 31,
+    "kind": "deviation",
+    "phase": "50",
+    "file": "src/styles/main.css",
+    "line": null,
+    "description": "计划自带的样式硬禁令判据只扫单个规则块：另起 .skill-manage-row:hover { background: var(--bg-hover) } 可完整绕过（变异实测仍绿）。已由 tests/test-skills-management.js 的样式硬禁令组按选择器形态补判据",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-14T13:23:22.903Z",
+    "resolved_at": null
+  },
+  {
+    "id": 32,
+    "kind": "deviation",
+    "phase": "50",
+    "file": "ai-skills-manager.js",
+    "line": null,
+    "description": "计划自带的尺寸口径判据只扫「e.kind === 'directory'」起始那一行：把 bytes += 加在下一行（自然写法）不转红。已由 tests/test-skills-management.js 的 3 条行为用例承担该不变式",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-14T13:23:22.986Z",
     "resolved_at": null
   }
 ]
