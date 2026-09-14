@@ -1311,13 +1311,28 @@ function validateManagedSkillName(name) {
  * 因此本谓词只做「能不能安全地当名字用」这一层判定：**禁用名单是「按名字过滤」的
  * 消费侧信号，不需要名字合法到能写盘**（它与 `manage_skill` 的写入面是两回事）。
  *
- * ## 判据（四条，**不含**严格字符集）
+ * ## 判据（五条，**不含**严格字符集）
  *
  * ① 必须是字符串；② `trim()` 后非空；③ 长度 ≤ `MAX_SKILL_NAME_CHARS`(64)
- * （复用既有常量，不新写一个 64）；④ **不含** `/`、`\` 与控制字符（`\u0000`-`\u001F`）
- * —— 这一条是路径注入面（T-50-10：名字要被 `path.join` 进删除路径）。
+ * （复用既有常量，不新写一个 64）；④ **不是**路径归一化符 `.` / `..`；⑤ **不含**
+ * `/`、`\` 与控制字符（`\u0000`-`\u001F`）—— ④⑤ 两条共同构成路径注入面
+ * （T-50-10：名字要被 `path.join` 进删除路径）。
  *
- * **不加** `^[a-z0-9-]+$`、**不加**首尾连字符与连续连字符判据。
+ * **为什么不加 `^[a-z0-9-]+$`、不加首尾连字符与连续连字符判据**（OQ-2 的不对称）：
+ * 见上一段。
+ *
+ * ## 两条实现纪律（改本函数前必须先读，各有一次真实事故）
+ *
+ * ① **不得把返回值归一化（`trim()`）** —— 技能名的权威是**目录名**（§三），调用方拿它
+ * `path.join` 出删除路径。若这里返回 `name.trim()`，`skills/" foo"` 会被寻址成
+ * `skills/foo`：卸载删掉**另一个**技能，停用则写进一个永远匹配不上的名字
+ * （开关点了不生效）。故返回**原值**，只把「`trim()` 后为空」当作非法。寻址一律按原值精确匹配。
+ *
+ * ② **`.` 与 `..` 必须显式拒绝** —— 它们不是普通字符串而是**路径归一化符**：
+ * `path.join(<skills 目录>, '.')` 就是 skills 目录本身、`'..'` 就是 agent-workspace 根。
+ * 沙箱的 `resolveInside` 拦不住这种形态（目标**就是**沙箱根，判定为「在内部」），
+ * 于是 `env.remove(dir, { recursive: true })` 会把整个用户技能目录 / 整个 agent-workspace
+ * 递归删掉。这一条曾以 CR-01 的形态真实发生过（`POST /api/skills/uninstall` 可达）。
  *
  * 返回形状与 `validateManagedSkillName` 同形（`{ok:true, value}` / `{ok:false, code, reason}`），
  * 以便同样经 `makeManageSkillError` 构造。三个消费点（`/api/settings/update` 校验、
@@ -1331,8 +1346,9 @@ function validateSkillNameForManagement(name) {
   if (typeof name !== 'string') {
     return { ok: false, code: MANAGE_SKILL_ERROR.INVALID_NAME, reason: '技能名必须是字符串' };
   }
-  const value = name.trim();
-  if (!value) {
+  // 归一化纪律 ①：**原值**就是被寻址的名字，不回传 trim 后的值（见 JSDoc）
+  const value = name;
+  if (!value.trim()) {
     return { ok: false, code: MANAGE_SKILL_ERROR.INVALID_NAME, reason: '技能名不能为空' };
   }
   if (value.length > MAX_SKILL_NAME_CHARS) {
@@ -1340,6 +1356,14 @@ function validateSkillNameForManagement(name) {
       ok: false,
       code: MANAGE_SKILL_ERROR.INVALID_NAME,
       reason: `技能名不能超过 ${MAX_SKILL_NAME_CHARS} 个字符（当前 ${value.length} 个）`,
+    };
+  }
+  // 归一化纪律 ②：`.` / `..` 会把 path.join 的目标上移出 skills 目录（CR-01）
+  if (value === '.' || value === '..') {
+    return {
+      ok: false,
+      code: MANAGE_SKILL_ERROR.INVALID_NAME,
+      reason: '技能名不能是路径归一化符（. 或 ..）',
     };
   }
   if (value.includes('/') || value.includes('\\') || /[\u0000-\u001F]/.test(value)) {
@@ -2005,9 +2029,11 @@ async function deleteManagedSkill(env, { name, seededNames } = {}) {
  */
 async function deleteUserSkill(env, { name } = {}) {
   // 1. name 必须能安全地拼进删除路径（管理面安全超集谓词，OQ-2）
-  const skillName = typeof name === 'string' ? name.trim() : name;
-  const nameCheck = validateSkillNameForManagement(skillName);
+  //    不在这里 trim：谓词按**原值**寻址（见其 JSDoc 的归一化纪律 ①），
+  //    预 trim 会把 `skills/" foo"` 的卸载请求改成删 `skills/foo`（另一个技能）。
+  const nameCheck = validateSkillNameForManagement(name);
   if (!nameCheck.ok) throw makeManageSkillError(nameCheck.code, nameCheck.reason);
+  const skillName = nameCheck.value;
 
   // 2. 读盘判定（不复用 resolveManagedTarget；不用 _cache 快照）
   const workspace = getAgentWorkspaceLazy();
