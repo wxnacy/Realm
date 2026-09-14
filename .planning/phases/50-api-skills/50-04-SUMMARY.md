@@ -32,8 +32,9 @@ actuals:
   commits: 3
 
 # `actuals.commits: 3` 是**本 SUMMARY 落盘时**的台账实测值（`git rev-list --count 5b9d105..HEAD`）。
-# 其后本计划还产生 2 个收尾提交（`docs(50-04)` 元数据 + `chore(50-04)` state.json 镜像），
-# 故 `verify-work` 在同量比对时读到的会是 5 —— 差额即这 2 个提交，非漏记（沿 50-02 的披露方式）。
+# 其后本计划还会产生若干收尾提交（plan 元数据、STATE 镜像、以及本说明自身）⇒ `verify-work`
+# 用同一台账做同量比对时会读到更大的值；差额全部是这些收尾提交，**非漏记**
+#（沿 50-02 的披露方式：把「台账实测值」与「本计划自身提交数」分开记，不写死一个会漂移的数）。
 plan_commits: 3
 plan_head_before: 5b9d105d6f766e64e86b435dbc14106baa0a0a2d
 
