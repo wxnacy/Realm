@@ -5857,7 +5857,8 @@ textarea::placeholder {
    位于默认折叠的 .tool-card-content 内（max-height: 0，overflow: hidden 不移出 Tab 序），
    故卡片调用点传 { interactive: false }、**不施加焦点语义** —— 也就是说，
    本规则对卡片实例既不生效、也不该生效（卡片上没有可聚焦的 header 需要标示焦点）。
-   卡片头部（.tool-card-header）的展开 / 折叠沿用全仓既有的鼠标语义（契约 :508）。 */
+   卡片头部（.tool-card-header）的展开 / 折叠沿用全仓既有的鼠标语义
+   （契约 49-UI-SPEC.md 的「展开 / 折叠（卡片）」行，锁定「本阶段零改动」）。 */
 .ai-skill-content-box-header:focus-visible {
   outline: 2px solid var(--accent-color);
   outline-offset: -2px;

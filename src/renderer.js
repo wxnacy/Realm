@@ -8943,7 +8943,8 @@ function renderAISkillPill(skillInvocation) {
  *
  * ④ **气泡语境不受影响**：气泡里该 header 恒可见，控件可见则焦点语义成立，
  *    故增量在原位完整保留。卡片的展开 / 折叠沿用全仓既有的**鼠标语义**
- *    （契约 `49-UI-SPEC.md:508` 锁定"本阶段零改动"），本计划不改变该范式。
+ *    （契约 `49-UI-SPEC.md` 的「展开 / 折叠（卡片）」行，锁定"本阶段零改动"），
+ *    本计划不改变该范式。
  *
  * @param {{name?: string, content: string}} skillInvocation - 技能正文元数据（只用 `content`）
  * @param {{interactive?: boolean}} [options] - 语境开关（缺省 `true`；卡片调用点传 `false`）
