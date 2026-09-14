@@ -404,6 +404,34 @@ it already returns that name and nothing currently tells a future caller to use 
 
 ---
 
+## 修复记录（阶段收尾期追加，非审查者原文）
+
+本报告落盘后，用户裁决**立即修 CR-01**（而非记作技术债）⇒ 走 hotfix 流程在独立 worktree
+（`.worktrees/uninstall-guard` / `hotfix/uninstall-guard`）修复并 `--no-ff` 回合 master。
+
+| 编号 | 处置 | 修复内容 | 提交 |
+|------|------|---------|------|
+| CR-01 | **已修** | 管理面谓词显式拒绝 `.` / `..`（归 `invalid_name`）；两条到达路径（HTTP `POST /api/skills/uninstall` 与 IPC 卸载通道）共用该谓词，故同时封堵 | `5ff0474`（merge `9b3463c`） |
+| WR-01 | **已修** | 谓词不再把返回值归一化为 `name.trim()`（技能名权威是目录名，归一化会让 `skills/" foo"` 的卸载指向 `skills/foo`）；`deleteUserSkill` 同步去掉预 `trim` | `5ff0474` |
+| WR-04 | **已修** | 守卫用例补 `.` / `..`（含 `.`、`..` 的禁用名单形态）与「原值回传 + 不误删同名去空白技能」两条边界；做单点变异取证（删拒绝判据 ⇒ 3 例转红；改回 `trim()` ⇒ 2 例转红；均还原后复绿） | `5ff0474` |
+| WR-02 | 挂账（技术债） | 开关后焦点掉到 `<body>`：`sw.disabled = true` 在 `await` 之前设置，Chromium 会 blur 被禁用的元素 ⇒ `restoreSkillManageFocus` 永不生效；JSDoc 与用例的声明与实际相反 | — |
+| WR-03 | 挂账（技术债） | 三个新 IPC 通道 + preload 方法在 `src/` 内零调用点（死面），却永久暴露一个递归删除能力 | — |
+| WR-05 | 挂账（技术债） | 若干不可能失败的断言（`:574` 恒真、`:1113` 仅断言存在、`calls.length >= 3`、`threw \|\| status !== 413`） | — |
+| WR-06 | 挂账（技术债） | SEC-09 的行为保证是对**副本** `readJsonBodyEq` 证的：删掉 `main.js` 的 `Content-Length` 快路径后所有用例仍绿 | — |
+| IN-01..IN-05 | 挂账（技术债） | 死 CSS 兄弟规则 + 32 px 空洞 / 413 body 缺 `code` 致前端文案不可达 / `limits` 无消费者 / 遮蔽行的开关作用于胜出者 / 禁用名单清理在调用侧 | — |
+
+**回滚与范围**：修复只动 `ai-skills-manager.js` 与 `tests/test-skills-management.js`（+99/−12），
+未改任何其它文件、未 bump 版本号、未打 tag（本修复属未发布阶段的交付内部修复）。
+master 复跑全量 24 套件 → **24/24 通过**（含需 Electron 的 `tests/test-unified-navigation.js`）。
+
+**为什么选「立即修」而不是「记作技术债」**：CR-01 不是普通缺陷而是**数据销毁向量** ——
+一次 `POST /api/skills/uninstall`（或一次 IPC 调用）即可递归删掉整个 `agent-workspace/`
+（含 `ai-memory/`），且沙箱 `resolveInside` 在原理上拦不住这种形态（目标就是沙箱根本身）。
+按既有裁决「Critical 记入 REVIEW.md 作技术债、不阻断收尾」本可直接继续，但性质不同，故停下交由用户裁决。
+
+---
+
 _Reviewed: 2026-09-14T15:07:01Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+_修复记录追加: 2026-09-14（编排器，hotfix 回合后）_
