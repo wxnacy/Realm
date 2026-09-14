@@ -55,7 +55,7 @@ created: "2026-09-14"
 | TBD | TBD | TBD | USER-02 | — | 重新启用 → 名单移除 + `disabled` 回 false | unit | 同上 | ❌ W0 | ⬜ pending |
 | TBD | TBD | TBD | USER-02/06 | — | 写路径 `syncAgentSystemPrompt()` **恰一次** + 调用侧补播**恰一次** | unit（复用 `test-ai-skills.js` 的 own-property 包装计数 + `captureBroadcasts`） | `node tests/test-ai-skills.js` | ✅ | ⬜ pending |
 | TBD | TBD | TBD | USER-02 | — | **忙时**（`isProcessing === true`）补播仍然发出 —— 这是补播的**真实理由**（修正 1） | unit | 同上 | ✅ | ⬜ pending |
-| TBD | TBD | TBD | USER-06 | — | 仅 user 可卸载：builtin / managed / not-found 三态各自 `code`；直接调 manager 函数（= 「手改 URL 直调端点」）同样拒绝 | unit | `node tests/test-skills-management.js` | ❌ W0 | ⬜ pending |
+| TBD | TBD | TBD | USER-06 | — | 仅 user 可卸载的三态拒绝面：不存在 → `not_found`；**同名双存在（user+managed）→ 允许并提示**；仅 managed 存在 → `not_user_owned`；**直接调 manager 函数**（= 「手改 URL 直调端点」）同样拒绝 | unit | `node tests/test-skills-management.js` | ❌ W0 | ⬜ pending |
 | TBD | TBD | TBD | USER-06 | — | 卸载后 `settings.aiSkills.disabled` 同名条目被清理（D-09 派生不变式） | unit | 同上 | ❌ W0 | ⬜ pending |
 | TBD | TBD | TBD | USER-06 | — | 读盘判据而非缓存快照（暖缓存 → 从盘删目录 → 调卸载 ⇒ `not_found`） | unit | 同上 | ❌ W0 | ⬜ pending |
 | TBD | TBD | TBD | USER-07 | — | 两入口转发同一 manager 函数（源码扫描：`handleSkillsApi` 与 IPC handler 均无判定逻辑、调用同一方法名） | unit（源码扫描） | 同上 | ❌ W0 | ⬜ pending |

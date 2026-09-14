@@ -50,7 +50,10 @@
 - **D-06:** **失败 / 拒绝反馈走设置页既有 inline hint 形态**（`ai-memory-hint` / `whitelist-hint` 同款：颜色类 + 文案 + 自动复位守卫），**不新建 toast 基建**。理由：设置页在 `realm://` guest 内、`realmAPI` 不可用，主窗口 toast（G-44-5「toast 落主窗口 renderer，播放器不重复建设 toast 基建」）覆盖不到它；设置页已有 inline hint 基建与「2 秒回调无条件复位」的成熟守卫（Phase 43 G-43-2 先例）。
 - **D-07:** **卸载入口只对 `source === 'user'` 渲染；其余来源不渲染按钮**，改由区/组标题下一行说明：「内置技能与 AI 创建的技能不可在此卸载（AI 创建的技能请让 AI 用 `manage_skill` 删除，内置技能只可禁用）」。理由：不渲染 = 不给「点了才知道不行」的挫败；但完全静默会让用户困惑「为什么这个没有卸载按钮」，故配一行说明。
   - **服务端独立拒绝是硬约束**（ROADMAP 判据 3：「手改 URL 直接调端点也不例外」）—— 前端不渲染只是 UX，拒绝判据必须在 manager 层。两层各司其职。
-  - **本侧的判据不能复用 49 的 `resolveManagedTarget`**（那是 managed 视角的「seeded 保护 + 用户撞名」，方向相反）；需要**一处显式的「仅 user 可删」判据**（读盘判 `skills/<name>` 是否存在 + `managed-skills/<name>` 是否存在 ⇒ 后者存在即拒）。
+  - **本侧的判据不能复用 49 的 `resolveManagedTarget`**（那是 managed 视角的「seeded 保护 + 用户撞名」，方向相反）；需要**一处显式的「仅 user 可删」判据**。
+  - **判据口径（OQ-1 已裁决，2026-09-14）**：**「`skills/<name>` 存在且 `kind` 是目录」即允许卸载**（删除对象恒为 `skills/<name>/`）。**不得**把「`managed-skills/<name>` 是否存在」用作拒绝条件 —— 同名双存在（user + managed 同名）时 user 条目**确实存在**（user 胜出、managed 被 `applyShadowing` 标 `shadowed` 保留在数据层），列表里显示的 tier 就是 `user`；按「后者存在即拒」会让用户点自己列表里那条「我的技能」时被告知「这不是你的技能」，与 ROADMAP 判据 3「卸载仅允许 `source === 'user'` 的技能」直接冲突。`managed-skills/<name>` 的存在**只用来提示**：「同名托管 / 内置技能将在删除后重新可见」。
+  - **读盘而非缓存快照**：判据一律读盘（`env.exists` / `env.listDir`），不用 `_cache` —— bash 可随时改写磁盘（P8 第 6 条），缓存只反映上次重扫的时刻。
+  - **拒绝面的三态**：① `skills/<name>` 不存在 → `not_found`（含「存在但读不到」）；② `skills/<name>` 存在但 `managed-skills/<name>` 也存在 → **允许**（按本条裁决）；③ `skills/<name>` 不存在而 `managed-skills/<name>` 存在 → `not_user_owned`（D-08 的第十码）。
 - **D-08:** **新增第十个错误码 `NOT_USER_OWNED: 'not_user_owned'`**（落点与账本刷新清单见下方 **OQ-3** —— 实测 `MANAGE_SKILL_ERROR` 现有 **10 键** = 九码 + `UNKNOWN`，被 `tests/test-manage-skill.js:1588-1621` 逐字冻结；加码后为 **11 键**，而 `MANAGE_SKILL_SHORT_REASON` **保持恰 9 键不动**）。理由：复用 `NOT_FOUND` 会把「技能不存在」与「技能存在但不是你的」混同 —— 用户看到「技能不存在」而该技能明明列在页面上，是**失实文案**；这正是 49-04 修过的三态混同族（`promptIncluded` 的 `false`/`undefined` 混同根因）。— **Reversibility:** costly — 「九码」是已写进产品文档、`AGENTS.md` 维护约定与测试清单的**成文账本**（三处必须一起刷，49-06 已建立刷新纪律）；回退需同步改三处账本 + 一个常量的取值域。
 - **D-09:** **禁用的技能仍可卸载**（卸载不因 `disabled` 而置灰）。理由：禁用是「先别进 prompt 试试」的轻量试探，卸载是「确实不要了」的终局；要求用户先启用再卸载是反直觉的两步操作。且禁用不改变来源（`settings.aiSkills.disabled` 只存名字）。
   - **派生不变式（必须实现）**：卸载一个 user 技能成功后，**必须同步从 `settings.aiSkills.disabled` 移除该名字**。否则残留名单会随技能名复用而误伤 —— 同名新技能一装上就被静默禁用，属「静默失效」。启用 / 禁用单条时无需清理（技能仍在盘上）。
@@ -102,13 +105,15 @@
   - **验收面**：`refreshedAt === 0`（从未加载）**不得**被渲染成「无技能」——空态文案必须区分「确实没有技能」与「尚未加载」；并补一条「未配置 provider 时仍能列出两个内置技能」的端到端/手动验收（见 `50-VALIDATION.md` 的 Manual-Only 表）。
   - — **Reversibility:** reversible — 新增一个读侧入口，回退即删；但**若不实现，判据 1 在无 provider 的用户处直接失败**，属必须交付项。
 
-### 研究校正与 plan 期待裁决项（2026-09-14，源：`50-RESEARCH.md`）
+### 研究校正与开放问题处置（2026-09-14，源：`50-RESEARCH.md`）
 
 **三条事实校正已回写进 D-16 / D-18 / D-19**（D-18 补播的理由整体改写 + 新增 digest 反向优化禁令；D-16 补两个书签端点的显式覆盖 + 413 实现形态 + `sendJson` 幂等；D-19 为新增决策）。
 
-以下 5 条是 research 提出的**开放问题**，plan 期必须显式处置（不得静默选一个）：
+**OQ-1 已由用户裁决**（同 research 建议）并落进 **D-07** —— **本阶段已无需要用户裁决的用户可见行为分歧**。
 
-- **OQ-1（唯一会改变用户可见行为的分歧，需用户裁决）**：**同名双存在（user + managed 同名）时「仅 user 可删」的语义** —— D-07 的字面判据（「`managed-skills/<name>` 存在即拒」）与 ROADMAP 判据 3 的字面（「`source === 'user'` 可卸载」）**冲突**：同名双存在时 user 条目**确实存在**（user 胜出、managed 被标 `shadowed` 保留在数据层），列表里显示的 tier 就是 `user`，而按 D-07 字面用户会被告知「这不是你的技能」。**research 建议**：判据改为「`skills/<name>` 存在且 `kind` 是目录」即允许（删除对象恒为 `skills/<name>/`）；`managed-skills/<name>` 的存在只用来**提示**（「同名托管/内置技能将在删除后重新可见」）而**不**用来拒绝。**本 CONTEXT 暂按 research 建议记入，标注为待用户确认**；若用户选保守方案，则必须在产品文档写明「同名双存在时用户技能的卸载入口亦被禁用」及理由。
+以下 4 条开放问题采纳 research 的建议，plan 期必须显式实现（不得静默换一个）：
+
+- **OQ-1（✅ 已裁决 2026-09-14 —— 用户选 research 建议）**：**同名双存在（user + managed 同名）时「仅 user 可删」的语义** —— D-07 的原字面判据（「`managed-skills/<name>` 存在即拒」）与 ROADMAP 判据 3 的字面（「`source === 'user'` 可卸载」）**冲突**：同名双存在时 user 条目**确实存在**（user 胜出、managed 被标 `shadowed` 保留在数据层），列表里显示的 tier 就是 `user`，而按原字面用户会被告知「这不是你的技能」。**裁决：判据改为「`skills/<name>` 存在且 `kind` 是目录」即允许**（删除对象恒为 `skills/<name>/`）；`managed-skills/<name>` 的存在只用来**提示**（「同名托管 / 内置技能将在删除后重新可见」）而**不**用来拒绝。**已落进 D-07**（含三态拒绝面），本阶段不再有需要用户裁决的用户可见行为分歧。
 - **OQ-2（采纳 research 建议）**：**`settings.aiSkills.disabled` 的校验谓词用「安全超集」**（非空字符串 + ≤64 字符 + 无路径分隔符/控制字符 + 条数 ≤ 上限），**不**用 `validateManagedSkillName` 的 `^[a-z0-9-]+$` 严格形态。理由：加载管线对磁盘上的技能名**故意宽松**（46 D-08），严格谓词会让「手动放进 `skills/My_Skill/` 的技能无法被禁用」（设置页开关 400）。**必须在 `docs/product/ai-skills.md` 写明这条故意的不对称**（禁用名单是「按名字过滤」的消费侧信号，不需要名字合法到能写盘）。
 - **OQ-3（采纳 research 建议，落点已定）**：**`not_user_owned` 加进 `MANAGE_SKILL_ERROR`**（顺从 D-08 字面），并**同批**三件事：① 把 `tests/test-manage-skill.js:1588-1621` 的两条 `deepStrictEqual` 冻结断言从「恰十键 / 九码」刷成「恰十一键 / 十码」；② **不动** `MANAGE_SKILL_SHORT_REASON`（保持**恰 9 键**，被 `tests/test-skill-picker-model.js:946` 硬断言）—— 新码在本阶段**只经 HTTP 400 的 `{code}` 返回**，不进 `manage_skill` 的工具卡片渲染路径，并在文档写明「该表只覆盖工具面，管理面错误码由设置页自己的文案表承载」；③ `docs/product/ai-skills.md` §11.3 的「九条拒绝原因 / 不新增第十码」改为「**工具侧**九条不变；管理面另有 `not_user_owned`（第十码，见新章节）」，消除文档自相矛盾。⚠️ 注意 D-08 原写「九码」而 `MANAGE_SKILL_ERROR` 实为 **10 键**（九码 + `UNKNOWN`）—— 措辞以实测键数为准。
 - **OQ-4（采纳 research 建议）**：**尺寸遍历加防御上限**（建议 `MAX_SKILL_SIZE_WALK_ENTRIES = 5000` / `MAX_SKILL_SIZE_WALK_DEPTH = 16`），超限**截断 + 产 warning 诊断**，**不拒绝加载** —— 技能仍可用，只是体积显示为下限值并在详情区说明。理由：`MAX_USER_SKILLS` / `MAX_MANAGED_SKILLS` 只约束**技能个数**，不约束**单个技能目录的深度与条目数**（PITFALLS P7 把「深目录递归」列为资源耗尽面）；而「单技能失败跳过、不因局部问题拒绝整条」是加载管线的既有纪律。
@@ -124,7 +129,7 @@
 - **启停 switch 的视觉**：建议复用设置页既有 `.ai-switch`（provider `enabled` 开关同款）。
 - **诊断详情区的展开交互**：建议复用 48 / 49 的折叠块范式；具体 DOM 与样式交 plan 期（若 ROADMAP 的 `UI hint: yes` 触发 `/gsd:ui-phase 50`，由 UI-SPEC 定稿）。
 - **`set-disabled` 的载荷形状**（增量 `{name, disabled}` vs 全量 `{disabled: [...]}`）：建议**增量**（全量会在并发操作下互相覆盖）；具体交 plan 期。
-- **测试文件组织**：research 建议**新增独立套件 `tests/test-skills-management.js`**（与 49 的 `test-manage-skill.js` 工具面职责不同，且独立文件才有独立 `# tests` 计数可入账本）；并在 `tests/test-ai-skills.js` 补写路径/忙时补播用例、改造 `tests/test-manage-skill.js` 的冻结断言、给 `tests/test-skill-picker-model.js` 补 `STATUS_TEXT.disabled` 断言。**必须覆盖**：管理投影形状与分组（含空组不渲染）/ 体积与文件数口径（递归含子目录、隐藏文件不计、**目录 size 不计**、**不穿 symlink**）/ 尺寸统计**不进 digest** / `refreshedAt === 0` 不渲染成「无技能」/ 来源三档 / 仅 user 可卸载（含**直接调 manager 函数**的服务端拒绝）/ 卸载后 `disabled` 名单清理 / 读盘判据而非缓存快照 / `readJsonBody` 上限（超限 **413 且不累积**、`sendJson` 幂等、**无 unhandledRejection**）/ 两个书签端点显式覆盖 `maxBytes` / 57 个既有调用点回归 / `settings.aiSkills.disabled` 服务端校验（两种键形态）/ 写路径「`syncAgentSystemPrompt()` 恰一次 + 补播恰一次」/ **忙时补播仍发出** / 禁用后 `/` 面板不可见。完整映射见 `50-VALIDATION.md` 的 Per-Task Verification Map。
+- **测试文件组织**：research 建议**新增独立套件 `tests/test-skills-management.js`**（与 49 的 `test-manage-skill.js` 工具面职责不同，且独立文件才有独立 `# tests` 计数可入账本）；并在 `tests/test-ai-skills.js` 补写路径/忙时补播用例、改造 `tests/test-manage-skill.js` 的冻结断言、给 `tests/test-skill-picker-model.js` 补 `STATUS_TEXT.disabled` 断言。**必须覆盖**：管理投影形状与分组（含空组不渲染）/ 体积与文件数口径（递归含子目录、隐藏文件不计、**目录 size 不计**、**不穿 symlink**）/ 尺寸统计**不进 digest** / `refreshedAt === 0` 不渲染成「无技能」/ 来源三档 / 仅 user 可卸载（**三态拒绝面：不存在 → `not_found`；同名双存在 → 允许并提示「同名托管/内置技能将重新可见」；仅 managed 存在 → `not_user_owned`**；含**直接调 manager 函数**的服务端拒绝）/ 卸载后 `disabled` 名单清理 / 读盘判据而非缓存快照 / `readJsonBody` 上限（超限 **413 且不累积**、`sendJson` 幂等、**无 unhandledRejection**）/ 两个书签端点显式覆盖 `maxBytes` / 57 个既有调用点回归 / `settings.aiSkills.disabled` 服务端校验（两种键形态）/ 写路径「`syncAgentSystemPrompt()` 恰一次 + 补播恰一次」/ **忙时补播仍发出** / 禁用后 `/` 面板不可见。完整映射见 `50-VALIDATION.md` 的 Per-Task Verification Map。
 - **待实测项**：`readJsonBody` 改签名后对**全部**既有 `/api/*` POST 端点的回归（57 个调用点，重点 `/api/settings/update`）；设置页 inline hint 的自动复位在连续操作下的表现；100 条技能时设置页的渲染耗时与投影字节数（research A6）；`SKILL.md` 自身 `size` 计入 `bytes` 的口径（research A2）；设置页加载 `skill-picker-model.js` 在 `realm://` CSP 下的表现（research A3）；`env.listDir` 返回的条目形状（含 `.DS_Store` 与 symlink）—— research 已实测（`{name,path,kind,size,mtimeMs}`；目录 `size`=96；symlink `size` 为链接长度、**内部链接可穿入 ⇒ naive 递归会无限循环**、外逃链接返回 `permission_denied`），plan 期的遍历实现必须显式处理 symlink。
 
 </decisions>
@@ -207,7 +212,7 @@
 
 ### Integration Points
 
-- `ai-skills-manager.js` —— 新增管理投影函数（含体积/文件数遍历）+ `deleteUserSkill`（**仅 user 可删**，见 OQ-1 的待裁决口径）+ `MANAGE_SKILL_ERROR.NOT_USER_OWNED`；`refreshSkills()` 内接入体积/文件数计算（**须显式处理 symlink，见 research Pitfall 4**）
+- `ai-skills-manager.js` —— 新增管理投影函数（含体积/文件数遍历）+ `deleteUserSkill`（**仅 user 可删**，三态拒绝面见 D-07）+ `MANAGE_SKILL_ERROR.NOT_USER_OWNED`；`refreshSkills()` 内接入体积/文件数计算（**须显式处理 symlink，见 research Pitfall 4**）
 - `ai-manager.js` —— 新增管理面转发方法 + **`ensureSkillsFresh()` 类的不依赖 Agent 的读路径初始化（D-19）**（**不得**让 `ai-skills-manager.js` 依赖 `ai-manager.js`）；管理写路径的成功出口：`await this.syncAgentSystemPrompt()` **恰一次** + 调用侧无条件 `windowManager.broadcast('skills:changed')`
 - `main.js` —— `handleSkillsApi()`（三个 REST 子路由）+ 分发分支；`readJsonBody` 加 `maxBytes` 并把 **413 形态 + `sendJson` 幂等护栏**一并落地（D-16）；**两个书签导入端点显式覆盖 `maxBytes`**；`handleSettingsApi` 的 `update` 循环加 `aiSkills.disabled` / `aiSkills` 校验（D-10、OQ-2 的超集谓词）
 - `ipc-handlers.js` —— 管理 IPC 通道（与 `ai:get-skills` / `ai:refresh-skills` 并列），全部经 `assertTrustedSender` 后转调同一 manager 函数
