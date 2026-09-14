@@ -5,11 +5,11 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 50
 current_phase_name: 设置页技能管理区 + `/api/skills/*`
 status: planning
-stopped_at: Phase 50 context gathered
-last_updated: "2026-09-14T02:38:48.234Z"
+stopped_at: Phase 50 UI-SPEC approved
+last_updated: "2026-09-14T05:15:16.964Z"
 last_activity: 2026-09-14
 last_activity_desc: Phase 49 complete, transitioned to Phase 50
-state_head: 1fff3938b8823e3de2b4a09700a992dd398c3484
+state_head: 0ef8fa4de27a42062836e3894379edc1454af34b
 progress:
   total_phases: 6
   completed_phases: 1
@@ -379,9 +379,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-14T02:38:48.166Z
-Stopped at: Phase 50 context gathered
-Resume file: .planning/phases/50-api-skills/50-CONTEXT.md
+Last session: 2026-09-14T05:15:16.892Z
+Stopped at: Phase 50 UI-SPEC approved
+Resume file: .planning/phases/50-api-skills/50-UI-SPEC.md
 
 ## Operator Next Steps
 
