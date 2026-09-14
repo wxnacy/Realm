@@ -30,6 +30,11 @@ actuals:
   tokens: 16918
   tasks: 3
   commits: 3
+
+# `actuals.commits: 3` 是**本 SUMMARY 落盘时**的台账实测值（`git rev-list --count 5b9d105..HEAD`）。
+# 其后本计划还产生 2 个收尾提交（`docs(50-04)` 元数据 + `chore(50-04)` state.json 镜像），
+# 故 `verify-work` 在同量比对时读到的会是 5 —— 差额即这 2 个提交，非漏记（沿 50-02 的披露方式）。
+plan_commits: 3
 plan_head_before: 5b9d105d6f766e64e86b435dbc14106baa0a0a2d
 
 tech-stack:
