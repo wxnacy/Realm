@@ -23,7 +23,10 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { _electron } = require('/Users/wxnacy/.nvm/versions/node/v22.22.0/lib/node_modules/playwright');
+const { execSync } = require('child_process');
+// 全局 playwright（非项目依赖）：动态解析 npm 全局根，避免写死本机用户名与 Node 版本路径
+const globalModules = execSync('npm root -g', { encoding: 'utf8' }).trim();
+const { _electron } = require(path.join(globalModules, 'playwright'));
 
 const REALM_ROOT = path.join(__dirname, '..');
 const AR_MODULE = path.join(REALM_ROOT, 'assignment-rules.js');
