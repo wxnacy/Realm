@@ -1366,9 +1366,20 @@ if (route === 'import-html' && req.method === 'POST') {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED — 2026-09-14)
 
-> CONTEXT 的 OQ-1..5 均已裁决（OQ-1 已落进 D-07，OQ-2/3/4/5 采纳 research 建议并在 CONTEXT 明文「plan 期必须显式实现，不得静默换一个」）。下列是**本会话新发现**或**仍留在 plan 期定数**的项。
+> CONTEXT 的 OQ-1..5 均已裁决（OQ-1 已落进 D-07，OQ-2/3/4/5 采纳 research 建议并在 CONTEXT 明文「plan 期必须显式实现，不得静默换一个」）。下列是**本会话新发现**或**仍留在 plan 期定数**的项 —— **六条现已全部处置完毕**（plan 期复核回填 2026-09-14，逐条落点如下）：
+
+| # | 处置状态与结论 | 落点 |
+|---|----------------|------|
+| 1 | **RESOLVED（用户裁决，BINDING）** 取**方案 A**：`readJsonBody(req, res, { maxBytes })` + 全部调用点传 `res` + `res` 缺失降级为「只 reject」+ `sendJson` 幂等护栏。备选 B（两参 + 只 reject ⇒ 400）与 C（隐式绑定 `res`）**不得**再提或「改良」 | `50-03-PLAN.md` T1/T2；D-16 的改写已回写 `50-CONTEXT.md` |
+| 2 | **RESOLVED** 落点 = `ai-skills-manager.js` 新增导出谓词（返回形状与 `validateManagedSkillName` **同形**、谓词**故意更宽**）；三处消费（`/api/settings/update` / `set-disabled` / `uninstall`）**必须同宽**；条数上限 = `LIMITS.MAX_USER_SKILLS + LIMITS.MAX_MANAGED_SKILLS`（= 100，**不得改既有五项数值**） | `50-02-PLAN.md` T1（`validateSkillNameForManagement` + `validateDisabledListForSettings`） |
+| 3 | **RESOLVED** 设置页口径 = `disabled > shadowed > overLimit > promptOmitted`、**不含 `nameClash`**；且链序与「多命中取首条」提升为 `src/skill-picker-model.js` 的**单源**（`SETTINGS_STATUS_CHAIN` + `pickStatusKey()`），渲染端只消费、不重写 if 链 | `50-01-PLAN.md` T2；`50-04-PLAN.md` T2/T3；`50-05-PLAN.md` T1（§12.5 成文） |
+| 4 | **RESOLVED** 允许（禁用名单与限额两个维度正交）；「**同时命中 `disabled` + `overLimit` ⇒ 行尾只显示『已禁用』**」落成 `pickStatusKey` 的**纯函数用例**（纯 Node 可判，不依赖 DOM） | `50-01-PLAN.md` T2（`tests/test-skill-picker-model.js` 的同时命中用例） |
+| 5 | **RESOLVED** `MAX_JSON_BODY_BYTES` **不进** `limits`；但「技能域三个端点载荷远小于 1 MiB ⇒ 413 正常不可达」**必须成文** | `50-05-PLAN.md` T1（§12.8） |
+| 6 | **RESOLVED** 新增独立套件 `tests/test-skills-management.js`（管理数据面）+ `tests/test-skills-http-api.js`（HTTP / 传输面），并增补三个既有套件；counts-parity 从 3 套件扩到 5 套件、四处账本同批刷 | `50-01-PLAN.md` T1 与 `50-02-PLAN.md` T2/T3（建套件）+ `50-05-PLAN.md` T3（收口） |
+
+> **未闭合项**：`## Assumptions Log` 的 **A2 / A3 / A4 / A6** 四条待实测项在 plan 期**仍未实测**，处置已逐条写进 `50-05-PLAN.md` T3 的 Known-Open Items 与 Manual-Only 表（A3 / A4 / A6 转 Manual-Only；A2 定稿为「计入 `SKILL.md`」但**未经实测**）。
 
 1. **`readJsonBody` 的签名与 413 形态（**阻塞级**，见矛盾 1）**
    - **What we know:** D-16 同时要求两参签名 `(req, {maxBytes})`、`sendJson(res, 413)`、`req.resume()` 与「零调用点改动」；而两参形态下函数体内没有 `res`。本会话实测了三种形态的客户端可见性与堆增量。
