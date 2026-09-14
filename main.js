@@ -873,6 +873,21 @@ app.whenReady().then(async () => {
     '.ico': 'image/x-icon',
   };
 
+  // 请求体体积上限（SEC-09，单源常量；端点与前端零字面量）
+  //
+  // - `MAX_JSON_BODY_BYTES`：`/api/*` POST 的**全局默认**（fail-closed）。形状刻意是
+  //   「默认小 + 需大者显式放大」：忘了声明上限的端点会在 1 MiB 处当场 413 可见，
+  //   而不是静默地退化成假边界（Phase 51 的 zip base64 导入届时显式放大）。
+  // - `MAX_JSON_BODY_BYTES_LARGE`：body 是**用户文件全文**的端点专用。今天只有两个：
+  //   `POST /api/favorites/import-chrome` 与 `POST /api/favorites/import-html`
+  //   （`src/favorites-page.js` 提交 `file.text()` 的完整内容；Chrome / Safari 导出的
+  //   书签文件常规 1–10 MB，且 import-html 的预览与执行各发一次）。不显式放大会
+  //   **静默破坏既有功能**（用户点「导入书签」得到 413）。
+  // ⚠️ 1 MiB 与 PITFALLS P7 的「单 entry 解压 ≤ 1 MB」是**同数不同量**：前者是
+  //    HTTP 传输层闸，后者是解压层闸，两者尺度不同、不得互相替代。
+  const MAX_JSON_BODY_BYTES = 1024 * 1024;
+  const MAX_JSON_BODY_BYTES_LARGE = 32 * 1024 * 1024;
+
   /**
    * 发送 JSON 响应
    * @param {http.ServerResponse} res - 响应对象
@@ -885,15 +900,62 @@ app.whenReady().then(async () => {
   }
 
   /**
-   * 读取并解析 POST 请求的 JSON body
+   * 读取并解析 POST 请求的 JSON body（带体积上限，SEC-09 / Phase 50 D-16）
+   *
+   * 三条同时成立，缺一即回归：
+   * 1. **累积中拒收**：每个 chunk 累加 `size` 后立即比较，超限即**停止拼接 body**
+   *    （`if (rejected) return;`）并答 413。**不是**「读完再判 `body.length`」——
+   *    后者会把整个 body（Phase 51 可达数十 MiB）收进堆，那不是防护。
+   * 2. **不断连**：超限走 `req.resume()` 排水，**不** `req.destroy()`（实测客户端会
+   *    拿到 EPIPE 而非 413 ⇒ ROADMAP 判据 5 的「返回明确错误」不成立），
+   *    **不**设 `Connection: close`（两次实测结论相反、且无任何收益）。
+   * 3. **`res` 缺失时只 reject**（降级分支）：全仓**没有** `uncaughtException` /
+   *    `unhandledRejection` 全局兜底 ⇒ 若在 `data` 监听器里对 `undefined` 调
+   *    `sendJson` 会 `TypeError` ⇒ Electron 主进程直接退出。本条把「漏改一处调用点」
+   *    的后果从**崩溃**降为「该端点超限答 400」——一样当场可见，但不致命。
+   *
+   * 已答 413 之后仍会 reject 一个带 `code: 'BODY_TOO_LARGE'` 的错误；外层 handler 的
+   * `catch → sendJson` 由 `sendJson` 的幂等护栏吸收（否则 `ERR_HTTP_HEADERS_SENT`）。
+   *
    * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} [res] - 响应对象（漏传 ⇒ 只 reject，不答响应）
+   * @param {{maxBytes?: number}} [options] - `maxBytes` 缺省取 `MAX_JSON_BODY_BYTES`
    * @returns {Promise<Object>} 解析后的 body
    */
-  function readJsonBody(req) {
+  function readJsonBody(req, res, { maxBytes = MAX_JSON_BODY_BYTES } = {}) {
+    // 能力探测：`res` 的存在性与 `writeHead` 的能力**两个原始条件都要判**
+    const canRespond = !!(res && typeof res.writeHead === 'function');
     return new Promise((resolve, reject) => {
       let body = '';
-      req.on('data', (chunk) => { body += chunk; });
+      let size = 0;
+      let rejected = false;
+      const tooLarge = () => {
+        rejected = true;
+        if (canRespond) {
+          sendJson(res, 413, { error: '请求体超过上限（' + maxBytes + ' 字节）', limit: maxBytes });
+          req.resume(); // 停止累积、把剩余流排空（内存 O(1) 且 413 可达）
+        }
+      };
+      // 快路径：`Content-Length` 预检（零字节读取即拒）。
+      // ⚠️ 该头可伪造 / 可缺失 ⇒ 只作加速，**不得**取代下面的累积中判（那才是唯一判据）。
+      const declared = Number(req.headers['content-length']);
+      if (Number.isFinite(declared) && declared > maxBytes) {
+        tooLarge();
+        reject(Object.assign(new Error('请求体超过上限'), { code: 'BODY_TOO_LARGE', limit: maxBytes }));
+        return;
+      }
+      req.on('data', (chunk) => {
+        if (rejected) return; // 停止累积（关键：不再拼 body，堆不随 body 线性增长）
+        size += chunk.length;
+        if (size > maxBytes) {
+          tooLarge();
+          reject(Object.assign(new Error('请求体超过上限'), { code: 'BODY_TOO_LARGE', limit: maxBytes }));
+          return;
+        }
+        body += chunk;
+      });
       req.on('end', () => {
+        if (rejected) return;
         try {
           resolve(body ? JSON.parse(body) : {});
         } catch (err) {
@@ -1158,8 +1220,9 @@ app.whenReady().then(async () => {
       }
 
       // Chrome JSON 导入：body { filePath } 或 { content }
+      // ⚠️ body 是用户书签文件**全文** ⇒ 显式放大上限（否则 1 MiB 默认会打断既有功能）
       if (route === 'import-chrome' && req.method === 'POST') {
-        const { filePath, content } = await readJsonBody(req);
+        const { filePath, content } = await readJsonBody(req, res, { maxBytes: MAX_JSON_BODY_BYTES_LARGE });
         currentImportAbortController = new AbortController();
         currentImportProgress = { progress: 0, imported: 0, total: 0, current: '' };
         try {
@@ -1178,8 +1241,9 @@ app.whenReady().then(async () => {
       }
 
       // HTML 书签导入：body { filePath | content, mode: 'preview' | 'import' }
+      // ⚠️ body 同上（同一条链路，预览与执行各发一次）⇒ 显式放大上限
       if (route === 'import-html' && req.method === 'POST') {
-        const { filePath, content, mode } = await readJsonBody(req);
+        const { filePath, content, mode } = await readJsonBody(req, res, { maxBytes: MAX_JSON_BODY_BYTES_LARGE });
 
         // 预览模式：只解析不写库（per D-11, D-12）
         if (mode === 'preview') {

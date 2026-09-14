@@ -6,7 +6,7 @@
  * SEC-09 的 413 组与 token 403 组是 **HTTP / 传输层**关注点，与管理**数据面**
  * （投影 / 三态判据 / 谓词值域）职责不同；且独立文件才有独立的 `# tests` 计数可入账本。
  *
- * ## 本套件对 HTTP 面的验证分两层
+ * ## 本套件对 HTTP 面的验证分三层
  *
  * ① **源码扫描**（`main.js`）—— `handleSkillsApi` 的两个写子路由、token 首行鉴权、
  *    `{ error, code }` 错误形状、两处「**转发到同一 manager 方法**」的调用；
@@ -14,13 +14,18 @@
  *    return**」的语句顺序（「校验失败但仍落盘」的机械判据）。
  * ② **对可 require 的纯逻辑做行为断言** —— `validateDisabledListForSettings` 的全部
  *    拒绝面（两种键形态共用同一份判据，取值路径分别模拟）。
+ * ③ **SEC-09 的体积闸**（Phase 50-03）—— 真 `http.createServer` harness 的行为回归
+ *    （413 + JSON / `unhandledRejection` 计数 0 / 堆不线性增长 / `destroy` 反向对照）
+ *    **加** `main.js` 的源码契约断言（三参签名 / `res` 缺失降级分支 / 413 形态 /
+ *    调用点覆盖度）。
  *
- * ⚠️ 为什么 ① 只能停在源码层：`handleSkillsApi` 与 `handleSettingsApi` 都住在 `main.js`
- * 的 `realmServer` 闭包内、**不可 require**。行为级端点测试需要真实起 server 的探针，
- * 那属 SEC-09 组（Phase 50-03 续写）——本套件**不复制** `main.js` 的 `realmServer`。
+ * ⚠️ 为什么 ①② 只能停在源码层：`handleSkillsApi` 与 `handleSettingsApi` 都住在 `main.js`
+ * 的 `realmServer` 闭包内、**不可 require**。③ 的 `readJsonBody` / `sendJson` 同样如此，
+ * 故 ③ 用「等价 harness 的 `http` 行为 + `main.js` 的源码契约」双层承担，**不得**读成
+ * 「直接测了 `main.js` 里那个函数」（详见 ③ 组的可测性声明）。
  *
  * 全部断言**逐条喂真实数据形状**（计划明文要求）：不用「手工构造一个实现从不构造的对象」
- * 式断言。
+ * 式断言 —— ③ 组用真实的 `http.request` / `fetch` 发真实字节流。
  *
  * 用法: node tests/test-skills-http-api.js
  */
@@ -28,6 +33,7 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
+const http = require('http');
 const path = require('path');
 
 const aiSkills = require('../ai-skills-manager');
@@ -242,5 +248,323 @@ describe('validateDisabledListForSettings：两种键形态的取值路径与拒
     );
     assert.strictEqual(aiSkills.validateDisabledListForSettings(Array(100).fill('a')).valid, true);
     assert.strictEqual(aiSkills.validateDisabledListForSettings(Array(101).fill('a')).valid, false);
+  });
+});
+
+// ==================== ③ SEC-09：真 http.createServer 行为组 ====================
+
+/**
+ * ⚠️ **可测性声明（不得写成失实的覆盖声明）**
+ *
+ * 本组测的是**等价 harness 的 `http` 语义** + `main.js` 的**源码契约**，
+ * **不是**直接测那个不可 require 的闭包函数 —— `readJsonBody` / `sendJson` 住在
+ * `main.js` 的 `realmServer` 闭包内（`main.js:882` / `:920` 附近），任何 `require`
+ * 都拿不到它们。下面的 `readJsonBodyEq` / `sendJsonEq` 是**逐条同形**的复刻：
+ *
+ * - 累积中拒收（`size += chunk.length` 后立即比较 + `if (rejected) return;`）
+ * - `sendJson(res, 413, …)` + `req.resume()`（**不** destroy / **不** `Connection: close`）
+ * - `res` 缺失 ⇒ 只 reject（`code: 'BODY_TOO_LARGE'`）
+ * - `sendJson` 的幂等护栏（`headersSent || writableEnded` ⇒ no-op）
+ * - 宿主的既有形状：`async` 回调内 `try { await readJsonBody } catch { sendJson(400) }`
+ *
+ * 「harness 与 `main.js` 同形」这条依赖由上方的源码契约组与计划自带门禁（`node -e`
+ * 的 stripC 扫描）共同钉住：harness 若与 `main.js` 漂移，同一批判据会在源码侧转红。
+ */
+
+/** 等价 `sendJson`：与 `main.js` 同形（含幂等护栏） */
+function sendJsonEq(res, status, data) {
+  if (res.headersSent || res.writableEnded) return;
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(data));
+}
+
+/**
+ * 等价 `readJsonBody`：与 `main.js` 同形
+ * @param {http.IncomingMessage} req
+ * @param {http.ServerResponse} [res]
+ * @param {{maxBytes?: number, rejectForm?: 'resume'|'destroy', onSample?: Function}} [options]
+ *   `rejectForm: 'destroy'` **只用于反向对照**（证明「413 可达」这条断言能失败）
+ */
+function readJsonBodyEq(req, res, { maxBytes = 1024 * 1024, rejectForm = 'resume', onSample } = {}) {
+  const canRespond = !!(res && typeof res.writeHead === 'function');
+  return new Promise((resolve, reject) => {
+    let body = '';
+    let size = 0;
+    let rejected = false;
+    const tooLarge = () => {
+      rejected = true;
+      if (canRespond) {
+        sendJsonEq(res, 413, { error: '请求体超过上限（' + maxBytes + ' 字节）', limit: maxBytes });
+        if (rejectForm === 'destroy') req.destroy();
+        else req.resume();
+      }
+    };
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      tooLarge();
+      reject(Object.assign(new Error('请求体超过上限'), { code: 'BODY_TOO_LARGE', limit: maxBytes }));
+      return;
+    }
+    req.on('data', (chunk) => {
+      if (rejected) return;
+      size += chunk.length;
+      if (size > maxBytes) {
+        tooLarge();
+        reject(Object.assign(new Error('请求体超过上限'), { code: 'BODY_TOO_LARGE', limit: maxBytes }));
+        return;
+      }
+      body += chunk;
+      if (onSample) onSample();
+    });
+    req.on('end', () => {
+      if (rejected) return;
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch (err) {
+        reject(err);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+/** 起一个与 `main.js` 的 13 处宿主同形的 harness server */
+function startSec09Server({ maxBytes = 1024 * 1024, rejectForm = 'resume', passRes = true, onSample } = {}) {
+  const server = http.createServer(async (req, res) => {
+    try {
+      const body = await readJsonBodyEq(req, passRes ? res : undefined, { maxBytes, rejectForm, onSample });
+      sendJsonEq(res, 200, { ok: true, parsed: !!body });
+    } catch (err) {
+      // 既有 13 处宿主的形状：catch → sendJson（二次写头由幂等护栏吸收）
+      sendJsonEq(res, 400, { error: err.message, code: err.code || undefined });
+    }
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+  });
+}
+
+/** 关闭 harness server 并**立刻**断开 keep-alive 连接（否则 node:test 会等 socket 超时才退出） */
+function closeSec09Server(server) {
+  server.closeAllConnections();
+  server.close();
+}
+
+/**
+ * 发一个真实的 POST 字节流（`http.request`，不用 fetch 以免 undici 的缓冲语义干扰堆判据）
+ *
+ * `withContentLength = false` ⇒ 走 `Transfer-Encoding: chunked`，服务端**看不到**
+ * `content-length` ⇒ 只能靠累积中判（这正是 SEC-09 的判据对象）。
+ *
+ * ⚠️ **不得**传 `agent: false`：那会让客户端在响应结束后立刻销毁 socket，而此刻它
+ * 仍在写剩余 body ⇒ 拿到 `EPIPE`（真实客户端是 `fetch`/undici，不会有这个行为）。
+ * 用默认的 keep-alive agent，并由 `closeSec09Server` 在用例结束时统一断开连接。
+ */
+function postStream(port, { payloadBytes, withContentLength = false, chunkBytes = 1024 * 1024, timeoutMs = 30000 }) {
+  return new Promise((resolve, reject) => {
+    const headers = { 'Content-Type': 'application/json' };
+    if (withContentLength) headers['Content-Length'] = String(payloadBytes);
+    let done = false;
+    const req = http.request({ host: '127.0.0.1', port, path: '/api/harness', method: 'POST', headers }, (res) => {
+      let text = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { text += c; });
+      res.on('end', () => {
+        done = true;
+        clearTimeout(timer);
+        // 响应已完整收到 ⇒ 主动结束这次上传（服务端可能早在第 2 MiB 就答了 413）。
+        // 不这么做的话，挂起的写队列与 drain 等待会让事件循环多活 30 秒。
+        req.destroy();
+        resolve({ status: res.statusCode, text });
+      });
+    });
+    const timer = setTimeout(() => { req.destroy(new Error('postStream 超时')); }, timeoutMs);
+    req.on('error', (err) => { clearTimeout(timer); if (!done) reject(err); });
+    const chunk = Buffer.alloc(chunkBytes, 0x61); // 'a'
+    let sent = 0;
+    const push = () => {
+      if (done) return;
+      while (sent < payloadBytes) {
+        const remaining = payloadBytes - sent;
+        const buf = remaining >= chunkBytes ? chunk : chunk.subarray(0, remaining);
+        sent += buf.length;
+        if (!req.write(buf)) { req.once('drain', push); return; }
+      }
+      clearTimeout(timer);
+      req.end();
+    };
+    push();
+  });
+}
+
+/** 40 MiB body（research 的实测尺度；远大于任何机器的堆噪声） */
+const SEC09_PAYLOAD_BYTES = 40 * 1024 * 1024;
+
+describe('SEC-09 行为组：超限请求体在传输层的真实表现（等价 harness）', () => {
+  test('① 超限 ⇒ 客户端拿到 413 且 body 可 JSON.parse（chunked，走累积中判）', async () => {
+    const { server, port } = await startSec09Server({ maxBytes: 1024 * 1024 });
+    try {
+      const res = await postStream(port, { payloadBytes: SEC09_PAYLOAD_BYTES });
+      assert.strictEqual(res.status, 413, '超限必须答 413（不是网络错误、不是 200）');
+      const parsed = JSON.parse(res.text); // 解析失败会直接抛 ⇒ 「可 JSON.parse」是硬判据
+      assert.ok(typeof parsed.error === 'string' && parsed.error.length > 0, '413 body 必须带可读 error');
+      assert.strictEqual(parsed.limit, 1024 * 1024, '413 body 必须回传上限（前端可展示）');
+    } finally {
+      closeSec09Server(server);
+    }
+  });
+
+  test('①b 带 content-length 的同一请求同样拿到 413（快路径与累积中判皆可，判据是行为）', async () => {
+    const { server, port } = await startSec09Server({ maxBytes: 1024 * 1024 });
+    try {
+      const res = await postStream(port, { payloadBytes: SEC09_PAYLOAD_BYTES, withContentLength: true });
+      assert.strictEqual(res.status, 413);
+      assert.strictEqual(JSON.parse(res.text).limit, 1024 * 1024);
+    } finally {
+      closeSec09Server(server);
+    }
+  });
+
+  test('② 413 路径不产生 unhandledRejection（幂等护栏吸收 catch 的二次写头）', async () => {
+    const { server, port } = await startSec09Server({ maxBytes: 1024 * 1024 });
+    const seen = [];
+    const onRejection = (reason) => {
+      seen.push(reason && reason.message ? reason.message : String(reason));
+    };
+    process.on('unhandledRejection', onRejection);
+    try {
+      const res = await postStream(port, { payloadBytes: SEC09_PAYLOAD_BYTES });
+      assert.strictEqual(res.status, 413);
+      // 二次写头发生在 async 回调内，unhandled rejection 在微任务/下一 tick 才可见
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+      assert.deepStrictEqual(
+        seen,
+        [],
+        '无护栏时 ERR_HTTP_HEADERS_SENT 会变成 unhandled rejection；本仓无全局兜底 ⇒ 主进程退出'
+      );
+    } finally {
+      process.off('unhandledRejection', onRejection);
+      closeSec09Server(server);
+    }
+  });
+
+  test('③ 堆增量**远小于** body 体积（把累积改成「读完再判长度」会让本条转红）', async () => {
+    let peak = 0;
+    const sample = () => {
+      const h = process.memoryUsage().heapUsed;
+      if (h > peak) peak = h;
+    };
+    const { server, port } = await startSec09Server({ maxBytes: 1024 * 1024, onSample: sample });
+    try {
+      // 预热：让 http 解析器/连接池先分配完毕，避免把一次性开销算进增量
+      await postStream(port, { payloadBytes: 1024 * 1024, withContentLength: true });
+      if (global.gc) global.gc();
+      const baseline = process.memoryUsage().heapUsed;
+      peak = baseline;
+      const res = await postStream(port, { payloadBytes: SEC09_PAYLOAD_BYTES });
+      assert.strictEqual(res.status, 413);
+      const delta = peak - baseline;
+      // 可失败的数字比较：读完全量再判的实现会把 40 MiB 的 body 收进堆（远大于 10 MiB）
+      assert.ok(
+        delta < SEC09_PAYLOAD_BYTES / 4,
+        `堆增量必须远小于 body 体积：实测 ${(delta / 1048576).toFixed(2)} MiB，` +
+          `上限 ${(SEC09_PAYLOAD_BYTES / 4 / 1048576).toFixed(0)} MiB（超限必须停止累积，不是读完再判）`
+      );
+    } finally {
+      closeSec09Server(server);
+    }
+  });
+
+  test('④ 反向对照：req.destroy() 形态**拿不到** 413（证明 ① 的断言能失败）', async () => {
+    const { server, port } = await startSec09Server({ maxBytes: 1024 * 1024, rejectForm: 'destroy' });
+    const big = Buffer.alloc(SEC09_PAYLOAD_BYTES, 0x61);
+    let threw = false;
+    let status = 0;
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/api/harness`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: big,
+      });
+      status = r.status;
+      await r.text().catch(() => '');
+    } catch (err) {
+      threw = true;
+    } finally {
+      closeSec09Server(server);
+    }
+    assert.notStrictEqual(
+      status,
+      413,
+      'destroy 形态把 socket 在响应可读之前撕掉 ⇒ 客户端拿不到 413（这正是禁用它的理由）'
+    );
+    assert.ok(threw || status !== 413, 'destroy 形态下客户端只能看到网络错误或非 413 状态');
+  });
+});
+
+describe('SEC-09 源码契约（main.js）：三参签名 + res 缺失降级分支 + 413 形态', () => {
+  test('签名逐字为 (req, res, { maxBytes = MAX_JSON_BODY_BYTES } = {})', () => {
+    const src = readSource('main.js');
+    assert.ok(
+      /function readJsonBody\(req, res, \{ maxBytes = MAX_JSON_BODY_BYTES \} = \{\}\)/.test(src),
+      'readJsonBody 签名必须是三参（res 为第二位置参，方案 A）'
+    );
+  });
+
+  test('res 缺失的降级分支：存在性判断与 writeHead 能力判断都在函数体内', () => {
+    const src = readSource('main.js');
+    const start = src.indexOf('function readJsonBody(');
+    assert.ok(start >= 0, '缺 readJsonBody');
+    const body = src.slice(start, src.indexOf('\n  }\n', start));
+    assert.ok(/res\s* && \s*typeof res\.writeHead/.test(body), '降级分支必须同时判 res 存在性与 writeHead 能力');
+    assert.ok(/canRespond/.test(body), '降级分支必须以 canRespond 布尔承载（漏改调用点 ⇒ 只 reject 不答响应）');
+  });
+
+  test('413 形态：sendJson(res, 413, …) + req.resume()，且无 req.destroy() / 无 Connection 头', () => {
+    const src = readSource('main.js');
+    const start = src.indexOf('function readJsonBody(');
+    const body = src.slice(start, src.indexOf('\n  }\n', start));
+    assert.ok(body.includes('sendJson(res, 413'), '超限必须答 413');
+    assert.ok(body.includes('req.resume()'), '超限必须 req.resume() 排水（不 destroy）');
+    assert.strictEqual(/req\.destroy\(/.test(body), false, '不得使用 req.destroy()（客户端拿 EPIPE，413 不可达）');
+    assert.strictEqual(
+      /setHeader\(\s*['"]Connection['"]/.test(body) || /['"]Connection['"]\s*:/.test(body),
+      false,
+      '不得写入 Connection 头（两次实测结论相反、无收益）'
+    );
+    assert.ok(/if \(rejected\) return;/.test(body), '拒收后必须停止累积（否则内存 O(n)）');
+  });
+
+  /*
+   * ⚠️ **为什么另起本条（计划自带门禁的实测弱点，已复现、未放宽任何判据）**
+   *
+   * 计划自带门禁只断言 `if (rejected) return;` **至少在函数体里出现一次**，而该形态
+   * 在 `req.on('end')` 里天然存在 ⇒ 把 **data 监听器内**的那条早退删掉（这正是
+   * 「拒收后仍在累积 body ⇒ 内存 O(n)」的唯一承载判据）门禁**仍绿**（变异实跑确认）。
+   * 本组把判据升级为「data 监听器内的**顺序**」：早退 → 累加 size → 比较 → 才拼 body。
+   * 计划自带判据一字未改。
+   */
+  test('累积中拒收的顺序：data 监听器内 早退 → 累加 size → 比较上限 → 才拼 body', () => {
+    const src = readSource('main.js');
+    const start = src.indexOf('function readJsonBody(');
+    const body = src.slice(start, src.indexOf('\n  }\n', start));
+    const dataStart = body.indexOf("req.on('data',");
+    const dataEnd = body.indexOf("req.on('end'");
+    assert.ok(dataStart >= 0 && dataEnd > dataStart, 'readJsonBody 必须含完整的 data 监听器（口径失效）');
+    const seg = body.slice(dataStart, dataEnd);
+
+    const iEarly = seg.indexOf('if (rejected) return;');
+    const iSize = seg.indexOf('size += chunk.length');
+    const iLimit = seg.indexOf('if (size > maxBytes)');
+    const iBody = seg.indexOf('body += chunk;');
+
+    assert.ok(iEarly >= 0, 'data 监听器内必须有早退（拒收后不得继续累积 body）');
+    assert.ok(iSize > iEarly, '早退必须**先于**累加 size（否则拒收后仍在累积）');
+    assert.ok(iLimit > iSize, '必须每累加一个 chunk 就立即比较上限（不是读完再判）');
+    assert.ok(
+      iBody > iLimit,
+      '必须在**比较之后**才拼 body（把 body += chunk 提到比较之前 ⇒ 堆随 body 线性增长）'
+    );
   });
 });
