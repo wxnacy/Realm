@@ -211,6 +211,22 @@ function readJsonBody(req) {
 
 **降级分支为什么是必须的（本会话实测）**：`sendJson(undefined, 413, …)` 会 `TypeError`，而它发生在 `req.on('data')` 监听器内 ⇒ **uncaught exception**；全仓 `grep -n "uncaughtException\|unhandledRejection" main.js ipc-handlers.js agent-workspace.js ai-manager.js` **零命中**（无全局兜底）⇒ Electron 主进程直接退出。同理，二次 `sendJson` 抛 `ERR_HTTP_HEADERS_SENT` 发生在 `async` 服务器回调内 ⇒ **unhandled rejection**，本会话实测计数 **1**，同样致命。
 
+> ### ✅ 已裁决（plan 期，2026-09-14）—— **方案 A**
+>
+> **用户裁决：方案 A。** 放松 D-16 的「零调用点改动」条款，保留 413 与 `sendJson` 幂等。
+>
+> **实现契约（planner 必须照此成文，不得自行改形）**：
+> 1. `readJsonBody(req, res, { maxBytes = MAX_JSON_BODY_BYTES } = {})` —— `res` 为**第二位置参**。
+> 2. **`res` 缺失的降级分支是强制项**（不是可选项）：`if (!res || typeof res.writeHead !== 'function')` ⇒ **不答、只 reject**（带 `code: 'BODY_TOO_LARGE'`），把漏改调用点的后果从主进程崩溃降为端点返回 400。
+> 3. 全部 **57 个调用点**改为 `readJsonBody(req, res, …)`；机械门禁 `grep -c "await readJsonBody(req)" main.js` 与「带 `res` 的调用点数」之差必须为 0。
+> 4. `main.js:1157`（`POST /api/favorites/import-chrome`）与 `main.js:1177`（`POST /api/favorites/import-html`）**显式传** `{ maxBytes: 32 * 1024 * 1024 }`。
+> 5. `sendJson` 加幂等护栏（`headersSent || writableEnded` 时 no-op），作为**一次修好全部发送点**的交付项。
+> 6. 413 形态固定为 `sendJson(res, 413, …)` + `req.resume()`；**禁用** `req.destroy()` / `Connection: close`。
+>
+> **被否决的选项与理由**：**B**（两参 + 只 reject ⇒ 400）虽零调用点改动且前端零改动，但推翻 D-16 中用户明确锁定的「413 不得自由发挥」，并让 `sendJson` 幂等护栏降级为可选（放弃一次修好 13 个发送点的机会）；**C**（入口 `req.__res = res` 隐式绑定）改动最小且两头兼顾，但把契约藏在 `req` 的非标准属性上，未来重构入口分发会静默退化为崩溃，属埋雷形态。
+>
+> **本裁决同时是本阶段 `<threat_model>` 与 V14/V15/V16 三条验证维度的判据来源。**
+
 #### 矛盾 2（**结论降级，非阻塞**）—— 「`Connection: close` ⇒ 客户端 EPIPE」**本会话不可复现**
 
 旧 RESEARCH（`50-RESEARCH.md:605-613`）的对照表列有：
@@ -1571,10 +1587,12 @@ console.log("counts-parity ok");console.log("cells="+cells+" measured="+JSON.str
 ## Blockers
 
 > 依「报告阻塞而非猜测」的要求，以下为需要**在 plan 期显式裁决**（或在 Electron 内补测）的项；**没有任何一项使研究无法完成**，但 **B1 必须在实现前裁决**。
+>
+> **B1 已于 plan 期裁决，见「矛盾 1」内的 ✅ 已裁决块。**
 
 | # | Blocker | 证据 | 解锁条件 |
 |---|---------|------|----------|
-| **B1** | **D-16 的签名与 413 实现形态自相矛盾**（CONTEXT 同时要求两参 `(req, {maxBytes})`、函数体内 `sendJson(res, 413)`、以及「零调用点改动」） | `50-CONTEXT.md:84-88` 的标题与三条 bullet 互斥；`main.js:887-900` 的两参形态下无 `res`；`main.js:877-880` 的 `sendJson` 无法从 `req` 反查 `res` | **plan 期在方案 A / B / C 中择一并成文**（见矛盾 1 的对照表；本研推荐 A + `res` 缺失降级分支）。在此之前不要动 `readJsonBody` |
+| **B1** ✅ **已裁决 = 方案 A**（2026-09-14） | ~~**D-16 的签名与 413 实现形态自相矛盾**~~（CONTEXT 同时要求两参 `(req, {maxBytes})`、函数体内 `sendJson(res, 413)`、以及「零调用点改动」） | `50-CONTEXT.md:84-88` 的标题与三条 bullet 互斥；`main.js:887-900` 的两参形态下无 `res`；`main.js:877-880` 的 `sendJson` 无法从 `req` 反查 `res` | **已解锁**：采方案 A（三参 + 57 处调用点改动 + `res` 缺失强制降级分支），放松 D-16 的「零调用点改动」条款。六条实现契约 + B/C 被否理由见矛盾 1 的 ✅ 已裁决块 |
 | **B2**（非阻塞 · 复现性债） | 「`Connection: close` ⇒ 客户端 EPIPE」**本会话不可复现**（`fetch` 与 `http.request` 两种客户端都拿到了 413） | 本会话实测表（矛盾 2）；旧结论见 `50-RESEARCH.md`（旧版）`:611` | 不需要解锁：实现照「不 `destroy`、不设 `Connection: close`、用 `req.resume()`」，但**不得**把「设了就 EPIPE」写进产品文档 / 注释 |
 | **B3**（非阻塞 · 待补实测） | 本会话的 413 探针**未在 Electron 内复跑**（系统 Node v22.22.0 vs 运行时 Node 24.20.0） | AGENTS.md 的「升版/环境差异须复核」纪律；A4 | plan 期把 `readJsonBody` 的拒收探针**在 Electron 内跑一次**并落地为 `tests/test-skills-management.js` 的可重跑用例 |
 | **B4**（非阻塞 · 待补实测） | 设置页加载 `skill-picker-model.js` 在 `realm://` CSP 下的实际表现**未跑过**（该文件确未被设置页加载） | `src/settings.html:783-785`（无该 `<script>`）；`src/skill-picker-model.js:476-477` 的双模式导出 | plan 期 `npm run dev` 打开设置页断言 `window.SkillPickerModel` 存在；同时补一条源码扫描断言（`settings.html` 含该 `<script>`） |
