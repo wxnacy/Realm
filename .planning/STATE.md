@@ -22,10 +22,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-13)
+See: .planning/PROJECT.md (updated 2026-09-14)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 49 — `manage_skill` 工具（AI 自建技能）
+**Current focus:** Phase 50 — 设置页技能管理区 + `/api/skills/*`
 
 ## Current Position
 
@@ -34,7 +34,7 @@ Plan: Not started
 Status: Ready to plan
 Last activity: 2026-09-14 — Phase 49 complete, transitioned to Phase 50
 
-Progress: [██░░░░░░░░] 17%
+Progress: [████████████████████] 26/26 plans (100%)
 
 ## Performance Metrics
 
@@ -369,14 +369,15 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T16:42:28.172Z
+Last session: 2026-09-14T01:55:03.868Z
 Stopped at: Phase 49 complete, ready to plan Phase 50
 Resume file: None
 
 ## Operator Next Steps
 
-- **Phase 48 已收尾**（8/8 计划，UAT 20/20 全裁决，`post-merge` 三门禁全过）：`validate-phase` 零 gap（`nyquist_compliant: true`）、`secure-phase` `threats_open: 0`（36 条登记项全闭合）、`ui-review` 18/24（0 blocker）。**收尾时按「归档轮次加 `[Round N]` 前缀」修了 UAT 多轮编号门禁**（round 2/3 的历史 issue 条目不再永久阻塞 `uat-passed`；正文与结果一字未改），并把 `48-VALIDATION.md` 回填后重算的 `covered_digest` 写回 VERIFICATION（回填 VALIDATION 会让指纹 stale）
-- **Phase 49 开工前第一条**：处置 **TD-48-01**（`escapeHtml` 不转义引号 → 面板行属性上下文逃逸）与 **TD-48-02**（取消分支无锚点自校验）；两条为 Phase 48 用户明确裁决「延后」的 Critical，形态与修法见 `48-REVIEW.md` 的 Disposition 表。同批建议顺手清 UI-REVIEW 的 3 条 priority fix（pill 字体缺规则 / 徽标与超限标注对比度 / 长名行分组）
+- **Phase 49 已收尾**（8/8 计划：3 original + 5 gap-closure；验证 24/24 must-have、`behavior_unverified: 0`、最终判 `passed`；`code-review` 轮 5 为 0 Critical / 8 Warning / 11 Info，全部记技术债不阻断；回归门禁 22/22 套件、账本 `counts-parity cells=8` 即 55 / 178 / 111）。**本轮（`--gaps-only`）闭合 `UI-49-W6-01`**：`renderSkillContentBox` 加 `{ interactive = true }` 语境开关，卡片调用点传 `false` —— 焦点语义只在气泡实例（恒可见）施加；卡片实例不施加，因为 `.tool-card-content` 的 `max-height: 0` + `overflow: hidden` **不移出 Tab 序**，施加即产出零可见高度的隐形停靠点。收尾时按用户裁决顺手闭合了审查轮 5 的 `IN-15`（两处 `49-UI-SPEC.md:508` 引用因 49-08 自己的插入漂成空行 → 改**按名引用**「展开 / 折叠（卡片）」行，对后续插入免疫）与 `IN-17`（§11.7 只写原因未写**代价** → 补记「卡片语境正文折叠块无键盘入口、鼠标是唯一入口、属 49 之前的既有状态而非回归」）；因这两处改动落在 `covered_files` 内，重跑 verifier 刷新指纹（`f00b67cd…`）后状态由 `human_needed` 改判 `passed`
+- **Phase 49 挂账未修（不阻断，建议随 Phase 50 同批看）**：`WR-12`（49-08 驱动承重判据 `R3` 绿轮**空集真**、全套 8 条断言只有否命题 —— 本次由 verifier 自建阳性对照探针独立补足闭合证据，**驱动自体仍缺正命题**，改法见 `49-REVIEW.md` 的 R7 建议）、`IN-14`（`M9b` 为纯源码形态扫描，强制开启 / 紧凑守卫 / 调用点后补 `tabindex` 三种等价变异可绕过）、`IN-16`/`WR-09`（红→绿证据只活 `/tmp` + `E-DATA-DB` 依赖本机 `realm-dev` 用户数据，新机器/CI 跑不动）、`IN-10`~`IN-13`（文案/注释口径）；另记 `IN-17` 已闭合但**卡片语境正文折叠块无键盘入口**这一 a11y 面仍待单独立项（`49-UI-SPEC.md:508` 的锁定决策要求本阶段零改动，升级全仓卡片范式需另开阶段）
+- **Phase 49 开工前第一条仍未办**：处置 **TD-48-01**（`escapeHtml` 不转义引号 → 面板行属性上下文逃逸）与 **TD-48-02**（取消分支无锚点自校验）；两条为 Phase 48 用户明确裁决「延后」的 Critical。49 阶段**未扩大**该缺口但**也未闭合**（49-02/49-03 逐字保持挂账；`escapeHtml` 实测零 diff）。形态与修法见 `48-REVIEW.md` 的 Disposition 表。同批建议顺手清 UI-REVIEW 的 3 条 priority fix（pill 字体缺规则 / 徽标与超限标注对比度 / 长名行分组）
 - **Phase 47 已收尾**（override 收尾：SC3 普遍性表述 + CR-01/CR-02 记技术债）。技术债与建议修法见 `.planning/phases/47-bash/47-REVIEW.md` 的 Disposition 与处置补记：CR-01（`npm -g update` 类旗标取值槽吞子命令）、CR-02（`npm audit --json fix` 类）、残余 ③（`npm -g update ls`）、`matchDangerous` 未同源归一化、`sweepSeedResidue` 缺陈旧性判据、`npm version` 被列只读、`ai-bash-policy.js:249` JSDoc 不准确、docs 只读枚举缺漂移护栏 —— 根治走 **argv 级分词 + 显式「带值旗标」清单**（可一次消除 CR-01/CR-02/残余 ③）
 - ⚠ **发布前必办**：生产包 `/Applications/Realm.app` 仍是 2026-09-10 构建（无 `skills-builtin/` 与 `THIRD_PARTY_NOTICES.md`、仍含 `.planning`/`tests`）；SC5 的打包面证据经 47-04 的 Nightly 路线取得，**正式发布前必须重跑 `make install`**
 - 用户已定：Phase 48 的 `/skill:name` 必须实时读盘（写路径接线 + 实时正文两条都是显式验收项）—— ✅ 已闭合（48-07 / 48-08 + UAT round 3 test 14 / round 4 test 19）

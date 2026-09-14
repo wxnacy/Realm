@@ -146,6 +146,8 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
   > **收尾方式**：SC3 的**普遍性**表述（「不再可能被白名单免确认」）由用户裁定以 **override** 收尾 —— CR-01（旗标取值槽吞末尾子命令：`npm -g update`）与 CR-02（`audit` 与 `fix` 之间夹旗标：`npm audit --json fix`）两条**零卡片残余**在阶段基线 `0bbb6c4` 即存在（非本阶段回归），已由三份文档具名披露并记入 `47-REVIEW.md` 技术债，根治走 argv 级分词（见 Active）
 - ✓ DISC-01..07: 技能发现与调用（`/` 斜杠面板并入技能列表 + 实时过滤 + 扁平索引直绑；`/skill:name [args]` 经 `formatSkillInvocation` 注入 `<skill>` 块；技能调用进历史并触发 LLM；三档来源徽标 + 遮蔽可见；`read` 技能卡片变体；两码两文案的明确错误提示与气泡回滚；`disable-model-invocation` 不进 prompt 但可显式调用并打 `仅显式` 标） — Phase 48
   > **收尾方式**：8/8 计划，UAT 20/20 全裁决（round 1–4）；三门禁全过 —— `validate-phase` 零 gap（`nyquist_compliant: true`）、`secure-phase` `threats_open: 0`（36 条登记项闭合、10 条 accepted risks）、`ui-review` 18/24（0 blocker、3 条 priority fix 记技术债）。已闭合的 gap：G-48-3/4/6（48-05/48-06）、G-48-12（48-07）、G-48-18/19（48-08）。**关键实现语义**：运行期新增技能经 miss 重扫**至多一次**后当场读盘；延迟回写 + `skills:changed` 广播落在**任一轮成功出口（含纯文本轮）**、由唯一实现 `_flushDeferredSkillsPrompt()` 承担。**挂账未修**：TD-48-01（`escapeHtml` 不转义引号）、TD-48-02（取消分支无锚点自校验）、WR-02（两处裸调未包 try）、WR-06（已缓存技能绕过 64 KiB 字节闸）、UI-REVIEW 3 条 priority fix
+- ✓ MGMT-01..06: AI 自建技能（`manage_skill` 的 create / update / delete + 只接受 `name`（`^[a-z0-9-]+$`）/`content`/`description` 且服务端二次校验 + seeded 按**播种登记表**判定拒绝覆盖与删除 + 沙箱 `env.renameFile` 原子写、失败不留半成品且不触及 `ai-memory/`·`attachments/` + 九码闭合拒绝面 + 字段分离扫描与净化后复验非空 + 组装全文写侧字节闸 + 成功出口单次 `syncAgentSystemPrompt()` 回写、新技能集**下一条消息起可见**） — Phase 49
+  > **收尾方式**：8/8 计划（3 original + 5 gap-closure），验证 24/24 must-have、`behavior_unverified: 0`；`code-review` 轮 5 判 0 Critical / 8 Warning / 11 Info（全部记技术债）；回归门禁 22/22 套件，账本 `counts-parity cells=8`（55 / 178 / 111）。**关键实现语义**：① 写侧权威字节闸口的判据对象 = **组装后的 `SKILL.md` 全文**（两侧判同一量，否则产出「落盘成功但被加载管线跳过」的幽灵技能）；② 写入流程固定为「原文结构校验 → 扫描原文 → 净化 → **净化值复验非空**」；③ 失败态机器可读原因码经**消息词缀**持久化（encode/decode 同常量，不回显被拒原文）；④ 卡片标记并入逻辑**单源**在 `src/skill-picker-model.js` 的 `mergeManageSkillMarker`，渲染端不得另写展开式合并。**a11y 语义（`UI-49-W6-01` 闭合）**：`renderSkillContentBox` 的 `{ interactive = true }` **语境开关** —— 焦点语义只在**气泡实例**（恒可见）施加，**卡片实例**不施加，因为 `.tool-card-content` 用 `max-height: 0` + `overflow: hidden` 折叠而 `overflow: hidden` **不移出 Tab 序**，施加即产出零可见高度的隐形停靠点。**挂账未修**：`WR-12`（49-08 驱动承重判据 `R3` 绿轮空集真、全套只有否命题 —— 本次由 verifier 自建阳性对照探针补足，驱动自体仍缺正命题）、`IN-14`（`M9b` 为纯源码形态扫描，三种等价变异可绕过）、`IN-16`/`WR-09`（验收依赖 `/tmp` 与本机 `realm-dev` 用户数据，不可移植）、`IN-10`~`IN-13`（文案/注释口径）、`IN-17` 已闭合但**卡片语境正文折叠块无键盘入口**这一既存 a11y 面仍待单独立项
 
 ### Active
 
@@ -396,4 +398,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-13 after Phase 48 (技能发现与调用) complete*
+*Last updated: 2026-09-14 after Phase 49 (`manage_skill` 工具 / AI 自建技能) complete*
