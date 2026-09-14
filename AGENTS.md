@@ -12,7 +12,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 ## 分支与提交工作流（AI 开始改动前必须先判断）
 
-完整规范见 **[docs/dev/branching-spec.md](docs/dev/branching-spec.md)**（`master` 主干 + `feature`/`hotfix` 短期分支模型）。本节是该规范中**面向 AI 的执行部分**，AI 在动手前必须逐条走完，不要跳过。
+完整规范见 **[docs/dev/branching-spec.md](docs/dev/branching-spec.md)**（`master` 主干 + `feature`/`hotfix` 短期分支 + **每分支独立 worktree**）。本节是该规范中**面向 AI 的执行部分**，AI 在动手前必须逐条走完，不要跳过。
 
 ### 1. 先按语义判断意图属于哪一类
 
@@ -20,44 +20,58 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 | 类型 | 语义特征 | 应落在 |
 |------|---------|--------|
-| 新功能 / 大改动 | 加新能力、新页面、新模块、重构、改交互设计 | `feature/<简述>` |
-| Bug 修复 | 现状与预期不符、报错、行为异常、回归 | `hotfix/<简述>` |
-| 纯文档 / 配置 | 只动 `.md`、注释、依赖版本号，无行为变更 | 可直接在 `master` |
+| 新功能 / 大改动 | 加新能力、新页面、新模块、重构、改交互设计 | `feature/<简述>` + worktree `.worktrees/<简述>` |
+| Bug 修复 | 现状与预期不符、报错、行为异常、回归 | `hotfix/<简述>` + worktree `.worktrees/<简述>` |
+| 纯文档 / 配置 / GSD 流程产出 | 只动 `.md`、注释、依赖版本号、`.planning/**`，无行为变更 | 可直接在主工作树的 `master` 上做 |
 
 判定模糊时（如「优化一下 X」「调一下 X 的手感」）**先向用户确认属于哪一类**，不要自行假定，也不要默认当 feature 处理。
 
-### 2. 当前在 `master` 上 → 写代码前先提示拆分支
+### 2. 当前在主工作树的 `master` 上 → 写代码前先提示建 worktree + 分支
 
 先用 `git rev-parse --abbrev-ref HEAD` 确认当前分支。若在 `master` 上且工作属于上表前两类，**在写任何代码之前**停下并告知用户：
 
-- 本次改动按规范应落在 `feature/<name>` 或 `hotfix/<name>`
-- 给出**建议的分支名**（小写 + 连字符，2~4 个词，如 `feature/ai-memory-gc`、`hotfix/cookie-www-dedup`）
-- 询问：**「是否先拆出分支再开始？」，并注明推荐拆分支**
+- 本次改动按规范应落在 `feature/<name>` 或 `hotfix/<name>`，且**必须在独立 worktree 中**进行
+- 给出**建议的分支名与 worktree 路径**（小写 + 连字符，2~4 个词）：如 `feature/ai-memory-gc` → worktree `.worktrees/ai-memory-gc`
+- 询问：**「是否先建 worktree + 分支再开始？」，并注明推荐建**
 
-推荐项固定为「先拆分支」（符合规范）。用户明确选择在 `master` 上直接改时，遵从用户，但要在回复中指出这偏离规范、后续难以单独回滚与 review。
+推荐项固定为「先建 worktree + 分支」（符合规范）。用户明确选择在 `master` 上直接改时，遵从用户，但要在回复中指出这偏离规范、后续难以单独回滚。
 
-**可直接在 master 上做的例外**：改动属于上表第三类（纯文档/配置），或用户已明确说「就在 master 上改」。
+**可直接在 master 上做的例外**：改动属于上表第三类（纯文档 / 配置 / GSD 流程产出），或用户已明确说「就在 master 上改」。
 
-### 3. 已在 `feature/*` / `hotfix/*` 分支上 → 按「任务」边界主动同步/回合
+**worktree 位置是硬约束**：必须放 `<仓库根>/.worktrees/<简述>`（**仓库内部**）。放仓库外会让 Node 的 `node_modules` 向上查找链够不到主仓库，**所有测试立刻 `Cannot find module`**（2026-09-14 实测）。默认**不需要**在 worktree 内 `npm install` —— 它会自动蹭主仓库的依赖；但该分支若**改了 `package.json`**、或**要跑构建/打包**，则必须在 worktree 内独立 `npm install`，否则共享依赖与分支不匹配会**静默给出错误结果**。
+
+### 3. 已在 feature/hotfix 的 worktree 中 → 按「任务」边界主动同步/回合
 
 **触发时机是「完成一个任务」**（一个可交付的最小单元，不是每改一个文件），完成后主动告诉用户该做哪一步，得到确认再执行：
 
 | 所在分支 | 完成一个任务后应做 | 说明 |
 |---------|------------------|------|
-| `feature/*` | `git merge master`（拉新 master 进 feature） | 冲突在 **feature 侧**解决；用 merge **不用 rebase** |
+| `feature/*` | `git merge master`（拉新 master 进 feature） | 在**该 worktree 内**执行；冲突在 **feature 侧**解决；用 merge **不用 rebase** |
 | `hotfix/*` | 合回 `master`（`git merge --no-ff`） | 回合后再 bump `package.json` patch 版本 + 打 `v<x.y.z>` tag |
 
 执行前先 `git fetch`，避免基于过期的远端状态判断。
 
-**三条不要做**：
+**四条不要做**：
 
+- 不要在**主工作树**上 `switch` 到 `feature`/`hotfix` 分支再改 —— 必须用独立 worktree
 - 不要把 `hotfix` 回合到各条 `feature` 分支 —— feature 拉 master 时会自动获得修复，手动回合只会制造重复提交
-- 不要 `rebase` 已 push 的共享分支（会重写历史、需要 `--force-push`）
-- 不要静默提交 / 静默合并 —— 合并、commit、push、开 PR 都要先向用户确认
+- 不要 `rebase` 已推送的分支（会重写历史、需要 `--force-push`）
+- 不要静默提交 / 合并 / 清理 worktree —— 都要先向用户确认
 
-### 4. 与 `master` 直接相关的高危动作
+### 4. worktree 的清理（两步，顺序不能反）
 
-`master` 受保护、禁止直推，一律走 PR。AI 在 `feature`/`hotfix` 分支上完成提交即止，**推送与开 PR 需用户确认后再执行**。
+```bash
+git worktree remove .worktrees/<简述>   # 有未提交改动时需 --force —— 先确认并留档
+git branch -d feature/<简述>
+```
+
+**绝不要手删 worktree 目录** —— worktree 里的 `.git` 是个指针文件，元数据登记在主仓库 `.git/worktrees/` 下，手删目录会留下 `git worktree list` 标为 `prunable` 的僵尸条目。
+
+### 5. 与 `master` / `origin` 相关的动作
+
+`master` **不受保护、可直接提交与推送**，不强制 PR（远端 `origin` 已存在，PR 是可选路径而非必由之路）。`feature`/`hotfix` 完成后回到主工作树 `git merge --no-ff` 合回 `master`，再 `push`。
+
+**推送 `origin` 是公开且不可逆的动作，必须先经用户确认。**
 
 ## 技术架构
 

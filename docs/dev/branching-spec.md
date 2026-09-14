@@ -1,56 +1,103 @@
 # 分支规范
 
 > 适用范围：Realm Browser 全部代码仓库协作。
-> 模型：**master 主干 + 短期 feature/hotfix 分支**（GitHub Flow 轻量变体）。
-> 一句话原则：**master 永远可发布，修复的落点永远是 master。**
+> 模型：**master 主干 + 短期 feature/hotfix 分支 + 每分支独立 worktree**。
+> 一句话原则：**新功能与 bug 修复都在独立 worktree 的独立分支上做；修复的落点永远是 master。**
 
 ---
 
 ## 一、分支模型总览
 
 ```
-master ──●──●──●──●──●──●──●──●   ← 唯一主干，永远可发布，受保护
-          \        \        \
- feature/x ─●──●────●──●─────●     定期 merge master，完成后 PR 回合
-            \
- hotfix/y ───●                     紧急修复，PR 立即回合 master + 打 tag
+master ────────●────●──────────●────●──────●   ← 唯一主干，可直接提交 / 推送
+                \              \     \
+ .worktrees/gc  ─●────●         \     \        feature/ai-memory-gc
+                                 \     \
+ .worktrees/cookie-fix ───────────●─────●      hotfix/cookie-www-dedup
 ```
 
-三件事决定了这套模型成立：
+四件事决定了这套模型成立：
 
 1. `master` 始终等于「当前线上该有的代码」
 2. 修复**只在 master 上做**，feature 靠定期拉 master 被动获得修复
 3. `feature` 与 `hotfix` 都是**短期分支**，用完即删
+4. **每个分支独占一个 worktree** —— 分支决定历史线，worktree 决定改动落在哪个工作目录
+
+> 关于 `master`：它**不受保护、可直接提交与推送**，不强制 PR。远端（`origin`）已存在，PR 是可选路径而非必由之路。
+> 但这不等于可以在 master 上做功能/修复 —— 见第二节与第三节。
 
 ---
 
 ## 二、分支类型定义
 
-| 分支 | 命名 | 从哪分出 | 合回哪 | 生命周期 | 谁负责 |
-|------|------|---------|--------|---------|--------|
-| `master` | `master` | — | — | 永久 | 全员（仅通过 PR） |
-| 功能分支 | `feature/<简述>` | `master` | `master`（PR） | **≤ 2~3 周** | 功能负责人 |
-| 修复分支 | `hotfix/<简述>` | `master` 或 发布 tag | `master`（PR） | **≤ 2 天** | 修复人 |
-| 维护分支 | `release/<x.y>` | 发布 tag | 只吃 cherry-pick | 按维护窗口 | 维护者 |
+| 分支 | 命名 | worktree 路径 | 从哪分出 | 合回哪 | 生命周期 |
+|------|------|--------------|---------|--------|---------|
+| `master` | `master` | 主工作树（仓库根） | — | — | 永久 |
+| 功能分支 | `feature/<简述>` | `.worktrees/<简述>` | `master` | `master` | **≤ 2~3 周** |
+| 修复分支 | `hotfix/<简述>` | `.worktrees/<简述>` | `master` 或 发布 tag | `master` | **≤ 2 天** |
+| 维护分支 | `release/<x.y>` | 按需 | 发布 tag | 只吃 cherry-pick | 按维护窗口 |
 
 命名约定：
 
 - 全小写 + 连字符，禁止空格、中文、下划线
 - `<简述>` 用 2~4 个英文词描述范围，如 `feature/ai-memory-gc`、`hotfix/cookie-www-dedup`
+- **worktree 路径取分支名的 `<简述>` 部分**：`feature/ai-memory-gc` → `.worktrees/ai-memory-gc`
 - 禁止用个人名做分支名（`feature/wxnacy-tmp`）
-- **维护分支 `release/x.y` 当前未启用** —— 启用条件见第八节
+- **维护分支 `release/x.y` 当前未启用** —— 启用条件见第九节
 
 ---
 
-## 三、铁律
+## 三、worktree 使用规范
 
-### 1. `master` 永远可发布，禁止直推
+**所有 `feature/*` 与 `hotfix/*` 都必须在独立 worktree 中进行，不在主工作树上 `switch` 到分支再改。**
 
-所有改动（含 `hotfix`）必须走 PR。理由是「hotfix 立即回合 master」如果允许直推，就绕过了 review 和 CI。
+### 为什么必须用 worktree
+
+`git switch -c` 也能开分支，但它会**整体替换主工作树的内容**：未提交的改动会跟着切走、正在跑的应用与 IDE 索引全部重置、且同一时刻只能有一个状态。worktree 让「master 始终可发布」这条原则在物理上成立。
+
+### worktree 必须放在仓库内部
+
+**位置固定为 `<仓库根>/.worktrees/<简述>`。** 这不是审美选择 —— 放在仓库**外面**（如 `../Realm-fix`）会导致 Node 的 `node_modules` 向上查找链够不到主仓库，**所有测试立刻 `Cannot find module`**。
+
+实测（2026-09-14）：
+
+| worktree 位置 | 有无 `node_modules` | 跑 `tests/test-favorites-folders.js` |
+|---|---|---|
+| `<仓库>/.worktrees/xxx`（内部） | 无 | ✅ 33/33 全过（向上解析命中主仓库 `node_modules`） |
+| `../Realm-xxx`（外部） | 无 | ❌ `Cannot find module` |
+
+所以**默认不需要在 worktree 里重装依赖** —— 它会自动「蹭」主仓库那 893 MB 的 `node_modules`。
+
+### 四条边界（会静默出错，务必遵守）
+
+| 边界 | 后果 | 正确做法 |
+|------|------|---------|
+| **改了 `package.json`（加/升级依赖）** | 共享的 `node_modules` 与该分支不匹配，**测试结果不可信且不报错** | 在 worktree 内 `npm install`（会建出独立的 `node_modules`，从此与主仓库分离） |
+| **要跑构建 / 打包（`make install`）** | 同理，且打包需要完整且匹配的依赖树 | 在 worktree 内独立 `npm install`，或回主工作树做 |
+| **在 worktree 内跑过一次 `npm install`** | 内部 `node_modules` 会**遮蔽**共享的那份，两者开始漂移 | 记住该 worktree 已「独立化」，别再假设它在蹭依赖 |
+| **原生模块（`better-sqlite3` / `nodejieba`）** | 绑定 Node / Electron ABI 与平台 | 同机同版本才通用；换机器即失效 |
+
+### 生命周期：必须用 `git worktree remove` 清理
+
+worktree 里的 `.git` 是一个**文件**（内容是 `gitdir: <主仓库>/.git/worktrees/<name>`），元数据登记在主仓库的 `.git/worktrees/` 下。**手删目录不会注销元数据**，会留下 `git worktree list` 标为 `prunable` 的僵尸条目。
+
+```bash
+# 正确清理（两步，缺一不可）
+git worktree remove .worktrees/<简述>     # 清目录 + 清元数据；有未提交改动时需 --force
+git branch -d feature/<简述>              # 再删分支（顺序不能反）
+```
+
+---
+
+## 四、铁律
+
+### 1. 新功能与 bug 修复必须在独立 worktree 的独立分支上进行
+
+不允许在主工作树的 `master` 上直接做功能或修复，也不允许在主工作树上 `switch` 到 `feature`/`hotfix` 分支再改。唯一例外见第五节的 5.4「可直接在 master（主工作树）上做」清单。
 
 ### 2. 修复的落点永远是 `master`（upstream first）
 
-任何 bug 修复都先在 `master` 上完成，不得直接在某个 feature 分支上修。
+任何 bug 修复都先在 `master` 上完成，不得只在某个 feature 分支上修。
 
 > **Why**：如果只在 feature 分支上修，这个修复就永远不会进入主线，后续版本必然复发同一个 bug。
 > 这是 git-flow 体系被反复记录的头号事故，本模型通过「修复只落 master」在结构上消除它。
@@ -61,12 +108,13 @@ master ──●──●──●──●──●──●──●──● 
 
 ### 4. feature 定期同步 `master`，且用 `merge` 不用 `rebase`
 
+在 feature 的 worktree 内执行：
+
 ```bash
-git switch feature/x
 git merge master
 ```
 
-> **Why**：feature 分支一旦 push 到远端就是共享分支，`rebase` 会重写历史、需要 `--force-push`，会打断其他人的工作。冲突应当在 **feature 侧**解决，而不是往 master 里解。
+> **Why**：分支一旦推送就是共享分支，`rebase` 会重写历史、需要 `--force-push`。冲突应当在 **feature 侧**解决，而不是往 master 里解。
 
 同步时机：**master 出现影响本 feature 的改动当天就合**，不要攒到周末或收尾。无脑定时合也可以，但「当天合」能显著降低冲突规模。
 
@@ -76,12 +124,12 @@ git merge master
 - `master` 已含未发布功能 → **必须从发布 tag 拉**，否则会把未发布功能一起发上线，且修的其实不是线上那份代码
 
 ```bash
-git switch -c hotfix/login-500 v0.1.20   # 从发布 tag，而不是 master
+git worktree add .worktrees/login-500 -b hotfix/login-500 v0.1.20
 ```
 
-### 6. 分支用完即删
+### 6. 用完即删：worktree 与分支一起清
 
-PR 合并后立即删除远端与本地分支。残留分支会让「哪些还在进行中」失去可信度。
+合并后立即清理，否则 `.worktrees/` 会堆积、`.git/worktrees/` 会留僵尸条目。顺序：先 `worktree remove`，再 `branch -d`。
 
 ### 7. 提交信息用 Conventional Commits
 
@@ -98,24 +146,28 @@ scope: 模块名或阶段号，如 ai-manager、settings、50
 
 ---
 
-## 四、工作流
+## 五、工作流
 
-### 4.1 开发新功能
+### 5.1 开发新功能
 
 ```bash
-# 1. 从最新 master 拉出
+# 1. 更新主干，从它拉出分支 + worktree
 git switch master && git pull
-git switch -c feature/ai-memory-gc
+git worktree add .worktrees/ai-memory-gc -b feature/ai-memory-gc master
+cd .worktrees/ai-memory-gc
 
-# 2. 开发过程中定期同步主干（解决冲突在 feature 侧）
+# 2. 开发（依赖默认蹭主仓库 node_modules，无需 npm install）
+# 3. 定期同步主干 —— 冲突在 feature 侧解
 git merge master
 
-# 3. 完成后推送并开 PR
-git push -u origin feature/ai-memory-gc
-# → PR 目标分支：master，等待 review + CI
-
-# 4. 合并后清理
+# 4. 完成 → 回合 master
+cd <仓库根>
 git switch master && git pull
+git merge --no-ff feature/ai-memory-gc
+git push origin master
+
+# 5. 清理（两步）
+git worktree remove .worktrees/ai-memory-gc
 git branch -d feature/ai-memory-gc
 ```
 
@@ -124,11 +176,11 @@ git branch -d feature/ai-memory-gc
 - 拆成若干可独立合入的小 feature
 - 上 feature flag，代码先进 `master`、默认关闭，做完再开
 
-### 4.2 修复普通 bug（非紧急）
+### 5.2 修复普通 bug（非紧急）
 
-与 4.1 相同，分支名用 `hotfix/<简述>`，合回 `master` 后打 patch tag（见第五节）。
+与 5.1 相同，分支名用 `hotfix/<简述>`，合回 `master` 后打 patch tag（见第六节）。
 
-### 4.3 紧急线上故障
+### 5.3 紧急线上故障
 
 ```bash
 # 1. 确认线上版本对应的提交
@@ -137,31 +189,44 @@ git tag --sort=-creatordate | head
 
 # 2a. master 干净 → 从 master 拉
 git switch master && git pull
-git switch -c hotfix/login-500
+git worktree add .worktrees/login-500 -b hotfix/login-500 master
 
 # 2b. master 含未发布功能 → 从发布 tag 拉
-git switch -c hotfix/login-500 v0.1.20
+git worktree add .worktrees/login-500 -b hotfix/login-500 v0.1.20
+
+cd .worktrees/login-500
 
 # 3. 修复 + 提交（单次提交只含这一个修复，不要夹带格式化/依赖升级）
-# 4. 推送 + PR + 加急 review（hotfix 分支不跳过 CI）
 
-# 5. 回合 master
+# 4. 回合 master
+cd <仓库根>
 git switch master && git merge --no-ff hotfix/login-500
 
-# 6. 发布并打 patch tag
-#    bump package.json 版本 → make install → 打 tag（见第五节）
+# 5. 发布并打 patch tag
+#    bump package.json 版本 → make install → 打 tag（见第六节）
 git tag -a v0.1.21 -m "fix login 500"
 git push origin master --tags
 
-# 7. 清理
+# 6. 清理
+git worktree remove .worktrees/login-500
 git branch -d hotfix/login-500
 ```
 
-> **注意**：走 2b 分支（从 tag 拉）时，修复**仍然必须回合 `master`**（步骤 5）。从 tag 拉只是为了让本次发布不夹带未发布功能，不代表修复可以不进主干。
+> **注意**：走 2b（从 tag 拉）时，修复**仍然必须回合 `master`**（步骤 4）。从 tag 拉只是为了让本次发布不夹带未发布功能，不代表修复可以不进主干。
+
+### 5.4 可直接在 master（主工作树）上做
+
+| 类型 | 例子 |
+|------|------|
+| 纯文档 | 只改 `.md`、注释、错别字 |
+| 纯配置 | 依赖版本号、`.gitignore`、`package.json` 的 build 段 |
+| GSD 流程产出 | `.planning/**` 的阶段规划、状态镜像等机械提交 |
+
+判断口径：**无行为变更**。只要改了会跑起来的代码，就属于前两类，必须开分支 + worktree。
 
 ---
 
-## 五、版本与 tag
+## 六、版本与 tag
 
 ### 现状（务必区分两套编号）
 
@@ -185,11 +250,11 @@ git branch -d hotfix/login-500
 
 ---
 
-## 六、冲突处理原则
+## 七、冲突处理原则
 
 | 冲突场景 | 在哪里解决 | 说明 |
 |---------|-----------|------|
-| feature ↔ master | **feature 侧** | 由 feature 负责人在同步时解决 |
+| feature ↔ master | **feature 侧**（在其 worktree 内） | 由 feature 负责人在同步时解决 |
 | hotfix ↔ master | **hotfix 侧** | 同理，不要在 master 上解 |
 | 多 feature 互相冲突 | **各自的 feature 侧** | 说明改动面重叠，考虑拆分或串行推进 |
 
@@ -199,20 +264,23 @@ feature 分支过长、冲突越来越难解，是「该拆了 / 该上 feature 
 
 ---
 
-## 七、日常检查清单
+## 八、合并前检查清单
 
-提交 PR 前自查：
+在把分支合回 `master` 之前自查：
 
 - [ ] 分支名符合命名规范，且从正确的基线分出
+- [ ] worktree 位于 `.worktrees/` 下（仓库内部）
 - [ ] 已 `merge master` 并解决全部冲突
 - [ ] 提交信息符合 Conventional Commits
 - [ ] 单次提交只做一件事（特别是 hotfix，不含无关清理）
-- [ ] CI 通过；hotfix 按**该发布版本**的依赖/运行时验证，不能只跑 master 当前工具链
+- [ ] 相关测试通过；**若本分支改过 `package.json`，已在 worktree 内独立 `npm install`**
+- [ ] hotfix 按**该发布版本**的依赖/运行时验证，不能只跑 master 当前工具链
 - [ ] 若为发布修复：已 bump `package.json` patch 版本，并准备好 tag
+- [ ] 合并后已 `git worktree remove` + `git branch -d`
 
 ---
 
-## 八、何时引入 `release/x.y` 维护分支
+## 九、何时引入 `release/x.y` 维护分支
 
 **当前不启用。** 这套模型只支持「一个线上版本」。当且仅当出现以下情况时启用：
 
@@ -240,50 +308,50 @@ git cherry-pick -x <sha-in-master>
 
 ---
 
-## 九、AI 协作约定（强制）
+## 十、AI 协作约定（强制）
 
 本项目大量改动由 AI 助手执行。规范必须由 AI **主动执行**，而不是等用户提醒。
 
 > **执行口径的唯一来源是 [AGENTS.md](../../AGENTS.md) 的「分支与提交工作流」一节**（含逐步判断清单与话术），本节只记约定要点，不重复展开。
 
-1. **动手前先判断意图**：新功能 / 大改动 → `feature/*`；bug 修复 → `hotfix/*`；纯文档 / 配置 → 可留 `master`。语义模糊时先问用户，不自行假定。
-2. **在 `master` 上收到功能/修复请求时**：写代码前停下，给出**建议分支名**并询问「是否先拆分支再开始」（**推荐拆分支**）。用户坚持在 master 上改则遵从，但要指出偏离规范。
-3. **在 feature/hotfix 分支上完成一个任务后**：主动提示并按确认结果执行 ——
+1. **动手前先判断意图**：新功能 / 大改动 → `feature/*`；bug 修复 → `hotfix/*`；纯文档 / 配置 / GSD 流程产出 → 可留 `master`。语义模糊时先问用户，不自行假定。
+2. **在 `master` 上收到功能/修复请求时**：写代码前停下，给出**建议分支名与 worktree 路径**，并询问「是否先建 worktree + 分支再开始」（**推荐建**）。用户坚持在 master 上改则遵从，但要指出偏离规范。
+3. **在 feature/hotfix 的 worktree 中完成一个任务后**：主动提示并按确认结果执行 ——
    - `feature/*`：`git merge master`（拉新主干，冲突在 feature 侧解）
    - `hotfix/*`：合回 `master` + bump `package.json` patch 版本 + 打 tag
-4. **合并 / 提交 / 推送 / 开 PR 一律先经用户确认**，不静默执行。
-5. `master` 禁止直推，走 PR；AI 在分支上完成提交即止，推送与开 PR 需用户确认。
+4. **合并 / 提交 / 推送 / 清理 worktree 一律先经用户确认**，不静默执行。
 
-**不要做**：把 hotfix 回合到各条 feature 分支（feature 拉 master 自动获得）；`rebase` 已 push 的共享分支。
+**不要做**：在主工作树 `switch` 到 feature/hotfix 分支；把 hotfix 回合到各条 feature 分支（feature 拉 master 自动获得）；`rebase` 已推送的分支；手删 worktree 目录（必须 `git worktree remove`）。
 
-> 改动本节的判断口径时，**必须同步** [AGENTS.md](../../AGENTS.md) 的「分支与提交工作流」一节与本文档第三、四节，三处不得出现口径分歧。
+> 改动本节的判断口径时，**必须同步** [AGENTS.md](../../AGENTS.md) 的「分支与提交工作流」一节与本文档第三、四、五节，四处不得出现口径分歧。
 
 ---
 
-## 十、速查表
+## 十一、速查表
 
 ```bash
-# 新功能
+# 新功能 / 修 bug（统一形态）
 git switch master && git pull
-git switch -c feature/<name>
-git merge master                 # 定期同步（用 merge，不用 rebase）
-# … PR 到 master，合并后 git branch -d
+git worktree add .worktrees/<简述> -b feature/<简述> master   # 或 hotfix/
+cd .worktrees/<简述>
+# … 开发（默认蹭主仓库 node_modules）→ 定期 git merge master
+# 完成后回主工作树：git merge --no-ff feature/<简述> && git push origin master
 
-# 修 bug
-git switch master && git pull
-git switch -c hotfix/<name>
-# … PR 到 master，合并后打 patch tag
+# 清理（两步，顺序不能反）
+git worktree remove .worktrees/<简述>
+git branch -d feature/<简述>
 
-# 紧急故障（master 已含未发布功能时）
-git switch -c hotfix/<name> v0.1.20   # 从发布 tag 拉
-# … 修复 → PR → 合回 master → bump 版本 → 打 tag → 推送
+# 紧急故障（master 已含未发布功能时，从发布 tag 拉）
+git worktree add .worktrees/<简述> -b hotfix/<简述> v0.1.20
 ```
 
 | 场景 | 做法 |
 |------|------|
-| 有新 feature 在开发，同时要修 bug | `hotfix/*` 从 master 分，合回 master |
-| feature 落后于 master | feature 侧 `git merge master` |
+| 有新 feature 在开发，同时要修 bug | 各开一个 worktree —— 这正是 worktree 存在的意义 |
+| feature 落后于 master | 在 feature 的 worktree 内 `git merge master` |
 | hotfix 要不要回合 feature | **不要**，feature 拉 master 自动获得 |
-| master 已有未发布功能时修线上 | 从**发布 tag** 拉 hotfix，修完仍要回合 master |
+| master 已有未发布功能时修线上 | 从**发布 tag** 建 worktree，修完仍要回合 master |
+| 该分支改了 `package.json` | 在 worktree 内独立 `npm install`，别依赖共享依赖 |
+| 能不能在仓库外建 worktree | **不能** —— Node 找不到 `node_modules`，测试全崩 |
 | feature 开了三周还没合 | 拆小 或 feature flag，不要再加大同步频率 |
-| 旧版本还要继续支持 | 启用 `release/x.y`，见第八节 |
+| 旧版本还要继续支持 | 启用 `release/x.y`，见第九节 |
