@@ -51,10 +51,10 @@
 - **D-07:** **卸载入口只对 `source === 'user'` 渲染；其余来源不渲染按钮**，改由区/组标题下一行说明：「内置技能与 AI 创建的技能不可在此卸载（AI 创建的技能请让 AI 用 `manage_skill` 删除，内置技能只可禁用）」。理由：不渲染 = 不给「点了才知道不行」的挫败；但完全静默会让用户困惑「为什么这个没有卸载按钮」，故配一行说明。
   - **服务端独立拒绝是硬约束**（ROADMAP 判据 3：「手改 URL 直接调端点也不例外」）—— 前端不渲染只是 UX，拒绝判据必须在 manager 层。两层各司其职。
   - **本侧的判据不能复用 49 的 `resolveManagedTarget`**（那是 managed 视角的「seeded 保护 + 用户撞名」，方向相反）；需要**一处显式的「仅 user 可删」判据**（读盘判 `skills/<name>` 是否存在 + `managed-skills/<name>` 是否存在 ⇒ 后者存在即拒）。
-- **D-08:** **新增第十个错误码 `NOT_USER_OWNED: 'not_user_owned'`**，并把三处账本（`docs/product/ai-skills.md` §11.8 / `AGENTS.md` 测试清单 / 对应测试断言）从「九码」刷成「十码」。理由：复用 `NOT_FOUND` 会把「技能不存在」与「技能存在但不是你的」混同 —— 用户看到「技能不存在」而该技能明明列在页面上，是**失实文案**；这正是 49-04 修过的三态混同族（`promptIncluded` 的 `false`/`undefined` 混同根因）。— **Reversibility:** costly — 「九码」是已写进产品文档、`AGENTS.md` 维护约定与测试清单的**成文账本**（三处必须一起刷，49-06 已建立刷新纪律）；回退需同步改三处账本 + 一个常量的取值域。
+- **D-08:** **新增第十个错误码 `NOT_USER_OWNED: 'not_user_owned'`**（落点与账本刷新清单见下方 **OQ-3** —— 实测 `MANAGE_SKILL_ERROR` 现有 **10 键** = 九码 + `UNKNOWN`，被 `tests/test-manage-skill.js:1588-1621` 逐字冻结；加码后为 **11 键**，而 `MANAGE_SKILL_SHORT_REASON` **保持恰 9 键不动**）。理由：复用 `NOT_FOUND` 会把「技能不存在」与「技能存在但不是你的」混同 —— 用户看到「技能不存在」而该技能明明列在页面上，是**失实文案**；这正是 49-04 修过的三态混同族（`promptIncluded` 的 `false`/`undefined` 混同根因）。— **Reversibility:** costly — 「九码」是已写进产品文档、`AGENTS.md` 维护约定与测试清单的**成文账本**（三处必须一起刷，49-06 已建立刷新纪律）；回退需同步改三处账本 + 一个常量的取值域。
 - **D-09:** **禁用的技能仍可卸载**（卸载不因 `disabled` 而置灰）。理由：禁用是「先别进 prompt 试试」的轻量试探，卸载是「确实不要了」的终局；要求用户先启用再卸载是反直觉的两步操作。且禁用不改变来源（`settings.aiSkills.disabled` 只存名字）。
   - **派生不变式（必须实现）**：卸载一个 user 技能成功后，**必须同步从 `settings.aiSkills.disabled` 移除该名字**。否则残留名单会随技能名复用而误伤 —— 同名新技能一装上就被静默禁用，属「静默失效」。启用 / 禁用单条时无需清理（技能仍在盘上）。
-- **D-10:** **`/api/settings/update` 对 `aiSkills.disabled` 补服务端校验**（与既有 `aiBashWhitelist` / `cacheMaxGB` 两条**并列**）。理由：该键目前**零服务端校验**（`main.js:1375-1392` 只循环校验那两个键），手改 URL 可写入任意值污染禁用名单（含超大数组、非字符串项、路径样字符串）。校验面：必须是数组 / 每项为非空字符串且符合技能名形态（`ai-skills-manager` 的既有校验器）/ 长度上限（单条长度与总条数）。— **Reversibility:** reversible — 一处校验分支，回退即删。
+- **D-10:** **`/api/settings/update` 对 `aiSkills.disabled` 补服务端校验**（与既有 `aiBashWhitelist` / `cacheMaxGB` 两条**并列**）。理由：该键目前**零服务端校验**（`main.js:1375-1392` 只循环校验那两个键），手改 URL 可写入任意值污染禁用名单（含超大数组、非字符串项、路径样字符串）。校验面：必须是数组 / 每项为非空字符串 / 长度上限（单条长度与总条数）。⚠️ **谓词取「安全超集」而非 `validateManagedSkillName` 的严格形态**（`^[a-z0-9-]+$` + 无首尾/连续连字符）—— 理由与「故意的不对称」的成文要求见下方 **OQ-2**；用严格谓词会让「手动放进 `skills/My_Skill/` 的技能无法被禁用」。—— **Reversibility:** reversible — 一处校验分支，回退即删。
 
 ### 诊断与状态的展示口径
 
@@ -79,20 +79,42 @@
 
 - **D-15:** **REST 子路由**：`GET /api/skills/list`、`POST /api/skills/set-disabled`、`POST /api/skills/uninstall`。沿用 `/api/settings/*` 与 `/api/ai-memory` 的既有范式（`token` 鉴权 → `route = pathname.replace('/api/skills/','')` → 分支 → `sendJson`），在 `main.js` 的 `realmServer`（`:2704`）新增一个 `reqPath.startsWith('/api/skills/')` 分支 + `handleSkillsApi(req, res, reqUrl)`。理由：ROADMAP 字面就是 `/api/skills/*`；把不同副作用 + 不同校验塞进单个 RPC handler 会让「哪条路径做了什么」不可枚举（与 49 把三动作拆开同一取向）。
 - **D-16:** **SEC-09 → `readJsonBody(req, { maxBytes } = {})`，默认 fail-closed**：
-  - 新增单源常量 `MAX_JSON_BODY_BYTES = 1 MiB`（`main.js`）作为**全局默认**，覆盖现有全部端点（它们 body 都是小 JSON）。
-  - 超限时**立即拒收**：不再继续累积 `body`（`req.destroy()` / 停止累积），回 `413` + `{ error: … }`。ROADMAP 判据 5 的判据对象是「**不无上限读入内存**」，仅靠事后长度检查不满足它。
-  - **可显式覆盖**：需要大 body 的端点传 `{ maxBytes }`。Phase 51 的 zip base64 导入端点届时**显式声明**更大值 —— 「默认小 + 需大者显式放大」的形状让「漏了上限」不会静默发生。
-  - 数值单源在 `main.js` 常量，**设置页前端不得写死第二份**。— **Reversibility:** costly — `readJsonBody` 是**全部** `/api/*` POST 端点的公共入口，改签名/默认值影响面横跨所有内部页面；且 Phase 51 会依赖「可显式覆盖」这条面。
+  - 新增单源常量 `MAX_JSON_BODY_BYTES = 1 MiB`（`main.js`）作为**全局默认**。⚠️ **前提已由 research 推翻（修正 3）**：原文「现有端点 body 都是小 JSON」**不成立** —— `readJsonBody` 的 57 个调用点里有**两个端点的 body 是用户文件的全文**：`POST /api/favorites/import-chrome`（`main.js:1157`）与 `POST /api/favorites/import-html`（`main.js:1177`），由 `src/favorites-page.js:2239-2249` 提交书签导出文件全文（Chrome / Safari 常规 **1–10 MB**，且 import-html 的预览与执行各发一次）。⇒ **这两个端点必须显式声明更大的 `maxBytes`（建议 32 MiB）**，否则会让既有「导入书签」功能在这些用户处 413。**必须逐个端点评审**，不能按「都是小 JSON」的假设批量放行；机械复查入口：`grep -c "await readJsonBody(req)" main.js` = 57。
+  - **超限实现形态（已实测，不得自由发挥）**：`sendJson(res, 413, …)` + **`req.resume()`**（停止累积、把剩余流排空）。**不要**用 `req.destroy()`，也**不要**设 `Connection: close` —— 两者都会让客户端拿 **EPIPE / 响应丢失**，413 永远看不到。实测对照（Electron 43.6.0 / Node 24.20.0）：现状 `body += chunk` 收 40 MB → **+85 MB 堆**且返回 200；`sendJson(413)+req.resume()` → 干净 413 且 **+1 MB 堆**。ROADMAP 判据 5 的判据对象是「**不无上限读入内存**」，仅靠事后长度检查不满足它。
+  - **`sendJson` 必须加幂等护栏**（`headersSent || writableEnded` 时 no-op）：否则 `readJsonBody` 自己答了 413 又 reject，会让 12 个 handler 的外层 catch 二次 `sendJson` → `ERR_HTTP_HEADERS_SENT` → **unhandled rejection**。这是**一次修好全部发送点**的形状，属本阶段交付项。
+  - **可显式覆盖**：需要大 body 的端点传 `{ maxBytes }`；调用点全部是**位置参数**形态 ⇒ 加可选参**零调用点改动**。Phase 51 的 zip base64 导入端点届时显式声明更大值（按 PITFALLS P7 的「累计解压 ≤ 32 MB」推导，base64-over-JSON 的 body 上界 ≈ 42.67 MiB ⇒ 建议 `48 * 1024 * 1024`）—— 「默认小 + 需大者显式放大」的形状让「漏了上限」不会静默发生。⚠️ 常量命名须区分量：`MAX_JSON_BODY_BYTES`(1 MiB) 与 P7 的「单 entry 1 MB」是**同数不同量**。
+  - 数值单源在 `main.js` 常量，**设置页前端不得写死第二份**。— **Reversibility:** costly — `readJsonBody` 是**全部** `/api/*` POST 端点的公共入口（57 个调用点 / 11 个具名 handler + 1 个内联分支），改签名/默认值影响面横跨所有内部页面；且 Phase 51 会依赖「可显式覆盖」这条面。
 - **D-17:** **两个前端入口读写对等，共用同一 manager 函数与同一管理投影**：新增 `/api/skills/*`（HTTP，设置页）+ 主窗口 IPC（`realmAPI`，与既有 `ai:get-skills` / `ai:refresh-skills` 并列）。IPC 侧复用既有 `assertTrustedSender`（`ipc-handlers.js:113`），HTTP 侧复用既有 token 鉴权。理由：ROADMAP 判据 4 与 USER-07 都明说「两个前端入口」「同一后端权威」；两个 handler **只是转发层**（判据 / 校验 / 写函数全在 `ai-skills-manager.js`），与 49 的「`ai-manager.js` 只做注册与参数转发」同款 ⇒ 零重复实现。
   - **硬约束**：设置页**必须**走 HTTP（guest 无 `realmAPI`），主窗口**必须**走 IPC（`file://` fetch 本地 HTTP 被 CORS 拦，Phase 38 事故）。两条不可互换。
   - 主窗口当前**无管理 UI** ⇒ IPC 写侧暂无 UI 消费者，其价值是「两入口同一权威」的对称性 + 未来主窗口管理面 + 开发/调试便利；**不得**为了让 IPC 有消费者而在主窗口新造一套管理 UI（那是新能力，不属本阶段）。
 - **D-18:** **写路径收口 = 「成功后调 `syncAgentSystemPrompt()` 恰一次」+ 「调用侧无条件补一次 `skills:changed` 广播」**：
   - **`syncAgentSystemPrompt()` 调用恰一次**（该函数体内**已含** `refreshSkills()` 重扫；`ai-manager.js:3053` 的广播也在其内）。**不要**照 ROADMAP 字面写成 `refreshSkills()` + `syncAgentSystemPrompt()` —— 那是两次全量重扫（49-01 的 D-13 已付过这个代价，L 组断言 `rescanCalls === 2` 而非 3）。
-  - **必须补广播 —— 这是一个真实缺口**：`syncAgentSystemPrompt()` **只在真正改写 prompt 时才广播**（无变化早退，`ai-manager.js:3048` 的逐字符比对 + digest 双判定）。禁用一个 `shadowed` 或 `promptOmitted` 的技能时 prompt 段**逐字符不变** ⇒ **不广播** ⇒ 48 D-10 要求的「禁用后 `/` 面板隐藏该技能」失效。卸载同理（被删技能本就被排除在 prompt 段外时，段不变）。
-  - **修法约束：不得改 `syncAgentSystemPrompt()` 的函数体** —— 46-04 的方法体源码扫描断言与 `tests/test-ai-skills.js` 的广播次数断言（`:1239` / `:3289` / `:3455`）都钉着它。只能在**管理写路径的调用侧**，于其**之后**无条件补一次 `windowManager.broadcast('skills:changed')`。**广播幂等**（48-06 已把 renderer 的监听改成无条件重拉快照）⇒ 多播一次零副作用；不得为省这一次广播去改被钉住的函数体。
+  - ⚠️ **补播的理由已由 research 改写（修正 1）** —— 原文「禁用一个 `shadowed` / `promptOmitted` 的技能时 prompt 段逐字符不变 ⇒ 不广播」**推不出结论**：早退是**合取**（`snap.digest === this._skillsPromptDigest` **且** `systemPrompt === next`，`ai-manager.js:3043-3048`），而 `computeDigest`（`ai-skills-manager.js:189-202`）**逐条包含 `disabled` / `overLimit` / `shadowed`** ⇒ 禁用**任何在缓存里的技能**都会改 digest ⇒ **会广播**。实测矩阵（3 技能）：禁用普通技能 = digest+prompt 双变；禁用 `disable-model-invocation:true` 的内置技能 = prompt 不变但 digest 变（**仍广播**）；**只有禁用「技能集里根本没有的名字」才真零广播**（也确实无可同步的变化）。
+  - **补播的真实理由 = 覆盖 `syncAgentSystemPrompt()` 的「忙时早退」**：`isProcessing || streaming` 时它只置 `_skillsPromptDirty = true` 并 **return**（**该分支不广播**），要等下一次成功出口的 `_flushDeferredSkillsPrompt()` 才落地。管理写路径（设置页点开关）**不经过 Agent 轮次** ⇒ 用户若不再发消息，`/` 面板会一直显示已被禁用的技能。**补播保留，理由按此表述。**
+  - **新增硬禁令（必须写进 CONTEXT 与 `docs/product/ai-skills.md`）**：**禁止把 `disabled` / `shadowed` / `overLimit` 从 `computeDigest` 里摘掉**（任何「digest 只该反映 prompt 内容」的优化）。这会**静默破坏跨窗口失效链** —— renderer 侧 `pullAiSkillsSnapshot` 也按 `snapshot.digest === state.aiSkillsDigest` 早退（`src/renderer.js:9134`）。**digest 是面板可见字段的超集，这正是它今天能工作的原因。**
+  - **修法约束：不得改 `syncAgentSystemPrompt()` 的函数体** —— 46-04 的方法体源码扫描断言与 `tests/test-ai-skills.js` 的广播次数断言（`:1239` / `:3289` / `:3455`）都钉着它。只能在**管理写路径的调用侧**，于其**之后**无条件补一次 `windowManager.broadcast('skills:changed')`。**广播幂等**（48-06 已把 renderer 的监听改成无条件重拉快照）⇒ 多播一次零副作用；不得为省这一次广播去改被钉住的函数体。验收面因此是「**忙时（`isProcessing === true`）补播仍然发出**」，不是「prompt 不变时补播」。
   - **诚实边界（必须写进 CONTEXT 与 `docs/product/ai-skills.md`）**：`windowManager.broadcast` 只发到**各 BrowserWindow 的 webContents**（`window-manager.js:310` 逐窗 `win.webContents.send`），**不到 webview guest**。故：设置页**每次操作后自行重拉列表**、**每次进入该页时重拉**；**多个设置页实例之间不做即时同步**（不新增 guest push 通道 —— 设置页是纯 HTTP 客户端，`src/settings-page.js` 零 IPC/`realmAPI`，为它开一条 push 通道是新基建，收益仅覆盖边缘场景）。
-  - **进度账本**：本阶段完成后 `STATE.md:292` 的 `syncAgentSystemPrompt()` 生产调用方 ⚠️ 达到 **2/3**（49 的 `manage_skill` 三动作 + 50 的设置页启停卸载），**只剩 51 的导入** ⇒ 仍**不得**声称 P8 失效链 6/6 全覆盖。
-  - — **Reversibility:** costly — 「补播」这条判断的依据（无变化早退 ⇒ 不广播）写在 `ai-manager.js` 的注释里，若被后续阶段当成冗余广播删掉，失效链会静默退回；补播点若从调用侧挪进 `syncAgentSystemPrompt()` 函数体，会同时打翻 46-04 的方法体断言与 48 的广播次数断言。
+  - **进度账本**：本阶段完成后 `STATE.md:292` 的 `syncAgentSystemPrompt()` **写路径**收口达到 **2/3**（49 的 `manage_skill` 三动作 + 50 的设置页启停卸载），只剩 51 的导入。⚠️ 本阶段还会新增 `syncAgentSystemPrompt()` 的**读侧 / 兜底**调用方（D-19），**读写两个份额不是同一个量**：`STATE.md` 与 `docs/product/ai-skills.md` 必须**分别记两个数**，读侧触发点**不得并入**「6 个触发点」的分子，否则会被读成 P8 已 6/6。
+  - — **Reversibility:** costly — `computeDigest` 的字段集与「调用侧补播」这两条判断都只在注释里活着，任一条被后续阶段当成冗余删掉，跨窗口失效链都会静默退回；补播点若从调用侧挪进 `syncAgentSystemPrompt()` 函数体，会同时打翻 46-04 的方法体断言与 48 的广播次数断言。
+- **D-19:** **管理读路径必须有一个不依赖 Agent 的初始化（修正 2 —— 否则判据 1 整体空白）**。事实：`ai-manager.js:789-793` 在「未配置任何 provider API Key」时提前 `return`，而 `sandboxEnv`（`:901`）与 `refreshSkills()`（`:903`）都在该 `return` **之后** ⇒ `_cache` 恒停 `EMPTY_CACHE()`（`skills: []` / `digest: ''` / `refreshedAt: 0`），而 `builtinSkillsSeeder.seedBuiltinSkills()` 在 `main.js:4049` 是**无条件**执行、内置技能**早已在盘上**。`syncAgentSystemPrompt()` 首行 `if (!this.agent || !this.sandboxEnv) return;` ⇒ 连重扫都不执行；`refreshSkillsForPanel()`（`:3072`）同样早退（⇒ 现有 `/` 面板在无 provider 时也是空的，**既有状态、未被测试覆盖**）。
+  - ⇒ **无 provider 时设置页会一条技能都列不出来**，且用户无法自查原因（属「静默失败」反模式）。**必须新增一个不依赖 Agent 的管理读路径初始化**（形状建议见 `50-RESEARCH.md` 修正 2；`createSandboxEnv()` 与 provider 配置无关，只依赖 `agent-workspace` + SDK，故这条路可行）。
+  - **约束**：① 保持「恰一次重扫」的次数账（有 Agent 时走 `syncAgentSystemPrompt()`，其中已含一次 `refreshSkills`；无 Agent 时直接 `refreshSkills`，**不得两条都执行**）；② **不进 `syncAgentSystemPrompt()` 的函数体**（同 D-18 的钉死约束）；③ 它**不是**写路径（读侧/兜底），**不并入** D-18 的 2/3 份额。
+  - **验收面**：`refreshedAt === 0`（从未加载）**不得**被渲染成「无技能」——空态文案必须区分「确实没有技能」与「尚未加载」；并补一条「未配置 provider 时仍能列出两个内置技能」的端到端/手动验收（见 `50-VALIDATION.md` 的 Manual-Only 表）。
+  - — **Reversibility:** reversible — 新增一个读侧入口，回退即删；但**若不实现，判据 1 在无 provider 的用户处直接失败**，属必须交付项。
+
+### 研究校正与 plan 期待裁决项（2026-09-14，源：`50-RESEARCH.md`）
+
+**三条事实校正已回写进 D-16 / D-18 / D-19**（D-18 补播的理由整体改写 + 新增 digest 反向优化禁令；D-16 补两个书签端点的显式覆盖 + 413 实现形态 + `sendJson` 幂等；D-19 为新增决策）。
+
+以下 5 条是 research 提出的**开放问题**，plan 期必须显式处置（不得静默选一个）：
+
+- **OQ-1（唯一会改变用户可见行为的分歧，需用户裁决）**：**同名双存在（user + managed 同名）时「仅 user 可删」的语义** —— D-07 的字面判据（「`managed-skills/<name>` 存在即拒」）与 ROADMAP 判据 3 的字面（「`source === 'user'` 可卸载」）**冲突**：同名双存在时 user 条目**确实存在**（user 胜出、managed 被标 `shadowed` 保留在数据层），列表里显示的 tier 就是 `user`，而按 D-07 字面用户会被告知「这不是你的技能」。**research 建议**：判据改为「`skills/<name>` 存在且 `kind` 是目录」即允许（删除对象恒为 `skills/<name>/`）；`managed-skills/<name>` 的存在只用来**提示**（「同名托管/内置技能将在删除后重新可见」）而**不**用来拒绝。**本 CONTEXT 暂按 research 建议记入，标注为待用户确认**；若用户选保守方案，则必须在产品文档写明「同名双存在时用户技能的卸载入口亦被禁用」及理由。
+- **OQ-2（采纳 research 建议）**：**`settings.aiSkills.disabled` 的校验谓词用「安全超集」**（非空字符串 + ≤64 字符 + 无路径分隔符/控制字符 + 条数 ≤ 上限），**不**用 `validateManagedSkillName` 的 `^[a-z0-9-]+$` 严格形态。理由：加载管线对磁盘上的技能名**故意宽松**（46 D-08），严格谓词会让「手动放进 `skills/My_Skill/` 的技能无法被禁用」（设置页开关 400）。**必须在 `docs/product/ai-skills.md` 写明这条故意的不对称**（禁用名单是「按名字过滤」的消费侧信号，不需要名字合法到能写盘）。
+- **OQ-3（采纳 research 建议，落点已定）**：**`not_user_owned` 加进 `MANAGE_SKILL_ERROR`**（顺从 D-08 字面），并**同批**三件事：① 把 `tests/test-manage-skill.js:1588-1621` 的两条 `deepStrictEqual` 冻结断言从「恰十键 / 九码」刷成「恰十一键 / 十码」；② **不动** `MANAGE_SKILL_SHORT_REASON`（保持**恰 9 键**，被 `tests/test-skill-picker-model.js:946` 硬断言）—— 新码在本阶段**只经 HTTP 400 的 `{code}` 返回**，不进 `manage_skill` 的工具卡片渲染路径，并在文档写明「该表只覆盖工具面，管理面错误码由设置页自己的文案表承载」；③ `docs/product/ai-skills.md` §11.3 的「九条拒绝原因 / 不新增第十码」改为「**工具侧**九条不变；管理面另有 `not_user_owned`（第十码，见新章节）」，消除文档自相矛盾。⚠️ 注意 D-08 原写「九码」而 `MANAGE_SKILL_ERROR` 实为 **10 键**（九码 + `UNKNOWN`）—— 措辞以实测键数为准。
+- **OQ-4（采纳 research 建议）**：**尺寸遍历加防御上限**（建议 `MAX_SKILL_SIZE_WALK_ENTRIES = 5000` / `MAX_SKILL_SIZE_WALK_DEPTH = 16`），超限**截断 + 产 warning 诊断**，**不拒绝加载** —— 技能仍可用，只是体积显示为下限值并在详情区说明。理由：`MAX_USER_SKILLS` / `MAX_MANAGED_SKILLS` 只约束**技能个数**，不约束**单个技能目录的深度与条目数**（PITFALLS P7 把「深目录递归」列为资源耗尽面）；而「单技能失败跳过、不因局部问题拒绝整条」是加载管线的既有纪律。
+- **OQ-5（采纳 research 建议，账本口径）**：D-19 新增的读侧/兜底调用方**不并入**「6 个触发点」分子；`STATE.md` 与 `docs/product/ai-skills.md` **分别记两个数**（写路径收口 2/3；读侧触发点另计）。
+
+**另有三条 research 的假设需在 plan 期补实测**（见 `50-RESEARCH.md` §Assumptions Log）：**A2** —— `SKILL.md` 自身的 `size` 是否计入技能 `bytes`（D-13 只说「全部子项」，按推断计入，须在文档写明以免用户困惑于「64.1 KB vs 64 KiB 上限」）；**A3** —— 设置页新增 `<script src="skill-picker-model.js">` 后在 `realm://` CSP 下的实际加载表现（该文件零依赖、双模式导出、纯函数，风险低但须跑一次）；**A6** —— 100 条技能时管理投影的实际字节数与渲染耗时（research 估最坏 ~200 KB）。
 
 ### Claude's Discretion
 
@@ -102,8 +124,8 @@
 - **启停 switch 的视觉**：建议复用设置页既有 `.ai-switch`（provider `enabled` 开关同款）。
 - **诊断详情区的展开交互**：建议复用 48 / 49 的折叠块范式；具体 DOM 与样式交 plan 期（若 ROADMAP 的 `UI hint: yes` 触发 `/gsd:ui-phase 50`，由 UI-SPEC 定稿）。
 - **`set-disabled` 的载荷形状**（增量 `{name, disabled}` vs 全量 `{disabled: [...]}`）：建议**增量**（全量会在并发操作下互相覆盖）；具体交 plan 期。
-- **测试文件组织**：新增 `tests/test-skills-management.js` 还是并入 `tests/test-ai-skills.js`，交 plan 期。**必须覆盖**：管理投影形状与分组（含空组不渲染）/ 体积与文件数口径（递归、隐藏文件不计）/ 来源三档 / 仅 user 可卸载（含「手改 URL 直调端点」的服务端拒绝）/ 卸载后 `disabled` 名单清理 / 读盘判据而非缓存快照 / `readJsonBody` 上限（超限 413 且不累积）/ `settings.aiSkills.disabled` 服务端校验 / 写路径「`syncAgentSystemPrompt()` 恰一次 + 补播一次」/ 禁用后 `/` 面板不可见。
-- **待实测项**：`readJsonBody` 改签名后对**全部**既有 `/api/*` POST 端点的回归（`/api/settings/update` 等）；设置页 inline hint 的自动复位在连续操作下的表现；100 条技能时设置页的渲染耗时。
+- **测试文件组织**：research 建议**新增独立套件 `tests/test-skills-management.js`**（与 49 的 `test-manage-skill.js` 工具面职责不同，且独立文件才有独立 `# tests` 计数可入账本）；并在 `tests/test-ai-skills.js` 补写路径/忙时补播用例、改造 `tests/test-manage-skill.js` 的冻结断言、给 `tests/test-skill-picker-model.js` 补 `STATUS_TEXT.disabled` 断言。**必须覆盖**：管理投影形状与分组（含空组不渲染）/ 体积与文件数口径（递归含子目录、隐藏文件不计、**目录 size 不计**、**不穿 symlink**）/ 尺寸统计**不进 digest** / `refreshedAt === 0` 不渲染成「无技能」/ 来源三档 / 仅 user 可卸载（含**直接调 manager 函数**的服务端拒绝）/ 卸载后 `disabled` 名单清理 / 读盘判据而非缓存快照 / `readJsonBody` 上限（超限 **413 且不累积**、`sendJson` 幂等、**无 unhandledRejection**）/ 两个书签端点显式覆盖 `maxBytes` / 57 个既有调用点回归 / `settings.aiSkills.disabled` 服务端校验（两种键形态）/ 写路径「`syncAgentSystemPrompt()` 恰一次 + 补播恰一次」/ **忙时补播仍发出** / 禁用后 `/` 面板不可见。完整映射见 `50-VALIDATION.md` 的 Per-Task Verification Map。
+- **待实测项**：`readJsonBody` 改签名后对**全部**既有 `/api/*` POST 端点的回归（57 个调用点，重点 `/api/settings/update`）；设置页 inline hint 的自动复位在连续操作下的表现；100 条技能时设置页的渲染耗时与投影字节数（research A6）；`SKILL.md` 自身 `size` 计入 `bytes` 的口径（research A2）；设置页加载 `skill-picker-model.js` 在 `realm://` CSP 下的表现（research A3）；`env.listDir` 返回的条目形状（含 `.DS_Store` 与 symlink）—— research 已实测（`{name,path,kind,size,mtimeMs}`；目录 `size`=96；symlink `size` 为链接长度、**内部链接可穿入 ⇒ naive 递归会无限循环**、外逃链接返回 `permission_denied`），plan 期的遍历实现必须显式处理 symlink。
 
 </decisions>
 
@@ -111,6 +133,11 @@
 ## Canonical References
 
 **Downstream agents MUST read these before planning or implementing.**
+
+### 本阶段自身产物（plan / execute / verify 必读）
+
+- `.planning/phases/50-api-skills/50-RESEARCH.md` — **本阶段实现的直接依据，且权威度高于本 CONTEXT 的实现细节**：§「CONTEXT 事实核查（三条需修正）」是 D-16 / D-18 / D-19 的改写来源（含运行时实测矩阵与堆数字）；§Pattern 1（体积/文件数的递归遍历：`listDir` 返回形状、symlink 穿透陷阱、隐藏文件与目录 `size` 的处理）；§Pattern 2（管理面投影，不扩展 `getSkillsForUI()`）；§Pattern 3（两入口共用同一 manager 函数）；§Pattern 4（写路径收口 + 补播）；§Pitfall 1–12（尤其 1「413 形态」/ 2「`sendJson` 幂等」/ 3「两个书签端点」/ 4「symlink 无限递归」/ 6「`refreshSkills` 返回值是活引用」/ 8「无 provider 时管理区空白」/ 9「禁用名单校验宽严」）；§Assumptions Log（A2/A3/A6 需 plan 期补实测）；§Open Questions（OQ-1..5 的处置见本文件「研究校正与 plan 期待裁决项」）；§Validation Architecture（`50-VALIDATION.md` 的来源）；§Phase 51 体积上限交接
+- `.planning/phases/50-api-skills/50-VALIDATION.md` — Nyquist 验证契约：测试跑法（**本项目无 `npm test`**）、逐需求 → 命令映射、Wave 0 缺口、counts-parity 机械判据、Manual-Only 清单
 
 ### 里程碑、需求与门禁
 
@@ -163,7 +190,7 @@
 ### Reusable Assets
 
 - **`ai-skills-manager.js` 已备齐本阶段需要的几乎全部零件**：`sourceTierOf` / `toUISkillEntry`（三档档位与投影骨架）、`validateManagedSkillName`（D-10 的服务端校验器，**直接复用**）、`MANAGE_SKILL_ERROR`（D-08 的加码位置）、`deleteManagedSkill`（递归删除 + 沙箱 `env.remove({recursive:true})` 的**形状模板**）、`refreshSkills`（D-13 的体积/文件数计算接入点）。
-- **沙箱已提供全部文件 IO 原语**：`env.listDir` / `env.fileInfo` / `env.exists` / `env.remove({recursive:true})` —— **无需新增任何路径校验或文件遍历代码**；D-07 的「仅 user 可删」判据与 D-13 的目录遍历都在这几个原语上完成。
+- **沙箱已提供全部文件 IO 原语**：`env.listDir` / `env.fileInfo` / `env.exists` / `env.remove({recursive:true})` —— **无需新增任何路径校验代码**；D-07 的「仅 user 可删」判据与 D-13 的目录遍历都在这几个原语上完成。**但返回形状必须按 research 实测值处理**（不要凭猜测写）：`listDir` 返回 `{name, path, kind, size, mtimeMs}`；`.DS_Store` **会**被返回（须按 D-13 过滤）；目录的 `size` = 96（**不可当文件字节累加**）；symlink 的 `size` 是链接长度而非目标大小，**内部链接可穿入 ⇒ naive 递归会无限循环**，外逃链接返回 `permission_denied`；`exists(缺失)` = `{ok:true, value:false}`；`remove(dir,{recursive:true})` 正常。`createSkillsEnv()` 对 `listDir` 的收窄**只作用于扫描根**，不拦子目录遍历。
 - **设置页的即改即存链路是完整样板**：`aiBashWhitelist` 的「读 state → 整存整取 → `POST /api/settings/update` → 更新 state → 重渲染」四步（`src/settings-page.js:2839-2900`）+ `.whitelist-tag` 视觉段 —— D-05 的启停开关照抄这条链路的形状。
 - **`setAiMemoryHint` 的 inline hint**（success / danger 双色 + 自动复位守卫）—— D-06 的失败反馈直接复用，零新基建。
 - **`syncAgentSystemPrompt()` + `_flushDeferredSkillsPrompt()` 已构成完整失效链**（48-08）：D-18 的写路径只需一行调用 + 一行补播。
@@ -180,29 +207,32 @@
 
 ### Integration Points
 
-- `ai-skills-manager.js` —— 新增管理投影函数 + `deleteUserSkill`（复用 `validateManagedSkillName` 与沙箱 `remove`）+ `MANAGE_SKILL_ERROR.NOT_USER_OWNED`；`refreshSkills()` 内接入体积/文件数计算
-- `ai-manager.js` —— 新增管理面转发方法（**不得**让 `ai-skills-manager.js` 依赖 `ai-manager.js`）；管理写路径的成功出口：`await this.syncAgentSystemPrompt()` **恰一次** + 调用侧无条件 `windowManager.broadcast('skills:changed')`
-- `main.js` —— `handleSkillsApi()`（三个 REST 子路由）+ 分发分支；`readJsonBody` 加 `maxBytes`（D-16）；`handleSettingsApi` 的 `update` 循环加 `aiSkills.disabled` 校验（D-10）
-- `ipc-handlers.js` —— 三个管理 IPC 通道（与 `ai:get-skills` / `ai:refresh-skills` 并列），全部经 `assertTrustedSender` 后转调同一 manager 函数
+- `ai-skills-manager.js` —— 新增管理投影函数（含体积/文件数遍历）+ `deleteUserSkill`（**仅 user 可删**，见 OQ-1 的待裁决口径）+ `MANAGE_SKILL_ERROR.NOT_USER_OWNED`；`refreshSkills()` 内接入体积/文件数计算（**须显式处理 symlink，见 research Pitfall 4**）
+- `ai-manager.js` —— 新增管理面转发方法 + **`ensureSkillsFresh()` 类的不依赖 Agent 的读路径初始化（D-19）**（**不得**让 `ai-skills-manager.js` 依赖 `ai-manager.js`）；管理写路径的成功出口：`await this.syncAgentSystemPrompt()` **恰一次** + 调用侧无条件 `windowManager.broadcast('skills:changed')`
+- `main.js` —— `handleSkillsApi()`（三个 REST 子路由）+ 分发分支；`readJsonBody` 加 `maxBytes` 并把 **413 形态 + `sendJson` 幂等护栏**一并落地（D-16）；**两个书签导入端点显式覆盖 `maxBytes`**；`handleSettingsApi` 的 `update` 循环加 `aiSkills.disabled` / `aiSkills` 校验（D-10、OQ-2 的超集谓词）
+- `ipc-handlers.js` —— 管理 IPC 通道（与 `ai:get-skills` / `ai:refresh-skills` 并列），全部经 `assertTrustedSender` 后转调同一 manager 函数
 - `src/preload.js` —— `realmAPI` 新增对应方法（主窗口侧）
-- `src/settings.html` / `src/settings-page.js` —— 「技能管理」区 DOM + 渲染 / 启停 / 卸载 / 诊断展开 / inline hint；HTTP 客户端函数（对齐 `aiMemoryApi` 形状）
-- `src/skill-picker-model.js` —— `STATUS_TEXT` 加第 5 条 `disabled`（D-12 单源）
-- `docs/product/ai-skills.md` —— 新增管理面章节（含两处诚实边界与体积口径）；`AGENTS.md` 维护约定与测试清单同步（含「九码 → 十码」与新增测试套件）
-- `tests/` —— 新增管理面断言组（见 Claude's Discretion 的必测清单）
+- `src/settings.html` / `src/settings-page.js` —— 「技能管理」区 DOM + 渲染 / 启停 / 卸载 / 诊断展开 / inline hint；HTTP 客户端函数（对齐 `aiMemoryApi` 形状）。⚠️ **设置页当前未加载 `src/skill-picker-model.js`**（已核实）⇒ 若按 D-12 复用 `STATUS_TEXT` 单源，须在 `src/settings.html` 补该 `<script>` 引用（research A3：该文件零依赖、双模式导出、纯函数，风险低但须实测一次 CSP 下无副作用）
+- `src/skill-picker-model.js` —— `STATUS_TEXT` 加第 5 条 `disabled`（D-12 单源）；**`MANAGE_SKILL_SHORT_REASON` 保持恰 9 键不动**（OQ-3）
+- `docs/product/ai-skills.md` —— 新增管理面章节（含两处诚实边界、体积口径、`allowed-tools` 缺席原因、**digest 字段集禁令**、OQ-2 的校验宽严不对称）；修订 §11.3 的「九码 / 不新增第十码」为「工具侧九条不变 + 管理面 `not_user_owned`」（OQ-3）；`AGENTS.md` 维护约定与测试清单同步（含码数、新增测试套件、**读写两个账本分开记**）
+- `tests/` —— 新增 `tests/test-skills-management.js` + 三个既有套件的增补（见 Claude's Discretion 的必测清单与 `50-VALIDATION.md`）
 
 </code_context>
 
 <specifics>
 ## Specific Ideas
 
-- **本阶段的「真实缺口」只有一条，但它决定 D-18 的整个形状**：`syncAgentSystemPrompt()` 在「digest 相同**且** prompt 逐字符相同」时早退、**不广播**。而「禁用一个被遮蔽 / 超预算的技能」恰好产生零 prompt 变化 ⇒ 48 D-10 的「禁用后 `/` 面板隐藏该技能」会静默失效。修法必须在**调用侧补播**而不是改函数体（46-04 的方法体源码断言 + 48 的广播次数断言同时钉着它）。规划时**必须**把这条写成显式交付项与验收项，不能只写成「调用 `syncAgentSystemPrompt()`」。
+- **本阶段有两条必须写成显式交付项与验收项的缺口（均已由 research 实证改写）**：
+  ① **写路径的「忙时补播」**（D-18）—— 补播的真实理由是 `syncAgentSystemPrompt()` 的 `isProcessing || streaming` 分支**只置脏、不广播**，而设置页点开关**不经过 Agent 轮次** ⇒ 用户不再发消息时 `/` 面板会一直显示已禁用的技能。**不是**「prompt 不变 ⇒ 不广播」（那条推不出来，digest 含 `disabled`）。修法只能在**调用侧补播**，不得改函数体（46-04 的方法体源码断言 + 48 的广播次数断言同时钉着它）；验收面是「**忙时补播仍然发出**」。
+  ② **读路径的「无 Agent 无缓存」**（D-19）—— 未配置 provider 时 `refreshSkills()` 从不执行，而内置技能**已在盘上** ⇒ 设置页判据 1 **整体空白**且用户无法自查。必须新增一个不依赖 Agent 的管理读路径初始化，且空态文案要区分「尚未加载」与「确实没有技能」。
+- **一条成文禁令（D-18 附带）**：**禁止把 `disabled` / `shadowed` / `overLimit` 从 `computeDigest` 摘掉**。digest 是**面板可见字段的超集**（renderer 侧 `pullAiSkillsSnapshot` 也按 `snapshot.digest === state.aiSkillsDigest` 早退，`src/renderer.js:9134`），摘字段会静默破坏跨窗口失效链。任何「digest 只该反映 prompt 内容」的优化都是错的，必须写进产品文档。
+- **D-16 的形状（默认小 + 需大者显式放大）是为 Phase 51 设计的**：51 会传 zip base64。若本阶段把它做成「全局无上限 → 事后检查长度」，51 会继承一个假边界；做成「默认 1 MiB + 端点显式覆盖」，51 只需在一处写 `{ maxBytes: … }`，而「忘了声明」会在 413 处**当场可见**。⚠️ 但**必须先给两个书签导入端点显式放大**（修正 3）—— 否则「漏了上限」的代价会先落在本阶段自己的既有功能上。**413 的实现形态不能自由发挥**：`sendJson(413)` + `req.resume()`，禁用 `req.destroy()` / `Connection: close`（否则客户端拿 EPIPE，413 永远看不到）；并给 `sendJson` 加幂等护栏（否则 12 个 handler 的 catch 会二次发送 → `ERR_HTTP_HEADERS_SENT` → unhandled rejection）。
 - **D-05 与 49 D-01 的「看似矛盾」必须主动解释**：两个决策都关于「要不要加确认」，结论相反。判据不是「信不信任操作者」，而是**有没有绕道路径** —— AI 有（`write`/`bash` 直改同一目录），人没有。CONTEXT 与产品文档都应保留这条推理，否则后续阶段会以「口径不一致」为由改掉其中一个。
 - **D-13 的「不扩展 `getSkillsForUI()`」要留下理由**：48 的收窄投影是**有意的**（防一次 IPC 送最坏 ~3 MB 正文），两个消费者的字段需求不同。若不留理由，后续很容易以「消除重复」为名合并两个投影，把 `/` 面板的 IPC 负载抬起来。
 - **D-09 的派生不变式是「静默失效」类缺陷**：卸载后不清 `settings.aiSkills.disabled` 的后果是「同名新技能一装上就被静默禁用」—— 用户完全无法理解。这条比功能本身更需要测试。
 - **D-14（不展示 `allowed-tools`）必须写成「有理由的缺席」**：ROADMAP 的 Doc sync 明文要求该字段展示时带免责标注，若 CONTEXT 只写「不展示」，下游可能读成漏做或读成「ROADMAP 判据未满足」。正确表述是「字段尚未被解析（O3 半边归 51）⇒ 无数据可展示 ⇒ 条件句前置条件不成立」，并留下「51 解析后必须补免责标注」的交接。
-- **D-16 的形状（默认小 + 需大者显式放大）是为 Phase 51 设计的**：51 会传 zip base64。若本阶段把它做成「全局无上限 → 事后检查长度」，51 会继承一个假边界；做成「默认 1 MiB + 端点显式覆盖」，51 只需在一处写 `{ maxBytes: … }`，而「忘了声明」会在 413 处**当场可见**。
-- **本阶段的 UI hint**：ROADMAP 标了 `UI hint: yes` ⇒ 规划时考虑 `/gsd:ui-phase 50` 产出设计契约（列表行密度 / 三档徽标在设置页的呈现 / 诊断展开区 / 状态标注优先级链 / 卸载确认框）。
-- **进度账本要如实写**：本阶段完成后 `syncAgentSystemPrompt()` 的生产调用方只到 **2/3**，P8 失效链**仍不得**声称 6/6 全覆盖（`STATE.md:292` 的 ⚠️ 保持挂着，仅更新已闭合份额）。
+- **本阶段的 UI hint**：ROADMAP 标了 `UI hint: yes` ⇒ 规划时考虑 `/gsd:ui-phase 50` 产出设计契约（列表行密度 / 三档徽标在设置页的呈现 / 诊断展开区 / 状态标注优先级链 / 卸载确认框在 `realm://` CSP 下的 div 遮罩形态 / **诊断折叠块的键盘可达性正面契约**）。
+- **进度账本要分别记两个数**：本阶段完成后 `syncAgentSystemPrompt()` 的**写路径**收口只到 **2/3**（49 `manage_skill` + 50 启停卸载，剩 51 导入）；本阶段还会新增**读侧/兜底**调用方（D-19），两者**不是同一个量**，读侧**不得并入**「6 个触发点」分子。P8 失效链**仍不得**声称 6/6 全覆盖（`STATE.md:292` 的 ⚠️ 保持挂着，仅更新已闭合份额）。
 
 </specifics>
 
