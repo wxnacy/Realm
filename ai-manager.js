@@ -1605,6 +1605,104 @@ class AIManager {
   }
 
   /**
+   * 启用 / 禁用单个技能（Phase 50 D-05 / USER-02）—— 管理写路径的收口点之一
+   *
+   * ## 语义
+   *
+   * 禁用只写 `settings.aiSkills.disabled`（名字数组）并过滤，**文件仍在盘上**
+   * （46 D-09）；重新启用即从名单移除并恢复。禁用后该技能不进 system prompt
+   * （`refreshSkills` 的禁用标记）与 `/` 面板（`filterPickerItems` 跳过
+   * `disabled === true`，该过滤已存在、本方法不重判）。禁用的技能**仍可卸载**。
+   *
+   * ## 载荷形状取增量 `{name, disabled}` 而非全量 `{disabled: [...]}`
+   *
+   * 读-改-写（`configStore.get` → 算新数组 → `configStore.set`）**全程在主进程内
+   * 同步完成、中间无 `await`** ⇒ 两个并发的设置页操作不会互相覆盖；全量载荷会在
+   * 并发下丢更新（最后一次写会抹掉前一次的改动）。
+   *
+   * @param {string} name - 技能名（目录名，46 D-08 的权威）
+   * @param {boolean} disabled - true = 禁用（写进名单）；false = 启用（从名单移除）
+   * @returns {Promise<object>} 操作后的最新管理面投影（响应体即最新投影 ⇒ 设置页零二次请求）
+   * @throws {Error} name 非法（带 `code = invalid_name`）
+   */
+  async setSkillDisabled(name, disabled) {
+    // ① 名称谓词**单源**在 ai-skills-manager（管理面安全超集，OQ-2）。
+    //    本文件不得另造一份校验正则（第二份必然与第一份漂移）。
+    const nameCheck = getAiSkillsManagerLazy().validateSkillNameForManagement(name);
+    if (!nameCheck.ok) {
+      const err = new Error(nameCheck.reason);
+      err.code = nameCheck.code;
+      throw err;
+    }
+    const skillName = nameCheck.value;
+
+    // ② 读-改-写名单：同步、无 await（并发安全，见 JSDoc）
+    const list = this.configStore ? this.configStore.get('settings.aiSkills.disabled', []) : [];
+    const current = Array.isArray(list) ? list.slice() : [];
+    const next = disabled
+      ? [...new Set([...current, skillName])]
+      : current.filter((n) => n !== skillName);
+    if (this.configStore) this.configStore.set('settings.aiSkills.disabled', next);
+
+    // ③ 重扫**恰一次**（D-18）：有 Agent 时 ensureSkillsFresh 内部走
+    //    syncAgentSystemPrompt()（其函数体内**已含**恰一次重扫），无 Agent 时直接重扫。
+    //    不得在这一句之外再调 syncAgentSystemPrompt() —— 那是两次全量重扫。
+    await this.ensureSkillsFresh();
+
+    // ④ 调用侧补播**恰一次**。理由**不是**「prompt 不变 ⇒ 不广播」（那条推不出来：
+    //    摘要逐条含 disabled / overLimit / shadowed ⇒ 禁用任何在缓存里的技能都会改摘要
+    //    ⇒ 会广播），而是覆盖 syncAgentSystemPrompt() 的 `isProcessing || streaming`
+    //    分支「只置脏、return、**不广播**」：设置页点开关**不经过 Agent 轮次**，
+    //    用户若不再发消息，`/` 面板会一直显示已被禁用的技能。
+    //    补播幂等（renderer 侧监听已改成无条件重拉快照）⇒ 多播一次零副作用。
+    //    **禁止**把这行挪进 syncAgentSystemPrompt() 的函数体（46-04 的方法体源码扫描
+    //    断言与 48 的广播次数断言同时钉着它）。
+    windowManager.broadcast('skills:changed');
+
+    // ⑤ 返回最新投影
+    return this.getSkillsForManagement();
+  }
+
+  /**
+   * 卸载**用户**技能（Phase 50 D-07 / USER-06）—— 管理写路径的收口点之二
+   *
+   * 判据 / 校验 / 删除全部住 `ai-skills-manager.deleteUserSkill()`（技能集单一数据
+   * 权威），本方法只是**转发 + 失效链收口 + D-09 派生不变式**；**不得**吞掉或改写
+   * 它抛出的 `code`（设置页按 `code` 查表，不解析 message）。
+   *
+   * ## D-09 派生不变式：卸载成功后必须清理禁用名单
+   *
+   * 否则残留名单会随技能名复用而误伤 —— 同名新技能一装上就被静默禁用，属「静默失效」。
+   * 清理**只在删盘成功之后**执行（`deleteUserSkill` 失败即 throw，后续代码不会跑到）；
+   * 失败路径**不得**清名单。启用 / 禁用单条时无需清理（技能仍在盘上）。
+   *
+   * @param {string} name - 技能名
+   * @returns {Promise<object>} `{name, filePath, action, management}`（management = 最新投影）
+   * @throws {Error} 三态拒绝（`not_found` / `not_user_owned` / `invalid_name`）或删除失败（`unknown`）
+   */
+  async uninstallUserSkill(name) {
+    // ① 沙箱 env 惰性建立（createSandboxEnv 与 provider 配置无关）
+    const env = this.sandboxEnv || (this.sandboxEnv = await getAgentWorkspaceLazy().createSandboxEnv());
+
+    // ② 删盘：判据全在 manager（仅 user 可删的三态拒绝面），失败原样抛出
+    const result = await getAiSkillsManagerLazy().deleteUserSkill(env, { name });
+    const removed = result && typeof result.name === 'string' ? result.name : name;
+
+    // ③ D-09 派生不变式（**只在删盘成功之后**）：同步读-改-写，无 await
+    const list = this.configStore ? this.configStore.get('settings.aiSkills.disabled', []) : [];
+    const current = Array.isArray(list) ? list.slice() : [];
+    const next = current.filter((n) => n !== removed);
+    if (this.configStore) this.configStore.set('settings.aiSkills.disabled', next);
+
+    // ④ 收口与补播：与 setSkillDisabled 同一套次数账（重扫恰一次 + 补播恰一次）
+    await this.ensureSkillsFresh();
+    windowManager.broadcast('skills:changed');
+
+    // ⑤ 返回删除结果 + 最新投影
+    return { ...result, management: this.getSkillsForManagement() };
+  }
+
+  /**
    * 由技能文件路径求 tier（重载路径的元数据还原）—— 唯一的 `matchSkillByPath` 调用点
    *
    * @param {string} location - 技能文件绝对路径（入库存的是 `skill.filePath`）

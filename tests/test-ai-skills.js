@@ -3230,7 +3230,19 @@ function promptCtx(env, { dirty = false } = {}) {
     waitForIdle: async () => {},
     abort: () => {},
   };
-  ctx.configStore = { get: (key, fallback) => fallback };
+  ctx.configStore = (() => {
+    // Phase 50-02 起管理写路径需要 `set`（读-改-写 settings.aiSkills.disabled）。
+    // 既有 `get` 的「缺省恒回落 fallback」语义**逐字保留** —— 空 store 时与旧实现
+    //（`(key, fallback) => fallback`）结果完全一致，K / L 组行为零变化。
+    const store = {};
+    return {
+      get: (key, fallback) =>
+        Object.prototype.hasOwnProperty.call(store, key) ? store[key] : fallback,
+      set: (key, value) => {
+        store[key] = value;
+      },
+    };
+  })();
   ctx.getSeededSkillNamesSafe = () => [];
   // 49-02 起 `_buildManageSkillTool().execute` 会在成功出口写入本次执行的短期元数据
   // （按 toolCallId），该字段由构造函数初始化为 own property —— 本夹具不跑构造函数，故显式补上。
@@ -4356,5 +4368,258 @@ describe('M 组 · Phase 49 manage_skill 卡片标记（D-02 / UI-SPEC 硬约束
       /\.ai-skill-content-box-header:focus-visible\s*\{/.test(css),
       '缺折叠块 header 的 :focus-visible 视觉（header 现为 role=button + tabindex=0）'
     );
+  });
+});
+
+describe('N 组 · Phase 50-02 管理写路径（重扫恰一次 + 调用侧补播恰一次 + 名单清理）', () => {
+  /*
+   * 本组的三条硬不变式（任一条被后续阶段当成冗余删掉，跨窗口失效链都会静默退回）：
+   * ① 重扫**恰一次**（rescanCalls === 1）—— 双写会变成两次全量重扫；
+   * ② 调用侧补播**恒发出**，其唯一理由 = syncAgentSystemPrompt() 的
+   *    `isProcessing || streaming` 分支「只置脏、return、不广播」，而管理写路径
+   *    **不经过 Agent 轮次**；
+   * ③ 卸载成功后必须清 settings.aiSkills.disabled 的同名条目（D-09 派生不变式）。
+   *
+   * ②的可失败性由**忙时**用例独占证明：内层不广播 ⇒ channels 恒等于 1 条，
+   * 删掉补播那一行即转红。非忙时内层会自己广播（摘要逐条含 disabled ⇒ 必然变化），
+   * 故那一条断言的是**合成账**（1 内层 + 1 补播 = 恰 2 条），删掉补播同样转红。
+   */
+
+  /** 在管理投影里按名字查条目（渲染层的消费方式：只 forEach、不重排） */
+  function findSkillItem(projection, name) {
+    for (const g of projection.groups) {
+      const hit = g.items.find((i) => i.name === name);
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  /**
+   * 打桩 `windowManager.broadcast` 收集频道名（与 L 组同款写法）
+   *
+   * `ai-manager.js` 顶层 `require('./window-manager')` 拿到的是同一个模块对象引用
+   * ⇒ 就地改属性对被测实现同样可见（require 缓存）。
+   */
+  function captureBroadcasts(t) {
+    const wm = require('../window-manager');
+    const original = wm.broadcast;
+    const channels = [];
+    wm.broadcast = (channel) => {
+      channels.push(channel);
+    };
+    t.after(() => {
+      wm.broadcast = original;
+    });
+    return { channels };
+  }
+
+  test('N1（行为）写路径次数账：重扫恰一次 + 名单落盘 + 投影 disabled 生效 + 广播账 = 1 内层 + 1 补播', async (t) => {
+    const root = withTempRoot(t);
+    const userDir = workspace.getSkillsDir();
+    writeSkill(userDir, 'toggle-me');
+    const env = await setupSkillsEnv(root);
+
+    const { channels } = captureBroadcasts(t);
+    const ctx = promptCtx(env);
+    const projection = await ctx.setSkillDisabled('toggle-me', true);
+
+    assert.strictEqual(
+      ctx.rescanCalls,
+      1,
+      '重扫必须恰一次（有 Agent 时 ensureSkillsFresh → syncAgentSystemPrompt，其函数体内已含一次 refreshSkills；写成两次即双写）'
+    );
+    assert.deepStrictEqual(
+      ctx.configStore.get('settings.aiSkills.disabled', []),
+      ['toggle-me'],
+      '禁用名单必须落盘（按名字过滤的消费侧信号）'
+    );
+    assert.strictEqual(
+      findSkillItem(projection, 'toggle-me').disabled,
+      true,
+      '返回体即最新投影（设置页零二次请求），该项 disabled 必须为 true'
+    );
+    assert.strictEqual(fs.existsSync(path.join(userDir, 'toggle-me', 'SKILL.md')), true, '禁用只过滤、不删文件');
+    assert.deepStrictEqual(
+      channels,
+      ['skills:changed', 'skills:changed'],
+      '非忙时：内层改写 prompt 广播 1 次 + 调用侧无条件补播 1 次 = 恰 2 次（删掉补播那一行即转红）'
+    );
+  });
+
+  test('N2（行为）启用：从名单移除并恢复（文件始终在盘上）', async (t) => {
+    const root = withTempRoot(t);
+    writeSkill(workspace.getSkillsDir(), 'toggle-back');
+    const env = await setupSkillsEnv(root);
+
+    const ctx = promptCtx(env);
+    await ctx.setSkillDisabled('toggle-back', true);
+    assert.deepStrictEqual(ctx.configStore.get('settings.aiSkills.disabled', []), ['toggle-back']);
+
+    const projection = await ctx.setSkillDisabled('toggle-back', false);
+    assert.deepStrictEqual(ctx.configStore.get('settings.aiSkills.disabled', []), [], '启用 = 从名单移除');
+    assert.strictEqual(findSkillItem(projection, 'toggle-back').disabled, false, '恢复后 disabled 必须为 false');
+  });
+
+  test('N3（靶心 · 行为）忙时补播：isProcessing === true 时补播仍然发出（恰一次），且 prompt 未变', async (t) => {
+    const root = withTempRoot(t);
+    writeSkill(workspace.getSkillsDir(), 'busy-toggle');
+    const env = await setupSkillsEnv(root);
+
+    const { channels } = captureBroadcasts(t);
+    const ctx = promptCtx(env);
+    const promptBefore = ctx.agent.state.systemPrompt;
+    // 真实语义：用户点设置页开关时 AI 可能正在回复 —— 管理写路径不经过 Agent 轮次
+    ctx.isProcessing = true;
+
+    const projection = await ctx.setSkillDisabled('busy-toggle', true);
+
+    assert.deepStrictEqual(
+      channels,
+      ['skills:changed'],
+      '忙时 syncAgentSystemPrompt() 只置脏、**不广播** ⇒ 这 1 条必然是调用侧补播发出的（本组存在的唯一理由；删掉补播即转红）'
+    );
+    assert.strictEqual(ctx.agent.state.systemPrompt, promptBefore, '忙时只置脏标记，不得在轮内改写 prompt');
+    assert.strictEqual(ctx._skillsPromptDirty, true, '忙时必须留下脏标记（下一次成功出口补刷）');
+    assert.strictEqual(
+      findSkillItem(projection, 'busy-toggle').disabled,
+      true,
+      '忙时响应体仍须回传最新投影（设置页据此就地重渲染）'
+    );
+    assert.strictEqual(ctx.rescanCalls, 1, '忙时重扫仍恰一次');
+  });
+
+  test('N4（行为）无 Agent 时读路径分流：rescanCalls === 0 而 refreshedAt 变大（两分支互斥，不是串行）', async (t) => {
+    const root = withTempRoot(t);
+    writeSkill(workspace.getSkillsDir(), 'noagent-toggle');
+    const env = await setupSkillsEnv(root);
+
+    const ctx = promptCtx(env);
+    ctx.agent = undefined; // 无 Agent ⇒ 不得调用 syncAgentSystemPrompt()
+    const before = aiSkills.getSkillsSnapshot().refreshedAt;
+    // 拉开时间戳窗口：refreshedAt 取的是 Date.now()，同毫秒内两次重扫会相等
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    await ctx.setSkillDisabled('noagent-toggle', true);
+
+    assert.strictEqual(
+      ctx.rescanCalls,
+      0,
+      '无 Agent 时 ensureSkillsFresh 必须直接走 refreshSkills 分支（不得调 syncAgentSystemPrompt）'
+    );
+    assert.ok(
+      aiSkills.getSkillsSnapshot().refreshedAt > before,
+      '无 Agent 分支必须真的重扫过（refreshedAt 必须变大）'
+    );
+  });
+
+  test('N5（靶心 · 行为）卸载的名单清理：D-09 派生不变式 —— 同名新技能装上后不被静默禁用', async (t) => {
+    const root = withTempRoot(t);
+    const userDir = workspace.getSkillsDir();
+    writeSkill(userDir, 'reuse-name');
+    const env = await setupSkillsEnv(root);
+
+    const ctx = promptCtx(env);
+    ctx.configStore.set('settings.aiSkills.disabled', ['reuse-name']);
+    await aiSkills.refreshSkills(env, {
+      disabled: ctx.configStore.get('settings.aiSkills.disabled', []),
+      rootDirs: scanRoots(),
+    });
+    assert.strictEqual(
+      aiSkills.getSkillsSnapshot().skills.find((e) => e.skill.name === 'reuse-name').disabled,
+      true,
+      '前置：卸载前该名字确实在禁用名单里（否则本用例没有可证伪的对象）'
+    );
+
+    const result = await ctx.uninstallUserSkill('reuse-name');
+
+    assert.ok(result && result.management, '卸载返回体必须带 management（最新投影）');
+    assert.deepStrictEqual(
+      ctx.configStore.get('settings.aiSkills.disabled', []),
+      [],
+      '卸载成功后必须同步移除名单里的同名条目（否则残留名单会随技能名复用而误伤）'
+    );
+    assert.strictEqual(fs.existsSync(path.join(userDir, 'reuse-name')), false, '盘上目录必须消失');
+
+    // 同名新技能装上 —— 若名单未清，它一装上就会被**静默禁用**（D-09 要防的正是这条）
+    writeSkill(userDir, 'reuse-name', { description: '同名新技能' });
+    await aiSkills.refreshSkills(env, {
+      disabled: ctx.configStore.get('settings.aiSkills.disabled', []),
+      rootDirs: scanRoots(),
+    });
+    // 断言消费面投影的 `disabled`（`toUISkillEntry` 的 `entry.disabled === true` 归一化），
+    // 而非缓存条目的原始字段 —— 后者只在命中名单时才被写 true、否则保持 undefined。
+    const fresh = aiSkills.getSkillsForUI([]).skills.find((e) => e.name === 'reuse-name');
+    assert.ok(fresh, '同名新技能必须重新出现在技能集里');
+    assert.strictEqual(
+      fresh.disabled,
+      false,
+      '同名新技能装上后不得被静默禁用（这是 D-09 派生不变式存在的全部理由）'
+    );
+    assert.strictEqual(
+      aiSkills.getSkillPromptIncluded('reuse-name'),
+      true,
+      '同名新技能必须进 prompt（未命中禁用名单的直接后果）'
+    );
+  });
+
+  test('N6（行为）失败路径不清名单：删盘失败（目标不存在）⇒ throw 且名单原封不动', async (t) => {
+    const root = withTempRoot(t);
+    const env = await setupSkillsEnv(root);
+
+    const ctx = promptCtx(env);
+    ctx.configStore.set('settings.aiSkills.disabled', ['ghost-name']);
+
+    await assert.rejects(
+      () => ctx.uninstallUserSkill('ghost-name'),
+      (err) => err.code === 'not_found',
+      '目标不存在必须抛 not_found（不经 handler 的友善包装）'
+    );
+    assert.deepStrictEqual(
+      ctx.configStore.get('settings.aiSkills.disabled', []),
+      ['ghost-name'],
+      '名单清理只在**删盘成功之后**执行 —— 失败路径不得清名单'
+    );
+  });
+
+  test('N7（行为）卸载判据读盘而非缓存快照：暖缓存 → 盘上删目录 ⇒ not_found', async (t) => {
+    const root = withTempRoot(t);
+    const userDir = workspace.getSkillsDir();
+    writeSkill(userDir, 'cached-only');
+    const env = await setupSkillsEnv(root);
+
+    const ctx = promptCtx(env);
+    ctx.configStore.set('settings.aiSkills.disabled', ['cached-only']);
+    await aiSkills.refreshSkills(env, {
+      disabled: ctx.configStore.get('settings.aiSkills.disabled', []),
+      rootDirs: scanRoots(),
+    });
+
+    // 从盘上删掉目录（模拟 bash 直接改盘），缓存此刻仍认为它在
+    fs.rmSync(path.join(userDir, 'cached-only'), { recursive: true, force: true });
+
+    await assert.rejects(
+      () => ctx.uninstallUserSkill('cached-only'),
+      (err) => err.code === 'not_found',
+      '判据必须读盘：暖缓存 → 盘上已删 ⇒ not_found（读缓存会放行删除一个不存在的目录）'
+    );
+    assert.deepStrictEqual(
+      ctx.configStore.get('settings.aiSkills.disabled', []),
+      ['cached-only'],
+      '失败路径不清名单'
+    );
+  });
+
+  test('N8（源码）写路径收口在调用侧：syncAgentSystemPrompt() 的函数体逐字未改', () => {
+    const src = readSource('ai-manager.js');
+    const body = src.slice(
+      src.indexOf('  async syncAgentSystemPrompt()'),
+      src.indexOf('  async refreshSkillsForPanel()')
+    );
+    assert.strictEqual(
+      (body.match(/windowManager\.broadcast\('skills:changed'\)/g) || []).length,
+      1,
+      '函数体内广播次数必须仍为 1（补播**不得**挪进函数体 —— 46-04 的方法体源码扫描断言 + 48 的广播次数断言同时钉着它）'
+    );
+    assert.ok(!body.includes('ensureSkillsFresh'), '读路径初始化不得进 syncAgentSystemPrompt 的函数体');
   });
 });
