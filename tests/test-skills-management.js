@@ -801,6 +801,50 @@ describe('仅 user 可卸载：三态拒绝面（全部经 manager 函数直接�
     assert.ok(fs.existsSync(path.join(userDir, 'plain-file')), '判据不成立时**不得**删除任何东西');
   });
 
+  test('态 ①″【CR-01 回归】名字取 `.` / `..` ⇒ invalid_name，且不得递归删除 skills 目录 / agent-workspace 根', async (t) => {
+    // `.` → path.join(<skills>, '.') === skills 目录本身；`..` → path.join(<skills>, '..') ===
+    // agent-workspace 根。两者**都在沙箱内**，resolveInside 判不出（目标就是沙箱根），
+    // 于是一旦谓词放行，env.remove(dir, { recursive: true }) 会一路删上去。
+    // 这两个名字不可能来自 readdir（`.` / `..` 从不被列出，且隐藏项被跳过）⇒ 唯一入口是
+    // 手改请求体直调端点/IPC —— 正是 ROADMAP 判据 3 要求挡住的那条路。
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const userDir = workspace.getSkillsDir();
+    writeSkillDir(userDir, 'keeper');
+    const memoryFile = path.join(root, 'ai-memory', 'important.md');
+    fs.mkdirSync(path.dirname(memoryFile), { recursive: true });
+    fs.writeFileSync(memoryFile, 'must survive', 'utf8');
+
+    await expectCode(() => aiSkills.deleteUserSkill(env, { name: '.' }), 'invalid_name');
+    await expectCode(() => aiSkills.deleteUserSkill(env, { name: '..' }), 'invalid_name');
+
+    assert.ok(fs.existsSync(userDir), 'skills 目录必须仍在（`.` 不得解析成它自己）');
+    assert.ok(fs.existsSync(path.join(userDir, 'keeper', 'SKILL.md')), '在册技能必须原封不动');
+    assert.ok(fs.existsSync(root), 'agent-workspace 根必须仍在（`..` 不得解析成它）');
+    assert.ok(fs.existsSync(memoryFile), 'agent-workspace 下的既有数据必须仍在');
+  });
+
+  test('态 ①‴【WR-01 回归】含首尾空白的名字**不得**被归一化 ⇒ 不会误删同名去空白后的另一个技能', async (t) => {
+    // 名字的权威是目录名（`skill.name = dirName`），`skills/" foo"` 与 `skills/foo` 是
+    // **两个不同的技能**。谓词若回传 trim 后的值，前者的卸载会去删后者。
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const userDir = workspace.getSkillsDir();
+    writeSkillDir(userDir, 'foo');
+    writeSkillDir(userDir, ' foo');
+
+    // 卸载 ` foo` 只能删 ` foo`
+    const result = await aiSkills.deleteUserSkill(env, { name: ' foo' });
+    assert.strictEqual(result.name, ' foo', '响应里的 name 必须是请求的**原值**');
+    assert.strictEqual(fs.existsSync(path.join(userDir, ' foo')), false, 'skills/" foo" 必须被删');
+    assert.ok(fs.existsSync(path.join(userDir, 'foo', 'SKILL.md')), 'skills/foo 是另一个技能，不得被误删');
+
+    // 反向：只请求 `foo` 时不得碰到 ` foo`（此处 ` foo` 已删，用新目录再验一次）
+    writeSkillDir(userDir, ' bar');
+    await expectCode(() => aiSkills.deleteUserSkill(env, { name: 'bar' }), 'not_found');
+    assert.ok(fs.existsSync(path.join(userDir, ' bar', 'SKILL.md')), 'skills/" bar" 不得被 `bar` 的请求误删');
+  });
+
   test('态 ②：同名双存在（user + managed）⇒ **允许**卸载且只删 user 目录，managed 原封不动', async (t) => {
     const root = withTempRoot(t);
     const env = await makeEnv(root);
@@ -878,13 +922,24 @@ describe('管理面名称谓词与禁用名单校验（OQ-2 的安全超集，�
     for (const name of ['My_Skill', 'UPPER', 'dot.name', 'has space', 'a--b', '_leading']) {
       const check = aiSkills.validateSkillNameForManagement(name);
       assert.strictEqual(check.ok, true, `${name} 必须通过管理面谓词（OQ-2 的安全超集）`);
-      assert.strictEqual(check.value, name, '成功时回传 trim 后的值');
+      assert.strictEqual(check.value, name, '成功时回传的值必须与入参逐字相同');
     }
-    assert.strictEqual(aiSkills.validateSkillNameForManagement('  spaced  ').value, 'spaced', '首尾空白必须 trim');
+    // 归一化纪律 ①（CR-01 同批修）：**不得**回传 trim 后的值。技能名的权威是目录名
+    // （`skill.name = dirName`，D-08），调用方拿它 path.join 出删除路径 —— 返回 'spaced'
+    // 会让 `skills/"  spaced  "` 的卸载去删 `skills/spaced`（另一个技能），
+    // 停用则写进一个永远匹配不上的名字（开关点了不生效）。
+    assert.strictEqual(
+      aiSkills.validateSkillNameForManagement('  spaced  ').value,
+      '  spaced  ',
+      '含首尾空白的名字必须**原值**回传（trim 会指向另一个技能）'
+    );
   });
 
-  test('validateSkillNameForManagement：拒绝面（空 / 超长 / 路径分隔符 / 控制字符 / 非字符串）', () => {
-    const rejects = ['', '   ', 'a'.repeat(65), 'a/b', 'a\\b', 'a\u0000b', 'a\u001fb', 42, null, undefined, {}];
+  test('validateSkillNameForManagement：拒绝面（空 / 超长 / 路径归一化符 / 路径分隔符 / 控制字符 / 非字符串）', () => {
+    // `.` / `..` 与 `/`、`\` 同属**路径注入面**：它们不是普通字符串，而是路径归一化符 ——
+    // path.join(<skills 目录>, '.') 就是 skills 目录本身、'..' 就是 agent-workspace 根，
+    // 沙箱的 resolveInside 判不出（目标就是沙箱根），recursive 删除会一路删上去（CR-01）。
+    const rejects = ['.', '..', '', '   ', 'a'.repeat(65), 'a/b', 'a\\b', 'a\u0000b', 'a\u001fb', 42, null, undefined, {}];
     for (const value of rejects) {
       const check = aiSkills.validateSkillNameForManagement(value);
       assert.strictEqual(check.ok, false, `${JSON.stringify(value)} 必须被拒`);
@@ -893,6 +948,10 @@ describe('管理面名称谓词与禁用名单校验（OQ-2 的安全超集，�
     }
     // 边界：恰 64 字符必须通过（长度上限是单源常量 MAX_SKILL_NAME_CHARS = 64）
     assert.strictEqual(aiSkills.validateSkillNameForManagement('a'.repeat(64)).ok, true, '64 字符必须通过');
+    // 边界：只有**恰好** `.` / `..` 是归一化符 —— `...`、`.hidden`、`a..b` 都是普通目录名
+    for (const name of ['...', '.hidden', 'a..b', '..a']) {
+      assert.strictEqual(aiSkills.validateSkillNameForManagement(name).ok, true, `${name} 是普通目录名，必须通过`);
+    }
   });
 
   test('validateDisabledListForSettings：拒绝面逐条喂真实数据形状', () => {
@@ -907,6 +966,8 @@ describe('管理面名称谓词与禁用名单校验（OQ-2 的安全超集，�
       ['ok-name', null],
       ['a'.repeat(65)],
       ['../escape'],
+      ['.'],
+      ['..'],
       ['a/b'],
       ['a\\b'],
       Array(101).fill('a'),
