@@ -45,3 +45,6 @@ CODEBUDDY.md
 .planning/research/.cache/
 .gsd/
 .tmp-exp/
+# GSD code-review 的 lane 失败证据（workflows/review.md #3352/#4097：刻意不入库，
+# 提交步骤只点名 {phase}-REVIEWS.md 从不使用目录 glob；正式产物是 {phase}-REVIEW.md / -REVIEWS.md）
+.review-diagnostics/
