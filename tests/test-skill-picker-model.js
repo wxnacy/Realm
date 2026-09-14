@@ -1318,23 +1318,36 @@ describe('B 组 · 面板五要素行与转义护栏（T-48-07）', () => {
     }
   });
 
-  test('「仅显式」标记只由 disableModelInvocation 决定，且文案不在数据层', () => {
-    // 断言范围限定在徽标/标记渲染上下文（renderSlashPickerList 函数体）——
+  test('「仅显式」标记只由 disableModelInvocation 决定，文案经单源表跨进程共用（Phase 50 硬前置条件）', () => {
+    // Phase 50 的硬前置条件把 label / title 提升为 src/skill-picker-model.js 的单源冻结表
+    // （EXPLICIT_TAG，与 TIER_BADGE 同族）。面板侧改为**引用同一常量**，故本测试的三条
+    // 断言方向全部改写：
+    //   ①/② 原为「字面量在面板渲染函数体内恰出现 1 次」⇒ 面板改引用后计数变 0，
+    //        改为「单源表的值逐字正确」+「面板确实引用该常量」；
+    //   ③ 原为「modelSrc 零命中该字面量」⇒ 新设计下**字面不可满足**（单源表必须写在
+    //        skill-picker-model.js 里），改为「表级值域隔离」：该值不在 STATUS_TEXT 的值集合里。
+    // ⚠️ 断言范围仍限定在面板渲染上下文（renderSlashPickerList 函数体）——
     // 不得对 renderer.js 全文件做计数断言：该文件其它位置有既有提及。
+    assert.strictEqual(model.EXPLICIT_TAG.label, '仅显式', '单源表的 label 必须逐字取自原内联值');
     assert.strictEqual(
-      (panelBody.split('仅显式').length - 1),
-      1,
-      '「仅显式」在面板渲染函数体内恰出现一次（条件标记，权威在渲染侧）'
+      model.EXPLICIT_TAG.title,
+      '该技能不进模型提示词，只能手动调用（/skill:名字）',
+      '单源表的 title 必须逐字取自原内联值'
     );
-    assert.strictEqual(
-      (panelBody.split('该技能不进模型提示词，只能手动调用（/skill:名字）').length - 1),
-      1,
-      '其 title 文案在面板渲染函数体内恰出现一次'
+    assert.ok(
+      /SkillPickerModel\.EXPLICIT_TAG/.test(panelBody),
+      '面板行必须引用单源常量（不得内联第二份字面量）'
     );
     const tagIdx = panelBody.indexOf('slash-picker-tag-explicit');
     const window = panelBody.slice(Math.max(0, tagIdx - 200), tagIdx + 200);
     assert.ok(window.includes('disableModelInvocation'), '标记必须受该 flag 条件约束，不得无条件拼接');
-    assert.strictEqual(modelSrc.includes('仅显式'), false, '该文案不与行尾状态标注混放');
+    // 表级值域隔离：该文案是「标记文案」，不是「行尾状态标注」—— 两类文案不得同表混放
+    const statusValues = Object.values(model.STATUS_TEXT);
+    assert.strictEqual(
+      statusValues.includes(model.EXPLICIT_TAG.label),
+      false,
+      '「仅显式」不得出现在 STATUS_TEXT 的值集合里（表级值域隔离）'
+    );
   });
 
   test('空态为单行提示条（沿用行骨架，不引入 heading/body 两段）', () => {

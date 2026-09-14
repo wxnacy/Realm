@@ -10595,8 +10595,12 @@ function renderSlashPickerList() {
         escapeHtml(badge.title) + '">' + escapeHtml(badge.label) + '</span>'
       : '';
     // explicit-only 标记：只由 disableModelInvocation 决定；不改变可选中性（DISC-07 clause ③）
+    // label / title 的唯一权威是 src/skill-picker-model.js 的 EXPLICIT_TAG（与设置页「技能管理」区共用，
+    // Phase 50 硬前置条件 —— 本行不再内联字面量，渲染结果逐字不变）
     const explicitTag = item.kind === 'skill' && item.disableModelInvocation === true
-      ? '<span class="slash-picker-tag-explicit" title="该技能不进模型提示词，只能手动调用（/skill:名字）">仅显式</span>'
+      ? '<span class="slash-picker-tag-explicit" title="' +
+        escapeHtml(window.SkillPickerModel.EXPLICIT_TAG.title) + '">' +
+        escapeHtml(window.SkillPickerModel.EXPLICIT_TAG.label) + '</span>'
       : '';
     const rowTitle = item.kind === 'skill'
       ? ' title="' + escapeHtml('/skill:' + item.name + ' 可显式调用') + '"'

@@ -410,6 +410,25 @@
   });
 
   /**
+   * 「仅显式」标记的 `label` 与 `title` 的**唯一权威**（Phase 50 UI-SPEC 硬前置条件）
+   *
+   * 48-02 新增的 `.slash-picker-tag-explicit` 标记有两个宿主：
+   * - `/` 面板行（`src/renderer.js` 的 `renderSlashPickerList`）
+   * - 设置页「技能管理」区行（`src/settings-page.js`）
+   *
+   * 两个宿主**共用**本表取值。第二份字面量就是 48 / 49 反复付过代价的「第二份拷贝」
+   * （`49-UI-REVIEW` 的 `W1-04` 同形态）—— 与 `TIER_BADGE` **同址、同导出面、
+   * 同双层 `Object.freeze`**，命名 / 形状一并沿用该族。
+   *
+   * 纪律：取值是**逐字**的用户可见文案，不是可拼接片段；表外无键（本表只有单条记录，
+   * 不存在"缺失"分支）。
+   */
+  const EXPLICIT_TAG = Object.freeze({
+    label: '仅显式',
+    title: '该技能不进模型提示词，只能手动调用（/skill:名字）',
+  });
+
+  /**
    * `manage_skill` 三动作的卡片标题模板（Phase 49 D-02）—— **跨进程单源**
    *
    * `ai-manager.js`（工具事件生成侧）与 renderer（卡片渲染侧）**共用** `window.SkillPickerModel`
@@ -510,6 +529,7 @@
     filterPickerItems,
     buildPickerItems,
     TIER_BADGE,
+    EXPLICIT_TAG,
     STATUS_TEXT,
     SETTINGS_STATUS_CHAIN,
     pickStatusKey,
