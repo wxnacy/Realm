@@ -4779,6 +4779,354 @@ function setupAISettingsListeners() {
   }
 }
 
+// ==================== 设置页「技能管理」区（Phase 50） ====================
+
+/* Phase 50 skill-manage region: start */
+/*
+ * 本区（50-01）只交付**只读分组列表**：三档来源分组 + 名称 / 描述 / 来源 / 体积 / 文件数 /
+ * 行尾状态标注 + 空态三态。启停开关、卸载按钮与确认弹框、诊断徽标与详情区、模块级汇总条
+ * 与区级 inline hint 的交互全部归 50-04。
+ *
+ * ## 注入纪律（硬约束，TD-48-01 未修时尤其重要）
+ *
+ * 技能名 / 描述 / 诊断 message 全部来自磁盘（用户或 AI 可写任意内容）。本区**零
+ * innerHTML / insertAdjacentHTML / 字符串模板拼 HTML** —— 整棵 DOM 用
+ * document.createElement + textContent / el.title 构建。属性经 DOM 属性赋值注入
+ * （不走 HTML 解析）⇒ 与 escapeHtml 的「不转义引号」缺口无关，本阶段**不扩大**该缺口。
+ *
+ * ## 数据来源与刷新
+ *
+ * 设置页是 realm:// guest、**没有 realmAPI** ⇒ 只能走 /api/skills/* + URL token（D-17）。
+ * 主窗口 file:// 不能 fetch 本地 HTTP（Phase 38 事故）⇒ 走 IPC。两条不可互换。
+ * 设置页**收不到任何主进程广播**（windowManager.broadcast 只发各 BrowserWindow 的
+ * webContents，window-manager.js:310）⇒ 每次进入该页、每次操作后都要自行重拉。
+ */
+
+/** 三档组名（D-01 原文；tier 取值域见 ai-skills-manager.sourceTierOf） */
+const SKILL_MANAGE_GROUP_TITLE = Object.freeze({
+  user: '我的技能',
+  builtin: '内置技能',
+  managed: 'AI 创建',
+});
+
+/**
+ * 「仅显式」标记的可见文字 —— **待 50-04 提升为 src/skill-picker-model.js 的单源**。
+ *
+ * 今日的第二份拷贝在 `src/renderer.js` 的面板渲染函数里（`/` 面板行）。UI-SPEC 的
+ * 「硬前置条件」明文要求把它与它的 title 一并提升为单源冻结表、并**同时改写
+ * `tests/test-skill-picker-model.js` 的三条既有断言**（其中一条 `modelSrc.includes('仅显式') === false`
+ * 会被新设计直接证伪）—— 那是一整批改动，归 50-04；本计划先落地渲染面。
+ */
+const SKILL_MANAGE_EXPLICIT_TAG = '仅显式';
+
+/** 同上（title 侧）；50-04 一并提升 */
+const SKILL_MANAGE_EXPLICIT_TITLE = '该技能不进模型提示词，只能手动调用（/skill:名字）';
+
+/**
+ * 调用技能管理 HTTP API（`/api/skills/*`，设置页「技能管理」区数据层）
+ *
+ * 形状逐字照抄 `aiMemoryApi`：token 进 query、非 2xx 时优先取后端 `error` 文案
+ * （前端不另造文案）。**额外保留 `data.code`** 挂到 Error 上：失败文案按 `code`
+ * 查闭合白名单表（UI-SPEC 的失败文案映射表），**不解析 `message`**
+ * （与 49 的 `manage_skill` 卡片同款纪律）。
+ *
+ * @param {string} [route] - 子路由（本计划只有 'list'）
+ * @param {Object} [options] - fetch 选项
+ * @param {Object} [query] - 额外查询参数
+ * @returns {Promise<*>} 解析后的 JSON 响应
+ */
+async function skillsApi(route = '', options = {}, query = {}) {
+  const params = new URLSearchParams({ token: apiToken, ...query });
+  const suffix = route ? `/${route}` : '';
+  const res = await fetch(`/api/skills${suffix}?${params.toString()}`, options);
+  if (!res.ok) {
+    // 优先使用后端返回的错误详情（空态 C 的正文就是它）
+    let detail = '';
+    let code = '';
+    try {
+      const data = await res.json();
+      if (data && data.error) detail = data.error;
+      if (data && data.code) code = data.code;
+    } catch { /* 非 JSON 响应忽略 */ }
+    const err = new Error(detail || `请求失败（HTTP ${res.status}）`);
+    err.code = code;
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+}
+
+/**
+ * 格式化技能体积 —— 沿本仓「逐页局部实现」的既有惯例
+ *（`src/renderer.js` / `src/downloads-page.js` / `src/player.js` 各有一份）。
+ *
+ * 只做单位换算，**不含任何限额数值**（限额一律取管理投影回传的 `limits`）。
+ *
+ * @param {number} bytes - 字节数
+ * @returns {string} 如 `12.3 KB`；非正数返回 `0 B`
+ */
+function formatSkillSize(bytes) {
+  const n = typeof bytes === 'number' && Number.isFinite(bytes) && bytes > 0 ? bytes : 0;
+  if (n === 0) return '0 B';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+/** 清空一个容器（textContent 置空 = 移除全部子节点；**不用 innerHTML**） */
+function clearNode(node) {
+  if (node) node.textContent = '';
+}
+
+/**
+ * 构造空态 / 失败态的内容块（标题 + 正文 + 「重新加载」按钮）
+ *
+ * 标题与正文逐字取 UI-SPEC Copywriting 的 #18 / #19 / #20。
+ *
+ * @param {string} title - 标题文案
+ * @param {string} body - 正文文案
+ * @param {boolean} danger - 是否施加危险色调（失败态标题）
+ * @returns {DocumentFragment}
+ */
+function buildSkillManageStateBlock(title, body, danger) {
+  const frag = document.createDocumentFragment();
+
+  const titleEl = document.createElement('div');
+  titleEl.className = 'skill-manage-state-title';
+  if (danger) titleEl.classList.add('skill-manage-state-title-danger');
+  titleEl.textContent = title;
+  frag.appendChild(titleEl);
+
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'skill-manage-state-body';
+  bodyEl.textContent = body;
+  frag.appendChild(bodyEl);
+
+  const reload = document.createElement('button');
+  reload.type = 'button';
+  reload.className = 'btn btn-secondary btn-sm';
+  reload.textContent = '重新加载';
+  reload.addEventListener('click', () => {
+    loadSkillManagement();
+  });
+  frag.appendChild(reload);
+
+  return frag;
+}
+
+/**
+ * 构造单条技能行（`li.skill-manage-row`）
+ *
+ * 第一行元素顺序是契约、不得调换：技能名 → 来源徽标 → 仅显式 → 右对齐簇。
+ * 第二行：描述（CSS 单行截断 + title 放全文）+ 元信息（永不截断）。
+ *
+ * @param {object} item - 管理投影条目
+ * @returns {HTMLLIElement}
+ */
+function buildSkillManageRow(item) {
+  const li = document.createElement('li');
+  li.className = 'skill-manage-row';
+  li.dataset.skillName = item.name;
+  li.dataset.skillTier = item.tier;
+
+  const main = document.createElement('div');
+  main.className = 'skill-manage-row-main';
+
+  // 技能名：唯一压缩承担者（CSS 单行截断；title 放全文供悬停读全名）
+  const nameEl = document.createElement('span');
+  nameEl.className = 'skill-manage-name';
+  nameEl.textContent = item.name;
+  nameEl.title = item.name;
+  main.appendChild(nameEl);
+
+  // 来源徽标：查 TIER_BADGE 单源取 label / className / title，**不重写档位判定**。
+  // 表外 / 缺失 tier ⇒ **跳过徽标**（不得产出 undefined 字面量进 class）。
+  const badge = item.tier ? window.SkillPickerModel.TIER_BADGE[item.tier] : null;
+  if (badge) {
+    const badgeEl = document.createElement('span');
+    badgeEl.className = `slash-picker-source-badge ${badge.className}`;
+    badgeEl.textContent = badge.label;
+    badgeEl.title = badge.title;
+    main.appendChild(badgeEl);
+  }
+
+  // 「仅显式」标记：条件由 disableModelInvocation 唯一决定（与 / 面板同款语义）
+  if (item.disableModelInvocation === true) {
+    const tagEl = document.createElement('span');
+    tagEl.className = 'slash-picker-tag-explicit';
+    tagEl.textContent = SKILL_MANAGE_EXPLICIT_TAG;
+    tagEl.title = SKILL_MANAGE_EXPLICIT_TITLE;
+    main.appendChild(tagEl);
+  }
+
+  // 右对齐簇：本计划**只放**行尾状态标注（诊断徽标 / 开关 / 卸载按钮归 50-04）
+  const tail = document.createElement('div');
+  tail.className = 'skill-manage-tail';
+
+  // 状态标注：键由 pickStatusKey 单源给出（**不得在本页重写状态链的 if 顺序**），
+  // 文案再查 STATUS_TEXT。两个维度的色调判定**只看返回的键字符串**，不直读字段。
+  const statusKey = window.SkillPickerModel.pickStatusKey(item);
+  if (statusKey) {
+    const statusEl = document.createElement('span');
+    statusEl.className = 'skill-manage-status';
+    if (statusKey === 'overLimit' || statusKey === 'promptOmitted') {
+      statusEl.classList.add('skill-manage-status-limit');
+    }
+    statusEl.textContent = window.SkillPickerModel.STATUS_TEXT[statusKey] || '';
+    tail.appendChild(statusEl);
+  }
+  main.appendChild(tail);
+  li.appendChild(main);
+
+  const sub = document.createElement('div');
+  sub.className = 'skill-manage-row-sub';
+
+  const descEl = document.createElement('span');
+  descEl.className = 'skill-manage-desc';
+  descEl.textContent = item.description || '';
+  descEl.title = item.description || '';
+  sub.appendChild(descEl);
+
+  // 元信息：定长格式、永不截断。`statsUnavailable` 是显式布尔 —— 「统计不可用」
+  // 与「0 字节」是两件事，渲染 `0 B · 0 个文件` 是**失实文案**（T-50-05）。
+  const metaEl = document.createElement('span');
+  metaEl.className = 'skill-manage-meta';
+  metaEl.textContent = item.statsUnavailable === true
+    ? '统计不可用'
+    : `${formatSkillSize(item.bytes)} · ${item.fileCount} 个文件`;
+  sub.appendChild(metaEl);
+
+  li.appendChild(sub);
+  return li;
+}
+
+/**
+ * 构造一个来源分组（`section.skill-manage-group`）
+ *
+ * **渲染层零判定**：空组已由主进程剔除（D-03），这里只 forEach，不重排、不重判档位。
+ *
+ * @param {{tier: string, items: Array<object>}} group
+ * @returns {HTMLElement}
+ */
+function buildSkillManageGroup(group) {
+  const section = document.createElement('section');
+  section.className = 'skill-manage-group';
+  section.dataset.tier = group.tier;
+
+  const titleEl = document.createElement('h3');
+  titleEl.className = 'skill-manage-group-title';
+  titleEl.textContent = SKILL_MANAGE_GROUP_TITLE[group.tier] || group.tier;
+  section.appendChild(titleEl);
+
+  const list = document.createElement('ul');
+  list.className = 'skill-manage-list';
+  const items = Array.isArray(group.items) ? group.items : [];
+  for (const item of items) list.appendChild(buildSkillManageRow(item));
+  section.appendChild(list);
+
+  return section;
+}
+
+/** 渲染「加载中」态：单行纯文本，**无标题 / 无按钮 / 无 spinner / 无骨架屏** */
+function renderSkillManageLoading() {
+  const stateEl = document.getElementById('skillManageState');
+  const groupsEl = document.getElementById('skillManageGroups');
+  if (!stateEl || !groupsEl) return;
+  clearNode(stateEl);
+  clearNode(groupsEl);
+
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'skill-manage-state-body';
+  bodyEl.textContent = '正在加载技能…';
+  stateEl.appendChild(bodyEl);
+}
+
+/**
+ * 渲染空态 A / B（**必须区分「尚未加载」与「确实没有技能」**，D-19 硬要求）
+ *
+ * `refreshedAt === 0` 表示技能集**从未完成首次加载**（如 AI Manager 尚未就绪、
+ * 无 Agent 且读路径初始化未跑），渲染成「尚无任何技能」会让用户以为内置技能不存在
+ * —— 而它们其实早已在盘上（播种在启动时无条件执行）。这是「禁止静默失败」的直接兑现。
+ *
+ * @param {number} refreshedAt - 投影的 refreshedAt 时间戳
+ */
+function renderSkillManageEmptyState(refreshedAt) {
+  const stateEl = document.getElementById('skillManageState');
+  const groupsEl = document.getElementById('skillManageGroups');
+  if (!stateEl || !groupsEl) return;
+  clearNode(stateEl);
+  clearNode(groupsEl);
+
+  const notLoaded = !(typeof refreshedAt === 'number' && refreshedAt > 0);
+  const title = notLoaded ? '技能列表尚未加载' : '尚无任何技能';
+  const body = notLoaded
+    ? '技能集尚未完成首次加载，因此这里没有内容。点「重新加载」重试。'
+    : 'agent-workspace/skills/ 下没有技能，也未检测到随包内置技能（内置技能在应用启动时自动播种）。把自己的技能放进该目录后点「重新加载」再试。';
+  stateEl.appendChild(buildSkillManageStateBlock(title, body, false));
+}
+
+/**
+ * 渲染空态 C（拉取失败）：标题 + **后端 error 原文** + 「重新加载」
+ * @param {Error} err - `skillsApi` 抛出的错误（message 即后端 error 原文）
+ */
+function renderSkillManageFailure(err) {
+  const stateEl = document.getElementById('skillManageState');
+  const groupsEl = document.getElementById('skillManageGroups');
+  if (!stateEl || !groupsEl) return;
+  clearNode(stateEl);
+  clearNode(groupsEl);
+
+  const detail = err && err.message ? err.message : '技能列表加载失败，请重试';
+  stateEl.appendChild(buildSkillManageStateBlock('技能列表加载失败', detail, true));
+}
+
+/**
+ * 渲染整区（**零 HTML 字符串模板**：全树 createElement + textContent）
+ * @param {object} projection - `GET /api/skills/list` 的响应（管理面投影）
+ */
+function renderSkillManagement(projection) {
+  const groups = projection && Array.isArray(projection.groups) ? projection.groups : [];
+  const total = groups.reduce((sum, g) => sum + (Array.isArray(g.items) ? g.items.length : 0), 0);
+  const refreshedAt = projection && typeof projection.refreshedAt === 'number' ? projection.refreshedAt : 0;
+
+  if (total === 0) {
+    renderSkillManageEmptyState(refreshedAt);
+    return;
+  }
+
+  const stateEl = document.getElementById('skillManageState');
+  const groupsEl = document.getElementById('skillManageGroups');
+  if (!stateEl || !groupsEl) return;
+  clearNode(stateEl);
+  clearNode(groupsEl);
+
+  for (const group of groups) {
+    groupsEl.appendChild(buildSkillManageGroup(group));
+  }
+}
+
+/** 拉取并渲染管理投影（失败走空态 C） */
+async function loadSkillManagement() {
+  renderSkillManageLoading();
+  try {
+    const projection = await skillsApi('list');
+    renderSkillManagement(projection);
+  } catch (err) {
+    renderSkillManageFailure(err);
+  }
+}
+
+/** 绑定本区监听，并**进入页面即拉一次**（设置页收不到主进程广播，见上方说明） */
+function setupSkillManageListeners() {
+  const hintEl = document.getElementById('skillManageHint');
+  // 空文本的 hint 用 CSSOM 隐藏（不留 8px 残留外边距）。**不走 markup 内联 style**
+  //（realm:// 的 CSP style-src 'self' 会拦），也不用 '' 回落到 markup 状态。
+  if (hintEl) hintEl.style.display = 'none';
+  loadSkillManagement();
+}
+/* Phase 50 skill-manage region: end */
+
 // ==================== 初始化 ====================
 
 /**
@@ -4807,6 +5155,9 @@ async function init() {
 
   // 初始化 AI 记忆分区事件监听（默认激活「全局记忆」tab）
   setupAiMemoryListeners();
+
+  // 初始化技能管理区（Phase 50）：绑定监听 + 进入页面即拉一次管理投影
+  setupSkillManageListeners();
 
   // 检查 URL 参数中的 tab 指示；无参数时显式落在通用页，
   // 避免仅依赖 HTML 内联 display:none 兜底（内联样式失效会导致多个 section 同时显示）

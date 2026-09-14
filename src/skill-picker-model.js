@@ -235,13 +235,58 @@
     };
   }
 
-  /** 行尾状态标注四条定长文案（UI-SPEC §Copywriting，唯一权威） */
+  /** 行尾状态标注五条定长文案（UI-SPEC §Copywriting，唯一权威） */
   const STATUS_TEXT = Object.freeze({
     shadowed: '已遮蔽 · 由用户同名技能胜出',
     nameClash: '与本地命令同名 · 本地命令优先',
     promptOmitted: '未进提示词 · 超预算',
     overLimit: '超数量上限',
+    // Phase 50 新增第 5 条：**消费方只有设置页**「技能管理」区 —— `/` 面板
+    // 根本不列出被禁用的技能（48 D-10）。这不违反「单源」纪律：是同一张表的
+    // **不同消费者**（同一状态两处各写一份文案才会漂移），不是第二份文案。
+    disabled: '已禁用',
   });
+
+  /**
+   * 设置页行尾状态标注的**优先级链**（Phase 50 D-12）—— 链序即契约
+   *
+   * 一条技能可能**同时命中多条**（如既被用户禁用、又在数量上超限），行尾只取**首条**，
+   * 其余进详情区。链序 `disabled > shadowed > overLimit > promptOmitted`：
+   * `disabled` 在最前 —— 它是**用户主动意图**、信息量最大（用户自己关掉的，
+   * 不是环境替它决定的）。
+   *
+   * **`nameClash` 不在链上**：它是 `/` 面板**独有**的维度（依赖本地命令表
+   * `SLASH_COMMANDS`，那是浏览器脚本侧的 `src/renderer.js` 常量，`realm://` guest
+   * 拿不到），设置页没有「本地命令」这个概念。两条链服务不同维度、**不得合并**
+   * —— 面板链（`buildPickerItems` 内的 `shadowed > nameClash > promptOmitted >
+   * overLimit`）**保持原样不动**。
+   *
+   * 之所以要把链做成**冻结数组常量**而不是渲染代码里的 if 顺序：链序是
+   * **锁定行为**（「同时命中 `disabled` + `overLimit` ⇒ 只显示『已禁用』」），
+   * 只活在 if 顺序里就无任何门禁 / 用例能证伪它。抽成数据后，链序本身可断言。
+   */
+  const SETTINGS_STATUS_CHAIN = Object.freeze(['disabled', 'shadowed', 'overLimit', 'promptOmitted']);
+
+  /**
+   * 取一条技能在设置页的**行尾状态标注键**（D-12 的唯一判据）
+   *
+   * 按 `SETTINGS_STATUS_CHAIN` 顺序返回**首个**命中的键；一个都不命中返回 `null`
+   * （渲染端据此不渲染标注，不回落任何默认文案）。
+   *
+   * **渲染端不得重写这条 if 链**（46 D-06 的「渲染端不重实现判定」）：设置页只能
+   * 消费本函数的返回值，再按返回值查 `STATUS_TEXT` 取文案、按返回值判是否属于
+   * 「超限族」（需要 `.skill-manage-status-limit` 色调）。
+   *
+   * @param {object|null|undefined} skill - 管理投影条目（含各状态布尔字段）
+   * @returns {string|null} 命中的键（∈ `SETTINGS_STATUS_CHAIN`）或 null
+   */
+  function pickStatusKey(skill) {
+    if (!skill || typeof skill !== 'object') return null;
+    for (const key of SETTINGS_STATUS_CHAIN) {
+      if (skill[key] === true) return key;
+    }
+    return null;
+  }
 
   /**
    * `manage_skill` 卡片头部**超预算标注**的 ≤ 4 字短形态（Phase 49 · G-49-3 的收口）——
@@ -466,6 +511,8 @@
     buildPickerItems,
     TIER_BADGE,
     STATUS_TEXT,
+    SETTINGS_STATUS_CHAIN,
+    pickStatusKey,
     PROMPT_OMITTED_CARD_NOTE,
     MANAGE_SKILL_ACTION_LABEL,
     MANAGE_SKILL_ACTION_NAME,

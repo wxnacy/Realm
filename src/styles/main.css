@@ -31,6 +31,11 @@
      暗 4.07:1 / 亮 3.30:1），故按 48 对 --skill-limit-text 的同款处置定义专用令牌。
      本值对卡片底与 hover 底四档均 ≥ 4.5:1。缺浅色主题那一处即浅色下失效。 */
   --skill-error-text: #FCA5A5;
+  /* 启停成功专用文字色（Phase 50）：--success-color 未按主题分档，作 12px 小字在浅色底
+     实测仅 2.33:1 ⇒ 按 49 对 --skill-error-text 的同款处置定义成对令牌。暗色取 #6EE7B7。
+     ⚠️ 同值不同量：本令牌与 --skill-source-builtin 今天取值相同、语义不同，改动其一
+     不得顺手同步另一个。缺浅色主题那一处即浅色下失效。 */
+  --skill-success-text: #6EE7B7;
 }
 
 [data-theme="light"] {
@@ -61,6 +66,8 @@
   --skill-limit-text: #92400E;
   /* 失败短原因专用文字色（浅色）：缺这一处即浅色下失效（与暗色块成对） */
   --skill-error-text: #B91C1C;
+  /* 启停成功专用文字色（浅色）：缺这一处即浅色下失效（与暗色块成对） */
+  --skill-success-text: #065F46;
 }
 
 /* 布局尺寸变量（与主题无关，须包在 :root 内——裸露在顶层会导致解析错误并吞掉后续规则） */
@@ -10464,3 +10471,150 @@ textarea::placeholder {
   display: flex;
   justify-content: flex-end;
 }
+
+/* ===== 设置页「技能管理」区（Phase 50） ===== */
+/*
+ * 落点强制：整段**追加在文件末尾**。理由是源序依赖 ——
+ * `.skill-manage-danger-btn { color: … }` 与 `.btn-secondary` 同特异性（各一个类），
+ * 必须靠**后出现**才能覆盖 color；`.skill-manage-section .ai-switch:focus-visible`
+ * 是两段式选择器、天然优先。把本段插到文件中部会让这两条覆盖**静默失效**
+ *（与 49 的 `.tool-card-manage-note-*` 同款做法）。
+ *
+ * 本计划（50-01）只落「只读分组列表」所需规则；诊断徽标 / 详情区 / 汇总条 /
+ * 弹框 / 行内操作区归 50-04。取值一律照抄 50-UI-SPEC 的「新增 CSS 声明清单」定稿。
+ */
+
+/* 区作用域锚 `.skill-manage-section`：**刻意的无样式钩子**（供三条作用域收敛覆盖与测试定位，
+   不承担样式职责，故此处不声明任何属性 —— 它不是孤儿类，见下方以它为前缀的规则） */
+
+/* 组标题（区标题之下的第二级：13px/600 + 次级色，零新视觉语言） */
+.skill-manage-group-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+/* 组容器：区分组之间用既有的描边 + 4 网格留白（不加卡片，避免双层卡片底） */
+.skill-manage-group + .skill-manage-group {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+/* 汇总条与下方列表的段间距 —— 相邻兄弟选择器天然做到「只在汇总条存在时生效」
+   （汇总条本身归 50-04，本规则先就位以固定间距语义） */
+.ai-skill-content-box.skill-manage-summary + .skill-manage-groups { margin-top: 16px; }
+
+.skill-manage-list { list-style: none; }
+
+/* 行：分隔线只画在行与行之间；**无 hover 底** —— UI-SPEC 的 Color 硬禁令：
+   给行加 background: var(--bg-hover) 会让整行的描述 / 元信息 / 中性状态标注同时跌破
+   4.5:1（暗 3.96 / 亮 4.35），并会把「仅显式」的合成底拖到 #4a4a4a / #d0d0d0。
+   行的可交互反馈由行内控件自身的既有 hover 承担。 */
+.skill-manage-row { padding: 8px 0; }
+.skill-manage-row + .skill-manage-row { border-top: 1px solid var(--border-color); }
+
+.skill-manage-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  /* 硬禁令：不得声明 flex-wrap（否则重演 48-UI-REVIEW Pillar 2 的「徽标被挤出首行、
+     与名字读作两行」）。判据已剥注释，故此处的说明文字不构成违规。 */
+}
+
+/* 技能名：唯一压缩承担者（等宽 13px/600 与 48 面板行名同款；line-height 与同角色 Heading 一致） */
+.skill-manage-name {
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary);
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 右对齐簇：诊断徽标 → 状态标注 → 操作区（一个 auto 外边距，顺序确定）。
+   本计划只放行尾状态标注；徽标与操作区归 50-04。 */
+.skill-manage-tail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* 行尾状态标注：纯文本、永不截断；中性态用 --text-secondary
+   （--text-muted 在本页 --bg-secondary 宿主上实测 2.97/2.33，11–14px 小字不达标）。 */
+.skill-manage-status {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+/* 「超限族」（超数量上限 / 未进提示词 · 超预算）的色调 —— 键字符串由
+   SkillPickerModel.pickStatusKey 给出，渲染端不重判维度。 */
+.skill-manage-status-limit { color: var(--skill-limit-text); }
+
+/* 第二行：描述（唯一压缩项）+ 元信息（永不截断） */
+.skill-manage-row-sub { display: flex; align-items: center; gap: 8px; margin-top: 4px; min-width: 0; }
+.skill-manage-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-manage-meta {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 加载中 / 空态三态（共用一个容器；无 spinner、无骨架屏）。
+   flex column + gap 让「标题 → 正文 → 重新加载按钮」的间隙由一处给出（含加载态只有正文的情形） */
+.skill-manage-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0;
+  text-align: center;
+}
+.skill-manage-state-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+.skill-manage-state-title-danger { color: var(--skill-error-text); }
+.skill-manage-state-body {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+/* 空态的「重新加载」按钮无需新类：直接用既有 .btn .btn-secondary .btn-sm */
+
+/* inline hint（D-06）：颜色类 + 文案 + 2 秒无条件复位；不新建 toast 基建。
+   空文本时渲染端用 CSSOM 置 display:'none'（不走 markup 内联 style）。 */
+.skill-manage-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  word-break: break-word;
+}
+.skill-manage-hint-success { color: var(--skill-success-text); }
+.skill-manage-hint-danger { color: var(--skill-error-text); }

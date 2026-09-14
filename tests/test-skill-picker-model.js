@@ -1040,6 +1040,65 @@ describe('B 组 · MANAGE_SKILL_* 两张白名单表（Phase 49 / D-02 / D-07，
     assert.strictEqual(model.STATUS_TEXT.overLimit, '超数量上限');
   });
 
+  test('P50 · STATUS_TEXT 第 5 条 disabled = 已禁用（消费方只有设置页）', () => {
+    assert.strictEqual(
+      model.STATUS_TEXT.disabled,
+      '已禁用',
+      '设置页「技能管理」区的行尾标注取本键；`/` 面板根本不列出被禁用技能（48 D-10）—— 同一张表的不同消费者，不是第二份文案'
+    );
+    // 该表**刻意没有键数断言**（UI-SPEC D-12 明文：新增第 5 键不得打翻既有断言）。
+    // 既有 4 键的逐字冻结由上面两条用例承担，此处不重复、也不新增计数断言。
+  });
+
+  test('P50 · SETTINGS_STATUS_CHAIN 链序即契约（disabled > shadowed > overLimit > promptOmitted）', () => {
+    assert.deepStrictEqual(
+      model.SETTINGS_STATUS_CHAIN,
+      ['disabled', 'shadowed', 'overLimit', 'promptOmitted'],
+      '链序是 D-12 的锁定行为，不得重排（把 disabled 挪到链尾或调换 overLimit/promptOmitted 必须转红）；' +
+        '且必须是冻结数组（Object.freeze —— 链是契约数据，不是可变配置）'
+    );
+    assert.strictEqual(Object.isFrozen(model.SETTINGS_STATUS_CHAIN), true);
+    assert.strictEqual(
+      model.SETTINGS_STATUS_CHAIN.includes('nameClash'),
+      false,
+      'nameClash 依赖本地命令表（SLASH_COMMANDS），`realm://` guest 拿不到 ⇒ 它是 `/` 面板独有维度，不在本链上'
+    );
+  });
+
+  test('P50 · pickStatusKey：多命中取首条（用户主动意图优先），文案经 STATUS_TEXT 单源', () => {
+    assert.strictEqual(typeof model.pickStatusKey, 'function', 'pickStatusKey 必须导出（设置页的唯一判据）');
+
+    // RESEARCH 明文要求的用例：同时命中 disabled + overLimit ⇒ 只显示「已禁用」
+    const both = { disabled: true, overLimit: true };
+    assert.strictEqual(model.pickStatusKey(both), 'disabled');
+    assert.strictEqual(model.STATUS_TEXT[model.pickStatusKey(both)], '已禁用');
+
+    // 用户主动意图优先于环境判定（遮蔽）
+    assert.strictEqual(model.pickStatusKey({ shadowed: true, disabled: true }), 'disabled');
+
+    // 单命中与链序的其余顺序
+    assert.strictEqual(model.pickStatusKey({ shadowed: true, promptOmitted: true }), 'shadowed');
+    assert.strictEqual(model.pickStatusKey({ promptOmitted: true, overLimit: true }), 'overLimit');
+    assert.strictEqual(model.pickStatusKey({ promptOmitted: true }), 'promptOmitted');
+
+    // 一个都不命中 / 非法输入 ⇒ null（渲染端据此不渲染标注，不回落任何默认文案）
+    assert.strictEqual(model.pickStatusKey({}), null);
+    assert.strictEqual(model.pickStatusKey({ disabled: false }), null);
+    assert.strictEqual(model.pickStatusKey(null), null);
+    assert.strictEqual(model.pickStatusKey(undefined), null);
+  });
+
+  test('P50 · 链与表不漂移：链上每个键都存在于 STATUS_TEXT', () => {
+    for (const key of model.SETTINGS_STATUS_CHAIN) {
+      assert.strictEqual(
+        typeof model.STATUS_TEXT[key],
+        'string',
+        `链上的 ${key} 必须在 STATUS_TEXT 里有对应文案 —— 否则 pickStatusKey 会返回一个查不到文案的键`
+      );
+      assert.ok(model.STATUS_TEXT[key].length > 0, `${key} 的文案不得为空`);
+    }
+  });
+
   test('G-49-3 · 九码短原因长度上限：每值非空字符串且 ≤ 6 字；limit_exceeded 引用同一常量', () => {
     const table = model.MANAGE_SKILL_SHORT_REASON;
     for (const [code, text] of Object.entries(table)) {
@@ -1352,7 +1411,8 @@ describe('B 组 · 面板五要素行与转义护栏（T-48-07）', () => {
       assert.ok(def.includes(`var(--skill-source-${tier})`), `.${cls} 必须消费 --skill-source-${tier}`);
       assert.ok(/color-mix\(in srgb/.test(def), `.${cls} 必须用 color-mix 低饱和底`);
     }
-    // 令牌集合必须**恰为**截至本阶段的已知集合：48-01 的四个 + 49-02 的 --skill-error-text。
+    // 令牌集合必须**恰为**截至本阶段的已知集合：48-01 的四个 + 49-02 的 --skill-error-text
+    // + 50-01 的 --skill-success-text。
     // 新增令牌时只允许在此处**追加**（并同时写入两个主题块）—— 不得悄悄引入未登记的令牌。
     const declared = [...cssSrc.matchAll(/^\s*(--skill-[a-z-]+):/gm)].map((m) => m[1]);
     assert.deepStrictEqual(
@@ -1363,8 +1423,9 @@ describe('B 组 · 面板五要素行与转义护栏（T-48-07）', () => {
         '--skill-source-builtin',
         '--skill-source-managed',
         '--skill-source-user',
+        '--skill-success-text',
       ],
-      '令牌集合必须恰为「48-01 已落的四个 + 49-02 的 --skill-error-text」'
+      '令牌集合必须恰为「48-01 已落的四个 + 49-02 的 --skill-error-text + 50-01 的 --skill-success-text」'
     );
   });
 });

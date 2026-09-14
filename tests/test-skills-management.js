@@ -102,6 +102,27 @@ function classMethodBody(src, signature) {
   return src.slice(i, j < 0 ? i + 3000 : j);
 }
 
+/** 取 CSS 里「选择器含给定子串」的全部规则块（扁平 `sel { body }` 扫描） */
+function cssRulesMentioning(css, needle) {
+  const out = [];
+  const re = /([^{}]+)\{([^}]*)\}/g;
+  let m = re.exec(css);
+  while (m !== null) {
+    if (m[1].includes(needle)) out.push({ selector: m[1].trim(), body: m[2] });
+    m = re.exec(css);
+  }
+  return out;
+}
+
+/** Phase 50 专属段（**已剥 CSS 注释**）—— 本计划新增的全部样式都在这一段里 */
+function phase50CssSection() {
+  const raw = readSource('src/styles/main.css');
+  const marker = '/* ===== 设置页「技能管理」区（Phase 50） ===== */';
+  const start = raw.indexOf(marker);
+  assert.ok(start >= 0, 'Phase 50 专属段注释必须存在（整段可复核的前提）');
+  return raw.slice(start).replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
 // ==================== 管理读路径（Task 1 的 tracer 判据） ====================
 
 describe('管理读路径纵切：投影 → 读路径初始化 → GET /api/skills/list', () => {
@@ -364,3 +385,40 @@ describe('接线：main.js 的 handleSkillsApi 与 ai-manager.js 的读路径初
     );
   });
 });
+
+// ==================== 样式硬禁令（比计划自带判据更宽的那一面） ====================
+
+describe('样式硬禁令：Phase 50 段的「行不得有 hover 底」与「行首行不得换行」', () => {
+  /*
+   * 这两条不变式来自 50-UI-SPEC 的 ## Color 硬禁令与「长文本与溢出纪律」，都是**承重判据**
+   *（行加 hover 底会把描述 / 元信息 / 中性状态标注同时拖到 4.5:1 以下）。
+   *
+   * 计划自带的样式判据只扫 `.skill-manage-row { … }` / `.skill-manage-row-main { … }`
+   * **单个规则块**——实测：另起一条 `.skill-manage-row:hover { background: var(--bg-hover) }`
+   * 可完整绕过它（变异实跑确认）。本组按**选择器形态**扫整段，把那个缺口封上。
+   * 判据已先剥 CSS 注释 ⇒ 规则块里如实写明「不得加 --bg-hover 底」的说明文字不构成违规。
+   */
+
+  test('.skill-manage-row* 的任何规则块都不得声明 background: var(--bg-hover)', () => {
+    const offenders = cssRulesMentioning(phase50CssSection(), '.skill-manage-row').filter((r) =>
+      /background\s*:\s*var\(--bg-hover\)/.test(r.body)
+    );
+    assert.deepStrictEqual(
+      offenders.map((r) => r.selector),
+      [],
+      '硬禁令：给行加 --bg-hover 底会让整行的描述 / 元信息 / 中性状态标注同时跌破 4.5:1（暗 3.96 / 亮 4.35），并拖低「仅显式」的合成底'
+    );
+  });
+
+  test('.skill-manage-row-main* 的任何规则块都不得声明 flex-wrap', () => {
+    const offenders = cssRulesMentioning(phase50CssSection(), '.skill-manage-row-main').filter((r) =>
+      /flex-wrap/.test(r.body)
+    );
+    assert.deepStrictEqual(
+      offenders.map((r) => r.selector),
+      [],
+      '硬禁令：行首行换行会重演 48-UI-REVIEW Pillar 2 的「徽标被挤出首行、与名字读作两行」'
+    );
+  });
+});
+
