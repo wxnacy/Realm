@@ -1188,6 +1188,14 @@ async function readSkillForInvocation(env, name) {
  * NOT_FOUND / LIMIT_EXCEEDED / INVALID_NAME / INVALID_DESCRIPTION / OVERSIZE /
  * UNSCANNABLE。`UNKNOWN` 是沙箱层（`permission_denied` / `not_found` 等原始码）
  * 统一折叠后的兜底 —— 不把第九码之外的沙箱原始码泄漏给调用方。
+ *
+ * `NOT_USER_OWNED`（第十码，Phase 50 D-08）是**管理面**（设置页卸载）专用的
+ * 新拒绝态：`skills/<name>` 不存在而 `managed-skills/<name>` 存在 ⇒ 「不是你的技能」。
+ * 它**只经 HTTP 400 的 `{code}` 返回**，**不进** `MANAGE_SKILL_SHORT_REASON`
+ * （`src/skill-picker-model.js` 的那张表只覆盖**工具面**、保持恰 9 键；
+ * `manage_skill` 的工具卡片渲染路径不消费本码）。复用 `NOT_FOUND` 会把
+ * 「技能不存在」与「技能存在但不是你的」混同，用户看到「技能不存在」而该技能
+ * 明明列在页面上 —— 那是失实文案（49-04 修过的三态混同族）。
  */
 const MANAGE_SKILL_ERROR = {
   SEEDED_PROTECTED: 'seeded_protected',
@@ -1200,6 +1208,7 @@ const MANAGE_SKILL_ERROR = {
   OVERSIZE: 'oversize',
   UNSCANNABLE: 'unscannable',
   UNKNOWN: 'unknown',
+  NOT_USER_OWNED: 'not_user_owned',
 };
 
 /**
@@ -1286,6 +1295,107 @@ function validateManagedSkillName(name) {
     return { ok: false, code: MANAGE_SKILL_ERROR.INVALID_NAME, reason: '技能名不能包含连续的连字符' };
   }
   return { ok: true };
+}
+
+/**
+ * 管理面技能名谓词（Phase 50 OQ-2）—— **安全的超集**，不是 `validateManagedSkillName`
+ *
+ * ## 故意的不对称：写入门严、管理面门宽（OQ-2 要求成文）
+ *
+ * 加载管线对磁盘上的技能名**故意宽松**（46 D-08：「不丢弃命名不规范的合法技能」——
+ * 技能名权威取自目录名，`skills/My_Skill/` 这类手工放进来的目录**会进列表**）。
+ * 若管理面复用 `validateManagedSkillName` 的严格形态（`^[a-z0-9-]+$` + 无首尾 /
+ * 连续连字符），后果是**列表里明明有条目的技能，开关点了必然 400** —— 用户看到
+ * 一个「点了不生效」的开关，属用户可见的失实。
+ *
+ * 因此本谓词只做「能不能安全地当名字用」这一层判定：**禁用名单是「按名字过滤」的
+ * 消费侧信号，不需要名字合法到能写盘**（它与 `manage_skill` 的写入面是两回事）。
+ *
+ * ## 判据（四条，**不含**严格字符集）
+ *
+ * ① 必须是字符串；② `trim()` 后非空；③ 长度 ≤ `MAX_SKILL_NAME_CHARS`(64)
+ * （复用既有常量，不新写一个 64）；④ **不含** `/`、`\` 与控制字符（`\u0000`-`\u001F`）
+ * —— 这一条是路径注入面（T-50-10：名字要被 `path.join` 进删除路径）。
+ *
+ * **不加** `^[a-z0-9-]+$`、**不加**首尾连字符与连续连字符判据。
+ *
+ * 返回形状与 `validateManagedSkillName` 同形（`{ok:true, value}` / `{ok:false, code, reason}`），
+ * 以便同样经 `makeManageSkillError` 构造。三个消费点（`/api/settings/update` 校验、
+ * `set-disabled`、`uninstall`）**必须同宽**（UI-SPEC `:479` 明文）。
+ *
+ * @param {string} name - 技能名（未 trim）
+ * @returns {{ok: true, value: string}
+ *           | {ok: false, code: MANAGE_SKILL_ERROR.INVALID_NAME, reason: string}}
+ */
+function validateSkillNameForManagement(name) {
+  if (typeof name !== 'string') {
+    return { ok: false, code: MANAGE_SKILL_ERROR.INVALID_NAME, reason: '技能名必须是字符串' };
+  }
+  const value = name.trim();
+  if (!value) {
+    return { ok: false, code: MANAGE_SKILL_ERROR.INVALID_NAME, reason: '技能名不能为空' };
+  }
+  if (value.length > MAX_SKILL_NAME_CHARS) {
+    return {
+      ok: false,
+      code: MANAGE_SKILL_ERROR.INVALID_NAME,
+      reason: `技能名不能超过 ${MAX_SKILL_NAME_CHARS} 个字符（当前 ${value.length} 个）`,
+    };
+  }
+  if (value.includes('/') || value.includes('\\') || /[\u0000-\u001F]/.test(value)) {
+    return {
+      ok: false,
+      code: MANAGE_SKILL_ERROR.INVALID_NAME,
+      reason: '技能名不能包含路径分隔符（/、\\）或控制字符',
+    };
+  }
+  return { ok: true, value };
+}
+
+/**
+ * 禁用名单的**条数上限**（D-10 / T-50-11）—— 两个既有额度之和（50 + 50 = 100）
+ *
+ * **不得改既有五项 `LIMITS` 数值**：本常量由它们**派生**（不是第六项额度），
+ * 语义是「名单最多能列出多少个技能」（user + managed 的全部容量），
+ * 而不是「用户可配置的额度」。
+ */
+const MAX_DISABLED_SKILLS = LIMITS.MAX_USER_SKILLS + LIMITS.MAX_MANAGED_SKILLS;
+
+/**
+ * 校验 `settings.aiSkills.disabled`（Phase 50 D-10 / OQ-2）—— **列表级单源**
+ *
+ * 两条键形态（`aiSkills.disabled` 与 `aiSkills`）**共用这一份判据**：`main.js` 直接
+ * require 本模块（零 electron 依赖 ⇒ 可被主进程直接 require，AGENTS.md 的硬约束 ①
+ * 已为该用法背书）。**不得**在 `main.js` 或设置页另写第二份正则。
+ *
+ * 判据：① `Array.isArray(list)`；② 条数 ≤ `MAX_DISABLED_SKILLS`(=100)；
+ * ③ 每项经 `validateSkillNameForManagement` 且 `ok === true`。
+ * **不得**用 `validateManagedSkillName`（会让 `skills/My_Skill/` 点开关必然 400，
+ * 见 `validateSkillNameForManagement` 的故意不对称）。
+ *
+ * `valid: false` 时调用方**必须在 `configStore.set` 之前 return** ——
+ * 否则就是「校验失败但仍落盘」。
+ *
+ * @param {*} list - 待校验值（来自请求体，可能是任意类型）
+ * @returns {{valid: true} | {valid: false, reason: string}}
+ */
+function validateDisabledListForSettings(list) {
+  if (!Array.isArray(list)) {
+    return { valid: false, reason: '禁用名单必须是数组' };
+  }
+  if (list.length > MAX_DISABLED_SKILLS) {
+    return {
+      valid: false,
+      reason: `禁用名单条目过多：上限 ${MAX_DISABLED_SKILLS} 条，当前 ${list.length} 条`,
+    };
+  }
+  for (const item of list) {
+    const check = validateSkillNameForManagement(item);
+    if (!check.ok) {
+      return { valid: false, reason: `禁用名单条目非法：${check.reason}` };
+    }
+  }
+  return { valid: true };
 }
 
 /**
@@ -1849,6 +1959,90 @@ async function deleteManagedSkill(env, { name, seededNames } = {}) {
 }
 
 /**
+ * 卸载**用户**技能（Phase 50 D-07 / USER-06）—— 仅 `source === 'user'` 可删
+ *
+ * ## 判据方向与 `resolveManagedTarget` **相反**，因此**不得复用**它
+ *
+ * `resolveManagedTarget`（`:1593`）的顺序是 ① seeded 保护 → ② 同名 user 存在即拒
+ * （`user_owned_conflict`）→ ③ managed 不存在即 `not_found` —— 那是 **managed 视角**
+ * 的「用户撞名保护」。本函数需要的是**一处显式的「仅 user 可删」判据**；
+ * 形状模板只借 `deleteManagedSkill()` 的四段结构
+ * （校验 → 读盘判定 → `env.remove({recursive:true})` → 失败折叠 `UNKNOWN`）。
+ *
+ * ## 三态拒绝面（D-07，OQ-1 已由用户裁决 2026-09-14）
+ *
+ * | `skills/<name>` | `managed-skills/<name>` | 结果 |
+ * |---|---|---|
+ * | 存在且 `kind === 'directory'` | 任意（含同名双存在） | **允许卸载**，删除对象恒为 `skills/<name>/` |
+ * | 不存在 / 存在但非目录（含 symlink）/ 读不到 | 存在 | `not_user_owned`（第十码） |
+ * | 不存在 / 存在但非目录 / 读不到 | 不存在 | `not_found` |
+ *
+ * **同名双存在必须放行**：user 胜出、managed 被 `applyShadowing` 标 `shadowed` 保留在
+ * 数据层，列表里显示的 tier 就是 `user`；按「后者存在即拒」会让用户点自己列表里那条
+ * 「我的技能」被告知「这不是你的技能」，与 ROADMAP 判据 3 直接冲突。
+ * `managed-skills/<name>` 的存在**只用来区分拒绝态**，**不作**拒绝条件。
+ *
+ * ## 判据一律**读盘**，且必须用 `env.fileInfo` 而不是 `env.exists`
+ *
+ * - **读盘而非缓存**：bash 可随时改写磁盘（P8 第 6 条），`_cache` 只反映上次重扫的时刻。
+ *   用缓存会让「盘上已删、缓存还在」时去删一个不存在的目录（或反之放行一个已消失的目标）。
+ * - **`fileInfo` 而非 `exists`**：SDK 的 `exists` 实现是「`fileInfo` 成功即 `ok(true)`」
+ *   （`harness/env/nodejs.js`）⇒ 一个**普通文件** `skills/foo`（不是目录）也会让
+ *   `exists` 返回 `true`，而 `env.remove(dir, {recursive:true})` 会删掉那个文件。
+ *   D-07 的字面判据是「存在**且 `kind` 是目录**」⇒ 只有 `fileInfo` 能表达。
+ *
+ * ## 返回体**不带**提示字段
+ *
+ * 「同名内置 / 托管技能将在删除后重新可见」这句提示由 Phase 50-04 在**删除前的确认
+ * 弹框**里从投影数据（`shadowed` / `shadowedBy`）渲染 —— 响应只回
+ * `{name, filePath, action}`。**不新增没有消费者的字段**（无消费者的字段必然腐化成
+ * 第二次实现）。
+ *
+ * @param {object} env - 沙箱 ExecutionEnv
+ * @param {{name: string}} params
+ * @returns {Promise<{name: string, filePath: string, action: 'uninstall'}>}
+ * @throws {Error} 校验 / 三态判定 / 删除失败（均带 `code`）
+ */
+async function deleteUserSkill(env, { name } = {}) {
+  // 1. name 必须能安全地拼进删除路径（管理面安全超集谓词，OQ-2）
+  const skillName = typeof name === 'string' ? name.trim() : name;
+  const nameCheck = validateSkillNameForManagement(skillName);
+  if (!nameCheck.ok) throw makeManageSkillError(nameCheck.code, nameCheck.reason);
+
+  // 2. 读盘判定（不复用 resolveManagedTarget；不用 _cache 快照）
+  const workspace = getAgentWorkspaceLazy();
+  const userDir = path.join(workspace.getSkillsDir(), skillName);
+  const info = await env.fileInfo(userDir);
+  const isDir = !!(info && info.ok === true && info.value && info.value.kind === 'directory');
+  if (!isDir) {
+    const managedDir = path.join(workspace.getManagedSkillsDir(), skillName);
+    const managed = await env.exists(managedDir);
+    const managedPresent = !!(managed && managed.ok === true && managed.value === true);
+    if (managedPresent) {
+      throw makeManageSkillError(
+        MANAGE_SKILL_ERROR.NOT_USER_OWNED,
+        `"${skillName}" 不是用户技能（只存在于 managed-skills 下），不能在此卸载：内置技能只可禁用，AI 创建的技能请让 AI 用 manage_skill 删除`
+      );
+    }
+    throw makeManageSkillError(
+      MANAGE_SKILL_ERROR.NOT_FOUND,
+      `技能 "${skillName}" 不存在（只能卸载 skills 目录下的用户技能）`
+    );
+  }
+
+  // 3. 递归删除（SDK 的 recursive 默认 false，必须显式传）
+  const res = await env.remove(userDir, { recursive: true });
+  if (!res || res.ok !== true) {
+    throw makeManageSkillError(
+      MANAGE_SKILL_ERROR.UNKNOWN,
+      `卸载技能 "${skillName}" 失败（沙箱码 ${sandboxErrorCode(res)}）`
+    );
+  }
+
+  return { name: skillName, filePath: path.join(userDir, 'SKILL.md'), action: 'uninstall' };
+}
+
+/**
  * 判定某技能是否进了 prompt 段（`details.promptIncluded`，48 D-12 的可见性精神）
  *
  * **三态**（不是 boolean）：
@@ -1915,5 +2109,11 @@ module.exports = {
   getSkillsForManagement,
   SKILL_SIZE_WALK_MAX_ENTRIES,
   SKILL_SIZE_WALK_MAX_DEPTH,
+  // 50-02 新增（管理写路径：仅 user 可卸载的三态判据 + 两个管理面谓词 + 第十码）
+  // 注：makeManageSkillError **刻意不导出** —— 判定全在模块内，调用方只消费带 `code` 的错误对象。
+  deleteUserSkill,
+  validateSkillNameForManagement,
+  validateDisabledListForSettings,
+  MAX_DISABLED_SKILLS,
   _resetCacheForTest,
 };

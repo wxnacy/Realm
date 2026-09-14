@@ -1585,8 +1585,8 @@ describe('蕴含关系（Gap 1 的真值面）：写侧未抛错 ⇒ 加载后�
   });
 });
 
-describe('九码闭合白名单的不变式（本计划不增不减不改名）', () => {
-  test('MANAGE_SKILL_ERROR 恰十条键：九码 + 沙箱层兜底 unknown，值集合逐字锁定', () => {
+describe('闭合白名单的不变式（改名须同批改契约与账本）', () => {
+  test('MANAGE_SKILL_ERROR 恰十一键：十码 + 沙箱层兜底 unknown，值集合逐字锁定', () => {
     assert.deepStrictEqual(
       Object.keys(aiSkills.MANAGE_SKILL_ERROR).sort(),
       [
@@ -1595,13 +1595,14 @@ describe('九码闭合白名单的不变式（本计划不增不减不改名）'
         'INVALID_NAME',
         'LIMIT_EXCEEDED',
         'NOT_FOUND',
+        'NOT_USER_OWNED',
         'OVERSIZE',
         'SEEDED_PROTECTED',
         'UNKNOWN',
         'UNSCANNABLE',
         'USER_OWNED_CONFLICT',
       ].sort(),
-      '新增或删除任一码都必须先改契约（D-07 的闭合白名单），本计划不动它'
+      '新增或删除任一键都必须先改契约（D-07 的闭合白名单）与账本，并同批刷新本断言 —— Phase 50-02 加 NOT_USER_OWNED（管理面专用第十码）后为恰十一键'
     );
     assert.deepStrictEqual(
       Object.values(aiSkills.MANAGE_SKILL_ERROR).sort(),
@@ -1611,17 +1612,18 @@ describe('九码闭合白名单的不变式（本计划不增不减不改名）'
         'invalid_name',
         'limit_exceeded',
         'not_found',
+        'not_user_owned',
         'oversize',
         'seeded_protected',
         'unknown',
         'unscannable',
         'user_owned_conflict',
       ].sort(),
-      '九码的值逐字未变（UNKNOWN 是沙箱原始码的兜底，不泄漏给调用方）'
+      '既有十码的值逐字未变（UNKNOWN 是沙箱原始码的兜底，不泄漏给调用方）；新增的是 not_user_owned'
     );
   });
 
-  test('description 净化后为空仍归 invalid_description（不新立第十码）', async (t) => {
+  test('新失败面必须取自闭合白名单，不得再新立第十二码', async (t) => {
     const root = withTempRoot(t);
     const env = await makeEnv(root);
     const err = await expectThrowCode(
@@ -1635,7 +1637,7 @@ describe('九码闭合白名单的不变式（本计划不增不减不改名）'
     );
     assert.ok(
       Object.values(aiSkills.MANAGE_SKILL_ERROR).includes(err.code),
-      '拒绝码必须取自闭合白名单（不得为新失败面新立码）'
+      '拒绝码必须取自闭合白名单（现为恰 11 键 = 十码 + unknown 兜底；不得再新立第十二键）'
     );
     assert.deepStrictEqual(managedNames(), [], '被拒路径不得落盘');
   });

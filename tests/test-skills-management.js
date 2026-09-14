@@ -694,3 +694,171 @@ describe('样式硬禁令：Phase 50 段的「行不得有 hover 底」与「行
   });
 });
 
+// ==================== 管理写路径数据层（50-02 Task 1 的判据） ====================
+
+/** 断言 `fn()` 抛出带指定 `code` 的错误，并把错误对象返回给调用方继续断言 */
+async function expectCode(fn, code) {
+  let caught = null;
+  try {
+    await fn();
+  } catch (err) {
+    caught = err;
+  }
+  assert.ok(caught, `必须抛出错误（期望 code = ${code}）`);
+  assert.strictEqual(caught.code, code, `错误码必须是 ${code}，实得 ${caught.code}: ${caught.message}`);
+  return caught;
+}
+
+describe('仅 user 可卸载：三态拒绝面（全部经 manager 函数直接调用，不经 HTTP handler）', () => {
+  /*
+   * ROADMAP 判据 3 的原文是「卸载仅允许 source === 'user'，**手改 URL 直接调端点也不例外**」。
+   * 本组一律调 `aiSkills.deleteUserSkill()`（manager 层）而非任何 HTTP 包装 ——
+   * 这正是那条判据的承重点：绕开 handler 的友善包装，拒绝态依然成立。
+   */
+
+  test('态 ①：skills/<name> 不存在 ⇒ not_found', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    await expectCode(() => aiSkills.deleteUserSkill(env, { name: 'ghost-skill' }), 'not_found');
+  });
+
+  test('态 ①′：skills/<name> 是**普通文件**（不是目录）⇒ not_found，且那个文件必须原封不动', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const userDir = workspace.getSkillsDir();
+    // env.exists() 对普通文件也返回 true（SDK 实现是「fileInfo 成功即 ok(true)」）⇒
+    // 判据必须用 fileInfo 判 kind。若改用 exists，本用例会走到 env.remove(dir,{recursive:true})
+    // 把 `SKILL.md` 之外的任意同名文件删掉。
+    fs.writeFileSync(path.join(userDir, 'plain-file'), 'not a directory', 'utf8');
+
+    await expectCode(() => aiSkills.deleteUserSkill(env, { name: 'plain-file' }), 'not_found');
+
+    assert.ok(fs.existsSync(path.join(userDir, 'plain-file')), '判据不成立时**不得**删除任何东西');
+  });
+
+  test('态 ②：同名双存在（user + managed）⇒ **允许**卸载且只删 user 目录，managed 原封不动', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const userDir = workspace.getSkillsDir();
+    const managedDir = workspace.getManagedSkillsDir();
+    writeSkillDir(userDir, 'dual-name');
+    writeSkillDir(managedDir, 'dual-name');
+
+    const result = await aiSkills.deleteUserSkill(env, { name: 'dual-name' });
+
+    assert.ok(result, '同名双存在时 user 条目确实存在（user 胜出），必须允许卸载');
+    assert.deepStrictEqual(
+      Object.keys(result).sort(),
+      ['action', 'filePath', 'name'],
+      '响应体**不带**提示字段（shadowNotice 一类无消费者的字段会腐化成第二次实现；提示由 50-04 的确认弹框从投影数据渲染）'
+    );
+    assert.strictEqual(result.action, 'uninstall');
+    assert.strictEqual(result.name, 'dual-name');
+    assert.strictEqual(fs.existsSync(path.join(userDir, 'dual-name')), false, 'skills/<name> 必须被删掉');
+    assert.strictEqual(
+      fs.existsSync(path.join(managedDir, 'dual-name', 'SKILL.md')),
+      true,
+      'managed-skills/<name> 必须原封不动（它只用来提示，不作拒绝条件也不作删除对象）'
+    );
+  });
+
+  test('态 ③：skills/<name> 不存在而 managed-skills/<name> 存在 ⇒ not_user_owned（第十码）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const managedDir = workspace.getManagedSkillsDir();
+    writeSkillDir(managedDir, 'managed-only');
+
+    await expectCode(() => aiSkills.deleteUserSkill(env, { name: 'managed-only' }), 'not_user_owned');
+
+    assert.ok(fs.existsSync(path.join(managedDir, 'managed-only', 'SKILL.md')), '被拒路径不得删任何东西');
+  });
+
+  test('判据读盘而非缓存快照：暖缓存 → 从盘删目录 → 调卸载 ⇒ not_found', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const userDir = workspace.getSkillsDir();
+    const managedDir = workspace.getManagedSkillsDir();
+    writeSkillDir(userDir, 'warm-cached');
+    await aiSkills.refreshSkills(env, { rootDirs: [managedDir, userDir] });
+    assert.ok(
+      aiSkills.getSkillsSnapshot().skills.some((e) => e.skill.name === 'warm-cached'),
+      '前置：缓存里必须先有该技能（否则本用例退化成「一开始就不存在」）'
+    );
+
+    // 模拟 bash / Finder 直接改盘（无事件可挂）—— 缓存此刻仍认为技能存在
+    fs.rmSync(path.join(userDir, 'warm-cached'), { recursive: true, force: true });
+
+    await expectCode(() => aiSkills.deleteUserSkill(env, { name: 'warm-cached' }), 'not_found');
+  });
+
+  test('递归删除生效：连带 scripts/ 与 references/ 子目录一并消失', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const userDir = workspace.getSkillsDir();
+    const dir = writeSkillDir(userDir, 'with-scripts', {
+      extraFiles: { 'scripts/a.js': 'console.log(1);\n', 'references/deep/b.md': '# b\n' },
+    });
+    assert.ok(fs.existsSync(path.join(dir, 'scripts', 'a.js')), '前置：子目录必须已落盘');
+
+    await aiSkills.deleteUserSkill(env, { name: 'with-scripts' });
+
+    assert.strictEqual(fs.existsSync(dir), false, 'recursive: true 必须整目录删干净（SDK 默认 false）');
+  });
+});
+
+describe('管理面名称谓词与禁用名单校验（OQ-2 的安全超集，单源）', () => {
+  test('validateSkillNameForManagement：接受加载管线允许的不规范名字（不得用严格形态）', () => {
+    // 严格形态 `^[a-z0-9-]+$` 会拒掉这些 —— 而它们**确实会出现在管理列表里**（46 D-08
+    // 「不丢弃命名不规范的合法技能」），拒掉就会 render 出一个「点了必然 400」的开关。
+    for (const name of ['My_Skill', 'UPPER', 'dot.name', 'has space', 'a--b', '_leading']) {
+      const check = aiSkills.validateSkillNameForManagement(name);
+      assert.strictEqual(check.ok, true, `${name} 必须通过管理面谓词（OQ-2 的安全超集）`);
+      assert.strictEqual(check.value, name, '成功时回传 trim 后的值');
+    }
+    assert.strictEqual(aiSkills.validateSkillNameForManagement('  spaced  ').value, 'spaced', '首尾空白必须 trim');
+  });
+
+  test('validateSkillNameForManagement：拒绝面（空 / 超长 / 路径分隔符 / 控制字符 / 非字符串）', () => {
+    const rejects = ['', '   ', 'a'.repeat(65), 'a/b', 'a\\b', 'a\u0000b', 'a\u001fb', 42, null, undefined, {}];
+    for (const value of rejects) {
+      const check = aiSkills.validateSkillNameForManagement(value);
+      assert.strictEqual(check.ok, false, `${JSON.stringify(value)} 必须被拒`);
+      assert.strictEqual(check.code, 'invalid_name', `拒绝码必须是 invalid_name（不是 unknown）`);
+      assert.ok(check.reason && check.reason.length > 0, '拒绝必须带可读原因');
+    }
+    // 边界：恰 64 字符必须通过（长度上限是单源常量 MAX_SKILL_NAME_CHARS = 64）
+    assert.strictEqual(aiSkills.validateSkillNameForManagement('a'.repeat(64)).ok, true, '64 字符必须通过');
+  });
+
+  test('validateDisabledListForSettings：拒绝面逐条喂真实数据形状', () => {
+    const rejects = [
+      'not-an-array',
+      {},
+      null,
+      undefined,
+      42,
+      ['ok-name', ''],
+      ['ok-name', 42],
+      ['ok-name', null],
+      ['a'.repeat(65)],
+      ['../escape'],
+      ['a/b'],
+      ['a\\b'],
+      Array(101).fill('a'),
+    ];
+    for (const value of rejects) {
+      const check = aiSkills.validateDisabledListForSettings(value);
+      assert.strictEqual(check.valid, false, `${JSON.stringify(value)} 必须被拒`);
+      assert.ok(check.reason && check.reason.length > 0, '拒绝必须带可读原因');
+    }
+  });
+
+  test('validateDisabledListForSettings：接受面（空数组 / 清单里的不规范名 / 恰 100 条）', () => {
+    for (const value of [[], ['ok-name'], ['My_Skill'], Array(100).fill('a')]) {
+      const check = aiSkills.validateDisabledListForSettings(value);
+      assert.strictEqual(check.valid, true, `${JSON.stringify(value).slice(0, 60)} 必须通过`);
+    }
+    assert.strictEqual(aiSkills.MAX_DISABLED_SKILLS, 100, '条数上限 = MAX_USER_SKILLS + MAX_MANAGED_SKILLS = 50 + 50');
+  });
+});
+
