@@ -81,7 +81,8 @@
       "!scripts/**",
       "!**/*.bak",
       "!CLAUDE.md",
-      "!CODEBUDDY.md"
+      "!CODEBUDDY.md",
+      "!.worktrees/**"
     ],
     "publish": null
   }

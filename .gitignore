@@ -48,3 +48,7 @@ CODEBUDDY.md
 # GSD code-review 的 lane 失败证据（workflows/review.md #3352/#4097：刻意不入库，
 # 提交步骤只点名 {phase}-REVIEWS.md 从不使用目录 glob；正式产物是 {phase}-REVIEW.md / -REVIEWS.md）
 .review-diagnostics/
+
+# 分支 worktree（feature/hotfix 的工作目录，见 docs/dev/branching-spec.md 第三节）
+# 必须放在仓库内部才蹭得到主仓库 node_modules；同时须在 package.json build.files 里排除
+.worktrees/
