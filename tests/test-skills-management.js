@@ -862,3 +862,63 @@ describe('管理面名称谓词与禁用名单校验（OQ-2 的安全超集，�
   });
 });
 
+// ==================== 服务端拒绝不经 handler（manager 层单源护栏） ====================
+
+describe('服务端拒绝不经 handler：拒绝码必须取自闭合白名单（manager 层单源）', () => {
+  /*
+   * ROADMAP 判据 3 的「手改 URL 直接调端点也不例外」在**本例里表现为**：
+   * 判据与拒绝码都住 manager 层，HTTP handler 与 IPC 只做转发（不改写 code）。
+   * 若日后有人在 handler 层加「友善包装」并顺手改码，设置页按 code 查的文案表会全部失配。
+   */
+
+  test('deleteUserSkill 的三条拒绝路径都抛白名单内的码，且逐条取值确定', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    writeSkillDir(workspace.getManagedSkillsDir(), 'managed-guard');
+
+    const captured = [];
+    for (const call of [
+      () => aiSkills.deleteUserSkill(env, { name: 'ghost-guard' }),
+      () => aiSkills.deleteUserSkill(env, { name: 'managed-guard' }),
+      () => aiSkills.deleteUserSkill(env, { name: '../escape' }),
+    ]) {
+      let caught = null;
+      try {
+        await call();
+      } catch (err) {
+        caught = err;
+      }
+      assert.ok(caught, '三条拒绝路径都必须抛出（不得返回错误对象）');
+      captured.push(caught);
+    }
+
+    assert.deepStrictEqual(
+      captured.map((e) => e.code),
+      ['not_found', 'not_user_owned', 'invalid_name'],
+      '拒绝码必须逐条确定且互不相同（三态不可混同 —— 参见 49-04 的失实文案教训）'
+    );
+    for (const err of captured) {
+      assert.ok(
+        Object.values(aiSkills.MANAGE_SKILL_ERROR).includes(err.code),
+        `拒绝码 ${err.code} 必须取自闭合白名单（不得在 manager 之外新立码）`
+      );
+    }
+  });
+
+  test('validateSkillNameForManagement 的拒绝码恒为 invalid_name（不得折叠成 unknown）', () => {
+    for (const value of ['', '   ', 'a'.repeat(65), 'a/b', 'a\\b', 'a\u0000b', 42, null, undefined]) {
+      const check = aiSkills.validateSkillNameForManagement(value);
+      assert.strictEqual(
+        check.code,
+        'invalid_name',
+        `${JSON.stringify(value)} 的拒绝码必须是 invalid_name`
+      );
+      assert.notStrictEqual(
+        check.code,
+        'unknown',
+        '不得折叠成沙箱层兜底码 —— 那会让「名字非法」与「磁盘故障」不可区分'
+      );
+    }
+  });
+});
+

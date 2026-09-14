@@ -140,6 +140,11 @@ const agentWorkspace = require('./agent-workspace');
 const builtinSkillsSeeder = require('./builtin-skills-seeder');
 // Bash 三档权限策略（纯函数零依赖，白名单服务端校验用）
 const bashPolicy = require('./ai-bash-policy');
+// 技能集单源校验器（Phase 50 D-10 / OQ-2：禁用名单的列表级校验）。
+// 该模块**零 electron 依赖** ⇒ 主进程可直接 require（AGENTS.md 的硬约束 ① 已为该用法
+// 背书）。`/api/settings/update` 与 `/api/skills/*` 共用这一份谓词，
+// **不得**在本文件另写第二份正则（第二份必然漂移 ⇒ 「列表里有、开关点了 400」）。
+const aiSkillsManager = require('./ai-skills-manager');
 // 媒体分片磁盘缓存（Phase 44 D-03：/proxy 层按视频组织的分片缓存，仅独立播放器流量）
 const { MediaCacheManager, videoIdOf } = require('./media-cache-manager');
 // 媒体任务统一注册表（Phase 44 D-25：record/convert 状态机 + 持久化 + D-07 豁免查询源）
@@ -1387,6 +1392,35 @@ app.whenReady().then(async () => {
               sendJson(res, 400, { error: '缓存上限必须为 1-1024 的整数' });
               return;
             }
+          }
+          // 技能禁用名单服务端校验（Phase 50 D-10 / T-50-11）—— **两种键形态都覆盖**。
+          // 只覆盖点号键是不够的：手改 URL 提交 `{ "aiSkills": { "disabled": [...] } }`
+          // 时 `key === 'aiSkills'`，会落到循环尾的
+          // `configStore.set('settings.aiSkills', value)` **整体覆写**，顺带绕过校验。
+          //
+          // 两种形态共用**同一份**判据 `aiSkillsManager.validateDisabledListForSettings`：
+          // 该模块零 electron 依赖，主进程直接 require；**不得**在此另写第二份正则
+          // （第二份必然与另两处消费点漂移 ⇒ 「列表里有、开关点了 400」）。
+          //
+          // `aiSkills` 形态的落盘口径**明确写死为「只落 `disabled` 子键 + 缺该子键即拒绝」**：
+          // - 拒绝（而不是放行）的理由：该形态的默认语义是**整体覆写** `settings.aiSkills`，
+          //   放行会静默冲掉其上的其它字段（未来新增字段一律无声丢失）；
+          // - 落 `disabled` 子键（而不是整体覆写）的理由：整体覆写正是本校验要堵的那件事。
+          if (key === 'aiSkills.disabled' || key === 'aiSkills') {
+            // 取值路径由键形态决定：点号键 ⇒ `value` 本体就是名单；短键 ⇒ `value` 是子对象、
+            // 取 `disabled` 子键。用 `!key.includes('.')` 判别（而不是再写一遍 `key === 'aiSkills'`）
+            // 是为了让**两种键形态在源码里各只出现一次** —— 少一处重复就少一个「判据被别处
+            // 的字面量假绿」的面（计划自带门禁按 `key === '<键>'` 判两种形态是否被覆盖）。
+            const isSubKeyForm = !key.includes('.');
+            const list = isSubKeyForm && value ? value.disabled : value;
+            const check = aiSkillsManager.validateDisabledListForSettings(list);
+            if (!check.valid) {
+              // **必须在 configStore.set 之前 return** —— 否则就是「校验失败但仍落盘」
+              sendJson(res, 400, { error: check.reason });
+              return;
+            }
+            configStore.set('settings.aiSkills.disabled', list);
+            continue;
           }
           configStore.set(`settings.${key}`, value);
         }
@@ -2742,6 +2776,32 @@ app.whenReady().then(async () => {
         await aiManager.ensureSkillsFresh();
         // getSkillsForManagement() 是**同步**的（零 IO 的缓存投影），不要 await 它
         sendJson(res, 200, aiManager.getSkillsForManagement());
+        return;
+      }
+
+      // 启用 / 禁用单个技能（Phase 50 D-05 / USER-02）—— 增量载荷 `{name, disabled}`。
+      // 增量而非全量（`{disabled: [...]}`）：读-改-写全程在主进程内同步完成，
+      // 两个并发的设置页操作不会互相覆盖；全量载荷会在并发下丢更新。
+      if (route === 'set-disabled' && req.method === 'POST') {
+        if (!aiManager) {
+          sendJson(res, 503, { error: 'AI 服务尚未就绪' });
+          return;
+        }
+        const { name, disabled } = await readJsonBody(req);
+        sendJson(res, 200, await aiManager.setSkillDisabled(name, disabled));
+        return;
+      }
+
+      // 卸载用户技能（Phase 50 D-07 / USER-06）—— 仅 `source === 'user'` 可删。
+      // **判据全在 ai-skills-manager.deleteUserSkill()**：本 handler 只是转发层，
+      // 手改 URL 直接调本端点同样会被拒（ROADMAP 判据 3 的承重点）。
+      if (route === 'uninstall' && req.method === 'POST') {
+        if (!aiManager) {
+          sendJson(res, 503, { error: 'AI 服务尚未就绪' });
+          return;
+        }
+        const { name } = await readJsonBody(req);
+        sendJson(res, 200, await aiManager.uninstallUserSkill(name));
         return;
       }
 
