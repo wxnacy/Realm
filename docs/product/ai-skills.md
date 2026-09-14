@@ -101,7 +101,7 @@
 - 取消归属与用户气泡时序：`node --test tests/test-ai-cancel-state.js`（取消归属判定与用户气泡时序的纯逻辑用例 + renderer 接线护栏）
 - 内置技能播种：`node tests/test-builtin-skills-seeder.js`（随包源解析 / 自愈式播种 / 差异诊断 / 零安装语义扫描 / 上游快照与归属门禁）
 - 回归：`node tests/test-agent-workspace.js`（沙箱与工作区目录）
-- 技能管理数据面：`node tests/test-skills-management.js`（**47 例，实测**）—— 管理投影形状与三档分组 / 体积与文件数口径（含「统计不可用」分支与「不进 digest」的值副本用例）/ 仅 user 可卸载的三态拒绝面（**直接调 manager 函数**，不经 handler）/ 管理面名称谓词与禁用名单校验 / 样式硬禁令 / 交互面（启停四态 / 卸载确认 / inline hint / 位置保持）/ 诊断两层承载
+- 技能管理数据面：`node tests/test-skills-management.js`（**49 例，实测**）—— 管理投影形状与三档分组 / 体积与文件数口径（含「统计不可用」分支与「不进 digest」的值副本用例）/ 仅 user 可卸载的三态拒绝面（**直接调 manager 函数**，不经 handler）/ 管理面名称谓词与禁用名单校验 / 样式硬禁令 / 交互面（启停四态 / 卸载确认 / inline hint / 位置保持）/ 诊断两层承载
 - 技能管理 HTTP 与传输面：`node tests/test-skills-http-api.js`（**32 例，实测**）—— 两个写子路由与转发目标 / `{ error, code }` 形状 / `/api/settings/update` 双键覆盖与「拒绝时不落盘」/ 体积闸的真实 `http` 行为（413 可达 / 无 `unhandledRejection` / 堆不线性增长 / 反向对照）/ 调用点覆盖度与常量单源 / 双入口跨文件一致性
 - 端到端（人工）：`npm run dev` → 确认两个技能目录已创建 → 问 AI「你有哪些技能」应答出 name / description → 问一个命中 description 的任务，观察是否调 `read` 打开 `location` → 直接编辑 `agent-workspace/skills/<x>/SKILL.md` 后切换对话，下一条消息应反映改动
 - 打包态（人工，**不可用 `npm run dev` 替代**）：`make install-nightly` 后启动 .app，确认 `Contents/Resources/app.asar.unpacked/skills-builtin/` 与 `~/Library/Application Support/realm-nightly/agent-workspace/managed-skills/` 下两个内置技能都在
@@ -542,7 +542,7 @@ AI 通过一个 `manage_skill` 工具把流程 / 经验沉淀为自己的技能�
 - 自建技能域：`node tests/test-manage-skill.js`（**55 例，实测**）—— 三动作 / 校验器值域（含 description 值域与写↔读闸口边界：`: ` / `#` / 裸标量 / 纯零宽） / 四类撞名与 seeded 三入口 / 原子写与失败清理 / 字段分离扫描 / 扫描-净化顺序 / 数量闸 / 幽灵技能与越界护栏
 - 接线与刷新链：`node tests/test-ai-skills.js`（**187 例，实测**）的 M 组（卡片标记两时点与终态元数据通道，含失败态原因码的词缀与重载还原）与 L 组（刷新链时序与次数账，含三态 `promptIncluded` 的消费侧）；M9b：a11y 增量的条件施加（守卫内施加 + 两个调用点取值 + 单源未破）
 - 卡片纯逻辑：`node --test tests/test-skill-picker-model.js`（**115 例，实测**）—— 含卡片标记并入函数 `mergeManageSkillMarker` 的值域，以及本轮新增的卡片头部超预算标注面：**≤ 4 字投影**（`PROMPT_OMITTED_CARD_NOTE` 的投影性 / 第二段 / 值域）、**48 原文冻结**（`STATUS_TEXT.promptOmitted` 逐字未变 + 另三键冻结）与**九码长度上限**（失败短原因每值非空且 ≤ 6 字）
-- 技能管理数据面：`node tests/test-skills-management.js`（**47 例，实测**）—— 管理投影 / 尺寸口径 / 启停 / 卸载三态 / 名单清理 / 双入口与注入纪律源码扫描
+- 技能管理数据面：`node tests/test-skills-management.js`（**49 例，实测**）—— 管理投影 / 尺寸口径 / 启停 / 卸载三态 / 名单清理 / 双入口与注入纪律源码扫描
 - 技能管理 HTTP 与传输面：`node tests/test-skills-http-api.js`（**32 例，实测**）—— 写路由与转发 / 双键校验「拒绝时不落盘」 / SEC-09 体积闸与降级分支 / 调用点覆盖度 / 双入口跨文件
 - 人工观察（唯一）：让 AI 建一个技能 → 观察卡片 → **不重开对话**发下一条消息问「你有哪些技能」→ 应答含新技能名。此层需要真实 LLM 往返，**不可自动化**（步骤见 `49-VALIDATION.md` 的 Manual-Only 表）
 
@@ -678,7 +678,7 @@ console.log("counts-parity ok");console.log("cells="+cells+" measured="+JSON.str
 
 维护约定见 [AGENTS.md](../../AGENTS.md) 的「技能管理面（设置页 + `/api/skills/*`）的维护约定」条目（权威指针 + 同步义务 + 四条硬约束 + 测试口径）。
 
-- 管理数据面：`node tests/test-skills-management.js`（**47 例，实测**）—— 管理投影形状与三档分组 / 体积与文件数口径（含「统计不可用」分支与「不进 `digest`」的值副本用例）/ 仅 user 可卸载的三态拒绝面（**直接调 manager 函数**，不经 handler）/ 管理面名称谓词与禁用名单校验 / 服务端拒绝不经 handler / 样式硬禁令 / 交互面（启停四态 / 卸载确认 / inline hint / 位置保持）/ 诊断两层承载
+- 管理数据面：`node tests/test-skills-management.js`（**49 例，实测**）—— 管理投影形状与三档分组 / 体积与文件数口径（含「统计不可用」分支与「不进 `digest`」的值副本用例）/ 仅 user 可卸载的三态拒绝面（**直接调 manager 函数**，不经 handler）/ 管理面名称谓词与禁用名单校验 / 服务端拒绝不经 handler / 样式硬禁令 / 交互面（启停四态 / 卸载确认 / inline hint / 位置保持）/ 诊断两层承载
 - HTTP 与传输面：`node tests/test-skills-http-api.js`（**32 例，实测**）—— 写子路由与转发目标 / `{ error, code }` 形状 / `/api/settings/update` 双键覆盖与「拒绝时不落盘」/ 体积闸的真实 `http` 行为（413 可达 / 无 `unhandledRejection` / 堆不线性增长 / 反向对照）/ 降级分支 / 调用点覆盖度与常量单源 / 双入口跨文件一致性
 - **本项目没有 `npm test` 脚本**：所有命令一律用具名形式（`node tests/<file>.js` / `node --test tests/<file>.js`）。
 

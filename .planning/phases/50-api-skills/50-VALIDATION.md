@@ -73,7 +73,7 @@ created: "2026-09-14"
 
 > **全部已交付**（`wave_0_complete: true`）。逐条指向落地计划。
 
-- [x] `tests/test-skills-management.js` —— **新建独立套件**（50-01 建，50-02 / 50-04 扩；现 **47 例**），覆盖管理投影 / 尺寸口径 / 卸载三态 / 名单清理 / 名称谓词与禁用名单校验 / 双入口与注入纪律源码扫描 / 样式硬禁令 / 交互面 / 诊断两层承载
+- [x] `tests/test-skills-management.js` —— **新建独立套件**（50-01 建，50-02 / 50-04 扩；现 **49 例**），覆盖管理投影 / 尺寸口径 / 卸载三态 / 名单清理 / 名称谓词与禁用名单校验 / 双入口与注入纪律源码扫描 / 样式硬禁令 / 交互面 / 诊断两层承载
 - [x] `tests/test-skills-http-api.js` —— **新建独立套件**（50-02 建，50-03 扩；现 **32 例**），覆盖 HTTP 写路由与转发目标 / `{ error, code }` 形状 / 双键校验「拒绝时不落盘」/ SEC-09 体积闸的真实 `http` 行为与降级分支 / 调用点覆盖度与常量单源 / 双入口跨文件一致性
 - [x] `tests/test-ai-skills.js` 新增用例组（50-02：写路径次数账 + **忙时补播** + 卸载名单清理 + 判据读盘），其 fake `configStore` 已补 `set`（现 **187 例**）
 - [x] `tests/test-manage-skill.js` 的冻结断言刷新（50-02：恰十一键 / 十码，含 describe 标题自洽；现 **55 例**）
@@ -128,7 +128,7 @@ console.log("counts-parity ok");console.log("cells="+cells+" measured="+JSON.str
 '
 ```
 
-**收口实测（2026-09-14，50-05）**：`counts-parity ok cells=16 measured={"test-manage-skill.js":"55","test-ai-skills.js":"187","test-skill-picker-model.js":"115","test-skills-management.js":"47","test-skills-http-api.js":"32"}`。
+**收口实测（2026-09-14，50-05）**：`counts-parity ok cells=16 measured={"test-manage-skill.js":"55","test-ai-skills.js":"187","test-skill-picker-model.js":"115","test-skills-management.js":"49","test-skills-http-api.js":"32"}`。
 
 ---
 

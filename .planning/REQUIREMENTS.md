@@ -48,8 +48,8 @@ Requirements for v2.6. Each maps to roadmap phases.
 
 ### USER — 用户技能管理（设置页 + 导入）
 
-- [ ] **USER-01**: 设置页 AI 分区新增「技能管理」区，列出技能的名称 / 描述 / 来源 / 体积 / 文件数 / 诊断
-- [ ] **USER-02**: 设置页可启用 / 禁用 / 卸载技能
+- [x] **USER-01**: 设置页 AI 分区新增「技能管理」区，列出技能的名称 / 描述 / 来源 / 体积 / 文件数 / 诊断
+- [x] **USER-02**: 设置页可启用 / 禁用 / 卸载技能
 - [ ] **USER-03**: 用户可通过上传 **zip 包**导入技能（单技能包语义；0 个或多个技能根 → 报错并提示）
 - [ ] **USER-04**: 用户可通过**网络地址**导入技能，自动分流 GitHub 仓库/目录地址 与 SKILL.md 直链
 - [ ] **USER-05**: 导入采用两阶段（预览 → 确认落盘），预览展示名称 / description 原文 / 目录树 / 字节数 / 脚本清单（标红）/ 威胁扫描结论
@@ -140,8 +140,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MGMT-04 | Phase 49 | Complete |
 | MGMT-05 | Phase 49 | Complete |
 | MGMT-06 | Phase 49 | Complete |
-| USER-01 | Phase 50 | Pending |
-| USER-02 | Phase 50 | Pending |
+| USER-01 | Phase 50 | Complete |
+| USER-02 | Phase 50 | Complete |
 | USER-03 | Phase 51 | Pending |
 | USER-04 | Phase 51 | Pending |
 | USER-05 | Phase 51 | Pending |
