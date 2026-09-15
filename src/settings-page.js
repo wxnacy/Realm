@@ -5723,16 +5723,17 @@ function setupSkillManageListeners() {
 
 /* Phase 51 skill-import region: start */
 /*
- * 本区（51-03）只交付**最小可用入口**：选一个 zip → `POST /api/skills/import`（raw binary）
- * → 预览（六字段骨架）→ 确认 → 落进 `skills/<name>/`。完整弹框（两 tab / 必勾风险确认 /
- * 冲突三选一 / 目录树与脚本清单的折叠交互 / 禁用原因行 / 专属样式）全部归 **51-06**。
+ * 设置页的**导入技能弹框**（D-18 / `51-UI-SPEC.md` 的完整契约）：两模式、两阶段预览、
+ * 必勾风险确认、冲突三选一、四情形禁用原因、9 态状态机、键盘与 AT 契约。
  *
  * ## 注入纪律（硬约束，TD-48-01 未修时尤其重要）
  *
  * 预览里渲染的**全部字符串都来自不可信包**（技能名 / description 原文 / 目录树路径 /
- * 文件名 / 脚本清单 / 诊断原文）。本区**零 innerHTML / insertAdjacentHTML / 字符串模板
- * 拼 HTML** —— 整棵 DOM 用 document.createElement + textContent / el.title 构建。
+ * 文件名 / 脚本清单 / 扫描结论 / `allowed-tools` 值）。本区**零 HTML 字符串模板** ——
+ * 不存在任何 `innerHTML` / `insertAdjacentHTML` 路径，整棵 DOM 用
+ * document.createElement + textContent / el.title / setAttribute 构建。
  * 属性经 DOM 属性赋值注入（不走 HTML 解析）⇒ **不扩大** escapeHtml「不转义引号」的缺口。
+ * 类名 / id / dataset 全部是**白名单字面量**，包内字符串不参与它们的拼接。
  *
  * ## 数据通道
  *
@@ -5740,49 +5741,364 @@ function setupSkillManageListeners() {
  * `Content-Type: application/zip` 与 `/api/*` **同源**（`main.js` 零
  * `Access-Control-Allow-*`）⇒ `File` 可直接作 `fetch` 的 body，**无需 FileReader、
  * 无需 base64、不触发预检**（D-01）。
+ *
+ * ## 状态机纪律（硬要求）
+ *
+ * `setImportState()` 是**唯一**决定「状态行文本 / 预览区显隐 / 必勾区渲染 / 冲突区渲染 /
+ * 动作区两个按钮的 disabled + `#skillImportGate` 文本」的地方。
+ * **禁止在别处重写 if 链** —— 任何新的状态分支都必须落进这一个函数。
+ *
+ * ## 失败落点两分（不得混用）
+ *
+ * 弹框打开期间的一切失败只进**弹框内状态行**（`#skillImportStatus`）——
+ * 区级 hint 此刻被遮罩挡住 = 用户看不到 = 静默失败。弹框关闭后的结果才走
+ * `setSkillManageHint`（复用 50 的 2 秒无条件复位 + clearTimeout 纪律）。
  */
 
-/** 导入弹框的模块级状态（`{ importId, preview, triggerBtn }`；`null` = 未打开） */
+/** 弹框内的 9 个状态取值（`51-UI-SPEC.md` 的状态机表是唯一权威） */
+const SKILL_IMPORT_STATE = Object.freeze({
+  IDLE_LOCAL: 'idle-local',
+  IDLE_URL: 'idle-url',
+  READING: 'reading',
+  DOWNLOADING: 'downloading',
+  READY: 'ready',
+  COMMITTING: 'committing',
+  SUCCESS: 'success',
+  FAILED: 'failed',
+  EXPIRED: 'expired',
+});
+
+/**
+ * 状态行文案（定长，Copywriting #6 / #9 / #10 / #32）
+ *
+ * ⚠️ 两行 idle 的内容不同是**刻意的**：#6「尚未选择 zip 文件」是本地上传专属；
+ * **网络地址**模式的空态由面板内的地址形态说明 + 动作区的禁用原因共同承担
+ * ⇒ 状态行**留空**并 CSSOM `display:none`（该行留空是契约定值，不是未定义状态）。
+ */
+const SKILL_IMPORT_STATUS_TEXT = Object.freeze({
+  'idle-local': '尚未选择 zip 文件',
+  'idle-url': '',
+  reading: '正在读取技能包…',
+  downloading: '正在从网络地址下载…',
+  ready: '预览已就绪，确认后才会写入。',
+  committing: '正在写入技能，请稍候…',
+  success: '',
+  failed: '',
+  expired: '预览已过期，请重新选择文件。',
+});
+
+/**
+ * 禁用原因的可见文本（Copywriting #40 的六条定长串）
+ *
+ * 这些文本**必须上屏**：`.btn:disabled` 的 `pointer-events: none` 让 `title` 根本无法触发，
+ * 且 `disabled` 元素不可聚焦（读屏也读不到）⇒ 原因只能靠 `#skillImportGate` 承载。
+ */
+const SKILL_IMPORT_GATE_TEXT = Object.freeze({
+  pickLocal: '请先选择 zip 文件',
+  enterUrl: '请输入网络地址',
+  busy: '正在处理，请稍候…',
+  ack: '请先勾选「我已了解以上风险」',
+  conflict: '请选择覆盖、改名或取消',
+  newName: '请输入新的技能名',
+});
+
+/**
+ * 导入弹框的模块级状态（`null` = 未打开）
+ *
+ * @type {null|{importId: ?string, preview: ?object, triggerBtn: ?HTMLElement, mode: string,
+ *   state: string, detail: string, ackChecked: boolean, conflictChoice: string,
+ *   newName: string, renameError: string, treeExpanded: boolean, scriptsExpanded: boolean}}
+ */
 let skillImportTarget = null;
 
-/** 打开 / 关闭导入弹框（初始隐藏走 CSS 类；显隐一律用 CSSOM 具体值，不用 `''` 回落） */
+/** 在途请求的中止控制器（本地读取与网络下载都可中断 —— `AbortController` 真正中止请求） */
+let skillImportAbort = null;
+
+/** `document` 上的 `Escape` 监听只注册一次（幂等护栏） */
+let skillImportEscapeBound = false;
+
+/** 清空「决策面」（必勾 / 冲突选择 / 改名 / 就近错误）—— **不动** importId 与 preview */
+function resetSkillImportDecision() {
+  const target = skillImportTarget;
+  if (!target) return;
+  target.ackChecked = false;
+  target.conflictChoice = '';
+  target.newName = '';
+  target.renameError = '';
+  target.treeExpanded = false;
+  target.scriptsExpanded = false;
+  const ackEl = document.getElementById('skillImportAck');
+  if (ackEl) ackEl.replaceChildren();
+  const conflictEl = document.getElementById('skillImportConflict');
+  if (conflictEl) conflictEl.replaceChildren();
+}
+
+/** 清空整个预览面（预览 / 句柄 / 决策面）—— 模式切换、失败、过期与关闭复位共用 */
+function resetSkillImportSurfaces() {
+  const target = skillImportTarget;
+  if (target) {
+    target.importId = null;
+    target.preview = null;
+    target.detail = '';
+  }
+  const previewEl = document.getElementById('skillImportPreview');
+  if (previewEl) {
+    previewEl.replaceChildren();
+    previewEl.classList.remove('active');
+  }
+  resetSkillImportDecision();
+}
+
+/** 切模式的面板 / `aria-pressed` / 初始焦点（`focus: false` 用于打开时先显示再取焦） */
+function applySkillImportMode(mode, { focus = true } = {}) {
+  const target = skillImportTarget;
+  const isLocal = mode !== 'url';
+  if (target) target.mode = isLocal ? 'local' : 'url';
+  const localPanel = document.getElementById('skillImportPanelLocal');
+  const urlPanel = document.getElementById('skillImportPanelUrl');
+  const localTab = document.getElementById('skillImportTabLocal');
+  const urlTab = document.getElementById('skillImportTabUrl');
+  if (localPanel) localPanel.classList.toggle('active', isLocal);
+  if (urlPanel) urlPanel.classList.toggle('active', !isLocal);
+  if (localTab) localTab.setAttribute('aria-pressed', String(isLocal));
+  if (urlTab) urlTab.setAttribute('aria-pressed', String(!isLocal));
+  if (!focus) return;
+  // 初始焦点落在**当前模式面板内的第一个可交互元素**（不落在确认按钮 —— 避免误触落盘）
+  const first = isLocal
+    ? document.getElementById('skillImportPick')
+    : document.getElementById('skillImportUrl');
+  if (first && typeof first.focus === 'function') first.focus();
+}
+
+/** 切模式（用户在两个 tab 之间切换）：按状态机重置到对应的 idle 态 */
+function setImportMode(mode) {
+  if (!skillImportTarget) return;
+  // 丢掉上一个模式的预览（避免「隐藏但陈旧」的中间态）；后端句柄尽力归还
+  discardSkillImportHandle();
+  cancelSkillImportRequest();
+  resetSkillImportSurfaces();
+  applySkillImportMode(mode);
+  setImportState(skillImportTarget.mode === 'url' ? SKILL_IMPORT_STATE.IDLE_URL : SKILL_IMPORT_STATE.IDLE_LOCAL);
+}
+
+/**
+ * **状态机单点** —— 唯一决定状态行 / 预览区显隐 / 必勾区 / 冲突区 / 动作区的地方
+ *
+ * 禁止在别处重写 if 链：任何新增的状态分支都必须落进本函数（UI-SPEC 状态机表的机械形式）。
+ *
+ * @param {string} state - 取 `SKILL_IMPORT_STATE` 之一
+ * @param {string} [detail] - `failed` 态的状态行文案（按码查表后的可读原因）
+ */
+function setImportState(state, detail = '') {
+  const target = skillImportTarget;
+  if (!target) return;
+  target.state = state;
+  target.detail = detail || '';
+
+  // ① 状态行：文本与色调一并决定（不允许「只改文字不改色」的路径）
+  const statusEl = document.getElementById('skillImportStatus');
+  if (statusEl) {
+    const text =
+      state === SKILL_IMPORT_STATE.FAILED
+        ? target.detail
+        : SKILL_IMPORT_STATUS_TEXT[state] || '';
+    statusEl.textContent = text;
+    statusEl.classList.remove('skill-manage-hint-success', 'skill-manage-hint-danger');
+    if (state === SKILL_IMPORT_STATE.FAILED || state === SKILL_IMPORT_STATE.EXPIRED) {
+      statusEl.classList.add('skill-manage-hint-danger');
+    }
+    // 空文本经 CSSOM 置 display:none（不占位、不留残留外边距）；显隐一律用**具体值**
+    statusEl.style.display = text ? 'block' : 'none';
+  }
+
+  // ② 预览区显隐（`.active` ⇒ display:flex，弹框内唯一滚动容器）
+  const previewEl = document.getElementById('skillImportPreview');
+  if (previewEl) {
+    const showPreview =
+      (state === SKILL_IMPORT_STATE.READY ||
+        state === SKILL_IMPORT_STATE.COMMITTING ||
+        state === SKILL_IMPORT_STATE.FAILED) &&
+      previewEl.childElementCount > 0;
+    previewEl.classList.toggle('active', showPreview);
+  }
+
+  // ③ 必勾区 / 冲突区渲染 —— **由 Task 2 的两条渲染函数按预览内容条件渲染**（E14 / E15），
+  //    它们是条件渲染，不命中时整块不占位；状态机在这里只负责「清掉不属于当前状态的决策面」。
+
+  // ④ 动作区：提交中确认与取消**双双** disabled（本阶段唯一「连取消都不可用」的窗口）
+  const busy = state === SKILL_IMPORT_STATE.COMMITTING;
+  const cancelBtn = document.getElementById('skillImportCancel');
+  if (cancelBtn) cancelBtn.disabled = busy;
+
+  updateConfirmGate();
+}
+
+/**
+ * **门控唯一写入点** —— 确认按钮 / 「获取预览」按钮的 disabled 与 `#skillImportGate` 的可见原因
+ *
+ * 一律原生 `disabled`（`aria-disabled` 不阻止激活 —— 键盘 Enter 仍会触发点击 ⇒ 只做属性
+ * 「声明」是假安全）。原因**必须上屏**：`.btn:disabled` 的 `pointer-events: none` 让 `title`
+ * 根本无法触发，且 `disabled` 元素不可聚焦（读屏也读不到）。
+ */
+function updateConfirmGate() {
+  const target = skillImportTarget;
+  const gateEl = document.getElementById('skillImportGate');
+  const confirmBtn = document.getElementById('skillImportConfirm');
+  if (!target || !gateEl || !confirmBtn) return;
+
+  const previewEl = document.getElementById('skillImportPreview');
+  const hasPreview = !!previewEl && previewEl.childElementCount > 0;
+  const state = target.state;
+  const inFlight =
+    state === SKILL_IMPORT_STATE.READING ||
+    state === SKILL_IMPORT_STATE.DOWNLOADING ||
+    state === SKILL_IMPORT_STATE.COMMITTING;
+  const previewUsable =
+    hasPreview &&
+    (state === SKILL_IMPORT_STATE.READY ||
+      state === SKILL_IMPORT_STATE.COMMITTING ||
+      state === SKILL_IMPORT_STATE.FAILED);
+
+  let reason = '';
+  if (!previewUsable) {
+    // 情形 1：预览未就绪（idle / 在途 / 失败 / 过期）
+    reason = inFlight
+      ? SKILL_IMPORT_GATE_TEXT.busy
+      : target.mode === 'url'
+        ? SKILL_IMPORT_GATE_TEXT.enterUrl
+        : SKILL_IMPORT_GATE_TEXT.pickLocal;
+  }
+
+  confirmBtn.disabled = reason !== '' || state === SKILL_IMPORT_STATE.COMMITTING;
+  gateEl.textContent = reason;
+  gateEl.style.display = reason ? 'block' : 'none';
+
+  // 「获取预览」按钮：URL 输入为空 ⇒ disabled（E5 的空态 —— 与确认按钮同一门控面，
+  // 原因由上面的 `请输入网络地址` 承载）
+  const urlInput = document.getElementById('skillImportUrl');
+  const fetchBtn = document.getElementById('skillImportFetch');
+  if (fetchBtn) fetchBtn.disabled = !urlInput || urlInput.value.trim() === '';
+}
+
+/** 打开导入弹框（记录触发元素；复位契约一次到位） */
 function openSkillImportModal(triggerBtn) {
   const overlay = document.getElementById('skillImportModal');
   if (!overlay) return;
-  skillImportTarget = { importId: null, preview: null, triggerBtn: triggerBtn || null };
-  const previewEl = document.getElementById('skillImportPreview');
-  if (previewEl) previewEl.textContent = '';
-  const statusEl = document.getElementById('skillImportStatus');
-  if (statusEl) statusEl.textContent = '';
-  const confirmBtn = document.getElementById('skillImportConfirm');
-  if (confirmBtn) confirmBtn.disabled = true;
+  skillImportTarget = {
+    importId: null,
+    preview: null,
+    triggerBtn: triggerBtn || null,
+    mode: 'local',
+    state: SKILL_IMPORT_STATE.IDLE_LOCAL,
+    detail: '',
+    ackChecked: false,
+    conflictChoice: '',
+    newName: '',
+    renameError: '',
+    treeExpanded: false,
+    scriptsExpanded: false,
+  };
+  // 输入复位：URL 与文件输入都要清（避免上次的地址被静默重发）
+  const urlInput = document.getElementById('skillImportUrl');
+  if (urlInput) urlInput.value = '';
   const fileInput = document.getElementById('skillImportFile');
   if (fileInput) fileInput.value = '';
+  resetSkillImportSurfaces();
   overlay.style.display = 'flex';
-  const cancelBtn = document.getElementById('skillImportCancel');
-  if (cancelBtn) cancelBtn.focus(); // 默认焦点 = 安全选项
+  applySkillImportMode('local', { focus: false });
+  setImportState(SKILL_IMPORT_STATE.IDLE_LOCAL);
+  applySkillImportMode('local');
 }
 
+/**
+ * 关闭导入弹框 + **复位契约**
+ *
+ * 复位：预览 `replaceChildren()` 清空 / 状态行空 + `display:none` / 必勾与冲突选择清空 /
+ * URL 输入清空 / 文件输入置空（⚠️ `<input>` **没有** `reset()` 方法 —— 那是 `<form>` 的）。
+ * 关闭前**尽力**通知后端丢弃预览（失败**不阻塞关闭** —— TTL 到期与崩溃清扫兜底）。
+ * 焦点归还按 `isConnected` 判定；`isConnected === false` 时**不调用** `focus()`
+ *（也不主动把焦点移向任何其它节点）。
+ */
 function closeSkillImportModal(options = {}) {
   const overlay = document.getElementById('skillImportModal');
   const target = skillImportTarget;
+  const pendingId = target && target.importId ? target.importId : null;
   skillImportTarget = null;
+  cancelSkillImportRequest();
   if (overlay) overlay.style.display = 'none';
+
+  const previewEl = document.getElementById('skillImportPreview');
+  if (previewEl) {
+    previewEl.replaceChildren();
+    previewEl.classList.remove('active');
+  }
+  const statusEl = document.getElementById('skillImportStatus');
+  if (statusEl) {
+    statusEl.textContent = '';
+    statusEl.style.display = 'none';
+    statusEl.classList.remove('skill-manage-hint-success', 'skill-manage-hint-danger');
+  }
+  const ackEl = document.getElementById('skillImportAck');
+  if (ackEl) ackEl.replaceChildren();
+  const conflictEl = document.getElementById('skillImportConflict');
+  if (conflictEl) conflictEl.replaceChildren();
+  const gateEl = document.getElementById('skillImportGate');
+  if (gateEl) {
+    gateEl.textContent = '';
+    gateEl.style.display = 'none';
+  }
+  const urlInput = document.getElementById('skillImportUrl');
+  if (urlInput) urlInput.value = '';
   const fileInput = document.getElementById('skillImportFile');
   if (fileInput) fileInput.value = '';
+  const cancelBtn = document.getElementById('skillImportCancel');
+  if (cancelBtn) cancelBtn.disabled = false;
+  const confirmBtn = document.getElementById('skillImportConfirm');
+  if (confirmBtn) confirmBtn.disabled = true;
+
+  if (pendingId) discardSkillImportHandle(pendingId);
   if (options.restoreFocus !== false && target && target.triggerBtn && target.triggerBtn.isConnected) {
     target.triggerBtn.focus();
   }
 }
 
-/** 弹框内的状态行（成功 / 失败 / 处理中；与区级 hint 分开，避免 2 秒自动清空掩盖长文案） */
-function setSkillImportStatus(text, tone = '') {
-  const statusEl = document.getElementById('skillImportStatus');
-  if (!statusEl) return;
-  statusEl.textContent = text;
-  statusEl.classList.remove('skill-manage-hint-success', 'skill-manage-hint-danger');
-  if (tone === 'success') statusEl.classList.add('skill-manage-hint-success');
-  if (tone === 'danger') statusEl.classList.add('skill-manage-hint-danger');
+/**
+ * 尽力通知后端丢弃一个待确认预览（失败**不阻塞**关闭）
+ *
+ * 诚实边界：这是**尽力而为**，不是保证 —— 请求可能因弹框关闭 / 页面卸载而永远发不出去；
+ * 兜底是主进程侧的 TTL 到期清理与启动 / 退出时的残留清扫（D-02）。**不得**把它写成保证。
+ *
+ * @param {string} importId - 待丢弃的句柄（缺省取当前 `skillImportTarget.importId`）
+ */
+function discardSkillImportHandle(importId) {
+  const id = importId || (skillImportTarget && skillImportTarget.importId);
+  if (!id) return;
+  try {
+    Promise.resolve(
+      skillsApi(
+        'import',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'commit', importId: id, conflict: 'cancel' }),
+        },
+        {}
+      )
+    ).catch(() => {});
+  } catch (_err) {
+    /* 尽力而为：失败不阻塞关闭 */
+  }
+}
+
+/** 中止在途请求（本地读取与网络下载共用） */
+function cancelSkillImportRequest() {
+  if (!skillImportAbort) return;
+  try {
+    skillImportAbort.abort();
+  } catch (_err) {
+    /* 已结束 */
+  }
+  skillImportAbort = null;
 }
 
 /**
@@ -5926,67 +6242,140 @@ function renderSkillImportPreview(preview) {
 }
 
 /**
- * 上传一个 zip 文件（preview 阶段）—— `File` 直接作 body
+ * 取预览（**两个来源的唯一入口**）
  *
- * Content-Type **显式**给出：OS 识别出的 `file.type` 可能是 `application/x-zip-compressed`，
- * 也可能是空串，显式声明让它确定落在服务端的 raw zip 分支。
+ * - 本地上传：`Content-Type: application/zip` + `File` **直接作 body**（D-01）。
+ *   Content-Type **显式**给出：OS 识别出的 `file.type` 可能是 `application/x-zip-compressed`，
+ *   也可能是空串，显式声明让它确定落在服务端的 raw zip 分支。
+ * - 网络地址：`Content-Type: application/json` + `{ mode: 'url', url }`。
  *
- * @param {File} file - 用户选择的 zip 文件
+ * 请求带 `AbortController` 的 signal ⇒ 「取消」能**真正中止请求**，不只是关掉弹框。
+ *
+ * @param {{kind: 'zip'|'url', file?: File, url?: string}} source - 预览来源
  */
-async function importZipAsSkill(file) {
-  if (!file) return;
-  const confirmBtn = document.getElementById('skillImportConfirm');
-  const pickBtn = document.getElementById('skillImportPick');
-  if (confirmBtn) confirmBtn.disabled = true;
-  if (pickBtn) pickBtn.disabled = true;
-  setSkillImportStatus('正在上传并校验…');
+async function fetchSkillImportPreview(source) {
+  if (!skillImportTarget) return;
+  const kind = source && source.kind;
+  cancelSkillImportRequest();
+  setImportState(kind === 'url' ? SKILL_IMPORT_STATE.DOWNLOADING : SKILL_IMPORT_STATE.READING);
+  const controller = new AbortController();
+  skillImportAbort = controller;
+  const options =
+    kind === 'url'
+      ? {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'url', url: (source && source.url) || '' }),
+        }
+      : {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/zip' },
+          body: source && source.file,
+        };
+  options.signal = controller.signal;
   try {
-    const result = await skillsApi(
-      'import',
-      { method: 'POST', headers: { 'Content-Type': 'application/zip' }, body: file },
-      {}
-    );
+    const result = await skillsApi('import', options, {});
+    if (skillImportAbort === controller) skillImportAbort = null;
     if (!skillImportTarget) return; // 弹框在等待期间被关闭
     skillImportTarget.importId = result && result.importId ? result.importId : null;
     skillImportTarget.preview = result && result.preview ? result.preview : null;
+    resetSkillImportDecision();
     renderSkillImportPreview(skillImportTarget.preview);
-    setSkillImportStatus('校验完成，请确认下方预览', 'success');
-    if (confirmBtn) confirmBtn.disabled = !skillImportTarget.importId;
+    setImportState(SKILL_IMPORT_STATE.READY);
   } catch (err) {
+    if (skillImportAbort === controller) skillImportAbort = null;
+    if (!skillImportTarget) return;
+    if (err && (err.name === 'AbortError' || err.code === 'ABORT_ERR')) {
+      // 用户主动取消：回到当前模式的 idle 态（这是取消，不是失败）
+      resetSkillImportSurfaces();
+      setImportState(
+        skillImportTarget.mode === 'url' ? SKILL_IMPORT_STATE.IDLE_URL : SKILL_IMPORT_STATE.IDLE_LOCAL
+      );
+      return;
+    }
     console.error('[Realm] 技能导入预览失败:', err && err.message ? err.message : err);
-    setSkillImportStatus(skillManageErrorText(err), 'danger');
-  } finally {
-    if (pickBtn) pickBtn.disabled = false;
+    const info = describeSkillImportError(err);
+    // 失败时**保留**用户已选的文件 / 已填的 URL（可就地修正）；只清预览与决策面
+    resetSkillImportSurfaces();
+    setImportState(SKILL_IMPORT_STATE.FAILED, info.text);
   }
 }
 
-/** 提交导入（commit 阶段）—— 成功后由响应体的 `management` 投影重渲染列表 */
-async function commitSkillImport(importId) {
-  const confirmBtn = document.getElementById('skillImportConfirm');
-  if (confirmBtn) confirmBtn.disabled = true;
-  setSkillImportStatus('正在写入…');
+/**
+ * 提交导入（commit 阶段）
+ *
+ * - 冲突选择为「取消」时，执行结果 = **不落盘并关闭**（确认按钮文案此时为「关闭弹框」）。
+ * - 失败时弹框**保持打开**（可就地重试），且**保持**已勾的必勾项与已选的冲突项。
+ * - `import_expired` / `import_not_found` ⇒ 回到「未选包」态并给明确码文案（不静默失败）。
+ */
+async function performSkillImport() {
+  const target = skillImportTarget;
+  if (!target || !target.importId) return;
+  const choice = target.conflictChoice;
+
+  if (choice === 'cancel') {
+    closeSkillImportModal();
+    return;
+  }
+
+  setImportState(SKILL_IMPORT_STATE.COMMITTING);
+  const payload = { mode: 'commit', importId: target.importId };
+  if (choice) payload.conflict = choice;
+  if (choice === 'rename') payload.newName = target.newName.trim();
+
   try {
     const result = await skillsApi(
       'import',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'commit', importId }),
-      },
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) },
       {}
     );
+    const importedName =
+      (result && result.name) || (target.preview && target.preview.name) || '';
+    const management = result && result.management;
     closeSkillImportModal();
-    if (result && result.management) renderSkillManagement(result.management);
-    setSkillManageHint(`已导入技能「${(result && result.name) || ''}」`, 'success');
+    if (management) renderSkillManagement(management);
+    // 弹框关闭后的结果才走区级 hint（弹框打开期间走状态行 —— 见状态机纪律）
+    setSkillManageHint(`已导入「${importedName}」`, 'success');
   } catch (err) {
-    // 与卸载相反：**失败时弹框保持打开**，用户可就地重试（UI-SPEC 状态机）
+    if (!skillImportTarget) return;
     console.error('[Realm] 技能导入提交失败:', err && err.message ? err.message : err);
-    setSkillImportStatus(skillManageErrorText(err), 'danger');
-    if (confirmBtn) confirmBtn.disabled = false;
+    const info = describeSkillImportError(err);
+    if (info.code === 'import_expired' || info.code === 'import_not_found') {
+      resetSkillImportSurfaces();
+      setImportState(SKILL_IMPORT_STATE.EXPIRED, info.text);
+      return;
+    }
+    if (info.code === 'invalid_name') {
+      // 改名的合法性判定**只有主进程那一份** ⇒ 原样消费它回传的 message 作**就近**内联文案
+      skillImportTarget.renameError = info.message || info.text;
+    }
+    // 勾选状态与冲突选择**保持**（不静默复位）
+    setImportState(SKILL_IMPORT_STATE.FAILED, info.text);
   }
 }
 
-/** 绑定导入区的全部监听（由 `setupSkillManageListeners` 调用，保持单一入口） */
+/**
+ * 按 `code` 取失败文案（**不解析 message 的业务语义**，只在兜底里承载后端原文）
+ *
+ * ⚠️ 本函数由 T2 切到闭合白名单表 `SKILL_IMPORT_ERROR_TEXT`；在此之前沿用 50 的既有表，
+ * 保证每一步提交都是自洽可运行的。
+ *
+ * @param {Error} err - `skillsApi` 抛出的错误
+ * @returns {{code: string, text: string, message: string}}
+ */
+function describeSkillImportError(err) {
+  const code = err && typeof err.code === 'string' ? err.code : '';
+  const message = err && err.message ? String(err.message) : '';
+  return { code, text: skillManageErrorText(err), message };
+}
+
+/**
+ * 绑定导入区的全部监听（由 `setupSkillManageListeners` 调用，保持单一入口）
+ *
+ * `Escape` **挂在 `document`** 并以「弹框可见」为**前置守卫**早退 —— 因本契约不做焦点陷阱，
+ * 焦点可能被用户 Tab 到框外，挂 overlay 局部会让 `Escape` 静默失效（这是不做陷阱的直接后果，
+ * 必须由实现补偿掉）。与既有三处 `Escape` 处理器互不冲突（三者的守卫都要求各自的弹框可见）。
+ */
 function setupSkillImportListeners() {
   const openBtn = document.getElementById('skillImportOpen');
   const overlay = document.getElementById('skillImportModal');
@@ -5994,20 +6383,45 @@ function setupSkillImportListeners() {
   const pickBtn = document.getElementById('skillImportPick');
   const cancelBtn = document.getElementById('skillImportCancel');
   const confirmBtn = document.getElementById('skillImportConfirm');
+  const localTab = document.getElementById('skillImportTabLocal');
+  const urlTab = document.getElementById('skillImportTabUrl');
+  const urlInput = document.getElementById('skillImportUrl');
+  const fetchBtn = document.getElementById('skillImportFetch');
 
   if (openBtn) openBtn.addEventListener('click', () => openSkillImportModal(openBtn));
   if (pickBtn && fileInput) pickBtn.addEventListener('click', () => fileInput.click());
+  if (localTab) localTab.addEventListener('click', () => setImportMode('local'));
+  if (urlTab) urlTab.addEventListener('click', () => setImportMode('url'));
 
   if (fileInput) {
     fileInput.addEventListener('change', async (e) => {
-      const file = e.target.files && e.target.files[0];
+      const input = e.target;
+      const file = input && input.files && input.files[0];
       try {
-        if (file) await importZipAsSkill(file);
+        if (file) await fetchSkillImportPreview({ kind: 'zip', file });
       } finally {
         // 清空文件输入，保证同一文件第二次选择仍能触发 change
         //（⚠️ `<input>` **没有** reset() 方法 —— 那是 `<form>` 的）
-        e.target.value = '';
+        input.value = '';
       }
+      updateConfirmGate();
+    });
+  }
+
+  if (urlInput) {
+    // 输入为空 ⇒「获取预览」disabled 且在 #skillImportGate 说明「请输入网络地址」（E5 的空态）
+    urlInput.addEventListener('input', () => updateConfirmGate());
+    urlInput.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      if (!urlInput.value.trim()) return;
+      e.preventDefault();
+      fetchSkillImportPreview({ kind: 'url', url: urlInput.value.trim() });
+    });
+  }
+  if (fetchBtn) {
+    fetchBtn.addEventListener('click', () => {
+      if (!urlInput || !urlInput.value.trim()) return;
+      fetchSkillImportPreview({ kind: 'url', url: urlInput.value.trim() });
     });
   }
 
@@ -6016,19 +6430,33 @@ function setupSkillImportListeners() {
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) closeSkillImportModal();
     });
-    // Esc 关闭：焦点在弹框内时 keydown 冒泡到这里（无需全局监听器）
-    overlay.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeSkillImportModal();
+  }
+
+  // Escape：挂 document + 可见性前置守卫；`committing` 态**忽略**（不得让用户在结果未知时离开）；
+  // 在途（读取 / 下载）时取消 = 真正中止请求。
+  if (!skillImportEscapeBound) {
+    skillImportEscapeBound = true;
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const modal = document.getElementById('skillImportModal');
+      if (!modal) return;
+      if (window.getComputedStyle(modal).display === 'none') return; // 前置守卫：弹框不可见即早退
+      const target = skillImportTarget;
+      if (!target) return;
+      if (target.state === SKILL_IMPORT_STATE.COMMITTING) return; // 提交中忽略
+      e.preventDefault();
+      if (
+        target.state === SKILL_IMPORT_STATE.READING ||
+        target.state === SKILL_IMPORT_STATE.DOWNLOADING
+      ) {
+        cancelSkillImportRequest();
+      }
+      closeSkillImportModal();
     });
   }
 
   if (cancelBtn) cancelBtn.addEventListener('click', () => closeSkillImportModal());
-  if (confirmBtn) {
-    confirmBtn.addEventListener('click', () => {
-      const target = skillImportTarget;
-      if (target && target.importId) commitSkillImport(target.importId);
-    });
-  }
+  if (confirmBtn) confirmBtn.addEventListener('click', () => performSkillImport());
 }
 /* Phase 51 skill-import region: end */
 
