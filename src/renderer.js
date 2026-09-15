@@ -1907,11 +1907,14 @@ function bindWebviewEvents(tabId, webview) {
   // 网页右键菜单事件
   webview.addEventListener('context-menu', (e) => {
     const params = e.params || e.detail || {};
-    const isImage = params.mediaType === 'image' || params.hasImageContents;
-    const isLink = !!params.linkURL;
-    const type = isImage ? 'image' : isLink ? 'link' : 'general';
+    // 图片与链接是两个可同时成立的维度：`<a><img></a>` 上右键时
+    // mediaType='image' 且 linkURL 有值，必须同时给出图片组与链接组
+    // （旧实现按 isImage 优先单值分类，会丢掉链接组）
+    const hasImage = params.mediaType === 'image' || params.hasImageContents;
+    const hasLink = !!params.linkURL;
     window.realmAPI.showWebContextMenu({
-      type,
+      hasImage,
+      hasLink,
       linkURL: params.linkURL || '',
       srcURL: params.srcURL || '',
       mediaType: params.mediaType || 'none',
@@ -3859,6 +3862,13 @@ function handleContextMenuAction(channel, data) {
       if (data && data.url && data.containerId) {
         // 用户显式选择容器：explicitContainerId 优先于分配规则（决策 3）
         openUrl(data.url, { disposition: 'new-tab', explicitContainerId: data.containerId });
+      }
+      break;
+
+    case 'context-menu:search-text':
+      if (data && data.text) {
+        // 统一导航入口：纯文本经 normalizeUrl 转默认搜索引擎 URL，新标签前台打开
+        openUrl(data.text, { disposition: 'new-tab' });
       }
       break;
 

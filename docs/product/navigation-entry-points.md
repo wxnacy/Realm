@@ -43,9 +43,10 @@ openUrl(url, {
 | 收藏栏收藏项普通点击（`handleBookmarkClick`） | src/bookmarks-bar.js | `current-tab` |
 | 收藏栏 Cmd/Ctrl+点击 | src/bookmarks-bar.js | `new-tab`（规则命中时建到匹配容器——**预期行为变化**，原固定当前容器） |
 | 菜单内收藏项点击（`_handleMenuBookmarkClick`） | src/bookmarks-bar-menu.js | `current-tab` / Cmd+点击 `new-tab` |
-| 网页右键「在新标签页打开」 | renderer.js `context-menu:open-in-new-tab` | `new-tab` |
+| 网页右键「在新标签页打开」（图片 / 媒体 / 链接三组的同名项共用此通道） | renderer.js `context-menu:open-in-new-tab` | `new-tab` |
 | 网页右键「后台标签打开」 | renderer.js `context-menu:open-in-bg-tab` | `background-tab` |
 | 网页右键「在指定容器打开」 | renderer.js `context-menu:open-in-container` | `new-tab` + `explicitContainerId`（显式优先于规则） |
+| 网页右键「搜索"<选中文本>"」（有选中文本时出现在专属组末尾） | renderer.js `context-menu:search-text` | `new-tab`（传的是纯文本，经 normalizeUrl 转默认搜索引擎 URL，与地址栏/新标签页的文本兜底同源） |
 | Vim hint F 后台打开（`openInBgTab`） | renderer.js | `background-tab` |
 | AI 聊天消息链接点击 | renderer.js aiMessageList click | `new-tab` |
 | 收藏项右键「在新标签页打开」 | renderer.js `bookmarks-bar:navigate` IPC | `new-tab` |

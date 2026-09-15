@@ -84,15 +84,27 @@ function getGuestWebContents(guestContentsId) {
 }
 
 /**
- * 下载图片数据（支持 http/https URL 和 data: URL）
- * @param {string} imageURL - 图片 URL
- * @param {Electron.Session} [session] - 用于继承容器 cookie/referer 的 session
- * @returns {Promise<{buffer: Buffer, mimeType: string}>} 图片二进制数据与 MIME 类型
+ * 取 guest webContents 的 session（用于继承容器 cookie/referer，绕过防盗链）
+ * @param {Electron.WebContents|null} guestWebContents - guest webContents
+ * @returns {Electron.Session|undefined} session，guest 缺失或已销毁时为 undefined
  */
-async function fetchImageBuffer(imageURL, session) {
-  if (imageURL.startsWith('data:')) {
+function getGuestSession(guestWebContents) {
+  if (!guestWebContents || guestWebContents.isDestroyed()) return undefined;
+  return guestWebContents.session;
+}
+
+/**
+ * 下载 URL 指向的二进制数据（支持 http/https URL 和 data: URL）
+ * 图片复制、图片/媒体另存为共用
+ * @param {string} url - 目标 URL
+ * @param {Electron.Session} [session] - 用于继承容器 cookie/referer 的 session
+ * @param {string} [fallbackMimeType='application/octet-stream'] - 响应无 content-type 时的兜底值
+ * @returns {Promise<{buffer: Buffer, mimeType: string}>} 二进制数据与 MIME 类型
+ */
+async function fetchBinaryBuffer(url, session, fallbackMimeType = 'application/octet-stream') {
+  if (url.startsWith('data:')) {
     // data: URL：直接 base64 解码
-    const matches = imageURL.match(/^data:([^;]+);base64,(.+)$/);
+    const matches = url.match(/^data:([^;]+);base64,(.+)$/);
     if (!matches) {
       throw new Error('无效的 data: URL 格式');
     }
@@ -102,7 +114,7 @@ async function fetchImageBuffer(imageURL, session) {
   // http/https URL：使用 Electron net 模块下载（传入 session 继承 cookie）
   const { net } = require('electron');
   return new Promise((resolve, reject) => {
-    const request = net.request(session ? { url: imageURL, session } : imageURL);
+    const request = net.request(session ? { url, session } : url);
     const chunks = [];
     request.on('response', (response) => {
       if (response.statusCode !== 200) {
@@ -110,7 +122,7 @@ async function fetchImageBuffer(imageURL, session) {
         return;
       }
       const contentType = response.headers['content-type'] || '';
-      const mimeType = contentType.split(';')[0].trim() || 'image/png';
+      const mimeType = contentType.split(';')[0].trim() || fallbackMimeType;
       response.on('data', (chunk) => { chunks.push(chunk); });
       response.on('end', () => { resolve({ buffer: Buffer.concat(chunks), mimeType }); });
       response.on('error', reject);
@@ -118,6 +130,42 @@ async function fetchImageBuffer(imageURL, session) {
     request.on('error', reject);
     request.end();
   });
+}
+
+/**
+ * 从 URL 推断文件扩展名
+ * @param {string} url - 目标 URL
+ * @param {string} fallback - URL 无扩展名时的兜底扩展名
+ * @returns {string} 不含点的扩展名
+ */
+function guessFileExtension(url, fallback) {
+  const urlPath = String(url).split('?')[0];
+  const matched = urlPath.match(/\.([a-zA-Z0-9]{2,5})$/);
+  return matched ? matched[1] : fallback;
+}
+
+/**
+ * 弹出保存对话框并把 URL 内容写到用户选择的路径
+ * 失败、取消都有终态反馈（取消静默，失败 toast），不产生假成功
+ * @param {string} url - 目标 URL（http(s) / data:）
+ * @param {Object} options - 选项
+ * @param {string} options.defaultName - 保存对话框默认文件名
+ * @param {Electron.Session} [options.session] - 用于继承容器 cookie/referer
+ * @param {Electron.WebContents} options.hostWebContents - 用于发 toast
+ * @param {string} options.errorLogLabel - 失败日志前缀
+ * @returns {Promise<void>}
+ */
+async function saveUrlAsFile(url, { defaultName, session, hostWebContents, errorLogLabel }) {
+  try {
+    const { filePath, canceled } = await dialog.showSaveDialog({ defaultPath: defaultName });
+    if (canceled || !filePath) return;
+    const { buffer } = await fetchBinaryBuffer(url, session);
+    fs.writeFileSync(filePath, buffer);
+    sendToast(hostWebContents, '已保存');
+  } catch (err) {
+    console.error(`[Realm] ${errorLogLabel}:`, err.message);
+    sendToast(hostWebContents, '保存失败');
+  }
 }
 
 /**
@@ -174,7 +222,7 @@ async function decodeImageViaChromium(imageBuffer, mimeType) {
  */
 async function copyImageToClipboard(imageURL, hostWebContents, session) {
   try {
-    const { buffer, mimeType } = await fetchImageBuffer(imageURL, session);
+    const { buffer, mimeType } = await fetchBinaryBuffer(imageURL, session, 'image/png');
     let image = nativeImage.createFromBuffer(buffer);
     if (image.isEmpty()) {
       // webp/avif 等格式 nativeImage 不支持，走 Chromium 解码转 PNG
@@ -197,6 +245,24 @@ function sendToast(hostWebContents, message) {
   if (hostWebContents && !hostWebContents.isDestroyed()) {
     hostWebContents.send('context-menu:toast', { message });
   }
+}
+
+/**
+ * 菜单 label 中选中文本的最大长度（超出截断加省略号）
+ * 选中文本是网页内容、长度不受控，不截断会把菜单撑爆
+ * @type {number}
+ */
+const MENU_SELECTION_MAX_LENGTH = 24;
+
+/**
+ * 把选中文本压成适合做菜单 label 的单行短串
+ * @param {string} text - 原始选中文本
+ * @returns {string} 压平并截断后的文本
+ */
+function toMenuSelectionLabel(text) {
+  const flattened = String(text).replace(/\s+/g, ' ').trim();
+  if (flattened.length <= MENU_SELECTION_MAX_LENGTH) return flattened;
+  return `${flattened.slice(0, MENU_SELECTION_MAX_LENGTH)}…`;
 }
 
 // ==================== 通用菜单模板 ====================
@@ -521,16 +587,21 @@ function buildTabBarMenu(mainWindow) {
 /**
  * 构建网页右键菜单
  *
- * 根据 contextInfo.type 动态生成不同菜单：
- * - 'image' — 图片专属菜单（4 项）+ 通用菜单
- * - 'link' — 链接专属菜单（4 项 + 容器子菜单）+ 通用菜单
- * - 'general' — 仅通用菜单
+ * 专属菜单按可同时成立的维度拼接（组序：链接 → 图片 → 媒体 → 选中文本；
+ * 链接组在最前，与 Chrome 一致）：
+ * - 命中链接 → 链接专属项（4 项 + 容器子菜单）
+ * - 命中图片 → 图片专属项（4 项）
+ * - mediaType 为 video/audio → 媒体专属项（3 项；blob:/mediastream: 与流清单会置灰）
+ * - 图片链接（`<a><img></a>`）→ 链接组 + 图片组
+ * - 有选中文本 → 追加「搜索"<选中文本>"」（文本压平并截断后进 label）
+ * - 都没有 → 仅通用菜单
  *
  * @param {Object} contextInfo - 上下文信息
- * @param {string} contextInfo.type - 元素类型：'image' | 'link' | 'general'
+ * @param {boolean} contextInfo.hasImage - 右键落点是否为图片
+ * @param {boolean} contextInfo.hasLink - 右键落点是否在链接上（图片链接时两者皆为 true）
  * @param {string} contextInfo.linkURL - 链接 URL（type=link 时有值）
  * @param {string} contextInfo.srcURL - 图片/媒体 URL（type=image 时有值）
- * @param {string} contextInfo.mediaType - 媒体类型
+ * @param {string} contextInfo.mediaType - 媒体类型：'none' | 'image' | 'video' | 'audio'
  * @param {string} contextInfo.selectionText - 选中文本
  * @param {boolean} contextInfo.canGoBack - 是否可后退
  * @param {boolean} contextInfo.canGoForward - 是否可前进
@@ -547,69 +618,19 @@ function buildWebMenu(contextInfo, mainWindow) {
   const hostWebContents = mainWindow.webContents;
   const guestWebContents = getGuestWebContents(contextInfo.guestContentsId);
 
-  let specificItems = [];
-
-  // 图片菜单（per D-17 + UI-SPEC.md Image Context Menu）
-  if (contextInfo.type === 'image' && contextInfo.srcURL) {
-    specificItems = [
-      {
-        label: '在新标签页中打开图片',
-        click: () => {
-          if (!hostWebContents.isDestroyed()) {
-            hostWebContents.send('context-menu:open-in-new-tab', { url: contextInfo.srcURL });
-          }
-        },
-      },
-      {
-        label: '将图片另存为…',
-        click: async () => {
-          if (!guestWebContents || guestWebContents.isDestroyed()) return;
-          try {
-            const url = contextInfo.srcURL;
-            const urlPath = url.split('?')[0];
-            const ext = (urlPath.match(/\.([a-zA-Z0-9]{2,5})$/) || [])[1] || 'png';
-            const { filePath, canceled } = await dialog.showSaveDialog({
-              defaultPath: `image.${ext}`,
-            });
-            if (canceled || !filePath) return;
-            // 用 guest session 下载（继承容器 cookie/referer，bilibili 等防盗链图片可正常下载）
-            const { buffer } = await fetchImageBuffer(url, guestWebContents.session);
-            fs.writeFileSync(filePath, buffer);
-            sendToast(hostWebContents, '已保存');
-          } catch (err) {
-            console.error('[Realm] 图片另存为失败:', err.message);
-            sendToast(hostWebContents, '保存失败');
-          }
-        },
-      },
-      {
-        label: '复制图片',
-        click: () => {
-          // 传 guest session（与另存为一致，防盗链图片可正常下载）
-          copyImageToClipboard(
-            contextInfo.srcURL,
-            hostWebContents,
-            guestWebContents && !guestWebContents.isDestroyed() ? guestWebContents.session : undefined
-          );
-        },
-      },
-      {
-        label: '复制图片地址',
-        click: () => {
-          clipboard.writeText(contextInfo.srcURL);
-          sendToast(hostWebContents, '已复制');
-        },
-      },
-      { type: 'separator' },
-    ];
-  }
+  // 专属分组（各自末尾自带分隔符，展开后天然充当组间分隔符）
+  const specificGroups = [];
 
   // 链接菜单（per D-18 + UI-SPEC.md Link Context Menu）
-  if (contextInfo.type === 'link' && contextInfo.linkURL) {
+  // 排在图片/媒体组之前：与 Chrome 一致 —— 右键 `<a><img></a>` 时第一项是
+  // 「在新标签页中打开链接」，图片项跟在链接项之后
+  if (contextInfo.hasLink && contextInfo.linkURL) {
     // 构建容器子菜单
+    // 容器 icon 字段存的是语义名（briefcase / fingerprint / user / bank），
+    // 不是可渲染的字形，拼进 label 会显示成「briefcase 工作」，故只取名称
     const containers = contextInfo.containers || [];
     const containerSubmenu = containers.map((container) => ({
-      label: `${container.icon || ''} ${container.name || container.id}`,
+      label: container.name || container.id,
       click: () => {
         if (!hostWebContents.isDestroyed()) {
           hostWebContents.send('context-menu:open-in-container', {
@@ -620,7 +641,7 @@ function buildWebMenu(contextInfo, mainWindow) {
       },
     }));
 
-    specificItems = [
+    specificGroups.push([
       {
         label: '在新标签页中打开链接',
         click: () => {
@@ -653,8 +674,119 @@ function buildWebMenu(contextInfo, mainWindow) {
         },
       },
       { type: 'separator' },
-    ];
+    ]);
   }
+
+  // 图片菜单（per D-17 + UI-SPEC.md Image Context Menu）
+  if (contextInfo.hasImage && contextInfo.srcURL) {
+    specificGroups.push([
+      {
+        label: '在新标签页中打开图片',
+        click: () => {
+          if (!hostWebContents.isDestroyed()) {
+            hostWebContents.send('context-menu:open-in-new-tab', { url: contextInfo.srcURL });
+          }
+        },
+      },
+      {
+        label: '将图片另存为…',
+        click: () => {
+          // 传 guest session：继承容器 cookie/referer，bilibili 等防盗链图片可正常下载
+          saveUrlAsFile(contextInfo.srcURL, {
+            defaultName: `image.${guessFileExtension(contextInfo.srcURL, 'png')}`,
+            session: getGuestSession(guestWebContents),
+            hostWebContents,
+            errorLogLabel: '图片另存为失败',
+          });
+        },
+      },
+      {
+        label: '复制图片',
+        click: () => {
+          // 传 guest session（与另存为一致，防盗链图片可正常下载）
+          copyImageToClipboard(
+            contextInfo.srcURL,
+            hostWebContents,
+            getGuestSession(guestWebContents)
+          );
+        },
+      },
+      {
+        label: '复制图片地址',
+        click: () => {
+          clipboard.writeText(contextInfo.srcURL);
+          sendToast(hostWebContents, '已复制');
+        },
+      },
+      { type: 'separator' },
+    ]);
+  }
+
+  // 媒体菜单（video / audio）
+  // blob:/mediastream: 是 MSE 或直播流：既不能跨上下文导航，也拿不到可下载的
+  // 二进制；流清单（.m3u8 / .mpd）是播放列表而非媒体文件，下载只会得到文本。
+  // 这两类入口一律置灰并在 label 上明示原因 —— 不给必然失败的菜单项
+  const mediaKindLabel = { video: '视频', audio: '音频' }[contextInfo.mediaType];
+  if (mediaKindLabel && contextInfo.srcURL) {
+    const mediaUrl = contextInfo.srcURL;
+    const isStreamSource = /^(blob:|mediastream:)/i.test(mediaUrl);
+    const isPlaylistUrl = /\.(m3u8|mpd)([?#]|$)/i.test(mediaUrl);
+    const canSaveMedia = !isStreamSource && !isPlaylistUrl;
+    specificGroups.push([
+      {
+        label: `在新标签页中打开${mediaKindLabel}`,
+        enabled: !isStreamSource,
+        click: () => {
+          if (!hostWebContents.isDestroyed()) {
+            hostWebContents.send('context-menu:open-in-new-tab', { url: mediaUrl });
+          }
+        },
+      },
+      {
+        label: canSaveMedia
+          ? `将${mediaKindLabel}另存为…`
+          : `将${mediaKindLabel}另存为…（流媒体不支持）`,
+        enabled: canSaveMedia,
+        click: () => {
+          saveUrlAsFile(mediaUrl, {
+            defaultName: `${contextInfo.mediaType}.${guessFileExtension(
+              mediaUrl,
+              contextInfo.mediaType === 'audio' ? 'mp3' : 'mp4'
+            )}`,
+            session: getGuestSession(guestWebContents),
+            hostWebContents,
+            errorLogLabel: `${mediaKindLabel}另存为失败`,
+          });
+        },
+      },
+      {
+        label: '复制媒体地址',
+        click: () => {
+          clipboard.writeText(mediaUrl);
+          sendToast(hostWebContents, '已复制');
+        },
+      },
+      { type: 'separator' },
+    ]);
+  }
+
+  // 选中文本（给搜索入口；「复制」已由通用菜单承担，不重复加项）
+  if (contextInfo.selectionText) {
+    specificGroups.push([
+      {
+        label: `搜索"${toMenuSelectionLabel(contextInfo.selectionText)}"`,
+        click: () => {
+          if (!hostWebContents.isDestroyed()) {
+            hostWebContents.send('context-menu:search-text', { text: contextInfo.selectionText });
+          }
+        },
+      },
+      { type: 'separator' },
+    ]);
+  }
+
+  // 展开分组（每组自带组尾分隔符，无需再插组间分隔符）
+  const specificItems = specificGroups.flat();
 
   // 通用菜单项
   const generalItems = buildGeneralMenuItems(contextInfo, guestWebContents, hostWebContents);

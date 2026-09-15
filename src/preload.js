@@ -652,9 +652,10 @@ contextBridge.exposeInMainWorld('realmAPI', {
 
   /**
    * 发送网页右键菜单请求
-   * 渲染进程检测到 webview 内右键点击后调用，主进程根据元素类型构建对应菜单
+   * 渲染进程检测到 webview 内右键点击后调用，主进程根据上下文构建对应菜单
    * @param {Object} contextInfo - 网页右键上下文信息
-   * @param {string} contextInfo.type - 元素类型：'general' | 'image' | 'link'
+   * @param {boolean} contextInfo.hasImage - 右键落点是否为图片（可链接的图片上同时为 true）
+   * @param {boolean} contextInfo.hasLink - 右键落点是否在链接上（图片链接上同时为 true）
    * @param {string} contextInfo.linkURL - 链接 URL（非链接时为空串）
    * @param {string} contextInfo.srcURL - 媒体元素 src URL
    * @param {string} contextInfo.mediaType - 媒体类型：'none' | 'image' | 'video' 等
@@ -682,12 +683,15 @@ contextBridge.exposeInMainWorld('realmAPI', {
    * 主进程菜单项被点击后，通过对应 channel 发送回调，渲染进程据此更新 UI
    * 支持的 channel：context-menu:close-tab, context-menu:close-other-tabs,
    * context-menu:close-left-tabs, context-menu:close-right-tabs,
-   * context-menu:reopen-tab, context-menu:toggle-pin,
+   * context-menu:reopen-tab, context-menu:toggle-pin, context-menu:new-tab,
    * context-menu:open-in-new-tab, context-menu:open-in-bg-tab,
-   * context-menu:open-in-container, context-menu:save-image,
-   * context-menu:copy-image, context-menu:copy-image-address,
-   * context-menu:copy-link-address, context-menu:add-to-favorites,
-   * context-menu:toast, context-menu:text-action
+   * context-menu:open-in-container, context-menu:search-text,
+   * context-menu:add-to-favorites, context-menu:toast,
+   * context-menu:text-action, context-menu:open-in-new-window
+   *
+   * 该清单必须与主进程 send 侧、renderer 的 case 分支三方一致：
+   * 多出条目 = 永远收不到的死通道，缺失条目 = 菜单项点了没反应。
+   * 由 tests/test-context-menu-channels.js 做机械判据。
    * @param {Function} callback - 回调函数，参数为 (channel: string, data: Object)
    */
   onContextMenuAction: (callback) => {
@@ -698,13 +702,11 @@ contextBridge.exposeInMainWorld('realmAPI', {
       'context-menu:close-right-tabs',
       'context-menu:reopen-tab',
       'context-menu:toggle-pin',
+      'context-menu:new-tab',
       'context-menu:open-in-new-tab',
       'context-menu:open-in-bg-tab',
       'context-menu:open-in-container',
-      'context-menu:save-image',
-      'context-menu:copy-image',
-      'context-menu:copy-image-address',
-      'context-menu:copy-link-address',
+      'context-menu:search-text',
       'context-menu:add-to-favorites',
       'context-menu:toast',
       'context-menu:text-action',
