@@ -683,12 +683,15 @@ contextBridge.exposeInMainWorld('realmAPI', {
    * 主进程菜单项被点击后，通过对应 channel 发送回调，渲染进程据此更新 UI
    * 支持的 channel：context-menu:close-tab, context-menu:close-other-tabs,
    * context-menu:close-left-tabs, context-menu:close-right-tabs,
-   * context-menu:reopen-tab, context-menu:toggle-pin,
+   * context-menu:reopen-tab, context-menu:toggle-pin, context-menu:new-tab,
    * context-menu:open-in-new-tab, context-menu:open-in-bg-tab,
-   * context-menu:open-in-container, context-menu:save-image,
-   * context-menu:copy-image, context-menu:copy-image-address,
-   * context-menu:copy-link-address, context-menu:add-to-favorites,
-   * context-menu:toast, context-menu:text-action
+   * context-menu:open-in-container, context-menu:add-to-favorites,
+   * context-menu:toast, context-menu:text-action,
+   * context-menu:open-in-new-window
+   *
+   * 该清单必须与主进程 send 侧、renderer 的 case 分支三方一致：
+   * 多出条目 = 永远收不到的死通道，缺失条目 = 菜单项点了没反应。
+   * 由 tests/test-context-menu-channels.js 做机械判据。
    * @param {Function} callback - 回调函数，参数为 (channel: string, data: Object)
    */
   onContextMenuAction: (callback) => {
@@ -699,13 +702,10 @@ contextBridge.exposeInMainWorld('realmAPI', {
       'context-menu:close-right-tabs',
       'context-menu:reopen-tab',
       'context-menu:toggle-pin',
+      'context-menu:new-tab',
       'context-menu:open-in-new-tab',
       'context-menu:open-in-bg-tab',
       'context-menu:open-in-container',
-      'context-menu:save-image',
-      'context-menu:copy-image',
-      'context-menu:copy-image-address',
-      'context-menu:copy-link-address',
       'context-menu:add-to-favorites',
       'context-menu:toast',
       'context-menu:text-action',
