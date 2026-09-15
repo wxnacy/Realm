@@ -4387,6 +4387,13 @@ app.whenReady().then(async () => {
 
   // 初始化 AI Manager（per Phase 19）
   aiManager = new AIManager();
+  // 技能导入临时区残留清扫（Phase 51 D-02 的崩溃兜底）：**只删 mtime 早于 2 × TTL** 的
+  // `skill-import-*` / `skill-replace-*` 残留 —— 陈旧性判据是硬要求，否则并发实例
+  // （dev / debug 共享 userData 且无单实例锁）会互删对方**正在预览**的包（WR-05 的形态）。
+  // 不 await、失败只告警：清扫不得阻塞启动。
+  aiManager.sweepSkillImports({ mode: 'stale' }).catch((err) => {
+    console.warn('[Realm AI] 启动清扫技能导入残留失败:', err && err.message ? err.message : err);
+  });
   // 注入操作确认通道（pendingActions 方案）：ai-manager 的高风险操作确认
   // 统一走本模块的 requestActionConfirmation，与渲染端 action:confirm/cancel 对接
   AIManager.setActionConfirmationHandler(requestActionConfirmation);
@@ -4829,6 +4836,12 @@ app.on('before-quit', async (event) => {
   // 此处紧随 app.quit()，网络服务进程终止后删除即永久，不会再被重建。
   const configuredIds = configStore.get('containers', []).map(c => c.id);
   cookieManager.cleanupOrphanPartitions(configuredIds);
+
+  // 技能导入临时区：只删**本进程 Map 里登记**的目录（own）—— 精确、无跨实例风险。
+  // 退出序列里追加一行即可，不新开 handler（Phase 51 D-02）。
+  if (aiManager) {
+    await aiManager.sweepSkillImports({ mode: 'own' }).catch(() => {});
+  }
 
   cookiesSaved = true;
   console.log('[Realm] Cookie 保存完成，请求退出 (app.quit)');

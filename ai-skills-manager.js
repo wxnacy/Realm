@@ -2283,6 +2283,28 @@ function importTmpSuffix() {
 }
 
 /**
+ * 该名字是否是**本管线的临时区残留**（`IMPORT_TMP_PREFIXES` 的任一前缀 + 非空剩余）
+ *
+ * ## 成对不变式（**正命题**，不得只写否命题）
+ *
+ * 本判据必须**正向匹配**两个前缀的**真实产物**：
+ * - `fs.mkdtempSync(path.join(getTmpDir(), 'skill-import-'))` ⇒ `skill-import-<6 位随机>`；
+ * - 覆盖事务的备份目录 ⇒ `skill-replace-<随机>`（`importUserSkill` 的覆盖分支）。
+ *
+ * 测试对**真实产物**（不是手工拼的字符串）断言 `true` —— 只写「不匹配非残留」的否命题
+ * 发现不了「前缀改了但判据没跟着改」。
+ *
+ * ⚠️ 剩余部分必须非空：裸前缀不是 `mkdtempSync` 的产物，删它等于删到别人手工建的东西。
+ *
+ * @param {string} name - `.tmp/` 下的目录名（basename，不是全路径）
+ * @returns {boolean}
+ */
+function isImportResidueName(name) {
+  const s = String(name == null ? '' : name);
+  return IMPORT_TMP_PREFIXES.some((p) => s.startsWith(p) && s.slice(p.length).length > 0);
+}
+
+/**
  * 导入面的错误码表（**独立命名空间**，CR-3）
  *
  * ## 为什么不并入 `MANAGE_SKILL_ERROR`
@@ -4042,6 +4064,7 @@ module.exports = {
   resolveImportConflict,
   countUserSkills,
   IMPORT_TMP_PREFIXES,
+  isImportResidueName,
   // 51 新增第三段（技能域威胁扫描：分表 + 返回命中列表的并列扫描函数）
   SKILL_THREAT_PATTERNS,
   scanSkillThreats,

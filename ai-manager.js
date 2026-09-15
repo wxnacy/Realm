@@ -122,6 +122,17 @@ function getAiSkillsManagerLazy() {
 }
 
 /**
+ * 导入面错误码表（`IMPORT_SKILL_ERROR`）—— 转发层**不得手抄码值**
+ *
+ * 与 `manage_skill` / 设置页同一条纪律：码表是**单源**（住 `ai-skills-manager.js`），
+ * `main.js` 的 handler 与前端只按 code 查文案。这里手抄一份字符串就会让
+ * 「后端多一个前端没文案的码」再次可能发生。
+ */
+function importSkillErrors() {
+  return getAiSkillsManagerLazy().IMPORT_SKILL_ERROR;
+}
+
+/**
  * 惰性 require 内置技能播种模块（seeded 身份的唯一数据源，48 D-14）
  *
  * builtin-skills-seeder 经 agent-workspace 间接依赖 electron（`app.isPackaged`），
@@ -1713,6 +1724,34 @@ class AIManager {
   }
 
   /**
+   * 清掉 `_skillImports` 里**已过期**的句柄（TTL）—— preview / commit 共用的一处实现
+   *
+   * 每条：从 Map 删除 + 删掉它名下的临时目录（失败只告警，不遮蔽主流程）。
+   * 不是定时器 —— 只在 preview 入口顺带跑一次（D-02 的「提交时顺带清扫过期项」）。
+   *
+   * @param {object} env - 沙箱 ExecutionEnv
+   * @returns {Promise<number>} 清掉的条数
+   * @private
+   */
+  async _purgeExpiredSkillImports(env) {
+    const ttl = getAiSkillsManagerLazy().IMPORT_LIMITS.IMPORT_TTL_MS;
+    const now = Date.now();
+    const expired = [];
+    for (const [id, rec] of this._skillImports) {
+      if (rec && now - (rec.createdAt || 0) > ttl) expired.push([id, rec]);
+    }
+    for (const [id, rec] of expired) {
+      this._skillImports.delete(id);
+      try {
+        await env.remove(rec.dir, { recursive: true, force: true });
+      } catch (err) {
+        console.warn('[Realm AI] 清理过期技能导入临时目录失败:', err && err.message ? err.message : err);
+      }
+    }
+    return expired.length;
+  }
+
+  /**
    * 技能导入 **preview 阶段**（Phase 51 D-02）—— 解压 + 校验 + 六字段预览
    *
    * ## 转发层纪律（零判定）
@@ -1745,22 +1784,38 @@ class AIManager {
       // 本阶段给**真实失败**而不是占位静默 —— 设置页据此给出可读文案。
       void url;
       const err = new Error('网络地址导入尚未启用，请改用「本地上传」选择 zip 文件');
-      err.code = 'unsupported_url';
+      err.code = importSkillErrors().UNSUPPORTED_URL;
       throw err;
     }
     if (kind !== 'zip') {
       const err = new Error('不支持的导入来源');
-      err.code = 'unsupported_url';
+      err.code = importSkillErrors().UNSUPPORTED_URL;
       throw err;
     }
     if (!Buffer.isBuffer(buffer)) {
       const err = new Error('上传内容为空或不是二进制数据');
-      err.code = 'not_a_zip';
+      err.code = importSkillErrors().NOT_A_ZIP;
       throw err;
     }
 
     const workspace = getAgentWorkspaceLazy();
     const env = this.sandboxEnv || (this.sandboxEnv = await workspace.createSandboxEnv());
+
+    // ① TTL 清扫（顺带做，不是定时器）：过期句柄 ⇒ 删 Map 项 + 删临时目录。
+    //    这是**兜底**（正常路径由 commit / cancel / 启动清扫覆盖）——
+    //    「预览已过期」必须是**明确码 + 可读原因**，不得静默失败。
+    await this._purgeExpiredSkillImports(env);
+
+    // ② 并发待确认导入上限（防内存 / 磁盘堆积，D-02）
+    const importLimits = getAiSkillsManagerLazy().IMPORT_LIMITS;
+    if (this._skillImports.size >= importLimits.MAX_PENDING_IMPORTS) {
+      const err = new Error(
+        `同时待确认的导入过多（上限 ${importLimits.MAX_PENDING_IMPORTS} 个），请先完成或取消上一个预览`
+      );
+      err.code = importSkillErrors().TOO_MANY_PENDING;
+      throw err;
+    }
+
     // 临时根**只在这里建一次**（`importDir` 契约：调用方建根并写 `<importDir>/pkg.zip`，
     // `extractAndValidatePackage` 不得自建第二个临时根）
     const importDir = fs.mkdtempSync(path.join(workspace.getTmpDir(), 'skill-import-'));
@@ -1817,24 +1872,43 @@ class AIManager {
    * `/` 面板会一直显示旧技能集。**禁止**把这行挪进 `syncAgentSystemPrompt()` 的
    * 函数体（46-04 的方法体源码扫描断言与 48 的广播次数断言同时钉着它）。
    *
-   * ## 句柄未命中与过期
+   * ## 句柄未命中 / 过期 / 失败保留
    *
-   * `importId` 不在表里 ⇒ `import_not_found`（文案「预览已失效，请重新选择文件」）；
-   * TTL 判定与清扫由 51-04 接（本阶段建表即含 `createdAt`，不静默失败）。
+   * `importId` 不在表里 ⇒ `import_not_found`（「预览已失效，请重新选择文件」）；
+   * `createdAt` 超 `IMPORT_TTL_MS` ⇒ 删 Map 项 + 删临时目录 + `import_expired`
+   * （「预览已过期，请重新选择文件」）—— 两条都是**明确码 + 可读原因**，不静默失败。
+   *
+   * ⚠️ **失败路径保留临时目录与 Map 项**：落盘失败（`importUserSkill` 抛错）时**不清理**，
+   * 用户可以**就地重试同一次预览**（UI-SPEC 状态机 `提交失败` 行的实现前提）。
+   * 只有 `import_expired` / `import_not_found` / 显式 `cancel` / **成功**才清。
    *
    * @param {{importId: string, conflict?: string, newName?: string}} params
    * @returns {Promise<object>} 导入报告 + `management`（最新管理面投影）
-   * @throws {Error} 句柄失效 / 任一拒绝路径（带 `code`，由调用方按 code 查文案表）
+   * @throws {Error} 句柄失效 / 过期 / 任一拒绝路径（带 `code`，由调用方按 code 查文案表）
    */
   async commitSkillImport({ importId, conflict, newName } = {}) {
     const record = this._skillImports.get(importId);
     if (!record) {
       const err = new Error('导入预览已失效，请重新选择文件');
-      err.code = 'import_not_found';
+      err.code = importSkillErrors().IMPORT_NOT_FOUND;
       throw err;
     }
 
     const env = this.sandboxEnv || (this.sandboxEnv = await getAgentWorkspaceLazy().createSandboxEnv());
+
+    // TTL 到期：删 Map 项 + 删临时目录 + **明确码**（不静默失败）
+    const ttl = getAiSkillsManagerLazy().IMPORT_LIMITS.IMPORT_TTL_MS;
+    if (Date.now() - (record.createdAt || 0) > ttl) {
+      this._skillImports.delete(importId);
+      try {
+        await env.remove(record.dir, { recursive: true, force: true });
+      } catch (err) {
+        console.warn('[Realm AI] 清理过期技能导入临时目录失败:', err && err.message ? err.message : err);
+      }
+      const err = new Error('预览已过期，请重新选择文件');
+      err.code = importSkillErrors().IMPORT_EXPIRED;
+      throw err;
+    }
 
     // 显式取消（D-08 的三选一之一）：**不落盘、不重扫、不补播** —— 没有变更就没有广播
     if (conflict === 'cancel') {
@@ -1847,7 +1921,8 @@ class AIManager {
       return { cancelled: true, management: this.getSkillsForManagement() };
     }
 
-    // 落盘：判据 / 校验 / 两段 rename / 回读验证全在 manager
+    // 落盘：判据 / 校验 / 两段 rename / 回读验证全在 manager。
+    // ⚠️ 此处**不包 try**：失败时保留句柄与临时目录，用户可以就地重试同一预览。
     const report = await getAiSkillsManagerLazy().importUserSkill(
       env,
       {
@@ -1872,6 +1947,107 @@ class AIManager {
     }
 
     return { ...report, management: this.getSkillsForManagement() };
+  }
+
+  /**
+   * 取消一次待确认的导入（Phase 51 D-02）—— **幂等，不抛**
+   *
+   * 命中 ⇒ 删 Map 项 + 删临时目录 + `{ cancelled: true }`；
+   * 不命中（未知 / 已被消费 / 已取消）⇒ `{ cancelled: false }` ——
+   * 取消路径**不应**因「已经没了」而报错（用户点两次「取消」是合法操作）。
+   *
+   * @param {{importId: string}} params
+   * @returns {Promise<{cancelled: boolean}>}
+   */
+  async cancelSkillImport({ importId } = {}) {
+    const record = this._skillImports.get(importId);
+    if (!record) return { cancelled: false };
+
+    this._skillImports.delete(importId);
+    const env = this.sandboxEnv || (this.sandboxEnv = await getAgentWorkspaceLazy().createSandboxEnv());
+    try {
+      await env.remove(record.dir, { recursive: true, force: true });
+    } catch (err) {
+      console.warn('[Realm AI] 清理技能导入临时目录失败:', err && err.message ? err.message : err);
+    }
+    return { cancelled: true };
+  }
+
+  /**
+   * 清扫技能导入的临时区残留（Phase 51 D-02）—— **两种模式语义不同、不得混淆**
+   *
+   * ## `mode === 'own'`：只删**本进程 Map 里登记**的目录（清空 Map）
+   * 精确、**无跨实例风险** —— 用于**应用退出**。
+   *
+   * ## `mode === 'stale'`：扫 `.tmp/` 下匹配 `IMPORT_TMP_PREFIXES` 的残留，
+   * ## **只删 mtime 早于 `2 × IMPORT_TTL_MS` 的**
+   * 用于**启动**与兜底。⚠️ **陈旧性判据是硬要求**：缺它就会重演 `WR-05` 的历史缺陷
+   * （`dev` 与 `debug` 共享 userData 且无单实例锁 ⇒ 并发实例会**互删进行中的预览**）。
+   * 一个「刚刚」产生的残留可能正是另一个实例正在预览的包 —— 必须放过。
+   *
+   * 两种模式都返回 `{ removed: N }` 供日志与用例断言，**都不抛**（清扫失败只 `console.warn`）。
+   *
+   * ⚠️ **不得**把清扫接进 `syncAgentSystemPrompt()` / `ensureSkillsFresh()` ——
+   * 那两个函数的职责是技能集，不是临时区（且前者的函数体逐字不得改）。
+   *
+   * @param {{mode?: 'own'|'stale'}} params
+   * @returns {Promise<{removed: number}>}
+   */
+  async sweepSkillImports({ mode } = {}) {
+    let removed = 0;
+    try {
+      const workspace = getAgentWorkspaceLazy();
+      const env = this.sandboxEnv || (this.sandboxEnv = await workspace.createSandboxEnv());
+
+      if (mode === 'own') {
+        for (const [, rec] of this._skillImports) {
+          if (!rec || !rec.dir) continue;
+          try {
+            const res = await env.remove(rec.dir, { recursive: true, force: true });
+            if (res && res.ok === true) removed += 1;
+          } catch (err) {
+            console.warn('[Realm AI] 清扫导入临时目录失败:', err && err.message ? err.message : err);
+          }
+        }
+        this._skillImports.clear();
+        return { removed };
+      }
+
+      // mode === 'stale'：陈旧性判据 = mtime 早于 2 × TTL
+      const skillsManager = getAiSkillsManagerLazy();
+      const tmpDir = workspace.getTmpDir();
+      const cutoff = Date.now() - 2 * skillsManager.IMPORT_LIMITS.IMPORT_TTL_MS;
+
+      let entries = [];
+      try {
+        entries = fs.readdirSync(tmpDir, { withFileTypes: true });
+      } catch {
+        return { removed };
+      }
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (!skillsManager.isImportResidueName(entry.name)) continue;
+        const full = path.join(tmpDir, entry.name);
+        let stat = null;
+        try {
+          stat = fs.statSync(full);
+        } catch {
+          continue;
+        }
+        // 不够陈旧 ⇒ 可能是另一个实例正在预览的包（WR-05 的教训）—— 放过
+        if (!(stat.mtimeMs < cutoff)) continue;
+        try {
+          const res = await env.remove(full, { recursive: true, force: true });
+          if (res && res.ok === true) removed += 1;
+        } catch (err) {
+          console.warn('[Realm AI] 清扫导入残留目录失败:', err && err.message ? err.message : err);
+        }
+      }
+    } catch (err) {
+      console.warn('[Realm AI] 清扫技能导入残留失败:', err && err.message ? err.message : err);
+    }
+    return { removed };
   }
 
   /**

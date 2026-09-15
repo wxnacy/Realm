@@ -1038,6 +1038,251 @@ describe('覆盖事务：备份 + 两段 rename + 回滚 + 回读失败回滚 + 
   });
 });
 
+// ==================== ⑥c 句柄生命周期：TTL / 并发 / 取消 / 崩溃残留清扫（51-04 T2） ====================
+
+const AIManager = require('../ai-manager');
+
+/** 建一个「只差 Agent」的 AIManager：sandboxEnv 指向临时工作区，不 init LLM/Agent */
+async function makeImportManager(root) {
+  const mgr = new AIManager();
+  mgr.sandboxEnv = await makeEnv(root);
+  return mgr;
+}
+
+/** 一个最小的合法单技能包（preview 用） */
+function validZipBuffer(name = 'life-skill') {
+  return makeZip.skillPackage({ name, body: '# 生命周期\n' });
+}
+
+/** `.tmp/` 下的条目名（清扫判据用） */
+function tmpNames() {
+  try {
+    return fs.readdirSync(workspace.getTmpDir()).sort();
+  } catch {
+    return [];
+  }
+}
+
+describe('importId 生命周期：TTL / 并发上限 / 一次性 / 取消幂等', () => {
+  test('TTL 到期 ⇒ import_expired，且临时目录已被删（不静默失败）', async (t) => {
+    const root = withTempRoot(t);
+    const mgr = await makeImportManager(root);
+    const { importId } = await mgr.previewSkillImport({ kind: 'zip', buffer: validZipBuffer('ttl-skill') });
+    const rec = mgr._skillImports.get(importId);
+    assert.ok(rec && rec.dir, 'preview 必须登记 { dir, createdAt }');
+    assert.ok(fs.existsSync(rec.dir), 'preview 后临时目录存在');
+
+    // 回拨 createdAt（**不 sleep 10 分钟** —— 用例不得依赖真实等待）
+    rec.createdAt = Date.now() - (aiSkills.IMPORT_LIMITS.IMPORT_TTL_MS + 1000);
+
+    const err = await expectThrowCode(
+      () => mgr.commitSkillImport({ importId }),
+      aiSkills.IMPORT_SKILL_ERROR.IMPORT_EXPIRED
+    );
+    assert.ok(err.message.trim().length > 0, '过期必须给可读原因');
+    assert.strictEqual(fs.existsSync(rec.dir), false, '过期句柄的临时目录必须被清理');
+    assert.strictEqual(mgr._skillImports.has(importId), false, '过期句柄必须被移出 Map');
+  });
+
+  test('未知 importId ⇒ import_not_found；同一句柄提交两次 ⇒ 第二次 not_found（一次性）', async (t) => {
+    const root = withTempRoot(t);
+    const mgr = await makeImportManager(root);
+
+    await expectThrowCode(
+      () => mgr.commitSkillImport({ importId: 'no-such-handle' }),
+      aiSkills.IMPORT_SKILL_ERROR.IMPORT_NOT_FOUND
+    );
+
+    const { importId } = await mgr.previewSkillImport({ kind: 'zip', buffer: validZipBuffer('once-skill') });
+    const report = await mgr.commitSkillImport({ importId });
+    assert.strictEqual(report.name, 'once-skill');
+    assert.ok(fs.existsSync(path.join(workspace.getSkillsDir(), 'once-skill', 'SKILL.md')));
+
+    await expectThrowCode(
+      () => mgr.commitSkillImport({ importId }),
+      aiSkills.IMPORT_SKILL_ERROR.IMPORT_NOT_FOUND
+    );
+  });
+
+  test('并发上限：第 MAX_PENDING_IMPORTS + 1 次 preview ⇒ too_many_pending；取消一次后又可 preview', async (t) => {
+    const root = withTempRoot(t);
+    const mgr = await makeImportManager(root);
+    const max = aiSkills.IMPORT_LIMITS.MAX_PENDING_IMPORTS;
+
+    const ids = [];
+    for (let i = 0; i < max; i += 1) {
+      const { importId } = await mgr.previewSkillImport({ kind: 'zip', buffer: validZipBuffer(`pend-${i}`) });
+      ids.push(importId);
+    }
+    assert.strictEqual(mgr._skillImports.size, max);
+
+    const err = await expectThrowCode(
+      () => mgr.previewSkillImport({ kind: 'zip', buffer: validZipBuffer('pend-over') }),
+      aiSkills.IMPORT_SKILL_ERROR.TOO_MANY_PENDING
+    );
+    assert.ok(err.message.includes(String(max)), '文案必须说明上限值');
+
+    // 闸是「待确认数」而不是「累计发起数」：取消一个后又能 preview
+    const cancelled = await mgr.cancelSkillImport({ importId: ids[0] });
+    assert.strictEqual(cancelled.cancelled, true);
+    const again = await mgr.previewSkillImport({ kind: 'zip', buffer: validZipBuffer('pend-again') });
+    assert.ok(again.importId, '取消释放名额后必须可以再次 preview');
+    assert.strictEqual(mgr._skillImports.size, max);
+  });
+
+  test('cancelSkillImport 幂等：第二次返回 {cancelled:false} 且不抛', async (t) => {
+    const root = withTempRoot(t);
+    const mgr = await makeImportManager(root);
+    const { importId } = await mgr.previewSkillImport({ kind: 'zip', buffer: validZipBuffer('cancel-skill') });
+    const rec = mgr._skillImports.get(importId);
+
+    assert.deepStrictEqual(await mgr.cancelSkillImport({ importId }), { cancelled: true });
+    assert.strictEqual(fs.existsSync(rec.dir), false, '取消必须删临时目录');
+    assert.deepStrictEqual(await mgr.cancelSkillImport({ importId }), { cancelled: false });
+    assert.deepStrictEqual(await mgr.cancelSkillImport({ importId: 'never-existed' }), { cancelled: false });
+  });
+
+  test('commit 失败（改名非法）⇒ **保留**句柄与临时目录（可就地重试）', async (t) => {
+    const root = withTempRoot(t);
+    const mgr = await makeImportManager(root);
+    seedUserSkill('retry-skill', '旧正文');
+    const { importId } = await mgr.previewSkillImport({ kind: 'zip', buffer: validZipBuffer('retry-skill') });
+    const rec = mgr._skillImports.get(importId);
+
+    await expectThrowCode(
+      () => mgr.commitSkillImport({ importId, conflict: 'rename', newName: 'Bad_Name' }),
+      aiSkills.IMPORT_SKILL_ERROR.INVALID_NAME
+    );
+    assert.strictEqual(mgr._skillImports.has(importId), true, '失败路径**不得**清掉句柄（UI-SPEC：就地重试）');
+    assert.strictEqual(fs.existsSync(rec.dir), true, '失败路径**不得**删临时目录');
+
+    // 就地重试：换个合法新名即成功
+    const report = await mgr.commitSkillImport({ importId, conflict: 'rename', newName: 'retry-skill-v2' });
+    assert.strictEqual(report.name, 'retry-skill-v2');
+    assert.strictEqual(mgr._skillImports.has(importId), false, '成功后必须清掉句柄');
+  });
+
+  test('commit 显式取消（conflict=cancel）⇒ 不落盘、清句柄、清目录', async (t) => {
+    const root = withTempRoot(t);
+    const mgr = await makeImportManager(root);
+    const { importId } = await mgr.previewSkillImport({ kind: 'zip', buffer: validZipBuffer('cancel-commit') });
+    const rec = mgr._skillImports.get(importId);
+
+    const out = await mgr.commitSkillImport({ importId, conflict: 'cancel' });
+    assert.strictEqual(out.cancelled, true);
+    assert.strictEqual(mgr._skillImports.has(importId), false);
+    assert.strictEqual(fs.existsSync(rec.dir), false);
+    assert.deepStrictEqual(userSkillNames(), [], '取消不得落盘');
+  });
+});
+
+describe('崩溃残留清扫：两种模式 + 陈旧性判据（WR-05 的回归护栏）', () => {
+  test('isImportResidueName：**正向**匹配真实产物（mkdtemp 产物 + 真实覆盖备份各一例）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+
+    // ① mkdtemp 的真实产物
+    const made = fs.mkdtempSync(path.join(workspace.getTmpDir(), 'skill-import-'));
+    assert.strictEqual(
+      aiSkills.isImportResidueName(path.basename(made)),
+      true,
+      'fs.mkdtempSync(tmp, "skill-import-") 的真实产物必须被识别为残留（前缀改了判据没跟就会转红）'
+    );
+
+    // ② 覆盖事务真实产生的备份目录名
+    seedUserSkill('residue-ovr', '旧');
+    const { located } = await stageLocated(env, makeZip.skillPackage({ name: 'residue-ovr', body: '# 新\n' }));
+    let bakName = null;
+    const spy = {
+      ...env,
+      async remove(p, opts) {
+        if (typeof p === 'string' && path.basename(p).startsWith('skill-replace-')) bakName = path.basename(p);
+        return env.remove(p, opts);
+      },
+    };
+    await aiSkills.importUserSkill(
+      spy,
+      { srcDir: located.skillRootAbs, name: 'residue-ovr', conflict: 'overwrite' },
+      { seededNames: SEEDED }
+    );
+    assert.ok(bakName, '覆盖路径必须产生过 skill-replace- 备份');
+    assert.strictEqual(aiSkills.isImportResidueName(bakName), true, '真实备份目录名必须被识别为残留');
+
+    // 否命题侧：非残留 / 裸前缀都不算
+    assert.strictEqual(aiSkills.isImportResidueName('tmp-skill-import-abc'), false);
+    assert.strictEqual(aiSkills.isImportResidueName('skill-import-'), false, '裸前缀不是 mkdtemp 的产物');
+    assert.strictEqual(aiSkills.isImportResidueName('SKILL.md'), false);
+  });
+
+  test('陈旧性正反两例：mtime 刚刚 ⇒ 一个都不删；早于 2 × TTL ⇒ 两个都删', async (t) => {
+    const root = withTempRoot(t);
+    const mgr = await makeImportManager(root);
+
+    const a = path.join(workspace.getTmpDir(), 'skill-import-abcdef');
+    const b = path.join(workspace.getTmpDir(), 'skill-replace-abcdef');
+    fs.mkdirSync(a, { recursive: true });
+    fs.mkdirSync(b, { recursive: true });
+
+    // ① 刚刚（模拟另一实例正在预览）⇒ 不得删 —— 这条就是 WR-05 的回归护栏
+    const fresh = await mgr.sweepSkillImports({ mode: 'stale' });
+    assert.strictEqual(fresh.removed, 0, '新鲜残留**不得**被删（并发实例正在预览的包）');
+    assert.strictEqual(fs.existsSync(a), true);
+    assert.strictEqual(fs.existsSync(b), true);
+
+    // ② 把 mtime 拨到 2 × TTL + 60s 之前 ⇒ 必须删
+    const old = (Date.now() - (2 * aiSkills.IMPORT_LIMITS.IMPORT_TTL_MS + 60 * 1000)) / 1000;
+    fs.utimesSync(a, old, old);
+    fs.utimesSync(b, old, old);
+    const stale = await mgr.sweepSkillImports({ mode: 'stale' });
+    assert.strictEqual(stale.removed, 2, '陈旧残留必须被清掉');
+    assert.strictEqual(fs.existsSync(a), false);
+    assert.strictEqual(fs.existsSync(b), false);
+  });
+
+  test('非残留不误删：createTempDir 形态（tmp-*）与普通文件一律放过', async (t) => {
+    const root = withTempRoot(t);
+    const mgr = await makeImportManager(root);
+
+    const other = path.join(workspace.getTmpDir(), 'tmp-something-xyz');
+    fs.mkdirSync(other, { recursive: true });
+    const plain = path.join(workspace.getTmpDir(), 'skill-import-not-a-dir.txt');
+    fs.writeFileSync(plain, 'plain');
+
+    const old = (Date.now() - (2 * aiSkills.IMPORT_LIMITS.IMPORT_TTL_MS + 60 * 1000)) / 1000;
+    fs.utimesSync(other, old, old);
+    fs.utimesSync(plain, old, old);
+
+    const out = await mgr.sweepSkillImports({ mode: 'stale' });
+    assert.strictEqual(out.removed, 0, '只删本管线自己的残留目录');
+    assert.strictEqual(fs.existsSync(other), true, '他人（createTempDir）的临时目录不得被删');
+    assert.strictEqual(fs.existsSync(plain), true, '普通文件不得被删');
+  });
+
+  test("mode: 'own' 只删本进程登记项并清空 Map（退出路径）", async (t) => {
+    const root = withTempRoot(t);
+    const mgr = await makeImportManager(root);
+
+    const { importId } = await mgr.previewSkillImport({ kind: 'zip', buffer: validZipBuffer('own-mode') });
+    const rec = mgr._skillImports.get(importId);
+    // 另造一个「别人的」陈旧残留：own 模式必须**不碰**它
+    const foreign = path.join(workspace.getTmpDir(), 'skill-import-foreign');
+    fs.mkdirSync(foreign, { recursive: true });
+
+    const out = await mgr.sweepSkillImports({ mode: 'own' });
+    assert.strictEqual(out.removed, 1, 'own 模式只删 Map 里登记的那一个');
+    assert.strictEqual(fs.existsSync(rec.dir), false);
+    assert.strictEqual(fs.existsSync(foreign), true, 'own 模式不得触碰未登记的目录（无跨实例风险）');
+    assert.strictEqual(mgr._skillImports.size, 0, 'own 模式结束必须清空 Map');
+  });
+
+  test('清扫失败不抛（未知 mode / 不可读的 .tmp）⇒ 返回 {removed:0}', async (t) => {
+    const root = withTempRoot(t);
+    const mgr = await makeImportManager(root);
+    const out = await mgr.sweepSkillImports({ mode: 'no-such-mode' });
+    assert.deepStrictEqual(out, { removed: 0 }, '清扫器永不抛，未知 mode 视作 stale 扫描');
+  });
+});
+
 // ==================== ⑦ 限额 / 错误码表契约 ====================
 
 describe('常量契约', () => {
