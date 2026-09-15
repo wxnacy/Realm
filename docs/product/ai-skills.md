@@ -95,7 +95,7 @@
 
 ## 七、测试与验证
 
-- 单元测试：`node tests/test-ai-skills.js`（**188 例，实测**）—— 加载管线 / 诊断 / 限额 / 启停 / prompt 注入 / Agent 回写 / P8 机制断言；覆盖已扩到**显式调用解析与实时读盘 / 面板投影收窄 / 三档 tier / `promptOmitted` / `read` 卡片标记 / 重载装饰 / 运行期新增技能的调用瞬间重扫 + 当场读盘（G-48-12） / 延迟补刷在纯文本流的成功出口落地（G-48-18） / 重扫或重试读盘抛错沿用原判定（G-48-19） / `manage_skill` 卡片标记的两时点与终态元数据通道（M 组） / `manage_skill` 的刷新链时序与次数账（L 组） / 失败态原因码的词缀与重载还原 / 三态 `promptIncluded` 的消费侧 / a11y 增量的条件施加（M9b：三条属性与 `keydown` 落在守卫内 + 卡片调用点传 `false` + 气泡调用点原样 + 单源未破）**
+- 单元测试：`node tests/test-ai-skills.js`（**198 例，实测**）—— 加载管线 / 诊断 / 限额 / 启停 / prompt 注入 / Agent 回写 / P8 机制断言；覆盖已扩到**显式调用解析与实时读盘 / 面板投影收窄 / 三档 tier / `promptOmitted` / `read` 卡片标记 / 重载装饰 / 运行期新增技能的调用瞬间重扫 + 当场读盘（G-48-12） / 延迟补刷在纯文本流的成功出口落地（G-48-18） / 重扫或重试读盘抛错沿用原判定（G-48-19） / `manage_skill` 卡片标记的两时点与终态元数据通道（M 组） / `manage_skill` 的刷新链时序与次数账（L 组） / 失败态原因码的词缀与重载还原 / 三态 `promptIncluded` 的消费侧 / a11y 增量的条件施加（M9b：三条属性与 `keydown` 落在守卫内 + 卡片调用点传 `false` + 气泡调用点原样 + 单源未破）**
 - 自建技能域：`node tests/test-manage-skill.js`（**55 例，实测**）—— `manage_skill` 三动作（create / update / delete）/ 校验器值域（name 四判据、description 与正文上限，含 description 值域与写↔读闸口边界：`: ` / `#` / 裸标量 / 纯零宽）/ 四类撞名与 seeded 三入口保护 / 原子写与失败清理 / 字段分离扫描（description 两组、content 一组）/ 扫描-净化顺序 / 数量闸 / 幽灵技能与越界护栏
 - 面板纯逻辑：`node --test tests/test-skill-picker-model.js`（解析与 args 取值 / 过滤两档 / 展平与可选中性 / 导航取模 / 三条接线扫描）
 - 取消归属与用户气泡时序：`node --test tests/test-ai-cancel-state.js`（取消归属判定与用户气泡时序的纯逻辑用例 + renderer 接线护栏）
@@ -540,7 +540,7 @@ AI 通过一个 `manage_skill` 工具把流程 / 经验沉淀为自己的技能�
 维护约定在 [AGENTS.md](../../AGENTS.md) 的「AI 自建技能（`manage_skill`）的维护约定」条目：产品说明权威 = 本节；改动**校验器 / 三动作 / 限额常量 / 扫描与净化口径 / 拒绝面 / 卡片形态**时**必须同步本节与该节测试清单**。
 
 - 自建技能域：`node tests/test-manage-skill.js`（**55 例，实测**）—— 三动作 / 校验器值域（含 description 值域与写↔读闸口边界：`: ` / `#` / 裸标量 / 纯零宽） / 四类撞名与 seeded 三入口 / 原子写与失败清理 / 字段分离扫描 / 扫描-净化顺序 / 数量闸 / 幽灵技能与越界护栏
-- 接线与刷新链：`node tests/test-ai-skills.js`（**188 例，实测**）的 M 组（卡片标记两时点与终态元数据通道，含失败态原因码的词缀与重载还原）与 L 组（刷新链时序与次数账，含三态 `promptIncluded` 的消费侧）；M9b：a11y 增量的条件施加（守卫内施加 + 两个调用点取值 + 单源未破）
+- 接线与刷新链：`node tests/test-ai-skills.js`（**198 例，实测**）的 M 组（卡片标记两时点与终态元数据通道，含失败态原因码的词缀与重载还原）与 L 组（刷新链时序与次数账，含三态 `promptIncluded` 的消费侧）；M9b：a11y 增量的条件施加（守卫内施加 + 两个调用点取值 + 单源未破）
 - 卡片纯逻辑：`node --test tests/test-skill-picker-model.js`（**115 例，实测**）—— 含卡片标记并入函数 `mergeManageSkillMarker` 的值域，以及本轮新增的卡片头部超预算标注面：**≤ 4 字投影**（`PROMPT_OMITTED_CARD_NOTE` 的投影性 / 第二段 / 值域）、**48 原文冻结**（`STATUS_TEXT.promptOmitted` 逐字未变 + 另三键冻结）与**九码长度上限**（失败短原因每值非空且 ≤ 6 字）
 - 技能管理数据面：`node tests/test-skills-management.js`（**49 例，实测**）—— 管理投影 / 尺寸口径 / 启停 / 卸载三态 / 名单清理 / 双入口与注入纪律源码扫描
 - 技能管理 HTTP 与传输面：`node tests/test-skills-http-api.js`（**41 例，实测**）—— 写路由与转发 / 双键校验「拒绝时不落盘」 / SEC-09 体积闸与降级分支 / 调用点覆盖度 / 双入口跨文件

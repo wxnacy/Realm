@@ -3217,6 +3217,275 @@ async function countUserSkills(env, skillsDir) {
 }
 
 /**
+ * 技能域威胁模式表（Phase 51 SEC-06 / D-12）—— **启发式，不是安全边界**
+ *
+ * ## 效力分级（与 `INJECTION_PATTERNS` / `CREDENTIAL_PATTERNS` **分表**）
+ *
+ * 本表的命中**不拒绝**任何东西：它在导入预览里**高亮**，并由用户在确认区**必勾**
+ * 「我已了解以上风险」。理由（D-12 / P3 明文）：这三类模式的性质是**启发式、降低概率**，
+ * 而**合法技能必然命中** —— 一个「部署 / CI / 数据同步」类技能会合理地在正文里写
+ * `curl`、写 `.env`、写「无需再次询问」（幂等脚本说明）。硬拒会让用户**失去功能且无法
+ * 绕过**；真正的安全边界是 P3 原文列的「**导入预览确认 + 沙箱**」。
+ *
+ * 因此：
+ * - **不得**把本表塞进 `ai-memory-manager.js` 的 hard-fail 表（那是**拒绝**语义）；
+ * - **不得**在任何文案 / 文档 / 测试命名里把「未命中」呈现成「这个技能是安全的」背书；
+ * - **不得**接入加载期（对已在盘上的技能扫描后丢弃）—— 那会推翻 46 D-08，并让**已导入
+ *   的合法技能在某次升级后消失**（49 D-05 已付过这条论证）。扫描只在**导入**与 49 的
+ *   **写入侧**生效。
+ *
+ * ## 扩表的连带效果（契约兑现，**不是**越界）
+ *
+ * 49 D-08 明文「49 把扫描点接成单点，51 只需**扩表**、不加接线」⇒ 本表落
+ * `ai-skills-manager.js` 后，**49 的 `manage_skill` 写入路径自动获得技能域模式**。
+ * 这是交接契约的兑现，须写进 `docs/product/ai-skills.md` 与 `AGENTS.md`（`51-07` 负责）。
+ *
+ * ## 逐条形态来自 `51-RESEARCH.md` 实测 7 的 PASS 清单（263 篇真实合法语料零误伤校准）
+ *
+ * ⚠️ **两处必须逐字保留的形态**（改成直觉写法会实测不命中或误伤）：
+ * - `A5` 必须写 `>[&]?`（写成 `>\s*` 对该正样本实测不命中）；
+ * - `C2` 必须用**前置否定词前瞻** `(?![^\n]{0,40}(…))`，**lookbehind `(?<!…)` 实测无效**
+ *  （否定词与命中点之间隔着「建议」两字，lookbehind 只能看固定距离）。
+ *
+ * ⚠️ **A3 不是零误伤**：`scp` / `rsync` 到远端会命中**合法部署技能**（实测
+ * `rsync -az dist/ deploy@staging:/srv/app/`）。因 D-12 的效力是「高亮而非拒绝」故仍然收，
+ * 但**必须在产品文档点名它**。测试侧用「已知误伤清单 + 该清单必须真命中」两条判据把它钉住。
+ */
+const SKILL_THREAT_PATTERNS = Object.freeze([
+  // ---------- A 类 · 文件外发（exfil） ----------
+  {
+    id: 'A1',
+    class: 'exfil',
+    name: '把本地文件内容随 HTTP 请求外发（`--data @file` 族）',
+    pattern: /curl[^\n]{0,200}(--data-binary\s+@|--data\s+@|-d\s+@|-F\s+[^\s=]+=@)/i,
+  },
+  {
+    id: 'A3',
+    class: 'exfil',
+    name: '`scp` / `rsync` 把内容推到远端主机（⚠️ 已知误伤：合法部署技能）',
+    pattern: /\b(scp|rsync)\b[^\n]{0,120}[^\s@]+@[^\s:]+:/i,
+  },
+  {
+    id: 'A4',
+    class: 'exfil',
+    name: 'base64 编码后经网络送出（base64 → curl/nc 或 /dev/tcp）',
+    pattern: /base64[^\n]{0,200}(\|\s*(curl|nc|ncat|netcat)|>\s*\/dev\/tcp\/)/i,
+  },
+  {
+    id: 'A5',
+    class: 'exfil',
+    name: '反弹 shell：重定向到 /dev/tcp 或 /dev/udp',
+    // ⚠️ 必须写 `>[&]?`（写成 `>\s*` 对该正样本实测不命中）
+    pattern: />[&]?\s*\/dev\/(tcp|udp)\//i,
+  },
+  {
+    id: 'A6',
+    class: 'exfil',
+    name: '用 nc / ncat / netcat 连出（主机 + 端口形态）',
+    pattern: /\b(nc|ncat|netcat)\b\s+(-\w+\s+)*[\w.-]+\s+\d{2,5}\b/i,
+  },
+  {
+    id: 'A7',
+    class: 'exfil',
+    name: '指向公开投递 / 回传服务（webhook.site / transfer.sh / pastebin 等）',
+    pattern:
+      /(webhook\.site|transfer\.sh|0x0\.st|pastebin\.com|discord\.com\/api\/webhooks|api\.telegram\.org|pipedream\.net|requestbin)/i,
+  },
+  {
+    id: 'A8',
+    class: 'exfil',
+    name: '把环境变量整批经管道送出（printenv/env → curl/nc）',
+    pattern: /\b(printenv|env)\b[^\n]{0,80}\|\s*(curl|nc|ncat)\b/i,
+  },
+  {
+    id: 'A9',
+    class: 'exfil',
+    name: '以 multipart 表单上传文件（`files={` / `files=[`）',
+    pattern: /\bfiles\s*=\s*[\{\[]/i,
+  },
+  {
+    id: 'A10',
+    class: 'exfil',
+    name: 'curl 直接上传文件（`--upload-file`）',
+    pattern: /--upload-file\b/i,
+  },
+  {
+    id: 'A12',
+    class: 'exfil',
+    name: '打包敏感目录后经管道外发（tar ~/.ssh / .aws / .gnupg / .netrc → |）',
+    pattern: /\btar\b[^\n]{0,120}(\.ssh|\.aws|\.gnupg|\.netrc)[^\n]{0,120}\|/i,
+  },
+
+  // ---------- B 类 · 凭据与敏感路径读取回显（credential） ----------
+  {
+    id: 'B1',
+    class: 'credential',
+    name: '读取 SSH 私钥（~/.ssh/id_*）',
+    pattern: /(^|[^\w/])(~|\$HOME|\/Users\/[\w.-]+|\/home\/[\w.-]+)\/\.ssh\/id_[a-z0-9]+/i,
+  },
+  {
+    id: 'B2',
+    class: 'credential',
+    name: '读取云 / 工具凭据文件（~/.aws/credentials、~/.netrc、~/.docker/config.json）',
+    pattern:
+      /(^|[^\w/])(~|\$HOME|\/Users\/[\w.-]+|\/home\/[\w.-]+)\/(\.aws\/credentials|\.netrc|\.docker\/config\.json)/i,
+  },
+  {
+    id: 'B3',
+    class: 'credential',
+    name: '从 macOS 钥匙串导出密码（security find-generic-password / find-internet-password）',
+    pattern: /\bsecurity\s+(find-generic-password|find-internet-password)\b/i,
+  },
+  {
+    id: 'B4',
+    class: 'credential',
+    name: '读取系统账号文件（/etc/passwd、/etc/shadow、/etc/sudoers）',
+    pattern: /(^|[^\w])\/etc\/(passwd|shadow|sudoers)(\b|$)/,
+  },
+  {
+    id: 'B5',
+    class: 'credential',
+    name: '读取 shell 历史（~/.bash_history / ~/.zsh_history / ~/.python_history）',
+    pattern: /(^|[^\w/])(~|\$HOME|\/Users\/[\w.-]+)\/\.(bash|zsh|python)_history\b/i,
+  },
+  {
+    id: 'B6',
+    class: 'credential',
+    name: '`.env` 与网络动作同现（**双向**：两种语序都要抓）',
+    // ⚠️ 必须双向（单向版对 `curl … -d @$HOME/.env` 实测不命中）
+    pattern:
+      /(\.env\b[^\n]{0,160}(curl|fetch|requests\.post|上传|发送))|((curl|fetch|requests\.post|上传|发送)[^\n]{0,160}\.env\b)/i,
+  },
+  {
+    id: 'B7',
+    class: 'credential',
+    name: '回显敏感环境变量（echo $*SECRET* / TOKEN / KEY / PASSWORD / CREDENTIAL）',
+    // ⚠️ 必须要求 `$` 前缀（宽松形态会命中 `echo "$response" | jq -r '.usage.input_tokens'`）
+    // ⚠️ 引号写成 \u 转义而非字面量：避免干扰「先剥注释再判」的负向 token 判据
+    pattern: /\becho\s+[\u0022\u0027]?\$[A-Z_]*(SECRET|TOKEN|KEY|PASSWORD|CREDENTIAL)/i,
+  },
+  {
+    id: 'B8',
+    class: 'credential',
+    name: 'printenv 定向读取敏感变量（**必须用 printenv**，裸 env 实测误伤 6 处）',
+    pattern:
+      /\bprintenv\b[^\n]{0,60}\b[A-Z0-9_]*(SECRET|TOKEN|PASSWORD|CREDENTIAL|API_KEY)|(^|\n)\s*printenv\s*(\||$)/im,
+  },
+  {
+    id: 'B9',
+    class: 'credential',
+    name: '读取包管理器 / Git 凭据文件（~/.npmrc、~/.pypirc、~/.git-credentials）',
+    pattern: /(^|[^\w/])(~|\$HOME|\/Users\/[\w.-]+)\/(\.npmrc|\.pypirc|\.git-credentials)\b/i,
+  },
+
+  // ---------- C 类 · 诱导跳过确认（confirm_bypass） ----------
+  {
+    id: 'C1',
+    class: 'confirm_bypass',
+    name: '声称「无需 / 不必再次确认」',
+    pattern: /(无需|不需|不用|不必)[^\n]{0,8}(再次|重复|二次)?[^\n]{0,8}(确认|询问|批准|授权)/,
+  },
+  {
+    id: 'C2',
+    class: 'confirm_bypass',
+    name: '「绕过 / 跳过 / 忽略确认」——**带否定语境豁免**',
+    /*
+     * ⚠️ 两处形态不可换：
+     * ① 用**前置否定词前瞻**而不是 lookbehind —— lookbehind `(?<![^\n]…)` 只能看固定距离，
+     *    而否定词与命中点之间隔着「建议」两字 ⇒ 实测仍命中，会把「本技能**不会建议**
+     *    绕过任何确认提示」抓走。（本行是**被剥注释后判定**的负向 token 的唯一合法落点：
+     *    `tests/test-ai-skills.js` 与计划门禁都先剥注释再判，注释里写明该形态是预期行为。）
+     * ② 带 `m` 标志：`^` 逐行生效，否则整篇正文里只有第一行可命中，判据形同虚设
+     *   （研究实测的样本都是单行输入，故其清单未标 `m`；本实现按「逐行判定」的同一语义落）。
+     */
+    pattern:
+      /^(?![^\n]{0,40}(不会|不得|禁止|不要|不建议|绝不|不能))[^\n]{0,40}(绕过|跳过|忽略)[^\n]{0,8}(确认|审批|授权|权限检查)/m,
+  },
+  {
+    id: 'C3',
+    class: 'confirm_bypass',
+    name: '「不要询问用户 / 我」',
+    pattern: /(不要|无需|不必)[^\n]{0,6}(询问|问)[^\n]{0,6}(用户|我|使用者)/,
+  },
+  {
+    id: 'C4',
+    class: 'confirm_bypass',
+    name: '「直接执行 / 自动执行」+「无需确认」',
+    pattern: /(自动执行|直接执行|直接运行|直接安装)[^\n]{0,12}(无需|不需|不用|不要)[^\n]{0,6}(确认|询问)/,
+  },
+  {
+    id: 'C5',
+    class: 'confirm_bypass',
+    name: '英文：no / without further confirmation needed',
+    pattern:
+      /(no|without)\s+(further\s+|additional\s+|extra\s+)?(confirmation|approval)\s+(is\s+)?(needed|required)/i,
+  },
+  {
+    id: 'C6',
+    class: 'confirm_bypass',
+    name: '英文：bypass the confirmation / approval / safety check',
+    pattern: /\bbypass\b[^\n]{0,20}\b(confirmation|approval|safety)\s*(check|prompt|card)?\b/i,
+  },
+  {
+    id: 'C7',
+    class: 'confirm_bypass',
+    name: '英文：skip the confirmation card / prompt / step',
+    pattern: /\bskip\s+(the\s+)?(confirmation|approval|permission)\s*(card|prompt|step)\b/i,
+  },
+  {
+    id: 'C8',
+    class: 'confirm_bypass',
+    name: '英文：do not ask the user for confirmation / approval / permission',
+    pattern: /\bdo\s+not\s+(ask|prompt)\s+(the\s+)?user\s+(for|to)\s+(confirmation|approval|permission)\b/i,
+  },
+]);
+
+/**
+ * 扫描技能域威胁模式（D-12 / SEC-06）—— **并列于** `scanSkillText`，返回命中列表而**不** throw
+ *
+ * 与 `scanSkillText` 的语义**刻意相反**：后者命中即 `throw`（hard-fail 表：注入 / 凭据），
+ * 本函数只**报告**（技能域三类：高亮 + 必勾）。两条函数并列存在，不得合并。
+ *
+ * 无 `g` 标志 ⇒ `pattern.test` 无 `lastIndex` 状态，可安全复用同一份表。
+ *
+ * @param {string} text - 待扫描文本（description 原文 / SKILL.md 正文原文）
+ * @param {string} field - 命中来源字段（`'description'` / `'body'` —— 使「双扫」可判）
+ * @returns {Array<{id: string, class: string, name: string, field: string}>} 命中列表（可能为空）
+ */
+function scanSkillThreats(text, field) {
+  const s = String(text == null ? '' : text);
+  if (!s) return [];
+  const hits = [];
+  for (const entry of SKILL_THREAT_PATTERNS) {
+    if (entry.pattern.test(s)) {
+      hits.push({ id: entry.id, class: entry.class, name: entry.name, field: field || '' });
+    }
+  }
+  return hits;
+}
+
+/**
+ * 注入 / 凭据类**硬拒**判据（49 D-08 的分字段口径，导入侧的承接）
+ *
+ * - `description` → `{ includeCredentials: true }`（无条件进**每个请求**的 system prompt）
+ * - `body` → `{ includeCredentials: false }`（不进 prompt，且技能文档合法地会写配置示例）
+ *
+ * 命中 ⇒ **整包拒绝**（`injection_detected`）。**不得**把技能域三类接进本条路径。
+ *
+ * @param {string} text - 待扫描文本
+ * @param {{includeCredentials: boolean}} options - 字段分离开关
+ * @throws {Error} 命中任何模式（code: `injection_detected`）
+ */
+function assertNoInjection(text, { includeCredentials }) {
+  const result = getAiMemoryManagerLazy().scanInjectionPatterns(text, { includeCredentials });
+  if (result && result.safe === true) return;
+  throw makeImportError(
+    IMPORT_SKILL_ERROR.INJECTION_DETECTED,
+    `技能内容被拒绝：${(result && result.reason) || '命中安全扫描'}。请调整措辞后重试`
+  );
+}
+
+/**
  * 组装导入预览（D-13 的六字段骨架）
  *
  * `description` 是**原文**（不净化、不截断语义）：`sanitizeSkillDescription` 只作用于
@@ -3251,6 +3520,13 @@ async function buildImportPreview(env, { pkgRoot, rootRel, origin = 'zip', seede
   const fm = parseSkillFrontmatter(text);
   if (!fm.ok) throw makeImportError(fm.code, fm.reason);
 
+  const bodyText = text.replace(IMPORT_FRONTMATTER_RE, '');
+
+  // 注入 / 凭据类**硬拒**（49 D-08 的分字段口径，不可调换）：
+  // description 跑两组（进每个请求的 system prompt）/ body 只跑注入组（不进 prompt）
+  assertNoInjection(fm.description, { includeCredentials: true });
+  assertNoInjection(bodyText, { includeCredentials: false });
+
   const derived = deriveImportName(fm, rootRel);
   if (!derived.ok) throw makeImportError(derived.code, derived.reason);
 
@@ -3258,6 +3534,13 @@ async function buildImportPreview(env, { pkgRoot, rootRel, origin = 'zip', seede
 
   const skillsDir = getAgentWorkspaceLazy().getSkillsDir();
   const taken = await envDirExists(env, path.join(skillsDir, derived.name));
+
+  // **双扫**（SEC-06 / D-13）：description 原文与 body 原文各扫一次；每条命中带 `field`
+  // 使「两个字段都扫了」成为可判据（只扫一个字段会在另一字段忘扫的实现上全绿）
+  const heuristic = [
+    ...scanSkillThreats(fm.description, 'description'),
+    ...scanSkillThreats(bodyText, 'body'),
+  ];
 
   return {
     name: derived.name,
@@ -3270,8 +3553,8 @@ async function buildImportPreview(env, { pkgRoot, rootRel, origin = 'zip', seede
     depth: stats.depth,
     scripts: stats.scripts,
     truncated: stats.truncated,
-    // 注入类命中在更早阶段整包拒绝；技能域启发式由 Phase 51 的威胁扫描填充
-    scan: { injection: { hit: false }, heuristic: [] },
+    // 注入类命中在更早阶段整包拒绝 ⇒ 到了这里只能是 hit: false
+    scan: { injection: { hit: false }, heuristic },
     allowedTools: {
       status: fm.allowedTools ? 'ok' : 'missing',
       value: fm.allowedTools,
@@ -3400,6 +3683,11 @@ async function importUserSkill(env, { srcDir, name, conflict, newName } = {}, { 
     status: fm.ok && fm.allowedTools ? 'ok' : 'missing',
     value: fm.ok ? fm.allowedTools : null,
   };
+  const mdBody = mdText.replace(IMPORT_FRONTMATTER_RE, '');
+  const heuristic = [
+    ...scanSkillThreats(fm.ok ? fm.description : '', 'description'),
+    ...scanSkillThreats(mdBody, 'body'),
+  ];
 
   const stats = await collectPreviewStats(env, path.dirname(srcDir), path.basename(srcDir));
 
@@ -3461,7 +3749,7 @@ async function importUserSkill(env, { srcDir, name, conflict, newName } = {}, { 
     bytes: stats.bytes,
     files: stats.fileCount,
     scripts: stats.scripts,
-    scan: { injection: { hit: false }, heuristic: [] },
+    scan: { injection: { hit: false }, heuristic },
     warnings: diagnostics.filter(
       (d) => d && typeof d.path === 'string' && d.path.startsWith(destDir)
     ),
@@ -3520,5 +3808,8 @@ module.exports = {
   collectPreviewStats,
   buildImportPreview,
   importUserSkill,
+  // 51 新增第三段（技能域威胁扫描：分表 + 返回命中列表的并列扫描函数）
+  SKILL_THREAT_PATTERNS,
+  scanSkillThreats,
   _resetCacheForTest,
 };

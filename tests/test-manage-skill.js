@@ -1445,8 +1445,14 @@ describe('值域矩阵与扫描单点的直调口径', () => {
   test('scanSkillText 是技能域扫描的唯一调用点（源码：不得复制第二份模式表）', () => {
     const src = readSource('ai-skills-manager.js');
     assert.ok(src.includes('function scanSkillText('), '应存在 scanSkillText');
+    /*
+     * 判据是「**定义**了第二份模式表」而不是「源码里出现这两个标识符」：
+     * Phase 51 的 `SKILL_THREAT_PATTERNS` 必须**如实登记**它与那两张 hard-fail 表
+     * 是**分表**关系（否则后续开发者会把技能域三类并进拒绝语义的硬拒表）⇒
+     * 注释里出现这两个名字是预期行为，不得据此转红。真复制一份表的形态是 `const X = …`。
+     */
     assert.strictEqual(
-      /INJECTION_PATTERNS|CREDENTIAL_PATTERNS/.test(src),
+      /(?:const|let|var)\s+(INJECTION_PATTERNS|CREDENTIAL_PATTERNS)\s*=/.test(src),
       false,
       'ai-skills-manager.js 不得复制模式表（第二份表必然独立漂移）'
     );
