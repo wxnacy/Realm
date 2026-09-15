@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 42
+open_count: 46
 waived_count: 0
 fixed_count: 2
-total_count: 44
-last_updated: 2026-09-15T08:16:02.270Z
+total_count: 48
+last_updated: 2026-09-15T09:03:36.582Z
 ---
 
 # Broken Windows Ledger
@@ -59,6 +59,10 @@ last_updated: 2026-09-15T08:16:02.270Z
 | 42 | 51 | deviation | src/settings-page.js |  | 51-04 T1 Rule 3: buildImportPreview 的 conflict 字段由 {kind:'none'\|'taken'} 细化为三档（none/user/managed），51-03 的最小导入入口在 settings-page.js:5914 判 'taken' 的分支随之失效（用户上传同名技能时不再看到任何冲突提示 ⇒ 提交才失败，属静默失败面）。最小改写为按三档给出如实文案（'覆盖 / 改名 / 取消的处置界面尚未启用，本次导入会被拒绝'），完整三选一 UI 仍归 51-06 | open |  | 2026-09-15T08:15:57.174Z |  |
 | 43 | 51 | deviation | main.js |  | 51-04 T3: D-10 的失败报告结构 {code, error, quota?, diagnostics[]} 只在 manager 侧成立 —— main.js 既有的两个 catch 分支仍只回 {error, code}（计划明文『只需复核，不改 main.js』）。后果：限额类的 quota（限额名 + 当前值）与 READBACK_FAILED 的 diagnostics 原文不会到达设置页；前端只能按 code 查文案表。若 51-06 的完整 UI 需要展示 quota/diagnostics，须同批扩该响应形状 | open |  | 2026-09-15T08:16:02.185Z |  |
 | 44 | 51 | deviation | ai-skills-manager.js |  | 51-04 实现顺序微调：IMPORT_TMP_PREFIXES 在 Task 1 就定义（覆盖备份是该前缀的第一个消费者），isImportResidueName 在 Task 2 补 —— 计划把两者都登记在 Task 2，但『前缀只在一处定义』的不变式要求 Task 1 的备份目录名不能写死字面量。判据与语义不变 | open |  | 2026-09-15T08:16:02.270Z |  |
+| 45 | 51 | deviation | tests/test-skills-management.js |  | 51-05 Rule 3：既有护栏 test-skills-management.js『ai-skills-manager.js 零 electron 依赖』的判据由『源码任何位置不得出现 require("electron")』收窄为『**模块加载期**不得 require electron』。理由：51-05 的 downloadPackage 必须把 net.fetch 的取值推迟到调用期（生产调用点走参数默认值，纯 Node 下永不求值），门禁 G2 又以正命题要求默认值表达式里出现 net.fetch 字面量 —— 原判据对任何正确实现恒红。判别力不变：把 require 挪到模块顶层即转红（已实跑反向验证） | open |  | 2026-09-15T09:03:20.206Z |  |
+| 46 | 51 | deviation | tests/test-skills-import-net.js |  | 51-05 判据依赖的源与盲窗（成文，不改计划判据）：门禁自带 stripC（五态剥注释器，与 51-03/51-04/51-06 同一份）对 ai-skills-manager.js **有状态机错位盲窗**：yamlScalar 的 .replace(/'/g, "''") 是含引号的正则字面量，剥注释器无 regex 态 ⇒ 从该处起状态漂移，第 136..2489 行的注释**未被剥离**（实测：state=3 覆盖 136..2489，之后自行闭合）。后果：落在这个窗口里的注释会被当作代码计入。本计划的规避方式是把新增段头部注释里的 importUserSkill( / yauzl.openPromise( 字面量改写为无括号措辞（门禁 G2 的『定义 1 / 调用 1』因此成立）；**计划判据一字未改**。后续计划若要在该窗口内写这些 token 的注释，须先修剥注释器或换措辞 | open |  | 2026-09-15T09:03:27.026Z |  |
+| 47 | 51 | deviation | ai-skills-manager.js |  | 51-05 两处对计划 artifact 表的**加成式**偏离（不改任何判据口径，均为可选/附加字段）：① verifyPackageBytes 增加可选第三参 contentType（计划 artifact 表登记 (destPath, kind)）—— 计划任务体逐字要求『message **用 content-type 补充**』，把 content-type 作为可选形参传入是最小实现，两个门禁只断言函数名存在；② classifyImportUrl 的返回对象在 { kind, target, scopeRel, ref, code?, message? } 之外附加 fallbackRef / refBase（计划正文具名 fallbackRef、refBase 是本实现新增的重试基址），用于「main 404 ⇒ 用 master 重试恰一次」；两者都不放宽任何安全判据 | open |  | 2026-09-15T09:03:36.498Z |  |
+| 48 | 51 | deviation | tests/test-skills-import-net.js |  | 51-05 Task 3 端到端证据落在 **manager 层**而非 previewSkillImport（如实登记，非能力缺失）：纯 Node 下 require('electron') 返回字符串 ⇒ net.fetch 不存在 ⇒ 生产侧的 url 分支在纯 Node 里**结构性不可达**（这正是注入缝存在的理由，也是 51-VALIDATION.md 把『真实 GitHub 端到端』列为 Manual-Only 的原因）。套件用 runUrlPipeline 复现同一段调用序列（分类→下载→校验形态→准备器→公共后段→importUserSkill），生产侧等价性由源码判据守住（locateSkillRoot(/buildImportPreview( 在 ai-manager.js 各恰 1 处 + 门禁 G2 整段断言）。真实 GitHub 的成功路径仍待人工一次性验证 | open |  | 2026-09-15T09:03:36.582Z |  |
 
 ````json
 [
@@ -588,6 +592,54 @@ last_updated: 2026-09-15T08:16:02.270Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-15T08:16:02.270Z",
+    "resolved_at": null
+  },
+  {
+    "id": 45,
+    "kind": "deviation",
+    "phase": "51",
+    "file": "tests/test-skills-management.js",
+    "line": null,
+    "description": "51-05 Rule 3：既有护栏 test-skills-management.js『ai-skills-manager.js 零 electron 依赖』的判据由『源码任何位置不得出现 require(\"electron\")』收窄为『**模块加载期**不得 require electron』。理由：51-05 的 downloadPackage 必须把 net.fetch 的取值推迟到调用期（生产调用点走参数默认值，纯 Node 下永不求值），门禁 G2 又以正命题要求默认值表达式里出现 net.fetch 字面量 —— 原判据对任何正确实现恒红。判别力不变：把 require 挪到模块顶层即转红（已实跑反向验证）",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T09:03:20.206Z",
+    "resolved_at": null
+  },
+  {
+    "id": 46,
+    "kind": "deviation",
+    "phase": "51",
+    "file": "tests/test-skills-import-net.js",
+    "line": null,
+    "description": "51-05 判据依赖的源与盲窗（成文，不改计划判据）：门禁自带 stripC（五态剥注释器，与 51-03/51-04/51-06 同一份）对 ai-skills-manager.js **有状态机错位盲窗**：yamlScalar 的 .replace(/'/g, \"''\") 是含引号的正则字面量，剥注释器无 regex 态 ⇒ 从该处起状态漂移，第 136..2489 行的注释**未被剥离**（实测：state=3 覆盖 136..2489，之后自行闭合）。后果：落在这个窗口里的注释会被当作代码计入。本计划的规避方式是把新增段头部注释里的 importUserSkill( / yauzl.openPromise( 字面量改写为无括号措辞（门禁 G2 的『定义 1 / 调用 1』因此成立）；**计划判据一字未改**。后续计划若要在该窗口内写这些 token 的注释，须先修剥注释器或换措辞",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T09:03:27.026Z",
+    "resolved_at": null
+  },
+  {
+    "id": 47,
+    "kind": "deviation",
+    "phase": "51",
+    "file": "ai-skills-manager.js",
+    "line": null,
+    "description": "51-05 两处对计划 artifact 表的**加成式**偏离（不改任何判据口径，均为可选/附加字段）：① verifyPackageBytes 增加可选第三参 contentType（计划 artifact 表登记 (destPath, kind)）—— 计划任务体逐字要求『message **用 content-type 补充**』，把 content-type 作为可选形参传入是最小实现，两个门禁只断言函数名存在；② classifyImportUrl 的返回对象在 { kind, target, scopeRel, ref, code?, message? } 之外附加 fallbackRef / refBase（计划正文具名 fallbackRef、refBase 是本实现新增的重试基址），用于「main 404 ⇒ 用 master 重试恰一次」；两者都不放宽任何安全判据",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T09:03:36.498Z",
+    "resolved_at": null
+  },
+  {
+    "id": 48,
+    "kind": "deviation",
+    "phase": "51",
+    "file": "tests/test-skills-import-net.js",
+    "line": null,
+    "description": "51-05 Task 3 端到端证据落在 **manager 层**而非 previewSkillImport（如实登记，非能力缺失）：纯 Node 下 require('electron') 返回字符串 ⇒ net.fetch 不存在 ⇒ 生产侧的 url 分支在纯 Node 里**结构性不可达**（这正是注入缝存在的理由，也是 51-VALIDATION.md 把『真实 GitHub 端到端』列为 Manual-Only 的原因）。套件用 runUrlPipeline 复现同一段调用序列（分类→下载→校验形态→准备器→公共后段→importUserSkill），生产侧等价性由源码判据守住（locateSkillRoot(/buildImportPreview( 在 ai-manager.js 各恰 1 处 + 门禁 G2 整段断言）。真实 GitHub 的成功路径仍待人工一次性验证",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T09:03:36.582Z",
     "resolved_at": null
   }
 ]
