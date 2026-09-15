@@ -856,3 +856,426 @@ describe('verifyPackageBytes / prepareFromRawFile：形态判定与同一个 pkg
   });
 });
 
+
+// ==================== ③ 网络面端到端（两条来源）+ 真实形态证据 ====================
+
+/**
+ * 按 `previewSkillImport` 的 `kind === 'url'` 分支**逐句**执行
+ *
+ * 纯 Node 下 `require('electron').net.fetch` 不存在（返回字符串 ⇒ `.net` 为 undefined）
+ * ⇒ 生产侧的 `net.fetch` 路径在纯 Node 里**结构性不可达**（这正是注入缝存在的理由，
+ * 也是 `51-VALIDATION.md` 把「真实 GitHub 端到端」列为 Manual-Only 的原因）。
+ * 本函数在 **manager 层**复现同一段调用序列（分类 → 下载 → 校验形态 → 准备器 →
+ * 公共后段），生产侧的等价性由**源码判据**守住（`locateSkillRoot(` /
+ * `buildImportPreview(` 在 `ai-manager.js` 各恰 1 处调用 + 门禁 G2 的整段断言）。
+ */
+async function runUrlPipeline(env, { cls, deps, stubUrl }) {
+  const importDir = fs.mkdtempSync(path.join(workspace.getTmpDir(), 'skill-import-'));
+  const maxBytes = aiSkills.IMPORT_LIMITS.MAX_TOTAL_BYTES;
+  let prepared;
+  let destPath;
+
+  if (cls.kind === 'zipball') {
+    destPath = path.join(importDir, 'pkg.zip');
+    const meta = await aiSkills.downloadPackage(deps, {
+      url: stubUrl,
+      destPath,
+      maxBytes,
+      kind: 'zipball',
+    });
+    aiSkills.verifyPackageBytes(destPath, 'zipball', meta.contentType);
+    prepared = await aiSkills.extractAndValidatePackage(env, {
+      importDir,
+      scopeRel: cls.scopeRel,
+    });
+  } else {
+    destPath = path.join(importDir, 'raw.tmp');
+    const meta = await aiSkills.downloadPackage(deps, {
+      url: stubUrl,
+      destPath,
+      maxBytes,
+      kind: 'raw-skill',
+    });
+    aiSkills.verifyPackageBytes(destPath, 'raw-skill', meta.contentType);
+    const text = fs.readFileSync(destPath, 'utf8');
+    const fm = aiSkills.parseSkillFrontmatter(text);
+    assert.ok(fm.ok, `直链 SKILL.md 的 frontmatter 必须可解析：${fm.reason}`);
+    const urlParentDir = path.posix.basename(path.posix.dirname(new URL(cls.target).pathname));
+    const derived = aiSkills.deriveImportName(fm, urlParentDir);
+    assert.ok(derived.ok, derived.reason);
+    prepared = await aiSkills.prepareFromRawFile({ importDir, name: derived.name, text });
+  }
+
+  const located = aiSkills.locateSkillRoot(prepared.pkgRoot, cls ? cls.scopeRel : null);
+  const preview = await aiSkills.buildImportPreview(env, {
+    pkgRoot: prepared.pkgRoot,
+    rootRel: located.rootRel,
+    origin: 'url',
+    seededNames: SEEDED,
+  });
+  return { importDir, destPath, located, preview };
+}
+
+describe('网络面端到端：zipball 与 raw 直链各走一遍「预览 → 落盘 → 回读」', () => {
+  test('zipball：剥 `<repo>-<ref>/` 顶层前缀 + 子路径定位 + 落盘 `skills/<name>/SKILL.md` + 回读可见', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+
+    const zipBody = makeZip.buildZip({
+      entries: [
+        {
+          name: 'repo-ref/skills/pdf/SKILL.md',
+          data: '---\nname: pdf\ndescription: 演示 PDF 技能\n---\n\n# pdf\n\n正文\n',
+          method: makeZip.METHOD_STORED,
+        },
+        {
+          name: 'repo-ref/skills/pdf/scripts/run.sh',
+          data: '#!/bin/sh\necho hi\n',
+          method: makeZip.METHOD_STORED,
+        },
+      ],
+    });
+    const stub = await startStub((req, res) => {
+      if (req.url === '/codeload.zip') {
+        res.writeHead(200, { 'content-type': 'application/zip' });
+        res.end(zipBody);
+        return;
+      }
+      res.writeHead(404, { 'content-type': 'text/plain' });
+      res.end('404: Not Found');
+    });
+    t.after(() => stub.close());
+    const { deps } = makeStubDeps(stub);
+
+    // 分类器给的 `scopeRel` 就是地址里的子路径（纯函数，离线）
+    const cls = aiSkills.classifyImportUrl('https://github.com/anthropics/skills/tree/main/skills/pdf');
+    assert.strictEqual(cls.kind, 'zipball');
+    assert.strictEqual(cls.scopeRel, 'skills/pdf');
+
+    const { located, preview } = await runUrlPipeline(env, {
+      cls,
+      deps,
+      stubUrl: `https://127.0.0.1:${stub.port}/codeload.zip`,
+    });
+
+    assert.strictEqual(preview.name, 'pdf');
+    assert.strictEqual(preview.origin, 'url');
+    assert.strictEqual(located.rootRel, 'skills/pdf', '子路径必须成为技能根相对路径');
+    assert.ok(
+      !JSON.stringify(preview.tree).includes('repo-ref'),
+      '顶层 `<repo>-<ref>/` 前缀必须已剥离（预览树里不得出现该段）'
+    );
+    for (const key of [
+      'name',
+      'description',
+      'tree',
+      'fileCount',
+      'bytes',
+      'scripts',
+      'scan',
+      'conflict',
+      'limits',
+      'origin',
+    ]) {
+      assert.ok(key in preview, `预览骨架必须含 ${key}`);
+    }
+    assert.ok(preview.scripts.includes('scripts/run.sh'), '脚本清单必须识别 .sh');
+
+    // 落盘走**唯一实现**并回读可见
+    const report = await aiSkills.importUserSkill(
+      env,
+      { srcDir: located.skillRootAbs, name: preview.name },
+      { seededNames: SEEDED }
+    );
+    assert.strictEqual(report.name, 'pdf');
+    const landed = path.join(workspace.getSkillsDir(), 'pdf', 'SKILL.md');
+    assert.ok(fs.existsSync(landed), 'commit 后 `skills/<name>/SKILL.md` 必须落盘');
+    assert.match(fs.readFileSync(landed, 'utf8'), /演示 PDF 技能/);
+    assert.ok(
+      fs.existsSync(path.join(workspace.getSkillsDir(), 'pdf', 'scripts', 'run.sh')),
+      '整棵技能目录必须一起落盘'
+    );
+    assert.ok(
+      !fs.existsSync(path.join(workspace.getSkillsDir(), 'repo-ref')),
+      '包顶层前缀目录不得被写进 skills/'
+    );
+  });
+
+  test('raw 直链：不做 magic 校验 + 落盘 `skills/<name>/SKILL.md` + 回读可见', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+
+    const rawText =
+      '---\nname: raw-skill\ndescription: 直链技能\nallowed-tools: Read, Bash\n---\n\n# raw-skill\n\n正文\n';
+    const stub = await startStub((req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end(rawText);
+    });
+    t.after(() => stub.close());
+    const { deps } = makeStubDeps(stub);
+
+    const cls = aiSkills.classifyImportUrl(
+      'https://raw.githubusercontent.com/anthropics/skills/main/skills/raw-skill/SKILL.md'
+    );
+    assert.strictEqual(cls.kind, 'raw-skill');
+
+    const { destPath, located, preview } = await runUrlPipeline(env, {
+      cls,
+      deps,
+      stubUrl: `https://127.0.0.1:${stub.port}/SKILL.md`,
+    });
+
+    // ① raw 分支**跳过** magic 校验（否则实测的 text/plain 会把所有合法直链判死）
+    assert.doesNotThrow(() => aiSkills.verifyPackageBytes(destPath, 'raw-skill', 'text/plain'));
+    // ② 对照：同一份内容按 zipball 判定会被拦（证明「跳过」是有意的分支差异，不是没判）
+    let asZip = null;
+    try {
+      aiSkills.verifyPackageBytes(destPath, 'zipball', 'text/plain');
+    } catch (e) {
+      asZip = e;
+    }
+    assert.ok(asZip, '同一份文本按 zipball 判定必须被 magic bytes 拦住');
+    assert.strictEqual(asZip.code, 'not_a_zip');
+
+    assert.strictEqual(preview.name, 'raw-skill');
+    assert.strictEqual(preview.origin, 'url');
+    assert.strictEqual(preview.allowedTools.status, 'ok');
+
+    const report = await aiSkills.importUserSkill(
+      env,
+      { srcDir: located.skillRootAbs, name: preview.name },
+      { seededNames: SEEDED }
+    );
+    assert.strictEqual(report.name, 'raw-skill');
+    const landed = path.join(workspace.getSkillsDir(), 'raw-skill', 'SKILL.md');
+    assert.ok(fs.existsSync(landed), '直链技能必须经**同一段**落盘实现写入');
+    assert.match(fs.readFileSync(landed, 'utf8'), /直链技能/);
+  });
+
+  test('302 链形态：先 302 到自身另一路径再回包（逐跳跟随且白名单内的跳转不被误拒）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const zipBody = makeZip.buildZip({
+      entries: [
+        {
+          name: 'repo-ref/demo/SKILL.md',
+          data: '---\nname: chained\ndescription: 302 链技能\n---\n\n# chained\n',
+          method: makeZip.METHOD_STORED,
+        },
+      ],
+    });
+    const stub = await startStub((req, res) => {
+      if (req.url === '/archive.zip') {
+        res.writeHead(200, { 'content-type': 'application/zip' });
+        res.end(zipBody);
+        return;
+      }
+      res.writeHead(302, { location: '/archive.zip' });
+      res.end();
+    });
+    t.after(() => stub.close());
+    const { deps } = makeStubDeps(stub);
+
+    const cls = aiSkills.classifyImportUrl('https://github.com/o/r');
+    const { preview } = await runUrlPipeline(env, {
+      cls,
+      deps,
+      stubUrl: `https://127.0.0.1:${stub.port}/start.zip`,
+    });
+    assert.strictEqual(preview.name, 'chained');
+    assert.deepStrictEqual(stub.hits, ['/start.zip', '/archive.zip'], '302 链必须逐跳跟随');
+  });
+
+  test('skills.sh 的真实 308 形态（离线 stub）：归一化后**在白名单内**，但本阶段仍无载荷语义', async (t) => {
+    withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+
+    // 实测形态（51-RESEARCH 实测 5）：308 + `location: https://www.skills.sh/`
+    // + `content-type: text/plain`。这里用 stub 复现该形态（**不跟随外部网络**）。
+    const stub = await startStub((req, res) => {
+      res.writeHead(308, { location: 'https://www.skills.sh/', 'content-type': 'text/plain' });
+      res.end();
+    });
+    t.after(() => stub.close());
+    const raw = await new Promise((resolve, reject) => {
+      http
+        .get({ host: '127.0.0.1', port: stub.port, path: '/' }, (r) => {
+          r.resume();
+          r.on('end', () =>
+            resolve({
+              status: r.statusCode,
+              location: r.headers.location,
+              ctype: r.headers['content-type'],
+            })
+          );
+        })
+        .on('error', reject);
+    });
+    assert.strictEqual(raw.status, 308);
+    assert.strictEqual(raw.location, 'https://www.skills.sh/');
+    assert.match(raw.ctype, /text\/plain/);
+
+    // ① `www.` 归一化后 `www.skills.sh` **在白名单内** —— 否则这条 308 会在第一跳被
+    //    自己的逐跳校验拒（CR-1 的验收点：白名单条目必须可达）
+    assert.strictEqual(aiSkills.isWhitelistedHost('www.skills.sh'), true);
+    assert.ok(aiSkills.HOST_WHITELIST.includes('skills.sh'));
+
+    // ② 但分类器对它仍回 `unsupported_url`（本阶段无载荷语义）—— 两条**同时**成立
+    //    才能区分「白名单收它」与「有载荷语义」
+    const cls = aiSkills.classifyImportUrl('https://www.skills.sh/anthropics/pdf');
+    assert.strictEqual(cls.kind, 'unsupported');
+    assert.strictEqual(cls.code, 'unsupported_url');
+    assert.match(cls.message, /保留为未来兼容/);
+    assert.ok(
+      !cls.message.includes('主机不在下载白名单'),
+      '不得退化成「白名单外主机」——那会让「保留为未来兼容」的理由失真'
+    );
+  });
+
+  test('403 / 429 / 404 给可操作的真实原因；**状态码分类先于** magic 校验', async (t) => {
+    withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const cases = [
+      { status: 403, headers: { 'content-type': 'text/plain' }, body: 'Forbidden', expect: /稍后重试/ },
+      {
+        status: 429,
+        headers: { 'content-type': 'text/plain', 'retry-after': '60' },
+        body: 'rate limited',
+        expect: /限流/,
+      },
+      {
+        status: 404,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+        body: '404: Not Found',
+        expect: /地址或 ref 不存在/,
+      },
+    ];
+    for (const c of cases) {
+      const dest = path.join(workspace.getTmpDir(), `status-${c.status}.bin`);
+      const stub = await startStub((req, res) => {
+        res.writeHead(c.status, c.headers);
+        res.end(c.body);
+      });
+      const { deps } = makeStubDeps(stub);
+
+      let err = null;
+      try {
+        await downloadWith(deps, `https://127.0.0.1:${stub.port}/x.zip`, dest);
+      } catch (e) {
+        err = e;
+      }
+      await stub.close();
+
+      assert.ok(err, `HTTP ${c.status} 必须被拒`);
+      assert.strictEqual(err.code, 'download_failed', `HTTP ${c.status} 的码应为 download_failed`);
+      assert.strictEqual(err.httpStatus, c.status, '错误对象必须带真实状态码');
+      assert.match(err.message, c.expect, `HTTP ${c.status} 的文案必须可操作：${err.message}`);
+      if (c.status === 404) {
+        assert.notStrictEqual(
+          err.code,
+          'not_a_zip',
+          '404 不得被折叠成 not_a_zip（状态码分类先于 magic 校验）'
+        );
+      }
+      if (c.status === 429) {
+        assert.strictEqual(err.retryAfter, '60', '`retry-after` 头若存在必须带进错误对象');
+      }
+      assert.strictEqual(fs.existsSync(dest), false, '失败不得留半成品');
+    }
+  });
+
+  test('fallbackRef：`main` 404 ⇒ 用 `master` 重试**恰一次**（请求序列可断言）', async (t) => {
+    withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const zipBody = makeZip.buildZip({
+      entries: [
+        {
+          name: 'repo-ref/demo/SKILL.md',
+          data: '---\nname: fb-skill\ndescription: fallback 技能\n---\n\n# fb\n',
+          method: makeZip.METHOD_STORED,
+        },
+      ],
+    });
+    const stub = await startStub((req, res) => {
+      if (req.url === '/zip/refs/heads/master') {
+        res.writeHead(200, { 'content-type': 'application/zip' });
+        res.end(zipBody);
+        return;
+      }
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('404: Not Found');
+    });
+    t.after(() => stub.close());
+    const { deps } = makeStubDeps(stub);
+
+    const cls = aiSkills.classifyImportUrl('https://github.com/o/r');
+    assert.strictEqual(cls.ref, 'main');
+    assert.strictEqual(cls.fallbackRef, 'master');
+
+    const dest = path.join(workspace.getTmpDir(), 'fallback.zip');
+    const opts = {
+      destPath: dest,
+      maxBytes: aiSkills.IMPORT_LIMITS.MAX_TOTAL_BYTES,
+      kind: 'zipball',
+    };
+    let meta = null;
+    try {
+      meta = await aiSkills.downloadPackage(deps, {
+        ...opts,
+        url: `https://127.0.0.1:${stub.port}/zip/refs/heads/main`,
+      });
+    } catch (err) {
+      assert.strictEqual(err.httpStatus, 404, '缺省分支缺失必须表现为 404');
+      meta = await aiSkills.downloadPackage(deps, {
+        ...opts,
+        url: `https://127.0.0.1:${stub.port}/zip/refs/heads/master`,
+      });
+    }
+    assert.ok(meta, 'fallbackRef 重试必须成功');
+    assert.deepStrictEqual(
+      stub.hits,
+      ['/zip/refs/heads/main', '/zip/refs/heads/master'],
+      '请求序列必须是 main → master（不是无限重试、也不是先试 master）'
+    );
+
+    // 生产侧同款顺序（源码判据）：`refBase + cls.fallbackRef` 恰 1 处且**不是循环**
+    const prod = stripCodeComments(readSource('ai-manager.js'));
+    const start = prod.indexOf('async previewSkillImport(');
+    const win = prod.slice(start, prod.indexOf('\n  }', start));
+    assert.strictEqual(
+      (win.match(/refBase \+ cls\.fallbackRef/g) || []).length,
+      1,
+      '生产侧 `fallbackRef` 重试必须恰一次'
+    );
+    assert.strictEqual(/for\s*\(/.test(win), false, '重试不得实现成循环');
+  });
+
+  test('上限单源（跨文件）：`main.js` 的 MAX_SKILL_PACKAGE_BYTES === `IMPORT_LIMITS.MAX_TOTAL_BYTES`', () => {
+    const main = readSource('main.js');
+    const m = main.match(/const MAX_SKILL_PACKAGE_BYTES = (\d+ \* \d+ \* \d+);/);
+    assert.ok(m, 'main.js 必须显式声明 MAX_SKILL_PACKAGE_BYTES 字面量');
+    assert.strictEqual(
+      eval(m[1]),
+      aiSkills.IMPORT_LIMITS.MAX_TOTAL_BYTES,
+      'HTTP body 上限与解压累计上限已漂移（同值不同量，两处必须同步）'
+    );
+  });
+
+  test('两条来源共用同一段后段（回归护栏）：唯一落盘实现「定义 1 + 调用 1」、唯一解压入口「恰 1 处」', () => {
+    const count = (file, token) =>
+      (stripCodeComments(readSource(file)).match(
+        new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')
+      ) || []).length;
+    assert.strictEqual(count('ai-skills-manager.js', 'importUserSkill('), 1, '落盘实现的定义处必须恰 1');
+    assert.strictEqual(
+      count('ai-manager.js', 'importUserSkill('),
+      1,
+      '落盘实现的调用处必须恰 1（两条来源共用）'
+    );
+    assert.strictEqual(
+      count('ai-skills-manager.js', 'yauzl.openPromise('),
+      1,
+      '解压入口必须恰 1（直链分支不得引入第二个）'
+    );
+  });
+});

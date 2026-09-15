@@ -21,6 +21,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { Readable } = require('stream');
 
 const workspace = require('../agent-workspace');
 const aiMemoryManager = require('../ai-memory-manager');
@@ -149,15 +150,16 @@ function userSkillNames() {
 const EXPECTED_CODES = Object.values(aiSkills.IMPORT_SKILL_ERROR);
 
 /**
- * **具名豁免**清单：本计划（51-04）范围内**确实不可达**的码
+ * **具名豁免**清单 —— 51-05 交付网络地址来源后**已清空**
  *
- * 四个都是**网络面**的码，由 `51-05`（网络地址来源）交付真实用例 —— 那一步会把这四个
- * 从这里移除，并在它自己的门禁里断言「一个跳过项都不剩」。
+ * 四个网络面码（`unsupported_url` / `download_failed` / `redirect_limit` / `not_a_zip`）
+ * 在 51-03 / 51-04 范围内确实不可达，那时在此**具名跳过并打印**（不是静默过滤）。
+ * 51-05 交付后四码**全部**有真实用例 ⇒ 清单清空 ⇒ 矩阵从过渡态转为完全态：
+ * 21 个码一条不落，跳过项恒为 0。
  *
- * ⚠️ 豁免必须**可见**（矩阵用例打印跳过项），**不得静默过滤** —— 静默过滤会让本矩阵
- * 退化成「只检查我写了用例的那些码」。
+ * 清空的时点与责任落在 `51-05` Task 3 第 6 步（`51-06` / `51-07` 都**不**承这条断言）。
  */
-const PENDING_CODES_NETWORK = ['unsupported_url', 'download_failed', 'redirect_limit', 'not_a_zip'];
+const PENDING_CODES_NETWORK = [];
 
 /** 已被用例**真实观测到**的拒绝码 */
 const OBSERVED_CODES = new Set();
@@ -2333,6 +2335,109 @@ describe('拒绝面缺口补齐：每个可达的码都有一条真实用例', (
       `[SKILL.md 字节] message 必须含限额值与当前值：${sixErr.message}`
     );
     assert.ok(sixErr.quota && Number.isFinite(sixErr.quota.currentValue), '[SKILL.md 字节] 必须带结构化 quota');
+  });
+});
+
+// ==================== ⑫b 网络面四码（51-05 交付；矩阵零跳过项的承重面） ====================
+//
+// 本组在**本套件内**直接观测这四个码 —— 矩阵的判据是「同一个 `OBSERVED_CODES` 集合
+// 覆盖期望表」，跨套件的观测不算数。网络面的完整覆盖（本地 stub server 的六类校验、
+// 逐跳跟随、两条来源的端到端落盘）住 `tests/test-skills-import-net.js`。
+
+/** 伪造一个 fetch 响应（只满足 `downloadPackage` 真正用到的三个面） */
+function fakeResponse(status, headers = {}, bodyText = '') {
+  return {
+    status,
+    headers: { get: (name) => headers[String(name).toLowerCase()] ?? null },
+    body: Readable.toWeb(Readable.from([Buffer.from(bodyText, 'utf8')])),
+  };
+}
+
+/** 只放行回环 stub 主机的依赖注入（测试缝；生产调用点走默认值） */
+function netTestDeps(fetchImpl) {
+  return { fetchImpl, isPrivateHost: async () => false, hostWhitelist: ['127.0.0.1'] };
+}
+
+describe('网络面四码（51-05 交付）：四码各有真实用例，矩阵不得再有跳过项', () => {
+  test('unsupported_url：逐跳协议校验先于任何网络请求', async (t) => {
+    withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    let called = 0;
+    const err = await assertRejected(
+      () =>
+        aiSkills.downloadPackage(
+          netTestDeps(async () => {
+            called += 1;
+            throw new Error('不该被调用');
+          }),
+          {
+            url: 'http://127.0.0.1:1/x.zip',
+            destPath: path.join(workspace.getTmpDir(), 'net-a.bin'),
+            maxBytes: aiSkills.IMPORT_LIMITS.MAX_TOTAL_BYTES,
+            kind: 'zipball',
+          }
+        ),
+      aiSkills.IMPORT_SKILL_ERROR.UNSUPPORTED_URL
+    );
+    assert.match(err.message, /只支持 https 地址/);
+    assert.strictEqual(called, 0, '协议校验必须先于任何网络请求');
+  });
+
+  test('download_failed：状态码分类给可操作原因（404 不被折叠成 not_a_zip）', async (t) => {
+    withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const err = await assertRejected(
+      () =>
+        aiSkills.downloadPackage(
+          netTestDeps(async () =>
+            fakeResponse(404, { 'content-type': 'text/plain; charset=utf-8' }, '404: Not Found')
+          ),
+          {
+            url: 'https://127.0.0.1:1/missing.zip',
+            destPath: path.join(workspace.getTmpDir(), 'net-b.bin'),
+            maxBytes: aiSkills.IMPORT_LIMITS.MAX_TOTAL_BYTES,
+            kind: 'zipball',
+          }
+        ),
+      aiSkills.IMPORT_SKILL_ERROR.DOWNLOAD_FAILED
+    );
+    assert.match(err.message, /地址或 ref 不存在/);
+    assert.strictEqual(err.httpStatus, 404, '错误对象必须带真实状态码（供 fallbackRef 判定）');
+  });
+
+  test('redirect_limit：跳数超限**抛错**而不是带着 3xx 掉出', async (t) => {
+    withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const err = await assertRejected(
+      () =>
+        aiSkills.downloadPackage(
+          netTestDeps(async () => fakeResponse(302, { location: 'https://127.0.0.1:1/loop' })),
+          {
+            url: 'https://127.0.0.1:1/loop',
+            destPath: path.join(workspace.getTmpDir(), 'net-c.bin'),
+            maxBytes: aiSkills.IMPORT_LIMITS.MAX_TOTAL_BYTES,
+            kind: 'zipball',
+          }
+        ),
+      aiSkills.IMPORT_SKILL_ERROR.REDIRECT_LIMIT
+    );
+    assert.ok(
+      !/HTTP\s*30/.test(err.message),
+      `不得报误导性的 HTTP 3xx（那是 fetchUrl 的既有缺陷形态）：${err.message}`
+    );
+  });
+
+  test('not_a_zip：magic bytes 是权威，`content-type` 只用于把错误说清楚', async (t) => {
+    withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const p = path.join(workspace.getTmpDir(), 'net-d.bin');
+    fs.writeFileSync(p, '404: Not Found', 'utf8');
+    const err = await assertRejected(
+      () => aiSkills.verifyPackageBytes(p, 'zipball', 'text/plain; charset=utf-8'),
+      aiSkills.IMPORT_SKILL_ERROR.NOT_A_ZIP
+    );
+    assert.match(err.message, /text\/plain/, 'content-type 必须进失败原因（把错误说清楚）');
+    fs.rmSync(p, { force: true });
   });
 });
 
