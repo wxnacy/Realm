@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 35
+open_count: 36
 waived_count: 0
 fixed_count: 2
-total_count: 37
-last_updated: 2026-09-15T07:11:46.134Z
+total_count: 38
+last_updated: 2026-09-15T07:23:06.599Z
 ---
 
 # Broken Windows Ledger
@@ -52,6 +52,7 @@ last_updated: 2026-09-15T07:11:46.134Z
 | 35 | 50 | deviation | main.js |  | 两个新写子路由补 aiManager 空值守卫（503），对齐 50-01 的既有范式，避免早期请求撞 null ⇒ 500 | open |  | 2026-09-14T13:50:38.408Z |  |
 | 36 | 51 | deviation | tests/test-agent-workspace.js |  | 51-01 Rule 2: env.remove 用例的承重断言改用「尚不存在的逃逸目标」（计划原文 `remove('<link OUT>/x')` 形态）—— 首版删已存在的 root 外文件时，回退加固的树同样拒绝（resolveInside 对已存在路径本就做 realpath 复核）故该用例恒绿、无检出力；改用 ENOENT 目标后回退会退化成底层 not_found 而非 permission_denied，MA 变异可转红（已实测） | open |  | 2026-09-15T07:11:46.049Z |  |
 | 37 | 51 | deviation | tests/test-agent-workspace.js |  | 51-01 Rule 2: 新增一条「未覆盖面」行为用例（计划仅要求注释登记）—— 断言 env.exec('echo escaped > ../x') 之后 root 外**确实**存在该文件，把「本加固不封闭 bash 写盘」（prohibitions 第 2 条 / D-15 诚实边界）从注释承诺升级为可执行反证据 | open |  | 2026-09-15T07:11:46.134Z |  |
+| 38 | 51 | deviation | .planning/phases/51-zip/51-02-PLAN.md |  | 51-02 Rule 1: 计划门禁二对 yauzl Promise 导出面的断言不可满足 —— 原写法对模块级命名空间断言 openReadStreamPromise（实为 ZipFile.prototype 成员，模块级只有四个 *Promise 打开器）⇒ 对任何正确安装恒红。已按接收者寻址改写（openPromise/fromBufferPromise 取模块、openReadStreamPromise 取 ZipFile.prototype），断言强度不变；合成探针红/绿两轮 + 树上四门禁全绿已复验 | open |  | 2026-09-15T07:23:06.599Z |  |
 
 ````json
 [
@@ -497,6 +498,18 @@ last_updated: 2026-09-15T07:11:46.134Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-15T07:11:46.134Z",
+    "resolved_at": null
+  },
+  {
+    "id": 38,
+    "kind": "deviation",
+    "phase": "51",
+    "file": ".planning/phases/51-zip/51-02-PLAN.md",
+    "line": null,
+    "description": "51-02 Rule 1: 计划门禁二对 yauzl Promise 导出面的断言不可满足 —— 原写法对模块级命名空间断言 openReadStreamPromise（实为 ZipFile.prototype 成员，模块级只有四个 *Promise 打开器）⇒ 对任何正确安装恒红。已按接收者寻址改写（openPromise/fromBufferPromise 取模块、openReadStreamPromise 取 ZipFile.prototype），断言强度不变；合成探针红/绿两轮 + 树上四门禁全绿已复验",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T07:23:06.599Z",
     "resolved_at": null
   }
 ]
