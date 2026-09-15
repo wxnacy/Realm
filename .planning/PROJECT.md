@@ -407,4 +407,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-15 after Phase 50 (设置页技能管理区 + `/api/skills/*`) complete*
+*Last updated: 2026-09-15 after Phase 51 (用户技能导入管线（zip + 网络地址）) complete — 里程碑 v2.6 六阶段全部收口*

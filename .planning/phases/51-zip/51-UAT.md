@@ -72,7 +72,7 @@ expected: |
   dev 模式打开 DevTools Performance，上传一个接近 32 MiB 的包 ⇒ 记录耗时与堆曲线；
   确认**无**「先 `arrayBuffer()` 再判大小」的峰值。
 result: pass
-automated_by: tests/uat-51-import-limits.js（18/18，连跑 2 轮无抖动）
+automated_by: tests/uat-51-import-limits.js（18/18；见 boundary ③ —— 口径是「在已登记的环境下未复现」，不是「零抖动」）
 evidence: |
   - **A 近限成功**：包在 **guest 内现场生成**（store 方式 + 正确 CRC32，**不经 CDP 传字节**），
     解压总量 31,744,134 B（< 32 MiB 上限）、32 条目；上传 **906～1059 ms** 走到就绪态。

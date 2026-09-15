@@ -3,8 +3,8 @@
   "covers": [
     "UAT-51-test-4"
   ],
-  "started": "2026-09-15T12:06:08.209Z",
-  "finished": "2026-09-15T12:06:23.343Z",
+  "started": "2026-09-15T13:38:50.809Z",
+  "finished": "2026-09-15T13:39:11.557Z",
   "node": "v22.22.0",
   "targetSizes": [
     {
@@ -389,9 +389,9 @@
       "hasScript": true
     },
     "layoutProbe": {
-      "wasHidden": false,
+      "wasHidden": true,
       "nowHidden": true,
-      "aiPanelWidth": 280,
+      "aiPanelWidth": 1,
       "sidebarWidth": 240
     },
     "calibration": {
@@ -450,7 +450,7 @@
     {
       "name": "前置：AI 侧栏已关闭（否则窗口宽度到 guest 宽度的映射被侧栏宽度整体偏移 ⇒ 尺寸矩阵名不副实）",
       "pass": true,
-      "detail": "{\"wasHidden\":false,\"nowHidden\":true,\"aiPanelWidth\":280,\"sidebarWidth\":240}"
+      "detail": "{\"wasHidden\":true,\"nowHidden\":true,\"aiPanelWidth\":1,\"sidebarWidth\":240}"
     },
     {
       "name": "前置：自标定得到正的宽度偏移（窗口尺寸不能直接当内容尺寸，必须反推）",
@@ -679,6 +679,18 @@
     }
   ],
   "cleanup": {
+    "instancesBefore": [
+      {
+        "pid": 15094,
+        "ppid": 1,
+        "command": "/Users/wxnacy/Projects/Realm/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron --inspect=0 --remote-debugging-port=0 ."
+      },
+      {
+        "pid": 15095,
+        "ppid": 1,
+        "command": "/Users/wxnacy/Projects/Realm/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron --inspect=0 --remote-debugging-port=0 ."
+      }
+    ],
     "preProbeSkill": "absent",
     "preTmpResidue": [],
     "probeSkill": "removed",
@@ -686,26 +698,39 @@
     "residueRemoved": [],
     "pageErrors": [],
     "mainLogTail": [
-      "(node:42556) electron: Failed to load URL: https://bg-nav-test.com/ with error: ERR_NETWORK_CHANGED",
-      "(node:42556) electron: Failed to load URL: https://nav-test-example.com/explicit with error: ERR_NETWORK_CHANGED",
+      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
+      "2026-09-15 21:38:53.110 Electron[22791:23200913] +[IMKClient subclass]: chose IMKClient_Modern",
+      "2026-09-15 21:38:53.110 Electron[22791:23200913] +[IMKInputSession subclass]: chose IMKInputSession_Modern",
+      "[Realm] webview 导航完成: http://localhost:8005/rouman?search=%E5%A6%88%E5%A6%88",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 2",
+      "[Realm] webview 导航完成: http://localhost:61760/settings?container=default&token=ccae2c84-e009-4a68-aa84-c25285b5cf22",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 10",
+      "[Realm] webview 导航完成: http://localhost:61760/newtab?container=default&token=ccae2c84-e009-4a68-aa84-c25285b5cf22",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 11",
+      "[Realm UA-CH] dom-ready 触发, webContents: 2, url: http://localhost:8005/rouman?search=%E5%A6%88%E5%A6%88",
+      "[Realm] 获取常用网站: 12 个",
+      "[Realm UA-CH] dom-ready 触发, webContents: 11, url: http://localhost:61760/newtab?container=default&token=ccae2c84-e009-4a68-aa84-c25285b5cf22",
+      "[Realm UA-CH] dom-ready 触发, webContents: 10, url: http://localhost:61760/settings?container=default&token=ccae2c84-e009-4a68-aa84-c25285b5cf22",
+      "2026-09-15 21:38:53.619 Electron[22791:23200913] error messaging the mach port for IMKCFRunLoopWakeUpReliable",
+      "[22820:0915/213903.303959:ERROR:net/socket/ssl_client_socket_impl.cc:963] handshake failed; returned -1, SSL error code 1, net_error -100",
+      "[22820:0915/213903.394663:ERROR:net/socket/ssl_client_socket_impl.cc:963] handshake failed; returned -1, SSL error code 1, net_error -100",
+      "[Realm 诊断] 主框架加载失败 id=5 type=webview url=https://bg-nav-test.com/ code=-100 ERR_CONNECTION_CLOSED",
+      "(node:22791) electron: Failed to load URL: https://bg-nav-test.com/ with error: ERR_CONNECTION_CLOSED",
       "[Realm UA-CH] dom-ready 触发, webContents: 5, url: https://bg-nav-test.com/",
-      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 5",
-      "[Realm UA-CH] dom-ready 触发, webContents: 3, url: https://nav-test-example.com/path",
-      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 3",
-      "(node:42556) electron: Failed to load URL: https://nav-test-example.com/enter with error: ERR_NETWORK_CHANGED",
-      "(node:42556) electron: Failed to load URL: https://cmd-plain-nav-test.com/ with error: ERR_NETWORK_CHANGED",
-      "[Realm UA-CH] dom-ready 触发, webContents: 9, url: https://cmd-plain-nav-test.com/",
-      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 9",
-      "[Realm UA-CH] dom-ready 触发, webContents: 7, url: https://nav-test-example.com/enter",
-      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 7",
-      "(node:42556) electron: Failed to load URL: https://nav-test-example.com/bypass with error: ERR_NETWORK_CHANGED",
-      "(node:42556) electron: Failed to load URL: https://nav-test-example.com/bookmark with error: ERR_NETWORK_CHANGED",
-      "[Realm UA-CH] dom-ready 触发, webContents: 8, url: https://nav-test-example.com/bookmark",
-      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 8",
-      "[Realm UA-CH] dom-ready 触发, webContents: 6, url: https://nav-test-example.com/bypass",
-      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 6",
-      "[Realm UA-CH] dom-ready 触发, webContents: 4, url: https://nav-test-example.com/explicit",
-      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 4"
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 5"
+    ],
+    "orphanKilled": 22791,
+    "instancesAfter": [
+      {
+        "pid": 15094,
+        "ppid": 1,
+        "command": "/Users/wxnacy/Projects/Realm/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron --inspect=0 --remote-debugging-port=0 ."
+      },
+      {
+        "pid": 15095,
+        "ppid": 1,
+        "command": "/Users/wxnacy/Projects/Realm/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron --inspect=0 --remote-debugging-port=0 ."
+      }
     ]
   },
   "exitCode": 0,

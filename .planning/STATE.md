@@ -3,19 +3,18 @@ gsd_state_version: "1.0"
 milestone: v2.6
 milestone_name: AI 助手技能（Skill）能力
 current_phase: 51
-current_phase_name: 用户技能导入管线（zip + 网络地址）
-status: executing
-stopped_at: Completed 51-01-PLAN.md
-last_updated: "2026-09-15T07:11:14.950Z"
+status: completed
+stopped_at: Phase 51 complete — all phases complete
+last_updated: "2026-09-15T13:44:04.987Z"
 last_activity: 2026-09-15
-last_activity_desc: Phase 51 execution started
-state_head: e93539cd75d3bcac56440973c408ed7ec26ecde7
+last_activity_desc: Phase 51 complete
+state_head: 2f20995f07f392572bac9f538f8ded083d91aa40
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 6
   total_plans: 38
-  completed_plans: 32
-  percent: 0
+  completed_plans: 38
+  percent: 100
 ---
 
 # Project State: Realm Browser
@@ -25,22 +24,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-15)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 51 — 用户技能导入管线（zip + 网络地址）
+**Current focus:** 里程碑 v2.6 六阶段（46–51）已全部收口 —— 可执行 `/gsd-complete-milestone v2.6`
 
 ## Current Position
 
-Phase: 51 (用户技能导入管线（zip + 网络地址）) — EXECUTING
-Plan: 2 of 7
-Status: Ready to execute
-Last activity: 2026-09-15 — Phase 51 execution started
+Phase: 51
+Plan: Not started
+Status: All phases complete
+Last activity: 2026-09-15 — Phase 51 complete
 
-Progress: [████████████████████] 31/31 plans ([░░░░░░░░░░] 0%)
+Progress: [████████████████████] 38/38 plans (100%)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 78+ (v1.0 through v2.4)
+- Total plans completed: 85+ (v1.0 through v2.4)
 - Previous milestones: 39 phases complete
 
 **By Phase:**
@@ -61,6 +60,7 @@ Progress: [████████████████████] 31/31 p
 | 48 | 8 | - | - |
 | 49 | 8 | - | - |
 | 50 | 5 | - | - |
+| 51 | 7 | - | - |
 
 *Updated after each plan completion*
 **Per-Plan Metrics:**
@@ -133,6 +133,9 @@ Progress: [████████████████████] 31/31 p
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [Phase 51 收尾 / CR-02]: 「逐行核对 + 模块级实跑」这条证据链对**作用域解析 / 接线类**缺陷有系统性盲区 —— `ai-manager.js` 的 `downloadPackage` 只有调用没有绑定（引入于 51-05），模块级单测打的是另一侧导出面、「首参逐字 undefined」门禁只断言调用**形态**、仓内无 `no-undef` 静态检查，三者全绿而**网络导入整条腿在运行期 100% ReferenceError**。真实运行期 UAT 驱动一跑即现。结论：**运行期集成缝必须由真实运行期驱动覆盖**，模块级密集不等于覆盖
+- [Phase 51 收尾]: UAT 的「环境读数」与「判据」必须分开记账 —— 本阶段两条读数（guest JS 堆曲线、B 侧进程 RSS 上界）经 verifier 复跑证明**都做不出可靠的两侧判据**（前者被 GC 耦合、后者分支相关且排空瞬时缓冲可让 RSS 峰值超过 body 体积本身），已降级为「只登记不断言」。**为读数设阈值 = 造一条会间歇转红的假判据**
+- [Phase 51 收尾]: 驱动自身会污染驱动 —— 收尾 `process.exit()` 抢在异步 `electronApp.close()` 之前会留下 PPID=1 的**孤儿 Electron 实例**，它与后续运行共用 `realm-dev` userData ⇒ 设置页 guest 被重新初始化 ⇒ 用例间歇转红。三支 uat 驱动已加固：开跑前登记实例（含 command）、收尾按**精确 PID** 收掉自己的子进程
 - [v2.6 路线图]: 技能双目录 tier 只有 2 层（`agent-workspace/skills/` user > `managed-skills/` managed），不引入 oh-my-pi 的 7 层 provider priority；同名去重 user 胜出且冲突必须对用户可见 — Realm 只有 2 类来源，7 层机制引入即纯负担
 - [v2.6 路线图]: 6 阶段刻意不合并（granularity coarse 允许 46+47 / 48+49 合并）——每个 S1 门禁需要独立归属与独立验收面（P1→47、P2/P4→51、P3 拆 46+51），合并会让门禁与"同阶段交付"硬约束互相遮蔽
 - [v2.6 路线图]: 硬排序不可调换——技能目录先入沙箱（46，否则模型可见 location 却 read 不到，静默失效）→ 播种+bash 加固同阶段（47）→ `manage_skill`（49）先于设置页（50）与导入（51），保证 name/description/大小/注入校验只有一份实现 → 导入管线最后（51）
@@ -301,6 +304,14 @@ None yet.
 
 ### Blockers/Concerns
 
+**v2.6 收尾后新增关注（2026-09-15，Phase 51 收尾产出）：**
+
+- ⚠️ [Phase 51] **无并发实例时读数才干净**：另一会话的 dev 实例（`.worktrees/webview-hit-test-stuck` 的 `electron .`）解析到同一个 Electron 二进制并共用 `realm-dev` userData；在该实例存在时跑本仓 uat 驱动的读数带噪。驱动已登记 `cleanup.instancesBefore` 以便事后判定，但**运行前应先确认实例数为 0**
+- ⚠️ [Phase 51] **CR-01 未修**（记 `51-REVIEW.md`）：设置页在同一弹框会话内第 4 次连续预览必返 `too_many_pending` 且无自救入口（句柄未归还 + 临时目录滞留）。它不落在任何 must-have 真值上，故不阻断收尾
+- ⚠️ [Phase 51] **WR-01 / WR-02 / WR-03 未修**（记 `51-REVIEW.md`）：禁用名单在回读刷新时被 `_cache` 丢掉 / 压缩比口径「整包 vs 按 entry」/ `manage_skill` 是否获得技能域模式 — 三处实现与文档/注释漂移
+- ⚠️ [Phase 51] **建议的护栏加固（未实施，属超范围）**：把「首参逐字 `undefined`」那条源码门禁从**形态断言**升级为**绑定断言**（例如同时断言出现 `const { downloadPackage } = skillsManager;`），或引入 `no-undef` 静态检查 —— 两者须与现有形态门禁**并存**（护的是不同性质）
+- ⚠️ [REQUIREMENTS] `phase.complete` 报 6 个 REQ-ID（ECO-01..06）在 `REQUIREMENTS.md` 正文出现但缺 Traceability 表行 —— 需人工补表保持可追溯
+
 **v2.6 需要 plan 期先拍板的开放决策（research Open Decisions）：**
 
 - ~~O1（47）：find-skills 去 CLI 化程度~~ — **已在 Phase 47 落定**（find-skills 改写为零安装候选清单技能 + 二段式零安装语义静态扫描器；skill-creator 按固定 SHA 随包并受控改写三处平台专有内容）
@@ -403,12 +414,13 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-15T07:11:14.893Z
-Stopped at: Completed 51-01-PLAN.md
+Last session: 2026-09-15T13:44:04Z
+Stopped at: Phase 51 complete（7/7 计划 + UAT 4/4 全自动化通过）；里程碑 v2.6 六阶段全部收官，待用户裁决是否 complete-milestone
 Resume file: None
 
 ## Operator Next Steps
 
+- **Phase 51 已收尾**（7/7 计划；verifier 判 `passed`、29/29 must-haves、`behavior_unverified: 0`；`51-REVIEW.md` 2 Critical + 3 Warning + 6 Info）。**`/gsd-verify-work 51` 把 4 项人工 UAT 全部自动化并跑通（4/4 pass、0 issues）**：新增三支运行期驱动 `tests/uat-51-import-live.js`（29/29，真实 GitHub 端到端 + 403/429/404 文案）/ `uat-51-import-limits.js`（18/18，限额与内存面）/ `uat-51-import-modal-sizes.js`（48/48，5 档尺寸矩阵），证据固化在仓内 `tests/.uat-out/`。**本轮抓到并修复一个真 blocker CR-02**：`ai-manager.js` 的 `downloadPackage` **只有调用没有绑定**（引入于 `0b8bc1d` / 51-05）⇒ 所有网络地址导入（zipball 与直链 SKILL.md）运行期 100% `ReferenceError`，而三条既有护栏（模块级单测打另一侧导出面、「首参逐字 undefined」只断言调用形态、仓内无 `no-undef` 检查）**全绿照不到**。**三条诚实边界**：① 403/429 **未真实触发** GitHub 限流（导入链路只打 `codeload.github.com`，未鉴权 60 req/h 配额打在 `api.github.com`，非同一配额域），用 `net.fetch` 单点替身返回真实形状响应头、其余全走真链路；② guest JS 堆曲线与 ③ B 侧进程 RSS 上界**都只登记不断言**（前者被 GC 耦合、后者分支相关且 verifier 实测 6 次 1 红，降级后连跑 5 轮 18/18）。另查明并修掉一处**驱动自身污染**：收尾 `process.exit()` 抢在异步 `electronApp.close()` 之前留下孤儿 Electron 实例，与后续运行共用 `realm-dev` ⇒ 设置页 guest 重初始化 ⇒ 用例间歇转红；三支驱动已加固（前置登记实例 + 收尾按精确 PID 收自己的子进程）
 - **Phase 50 已收尾**（5/5 计划、4 waves；verifier 19/22 VERIFIED / 0 FAILED；`code-review` 1 Critical + 6 Warning + 5 Info，CR-01/WR-01/WR-04 已 hotfix 修复合并，其余记技术债不阻断）。**2026-09-15 `/gsd-verify-work 50` 把 9 项人工 UAT 全部自动化并跑通（9/9 pass、0 issues）**：新增四个运行期驱动（`tests/uat-50-t1-*.js` / `uat-50-a-*.js` / `uat-50-b-*.js` / `uat-50-t3-*.js`，`uat-` 前缀 ⇒ 不被 `test-*` 套件拾取），逐项对应 VERIFICATION 的 9 条人工项；证据落 `/tmp/uat50/`。`50-SECURITY.md` 由 `/gsd-secure-phase 50` 以 **State B 新建**（37 条威胁全 closed、`threats_open: 0`、ASVS L1 grep-depth、未派发 auditor —— ASVS 提到 ≥2 时须重跑并派发）。**两条诚实边界**：① UAT 第 9 项原文的「四合一最宽行」（诊断徽标+已遮蔽+开关+卸载）**在数据层不可构造**（卸载按钮仅 user 行、已遮蔽落在 managed 败者），已改为两类最宽真实行 + 断言该组合不存在；② UAT 第 3 项「errors 非空时汇总条渲染」分支本次未被执行到（`errors=[]`）。
 - **Phase 50 收尾时门禁侧两件事（下次同类收尾可直接复用）**：① `verify:pre` 的 `api-coverage` **阻塞门**要求 `COVERAGE.md`，已按 46/47/48/49 先例补一份零矩阵行的 no-integration 声明（探针唯一命中信号是计划 prose 里的 `DOM API` ⇒ 与 49 同款误报，非真实外部 API 集成），文件已提交；② `make install-nightly` 会**临时把 `process.env.NODE_ENV = 'nightly'` 注入 `main.js`** 并在退出时由 `trap` 还原 —— 构建窗口期内**不得**并发启动 dev 探针（否则 NODE_ENV 串到 `realm-nightly`）。本次构建后已按 sha256 逐字复核 `main.js` 还原、`.bak` 已清理
 - **Phase 49 已收尾**（8/8 计划：3 original + 5 gap-closure；验证 24/24 must-have、`behavior_unverified: 0`、最终判 `passed`；`code-review` 轮 5 为 0 Critical / 8 Warning / 11 Info，全部记技术债不阻断；回归门禁 22/22 套件、账本 `counts-parity cells=8` 即 55 / 178 / 111）。**本轮（`--gaps-only`）闭合 `UI-49-W6-01`**：`renderSkillContentBox` 加 `{ interactive = true }` 语境开关，卡片调用点传 `false` —— 焦点语义只在气泡实例（恒可见）施加；卡片实例不施加，因为 `.tool-card-content` 的 `max-height: 0` + `overflow: hidden` **不移出 Tab 序**，施加即产出零可见高度的隐形停靠点。收尾时按用户裁决顺手闭合了审查轮 5 的 `IN-15`（两处 `49-UI-SPEC.md:508` 引用因 49-08 自己的插入漂成空行 → 改**按名引用**「展开 / 折叠（卡片）」行，对后续插入免疫）与 `IN-17`（§11.7 只写原因未写**代价** → 补记「卡片语境正文折叠块无键盘入口、鼠标是唯一入口、属 49 之前的既有状态而非回归」）；因这两处改动落在 `covered_files` 内，重跑 verifier 刷新指纹（`f00b67cd…`）后状态由 `human_needed` 改判 `passed`
