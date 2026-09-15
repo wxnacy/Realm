@@ -72,7 +72,7 @@ expected: |
   dev 模式打开 DevTools Performance，上传一个接近 32 MiB 的包 ⇒ 记录耗时与堆曲线；
   确认**无**「先 `arrayBuffer()` 再判大小」的峰值。
 result: pass
-automated_by: tests/uat-51-import-limits.js（21/21）
+automated_by: tests/uat-51-import-limits.js（19/19，连跑 3 轮无抖动）
 evidence: |
   - **A 近限成功**：包在 **guest 内现场生成**（store 方式 + 正确 CRC32，**不经 CDP 传字节**），
     解压总量 31,744,134 B（< 32 MiB 上限）、32 条目；上传 **906～1059 ms** 走到就绪态。
@@ -83,16 +83,29 @@ evidence: |
     主进程 `readRawBody`（1,282 B）含 `Content-Length` 预检与 `req.resume()`，同样零 `arrayBuffer`。
     ⇒ 「先 `arrayBuffer()` 再判大小」在该路径上**不可能发生**。
   - **B 超限拒绝**：64 MiB 包（67,111,340 B）⇒ 状态行 `导入失败：请求体超过上限（33554432 字节）`
-    （danger 态、非静默失败）；主进程 RSS 增量 **1,409,024 B** ⇒ 内存上界如实为 `maxBytes`，
-    不随 body 线性增长（本次走 `Content-Length` 零字节快路径）。
-  - **两侧可红（非恒真自证）**：同一仪器（主进程 RSS）在 A 读到 ≈90.7 MiB、在 B 读到 ≈1.3 MiB，
-    而 **B 的 body 更大** ⇒ 判据有判别力。
+    （danger 态、非静默失败、含真实限额数字）。「内存上界如实为 `maxBytes`」这条承诺由
+    `readRawBody` 的**源码契约**（`Content-Length` 预检 + 累积中判 + `req.resume()`）与三条
+    单点变异自证承重；B 侧 RSS 增量**只登记不断言**（详见下方 boundary）。
   - 全程零 `pageerror`、零 `unhandledRejection`；关闭预览后 `.tmp/` 无残留。
 boundary: |
-  ⚠️ **guest JS 堆曲线只登记、不断言**：Chromium 的 `performance.memory.usedJSHeapSize` 是量化值
-  且与 GC 强耦合 —— 实测标定（对同一个 File 显式 `await file.arrayBuffer()`）的峰值增量是**负值**
-  （构造期垃圾在被测窗口内被回收，量级盖过拷贝本身），做不出可靠的两侧判据。
-  故改用「确定性源码判据 + 主进程 RSS 两侧判据」承重。绝对耗时同样只登记不断言（本机环境相关量）。
+  ⚠️ **两条环境读数只登记、不断言**（绝对耗时同样只登记）：
+
+  ① **guest JS 堆曲线**：Chromium 的 `performance.memory.usedJSHeapSize` 是量化值且与 GC 强耦合 ——
+     实测标定（对同一个 File 显式 `await file.arrayBuffer()`）的峰值增量是**负值**（构造期垃圾在
+     被测窗口内被回收，量级盖过拷贝本身），做不出可靠的两侧判据。
+  ② **B 侧的进程 RSS 上界**：初版曾断言「RSS 增量 ≤ `maxBytes` + 8 MiB」，但
+     `/gsd-verify-work 51` 的 verifier 复跑证明该断言**分支相关且不稳定** —— 走
+     `content-length-fast-path` 时增量仅 49 KB（绿），走 `bounded-accumulation` 时增量
+     **44.4～68.1 MB**（超阈值 ⇒ 红），**4 次里红 2～3 次**；作者那一次恰好命中快路径，
+     所以早先记录的「21/21 全过」是**单次采样**。根因：累积分支下 `req.resume()` 排空 64 MiB
+     的 body 会产生大量**瞬时 chunk 缓冲**叠加 GC 滞后，RSS 峰值可**超过 body 体积本身**
+     （实测 68.1 MB > 67.1 MB）—— 该仪器在此路径上测的不是「应用缓冲上界」。
+     **处置**：删掉阈值断言，改记为 `overRssReading`（含分支标签）；本驱动连跑 3 轮均 19/19，
+     B 侧读数在 12.0 / 49.8 / 53.2 MB 之间波动（波动本身即该仪器不可靠的实证）。
+     「不无上限读入内存」改由**确定性源码判据 + 变异自证**承重。
+
+  故最终承重判据是：确定性源码判据（含三条单点变异自证）+ A 侧的「RSS 增量 > 16 MiB」正命题
+  （证明这 ~30 MiB 真的过了线，不是空跑）。
 
 ### 4. 其余窗口尺寸档下的预览弹框布局
 
