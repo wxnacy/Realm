@@ -361,3 +361,498 @@ describe('classifyImportUrl：三形态映射 + 六个拒绝面（离线值域�
     }
   });
 });
+
+// ==================== ② 下载器：逐跳 / 上限 / magic bytes（本地 stub server） ====================
+//
+// 全部离线：请求打到 `127.0.0.1:<port>` 的本地 `http.createServer`，经**注入的**
+// `fetchImpl` 桥接（逐跳校验看到的仍是 `https:` + 白名单内主机，字节来自本地服务器）。
+// `isPrivateHost` 的注入只在回环地址上放行，**其余走 `search-manager` 的真实判据**
+// （`10.0.0.1` 是 IP 字面量 ⇒ 无 DNS ⇒ 仍离线）。
+
+/** 起一个本地 stub server；`hits` 记录请求路径（可断言请求序列） */
+async function startStub(handler) {
+  const hits = [];
+  const server = http.createServer((req, res) => {
+    hits.push(req.url);
+    res.on('error', () => {});
+    try {
+      handler(req, res);
+    } catch {
+      try {
+        res.destroy();
+      } catch {
+        /* 已销毁 */
+      }
+    }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  return {
+    hits,
+    port,
+    close: () =>
+      new Promise((resolve) => {
+        if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  };
+}
+
+/**
+ * 把 `https://127.0.0.1:<port>/…` 的请求桥到本地 stub server
+ *
+ * 逐跳三校验看到的仍是 `https:` + `127.0.0.1`（在注入的 `hostWhitelist` 内），
+ * 字节则来自本地服务器 —— 既不依赖外网，也不放松任何一条校验。
+ */
+function makeStubFetch(stub) {
+  return async function bridgedGet(target, options) {
+    const u = new URL(target);
+    return await new Promise((resolve, reject) => {
+      const req = http.request(
+        {
+          host: '127.0.0.1',
+          port: stub.port,
+          path: `${u.pathname}${u.search}`,
+          method: 'GET',
+        },
+        (res) => {
+          const headers = {
+            get: (name) => {
+              const v = res.headers[String(name).toLowerCase()];
+              return v === undefined ? null : Array.isArray(v) ? v.join(', ') : String(v);
+            },
+          };
+          resolve({ status: res.statusCode, headers, body: Readable.toWeb(res) });
+          if (res.statusCode < 200 || res.statusCode >= 300) res.resume();
+        }
+      );
+      req.on('error', reject);
+      if (options && options.signal) {
+        options.signal.addEventListener('abort', () => {
+          try {
+            req.destroy(new Error('aborted'));
+          } catch {
+            /* 已销毁 */
+          }
+        });
+      }
+      req.end();
+    });
+  };
+}
+
+/**
+ * 依赖注入器：白名单只放行回环 stub，私网判据对回环放行、其余走**真实** `isPrivateHost`
+ *
+ * `hostCalls` 记录每一次逐跳校验的主机名 —— 「每跳都跑」由它断言（只校验首跳的实现
+ * 只会记录一个主机名）。
+ */
+function makeStubDeps(stub, { allowedHosts = ['127.0.0.1'] } = {}) {
+  const realIsPrivateHost = require('../search-manager').isPrivateHost;
+  const hostCalls = [];
+  return {
+    hostCalls,
+    deps: {
+      fetchImpl: makeStubFetch(stub),
+      isPrivateHost: async (hostname) => {
+        hostCalls.push(hostname);
+        if (hostname === '127.0.0.1') return false; // 本地 stub server 自身在回环
+        return await realIsPrivateHost(hostname); // 其余走真实判据（IP 字面量 ⇒ 无 DNS）
+      },
+      hostWhitelist: allowedHosts,
+    },
+  };
+}
+
+/** 一次下载调用的封装（生产形态的首参是 `undefined`；测试在这里注入 deps） */
+async function downloadWith(deps, url, dest, extra = {}) {
+  return await aiSkills.downloadPackage(deps, {
+    url,
+    destPath: dest,
+    maxBytes: aiSkills.IMPORT_LIMITS.MAX_TOTAL_BYTES,
+    kind: 'zipball',
+    ...extra,
+  });
+}
+
+describe('downloadPackage：逐跳三校验 / 跳数上限 / 流式上限 / 失败清理（本地 stub server）', () => {
+  test('首跳白名单外主机 ⇒ unsupported_url（**不发请求**）', async (t) => {
+    withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const dest = path.join(workspace.getTmpDir(), 'never.bin');
+    let called = 0;
+    const err = await (async () => {
+      try {
+        await downloadWith(
+          { fetchImpl: async () => { called += 1; throw new Error('不该被调用'); } },
+          'https://evil.example.com/x.zip',
+          dest
+        );
+      } catch (e) {
+        return e;
+      }
+      return null;
+    })();
+    assert.ok(err, '白名单外主机必须被拒');
+    assert.strictEqual(err.code, 'unsupported_url');
+    assert.match(err.message, /主机不在下载白名单/);
+    assert.strictEqual(called, 0, '白名单校验必须先于任何网络请求');
+  });
+
+  test('非 https 协议 ⇒ unsupported_url（同样不发请求）', async (t) => {
+    withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const dest = path.join(workspace.getTmpDir(), 'never2.bin');
+    let called = 0;
+    let err = null;
+    try {
+      await downloadWith(
+        { fetchImpl: async () => { called += 1; throw new Error('不该被调用'); } },
+        'http://127.0.0.1:1/x.zip',
+        dest
+      );
+    } catch (e) {
+      err = e;
+    }
+    assert.ok(err);
+    assert.strictEqual(err.code, 'unsupported_url');
+    assert.match(err.message, /只支持 https 地址/);
+    assert.strictEqual(called, 0);
+  });
+
+  test('逐跳校验对**每一跳**生效：第二跳是私网地址 ⇒ download_failed（不是只校验首跳）', async (t) => {
+    withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const dest = path.join(workspace.getTmpDir(), 'second-hop.bin');
+    const stub = await startStub((req, res) => {
+      res.writeHead(302, { location: 'https://10.0.0.1/codeload.zip' });
+      res.end();
+    });
+    t.after(() => stub.close());
+    // 白名单**放行** `10.0.0.1`，把承重面单独压到「逐跳私网校验」上 —— 否则白名单
+    // 会先一步拒掉它（那是另一条判据，见上一个用例）
+    const { deps, hostCalls } = makeStubDeps(stub, { allowedHosts: ['127.0.0.1', '10.0.0.1'] });
+
+    let err = null;
+    try {
+      await downloadWith(deps, `https://127.0.0.1:${stub.port}/redirect`, dest);
+    } catch (e) {
+      err = e;
+    }
+    assert.ok(err, '第二跳指向内网必须被拒');
+    assert.strictEqual(err.code, 'download_failed');
+    assert.match(err.message, /拒绝访问内网地址/);
+    assert.match(err.message, /10\.0\.0\.1/);
+    assert.deepStrictEqual(
+      hostCalls,
+      ['127.0.0.1', '10.0.0.1'],
+      '三校验必须在**每一跳**执行（只校验首跳的实现只会记录一个主机名）'
+    );
+    assert.strictEqual(fs.existsSync(dest), false, '被拒后不得留下半成品');
+  });
+
+  test('重定向**不能逃出白名单**：302 到白名单外主机 ⇒ 第二跳被判 unsupported_url', async (t) => {
+    withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const dest = path.join(workspace.getTmpDir(), 'escape.bin');
+    const stub = await startStub((req, res) => {
+      res.writeHead(302, { location: 'https://evil.example.com/payload.zip' });
+      res.end();
+    });
+    t.after(() => stub.close());
+    const { deps } = makeStubDeps(stub);
+
+    let err = null;
+    try {
+      await downloadWith(deps, `https://127.0.0.1:${stub.port}/redirect`, dest);
+    } catch (e) {
+      err = e;
+    }
+    assert.ok(err, '重定向到白名单外必须被拒（T-51-32）');
+    assert.strictEqual(err.code, 'unsupported_url');
+    assert.match(err.message, /主机不在下载白名单/);
+  });
+
+  test('重定向链超过 MAX_REDIRECTS ⇒ redirect_limit，且文案**不含** HTTP 3xx 形态', async (t) => {
+    withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const dest = path.join(workspace.getTmpDir(), 'loop.bin');
+    const stub = await startStub((req, res) => {
+      res.writeHead(302, { location: '/loop' });
+      res.end();
+    });
+    t.after(() => stub.close());
+    const { deps } = makeStubDeps(stub);
+
+    let err = null;
+    try {
+      await downloadWith(deps, `https://127.0.0.1:${stub.port}/loop`, dest);
+    } catch (e) {
+      err = e;
+    }
+    assert.ok(err);
+    assert.strictEqual(err.code, 'redirect_limit', '超限必须抛 redirect_limit，而不是带着 3xx 掉出');
+    assert.ok(
+      !/HTTP\s*30/.test(err.message),
+      `失败原因不得是误导性的 HTTP 3xx 文案（实测：${err.message}）`
+    );
+    assert.ok(
+      stub.hits.length > 0 && stub.hits.length <= aiSkills.MAX_REDIRECTS + 1,
+      `请求次数必须受 MAX_REDIRECTS=${aiSkills.MAX_REDIRECTS} 约束（实测 ${stub.hits.length} 次）`
+    );
+  });
+
+  test('相对 Location 也能解析：302 → `/next` → 200 zip（逐跳跟随有效）', async (t) => {
+    const root = withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const dest = path.join(workspace.getTmpDir(), 'relative.bin');
+    const zip = makeZip.skillPackage({ name: 'rel-skill', body: '# rel\n' });
+    const stub = await startStub((req, res) => {
+      if (req.url === '/next') {
+        res.writeHead(200, { 'content-type': 'application/zip' });
+        res.end(zip);
+        return;
+      }
+      res.writeHead(302, { location: '/next' });
+      res.end();
+    });
+    t.after(() => stub.close());
+    const { deps } = makeStubDeps(stub);
+
+    const meta = await downloadWith(deps, `https://127.0.0.1:${stub.port}/start`, dest);
+    assert.strictEqual(meta.bytes, zip.length);
+    assert.match(meta.contentType, /application\/zip/);
+    assert.strictEqual(meta.finalUrl, `https://127.0.0.1:${stub.port}/next`);
+    assert.ok(fs.existsSync(dest), '成功路径必须留下文件');
+
+    // 白名单内的跳转不被误拒，且落盘内容与远端逐字节一致
+    assert.deepStrictEqual(fs.readFileSync(dest), zip);
+    assert.strictEqual(root && fs.existsSync(root), true);
+  });
+
+  test('magic bytes 是权威：14 字节 text/plain ⇒ not_a_zip，message 含 content-type', async (t) => {
+    withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const dest = path.join(workspace.getTmpDir(), 'notzip.bin');
+    const stub = await startStub((req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('404: Not Found'); // codeload 的 404 body 实测就是 14 字节 text/plain
+    });
+    t.after(() => stub.close());
+    const { deps } = makeStubDeps(stub);
+
+    const meta = await downloadWith(deps, `https://127.0.0.1:${stub.port}/x`, dest);
+    assert.strictEqual(meta.bytes, 14, '载荷长度与实测的 404 body 一致');
+    let err = null;
+    try {
+      aiSkills.verifyPackageBytes(dest, 'zipball', meta.contentType);
+    } catch (e) {
+      err = e;
+    }
+    assert.ok(err, 'text/plain 载荷必须被 magic bytes 拦住');
+    assert.strictEqual(err.code, 'not_a_zip');
+    assert.match(err.message, /text\/plain/, 'content-type 只用于把错误说清楚');
+    fs.rmSync(dest, { force: true });
+  });
+
+  test('流式字节上限：持续吐字节 ⇒ download_failed **且不留半成品**', async (t) => {
+    withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const dest = path.join(workspace.getTmpDir(), 'overflow.bin');
+    const chunk = Buffer.alloc(64 * 1024, 7);
+    const stub = await startStub((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/zip' });
+      const pump = () => {
+        if (res.destroyed || res.writableEnded) return;
+        if (res.write(chunk)) setImmediate(pump);
+        else res.once('drain', pump);
+      };
+      pump();
+    });
+    t.after(() => stub.close());
+    const { deps } = makeStubDeps(stub);
+
+    const maxBytes = 256 * 1024;
+    let err = null;
+    try {
+      await aiSkills.downloadPackage(deps, {
+        url: `https://127.0.0.1:${stub.port}/huge`,
+        destPath: dest,
+        maxBytes,
+        kind: 'zipball',
+      });
+    } catch (e) {
+      err = e;
+    }
+    assert.ok(err, '超过字节上限必须中止下载');
+    assert.strictEqual(err.code, 'download_failed');
+    assert.ok(
+      err.message.includes(String(maxBytes)),
+      `失败原因必须含上限值：${err.message}`
+    );
+    assert.match(err.message, /已接收\s*\d+\s*字节/, '失败原因必须含当前值');
+    assert.strictEqual(fs.existsSync(dest), false, '半成品必须被 unlinkSync 清掉');
+  });
+});
+
+describe('verifyPackageBytes / prepareFromRawFile：形态判定与同一个 pkgRoot 形状', () => {
+  test('raw 分支不做 magic 校验：「非空 + 前 512 字节无 NUL」', async (t) => {
+    withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const tmp = workspace.getTmpDir();
+
+    const textFile = path.join(tmp, 'raw-ok.md');
+    fs.writeFileSync(textFile, '---\nname: a\n---\n\n正文\n', 'utf8');
+    assert.doesNotThrow(() => aiSkills.verifyPackageBytes(textFile, 'raw-skill', 'text/plain'));
+
+    const emptyFile = path.join(tmp, 'raw-empty.md');
+    fs.writeFileSync(emptyFile, '', 'utf8');
+    let emptyErr = null;
+    try {
+      aiSkills.verifyPackageBytes(emptyFile, 'raw-skill', 'text/plain');
+    } catch (e) {
+      emptyErr = e;
+    }
+    assert.ok(emptyErr);
+    assert.strictEqual(emptyErr.code, 'not_a_zip');
+
+    const nulFile = path.join(tmp, 'raw-nul.md');
+    fs.writeFileSync(nulFile, Buffer.concat([Buffer.from('# 头部\n'), Buffer.from([0, 1, 2])]));
+    let nulErr = null;
+    try {
+      aiSkills.verifyPackageBytes(nulFile, 'raw-skill', 'text/plain');
+    } catch (e) {
+      nulErr = e;
+    }
+    assert.ok(nulErr, '含 NUL 的直链载荷必须被拒');
+    assert.strictEqual(nulErr.code, 'not_a_zip');
+    assert.match(nulErr.message, /NUL/);
+  });
+
+  test('prepareFromRawFile 产出与 zip 来源**同一个 pkgRoot 形状**（`<importDir>/pkg/<name>/SKILL.md`）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+
+    // 单文件直链路径
+    const rawDir = makeImportDir();
+    const rawText = '---\nname: raw-demo\ndescription: 直链技能\n---\n\n# raw-demo\n';
+    const rawPrepared = await aiSkills.prepareFromRawFile({
+      importDir: rawDir,
+      name: 'raw-demo',
+      text: rawText,
+    });
+    assert.strictEqual(rawPrepared.pkgRoot, path.join(rawDir, 'pkg'));
+    assert.strictEqual(rawPrepared.importDir, rawDir);
+    assert.ok(fs.existsSync(path.join(rawPrepared.pkgRoot, 'raw-demo', 'SKILL.md')));
+    assert.strictEqual(rawPrepared.entries.length, 1);
+    assert.strictEqual(rawPrepared.entries[0].name, 'raw-demo/SKILL.md');
+    assert.strictEqual(rawPrepared.entries[0].isDirectory, false);
+
+    // zip 路径：同一个 `{ importDir, pkgRoot, entries }` 形状（pkgRoot 供 locateSkillRoot 直接消费）
+    const zipDir = makeImportDir();
+    const zip = makeZip.buildZip({
+      entries: [
+        {
+          name: 'demo-main/demo/SKILL.md',
+          data: '---\nname: demo\ndescription: zip 技能\n---\n\n# demo\n',
+          method: makeZip.METHOD_STORED,
+        },
+      ],
+    });
+    fs.writeFileSync(path.join(zipDir, 'pkg.zip'), zip);
+    const zipPrepared = await aiSkills.extractAndValidatePackage(env, { importDir: zipDir, scopeRel: null });
+    assert.strictEqual(zipPrepared.prefixStripped, true, '`<repo>-<ref>/` 顶层前缀必须被剥离');
+    assert.strictEqual(
+      zipPrepared.pkgRoot,
+      path.join(zipDir, 'pkg', 'demo-main'),
+      '剥离 = 降入顶层目录，pkgRoot 仍住在 `<importDir>/pkg/` 之下'
+    );
+
+    // 两条准备器产出的形状同一：`{ importDir, pkgRoot, entries }`，且 pkgRoot 都住在
+    // `<importDir>/pkg` 之下、都能被 `locateSkillRoot` 直接定位到唯一技能根
+    for (const prepared of [rawPrepared, zipPrepared]) {
+      for (const key of ['importDir', 'pkgRoot', 'entries']) {
+        assert.ok(key in prepared, `准备器产物必须含 ${key}（两条准备路径形状同一）`);
+      }
+      assert.ok(Array.isArray(prepared.entries));
+      assert.ok(
+        prepared.pkgRoot === path.join(prepared.importDir, 'pkg') ||
+          prepared.pkgRoot.startsWith(`${path.join(prepared.importDir, 'pkg')}${path.sep}`),
+        'pkgRoot 必须住在 `<importDir>/pkg` 之下（形状同一）'
+      );
+      const located = aiSkills.locateSkillRoot(prepared.pkgRoot, null);
+      assert.ok(fs.existsSync(path.join(located.skillRootAbs, 'SKILL.md')));
+    }
+  });
+
+  test('prepareFromRawFile 的 name 二次校验（路径拼接前不许信任上游）', async (t) => {
+    withTempRoot(t);
+    workspace.ensureWorkspaceDir();
+    const dir = makeImportDir();
+    let err = null;
+    try {
+      await aiSkills.prepareFromRawFile({ importDir: dir, name: '../escape', text: 'x' });
+    } catch (e) {
+      err = e;
+    }
+    assert.ok(err, '非法 name 必须被拒（它是一个路径拼接点）');
+    assert.strictEqual(err.code, 'invalid_name');
+    assert.strictEqual(
+      fs.existsSync(path.join(dir, '..', 'escape')),
+      false,
+      '不得写出 importDir 之外'
+    );
+  });
+
+  test('生产调用点走缺省依赖（正命题）：`ai-manager.js` 出现三个可注入键各 0 次', () => {
+    const prod = stripCodeComments(readSource('ai-manager.js'));
+    for (const key of ['fetchImpl', 'isPrivateHost', 'hostWhitelist']) {
+      const n = (prod.match(new RegExp(`\\b${key}\\b`, 'g')) || []).length;
+      assert.strictEqual(n, 0, `生产侧出现 ${key} ${n} 处（生产调用点必须走默认值，不得注入）`);
+    }
+    // 每个 `downloadPackage(` 调用的首参必须**逐字** `undefined`
+    const start = prod.indexOf('async previewSkillImport(');
+    const window = prod.slice(start, prod.indexOf('\n  }', start));
+    const hits = [...window.matchAll(/downloadPackage\(/g)].map((m) => m.index);
+    assert.ok(hits.length > 0, '生产调用点必须真的调用 downloadPackage（不得以空集通过）');
+    for (const k of hits) {
+      const tail = window.slice(k, k + 44);
+      assert.match(
+        tail,
+        /^downloadPackage\(\s*undefined\s*,/,
+        `生产调用点必须首参逐字 undefined，实测：${tail.replace(/\n/g, ' ').slice(0, 34)}`
+      );
+    }
+  });
+
+  test('上限单源：下载用的 maxBytes 取自 `IMPORT_LIMITS.MAX_TOTAL_BYTES`（不新造字面量）', () => {
+    const prod = stripCodeComments(readSource('ai-manager.js'));
+    const start = prod.indexOf('async previewSkillImport(');
+    const window = prod.slice(start, prod.indexOf('\n  }', start));
+    assert.ok(
+      window.includes('MAX_TOTAL_BYTES'),
+      '网络分支的字节上限必须取自限额单源（新造字面量会与 main.js 的 HTTP 上限漂移）'
+    );
+    assert.strictEqual(
+      window.includes('32 * 1024 * 1024'),
+      false,
+      '网络分支不得内联上限字面量'
+    );
+  });
+
+  test('公共后段只有一处：`locateSkillRoot(` / `buildImportPreview(` 在 `ai-manager.js` 各恰 1 处调用', () => {
+    for (const token of ['locateSkillRoot(', 'buildImportPreview(']) {
+      const n = (stripCodeComments(readSource('ai-manager.js')).match(
+        new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')
+      ) || []).length;
+      assert.strictEqual(n, 1, `${token} 在 ai-manager.js 应恰 1 处调用，实测 ${n}`);
+    }
+    const manager = stripCodeComments(readSource('ai-skills-manager.js'));
+    assert.strictEqual(
+      (manager.match(/yauzl\.openPromise\(/g) || []).length,
+      1,
+      '本计划不得新增第二个解压入口'
+    );
+  });
+});
+

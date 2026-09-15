@@ -1774,25 +1774,40 @@ class AIManager {
    * 累积垃圾）。**用户可见的失败文案里不得出现临时路径** —— 错误消息由
    * `ai-skills-manager` 给出，本方法只做清理与转发。
    *
+   * ## 网络来源（51-05）的三条纪律
+   *
+   * ① **生产调用点走缺省依赖**：`downloadPackage(undefined, { … })` 的首参**恒为逐字
+   *    `undefined`** ⇒ 走 `ai-skills-manager` 的参数默认值里接的**真实实现**
+   *    （`net.fetch` / `search-manager.isPrivateHost` / `HOST_WHITELIST`）。**不得**
+   *    在这里传依赖对象 —— 那等于把 https 强制 / 白名单 / 逐跳私网校验整条关掉
+   *    （源码门禁以正命题断言本文件出现 `fetchImpl` / `isPrivateHost` / `hostWhitelist`
+   *    各 **0** 次）。
+   * ② **magic bytes 校验在状态码分类之后**：codeload 的 404 是 14 字节 `text/plain`，
+   *    先判 magic 会让用户拿到「不是 zip」而不是「地址 / ref 不存在」。
+   * ③ **公共后段一段代码**：两条来源的 `pkgRoot` 之后是**同一段**「技能根定位 → 预览 →
+   *    登记句柄」；直链 SKILL.md 由 `prepareFromRawFile` 只负责产出同一个 `pkgRoot` 形状。
+   *
    * @param {{kind: 'zip'|'url', buffer?: Buffer, url?: string}} params
    * @returns {Promise<{importId: string, preview: object}>}
-   * @throws {Error} 解压 / 校验失败（带 `code`）；`kind: 'url'` 在本阶段抛 `unsupported_url`
+   * @throws {Error} 分类 / 下载 / 解压 / 校验失败（带 `code`，取值见 `IMPORT_SKILL_ERROR`）
    */
   async previewSkillImport({ kind, buffer, url } = {}) {
+    // ⓪ 入参分支（**唯一允许的解析层**）。`url` 来源先跑 URL 分类器 —— 它是**纯函数、
+    //    零磁盘零网络**，`unsupported` 立即给显式码与可读原因（白名单外主机 / 非 https /
+    //    无载荷语义的来源），不让任何临时目录被建出来。
+    let cls = null;
     if (kind === 'url') {
-      // 网络地址来源由 51-05 交付（URL 分流 + 逐跳白名单 + 流式下载 + magic bytes）。
-      // 本阶段给**真实失败**而不是占位静默 —— 设置页据此给出可读文案。
-      void url;
-      const err = new Error('网络地址导入尚未启用，请改用「本地上传」选择 zip 文件');
-      err.code = importSkillErrors().UNSUPPORTED_URL;
-      throw err;
-    }
-    if (kind !== 'zip') {
+      cls = getAiSkillsManagerLazy().classifyImportUrl(url);
+      if (cls.kind === 'unsupported') {
+        const err = new Error(cls.message);
+        err.code = cls.code;
+        throw err;
+      }
+    } else if (kind !== 'zip') {
       const err = new Error('不支持的导入来源');
       err.code = importSkillErrors().UNSUPPORTED_URL;
       throw err;
-    }
-    if (!Buffer.isBuffer(buffer)) {
+    } else if (!Buffer.isBuffer(buffer)) {
       const err = new Error('上传内容为空或不是二进制数据');
       err.code = importSkillErrors().NOT_A_ZIP;
       throw err;
@@ -1817,22 +1832,100 @@ class AIManager {
     }
 
     // 临时根**只在这里建一次**（`importDir` 契约：调用方建根并写 `<importDir>/pkg.zip`，
-    // `extractAndValidatePackage` 不得自建第二个临时根）
+    // `extractAndValidatePackage` 不得自建第二个临时根）。zip 上传与网络下载**共用这一处** ——
+    // 源码判据：`mkdtempSync(` 在本文件恰 1 处。
     const importDir = fs.mkdtempSync(path.join(workspace.getTmpDir(), 'skill-import-'));
 
-    try {
-      fs.writeFileSync(path.join(importDir, 'pkg.zip'), buffer);
+    const skillsManager = getAiSkillsManagerLazy();
 
-      const skillsManager = getAiSkillsManagerLazy();
-      const prepared = await skillsManager.extractAndValidatePackage(env, {
-        importDir,
-        scopeRel: null,
-      });
-      const located = skillsManager.locateSkillRoot(prepared.pkgRoot, null);
+    try {
+      // ① **准备段**：每个来源一个准备器，**都只产出 `pkgRoot`**。
+      //    ⚠️ 直链 SKILL.md **不是**第二条落盘路径（P9 明令禁止的形态）—— 它只把单文件
+      //    写成与 zip 解压结果**同一形状**的 `pkgRoot`，其后走 ② 的同一段代码。
+      let prepared;
+      if (kind === 'zip') {
+        fs.writeFileSync(path.join(importDir, 'pkg.zip'), buffer);
+        prepared = await skillsManager.extractAndValidatePackage(env, {
+          importDir,
+          scopeRel: null,
+        });
+      } else if (cls.kind === 'zipball') {
+        const destPath = path.join(importDir, 'pkg.zip');
+        const maxBytes = importLimits.MAX_TOTAL_BYTES;
+        let meta;
+        try {
+          meta = await downloadPackage(undefined, {
+            url: cls.target,
+            destPath,
+            maxBytes,
+            kind: 'zipball',
+          });
+        } catch (err) {
+          // ref 缺省策略：仓库地址（无 tree/blob 段）的默认分支先试 main，404 ⇒ 用
+          // master 重试**恰一次**。两次都 404 ⇒ 把「已尝试 main / master」写进失败原因。
+          if (!(err && err.httpStatus === 404 && cls.fallbackRef && cls.refBase)) throw err;
+          try {
+            meta = await downloadPackage(undefined, {
+              url: cls.refBase + cls.fallbackRef,
+              destPath,
+              maxBytes,
+              kind: 'zipball',
+            });
+          } catch (retryErr) {
+            if (retryErr && retryErr.httpStatus === 404) {
+              retryErr.message = `未找到默认分支（已按 main / master 依次尝试）：${retryErr.message}`;
+            }
+            throw retryErr;
+          }
+        }
+        skillsManager.verifyPackageBytes(destPath, 'zipball', meta.contentType);
+        prepared = await skillsManager.extractAndValidatePackage(env, {
+          importDir,
+          scopeRel: cls.scopeRel,
+        });
+      } else {
+        // 直链 SKILL.md：下载 → 校验形态 → 定名 → 包装成单文件包。
+        // **不做 magic bytes 校验**（实测 raw 的 content-type 是 text/plain）：改判
+        // 「非空 + 前 512 字节无 NUL」，见 `verifyPackageBytes` 的 raw 分支。
+        const destPath = path.join(importDir, 'raw.tmp');
+        const meta = await downloadPackage(undefined, {
+          url: cls.target,
+          destPath,
+          maxBytes: importLimits.MAX_TOTAL_BYTES,
+          kind: 'raw-skill',
+        });
+        skillsManager.verifyPackageBytes(destPath, 'raw-skill', meta.contentType);
+        const text = fs.readFileSync(destPath, 'utf8');
+        const fm = skillsManager.parseSkillFrontmatter(text);
+        if (!fm.ok) {
+          const err = new Error(fm.reason);
+          err.code = fm.code;
+          throw err;
+        }
+        // 定名：frontmatter 的 name 优先，回落 URL 的**父目录名**（与 zip 来源的
+        // `deriveImportName(fm, rootRel)` 同一份校验器）
+        const urlParentDir = path.posix.basename(path.posix.dirname(new URL(cls.target).pathname));
+        const derived = skillsManager.deriveImportName(fm, urlParentDir);
+        if (!derived.ok) {
+          const err = new Error(derived.reason);
+          err.code = derived.code;
+          throw err;
+        }
+        prepared = await skillsManager.prepareFromRawFile({
+          importDir,
+          name: derived.name,
+          text,
+        });
+      }
+
+      // ② **公共后段**（一段代码，三条来源共用）：技能根定位 → 六字段预览 → 登记句柄。
+      //    源码判据：`locateSkillRoot(` / `buildImportPreview(` 在本文件各恰 1 处调用。
+      const origin = kind === 'url' ? 'url' : 'zip';
+      const located = skillsManager.locateSkillRoot(prepared.pkgRoot, cls ? cls.scopeRel : null);
       const preview = await skillsManager.buildImportPreview(env, {
         pkgRoot: prepared.pkgRoot,
         rootRel: located.rootRel,
-        origin: 'zip',
+        origin,
         seededNames: this.getSeededSkillNamesSafe(),
       });
 
@@ -1842,7 +1935,7 @@ class AIManager {
         srcDir: located.skillRootAbs,
         preview,
         createdAt: Date.now(),
-        origin: 'zip',
+        origin,
       });
       return { importId, preview };
     } catch (err) {

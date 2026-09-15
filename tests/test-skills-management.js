@@ -467,13 +467,38 @@ describe('接线：main.js 的 handleSkillsApi 与 ai-manager.js 的读路径初
     );
   });
 
-  test('ai-skills-manager.js：零 electron 依赖，且 measureSkillDir 刻意不导出', () => {
+  test('ai-skills-manager.js：electron 只准惰性 require（模块加载期零依赖），且 measureSkillDir 刻意不导出', () => {
     const src = readSource('ai-skills-manager.js');
+    // 判据 = 「**模块加载期**不 require electron」—— 那才是「纯 Node 下可直接 require
+    // 同一份」这条不变式的承重面。**允许惰性 require**（函数体 / 参数默认值表达式里，
+    // 只在真正调用时求值），**禁止顶层 require**。
+    //
+    // 51-05 的 `downloadPackage` 把 `net.fetch` 的取值推迟到调用期是**结构性必需**：
+    // 生产调用点必须走参数默认值（源码门禁以正命题断言首参逐字 `undefined`），而纯 Node
+    // 下该默认值永不求值 ⇒ 模块仍零加载期依赖。形如「顶层 `const { net } = require('electron')`」
+    // 的写法即刻转红（判别力不变，见 `51-05-SUMMARY.md` 的单点变异记录）。
+    const TOP_LEVEL = src
+      .split('\n')
+      .filter(
+        (line) =>
+          /^\S/.test(line) &&
+          !line.startsWith('//') &&
+          !line.startsWith('*') &&
+          !line.startsWith('/*')
+      )
+      .join('\n');
     assert.strictEqual(
-      /require\(['"]electron['"]\)/.test(src),
+      /require\(['"]electron['"]\)/.test(TOP_LEVEL),
       false,
-      'ai-skills-manager.js 必须保持零 electron 依赖（50/51 才能直接 require 同一份）'
+      'ai-skills-manager.js 的模块**顶层**不得 require electron（惰性 require 允许；50/51 才能直接 require 同一份）'
     );
+    for (const m of src.matchAll(/require\(['"]electron['"]\)/g)) {
+      const lineStart = src.lastIndexOf('\n', m.index) + 1;
+      assert.ok(
+        /^\s+\S/.test(src.slice(lineStart, m.index)),
+        `require('electron') 只准出现在缩进行（函数体内），实测第 ${src.slice(0, m.index).split('\n').length} 行`
+      );
+    }
     assert.ok(/module\.exports\s*=\s*\{[\s\S]*?\bgetSkillsForManagement\b/.test(src), 'getSkillsForManagement 必须导出');
     const exportBlock = src.match(/module\.exports\s*=\s*\{([\s\S]*?)\n\};/);
     assert.ok(exportBlock, 'module.exports 必须以对象字面量形态存在');

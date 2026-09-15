@@ -31,6 +31,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 
 /**
@@ -2391,8 +2392,9 @@ function makeImportError(code, message, extra = {}) {
 //
 // **结构风险两条**（本计划各有机械判据）：
 // ① 直链 SKILL.md 很容易被写成「第二条落盘路径」⇒ `prepareFromRawFile` 只产出
-//    `pkgRoot`，其后与 zip 来源**共用同一段**后段（判据：`importUserSkill(` 恰 2 处、
-//    `yauzl.openPromise(` 恰 1 处）。
+//    `pkgRoot`，其后与 zip 来源**共用同一段**后段（判据：唯一落盘函数的「定义 1 +
+//    调用 1」与唯一解压入口「恰 1 处」同时成立 —— 见 `tests/test-skills-import.js`
+//    的源码扫描组）。
 // ② 逐跳校验的事后补救形态会让重定向成为绕过白名单的通道 ⇒ 三校验在**每一跳**执行，
 //    且跳数超限**抛错**而不是带着最后一个 3xx 掉出（后者会让用户看到 `HTTP 301`
 //    这种误导性错误 —— 那正是 `search-manager.fetchUrl` 的既有缺陷）。
@@ -2645,6 +2647,364 @@ function classifyImportUrl(url) {
   }
 
   return unsupportedUrl(`不支持的 GitHub 地址形态。${SUPPORTED_URL_FORMS_TEXT}`);
+}
+
+/**
+ * 惰性 require 搜索模块 —— **只为取 `isPrivateHost` 一个判据**
+ *
+ * `search-manager.js:22` 顶层 `require('electron')`，而本模块的依赖纪律是**零 electron
+ * 依赖**（否则纯 Node 套件无法加载它）⇒ 只能**在调用期**接它，形状照本文件既有的
+ * `getAiMemoryManagerLazy` / `getAgentWorkspaceLazy` / `getYauzlLazy` 同款。
+ *
+ * ⚠️ **判据（私网网段表）只有一份**：`search-manager.js` 的 11 条网段是唯一权威，
+ * 本模块**不得**复制一张 `PRIVATE_IP_RANGES` 式的表（第二份必然独立漂移）。
+ *
+ * @returns {object} search-manager 模块导出
+ */
+function getSearchManagerLazy() {
+  return require('./search-manager');
+}
+
+/**
+ * 把 HTTP 失败状态折叠成**可操作的真实原因**（T-51-38）
+ *
+ * 403 / 429 / 404 各自给可读原因（并带上 `retry-after` 与 `x-ratelimit-remaining`
+ * **若存在**），其余状态给状态码。**不得**把它们折叠成一句通用错误 ——
+ * 那会让用户不知道该改地址还是该等一会儿。
+ *
+ * `httpStatus` 挂在错误对象上供调用方判定「是否值得用 `fallbackRef` 重试一次」。
+ *
+ * @param {object} resp - fetch 响应（只用到 `status` 与 `headers`）
+ * @param {number} status - HTTP 状态码（≥ 400）
+ * @param {'zipball'|'raw-skill'} kind
+ * @returns {Error} 带 `code = download_failed` 的错误
+ */
+function classifyHttpFailure(resp, status, kind) {
+  const header = (name) => {
+    try {
+      const v = resp && resp.headers && typeof resp.headers.get === 'function' ? resp.headers.get(name) : null;
+      return v ? String(v) : '';
+    } catch {
+      return '';
+    }
+  };
+  const retryAfter = header('retry-after');
+  const rateRemaining = header('x-ratelimit-remaining');
+  const contentType = header('content-type');
+  const extra = { httpStatus: status };
+  if (retryAfter) extra.retryAfter = retryAfter;
+  if (rateRemaining) extra.rateLimitRemaining = rateRemaining;
+
+  if (status === 403) {
+    return makeImportError(
+      IMPORT_SKILL_ERROR.DOWNLOAD_FAILED,
+      `访问被拒（HTTP 403）${rateRemaining ? `，剩余配额 ${rateRemaining}` : ''}，请稍后重试或改用本地上传`,
+      extra
+    );
+  }
+  if (status === 429) {
+    return makeImportError(
+      IMPORT_SKILL_ERROR.DOWNLOAD_FAILED,
+      `触发远端限流（HTTP 429）${retryAfter ? `，请于 ${retryAfter} 秒后重试` : '，请稍后重试'}`,
+      extra
+    );
+  }
+  if (status === 404) {
+    return makeImportError(
+      IMPORT_SKILL_ERROR.DOWNLOAD_FAILED,
+      `地址或 ref 不存在（HTTP 404）${contentType ? `，响应类型 ${contentType}` : ''}` +
+        `${kind === 'zipball' ? '。若这是仓库地址，请确认默认分支名（已尝试 main / master）' : ''}`,
+      extra
+    );
+  }
+  return makeImportError(IMPORT_SKILL_ERROR.DOWNLOAD_FAILED, `下载失败：远端返回 HTTP ${status}`, extra);
+}
+
+/**
+ * 流式下载到本地临时文件 —— **网络来源唯一的下载入口**
+ *
+ * ## 六道校验里本函数承担的五道
+ *
+ * ① **https 强制**；② **主机白名单精确匹配**（`hostWhitelist` + `normalizeHost`）；
+ * ③ **逐跳私网校验**（`isPrivateHost`）；④ **跳数上限**（超限**抛** `redirect_limit`）；
+ * ⑤ **流式字节上限**（超限即 `destroy` + 抛错 + 删半成品）。magic bytes 那道在
+ * `verifyPackageBytes`。
+ *
+ * ## 三校验在**每一跳**执行（不是只跑首跳）
+ *
+ * 重定向是绕过白名单的经典通道：`白名单内主机 → 302 到任意域`。只在首跳校验会让
+ * 攻击者用一个自己控制的白名单内跳板把请求导向任意主机。因此循环体内**每轮**都跑
+ * 「协议 / 白名单 / 私网」三条，且跳数超限时**抛错**而不是带着最后一个 3xx 掉出
+ * （后者会让用户看到 `HTTP 301` 这种与真实原因无关的误导性错误 —— 这正是
+ * `search-manager.fetchUrl` 的既有缺陷，本计划顺手修正，**不复用**它的函数）。
+ *
+ * ## 为什么不复用 `search-manager.fetchUrl`（Anti-Pattern 7）
+ *
+ * `fetchUrl` 取文本、`FETCH_DEFAULT_MAX_LENGTH = 12_000` **字符**上限、
+ * `await res.text()` **一次性读入** ⇒ 对二进制是**破坏性**的（3.9 MB 的 zipball
+ * 会被截成 12 KB 的乱码）。本函数只复用它的**判据**（`isPrivateHost`），不复用函数。
+ *
+ * ## 不无上限读入内存
+ *
+ * `Readable.fromWeb` + `pipeline` 边收边写；上限判据是**实读字节**（`content-length`
+ * 声明不可信）。**不得**用 `arrayBuffer()`（那已经吃掉内存）。
+ *
+ * ## 默认依赖全部接**真实实现**（可注入缝只服务可测性）
+ *
+ * 纯 Node 下 `net` 不存在（`require('electron')` 返回字符串）⇒ 不给注入缝就无法在
+ * 「不依赖实时外网」的前提下测任何一条网络路径。但**生产调用点必须走默认值**
+ * （源码门禁以正命题断言首参逐字 `undefined`），否则等于把 SSRF 门禁关掉。
+ *
+ * @param {{fetchImpl?: Function, isPrivateHost?: Function, hostWhitelist?: string[]}} [deps]
+ *   可注入依赖（**只允许测试注入**；生产调用点传 `undefined`）
+ * @param {{url: string, destPath: string, maxBytes?: number, kind?: string,
+ *          fallbackRef?: string|null}} params
+ * @returns {Promise<{bytes: number, contentType: string, finalUrl: string}>}
+ * @throws {Error} 六道校验的任一失败（code 取 `IMPORT_SKILL_ERROR`）；失败必删半成品
+ */
+async function downloadPackage(deps, { url, destPath, maxBytes, kind, fallbackRef = null } = {}) {
+  void fallbackRef;
+  const {
+    fetchImpl = (u, options) => require('electron').net.fetch(u, options),
+    isPrivateHost = getSearchManagerLazy().isPrivateHost,
+    hostWhitelist = HOST_WHITELIST,
+  } = deps || {};
+
+  const limit =
+    Number.isFinite(maxBytes) && maxBytes > 0 ? maxBytes : IMPORT_LIMITS.MAX_TOTAL_BYTES;
+
+  let current = String(url);
+  let resp = null;
+  let ok = false;
+
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    let u;
+    try {
+      u = new URL(current);
+    } catch {
+      throw makeImportError(IMPORT_SKILL_ERROR.UNSUPPORTED_URL, '地址格式不正确，无法解析');
+    }
+
+    // 逐跳三校验（**每一跳**都跑）
+    if (u.protocol !== 'https:') {
+      throw makeImportError(
+        IMPORT_SKILL_ERROR.UNSUPPORTED_URL,
+        `只支持 https 地址（当前协议为 ${u.protocol}）`
+      );
+    }
+    if (!hostWhitelist.includes(normalizeHost(u.hostname))) {
+      throw makeImportError(
+        IMPORT_SKILL_ERROR.UNSUPPORTED_URL,
+        `主机不在下载白名单：${normalizeHost(u.hostname)}`
+      );
+    }
+    if (await isPrivateHost(u.hostname)) {
+      throw makeImportError(
+        IMPORT_SKILL_ERROR.DOWNLOAD_FAILED,
+        `拒绝访问内网地址：${u.hostname}`
+      );
+    }
+
+    resp = await fetchImpl(current, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    const status = Number(resp && resp.status);
+
+    if (status >= 200 && status < 300) {
+      ok = true;
+      break;
+    }
+
+    if (status >= 300 && status < 400) {
+      const location =
+        resp && resp.headers && typeof resp.headers.get === 'function'
+          ? resp.headers.get('location')
+          : null;
+      if (!location) {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.DOWNLOAD_FAILED,
+          `重定向响应缺少 location 头（HTTP ${status}）`
+        );
+      }
+      // 相对跳转也要能解析（`new URL(loc, base)`）
+      current = new URL(String(location), current).href;
+      continue;
+    }
+
+    throw classifyHttpFailure(resp, status, kind);
+  }
+
+  if (!ok) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.REDIRECT_LIMIT,
+      `重定向次数超过上限（${MAX_REDIRECTS}），已中止下载`
+    );
+  }
+
+  // ---- 流式写盘：边收边写 + 实读字节累加 ----
+  let settled = false;
+  let size = 0;
+  const cleanupPartial = () => {
+    if (settled) return;
+    settled = true;
+    // 失败必清半成品（形态照 media-remuxer 的 fail()：settled 幂等 + unlinkSync）
+    try {
+      fs.unlinkSync(destPath);
+    } catch {
+      /* 文件可能尚未创建 */
+    }
+  };
+
+  try {
+    await pipeline(
+      Readable.fromWeb(resp.body),
+      async function* countAndGuard(source) {
+        for await (const chunk of source) {
+          size += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(chunk);
+          if (size > limit) {
+            throw makeImportError(
+              IMPORT_SKILL_ERROR.DOWNLOAD_FAILED,
+              `下载内容超过上限：限额 ${limit} 字节，已接收 ${size} 字节（已中止下载）`
+            );
+          }
+          yield chunk;
+        }
+      },
+      fs.createWriteStream(destPath)
+    );
+  } catch (err) {
+    cleanupPartial();
+    if (err && err.code && Object.values(IMPORT_SKILL_ERROR).includes(err.code)) throw err;
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.DOWNLOAD_FAILED,
+      `下载写盘失败：${err && err.message ? err.message : String(err)}`
+    );
+  }
+  settled = true;
+
+  return {
+    bytes: size,
+    contentType: (() => {
+      try {
+        const v = resp.headers.get('content-type');
+        return v ? String(v).trim() : '';
+      } catch {
+        return '';
+      }
+    })(),
+    finalUrl: current,
+  };
+}
+
+/**
+ * 校验下载产物的**真实内容形态**（T-51-34）
+ *
+ * ## magic bytes 是权威，`content-type` 只用于把错误说得更清楚
+ *
+ * codeload 的 404 是 **14 字节 `text/plain`**（实测）⇒ 若先按 `content-type` 拒绝，
+ * 用户会拿到「不是 zip」而不是「地址 / ref 不存在」的提示。所以顺序是：状态码分类
+ * （`downloadPackage`）**先于**本函数；本函数只在状态码已是 2xx 时判断载荷形态，
+ * 并在不匹配时**用 `content-type` 补充**原因。
+ *
+ * ## raw 分支**不做** magic 校验
+ *
+ * 实测 raw 的 `content-type` 是 `text/plain`、内容是文本 ⇒ 对它做 zip magic 校验
+ * 会把**所有合法的直链**判死。改为「非空 + 前 512 字节无 `\x00`」。
+ *
+ * @param {string} destPath - 下载落盘路径
+ * @param {'zipball'|'raw-skill'} kind
+ * @param {string} [contentType] - 远端声明的类型（**只用于补充错误原因**）
+ * @returns {void}
+ * @throws {Error} code = `not_a_zip`
+ */
+function verifyPackageBytes(destPath, kind, contentType = '') {
+  let head;
+  try {
+    const fd = fs.openSync(destPath, 'r');
+    try {
+      head = Buffer.alloc(4096);
+      const read = fs.readSync(fd, head, 0, head.length, 0);
+      head = head.subarray(0, read);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (err) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.NOT_A_ZIP,
+      `无法读取下载产物：${err && err.message ? err.message : String(err)}`
+    );
+  }
+
+  if (kind === 'zipball') {
+    const magic = head.subarray(0, 4).toString('hex');
+    // `504b0304` = 正常 zip；`504b0506` = 空包（合法但无载荷）
+    if (magic !== '504b0304' && magic !== '504b0506') {
+      throw makeImportError(
+        IMPORT_SKILL_ERROR.NOT_A_ZIP,
+        `拿到的不是 zip 文件${contentType ? `（content-type: ${contentType}）` : ''}—— 请核对地址或 ref 是否存在`
+      );
+    }
+    return;
+  }
+
+  if (head.length === 0) {
+    throw makeImportError(IMPORT_SKILL_ERROR.NOT_A_ZIP, '直链返回的不是文本内容（响应为空）');
+  }
+  if (head.subarray(0, 512).includes(0)) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.NOT_A_ZIP,
+      '直链返回的不是文本内容（前 512 字节含二进制 NUL 字节）'
+    );
+  }
+}
+
+/**
+ * **第二个准备器**：把单文件 SKILL.md 包装成与 zip 来源**同一个 `pkgRoot` 形状**
+ *
+ * ## 它不绕过任何后续判据（T-51-36）
+ *
+ * 只做一件事：在 `<importDir>/pkg/<name>/SKILL.md` 写盘并返回 `{ importDir, pkgRoot,
+ * entries }`。其后的**全树校验 / `locateSkillRoot` / `collectPreviewStats` /
+ * `buildImportPreview` / `importUserSkill` 与 zip 来源是同一段代码** ——
+ * `yauzl` 那一步只是**没有档案可解**，不是「另一条落盘路径」（P9 明令禁止的形态）。
+ *
+ * ⚠️ 签名里**没有依赖注入形参**（与 `downloadPackage(deps, …)` 刻意不同）：它只用
+ * Node `fs` 顺序写盘，不需要 `deps`。
+ *
+ * ## name 二次校验
+ *
+ * 调用方（`ai-manager`）已用 `deriveImportName` 校验过；这里**再校验一次**是因为
+ * `name` 会被拼进路径 —— 写面函数的入参纪律不允许「信任上游」。
+ *
+ * @param {{importDir: string, name: string, text: string}} params
+ * @returns {Promise<{importDir: string, pkgRoot: string, entries: Array<object>}>}
+ * @throws {Error} name 不合规（code 取 `IMPORT_SKILL_ERROR`）
+ */
+async function prepareFromRawFile({ importDir, name, text } = {}) {
+  const check = validateManagedSkillName(name);
+  if (!check.ok) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.INVALID_NAME,
+      `直链技能名不可用：${check.reason}`
+    );
+  }
+  const safeName = String(name).trim();
+  const pkgRoot = path.join(importDir, 'pkg');
+  const skillDir = path.join(pkgRoot, safeName);
+  fs.mkdirSync(skillDir, { recursive: true });
+  const body = typeof text === 'string' ? text : String(text);
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), body, 'utf8');
+
+  // 条目形状与 `readSkillPackageEntries` 的产物一致（`name` 是**包根相对**的 posix 路径）
+  const entries = [
+    {
+      name: `${safeName}/SKILL.md`,
+      isDirectory: false,
+      bytes: Buffer.byteLength(body, 'utf8'),
+    },
+  ];
+  return { importDir, pkgRoot, entries };
 }
 
 /** 脚本清单的扩展名白名单（D-13 的判据之一；另一条是 POSIX 可执行位） */
@@ -4348,6 +4708,9 @@ module.exports = {
   FETCH_TIMEOUT_MS,
   isWhitelistedHost,
   classifyImportUrl,
+  downloadPackage,
+  verifyPackageBytes,
+  prepareFromRawFile,
   // 51 新增第三段（技能域威胁扫描：分表 + 返回命中列表的并列扫描函数）
   SKILL_THREAT_PATTERNS,
   scanSkillThreats,
