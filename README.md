@@ -1,107 +1,168 @@
 # Realm Browser
 
-多容器隔离浏览器，支持独立 Cookie 管理和 AI Agent 集成。
+多容器隔离浏览器 —— 每个容器拥有独立的 Cookie、缓存与登录状态，可同时登录同一网站的多个账号而互不干扰。内置 AI 助手与媒体嗅探、播放、录制能力。
+
+当前版本 `0.1.20`　·　Electron 43　·　macOS (Apple Silicon)
 
 ## 特性
 
-- 🔒 **容器隔离** - 每个容器拥有独立的 Cookie、缓存和存储
-- 🎨 **可视化管理** - 通过颜色和图标直观区分不同容器
-- 🤖 **AI Agent 集成** - 预留 AI Agent SDK 集成能力（开发中）
-- ⚡ **高性能** - 基于 Electron + Chromium 内核
-- 🎯 **易于扩展** - 模块化架构，便于功能扩展
+### 容器隔离
 
-## 技术栈
+- **完全隔离** —— 每个容器使用独立会话，Cookie、localStorage、IndexedDB、HTTP 缓存互不可见
+- **同时多账号** —— 工作、个人、测试账号各占一个容器，同站点并行登录不再互相踢下线
+- **可视化管理** —— 容器可设颜色、图标、电话、邮箱、备注与环境变量
+- **规则自动分配** —— 按域名或关键词配置规则，链接自动落到对应容器打开
+- **独立 Cookie 快照** —— 每个容器的 Cookie 可单独导出/保存，随时回滚到干净状态
 
-- **框架**: Electron 32
-- **语言**: JavaScript (ES6+)
-- **UI**: HTML + CSS (无框架依赖)
-- **存储**: electron-store (配置持久化)
+### 浏览体验
 
-## 项目结构
+- 多窗口与跨窗口标签拖拽，标签页恢复
+- 收藏夹：文件夹树、拖拽排序、中文全文搜索、Chrome 书签 / HTML 导入
+- 浏览历史、下载管理（暂停 / 恢复 / 取消）、常用网站、地址栏自动补全
+- Vim 模式（`j`/`k`/`f`/`gg` 等键位）、页内查找、明暗主题
+- 登录凭据与收货地址加密存储（系统钥匙串）
+- 请求记录面板：抓取页面网络请求，可查看单条请求的渲染内容与原始响应
 
-```
-Realm/
-├── main.js                    # Electron 主进程入口
-├── src/
-│   ├── index.html            # 主界面
-│   ├── preload.js            # 预加载脚本（安全 IPC）
-│   ├── renderer.js           # 渲染进程逻辑
-│   ├── styles/
-│   │   └── main.css          # 主样式文件
-│   ├── containers/           # 容器管理模块（待扩展）
-│   ├── browser/              # 浏览器核心（待扩展）
-│   ├── ui/                   # UI 组件（待扩展）
-│   └── ai/                   # AI Agent 集成（待扩展）
-├── configs/                  # 配置文件
-├── docs/                     # 文档
-├── package.json              # 项目配置
-└── README.md                 # 项目说明
-```
+### AI 助手
 
-## 快速开始
+在侧边聊天面板中用自然语言操作浏览器：
 
-### 安装依赖
+- **浏览器操控** —— 读取当前页面正文、提取链接、填写表单、点击滚动、切换容器与标签页
+- **信息检索** —— 网络搜索（Tavily / Brave / Serper / AnySearch / DuckDuckGo）与网页抓取转 Markdown
+- **数据整理** —— 搜索/管理历史记录与收藏夹，一句话让 AI 整理收藏夹结构
+- **文件与命令** —— 可在 AI 专属工作区内读写文件、执行命令，危险命令执行前需你确认
+- **长期记忆** —— 分「用户画像 / 全局 / 容器」三层记住你的偏好，可在设置页人工编辑
+- **技能扩展** —— 随包内置技能，也可让 AI 自建技能；设置页统一管理启停与卸载
+- **聊天附件** —— 拖拽或粘贴文件、图片进对话；主模型不支持图片时自动交给视觉模型转写为文字
+
+### 媒体
+
+- **自动嗅探** —— 浏览时自动识别页面中的 `m3u8` / `mp4` / `flv` / `webm` / `mpd` 资源
+- **独立播放器** —— 支持 HLS、DASH、FLV、fMP4，支持原速/倍速与进度续播
+- **视频缓存** —— 边播边缓存分片，离线回看更流畅，缓存目录与上限可配
+- **直播录制** —— 对 m3u8 直播流轮询追分片录制
+- **转封装为 MP4** —— 录制或缓存内容一键转为通用 mp4 文件
+
+## 默认容器
+
+首次启动内置四个容器，可自由增删改：
+
+| 容器 | 建议用途 |
+|------|---------|
+| 默认 | 通用浏览 |
+| 工作 | 工作相关网站 |
+| 个人 | 个人账号 |
+| 金融 | 银行与金融网站 |
+
+## 安装
+
+### 环境要求
+
+- macOS（Apple Silicon）
+- Node.js 20 及以上
+- 首次安装需要编译原生模块，耗时略长
+
+### 从源码构建安装
 
 ```bash
+git clone git@github.com:wxnacy/Realm.git
+cd Realm
 npm install
+
+make install           # 构建并安装到 /Applications/Realm.app
+make install-nightly   # 构建并安装到 /Applications/Realm Nightly.app
+```
+
+其他目标：
+
+```bash
+make publish           # 只打包 DMG 到 dist/
+make clean             # 清理 dist/
 ```
 
 ### 开发模式运行
 
 ```bash
-npm run dev
+npm run dev        # 开发模式，改代码自动热重载
+npm run debug      # 调试模式，启动即打开开发者工具
+npm start          # 正式模式
 ```
 
-### 生产构建
+## 使用
+
+### 内置页面
+
+以下页面无需联网，可从菜单、侧边栏或快捷键直达：
+
+| 页面 | 内容 |
+|------|------|
+| 新标签页 | 常用网站网格与搜索 |
+| 历史记录 | 按日期分组，支持搜索过滤 |
+| 收藏夹 | 文件夹树与拖拽排序 |
+| 下载 | 下载列表，支持暂停 / 恢复 / 取消 |
+| 设置 | 容器规则、快捷键、AI 助手、媒体、自动填充、Vim 模式 |
+| 请求记录 | 网络请求抓取结果与单条详情 |
+| 播放器 | 独立媒体播放窗口，含缓存与录制控制 |
+| 任务中心 | 录制与转码任务列表及进度 |
+| 查看源码 | 查看网页 HTML 源码 |
+
+### 常用快捷键
+
+| 操作 | 快捷键 |
+|------|--------|
+| 新建窗口 | `Cmd + N` |
+| 新建 / 关闭标签页 | `Cmd + T` / `Cmd + W` |
+| 下一个 / 上一个标签页 | `Cmd + Shift + ]` / `Cmd + Shift + [` |
+| 刷新页面 | `Cmd + R` |
+| 后退 / 前进 | `Cmd + ←` / `Cmd + →` |
+| 收藏此页面 | `Cmd + D` |
+| 页内查找 | `Cmd + F` |
+| 聚焦地址栏 | `Cmd + L` |
+| 打开设置 | `Cmd + ,` |
+| 打开历史记录 / 收藏夹 | `Cmd + Y` / `Cmd + B` |
+| 切换 AI 面板 | `Cmd + ]` |
+| 切换容器侧边栏 | `Cmd + [` |
+| 快速保存 Cookie | `Cmd + Shift + S` |
+| 设为默认浏览器 | `Cmd + Shift + D` |
+
+全部快捷键均可在「设置 → 快捷键」中改键或恢复默认。
+
+### 命令行工具
+
+安装 `realm` 命令后可查询容器信息：
 
 ```bash
-npm run build:mac
+npm link
+
+realm container list          # 列出所有容器
+realm container show work     # 查看指定容器详情
+realm version
 ```
 
-## 容器隔离机制
+可用 `--env dev|nightly` 指定读取哪个环境的配置（默认正式版），`--fields` 指定显示字段。
 
-每个容器使用独立的 Electron Session partition：
+### 三个版本互不干扰
 
-```javascript
-// 容器 "work" 使用独立的 session
-const workSession = session.fromPartition('persist:container-work');
+Realm 有正式版、Nightly 版与开发版三个入口，各自使用独立的配置与数据目录，可同时安装共存：
 
-// 容器 "personal" 使用另一个独立的 session
-const personalSession = session.fromPartition('persist:container-personal');
-```
+| 版本 | 启动方式 | 配置与数据目录 |
+|------|---------|--------------|
+| 正式版 | `Realm.app` | `~/Library/Application Support/realm/` |
+| Nightly 版 | `Realm Nightly.app` | `~/Library/Application Support/realm-nightly/` |
+| 开发 / 调试版 | `npm run dev` / `npm run debug` | `~/Library/Application Support/realm-dev/` |
 
-不同容器之间完全隔离：
-- ✅ Cookies
-- ✅ localStorage
-- ✅ IndexedDB
-- ✅ HTTP 缓存
-- ✅ 会话数据
+配置、Cookie 与登录状态全部按上表隔离，试用 Nightly 版不会影响正式版数据。
 
-## 默认容器
+## 已知问题
 
-| 容器 | 颜色 | 用途 |
-|------|------|------|
-| 默认 | 灰色 | 通用浏览 |
-| 工作 | 蓝色 | 工作相关网站 |
-| 个人 | 绿色 | 个人账号 |
-| 金融 | 黄色 | 银行和金融网站 |
+- 某些站点的直播地址会动态变化，若录制任务拿到的是主播放列表，可能空转到链接过期后才报错
+- 应用内转码超过 4 GiB 的视频文件可能产出不完整产物
 
-## 快捷键
+## 文档与反馈
 
-- `Cmd/Ctrl + N`: 新建容器
-- `Escape`: 关闭对话框
-
-## 开发计划
-
-- [x] 基础容器隔离
-- [x] 容器管理 UI
-- [x] Cookie 管理
-- [ ] Web 视图集成
-- [ ] 书签系统
-- [ ] 扩展支持
-- [ ] AI Agent 集成
-- [ ] 自动填充
-- [ ] 隐私保护增强
+- 功能设计与说明文档：[docs/](docs/)
+- 疑难问题排查实录：[docs/debug/](docs/debug/)
+- 问题反馈与功能建议：[GitHub Issues](https://github.com/wxnacy/Realm/issues)
 
 ## 许可证
 
