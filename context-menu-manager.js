@@ -521,13 +521,15 @@ function buildTabBarMenu(mainWindow) {
 /**
  * 构建网页右键菜单
  *
- * 根据 contextInfo.type 动态生成不同菜单：
- * - 'image' — 图片专属菜单（4 项）+ 通用菜单
- * - 'link' — 链接专属菜单（4 项 + 容器子菜单）+ 通用菜单
- * - 'general' — 仅通用菜单
+ * 专属菜单按 hasImage / hasLink 两个可同时成立的维度拼接：
+ * - 命中图片 → 图片专属项（4 项）
+ * - 命中链接 → 链接专属项（4 项 + 容器子菜单）
+ * - 两者同时命中（`<a><img></a>` 即图片链接）→ 图片组在前、链接组在后
+ * - 都没有 → 仅通用菜单
  *
  * @param {Object} contextInfo - 上下文信息
- * @param {string} contextInfo.type - 元素类型：'image' | 'link' | 'general'
+ * @param {boolean} contextInfo.hasImage - 右键落点是否为图片
+ * @param {boolean} contextInfo.hasLink - 右键落点是否在链接上（图片链接时两者皆为 true）
  * @param {string} contextInfo.linkURL - 链接 URL（type=link 时有值）
  * @param {string} contextInfo.srcURL - 图片/媒体 URL（type=image 时有值）
  * @param {string} contextInfo.mediaType - 媒体类型
@@ -547,11 +549,12 @@ function buildWebMenu(contextInfo, mainWindow) {
   const hostWebContents = mainWindow.webContents;
   const guestWebContents = getGuestWebContents(contextInfo.guestContentsId);
 
-  let specificItems = [];
+  // 专属分组（各自末尾自带分隔符，展开后天然充当组间分隔符）
+  const specificGroups = [];
 
   // 图片菜单（per D-17 + UI-SPEC.md Image Context Menu）
-  if (contextInfo.type === 'image' && contextInfo.srcURL) {
-    specificItems = [
+  if (contextInfo.hasImage && contextInfo.srcURL) {
+    specificGroups.push([
       {
         label: '在新标签页中打开图片',
         click: () => {
@@ -601,11 +604,11 @@ function buildWebMenu(contextInfo, mainWindow) {
         },
       },
       { type: 'separator' },
-    ];
+    ]);
   }
 
   // 链接菜单（per D-18 + UI-SPEC.md Link Context Menu）
-  if (contextInfo.type === 'link' && contextInfo.linkURL) {
+  if (contextInfo.hasLink && contextInfo.linkURL) {
     // 构建容器子菜单
     const containers = contextInfo.containers || [];
     const containerSubmenu = containers.map((container) => ({
@@ -620,7 +623,7 @@ function buildWebMenu(contextInfo, mainWindow) {
       },
     }));
 
-    specificItems = [
+    specificGroups.push([
       {
         label: '在新标签页中打开链接',
         click: () => {
@@ -653,8 +656,11 @@ function buildWebMenu(contextInfo, mainWindow) {
         },
       },
       { type: 'separator' },
-    ];
+    ]);
   }
+
+  // 展开分组（每组自带组尾分隔符，无需再插组间分隔符）
+  const specificItems = specificGroups.flat();
 
   // 通用菜单项
   const generalItems = buildGeneralMenuItems(contextInfo, guestWebContents, hostWebContents);

@@ -3765,7 +3765,7 @@ app.whenReady().then(async () => {
   /**
    * 网页右键菜单请求
    * 渲染进程 webview context-menu 事件时发送，主进程注入容器列表和 guestContentsId
-   * @param {Object} contextInfo - 上下文 { type, linkURL, srcURL, mediaType, selectionText, ... }
+   * @param {Object} contextInfo - 上下文 { hasImage, hasLink, linkURL, srcURL, mediaType, selectionText, ... }
    */
   ipcMain.on('show-web-context-menu', (event, contextInfo) => {
     const mainWindow = BrowserWindow.fromWebContents(event.sender);
