@@ -1,9 +1,9 @@
 # webview 鼠标命中残留：网页点不动、刷新无效、只能重启
 
-> **状态**：已修复，**已合入 master**（2026-09-15，merge `dc08c18`）
+> **状态**：已修复，**已合入 master**（2026-09-15：先 merge `dc08c18`；当日追加诊断日志落盘后再 merge `0b74443`）
 > **分支**：`hotfix/webview-hit-test-stuck`（已合入；worktree `.worktrees/webview-hit-test-stuck`）　**基点**：`40a58cb`
 > **一句话根因**：拖标签 / 拖 AI 面板宽度期间会把**所有** webview 的 `pointer-events` 置 `none`（且不改可见性），而恢复只挂在各自的 `mouseup` 上——那次 `mouseup` 一丢，网页区就永久失去鼠标命中。
-> **本文档行号**：除特别注明外均为 master `dc08c18` 时的值（该 merge 的 tree 与分支 tip `f55d703` **逐字节相同**，故分支上跑的验证结论直接继承）；改前（基点）行号已单独标注。
+> **本文档行号**：`src/renderer.js` 的锚点为 master `dc08c18` 时的值（其后未再改动该文件）；`main.js` 与落盘相关的锚点为 `0b74443` 时的值。两次 merge 的 tree 都与对应分支 tip **逐字节相同**（`e91036ab…` / `9b2ba537…`），故分支上跑的验证结论直接继承。
 
 ---
 
@@ -379,10 +379,12 @@ guest 日志能收到，前提是**注册在 guest 自身的 webContents 上**�
 |---|---|
 | 分支 / worktree | `hotfix/webview-hit-test-stuck` / `.worktrees/webview-hit-test-stuck`（仓库内，含 `node_modules` 符号链接） |
 | 基点 | `40a58cb`（master；分支期间 master **未前进**，故合并零重叠） |
-| 提交 | `3959765` fix(webview) 代码修复 · `8603bad` feat(main) guest 观测 · `94cf805` test(webview) 驱动 · `47dc69c` docs(webview) 本文档初版 + AGENTS.md · `f55d703` docs(webview) 本文档扩写为交接版 |
-| 落点 | **已合入 master**：merge `dc08c18`（`--no-ff`）。tree hash 与分支 tip 逐字节相同（`e91036ab…`）⇒ **分支上的红绿轮验证结论直接继承**，无需在 master 重跑整套 |
-| 合入后复跑 | 按改动面（`src/renderer.js` + `main.js`）复跑**源码扫描类** 11 个套件：`test-ai-cancel-state` / `test-ai-skills` / `test-builtin-skills-seeder` / `test-context-menu-channels` / `test-context-menu-menu` / `test-media-remuxer` / `test-skill-picker-model` / `test-skills-http-api` / `test-skills-import-net` / `test-skills-import` / `test-skills-management` —— **全部 PASS** |
-| 观察期 | 在 **Nightly** 上观察（`make install-nightly`，构建自仓库根 = master 工作树） |
+| 提交 | 第一轮（命中残留修复）`3959765` fix · `8603bad` feat(main) 观测 · `94cf805` test · `47dc69c`/`f55d703` docs；第二轮（日志落盘）`9a150b6` feat(diagnostics) · `1cf25ed` test · `3ebf66a` docs |
+| 同步 | 第二轮开工前 `823b74c`、落地前 `8977cdb`（把 master 的并发会话改动并进分支；**其中一次 master 已前进 2 个提交（test(51) 复核轮），不同步直接回合会覆盖对方的 `.planning/phases/51-zip/*` 与 `tests/uat-51-import-limits.js`**） |
+| 落点 | **已合入 master**（两次 `--no-ff`）：`dc08c18`（修复）· `0b74443`（日志落盘）。两次的 tree hash 都与对应分支 tip 逐字节相同（`e91036ab…` / `9b2ba537…`）⇒ **分支上的红绿轮验证结论直接继承**，无需在 master 重跑整套 |
+| 合入后复跑 | 按改动面（`src/renderer.js` + `main.js` + 新根模块）复跑**源码扫描类 11 个套件 + 本次新增落盘单测**，共 12 个：`test-diagnostics-log` / `test-ai-cancel-state` / `test-ai-skills` / `test-builtin-skills-seeder` / `test-context-menu-channels` / `test-context-menu-menu` / `test-media-remuxer` / `test-skill-picker-model` / `test-skills-http-api` / `test-skills-import-net` / `test-skills-import` / `test-skills-management` —— **全部 PASS** |
+| 观察期 | 在 **Nightly** 上观察（`make install-nightly`，构建自仓库根 = master 工作树）。**注意**：落盘能力是第二轮才有的，观察用的 Nightly **必须重新构建**才含它；此前构建的包仍无日志文件 |
+| 观察期取证 | 复现后直接读 `<userData>/logs/diagnostics.log`（dev = `~/Library/Application Support/realm-dev/logs/`，Nightly = `…realm-nightly/logs/`）；判读见 §5.2 + §6.5 |
 | 分支与 worktree | **保留中**（观察期结束时按规范 §4 两步清理：`git worktree remove .worktrees/webview-hit-test-stuck` → `git branch -d hotfix/webview-hit-test-stuck`） |
 | 远端 | 未推送（本地 master 领先 `origin/master` 99+ 提交，是否推送由维护者定） |
 | 复查命令 | `git -C .worktrees/webview-hit-test-stuck log --oneline master..HEAD` |
