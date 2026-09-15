@@ -1,5 +1,8 @@
 # Dependencies
-node_modules/
+# 不带尾斜杠：`node_modules/` 只匹配目录，而 worktree 里的 node_modules 是符号链接
+# （在 git 眼里是文件），带斜杠的规则忽略不掉它，会以 `?? node_modules` 污染 git status。
+# 符号链接的用途见 docs/dev/branching-spec.md 第三节「跑 dev 应用时：静态资源不吃向上查找」
+node_modules
 # package-lock.json 必须入库（npm 官方：intended to be committed into source repositories）——
 # 原生模块（better-sqlite3 / nodejieba）与 Electron ABI 绑定，依赖树必须可复现
 

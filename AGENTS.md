@@ -45,8 +45,9 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - 取依赖一律用**裸说明符**（`const exe = require('electron')`），不要拼绝对路径
 - playwright 是**全局**依赖，运行需要 Electron 的驱动必须带 `NODE_PATH`：`NODE_PATH="$(npm root -g)" node tests/uat-<name>.js`
 - 自查命令：`grep -rn "require(path\.join(.*node_modules\|node_modules/electron/dist" tests/` —— 有命中即为待修形态（刻意只匹配真实调用形态，避免被注释里的说明文字误报）
+- **跑 dev 应用前先建 `node_modules` 符号链接**（`ln -sfn ../../node_modules .worktrees/<简述>/node_modules`）—— 向上查找只覆盖 `require`；主窗口 `file://` 的 `../node_modules/...` 与 main.js 的 `/node_modules/**` 静态路由都不吃它，缺链接会「应用能开、但播放器播不了 m3u8 / AI 聊天 Markdown 不渲染」（2026-09-15 实测）
 
-完整实测表与已知待修清单见 [docs/dev/branching-spec.md](docs/dev/branching-spec.md) 第三节「在 worktree 内跑自动化测试」。
+完整实测表、已知待修清单与建链接的两条配套约束见 [docs/dev/branching-spec.md](docs/dev/branching-spec.md) 第三节「在 worktree 内跑自动化测试」与「跑 dev 应用时：静态资源不吃向上查找」。
 
 ### 3. 已在 feature/hotfix 的 worktree 中 → 按「任务」边界主动同步/回合
 

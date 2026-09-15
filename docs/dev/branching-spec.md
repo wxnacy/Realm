@@ -146,6 +146,41 @@ grep -rn "require(path\.join(.*node_modules\|node_modules/electron/dist" tests/
 
 截至 2026-09-15 命中 6 个文件：`test-unified-navigation.js`、`uat-49-g49-3-*`、`uat-49-g49-4-*`（含 `better-sqlite3` 一处同病）、`uat-50-a-*`、`uat-50-b-*`、`uat-50-t1-*` —— 均把「本仓自带 Electron」写成绝对路径，目前只能回主工作树跑。
 
+### 跑 dev 应用时：静态资源不吃向上查找（须建符号链接）
+
+上面那节说的是 `require` —— 向上查找**只覆盖模块解析**。dev 应用跑起来之后，还有两类资源引用不走 Node，在 worktree 内必然 404：
+
+| 引用方 | 形态 | 为什么会断 |
+|--------|------|-----------|
+| 主窗口 `src/index.html`（`file://` 加载） | `<script src="../node_modules/marked/lib/marked.umd.js">` | 浏览器按**相对路径**解析 ⇒ 落在 `<worktree>/node_modules/...` |
+| `main.js` 的 `/node_modules/**` 静态路由 | `path.join(__dirname, 'node_modules', subPath)` | 直接拼 `__dirname`（= worktree 根），等于绕开向上查找 |
+
+后果是**应用照常启动**，只有个别功能悄悄坏掉 —— 症状极难往环境上联想：
+
+- `src/player.html` 引 `hls.js` / `mpegts.js` / `dashjs` ⇒ 三库全 404 ⇒ **播放器页面能打开、但 m3u8 播不了**（只在控制台看到 `Hls is not defined`）
+- `src/index.html` 引 `marked` / `dompurify` / `highlight.js` ⇒ **AI 聊天的 Markdown 渲染、HTML 净化、代码高亮失效**
+
+**解法：建 worktree 时顺手建一个 `node_modules` 符号链接**（一条命令，两处一起修好）：
+
+```bash
+git worktree add .worktrees/<简述> -b feature/<简述> \
+  && ln -sfn ../../node_modules .worktrees/<简述>/node_modules
+```
+
+2026-09-15 实测（`.worktrees/context-menu-fixes`，建链接前 → 后；主进程端口由 `lsof -p <pid> -a -iTCP -sTCP:LISTEN` 取）：
+
+| 请求 | 建链接前 | 建链接后 |
+|------|---------|---------|
+| `GET /player/` | 200（9708 B） | 200 |
+| `GET /node_modules/hls.js/dist/hls.min.js` | **404（9 B）** | 200（543036 B） |
+| `GET /node_modules/mpegts.js/dist/mpegts.js` | **404** | 200（263218 B） |
+| `GET /node_modules/dashjs/dist/modern/umd/dash.all.min.js` | **404** | 200（797550 B） |
+
+**两条配套约束**：
+
+1. **`.gitignore` 必须写 `node_modules`（不带尾斜杠）** —— `node_modules/` 只匹配目录，而符号链接在 git 眼里是文件，带斜杠的规则忽略不掉它，会以 `?? node_modules` 污染 `git status`。
+2. **要在该 worktree 里 `npm install` 时，先删掉这个链接** —— 否则 npm 会顺着链接把包装进**主仓库**的 `node_modules`，与上节「改了 `package.json` 就在 worktree 内独立安装」的约定正好相反。
+
 ### 生命周期：必须用 `git worktree remove` 清理
 
 worktree 里的 `.git` 是一个**文件**（内容是 `gitdir: <主仓库>/.git/worktrees/<name>`），元数据登记在主仓库的 `.git/worktrees/` 下。**手删目录不会注销元数据**，会留下 `git worktree list` 标为 `prunable` 的僵尸条目。
