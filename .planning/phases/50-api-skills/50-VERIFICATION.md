@@ -36,7 +36,7 @@ covered_files:
   - tests/test-skills-http-api.js
   - tests/test-skills-management.js
 
-covered_digest: "v1:sha256:5f912b3a22d5c5337f6f8bb18c3efe90fc33077be6c07ae260e7c52989f3b163"
+covered_digest: "v1:sha256:2ac28fbec3d7fd8c7312c5f8a083ac49272f8e0ca60bd001d328ce0ca63c9dab"
 behavior_unverified: 3
 overrides_applied: 0
 re_verification:
@@ -371,3 +371,22 @@ _Verifier: Claude (gsd-verifier)_
 
 _Closed: 2026-09-15T02:00:09Z_
 _Closed by: /gsd-verify-work 50（9/9 pass，0 issues）_
+
+---
+
+## 指纹刷新（2026-09-15，transition 之后）
+
+`covered_digest` 由 `v1:sha256:5f912b3a…` 刷新为 `v1:sha256:2ac28fbe…`。
+
+**根因**：`covered_files` 含 `.planning/ROADMAP.md` 与 `.planning/REQUIREMENTS.md`，而
+`query phase.complete 50`（transition）会勾 ROADMAP 的阶段完成位、`requirements.mark-complete`
+会改 REQUIREMENTS ⇒ 两文件内容变化 ⇒ 指纹失配 ⇒ `phase uat-passed --require-verification`
+报 `policy: verification status=stale`。
+
+**这不是结论变化**，是**清单内文件的收尾写入**造成的机械失效（与 Phase 47/48 收尾同型）。
+按原 30 项清单用 `gsd_run query verification.fingerprint` 重算并写回。刷新后
+`phase uat-passed 50 --require-verification` → `passed: true`、blockers 空。
+
+**下次注意**：指纹刷新必须在**transition 提交之后**做（transition 会再改 ROADMAP）；
+顺序颠倒会立刻重新 stale。另 `50-UAT.md` / `50-SECURITY.md` **刻意不在 `covered_files` 内**
+（UAT 多轮追加、安全复审重写都会反复把阶段判 stale）。
