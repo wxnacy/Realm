@@ -33,6 +33,14 @@
  * - 「正常收尾不打残留日志」是负命题，靠 console.warn 记录里不含「残留已恢复」判定。
  * - 本驱动不验证真实鼠标事件是否被 Chromium 送到 guest（那需要真机手势），只验证
  *   「可命中性状态机」在丢 mouseup 后能否自动回到正确值。
+ * - **用例 7（日志落盘）的判据纪律**：日志文件是**追加**的，「文件里存在某行」会被历史
+ *   会话的旧行满足 ⇒ 单独的存在性判据是假绿（单点变异实测确认）。必须配**计数增量**
+ *   判据（本例：`residualAfter > residualBefore`），或用本次运行独有的随机 tag。
+ *   7b/7d 是单变量对照：同前缀、同来源，只差正文是否命中噪声模式 —— 一个落盘一个不落，
+ *   差异只能来自噪声规则本身（拆掉噪声规则时 7d 转红，已实测）。
+ *
+ * 用例 7 的额外价值：它在**真应用**里验证了 guest 的 console 能落盘（仓库旧结论
+ * 「新版 Electron 收不到 guest 日志」源自「只在主窗口 contents 上监听」的误判）。
  *
  * 会话副作用（自清理）：若启动时只有 1 个 webview，会新建一个 about:blank 临时标签以
  * 获得「非活动 webview」用于验证不变量，结束时关闭并切回原活动标签；期间改宽收窄路径
@@ -233,6 +241,55 @@ const hiddenOf = (list) => (list || []).filter((w) => w.vis !== 'visible');
 
 function residualWarns(warns) {
   return warns.filter((w) => w.includes('残留已恢复'));
+}
+
+/** 取主进程里的落盘路径（验证模块真的被接进 main.js，而不是靠猜路径） */
+const GET_LOG_PATH = () => {
+  try {
+    // app.evaluate 里没有全局 require，用 mainModule.require 拿应用模块（缓存同实例）
+    const mod = process.mainModule.require('./diagnostics-log');
+    return { ok: true, path: mod.getLogPath(), enabled: mod.isEnabled() };
+  } catch (err) {
+    return { ok: false, reason: err.message };
+  }
+};
+
+/** 在活动 webview 里打一条 guest console 日志（level 默认 log） */
+const GUEST_CONSOLE = async (payload) => {
+  const text = typeof payload === 'string' ? payload : payload.text;
+  const level = (typeof payload === 'object' && payload.level) || 'log';
+  const wv = document.querySelector('#browserView webview[style*="visible"]')
+    || Array.from(document.querySelectorAll('#browserView webview'))
+      .find((w) => getComputedStyle(w).visibility === 'visible');
+  if (!wv) return { ok: false, reason: '没有可见 webview' };
+  try {
+    await wv.executeJavaScript(`console[${JSON.stringify(level)}](${JSON.stringify(text)}); true`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: err.message };
+  }
+};
+
+/** 轮询日志文件直到出现某子串 */
+async function waitForLogLine(logPath, needle, timeoutMs = 4000) {
+  const fs = require('fs');
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      if (fs.readFileSync(logPath, 'utf8').includes(needle)) return true;
+    } catch (_) { /* 文件尚未创建：继续等 */ }
+    if (Date.now() > deadline) return false;
+    await sleep(150);
+  }
+}
+
+function countLogLines(logPath, needle) {
+  const fs = require('fs');
+  try {
+    return fs.readFileSync(logPath, 'utf8').split('\n').filter((l) => l.includes(needle)).length;
+  } catch (_) {
+    return 0;
+  }
 }
 
 async function main() {
@@ -438,6 +495,56 @@ async function main() {
     check('幂等：非活动 webview 仍 none', hiddenOf(afterIdem).every((w) => w.pe === 'none'), JSON.stringify(hiddenOf(afterIdem)));
     check('幂等：状态快照逐项不变', JSON.stringify(beforeIdem) === JSON.stringify(afterIdem),
       `${JSON.stringify(beforeIdem)} → ${JSON.stringify(afterIdem)}`);
+
+    // ---- 用例 7：诊断日志落盘（观察期取证通道）----
+    console.log('\n用例 7: 诊断日志落盘');
+    const logInfo = await app.evaluate(GET_LOG_PATH);
+    check('主进程落盘模块已接线且启用（dev 环境）',
+      logInfo.ok && logInfo.enabled && !!logInfo.path, JSON.stringify(logInfo));
+    const logPath = logInfo.path || '';
+    check('日志文件已创建', !!logPath && require('fs').existsSync(logPath), logPath);
+
+    // 7a 主窗口渲染进程的残留恢复日志必须落盘 —— 完整链路：
+    //    renderer console.warn → 主进程 console-message → diagnostics-log
+    await win.evaluate(CLEAR_WARNS);
+    const residualBefore = countLogLines(logPath, '可命中性残留已恢复');
+    r = await win.evaluate(DISPATCH_TAB_DRAG, { activate: true });
+    check('派发 mousedown + 激活 mousemove（制造残留）', r.ok, r.reason);
+    await sleep(150);
+    await win.evaluate(DISPATCH_MOUSE_MOVE, 0); // 触发兜底恢复
+    check('残留恢复日志已落盘', await waitForLogLine(logPath, '可命中性残留已恢复'), logPath);
+    const residualAfter = countLogLines(logPath, '可命中性残留已恢复');
+    check('落盘的是本次新增的一条', residualAfter > residualBefore, `${residualBefore} → ${residualAfter}`);
+    check('落盘行带兜底来源标签', countLogLines(logPath, 'mousemove-no-button') > 0);
+    await win.evaluate(DISPATCH_MOUSE_UP);
+    await sleep(250);
+
+    // 7b guest 的控制台也要落盘。Electron 43 实测必须挂在 **guest 自身** webContents 上
+    //（挂在主窗口上收不到）——仓库旧结论「新版收不到 guest 日志」正是后者造成的误判，
+    // 本用例是该说法的真实对照。
+    const guestTag = 'uat-guest-probe-' + Date.now();
+    const guestRes = await win.evaluate(GUEST_CONSOLE, { text: `[Realm 诊断] ${guestTag}`, level: 'log' });
+    check('guest 内 executeJavaScript 打日志成功', guestRes.ok, guestRes.reason);
+    check('guest 的 [Realm 诊断] 日志已落盘', await waitForLogLine(logPath, guestTag), logPath);
+
+    // 7c 负命题：guest 的无前缀普通日志不得落盘（否则文件会被页面日志刷爆）
+    const noisyTag = 'uat-noise-probe-' + Date.now();
+    await win.evaluate(GUEST_CONSOLE, { text: noisyTag, level: 'log' });
+    await sleep(700);
+    check('guest 无前缀普通日志被过滤（不落盘）', countLogLines(logPath, noisyTag) === 0);
+
+    // 7d 噪声规则的真实对照（单变量：只把正文改成命中噪声模式，其余与 7b 全同）：
+    // 7b 落盘 / 7d 不落盘 ⇒ 差异只可能来自噪声规则本身，不是前缀或级别。
+    // 用 error 级别一并覆盖「error 直通」与噪声规则的优先级关系。
+    const cspTag = 'uat-noise-csp-' + Date.now();
+    const cspRes = await win.evaluate(GUEST_CONSOLE, {
+      text: `[Realm 诊断] ${cspTag} Applying inline style violates the following Content Security Policy directive 'style-src 'self''`,
+      level: 'error',
+    });
+    check('噪声对照探针派发成功', cspRes.ok, cspRes.reason);
+    await sleep(700);
+    check('噪声规则生效：带前缀且 level=error 的命中噪声模式日志仍不落盘',
+      countLogLines(logPath, cspTag) === 0);
 
     // ---- 收尾：还原会话与设置 ----
     console.log('\n收尾');
