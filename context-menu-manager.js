@@ -587,11 +587,12 @@ function buildTabBarMenu(mainWindow) {
 /**
  * 构建网页右键菜单
  *
- * 专属菜单按可同时成立的维度拼接（组序：图片 → 媒体 → 链接 → 选中文本）：
+ * 专属菜单按可同时成立的维度拼接（组序：链接 → 图片 → 媒体 → 选中文本；
+ * 链接组在最前，与 Chrome 一致）：
+ * - 命中链接 → 链接专属项（4 项 + 容器子菜单）
  * - 命中图片 → 图片专属项（4 项）
  * - mediaType 为 video/audio → 媒体专属项（3 项；blob:/mediastream: 与流清单会置灰）
- * - 命中链接 → 链接专属项（4 项 + 容器子菜单）
- * - 图片链接（`<a><img></a>`）→ 图片组 + 链接组
+ * - 图片链接（`<a><img></a>`）→ 链接组 + 图片组
  * - 有选中文本 → 追加「搜索"<选中文本>"」（文本压平并截断后进 label）
  * - 都没有 → 仅通用菜单
  *
@@ -619,6 +620,62 @@ function buildWebMenu(contextInfo, mainWindow) {
 
   // 专属分组（各自末尾自带分隔符，展开后天然充当组间分隔符）
   const specificGroups = [];
+
+  // 链接菜单（per D-18 + UI-SPEC.md Link Context Menu）
+  // 排在图片/媒体组之前：与 Chrome 一致 —— 右键 `<a><img></a>` 时第一项是
+  // 「在新标签页中打开链接」，图片项跟在链接项之后
+  if (contextInfo.hasLink && contextInfo.linkURL) {
+    // 构建容器子菜单
+    // 容器 icon 字段存的是语义名（briefcase / fingerprint / user / bank），
+    // 不是可渲染的字形，拼进 label 会显示成「briefcase 工作」，故只取名称
+    const containers = contextInfo.containers || [];
+    const containerSubmenu = containers.map((container) => ({
+      label: container.name || container.id,
+      click: () => {
+        if (!hostWebContents.isDestroyed()) {
+          hostWebContents.send('context-menu:open-in-container', {
+            url: contextInfo.linkURL,
+            containerId: container.id,
+          });
+        }
+      },
+    }));
+
+    specificGroups.push([
+      {
+        label: '在新标签页中打开链接',
+        click: () => {
+          if (!hostWebContents.isDestroyed()) {
+            hostWebContents.send('context-menu:open-in-new-tab', { url: contextInfo.linkURL });
+          }
+        },
+      },
+      {
+        label: '在后台标签页中打开',
+        click: () => {
+          if (!hostWebContents.isDestroyed()) {
+            hostWebContents.send('context-menu:open-in-bg-tab', { url: contextInfo.linkURL });
+          }
+        },
+      },
+      { type: 'separator' },
+      {
+        label: '在新容器标签页中打开',
+        submenu: containerSubmenu.length > 0
+          ? containerSubmenu
+          : [{ label: '无可用容器', enabled: false }],
+      },
+      { type: 'separator' },
+      {
+        label: '复制链接地址',
+        click: () => {
+          clipboard.writeText(contextInfo.linkURL);
+          sendToast(hostWebContents, '已复制');
+        },
+      },
+      { type: 'separator' },
+    ]);
+  }
 
   // 图片菜单（per D-17 + UI-SPEC.md Image Context Menu）
   if (contextInfo.hasImage && contextInfo.srcURL) {
@@ -706,60 +763,6 @@ function buildWebMenu(contextInfo, mainWindow) {
         label: '复制媒体地址',
         click: () => {
           clipboard.writeText(mediaUrl);
-          sendToast(hostWebContents, '已复制');
-        },
-      },
-      { type: 'separator' },
-    ]);
-  }
-
-  // 链接菜单（per D-18 + UI-SPEC.md Link Context Menu）
-  if (contextInfo.hasLink && contextInfo.linkURL) {
-    // 构建容器子菜单
-    // 容器 icon 字段存的是语义名（briefcase / fingerprint / user / bank），
-    // 不是可渲染的字形，拼进 label 会显示成「briefcase 工作」，故只取名称
-    const containers = contextInfo.containers || [];
-    const containerSubmenu = containers.map((container) => ({
-      label: container.name || container.id,
-      click: () => {
-        if (!hostWebContents.isDestroyed()) {
-          hostWebContents.send('context-menu:open-in-container', {
-            url: contextInfo.linkURL,
-            containerId: container.id,
-          });
-        }
-      },
-    }));
-
-    specificGroups.push([
-      {
-        label: '在新标签页中打开链接',
-        click: () => {
-          if (!hostWebContents.isDestroyed()) {
-            hostWebContents.send('context-menu:open-in-new-tab', { url: contextInfo.linkURL });
-          }
-        },
-      },
-      {
-        label: '在后台标签页中打开',
-        click: () => {
-          if (!hostWebContents.isDestroyed()) {
-            hostWebContents.send('context-menu:open-in-bg-tab', { url: contextInfo.linkURL });
-          }
-        },
-      },
-      { type: 'separator' },
-      {
-        label: '在新容器标签页中打开',
-        submenu: containerSubmenu.length > 0
-          ? containerSubmenu
-          : [{ label: '无可用容器', enabled: false }],
-      },
-      { type: 'separator' },
-      {
-        label: '复制链接地址',
-        click: () => {
-          clipboard.writeText(contextInfo.linkURL);
           sendToast(hostWebContents, '已复制');
         },
       },

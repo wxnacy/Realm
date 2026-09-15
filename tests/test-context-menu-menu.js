@@ -5,8 +5,9 @@
  * 收到的模板（菜单项序列、分隔符、label、点击后发出的 IPC）。
  *
  * 覆盖的行为契约：
- * - 专属分组按可同时成立的维度拼接：图片 → 链接 → 选中文本，组间无连续分隔符
- * - 图片链接（`<a><img></a>`）必须同时拿到图片组与链接组（曾是单值分类丢失链接组）
+ * - 专属分组按可同时成立的维度拼接：链接 → 图片 → 媒体 → 选中文本，组间无连续分隔符
+ * - 链接组排在最前（Chrome 顺序：图片链接的第一项是「在新标签页中打开链接」）
+ * - 图片链接（`<a><img></a>`）必须同时拿到链接组与图片组（曾是单值分类丢失链接组）
  * - 容器子菜单 label 只放容器名（曾把语义 icon 名拼成「briefcase 工作」）
  * - 选中文本进 label 前压平并截断，点击发送的仍是未截断原文
  *
@@ -144,14 +145,14 @@ function itemByLabel(items, label) {
 
 // ==================== 分组拼接 ====================
 
-test('图片链接：图片组与链接组同时给出（图片组在前）', () => {
+test('图片链接：链接组排在图片组之前（Chrome 顺序）', () => {
   assert.deepEqual(
     menuLabels({
       hasImage: true, hasLink: true,
       srcURL: 'https://a.test/i.png', linkURL: 'https://a.test/target',
       mediaType: 'image', containers: CONTAINERS_FIXTURE,
     }),
-    [...IMAGE_GROUP, ...LINK_GROUP, ...GENERAL_TAIL]
+    [...LINK_GROUP, ...IMAGE_GROUP, ...GENERAL_TAIL]
   );
 });
 
@@ -331,13 +332,13 @@ test('HLS 清单（.m3u8）：另存为置灰且说明原因，打开仍可用',
   assert.equal(itemByLabel(items, '在新标签页中打开视频').enabled, true);
 });
 
-test('媒体 + 链接：媒体组排在链接组之前', () => {
+test('媒体 + 链接：链接组排在媒体组之前', () => {
   assert.deepEqual(
     menuLabels({
       hasImage: false, hasLink: true, srcURL: 'https://a.test/clip.mp4',
       linkURL: 'https://a.test/page', mediaType: 'video', containers: CONTAINERS_FIXTURE,
     }),
-    [...MEDIA_GROUP_VIDEO, ...LINK_GROUP, ...GENERAL_TAIL]
+    [...LINK_GROUP, ...MEDIA_GROUP_VIDEO, ...GENERAL_TAIL]
   );
 });
 
