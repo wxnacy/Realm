@@ -5910,11 +5910,17 @@ function renderSkillImportPreview(preview) {
     '以上结论都是启发式与限额判据，不是「这个技能是安全的」的背书。真正的边界是本次确认与你对本机 AI 工具的授权范围。';
   host.appendChild(note);
 
-  // 冲突（本阶段只出 none / taken 两档；三档选择归 51-04）
-  if (preview.conflict && preview.conflict.kind === 'taken') {
+  // 冲突三档（51-04 起为 `none` / `user` / `managed`；seeded 档在**预览阶段就整包拒绝**，
+  // 不会走到这里）。本处仍是最小形态 —— 「覆盖 / 改名 / 取消」的完整处置界面归 51-06；
+  // 但**必须**如实告知用户本次提交会被拒（否则就是静默失败）。
+  const conflict = preview.conflict || { kind: 'none' };
+  if (conflict.kind !== 'none') {
     const conflictLine = document.createElement('p');
     conflictLine.className = 'setting-description skill-manage-hint-danger';
-    conflictLine.textContent = '已存在同名技能：覆盖 / 改名 / 取消的处置尚未启用，本次导入会被拒绝。';
+    conflictLine.textContent =
+      conflict.kind === 'managed'
+        ? '已存在同名 AI 自建技能：不允许覆盖（导入后会永久遮蔽它）。覆盖 / 改名 / 取消的处置界面尚未启用，本次导入会被拒绝。'
+        : '已存在同名用户技能：不会静默覆盖。覆盖 / 改名 / 取消的处置界面尚未启用，本次导入会被拒绝。';
     host.appendChild(conflictLine);
   }
 }

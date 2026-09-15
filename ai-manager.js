@@ -1836,6 +1836,17 @@ class AIManager {
 
     const env = this.sandboxEnv || (this.sandboxEnv = await getAgentWorkspaceLazy().createSandboxEnv());
 
+    // 显式取消（D-08 的三选一之一）：**不落盘、不重扫、不补播** —— 没有变更就没有广播
+    if (conflict === 'cancel') {
+      this._skillImports.delete(importId);
+      try {
+        await env.remove(record.dir, { recursive: true, force: true });
+      } catch (err) {
+        console.warn('[Realm AI] 清理技能导入临时目录失败:', err && err.message ? err.message : err);
+      }
+      return { cancelled: true, management: this.getSkillsForManagement() };
+    }
+
     // 落盘：判据 / 校验 / 两段 rename / 回读验证全在 manager
     const report = await getAiSkillsManagerLazy().importUserSkill(
       env,

@@ -625,6 +625,419 @@ describe('importUserSkill 的拒绝面：seeded 保护 / 同名冲突 / 不静�
   });
 });
 
+// ==================== ⑥b 冲突三档事务：覆盖 / 改名 / 取消（51-04 T1） ====================
+
+/** 走「解压 → 定位」两段（不跑预览），拿到 `located.skillRootAbs` */
+async function stageLocated(env, zipBuffer, { scopeRel = null } = {}) {
+  const importDir = stageZip(zipBuffer);
+  const prepared = await aiSkills.extractAndValidatePackage(env, { importDir, scopeRel });
+  const located = aiSkills.locateSkillRoot(prepared.pkgRoot, scopeRel);
+  return { importDir, prepared, located };
+}
+
+/** 在 `skills/` 下预置一个技能目录（写一份可逐字比对的内容） */
+function seedUserSkill(name, body) {
+  const dir = path.join(workspace.getSkillsDir(), name);
+  fs.mkdirSync(dir, { recursive: true });
+  const text = `---\nname: ${name}\ndescription: 旧技能 ${name}\n---\n\n${body}\n`;
+  fs.writeFileSync(path.join(dir, 'SKILL.md'), text);
+  return { dir, text };
+}
+
+/**
+ * 让 env 的第 N 次 `renameFile` 返回**沙箱真实形态**的失败 Result
+ *
+ * ⚠️ 必须是**完整浅拷贝**（`{ ...env }`）而不是 `Object.create(env)`：`createSkillsEnv`
+ * 用对象展开复制 env（只取**自有可枚举**属性）⇒ 原型委托的替身会丢掉全部 env 方法，
+ * 让 `refreshSkills` 直接抛错（那是「假失败」，测不出回滚路径）。
+ * 失败形态取沙箱真实的 `permission_denied`（`agent-workspace.js` 的 `deny()` 产物形状）。
+ */
+function envFailingRenameAt(env, targetCall, code = 'permission_denied') {
+  let calls = 0;
+  return {
+    ...env,
+    async renameFile(s, d, sig) {
+      calls += 1;
+      if (calls === targetCall) {
+        const e = new Error(`注入失败：第 ${targetCall} 次 rename 被沙箱判为 ${code}`);
+        e.code = code;
+        return { ok: false, error: e };
+      }
+      return env.renameFile(s, d, sig);
+    },
+  };
+}
+
+describe('resolveImportConflict：三档判定（顺序即语义）', () => {
+  test('无同名 ⇒ none；同名 user ⇒ user；同名 managed ⇒ managed；seeded ⇒ seeded', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+
+    assert.strictEqual(
+      (await aiSkills.resolveImportConflict(env, 'nothing-here', { seededNames: SEEDED })).kind,
+      'none'
+    );
+
+    seedUserSkill('both-ways', '正文');
+    assert.strictEqual(
+      (await aiSkills.resolveImportConflict(env, 'both-ways', { seededNames: SEEDED })).kind,
+      'user'
+    );
+
+    fs.mkdirSync(path.join(workspace.getManagedSkillsDir(), 'ai-owned'), { recursive: true });
+    const managedHit = await aiSkills.resolveImportConflict(env, 'ai-owned', { seededNames: SEEDED });
+    assert.strictEqual(managedHit.kind, 'managed');
+    assert.strictEqual(managedHit.shadowedBy, 'managed', 'managed 档必须给出遮蔽来源');
+    assert.ok(managedHit.message.includes('永久遮蔽'), 'managed 档的文案必须点明「永久遮蔽」');
+
+    const seededHit = await aiSkills.resolveImportConflict(env, SEEDED[0], { seededNames: SEEDED });
+    assert.strictEqual(seededHit.kind, 'seeded');
+    assert.strictEqual(seededHit.code, aiSkills.IMPORT_SKILL_ERROR.SEEDED_CONFLICT);
+  });
+
+  test('判定顺序：seeded 优先于磁盘存在性（同名目录也在盘上时仍判 seeded）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    seedUserSkill(SEEDED[0], '正文');
+    const hit = await aiSkills.resolveImportConflict(env, SEEDED[0], { seededNames: SEEDED });
+    assert.strictEqual(hit.kind, 'seeded', 'seeded 必须**先判且不查磁盘**（内置身份来自播种登记表）');
+  });
+
+  test('「同名普通文件」不算 user 冲突（env.fileInfo 判目录，不用 env.exists）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    // 同名**文件**：env.exists 会返回 true，只有 fileInfo.kind === 'directory' 才是冲突
+    fs.writeFileSync(path.join(workspace.getSkillsDir(), 'file-not-dir'), 'x');
+    const hit = await aiSkills.resolveImportConflict(env, 'file-not-dir', { seededNames: SEEDED });
+    assert.strictEqual(hit.kind, 'none', '普通文件不得被误判成可覆盖的目录');
+  });
+});
+
+describe('覆盖事务：备份 + 两段 rename + 回滚 + 回读失败回滚 + 数量闸口径', () => {
+  test('seeded 同名 + conflict=overwrite ⇒ 仍 seeded_conflict，skills/ 零变化', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const { located } = await stageLocated(env, makeZip.skillPackage({ name: SEEDED[0] }));
+    const before = userSkillNames();
+    await expectThrowCode(
+      () =>
+        aiSkills.importUserSkill(
+          env,
+          { srcDir: located.skillRootAbs, name: SEEDED[0], conflict: 'overwrite' },
+          { seededNames: SEEDED }
+        ),
+      aiSkills.IMPORT_SKILL_ERROR.SEEDED_CONFLICT
+    );
+    assert.deepStrictEqual(userSkillNames(), before, 'seeded 档**不提供覆盖** ⇒ 零磁盘变化');
+  });
+
+  test('同名 user 技能 + overwrite ⇒ 内容被替换（新），备份已删', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    seedUserSkill('ovr-skill', '旧正文-必须被替换');
+
+    const { located } = await stageLocated(
+      env,
+      makeZip.skillPackage({ name: 'ovr-skill', body: '# 新\n\n新正文\n' })
+    );
+
+    const observed = {};
+    // 浅拷贝 + 覆写（**不是** Object.create —— createSkillsEnv 用展开复制 env）
+    const spy = {
+      ...env,
+      async remove(p, opts) {
+        if (typeof p === 'string' && path.basename(p).startsWith('skill-replace-')) {
+          observed.bak = p;
+          observed.bakDev = fs.statSync(p).dev; // 删之前取（同设备判据）
+        }
+        return env.remove(p, opts);
+      },
+    };
+
+    const report = await aiSkills.importUserSkill(
+      spy,
+      { srcDir: located.skillRootAbs, name: 'ovr-skill', conflict: 'overwrite' },
+      { seededNames: SEEDED }
+    );
+
+    assert.strictEqual(report.name, 'ovr-skill');
+    assert.strictEqual(report.conflict, 'overwrite', '报告必须回传实际落盘模式');
+    const text = fs.readFileSync(path.join(workspace.getSkillsDir(), 'ovr-skill', 'SKILL.md'), 'utf8');
+    assert.ok(text.includes('新正文'), '覆盖后内容必须是新包的');
+    assert.strictEqual(text.includes('旧正文-必须被替换'), false, '旧内容必须已被替换');
+
+    assert.ok(observed.bak, '覆盖路径必须真的产生过一个 skill-replace- 备份目录');
+    assert.strictEqual(
+      observed.bakDev,
+      fs.statSync(workspace.getSkillsDir()).dev,
+      '备份目录与 skills/ 必须同设备（两段 rename 的 EXDEV 前提）'
+    );
+    assert.strictEqual(fs.existsSync(observed.bak), false, '成功后备份必须即刻删除（不是版本历史）');
+  });
+
+  test('同名 user 技能 + 未给 conflict ⇒ conflict_unresolved（绝不静默覆盖）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const seeded = seedUserSkill('silent-skill', '旧正文');
+    const { located } = await stageLocated(env, makeZip.skillPackage({ name: 'silent-skill' }));
+    await expectThrowCode(
+      () => aiSkills.importUserSkill(env, { srcDir: located.skillRootAbs, name: 'silent-skill' }, { seededNames: SEEDED }),
+      aiSkills.IMPORT_SKILL_ERROR.CONFLICT_UNRESOLVED
+    );
+    assert.strictEqual(
+      fs.readFileSync(path.join(seeded.dir, 'SKILL.md'), 'utf8'),
+      seeded.text,
+      '未给选择时旧技能必须**逐字**完好'
+    );
+  });
+
+  test('同名 user 技能 + rename + 合法 newName ⇒ 新目录落地，原技能逐字完好', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const seeded = seedUserSkill('ren-skill', '旧正文-不得被动');
+    const { located } = await stageLocated(
+      env,
+      makeZip.skillPackage({ name: 'ren-skill', body: '# 新技能\n' })
+    );
+
+    const report = await aiSkills.importUserSkill(
+      env,
+      { srcDir: located.skillRootAbs, name: 'ren-skill', conflict: 'rename', newName: 'ren-skill-v2' },
+      { seededNames: SEEDED }
+    );
+
+    assert.strictEqual(report.name, 'ren-skill-v2', '改名后落地名 = 新名');
+    assert.strictEqual(report.conflict, 'rename');
+    assert.ok(fs.existsSync(path.join(workspace.getSkillsDir(), 'ren-skill-v2', 'SKILL.md')));
+    assert.strictEqual(
+      fs.readFileSync(path.join(seeded.dir, 'SKILL.md'), 'utf8'),
+      seeded.text,
+      '改名是**新建**，原技能必须逐字不变'
+    );
+  });
+
+  test('rename + 非法 newName ⇒ invalid_name（原因取自写侧那份校验器）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const seeded = seedUserSkill('bad-ren', '旧正文');
+    const { located } = await stageLocated(env, makeZip.skillPackage({ name: 'bad-ren' }));
+
+    const err = await expectThrowCode(
+      () =>
+        aiSkills.importUserSkill(
+          env,
+          { srcDir: located.skillRootAbs, name: 'bad-ren', conflict: 'rename', newName: 'Bad_Name' },
+          { seededNames: SEEDED }
+        ),
+      aiSkills.IMPORT_SKILL_ERROR.INVALID_NAME
+    );
+    assert.ok(err.message.trim().length > 0, '失败必须给可读原因');
+    assert.strictEqual(fs.readFileSync(path.join(seeded.dir, 'SKILL.md'), 'utf8'), seeded.text);
+    assert.deepStrictEqual(userSkillNames(), ['bad-ren'], '非法改名不得产生新目录');
+  });
+
+  test('rename 后的新名仍不可用（撞已存在的 user 技能）⇒ conflict_unresolved', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    seedUserSkill('a-orig', '旧');
+    seedUserSkill('a-taken', '已占用');
+    const { located } = await stageLocated(env, makeZip.skillPackage({ name: 'a-orig' }));
+
+    await expectThrowCode(
+      () =>
+        aiSkills.importUserSkill(
+          env,
+          { srcDir: located.skillRootAbs, name: 'a-orig', conflict: 'rename', newName: 'a-taken' },
+          { seededNames: SEEDED }
+        ),
+      aiSkills.IMPORT_SKILL_ERROR.CONFLICT_UNRESOLVED
+    );
+  });
+
+  test('同名 managed + overwrite ⇒ 被拒（不许覆盖 managed）且文案含「永久遮蔽」', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    fs.mkdirSync(path.join(workspace.getManagedSkillsDir(), 'ai-keep'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspace.getManagedSkillsDir(), 'ai-keep', 'SKILL.md'),
+      '---\nname: ai-keep\ndescription: AI 自建\n---\n\n'
+    );
+    const { located } = await stageLocated(env, makeZip.skillPackage({ name: 'ai-keep' }));
+
+    const err = await expectThrowCode(
+      () =>
+        aiSkills.importUserSkill(
+          env,
+          { srcDir: located.skillRootAbs, name: 'ai-keep', conflict: 'overwrite' },
+          { seededNames: SEEDED }
+        ),
+      aiSkills.IMPORT_SKILL_ERROR.CONFLICT_UNRESOLVED
+    );
+    assert.ok(err.message.includes('永久遮蔽'), '第三档文案必须点明「永久遮蔽」');
+    assert.deepStrictEqual(userSkillNames(), [], 'managed 覆盖被拒 ⇒ skills/ 零新增');
+  });
+
+  test('同名 managed + rename ⇒ 成功（改名是被允许的两条路之一）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    fs.mkdirSync(path.join(workspace.getManagedSkillsDir(), 'ai-shadow'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspace.getManagedSkillsDir(), 'ai-shadow', 'SKILL.md'),
+      '---\nname: ai-shadow\ndescription: AI 自建\n---\n\n'
+    );
+    const { located } = await stageLocated(env, makeZip.skillPackage({ name: 'ai-shadow' }));
+
+    const report = await aiSkills.importUserSkill(
+      env,
+      { srcDir: located.skillRootAbs, name: 'ai-shadow', conflict: 'rename', newName: 'ai-shadow-user' },
+      { seededNames: SEEDED }
+    );
+    assert.strictEqual(report.name, 'ai-shadow-user');
+    assert.deepStrictEqual(userSkillNames(), ['ai-shadow-user']);
+  });
+
+  test('conflict=cancel ⇒ {cancelled:true} 且零磁盘变化（manager 侧兜底分支）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const before = userSkillNames();
+    const out = await aiSkills.importUserSkill(
+      env,
+      { srcDir: path.join(root, 'nowhere'), name: 'cancel-me', conflict: 'cancel' },
+      { seededNames: SEEDED }
+    );
+    assert.deepStrictEqual(out, { cancelled: true }, '取消必须返回可判据的形状，且**不读盘**');
+    assert.deepStrictEqual(userSkillNames(), before);
+  });
+
+  test('覆盖第二步失败（真实失败注入）⇒ 旧技能内容**逐字**完好，无半成品', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const seeded = seedUserSkill('rb-skill', '旧正文-回滚后必须逐字一致');
+    const { located } = await stageLocated(
+      env,
+      makeZip.skillPackage({ name: 'rb-skill', body: '# 新正文\n' })
+    );
+
+    // 覆盖路径的 rename 调用序列：① destDir→bak ② srcDir→destDir ③ 回滚 bak→destDir
+    const failing = envFailingRenameAt(env, 2);
+
+    const err = await expectThrowCode(
+      () =>
+        aiSkills.importUserSkill(
+          failing,
+          { srcDir: located.skillRootAbs, name: 'rb-skill', conflict: 'overwrite' },
+          { seededNames: SEEDED }
+        ),
+      aiSkills.IMPORT_SKILL_ERROR.UNKNOWN
+    );
+    assert.ok(err.message.length > 0);
+
+    // **读回旧内容逐字比对**（不是「断言没删过」）
+    const restored = fs.readFileSync(path.join(seeded.dir, 'SKILL.md'), 'utf8');
+    assert.strictEqual(restored, seeded.text, '回滚后旧技能必须与覆盖前逐字一致');
+    assert.ok(fs.existsSync(located.skillRootAbs), '源目录必须仍在（可就地重试）');
+    const baks = fs.readdirSync(workspace.getTmpDir()).filter((n) => n.startsWith('skill-replace-'));
+    assert.deepStrictEqual(baks, [], '回滚后不得留下备份残留');
+  });
+
+  test('回读失败（超大 description 被加载管线整条丢弃）⇒ readback_failed + diagnostics 非空 + 回滚', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    // 1400 字符 > MAX_SKILL_DESCRIPTION_CHARS(1024) ⇒ SDK 产 invalid_metadata ⇒ 加载管线丢弃
+    const { located } = await stageLocated(
+      env,
+      makeZip.skillPackage({ name: 'ghost-new', description: '描'.repeat(1400) })
+    );
+
+    const err = await expectThrowCode(
+      () =>
+        aiSkills.importUserSkill(
+          env,
+          { srcDir: located.skillRootAbs, name: 'ghost-new' },
+          { seededNames: SEEDED }
+        ),
+      aiSkills.IMPORT_SKILL_ERROR.READBACK_FAILED
+    );
+    assert.ok(Array.isArray(err.diagnostics) && err.diagnostics.length > 0, 'extra.diagnostics 必须非空');
+    assert.ok(
+      err.diagnostics.every((d) => typeof d.path === 'string' && d.path.length > 0),
+      'diagnostics 原文必须**含 path**（D-10 明文）'
+    );
+    assert.deepStrictEqual(userSkillNames(), [], '不提供「部分导入」⇒ 目录必须已被移走');
+    assert.ok(fs.existsSync(located.skillRootAbs), '新建场景必须把目录移回源位置（可重试）');
+  });
+
+  test('回读失败发生在覆盖场景 ⇒ 备份被**恢复**（旧内容逐字回来）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const seeded = seedUserSkill('ghost-ovr', '旧正文-回读失败后必须回来');
+    const { located } = await stageLocated(
+      env,
+      makeZip.skillPackage({ name: 'ghost-ovr', description: '描'.repeat(1400) })
+    );
+
+    await expectThrowCode(
+      () =>
+        aiSkills.importUserSkill(
+          env,
+          { srcDir: located.skillRootAbs, name: 'ghost-ovr', conflict: 'overwrite' },
+          { seededNames: SEEDED }
+        ),
+      aiSkills.IMPORT_SKILL_ERROR.READBACK_FAILED
+    );
+
+    assert.strictEqual(
+      fs.readFileSync(path.join(seeded.dir, 'SKILL.md'), 'utf8'),
+      seeded.text,
+      '覆盖场景回读失败 ⇒ 备份必须恢复回原位，旧技能逐字完好'
+    );
+    const baks = fs.readdirSync(workspace.getTmpDir()).filter((n) => n.startsWith('skill-replace-'));
+    assert.deepStrictEqual(baks, [], '恢复后不得留下备份残留');
+  });
+
+  test('数量闸口径：skills/ 达上限时 overwrite 成功（净增 0 豁免）/ rename 被拒（计入）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const max = aiSkills.LIMITS.MAX_USER_SKILLS;
+    // 造满 MAX_USER_SKILLS 个目录（判据是**读盘**计数）
+    for (let i = 0; i < max - 1; i += 1) seedUserSkill(`fill-${i}`, '填充');
+    const target = seedUserSkill('quota-target', '旧正文-覆盖豁免');
+
+    assert.strictEqual(userSkillNames().length, max, `前置：skills/ 应恰 ${max} 个目录`);
+
+    // ① overwrite ⇒ 净增 0 ⇒ 豁免（**不先重扫**，直接在改完磁盘后判）
+    const ovrZip = await stageLocated(env, makeZip.skillPackage({ name: 'quota-target', body: '# 覆盖后\n' }));
+    const report = await aiSkills.importUserSkill(
+      env,
+      { srcDir: ovrZip.located.skillRootAbs, name: 'quota-target', conflict: 'overwrite' },
+      { seededNames: SEEDED }
+    );
+    assert.strictEqual(report.conflict, 'overwrite', '数量达上限时覆盖必须**豁免**（净增 0）');
+    assert.strictEqual(userSkillNames().length, max, '覆盖后目录数不变');
+
+    // ② rename ⇒ 新建 ⇒ 计入 ⇒ 被拒（message 必须含当前值与限额）
+    const renZip = await stageLocated(env, makeZip.skillPackage({ name: 'quota-target' }));
+    const err = await expectThrowCode(
+      () =>
+        aiSkills.importUserSkill(
+          env,
+          { srcDir: renZip.located.skillRootAbs, name: 'quota-target', conflict: 'rename', newName: 'quota-new' },
+          { seededNames: SEEDED }
+        ),
+      aiSkills.IMPORT_SKILL_ERROR.LIMIT_EXCEEDED
+    );
+    assert.ok(err.message.includes(String(max)), '限额文案必须含限额值');
+    assert.ok(err.message.includes('用户技能数量'), '限额文案必须点明是哪个限额');
+    assert.strictEqual(err.currentValue, max, '限额类失败必须带结构化当前值');
+    assert.strictEqual(err.limit, 'MAX_USER_SKILLS');
+    assert.strictEqual(
+      fs.readFileSync(path.join(target.dir, 'SKILL.md'), 'utf8').includes('覆盖后'),
+      true,
+      '② 的拒绝不得影响 ① 已完成的覆盖结果'
+    );
+  });
+});
+
 // ==================== ⑦ 限额 / 错误码表契约 ====================
 
 describe('常量契约', () => {
@@ -647,13 +1060,17 @@ describe('常量契约', () => {
     });
   });
 
-  test('IMPORT_SKILL_ERROR 恰 20 键，且与 MANAGE_SKILL_ERROR 命名空间不相交', () => {
+  test('IMPORT_SKILL_ERROR 恰 21 键，且与 MANAGE_SKILL_ERROR 命名空间不相交', () => {
     const keys = Object.keys(aiSkills.IMPORT_SKILL_ERROR);
-    assert.strictEqual(keys.length, 20, `IMPORT_SKILL_ERROR 应恰 20 键，实测 ${keys.length}`);
+    assert.strictEqual(keys.length, 21, `IMPORT_SKILL_ERROR 应恰 21 键，实测 ${keys.length}`);
     assert.strictEqual(Object.keys(aiSkills.MANAGE_SKILL_ERROR).length, 11, 'MANAGE_SKILL_ERROR 必须仍是恰 11 键');
     const values = new Set(Object.values(aiSkills.IMPORT_SKILL_ERROR));
-    assert.strictEqual(values.size, 20, '值的集合不得有重复');
-    assert.ok(values.has('unsupported_url') && values.has('conflict_unresolved'), '中间态码必须在表内');
+    assert.strictEqual(values.size, 21, '值的集合不得有重复');
+    assert.ok(values.has('unsupported_url') && values.has('conflict_unresolved'), '网络面码与冲突码必须在表内');
+    assert.ok(
+      values.has('invalid_name'),
+      '改名非法这一原因在导入面必须有**自己**的键（51-04 的唯一加码；不得借用 MANAGE_SKILL_ERROR 的键）'
+    );
   });
 
   test('夹具生成器零外部依赖：不出现 python3 / zip 命令行调用', () => {

@@ -1738,6 +1738,78 @@ async function countManagedSkills(env, managedDir, seededNames) {
 }
 
 /**
+ * 计算 user 技能的两段路径（`<skillsDir>` / `<skillsDir>/<name>`）
+ *
+ * 与 `managedSkillPaths` 同款：**路径恒由 `path.join` 计算**，目录名一律用
+ * **校验后的 name**，绝不用包内原始目录名拼路径（P5 第 2 条 —— 那是一个注入点）。
+ *
+ * @param {string} name - 已 trim 的技能名
+ * @returns {{skillsDir: string, destDir: string}}
+ */
+function userSkillPaths(name) {
+  const skillsDir = getAgentWorkspaceLazy().getSkillsDir();
+  return { skillsDir, destDir: path.join(skillsDir, name) };
+}
+
+/**
+ * 【导入冲突判定】—— 三档，**判定顺序本身就是语义**（D-08）
+ *
+ * ## ⚠️ 不得复用 `resolveManagedTarget`
+ *
+ * 后者的判据方向**相反**（managed 视角：先判 seeded、再判 user 占用 ⇒ 拒绝），
+ * 50 的 `deleteUserSkill` 已明文付过这条代价。本函数**只借它的形状**。
+ *
+ * ## 三档（顺序固定不可调换）
+ *
+ *  ① `isSeededName` ⇒ `{ kind: 'seeded', code: SEEDED_CONFLICT }` ——
+ *     **拒绝导入、不提供覆盖**（P3 / SEC-07 字面）；先判定且**不查磁盘**
+ *     （内置身份来自播种登记表而非目录位置）。调用方应据此**直接失败**
+ *     （`buildImportPreview` 亦然，见其 conflict 字段）。
+ *  ② `skills/<name>` 存在（**必须是目录**）⇒ `{ kind: 'user' }` ——
+ *     前端给**三选一：覆盖 / 改名 / 取消**（**绝不静默覆盖**，SEC-07）。
+ *  ③ `managed-skills/<name>` 存在 ⇒ `{ kind: 'managed', shadowedBy: 'managed' }` ——
+ *     **不允许覆盖**（导入只管 `skills/<name>/`，覆盖 managed 不可能是用户意图），
+ *     按 46 D-06 提示「导入后该 AI 自建技能将被**永久遮蔽**」，允许**改名 / 取消**。
+ *  ④ 否则 ⇒ `{ kind: 'none' }`。
+ *
+ * ⚠️ 「是目录」必须用 `env.fileInfo` 判 `kind === 'directory'` —— `env.exists`
+ * 对普通文件也返回 true，用错会把一个同名**文件**误判成可覆盖的目录。
+ *
+ * ⚠️ 判据**一律读盘**（bash 可随时改写磁盘），不用缓存快照。
+ *
+ * @param {object} env - 沙箱 ExecutionEnv
+ * @param {string} name - 已 trim 的技能名
+ * @param {{seededNames?: string[]|Set<string>}} [inject] - seeded 集合由调用方注入
+ * @returns {Promise<{kind: 'seeded'|'user'|'managed'|'none',
+ *                    code?: string, message?: string, shadowedBy?: string}>}
+ */
+async function resolveImportConflict(env, name, { seededNames } = {}) {
+  if (isSeededName(name, seededNames)) {
+    return {
+      kind: 'seeded',
+      code: IMPORT_SKILL_ERROR.SEEDED_CONFLICT,
+      message: `"${name}" 是内置技能名，受保护，无法导入。请改用其它名称。`,
+    };
+  }
+
+  const { destDir } = userSkillPaths(name);
+  if (await envDirExists(env, destDir)) {
+    return { kind: 'user', message: `已存在同名用户技能「${name}」。` };
+  }
+
+  const managedDest = path.join(getAgentWorkspaceLazy().getManagedSkillsDir(), name);
+  if (await envDirExists(env, managedDest)) {
+    return {
+      kind: 'managed',
+      shadowedBy: 'managed',
+      message: `已存在同名 AI 自建技能「${name}」，导入后它将被永久遮蔽。`,
+    };
+  }
+
+  return { kind: 'none' };
+}
+
+/**
  * 统一的【目标判定】—— 四类撞名 / 保护判定在三个动作里**只有这一份判据**
  *
  * 判定顺序**固定不可调换**（顺序本身就是语义）：
@@ -2188,6 +2260,29 @@ const IMPORT_LIMITS = Object.freeze({
 });
 
 /**
+ * 导入临时区的两个目录名前缀 —— **只在这一处定义**（单源）
+ *
+ * ## 命名形状成对不变式（正命题，与 `sweepSeedResidue` 同款要求）
+ *
+ * 前缀常量与**清扫器的匹配判据**必须成对，否则「改了前缀忘了改正则」会静默留下垃圾：
+ * - `[0]` `skill-import-` ⇒ `fs.mkdtempSync(path.join(getTmpDir(), 'skill-import-'))` 的
+ *   **实际产物**是 `skill-import-<6 位随机>`（`fs.mkdtempSync` 的行为）；
+ * - `[1]` `skill-replace-` ⇒ 覆盖事务的备份目录的实际产物是
+ *   `skill-replace-<随机>`（见 `importUserSkill` 的覆盖分支）。
+ *
+ * `isImportResidueName()` 必须**正向**匹配这两个真实产物（有专门用例）。
+ *
+ * ⚠️ **不得**改走 `agent-workspace.createTempDir('skill-import')` —— 它会再加一层
+ * `tmp-` 前缀（产物变成 `tmp-skill-import-<rand>`），与本判据不成对。
+ */
+const IMPORT_TMP_PREFIXES = Object.freeze(['skill-import-', 'skill-replace-']);
+
+/** 覆盖备份目录的后缀（6 位 base36；目录在成功后即刻删除，只需避免同实例内碰撞） */
+function importTmpSuffix() {
+  return Math.random().toString(36).slice(2, 8).padEnd(6, '0');
+}
+
+/**
  * 导入面的错误码表（**独立命名空间**，CR-3）
  *
  * ## 为什么不并入 `MANAGE_SKILL_ERROR`
@@ -2203,8 +2298,12 @@ const IMPORT_LIMITS = Object.freeze({
  * 避免「常量跨 wave 追加」造成的三处账本（常量 + `docs/product/ai-skills.md`
  * 错误码表 + `AGENTS.md` 测试清单）反复漂移。
  *
- * `CONFLICT_UNRESOLVED` 是**本计划中间态专用**：`skills/<name>/` 已存在且尚未给出
- * 冲突选择 ⇒ **拒绝**而非静默覆盖。它保证 `51-04` 之前不存在任何静默覆盖路径。
+ * ⚠️ `INVALID_NAME` 与 `MANAGE_SKILL_ERROR.INVALID_NAME` **取值相同**
+ * （`'invalid_name'`）但**分属两个命名空间** —— 导入路径抛的是**本表**的那个值，
+ * 不得借用 `MANAGE_SKILL_ERROR` 的键（CR-3：两套码表的键集合必须互不污染）。
+ *
+ * `CONFLICT_UNRESOLVED` 不再只是中间态：`51-04` 之后它覆盖三类**显式不落盘**的拒绝 ——
+ * 同名用户技能未给冲突选择 / 覆盖 managed 被拒 / 改名后的新名仍不可用。
  */
 const IMPORT_SKILL_ERROR = Object.freeze({
   UNSUPPORTED_URL: 'unsupported_url',
@@ -2221,12 +2320,12 @@ const IMPORT_SKILL_ERROR = Object.freeze({
   OVERSIZE: 'oversize',
   INJECTION_DETECTED: 'injection_detected',
   SEEDED_CONFLICT: 'seeded_conflict',
+  INVALID_NAME: 'invalid_name',
   IMPORT_EXPIRED: 'import_expired',
   IMPORT_NOT_FOUND: 'import_not_found',
   TOO_MANY_PENDING: 'too_many_pending',
   READBACK_FAILED: 'readback_failed',
   UNKNOWN: 'unknown',
-  // 本计划中间态（51-04 接三档冲突事务后由它细化）
   CONFLICT_UNRESOLVED: 'conflict_unresolved',
 });
 
@@ -3494,16 +3593,16 @@ function assertNoInjection(text, { includeCredentials }) {
  * `scan.injection` 恒为 `{ hit: false }`：注入类命中在**更早的阶段**就整包拒绝了
  * （`51-05` 接的硬拒判据），到了这里不可能是 `true`。
  *
- * `conflict` 本计划**只出** `{ kind: 'none' }` 或 `{ kind: 'taken' }`
- * （后者由调用方在 `51-04` 细化为覆盖 / 改名 / 取消三档）。
+ * `conflict` 携带 `resolveImportConflict` 的**三档判定结果**
+ * （`none` / `user` / `managed`；seeded 档在本函数内**直接失败**，不进预览）——
+ * 前端据此渲染「三选一：覆盖 / 改名 / 取消」或「不许覆盖 + 永久遮蔽提示」。
  *
  * @param {object} env - 沙箱 ExecutionEnv
  * @param {{pkgRoot: string, rootRel: string, origin?: string, seededNames?: string[]|Set<string>}} params
  * @returns {Promise<object>} 预览对象
- * @throws {Error} frontmatter / 技能名 / 深度 / 统计失败
+ * @throws {Error} frontmatter / 技能名 / 深度 / 统计失败 / seeded 同名（`seeded_conflict`）
  */
 async function buildImportPreview(env, { pkgRoot, rootRel, origin = 'zip', seededNames } = {}) {
-  void seededNames;
   const skillRootAbs = rootRel ? path.join(pkgRoot, rootRel) : pkgRoot;
   const skillMdPath = path.join(skillRootAbs, 'SKILL.md');
 
@@ -3532,8 +3631,12 @@ async function buildImportPreview(env, { pkgRoot, rootRel, origin = 'zip', seede
 
   const stats = await collectPreviewStats(env, pkgRoot, rootRel);
 
-  const skillsDir = getAgentWorkspaceLazy().getSkillsDir();
-  const taken = await envDirExists(env, path.join(skillsDir, derived.name));
+  // 冲突三档（D-08）：**在预览卡片上就要给用户看到** —— 三选一 / 不许覆盖 reason。
+  // seeded 档 ⇒ **预览直接失败**（拒绝导入、不提供覆盖选项，SEC-07 字面）
+  const conflict = await resolveImportConflict(env, derived.name, { seededNames });
+  if (conflict.kind === 'seeded') {
+    throw makeImportError(conflict.code, conflict.message);
+  }
 
   // **双扫**（SEC-06 / D-13）：description 原文与 body 原文各扫一次；每条命中带 `field`
   // 使「两个字段都扫了」成为可判据（只扫一个字段会在另一字段忘扫的实现上全绿）
@@ -3559,7 +3662,7 @@ async function buildImportPreview(env, { pkgRoot, rootRel, origin = 'zip', seede
       status: fm.allowedTools ? 'ok' : 'missing',
       value: fm.allowedTools,
     },
-    conflict: taken ? { kind: 'taken' } : { kind: 'none' },
+    conflict,
     limits: buildImportLimitsProjection(),
     origin,
     rootRel,
@@ -3578,87 +3681,141 @@ async function buildImportPreview(env, { pkgRoot, rootRel, origin = 'zip', seede
  *
  * ## 步骤顺序（与 `createManagedSkill` 的九步同构）
  *
- * ① seeded 同名 ⇒ `SEEDED_CONFLICT`（**拒绝、不提供覆盖**，P3 / SEC-07 字面）；
- * ② `skills/<name>/` 已存在 ⇒ 本计划返回 `CONFLICT_UNRESOLVED`（**不静默覆盖**；
- *    `51-04` 在这里接三档事务）；
- * ③ `managed-skills/<name>/` 已存在 ⇒ 不覆盖（`51-04` 给「永久遮蔽」提示）；
- * ④ 数量闸（`MAX_USER_SKILLS`，**读盘**统计，失败按 0 计）；
+ * ① **冲突三档判定**（`resolveImportConflict`，读盘）：seeded ⇒ `SEEDED_CONFLICT`
+ *    （**拒绝、不提供覆盖**）；user ⇒ 三选一（缺省 `CONFLICT_UNRESOLVED`，
+ *    **绝不静默覆盖**）；managed ⇒ 不许覆盖（`CONFLICT_UNRESOLVED` + 永久遮蔽提示）；
+ * ② `conflict: 'cancel'` ⇒ **不落盘**，返回 `{ cancelled: true }`（临时目录的清理
+ *    归调用方 `ai-manager` —— 保持「manager 只判定、ai-manager 管状态与清理」的分工）；
+ * ③ 改名 ⇒ `newName` 走**同一份** `validateManagedSkillName`（不写第二份正则），
+ *    并对改名后的名字**重判**（新名可能又撞 seeded / 已存在）；
+ * ④ 数量闸（`MAX_USER_SKILLS`，**读盘**统计）：**只约束净增** —— `overwrite` 豁免
+ *    （净增 0），`none` / `rename` 计入；
  * ⑤ **组装后全文的 64 KiB 闸** —— 导入**不重写文件** ⇒ 判据对象 = 包内 `SKILL.md` 的
  *    **实际字节数**。49 的不变式是「写侧权威字节闸口的判据对象 = 组装后的全文」，
  *    导入路径不组装 ⇒ **包内文件即组装结果**（两侧判的是同一个量）；
- * ⑥ **落点复核**（D-17 第 3 层 / SEC-05）：`srcDir` 与 `destDir` 的父目录链上最近已存在
+ * ⑥ **落点复核**（D-17 第 3 层 / SEC-05）：源目录与目标目录的父目录链上最近已存在
  *    祖先做 `realpathSync` 后必须仍在 AI 工作区根（双基准）内 —— 与 51-01 的写面判据
  *    **并列的独立第二道**；
- * ⑦ `env.renameFile(<srcDir>, <skillsDir>/<name>)`（同设备、原子；`.tmp/` 与 `skills/`
- *    同沙箱 root ⇒ 无 EXDEV）；
- * ⑧ **回读验证**：`refreshSkills` 恰一次后确认该 name 出现在快照里且 `filePath` 指向
- *    `skills/`；不在 ⇒ 把刚移入的目录 `rename` 回 `srcDir` 并抛 `READBACK_FAILED`
- *   （`extra.diagnostics` 带**含 path** 的诊断原文）。**不提供「部分导入」**。
+ * ⑦ **落盘**：`none` / `rename` 走单次 `env.renameFile`（同设备、原子；`.tmp/` 与
+ *    `skills/` 同沙箱 root ⇒ 无 EXDEV）；`overwrite` 走 **备份 + 两段 rename**
+ *    （`rename(skills/<n> → .tmp/skill-replace-<rand>)` → `rename(src → skills/<n>)`），
+ *    **第二步失败即把备份 `rename` 回原位**（旧技能逐字完好；「先删后移」被明确否决
+ *    —— 任一步失败会**静默丢技能**，而被替换的是**用户自己**的目录）；
+ * ⑧ **回读验证**（P12 / D-10）：`refreshSkills` 恰一次后确认该 name 出现在快照里且
+ *    `filePath` 指向 `skills/`；不在 ⇒ **覆盖场景恢复备份、新建场景把目录移回源位置**，
+ *    并抛 `READBACK_FAILED`（`extra.diagnostics` 带**含 path** 的诊断原文）。
+ *    **不提供「部分导入」**。成功后覆盖场景删掉临时备份（**不是版本历史**）。
+ *
+ * ## 沙箱原语纪律（T-51-29）
+ *
+ * 落盘三步（备份 / 移入 / 回滚 / 删备份）**一律** `env.renameFile` / `env.remove` ——
+ * 它们走 51-01 加固后的写面判据（双基准 + 最近已存在祖先 realpath）。**不得**用 Node
+ * `fs.renameSync` / `fs.rm` 绕开：那会把 P2 门禁的承重面整条摘掉。
  *
  * ## 路径恒由 `path.join` 计算，目录名一律用**校验后的 name**
  *
- * 绝不用包内原始目录名拼路径（P5 第 2 条 —— 那是一个注入点）。
+ * 绝不用包内原始目录名拼路径（P5 第 2 条 —— 那是一个注入点）。**本函数的入参只有
+ * `srcDir` / `rootRel` / `name` / `conflict` / `newName`** —— 客户端永远不能指定落点
+ * （D-02 / ARCHITECTURE Anti-Pattern 1：这是接口边界而非沙箱能兜住的）。
  *
  * @param {object} env - 沙箱 ExecutionEnv
- * @param {{srcDir: string, name: string, conflict?: string, newName?: string}} params
- *   `conflict` / `newName` 为 `51-04` 的三档冲突事务预留（本计划**只走无冲突路径**）
+ * @param {{srcDir: string, rootRel?: string, name: string, conflict?: string, newName?: string}} params
+ *   `srcDir` = 技能根目录的绝对路径（51-03 的调用契约）；`rootRel` 可选，供
+ *   「包根 + 相对技能根」形态的调用方使用（`srcDir` 为包根时由它拼出技能根）。
+ *   `conflict ∈ { 'overwrite', 'rename', 'cancel' }`，缺省 = 未给选择。
  * @param {{seededNames?: string[]|Set<string>}} [inject] - seeded 集合由**调用方注入**
  *   （`ai-skills-manager` 保持零 electron 依赖，见 D-11 的注入式签名纪律）
- * @returns {Promise<{name: string, source: string, bytes: number, files: number,
- *                    scripts: string[], scan: object, warnings: Array<object>,
- *                    allowedTools: object}>}
+ * @returns {Promise<{cancelled: true}
+ *                   | {name: string, source: string, bytes: number, files: number,
+ *                      scripts: string[], scan: object, warnings: Array<object>,
+ *                      allowedTools: object, conflict: 'none'|'overwrite'|'rename'}>}
  * @throws {Error} 任一拒绝路径（带 `code`）
  */
-async function importUserSkill(env, { srcDir, name, conflict, newName } = {}, { seededNames } = {}) {
-  // 本计划只交付「无同名冲突」路径；三档冲突（覆盖 / 改名 / 取消）与落点事务归 51-04
-  void conflict;
-  void newName;
+async function importUserSkill(env, { srcDir, rootRel = '', name, conflict, newName } = {}, { seededNames } = {}) {
+  // `srcDir` 恒为技能根目录的绝对路径（51-03 的调用契约）；`rootRel` 非空时它代表
+  // 「srcDir 是包根、技能根在 rootRel 之下」的另一种调用形态 —— 两者等价。
+  const sourceDir = rootRel ? path.join(srcDir, rootRel) : srcDir;
+
+  // ⓪ 显式取消：不落盘、不判数量、不读盘（临时目录清理由调用方负责）
+  if (conflict === 'cancel') return { cancelled: true };
 
   const nameCheck = validateManagedSkillName(name);
-  if (!nameCheck.ok) throw makeImportError(nameCheck.code, nameCheck.reason);
-  const skillName = name.trim();
+  if (!nameCheck.ok) {
+    // 码取**本表**的 `INVALID_NAME`（**不得**借用 MANAGE_SKILL_ERROR 的键，CR-3）
+    throw makeImportError(IMPORT_SKILL_ERROR.INVALID_NAME, nameCheck.reason);
+  }
+  const requestedName = name.trim();
 
   const workspace = getAgentWorkspaceLazy();
   const skillsDir = workspace.getSkillsDir();
   const managedDir = workspace.getManagedSkillsDir();
-  const destDir = path.join(skillsDir, skillName);
 
-  // ① seeded 同名 —— 拒绝导入、不提供覆盖
-  if (isSeededName(skillName, seededNames)) {
-    throw makeImportError(
-      IMPORT_SKILL_ERROR.SEEDED_CONFLICT,
-      `"${skillName}" 是随包内置技能名，受保护、不能被导入覆盖。请改用其它技能名`
-    );
+  // ① 冲突三档判定（读盘；判定顺序即语义 —— 与 resolveImportConflict 同一份判据）
+  const conflictInfo = await resolveImportConflict(env, requestedName, { seededNames });
+
+  if (conflictInfo.kind === 'seeded') {
+    throw makeImportError(IMPORT_SKILL_ERROR.SEEDED_CONFLICT, conflictInfo.message);
   }
 
-  // ② 同名用户技能存在 ⇒ 本阶段拒绝（51-04 接三档事务）
-  if (await envDirExists(env, destDir)) {
-    throw makeImportError(
-      IMPORT_SKILL_ERROR.CONFLICT_UNRESOLVED,
-      `已存在同名用户技能 "${skillName}"：覆盖 / 改名 / 取消的处置尚未启用，导入已停止（未改动任何文件）`
-    );
+  /** 落盘模式：'none'（新建）/ 'overwrite'（覆盖同名 user 技能）/ 'rename'（改名新建） */
+  let mode = 'none';
+  let resolvedName = requestedName;
+
+  if (conflictInfo.kind === 'user') {
+    if (conflict === 'overwrite') {
+      mode = 'overwrite';
+    } else if (conflict === 'rename') {
+      resolvedName = resolveRenamedTarget(newName, requestedName);
+      const recheck = await resolveImportConflict(env, resolvedName, { seededNames });
+      if (recheck.kind !== 'none') {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.CONFLICT_UNRESOLVED,
+          `改名后的名称「${resolvedName}」仍不可用：${recheck.message}`
+        );
+      }
+      mode = 'rename';
+    } else {
+      throw makeImportError(
+        IMPORT_SKILL_ERROR.CONFLICT_UNRESOLVED,
+        `已存在同名用户技能「${requestedName}」：请在预览卡片上选择覆盖 / 改名 / 取消（不会静默覆盖）。`
+      );
+    }
+  } else if (conflictInfo.kind === 'managed') {
+    if (conflict === 'rename') {
+      resolvedName = resolveRenamedTarget(newName, requestedName);
+      const recheck = await resolveImportConflict(env, resolvedName, { seededNames });
+      if (recheck.kind !== 'none') {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.CONFLICT_UNRESOLVED,
+          `改名后的名称「${resolvedName}」仍不可用：${recheck.message}`
+        );
+      }
+      mode = 'rename';
+    } else {
+      // 第三档**不允许覆盖**：导入只管 `skills/<name>/`，覆盖 managed 不可能是用户意图（D-08）
+      throw makeImportError(
+        IMPORT_SKILL_ERROR.CONFLICT_UNRESOLVED,
+        `已存在同名 AI 自建技能「${requestedName}」：导入后它将被**永久遮蔽**，且不允许覆盖。请选择改名或取消。`
+      );
+    }
   }
 
-  // ③ 同名 AI 自建（managed）技能存在 ⇒ 不允许覆盖（导入只管 skills/）
-  if (await envDirExists(env, path.join(managedDir, skillName))) {
-    throw makeImportError(
-      IMPORT_SKILL_ERROR.CONFLICT_UNRESOLVED,
-      `已存在同名 AI 创建技能 "${skillName}"：导入后将永久遮蔽它，该处置尚未启用，导入已停止（未改动任何文件）`
-    );
-  }
+  const destDir = path.join(skillsDir, resolvedName);
 
-  // ④ 数量闸（读盘统计）
-  const userCount = await countUserSkills(env, skillsDir);
-  if (userCount >= LIMITS.MAX_USER_SKILLS) {
-    throw makeImportError(
-      IMPORT_SKILL_ERROR.LIMIT_EXCEEDED,
-      `用户技能数量已达上限：限额 ${LIMITS.MAX_USER_SKILLS} 个（当前 ${userCount} 个）。请先卸载不再使用的技能`,
-      { limit: 'MAX_USER_SKILLS', limitValue: LIMITS.MAX_USER_SKILLS, currentValue: userCount }
-    );
+  // ④ 数量闸（读盘统计）—— **只约束净增**：覆盖 ⇒ 净增 0 ⇒ 豁免；改名 ⇒ 新建 ⇒ 计入
+  if (mode !== 'overwrite') {
+    const userCount = await countUserSkills(env, skillsDir);
+    if (userCount >= LIMITS.MAX_USER_SKILLS) {
+      throw makeImportError(
+        IMPORT_SKILL_ERROR.LIMIT_EXCEEDED,
+        `用户技能数量已达上限：限额 ${LIMITS.MAX_USER_SKILLS} 个（当前 ${userCount} 个）。请先卸载不再使用的技能`,
+        { limit: 'MAX_USER_SKILLS', limitValue: LIMITS.MAX_USER_SKILLS, currentValue: userCount }
+      );
+    }
   }
 
   // ⑤ 权威字节闸：包内 SKILL.md 的**实际字节数**即「组装后的全文」
-  const skillMdPath = path.join(srcDir, 'SKILL.md');
+  const skillMdPath = path.join(sourceDir, 'SKILL.md');
   let mdBytes = 0;
   let mdText = '';
   try {
@@ -3689,20 +3846,50 @@ async function importUserSkill(env, { srcDir, name, conflict, newName } = {}, { 
     ...scanSkillThreats(mdBody, 'body'),
   ];
 
-  const stats = await collectPreviewStats(env, path.dirname(srcDir), path.basename(srcDir));
+  const stats = await collectPreviewStats(env, path.dirname(sourceDir), path.basename(sourceDir));
 
   // ⑥ 落点复核（D-17 第 3 层 / SEC-05）：两个端点的父目录链最近已存在祖先 realpath
   //    必须仍在 AI 工作区内 —— 这是与 51-01 写面判据**并列的独立第二道**
-  assertLandingInsideWriteRoot(srcDir);
+  assertLandingInsideWriteRoot(sourceDir);
   assertLandingInsideWriteRoot(destDir);
 
-  // ⑦ 落盘：同设备原子 rename（目录级）
-  const renamed = await env.renameFile(srcDir, destDir);
-  if (!renamed || renamed.ok !== true) {
-    throw makeImportError(
-      IMPORT_SKILL_ERROR.UNKNOWN,
-      `技能落盘失败（沙箱码 ${sandboxErrorCode(renamed)}）`
-    );
+  // ⑦ 落盘（同设备原子 rename，目录级）—— 全走沙箱原语（T-51-29）
+  let bak = null;
+  if (mode === 'overwrite') {
+    // 备份旧技能（用户在磁盘上的目录，可能手改过 —— 绝不「先删后移」）
+    bak = path.join(workspace.getTmpDir(), IMPORT_TMP_PREFIXES[1] + importTmpSuffix());
+    const movedOut = await env.renameFile(destDir, bak);
+    if (!movedOut || movedOut.ok !== true) {
+      throw makeImportError(
+        IMPORT_SKILL_ERROR.UNKNOWN,
+        `覆盖前备份既有技能失败（沙箱码 ${sandboxErrorCode(movedOut)}），未改动任何文件`
+      );
+    }
+    try {
+      const movedIn = await env.renameFile(sourceDir, destDir);
+      if (!movedIn || movedIn.ok !== true) {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.UNKNOWN,
+          `技能落盘失败（沙箱码 ${sandboxErrorCode(movedIn)}）`
+        );
+      }
+    } catch (err) {
+      // 第二步失败 ⇒ 备份回原位（回滚后旧技能**逐字完好**）
+      await env.renameFile(bak, destDir);
+      throw err;
+    }
+  } else {
+    const renamed = await env.renameFile(sourceDir, destDir);
+    if (!renamed || renamed.ok !== true) {
+      // 失败不留半成品：**只在本次确实搬动过**（目标已被创建）时才清理
+      if (await envDirExists(env, destDir)) {
+        await env.remove(destDir, { recursive: true });
+      }
+      throw makeImportError(
+        IMPORT_SKILL_ERROR.UNKNOWN,
+        `技能落盘失败（沙箱码 ${sandboxErrorCode(renamed)}）`
+      );
+    }
   }
 
   // ⑧ 回读验证（P12 / D-10）：失败即回滚，不提供「部分导入」
@@ -3716,7 +3903,7 @@ async function importUserSkill(env, { srcDir, name, conflict, newName } = {}, { 
       (entry) =>
         entry &&
         entry.skill &&
-        entry.skill.name === skillName &&
+        entry.skill.name === resolvedName &&
         typeof entry.skill.filePath === 'string' &&
         entry.skill.filePath.startsWith(skillsDir + path.sep)
     );
@@ -3728,23 +3915,41 @@ async function importUserSkill(env, { srcDir, name, conflict, newName } = {}, { 
   }
 
   if (!readbackOk) {
-    // 回滚：把刚移入的目录搬回临时区（「不提供部分导入」）
-    await env.renameFile(destDir, srcDir);
-    const detail = diagnostics
-      .filter((d) => d && typeof d.path === 'string' && d.path.startsWith(destDir))
-      .map((d) => d.message)
-      .join('；');
+    // 回滚：覆盖场景恢复备份；新建场景把刚移入的目录搬回源位置（「不提供部分导入」）
+    if (bak) {
+      try {
+        await env.remove(destDir, { recursive: true, force: true });
+      } catch {
+        /* 清理失败不遮蔽回滚：备份仍会被搬回 */
+      }
+      await env.renameFile(bak, destDir);
+    } else {
+      await env.renameFile(destDir, sourceDir);
+    }
+    const own = diagnostics.filter(
+      (d) => d && typeof d.path === 'string' && d.path.startsWith(destDir)
+    );
+    const detail = own.map((d) => d.message).join('；');
     throw makeImportError(
       IMPORT_SKILL_ERROR.READBACK_FAILED,
       detail
         ? `技能已写入但回读验证失败，已回滚：${detail}`
         : '技能已写入但回读验证失败（加载管线未识别该技能），已回滚',
-      { diagnostics: diagnostics.filter((d) => d && typeof d.path === 'string' && d.path.startsWith(destDir)) }
+      { diagnostics: own }
     );
   }
 
+  // 成功后删掉覆盖备份 —— 它是**临时的**，不是版本历史 / 恢复机制（ECO-02 / v1.x）
+  if (bak) {
+    try {
+      await env.remove(bak, { recursive: true, force: true });
+    } catch (err) {
+      console.warn('[Realm AI] 清理覆盖备份目录失败:', err && err.message ? err.message : err);
+    }
+  }
+
   return {
-    name: skillName,
+    name: resolvedName,
     source: 'zip',
     bytes: stats.bytes,
     files: stats.fileCount,
@@ -3754,7 +3959,30 @@ async function importUserSkill(env, { srcDir, name, conflict, newName } = {}, { 
       (d) => d && typeof d.path === 'string' && d.path.startsWith(destDir)
     ),
     allowedTools,
+    conflict: mode,
   };
+}
+
+/**
+ * 校验「改名」的目标名（`conflict: 'rename'`）—— **复用写侧那一份校验器**
+ *
+ * 不写第二份正则（49 D-11 / 50 的复用纪律）；失败码取**导入面**的 `INVALID_NAME`
+ * （与 `MANAGE_SKILL_ERROR.INVALID_NAME` 取值相同但命名空间独立，CR-3）。
+ *
+ * @param {string} newName - 用户输入的新名称
+ * @param {string} originalName - 原名称（仅用于错误文案）
+ * @returns {string} 已 trim 的新名称
+ * @throws {Error} 非法名（code: `invalid_name`）
+ */
+function resolveRenamedTarget(newName, originalName) {
+  const check = validateManagedSkillName(newName);
+  if (!check.ok) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.INVALID_NAME,
+      `改名失败：${check.reason}（原名称「${originalName}」保持不变，未改动任何文件）`
+    );
+  }
+  return newName.trim();
 }
 
 module.exports = {
@@ -3808,6 +4036,12 @@ module.exports = {
   collectPreviewStats,
   buildImportPreview,
   importUserSkill,
+  // 51-04 新增第四段（冲突三档判定 + 覆盖事务 + 临时区前缀单源）
+  // 注：userSkillPaths / importTmpSuffix / resolveRenamedTarget **刻意不导出** ——
+  //     内部实现，经 resolveImportConflict 与 importUserSkill 的行为面覆盖。
+  resolveImportConflict,
+  countUserSkills,
+  IMPORT_TMP_PREFIXES,
   // 51 新增第三段（技能域威胁扫描：分表 + 返回命中列表的并列扫描函数）
   SKILL_THREAT_PATTERNS,
   scanSkillThreats,
