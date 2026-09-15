@@ -172,6 +172,7 @@ const windowContainerMap = new Map();
 | cookie-manager.js | Cookie 持久化（session ↔ cookies.json 合并），`.www` 域名去重 |
 | context-menu-manager.js | 右键菜单管理（标签页/网页），已关闭标签栈 LIFO |
 | drag-coordinator.js | 跨窗口 Tab 拖拽协调器，状态机 idle->dragging->ended/cancelled |
+| diagnostics-log.js | 诊断日志落盘（`<userData>/logs/diagnostics.log`，dev/debug/nightly 生效；零 electron 依赖） |
 
 ### 数据管理模块
 
@@ -457,8 +458,19 @@ restoreWindowBounds(windowId);
 - **硬约定**：任何「关掉 webview 命中」的代码必须走 `suspendWebviewHitTest(reason)`，恢复一律走幂等的 `resumeWebviewHitTest(source)`，**不得再自行写 `wv.style.pointerEvents`**。可见性与可命中性只有 `applyWebviewInteractivity()` 一个写入点，真源是 `state.visibleTabId`（**不是** `state.activeTabId` —— 按后者猜会把屏幕上的那个打成不可命中）
 - 正常收尾**静默**；只在兜底救回时打一行 `[Realm] webview 可命中性残留已恢复（兜底=…，原始禁用=tab-cross-drag|ai-panel-resize，已禁用 Nms）`。因此正常使用零新增输出，一旦出现即指明是哪条拖拽路径丢了收尾
 - 三层兜底：`mousemove` 的 `buttons === 0`（第一现场信号）/ `window blur` 与 `visibilitychange` / 3s 看门狗。**`WEBVIEW_SUSPEND_WATCHDOG_MS` 与 `WEBVIEW_SUSPEND_EVIDENCE_MS` 必须不相等** —— 相等时看门狗每次复查都判「证据还没过期」而无限重排，残留永远救不回来
-- 回归门禁：`NODE_PATH="$(npm root -g)" node tests/uat-webview-hit-test-stuck.js`
-- guest 侧分诊观测（仅 dev/debug，生产零输出）：`unresponsive` / `responsive` / `render-process-gone` / `did-fail-load`（滤 `-3 ERR_ABORTED`）。有这些信号 ⇒ guest 渲染进程卡死/崩溃（`executeJavaScript` 注入也会失效）；没有 ⇒ 命中测试层问题
+- 回归门禁：`NODE_PATH="$(npm root -g)" node tests/uat-webview-hit-test-stuck.js`（51 项，含落盘断言）+ `node --test tests/test-diagnostics-log.js`（19 项）
+- guest 侧分诊观测：`unresponsive` / `responsive` / `render-process-gone` / `did-fail-load`（滤 `-3 ERR_ABORTED`）。有这些信号 ⇒ guest 渲染进程卡死/崩溃（`executeJavaScript` 注入也会失效）；没有 ⇒ 命中测试层问题
+
+### 诊断日志落盘（`diagnostics-log.js`）
+
+打包版（Nightly/正式）双击启动没有终端，渲染进程日志在 DevTools 关闭后即消失 ⇒ 事后无法取证。因此主进程诊断与**约定的**渲染进程诊断统一落盘到 **`<userData>/logs/diagnostics.log`**（5 MB 轮转 `.1`，每次启动写一行 `===== session start` 便于分段）。
+
+- **启用环境**：`development` / `debug` / `nightly`；**`production` 完全不落盘**（零行为变化）。控制台回显仍只在 dev/debug ⇒ **Nightly 控制台保持零输出，但日志会进文件**
+- **采集范围**：主进程 `diagLog()`（4 类诊断事件）与 `console.warn`/`console.error`；渲染进程（主窗口 + **webview guest**）经 `console-message` 白名单转发。**不采集** `console.log`（量太大）与 Electron 内部消息（`sourceId` 以 `node:electron/` 开头）
+- **文案约定**：想让某条渲染进程日志落盘，就把 `[Realm 诊断]` 写进文案（或在主进程调 `diagLog`）。新增噪声源必须**同时**补 `NOISE_PATTERNS` 与 `tests/test-diagnostics-log.js` 的样本数组（该用例断言两者一一对应）
+- **guest 转发的前提**：`console-message` 必须注册在 **guest 自身的 webContents** 上；挂在主窗口收不到（Electron 43 实测，2026-09-15 更正了旧结论）
+- **判据纪律**：日志文件是追加大文件，「文件里存在某行」会被历史会话旧行满足 ⇒ 单靠存在性判据会假绿，必须配计数增量或用本次运行独有的随机 tag（`tests/uat-webview-hit-test-stuck.js` 用例 7 是范例）
+- 本模块**零 electron 依赖**（`dir` 由 main.js 注入）⇒ 纯 Node 可直接单测；所有文件操作必须保持 try/catch 兜底且写失败后**整轮停用**（避免逐行报错风暴）
 
 ## 数据库架构
 

@@ -16,9 +16,10 @@
 | 怎么一眼确认 | 出问题时按 `f`（Vim hint）：**hint 会出现且能聚焦输入框** ⇒ guest 活着、是命中测试层；若 hint 也失效 ⇒ 是 guest 进程卡死，属另一类 |
 | 现在还会不会发生 | 丢 `mouseup` 仍可能发生（事件丢失是外部条件），但**不会再永久卡住**：最迟 3 秒被兜底恢复，并打印一行归因日志 |
 | 复发时第一个动作 | 搜 `[Realm] webview 可命中性残留已恢复`（见 §5.2）；没有这行再去查主进程 `[Realm 诊断]`（见 §5.2 第二类） |
+| 事后取证（打包版） | 日志已**落盘**：`<userData>/logs/diagnostics.log`（dev=`~/Library/Application Support/realm-dev/logs/`）。渲染进程那条残留日志也在里面，无需当时开着 DevTools。采集范围与盲区见 §6.5 |
 | 当场自救（用户侧） | 切到别的标签页再切回（会走 `showWebview` 重算），**不必重启** |
-| 回归门禁 | `NODE_PATH="$(npm root -g)" node tests/uat-webview-hit-test-stuck.js`（实跑 40 项；会话只 1 个标签时 +2） |
-| 关键锚点 | `src/renderer.js`：`state.visibleTabId`(:213)、`applyWebviewInteractivity`(:1990)、`suspendWebviewHitTest`(:2042)、`resumeWebviewHitTest`(:2059)、`initWebviewHitTestSafetyNet`(:2081)、`showWebview`(:2121)；`main.js` 观测块(:558-577) |
+| 回归门禁 | `NODE_PATH="$(npm root -g)" node tests/uat-webview-hit-test-stuck.js`（实跑 51 项；会话只 1 个标签时 +2） |
+| 关键锚点 | `src/renderer.js`：`state.visibleTabId`(:213)、`applyWebviewInteractivity`(:1990)、`suspendWebviewHitTest`(:2042)、`resumeWebviewHitTest`(:2059)、`initWebviewHitTestSafetyNet`(:2081)、`showWebview`(:2121)；`main.js` 观测块(:548-609)；`diagnostics-log.js`（落盘，零 electron 依赖） |
 
 **禁止事项（改这块代码前先看 §7）**：不要再出现任何「自行写 `wv.style.pointerEvents`」的代码；不要用 `state.activeTabId` 判「屏幕上显示的是哪个 webview」。
 
@@ -177,9 +178,9 @@ const WEBVIEW_SUSPEND_EVIDENCE_MS = 1000;  // :1980 「按键仍按着」的证�
 [Realm] webview 可命中性残留已恢复（兜底=watchdog|mousemove-no-button|window-blur|visibility-restored，原始禁用=tab-cross-drag|ai-panel-resize，已禁用 Nms）
 ```
 
-### 4.5 主进程 guest 观测（`main.js:558-577`，仅 `NODE_ENV=development|debug`）
+### 4.5 主进程 guest 观测（`main.js:548-609`）
 
-沿用既有诊断块的开关（`production`/`nightly` 零输出），只挂监听与日志、不含行为逻辑：
+输出分工：**落盘在 development/debug/nightly 全生效**（走 `diagnosticsLog.diagLog`），控制台回显仍只在 dev/debug（`production`/`nightly` 控制台零输出）；只挂监听与日志、不含行为逻辑。文件与采集范围见 §6.5：
 
 - `unresponsive` / `responsive`：渲染进程主线程卡住与恢复
 - `render-process-gone`：崩溃或被系统回收（带 `reason` / `exitCode`）
@@ -206,6 +207,9 @@ const WEBVIEW_SUSPEND_EVIDENCE_MS = 1000;  // :1980 「按键仍按着」的证�
 ```
 
 ### 5.2 日志签名表
+
+> 打包版（Nightly/正式）没有终端 ⇒ 下面这些行**落盘在 `<userData>/logs/diagnostics.log`**（见 §6.5）。
+> 其中渲染进程那几条（残留恢复）不需要开 DevTools，起效环境含 nightly；主进程四条在 nightly 也记。
 
 | 日志 | 结论 |
 |---|---|
@@ -244,13 +248,13 @@ document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
 
 ## 6. 验证手册
 
-### 6.1 绿轮（实跑 40 项，0 失败）
+### 6.1 绿轮（实跑 51 项，0 失败）
 
 ```bash
 NODE_PATH="$(npm root -g)" node tests/uat-webview-hit-test-stuck.js   # exit 0
 ```
 
-> 断言条数随会话略有浮动：启动时若只有 1 个 webview，驱动会补建一个 `about:blank` 临时标签以取得「非活动 webview」（+2 条，收尾关闭并切回）。上表 40 条对应「启动会话已有多个标签」的实跑。
+> 断言条数随会话略有浮动：启动时若只有 1 个 webview，驱动会补建一个 `about:blank` 临时标签以取得「非活动 webview」（+2 条，收尾关闭并切回）。上表 51 条对应「启动会话已有多个标签」的实跑（含用例 7 的 11 条落盘断言）。
 
 覆盖（`tests/uat-webview-hit-test-stuck.js`）：
 
@@ -292,6 +296,57 @@ NODE_PATH="$(npm root -g)" node tests/uat-hard-reload-shortcut.js   # 全绿
 - 本驱动**不验证**「真实鼠标事件是否被 Chromium 送到 guest」（需真机手势）。
 - 本次**未复现用户现场的那一刻**（丢 `mouseup` 是外部条件）。逻辑链与门禁都指向宿主命中层；若复发时**没有** §5.2 第一类日志，则应按决策树转查 guest 卡死那一类。
 
+### 6.5 日志落盘（观察期取证通道）
+
+**为什么需要**：打包版（Nightly/正式）双击启动没有终端，而残留恢复日志是**渲染进程**的
+`console.warn` —— DevTools 一关就没了，事后无从取证。`diagnostics-log.js` 把它与主进程诊断
+一起写进文件。
+
+| 项 | 值 |
+|---|---|
+| 文件 | `<userData>/logs/diagnostics.log`（dev = `~/Library/Application Support/realm-dev/logs/`，Nightly = `…realm-nightly/logs/`） |
+| 轮转 | 超过 `MAX_BYTES`(5 MB) 改名 `.1`（只留一份历史），继续追加；进程内累计，不做逐条 stat |
+| **启用环境** | `development` / `debug` / `nightly`；**`production` 完全不落盘**（零行为变化） |
+| 控制台回显 | 仅 dev/debug（`diagLog` 的 mirror）—— **Nightly 控制台保持零输出**，落盘不受影响 |
+| 会话头 | 每次启动一行 `===== session start env=… version=… pid=… at … =====`（多会话混在一个文件里，按它分段读） |
+| 写失败 | 吞掉异常并**整轮停用**（避免逐行报错风暴），只往 stderr 说一次 |
+
+**采集范围**（每条都实测过）：
+
+| 来源 | 落盘 | 说明 |
+|---|---|---|
+| 主进程 4 类诊断事件 | ✓ | `unresponsive` / `responsive` / `render-process-gone` / `did-fail-load`（滤 `-3 ERR_ABORTED`）。**这是本次改动的关键**：此前它们只在 dev/debug 打控制台，Nightly 完全没有 |
+| 主进程 `console.warn` / `console.error` | ✓ | 挂钩记录，原输出保留（`console.log` 不记：每次导航/每帧都打，量太大） |
+| 主窗口渲染进程 | ✓（白名单） | 文案命中 `可命中性残留` 或 `[Realm 诊断]`，或 `level === 'error'` |
+| **webview guest** | ✓（同白名单） | **必须挂在 guest 自身的 webContents 上**；挂在主窗口收不到（见下方更正） |
+| Electron 内部消息 | ✗ | `sourceId` 以 `node:electron/` 开头（安全警告随每个页面出现） |
+| CSP 违规 | ✗ | 噪声表排除：实测单次页面加载可产生 20+ 条 error，会淹没诊断 |
+
+**约定**：想让某条渲染进程日志进文件，就把 `[Realm 诊断]` 写进文案（或在主进程调 `diagLog`）。
+新增噪声源必须**同时**补 `NOISE_PATTERNS` 与 `tests/test-diagnostics-log.js` 里的样本数组
+—— 该用例断言「噪声表与样本一一对应」，只加模式不补样本会转红。
+
+**验证**：
+- 纯逻辑：`node --test tests/test-diagnostics-log.js`（19 项：过滤 / 环境门槛 / 格式 / 轮转 / 幂等 / 写失败停用）
+- 真应用：本驱动**用例 7**（11 项）。其中 7b / 7d 是**单变量对照**——同前缀、同来源，只差正文是否命中噪声模式，一个落盘一个不落 ⇒ 差异只可能来自噪声规则本身
+- 红轮实测：拆掉噪声规则 ⇒ **只红 7d**；关闭渲染转发 ⇒ **只红「计数增量」与「guest 落盘」两条**
+
+**判据纪律（踩过的坑）**：日志文件是**追加**的，「文件里存在某行」会被历史会话的旧行满足
+⇒ 单靠存在性判据会**假绿**（单点变异实测确认）。必须配**计数增量**判据，或用本次运行独有的随机 tag。
+7a 因此同时断言 `residualAfter > residualBefore`。
+
+**盲区（别当成更强证据）**：
+- `console.log` 不落盘 ⇒ 页面自己的 log 不在文件里
+- 文件跨会话追加 ⇒ 先按 `===== session start` 分段
+- 正式版（production）不落盘 ⇒ 用户报"正式版"问题时要靠复现或临时切 dev 环境
+
+**顺带更正一处旧结论**：`docs/debug/vim-mode-input-field-bug.md` §8.3 记的「新版 Electron 的
+`console-message` 收不到 guest 日志」**不成立** —— Electron 43 实测（本机探针 + 本驱动用例 7b）
+guest 日志能收到，前提是**注册在 guest 自身的 webContents 上**。旧结论应是在主窗口 contents
+上监听造成的误判。该文档已加更正注记。
+
+
+
 ---
 
 ## 7. 维护约定（改这块代码时必须遵守）
@@ -302,6 +357,8 @@ NODE_PATH="$(npm root -g)" node tests/uat-hard-reload-shortcut.js   # 全绿
 4. **两个时间常数不等**：`WEBVIEW_SUSPEND_WATCHDOG_MS` ≠ `WEBVIEW_SUSPEND_EVIDENCE_MS`，相等 = 看门狗永不判决。
 5. **收尾顺序**：`resume` 要放在收尾函数靠前位置，后续任何一步抛错都不能把"点不动"留在界面上。
 6. 改完必须跑 §6.1 门禁，并按改动面挑一个变异复现红轮（至少变异 2 或 3）。
+7. **诊断文案约定**：要落盘的渲染进程日志必须带 `[Realm 诊断]` 前缀（或在主进程走 `diagLog`）；新增噪声源要同时补 `NOISE_PATTERNS` 与单测样本数组（见 §6.5）。
+8. **落盘不得影响主流程**：`diagnostics-log.js` 的所有文件操作必须保持 try/catch 兜底；改这块后跑 `node --test tests/test-diagnostics-log.js`（含「写失败整轮停用」用例）。
 
 ---
 

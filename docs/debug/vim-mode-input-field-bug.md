@@ -372,4 +372,8 @@ playwright `_electron` 驱动 dev 应用实测通过（14 项断言）：
   `webContents.emit('before-input-event', { preventDefault: spy }, input)` 手动触发真实监听器链路
 - webview 的 `console-message` 事件在新版 Electron 已收不到 guest 日志；跨隔离世界
   传调试信息可用共享 DOM（如 `document.documentElement.dataset`）
+  - **2026-09-15 更正**：该结论**不准确**。Electron 43 实测（本机最小探针 + 真应用 UAT 驱动
+    用例 7b）guest 日志**能**收到，前提是**注册在 guest 自身的 webContents 上**——
+    当时多半是只在主窗口 contents 上监听，所以收不到。落盘实现与判据见
+    [webview-hit-test-stuck.md](./webview-hit-test-stuck.md) §6.5
 - `app.evaluate` 里无全局 `require`，用 `process.mainModule.require(...)` 取应用模块（缓存同实例）
