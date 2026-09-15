@@ -373,7 +373,7 @@ Plans:
   4. 解压只在 `fs.mkdtempSync` 新建的空目录内进行，落盘前用**最近已存在祖先的 realpath** 复核；导入完成后工作区外不产生任何文件（含 `~` 下敏感位置），且既有沙箱 `writeFile` 的 ENOENT symlink 缺口一并加固。
   5. 网络导入 https-only + 主机白名单 + 逐跳内网地址校验 + 流式字节上限 + magic bytes 校验；扫描同时覆盖 `description` 与 body（复用 `scanInjectionPatterns` + 新增 `SKILL_THREAT_PATTERNS`）；与内置同名拒绝导入、与已有用户技能同名需显式选择（覆盖 / 改名 / 取消）；失败按"命中哪个限额 / 扫描结论 / 校验错误"给出真实原因。
 
-**Plans**: 4/7 plans executed planned / 6 waves（已规划，未执行）
+**Plans**: 5/7 plans executed planned / 6 waves（已规划，未执行）
 **UI hint**: yes
 
 > ⚠️ `51-02` 的 `autonomous: false`：它的 T1 含唯一的 `checkpoint:human-verify gate="blocking-human"`（`yaml` 的 `[SUS] too-new` 供应链闸 ⇒ 安装前必须用户回话）。
@@ -393,7 +393,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] **51-05-PLAN.md — 网络地址导入**：URL 三形态分流（仓库 / `tree/<ref>/<path>` / raw 与 blob 直链）+ `www.` 归一化同可达 + zipball 顶层前缀剥离 + 技能根定位；https-only + 主机白名单精确匹配 + 逐跳私网校验 + 跳数上限抛错 + 流式字节上限 + magic bytes + 单一落盘入口（USER-04、SEC-08）
+- [x] **51-05-PLAN.md — 网络地址导入**：URL 三形态分流（仓库 / `tree/<ref>/<path>` / raw 与 blob 直链）+ `www.` 归一化同可达 + zipball 顶层前缀剥离 + 技能根定位；https-only + 主机白名单精确匹配 + 逐跳私网校验 + 跳数上限抛错 + 流式字节上限 + magic bytes + 单一落盘入口（USER-04、SEC-08）
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -436,4 +436,4 @@ Plans:
 | 48. 技能发现与调用 | 8/8 | In Progress|  |
 | 49. `manage_skill` 工具 | 8/8 | In Progress|  |
 | 50. 设置页技能管理区 + `/api/skills/*` | 5/5 | In Progress|  |
-| 51. 用户技能导入管线 | 4/7 | In Progress|  |
+| 51. 用户技能导入管线 | 5/7 | In Progress|  |
