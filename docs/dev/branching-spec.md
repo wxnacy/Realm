@@ -93,7 +93,7 @@ master ────────●────●──────────�
 
 所以**默认不需要在 worktree 里重装依赖** —— 它会自动「蹭」主仓库那 893 MB 的 `node_modules`。
 
-### 四条边界（会静默出错，务必遵守）
+### 五条边界（会静默出错，务必遵守）
 
 | 边界 | 后果 | 正确做法 |
 |------|------|---------|
@@ -101,6 +101,50 @@ master ────────●────●──────────�
 | **要跑构建 / 打包（`make install`）** | 同理，且打包需要完整且匹配的依赖树 | 在 worktree 内独立 `npm install`，或回主工作树做 |
 | **在 worktree 内跑过一次 `npm install`** | 内部 `node_modules` 会**遮蔽**共享的那份，两者开始漂移 | 记住该 worktree 已「独立化」，别再假设它在蹭依赖 |
 | **原生模块（`better-sqlite3` / `nodejieba`）** | 绑定 Node / Electron ABI 与平台 | 同机同版本才通用；换机器即失效 |
+| **测试驱动用绝对路径拼 `node_modules`** | 绝对路径**不参与**向上查找 ⇒ 该依赖拿不到共享副本，worktree 内直接 `MODULE_NOT_FOUND` | 改用**裸说明符**（`require('electron')`）；详见下节 |
+
+### 在 worktree 内跑自动化测试
+
+**结论：纯 Node 套件与「需要 Electron 的自动化测试」都能在 worktree 内直接跑，不需要 `npm install`。**
+
+前提是测试驱动取依赖时用**裸说明符**：
+
+```js
+// ✅ 主工作树与 worktree 都能解析（worktree 无自己的 node_modules 时靠 Node 向上查找）
+const ELECTRON_EXECUTABLE = require('electron');
+
+// ❌ 绝对路径不参与向上查找 ⇒ worktree 内必然 MODULE_NOT_FOUND
+const ELECTRON_EXECUTABLE = require(path.join(REPO_ROOT, 'node_modules', 'electron'));
+// ❌ 同病：手写 dist 路径
+executablePath: path.join(REALM_ROOT, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron')
+```
+
+实测（2026-09-15，在 `.worktrees/hard-reload-shortcut` 内，该 worktree **没有**自己的 `node_modules`）：
+
+| 形态 | 结果 |
+|------|------|
+| `require('electron')`（裸说明符） | ✅ 解析到**主仓库**的 `node_modules/electron` 二进制 |
+| `require(path.join(ROOT, 'node_modules', 'electron'))` | ❌ `MODULE_NOT_FOUND: Cannot find module '<worktree>/node_modules/electron'` |
+| `require('better-sqlite3')` 等其它依赖 | ✅ 同裸说明符，正常复用 |
+| 以裸说明符驱动的 Electron 端到端用例 | ✅ 9/9 通过（真实启动 dev 应用，零 `npm install`；参照实现 `tests/uat-hard-reload-shortcut.js`） |
+
+**为什么容易踩**：`node_modules` 向上查找**只对裸说明符生效**；把根目录拼成绝对路径就等于绕开整条复用机制。而 playwright 装在全局（靠 `NODE_PATH`），它自己也找不到本仓的 electron —— 驱动为了「显式传 `executablePath`」而拼绝对路径时，正好踩中这条。
+
+**运行方式**：需要 Electron 的驱动一律带 `NODE_PATH`（playwright 是全局依赖，不在本仓 `node_modules` 里）：
+
+```bash
+NODE_PATH="$(npm root -g)" node tests/uat-<name>.js
+```
+
+**机械判据**（改完驱动后自查是否踩了绝对路径）：
+
+```bash
+grep -rn "require(path\.join(.*node_modules\|node_modules/electron/dist" tests/
+```
+
+命中即为待修形态。判据刻意只匹配**真实调用形态**（`require(path.join(...node_modules` 与手拼 `node_modules/electron/dist`），而不是裸的 `node_modules/electron` 子串 —— 后者会被「注释里复述该错误写法」的说明文字误命中（本判据首版即被一节警示注释误报，2026-09-15 实测）。反过来，若在注释里照抄这两种**调用形态**，仍会命中，届时按行号判断即可。
+
+截至 2026-09-15 命中 6 个文件：`test-unified-navigation.js`、`uat-49-g49-3-*`、`uat-49-g49-4-*`（含 `better-sqlite3` 一处同病）、`uat-50-a-*`、`uat-50-b-*`、`uat-50-t1-*` —— 均把「本仓自带 Electron」写成绝对路径，目前只能回主工作树跑。
 
 ### 生命周期：必须用 `git worktree remove` 清理
 
@@ -182,6 +226,8 @@ git worktree add .worktrees/ai-memory-gc -b feature/ai-memory-gc master
 cd .worktrees/ai-memory-gc
 
 # 2. 开发（依赖默认蹭主仓库 node_modules，无需 npm install）
+#    跑测试：纯 Node 套件直接 node tests/<name>.js；
+#    需要 Electron 的驱动带 NODE_PATH="$(npm root -g)"（见第三节「在 worktree 内跑自动化测试」）
 # 3. 定期同步主干 —— 冲突在 feature 侧解
 git merge master
 
@@ -299,6 +345,7 @@ feature 分支过长、冲突越来越难解，是「该拆了 / 该上 feature 
 - [ ] 提交信息符合 Conventional Commits
 - [ ] 单次提交只做一件事（特别是 hotfix，不含无关清理）
 - [ ] 相关测试通过；**若本分支改过 `package.json`，已在 worktree 内独立 `npm install`**
+- [ ] 需要 Electron 的驱动已在 worktree 内跑过（`NODE_PATH="$(npm root -g)" node tests/<name>.js`），未因拼绝对路径而跳测
 - [ ] hotfix 按**该发布版本**的依赖/运行时验证，不能只跑 master 当前工具链
 - [ ] 若为发布修复：已 bump `package.json` patch 版本，并准备好 tag
 - [ ] 合并后已 `git worktree remove` + `git branch -d`
@@ -378,5 +425,7 @@ git worktree add .worktrees/<简述> -b hotfix/<简述> v0.1.20
 | master 已有未发布功能时修线上 | 从**发布 tag** 建 worktree，修完仍要回合 master |
 | 该分支改了 `package.json` | 在 worktree 内独立 `npm install`，别依赖共享依赖 |
 | 能不能在仓库外建 worktree | **不能** —— Node 找不到 `node_modules`，测试全崩 |
+| 在 worktree 内跑测试 | 纯 Node 套件直接跑；需要 Electron 的驱动带 `NODE_PATH="$(npm root -g)"`，且驱动必须用裸 `require('electron')` 取二进制 |
+| 驱动报 `MODULE_NOT_FOUND` 且路径里有 `node_modules` | 它拼了绝对路径，改用裸说明符；见第三节 |
 | feature 开了三周还没合 | 拆小 或 feature flag，不要再加大同步频率 |
 | 旧版本还要继续支持 | 启用 `release/x.y`，见第九节 |
