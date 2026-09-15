@@ -48,6 +48,11 @@ CODEBUDDY.md
 # GSD code-review 的 lane 失败证据（workflows/review.md #3352/#4097：刻意不入库，
 # 提交步骤只点名 {phase}-REVIEWS.md 从不使用目录 glob；正式产物是 {phase}-REVIEW.md / -REVIEWS.md）
 .review-diagnostics/
+# GSD 阶段认领（#3311）—— advisory 的 (phase, session) 认领文件，用于避免两个会话在同一
+# 工作树跑**不同阶段**时静默覆盖 STATE.md 的单槽位 `## Current Position`；存活性按时间判
+# （TTL 4h，无 pid 判据），由 `phase.complete` 释放即删除。它是阶段**在途**期的正常产物
+# （Phase 45 曾把它入库、又被该阶段的收尾提交删除），故在此忽略而非提交
+.planning/milestone.lock
 
 # 分支 worktree（feature/hotfix 的工作目录，见 docs/dev/branching-spec.md 第三节）
 # 必须放在仓库内部才蹭得到主仓库 node_modules；同时须在 package.json build.files 里排除
