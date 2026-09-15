@@ -5712,9 +5712,319 @@ function setupSkillManageListeners() {
   if (cancelBtn) cancelBtn.addEventListener('click', () => closeSkillUninstallConfirm());
   if (okBtn) okBtn.addEventListener('click', () => { confirmSkillUninstall(); });
 
+  // 导入区（Phase 51）：同一次 setup 里接线，保持「进入页面即一次 setup」的既有形状
+  setupSkillImportListeners();
+
   loadSkillManagement();
 }
 /* Phase 50 skill-manage region: end */
+
+// ==================== 设置页「技能导入」区（Phase 51） ====================
+
+/* Phase 51 skill-import region: start */
+/*
+ * 本区（51-03）只交付**最小可用入口**：选一个 zip → `POST /api/skills/import`（raw binary）
+ * → 预览（六字段骨架）→ 确认 → 落进 `skills/<name>/`。完整弹框（两 tab / 必勾风险确认 /
+ * 冲突三选一 / 目录树与脚本清单的折叠交互 / 禁用原因行 / 专属样式）全部归 **51-06**。
+ *
+ * ## 注入纪律（硬约束，TD-48-01 未修时尤其重要）
+ *
+ * 预览里渲染的**全部字符串都来自不可信包**（技能名 / description 原文 / 目录树路径 /
+ * 文件名 / 脚本清单 / 诊断原文）。本区**零 innerHTML / insertAdjacentHTML / 字符串模板
+ * 拼 HTML** —— 整棵 DOM 用 document.createElement + textContent / el.title 构建。
+ * 属性经 DOM 属性赋值注入（不走 HTML 解析）⇒ **不扩大** escapeHtml「不转义引号」的缺口。
+ *
+ * ## 数据通道
+ *
+ * 设置页是 `realm://` guest、**没有 realmAPI** ⇒ 只能走 `/api/skills/*` + URL token。
+ * `Content-Type: application/zip` 与 `/api/*` **同源**（`main.js` 零
+ * `Access-Control-Allow-*`）⇒ `File` 可直接作 `fetch` 的 body，**无需 FileReader、
+ * 无需 base64、不触发预检**（D-01）。
+ */
+
+/** 导入弹框的模块级状态（`{ importId, preview, triggerBtn }`；`null` = 未打开） */
+let skillImportTarget = null;
+
+/** 打开 / 关闭导入弹框（初始隐藏走 CSS 类；显隐一律用 CSSOM 具体值，不用 `''` 回落） */
+function openSkillImportModal(triggerBtn) {
+  const overlay = document.getElementById('skillImportModal');
+  if (!overlay) return;
+  skillImportTarget = { importId: null, preview: null, triggerBtn: triggerBtn || null };
+  const previewEl = document.getElementById('skillImportPreview');
+  if (previewEl) previewEl.textContent = '';
+  const statusEl = document.getElementById('skillImportStatus');
+  if (statusEl) statusEl.textContent = '';
+  const confirmBtn = document.getElementById('skillImportConfirm');
+  if (confirmBtn) confirmBtn.disabled = true;
+  const fileInput = document.getElementById('skillImportFile');
+  if (fileInput) fileInput.value = '';
+  overlay.style.display = 'flex';
+  const cancelBtn = document.getElementById('skillImportCancel');
+  if (cancelBtn) cancelBtn.focus(); // 默认焦点 = 安全选项
+}
+
+function closeSkillImportModal(options = {}) {
+  const overlay = document.getElementById('skillImportModal');
+  const target = skillImportTarget;
+  skillImportTarget = null;
+  if (overlay) overlay.style.display = 'none';
+  const fileInput = document.getElementById('skillImportFile');
+  if (fileInput) fileInput.value = '';
+  if (options.restoreFocus !== false && target && target.triggerBtn && target.triggerBtn.isConnected) {
+    target.triggerBtn.focus();
+  }
+}
+
+/** 弹框内的状态行（成功 / 失败 / 处理中；与区级 hint 分开，避免 2 秒自动清空掩盖长文案） */
+function setSkillImportStatus(text, tone = '') {
+  const statusEl = document.getElementById('skillImportStatus');
+  if (!statusEl) return;
+  statusEl.textContent = text;
+  statusEl.classList.remove('skill-manage-hint-success', 'skill-manage-hint-danger');
+  if (tone === 'success') statusEl.classList.add('skill-manage-hint-success');
+  if (tone === 'danger') statusEl.classList.add('skill-manage-hint-danger');
+}
+
+/**
+ * 预览渲染（六字段骨架）—— **零 HTML 字符串模板**
+ *
+ * 字段顺序与 51-UI-SPEC 的信息层级一致（51-06 补齐折叠交互与专属样式）。
+ * 每一条不可信字符串都经 `textContent` 落 DOM。
+ *
+ * @param {object} preview - 服务端 preview 对象
+ */
+function renderSkillImportPreview(preview) {
+  const host = document.getElementById('skillImportPreview');
+  if (!host) return;
+  host.textContent = '';
+  if (!preview || typeof preview !== 'object') return;
+
+  const row = (label, value) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'skill-import-field-row';
+    const labelEl = document.createElement('span');
+    labelEl.className = 'skill-import-field-label';
+    labelEl.textContent = label;
+    const valueEl = document.createElement('span');
+    valueEl.className = 'skill-import-field-value';
+    valueEl.textContent = value;
+    wrap.appendChild(labelEl);
+    wrap.appendChild(valueEl);
+    return wrap;
+  };
+
+  // ① 名称 + 落点
+  host.appendChild(row('技能名', String(preview.name || '')));
+  host.appendChild(row('将写入', `skills/${String(preview.name || '')}/`));
+
+  // ② description 原文（不净化、不截断语义）
+  const descRow = row('描述', String(preview.description || ''));
+  const descValue = descRow.querySelector('.skill-import-field-value');
+  if (descValue) descValue.style.whiteSpace = 'pre-wrap';
+  host.appendChild(descRow);
+
+  // ③ 目录树 + 计数（截断必须显式说明总数 —— 禁静默截断）
+  const limit =
+    preview.limits && Number.isFinite(preview.limits.previewListLimit)
+      ? preview.limits.previewListLimit
+      : 50;
+  const tree = Array.isArray(preview.tree) ? preview.tree : [];
+  const shown = tree.slice(0, limit);
+  const treeBox = document.createElement('div');
+  treeBox.className = 'skill-import-tree';
+  for (const item of shown) {
+    const line = document.createElement('div');
+    line.className = item && item.kind === 'directory' ? 'skill-import-tree-row-dir' : 'skill-import-tree-row-file';
+    line.textContent = String((item && item.path) || '');
+    treeBox.appendChild(line);
+  }
+  const counts =
+    `共 ${Number(preview.fileCount) || 0} 个文件 / ${Number(preview.dirCount) || 0} 个目录` +
+    (preview.truncated ? '（清单已截断）' : '') +
+    (tree.length > shown.length ? `（下方仅显示前 ${shown.length} 项）` : '');
+  host.appendChild(row('目录', counts));
+  host.appendChild(treeBox);
+
+  // ④ 体积（累计 / 单文件最大 / 限额对照）
+  const lim = preview.limits || {};
+  const kb = (n) => `${Math.round((Number(n) || 0) / 1024)} KiB`;
+  host.appendChild(
+    row(
+      '体积',
+      `累计 ${kb(preview.bytes)}（限额 ${kb(lim.maxTotalBytes)}）· 单文件最大 ${kb(preview.maxFileBytes)}（限额 ${kb(lim.maxEntryBytes)}）`
+    )
+  );
+
+  // ⑤ 脚本清单（标红；技能不构成额外权限）
+  const scripts = Array.isArray(preview.scripts) ? preview.scripts : [];
+  const scriptBox = document.createElement('div');
+  scriptBox.className = 'skill-import-scripts';
+  const scriptTitle = document.createElement('div');
+  scriptTitle.textContent =
+    scripts.length > 0
+      ? `包含 ${scripts.length} 个脚本 / 可执行文件（受既有 bash 三档策略与确认卡片约束）`
+      : '未检测到脚本或可执行文件';
+  scriptBox.appendChild(scriptTitle);
+  for (const s of scripts.slice(0, limit)) {
+    const line = document.createElement('div');
+    line.className = 'skill-import-script-row';
+    line.textContent = String(s);
+    scriptBox.appendChild(line);
+  }
+  if (scripts.length > limit) {
+    const more = document.createElement('div');
+    more.textContent = `…其余 ${scripts.length - limit} 个未显示`;
+    scriptBox.appendChild(more);
+  }
+  host.appendChild(scriptBox);
+
+  // ⑥ 扫描结论两栏
+  const scan = preview.scan || {};
+  const injectionHit = !!(scan.injection && scan.injection.hit);
+  const heuristic = Array.isArray(scan.heuristic) ? scan.heuristic : [];
+  host.appendChild(
+    row('注入类检查', injectionHit ? '命中' : '未命中（命中会在更早阶段整包拒绝）')
+  );
+  host.appendChild(
+    row(
+      '启发式提示',
+      heuristic.length > 0
+        ? `${heuristic.length} 条待确认：${heuristic.map((h) => String((h && h.name) || '')).join('、')}`
+        : '无'
+    )
+  );
+
+  // allowed-tools（解析但**当前运行时不被强制**）
+  const at = preview.allowedTools || {};
+  host.appendChild(
+    row(
+      'allowed-tools',
+      `${at.status === 'ok' ? String((at.value || []).join(', ')) : '未声明'}（本字段在当前运行时不被强制，仅供参考）`
+    )
+  );
+
+  // 诚实边界（恒显）
+  const note = document.createElement('p');
+  note.className = 'setting-description';
+  note.textContent =
+    '以上结论都是启发式与限额判据，不是「这个技能是安全的」的背书。真正的边界是本次确认与你对本机 AI 工具的授权范围。';
+  host.appendChild(note);
+
+  // 冲突（本阶段只出 none / taken 两档；三档选择归 51-04）
+  if (preview.conflict && preview.conflict.kind === 'taken') {
+    const conflictLine = document.createElement('p');
+    conflictLine.className = 'setting-description skill-manage-hint-danger';
+    conflictLine.textContent = '已存在同名技能：覆盖 / 改名 / 取消的处置尚未启用，本次导入会被拒绝。';
+    host.appendChild(conflictLine);
+  }
+}
+
+/**
+ * 上传一个 zip 文件（preview 阶段）—— `File` 直接作 body
+ *
+ * Content-Type **显式**给出：OS 识别出的 `file.type` 可能是 `application/x-zip-compressed`，
+ * 也可能是空串，显式声明让它确定落在服务端的 raw zip 分支。
+ *
+ * @param {File} file - 用户选择的 zip 文件
+ */
+async function importZipAsSkill(file) {
+  if (!file) return;
+  const confirmBtn = document.getElementById('skillImportConfirm');
+  const pickBtn = document.getElementById('skillImportPick');
+  if (confirmBtn) confirmBtn.disabled = true;
+  if (pickBtn) pickBtn.disabled = true;
+  setSkillImportStatus('正在上传并校验…');
+  try {
+    const result = await skillsApi(
+      'import',
+      { method: 'POST', headers: { 'Content-Type': 'application/zip' }, body: file },
+      {}
+    );
+    if (!skillImportTarget) return; // 弹框在等待期间被关闭
+    skillImportTarget.importId = result && result.importId ? result.importId : null;
+    skillImportTarget.preview = result && result.preview ? result.preview : null;
+    renderSkillImportPreview(skillImportTarget.preview);
+    setSkillImportStatus('校验完成，请确认下方预览', 'success');
+    if (confirmBtn) confirmBtn.disabled = !skillImportTarget.importId;
+  } catch (err) {
+    console.error('[Realm] 技能导入预览失败:', err && err.message ? err.message : err);
+    setSkillImportStatus(skillManageErrorText(err), 'danger');
+  } finally {
+    if (pickBtn) pickBtn.disabled = false;
+  }
+}
+
+/** 提交导入（commit 阶段）—— 成功后由响应体的 `management` 投影重渲染列表 */
+async function commitSkillImport(importId) {
+  const confirmBtn = document.getElementById('skillImportConfirm');
+  if (confirmBtn) confirmBtn.disabled = true;
+  setSkillImportStatus('正在写入…');
+  try {
+    const result = await skillsApi(
+      'import',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'commit', importId }),
+      },
+      {}
+    );
+    closeSkillImportModal();
+    if (result && result.management) renderSkillManagement(result.management);
+    setSkillManageHint(`已导入技能「${(result && result.name) || ''}」`, 'success');
+  } catch (err) {
+    // 与卸载相反：**失败时弹框保持打开**，用户可就地重试（UI-SPEC 状态机）
+    console.error('[Realm] 技能导入提交失败:', err && err.message ? err.message : err);
+    setSkillImportStatus(skillManageErrorText(err), 'danger');
+    if (confirmBtn) confirmBtn.disabled = false;
+  }
+}
+
+/** 绑定导入区的全部监听（由 `setupSkillManageListeners` 调用，保持单一入口） */
+function setupSkillImportListeners() {
+  const openBtn = document.getElementById('skillImportOpen');
+  const overlay = document.getElementById('skillImportModal');
+  const fileInput = document.getElementById('skillImportFile');
+  const pickBtn = document.getElementById('skillImportPick');
+  const cancelBtn = document.getElementById('skillImportCancel');
+  const confirmBtn = document.getElementById('skillImportConfirm');
+
+  if (openBtn) openBtn.addEventListener('click', () => openSkillImportModal(openBtn));
+  if (pickBtn && fileInput) pickBtn.addEventListener('click', () => fileInput.click());
+
+  if (fileInput) {
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      try {
+        if (file) await importZipAsSkill(file);
+      } finally {
+        // 清空文件输入，保证同一文件第二次选择仍能触发 change
+        //（⚠️ `<input>` **没有** reset() 方法 —— 那是 `<form>` 的）
+        e.target.value = '';
+      }
+    });
+  }
+
+  if (overlay) {
+    // 点遮罩关闭（与既有 .ai-modal-overlay 同款）
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) closeSkillImportModal();
+    });
+    // Esc 关闭：焦点在弹框内时 keydown 冒泡到这里（无需全局监听器）
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeSkillImportModal();
+    });
+  }
+
+  if (cancelBtn) cancelBtn.addEventListener('click', () => closeSkillImportModal());
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', () => {
+      const target = skillImportTarget;
+      if (target && target.importId) commitSkillImport(target.importId);
+    });
+  }
+}
+/* Phase 51 skill-import region: end */
 
 // ==================== 初始化 ====================
 

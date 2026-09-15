@@ -415,13 +415,26 @@ describe('create 脊椎（manage_skill 主干）', () => {
     assert.ok(layered.endsWith('正文'), '剥除后正文应原样保留');
   });
 
-  test('buildSkillFileText 不引入 yaml 依赖（依赖纪律：SDK 传递依赖不得直接 require）', () => {
+  test('frontmatter 编码自持（单引号标量）：yaml 包只作读侧直接依赖、不得用于编码', () => {
     const src = readSource('ai-skills-manager.js');
+    // ① 写侧编码必须自持 —— `yamlScalar` 的函数体内不得出现 yaml 包
+    const i = src.indexOf('function yamlScalar(');
+    assert.ok(i >= 0, '缺 yamlScalar（口径失效）');
+    const body = src.slice(i, src.indexOf('\n}\n', i));
     assert.strictEqual(
-      /require\(\s*['"]yaml['"]\s*\)|from\s+['"]yaml['"]|import\(\s*['"]yaml['"]\s*\)/.test(src),
+      /require\(\s*['"]yaml['"]\s*\)/.test(body),
       false,
-      'frontmatter 编码必须自持（单引号标量），不得引入 yaml 包 —— 它是 SDK 的传递依赖且会破坏零 electron 依赖纪律'
+      'frontmatter 编码必须自持（单引号标量），不得借 yaml 包做编码'
     );
+    // ② 读侧（导入面 frontmatter 解析）自 Phase 51 D-14 起是**直接依赖**，
+    //    且只允许经唯一的惰性入口 `getYamlLazy()` 引入（恰 1 处）。
+    //    ⚠️ 本条在 51-03 前断言的是「本模块完全不出现 yaml」—— 那条纪律已被
+    //    D-14 取代（yaml 已提升为直接依赖并精确钉 2.9.0，见 51-02）。
+    const requires = src.match(/require\(\s*['"]yaml['"]\s*\)/g) || [];
+    assert.strictEqual(requires.length, 1, `require('yaml') 必须恰 1 处，实测 ${requires.length}`);
+    const at = src.indexOf("require('yaml')");
+    const lazy = src.indexOf('function getYamlLazy(');
+    assert.ok(lazy >= 0 && at > lazy, "require('yaml') 必须住在 getYamlLazy() 内（唯一惰性入口）");
   });
 });
 

@@ -16,11 +16,22 @@
  * 或映射静默失效。
  *
  * 依赖纪律：本模块**不得**有 electron 依赖、不得顶层 import SDK（SDK 为
- * ESM-only，一律用包根动态 import）；也不得直接引入 SDK 的传递依赖
- * （其 frontmatter 解析与忽略文件匹配实现只经 SDK 往返获得，不自行引入）。
+ * ESM-only，一律用包根动态 import）。
+ *
+ * **两条显式豁免（Phase 51 D-14）**——它们是本模块的**直接依赖**，不是「顺手引入
+ * SDK 的传递依赖」，不得按旧口径删掉：
+ * - `yauzl`（导入面的 zip 解析 / 解压。库自身**从不写盘**：`openReadStream()` 只给流，
+ *   落盘 100% 由 Realm 决定 ⇒ `adm-zip` CVE-2026-76845 那一类「库自己跟随预埋 symlink
+ *   写出根目录」在结构上不可能发生）。
+ * - `yaml`（导入面的 SKILL.md frontmatter 解析，**必须与 SDK 同版精确钉 2.9.0**，
+ *   否则会出现根 / 嵌套双实例的静默解析差异）。
+ * 两者都经 `getYauzlLazy()` / `getYamlLazy()` 惰性 require（与既有三件套同款，
+ * 避开模块加载顺序问题）。
  */
 
 const path = require('path');
+const fs = require('fs');
+const { pipeline } = require('stream/promises');
 
 /**
  * 技能限额单源（D-11）—— 端点、设置页前端与渲染层不得出现同类字面量。
@@ -146,6 +157,30 @@ function getAiMemoryManagerLazy() {
  */
 function getAgentWorkspaceLazy() {
   return require('./agent-workspace');
+}
+
+/**
+ * 惰性 require zip 解析库（导入面专用，D-14 的直接依赖）
+ *
+ * 为什么惰性而非顶层：与既有三件套同款，避开模块加载顺序问题；且本模块被
+ * 纯 Node 单测直接 require，惰性形态让「不碰导入面」的路径完全不付该依赖的加载成本。
+ *
+ * @returns {object} yauzl 模块导出
+ */
+function getYauzlLazy() {
+  return require('yauzl');
+}
+
+/**
+ * 惰性 require YAML 解析库（导入面 frontmatter 解析，D-14 的直接依赖，精确钉 2.9.0）
+ *
+ * 唯一消费点 `parseSkillFrontmatter` —— 只**读**，不参与写侧（写侧仍走自持的
+ * `yamlScalar`，见其 JSDoc 的理由）。
+ *
+ * @returns {object} yaml 模块导出
+ */
+function getYamlLazy() {
+  return require('yaml');
 }
 
 /** 空缓存形状（模块级唯一权威的初始值与复位值） */
@@ -2106,6 +2141,1170 @@ function _resetCacheForTest() {
   _cache = EMPTY_CACHE();
 }
 
+/* ==================== 导入面（Phase 51） ==================== */
+
+/**
+ * 导入限额单源（51 D-11 / P7）—— 端点与设置页前端**零字面量**
+ *
+ * **为什么不并入 `LIMITS`**（本模块的唯一一条加项纪律）：
+ * 1. `LIMITS` 的「只允许加项、不得改既有数值」是跨阶段冻结契约，本阶段对它是
+ *    **零改动**；六类导入限额与原五项**不是同一个量纲**（前者是压缩包 / 解压面的
+ *    资源上限，后者是技能集面的用户额度），混进去会让 Phase 50 的
+ *    `getSkillsForManagement().limits` 投影凭空多出六个数（前端与产品文档的
+ *    对照表随即漂移）。
+ * 2. 六类限额**随 preview 响应的 `limits` 字段**回传（见 `buildImportLimitsProjection`），
+ *    设置页不写任何数值。
+ *
+ * 逐条口径（升版须逐条复核）：
+ * - `MAX_ENTRY_BYTES`：**单个 entry** 解压后的字节上限（默认 1 MiB）。
+ *   与 `main.js` 的 `MAX_JSON_BODY_BYTES`（1 MiB）**同数不同量** —— 后者是 HTTP
+ *   传输层闸，前者是解压层闸，两者尺度不同、不得互相替代。
+ * - `MAX_TOTAL_BYTES`：**整包**解压后累计字节上限（32 MiB）。与 `main.js` 的
+ *   `MAX_SKILL_PACKAGE_BYTES` **同值**，但方向必须写对（CR-5）：
+ *   「**合法包**的解压总量 ≤ 32 MiB ⇒ 其**压缩后**体积必然 ≤ 32 MiB，故上传闸不会
+ *   误杀合法包」。**反向不成立** —— 实测 101,923 B 的包声明解出 104,857,600 B
+ *   ⇒ **上传闸对 zip 炸弹零贡献**，真正的两道独立闸是「压缩比闸」与「累计字节闸」。
+ * - `MAX_ENTRIES`：entry 数上限（含目录条目）。
+ * - `MAX_COMPRESSION_RATIO`：单 entry 的 `uncompressedSize / compressedSize` 上限。
+ * - `MAX_NESTING_DEPTH`：嵌套深度上限，**按「定位到的技能根」相对计**（CR-4）。
+ *   不按压缩包根计：实测 `anthropics/skills` 的 `docx` / `pptx` / `xlsx` 在包根口径下
+ *   最深处斜杠数恰为 8（正好打满 P7 建议值），而相对技能根同批文件只有 5–6 层。
+ *   取值对齐仓内先例 `SKILL_SIZE_WALK_MAX_DEPTH`（16）。该口径必须写进
+ *   `docs/product/ai-skills.md` 的限额章节，否则用户看不懂「为什么一个 6 层目录的技能被拒」。
+ * - `PREVIEW_LIST_LIMIT`：预览目录树 / 脚本清单的**默认展开条数**（超出折叠，
+ *   但**必须显式给出总数** —— 禁静默截断）。
+ * - `MAX_PENDING_IMPORTS` / `IMPORT_TTL_MS`：两阶段句柄的并发上限与存活时间
+ *   （消费点在 Phase 51 的 `ai-manager` 侧）。
+ */
+const IMPORT_LIMITS = Object.freeze({
+  MAX_ENTRY_BYTES: 1 * 1024 * 1024,
+  MAX_TOTAL_BYTES: 32 * 1024 * 1024,
+  MAX_ENTRIES: 2000,
+  MAX_COMPRESSION_RATIO: 100,
+  MAX_NESTING_DEPTH: 16,
+  PREVIEW_LIST_LIMIT: 50,
+  MAX_PENDING_IMPORTS: 3,
+  IMPORT_TTL_MS: 10 * 60 * 1000,
+});
+
+/**
+ * 导入面的错误码表（**独立命名空间**，CR-3）
+ *
+ * ## 为什么不并入 `MANAGE_SKILL_ERROR`
+ *
+ * 该表被 `tests/test-manage-skill.js` 锁死为**恰 11 键**（值集合逐字锁定，失败信息
+ * 逐字写着「不得再新立第十二键」）⇒ 加码会让 49 / 50 的账本同时漂移。
+ * 工具面（`manage_skill`）与管理 / 导入面是**两套命名空间**：导入码只经 HTTP
+ * `{ code }` 返回（设置页按 code 查文案表，**不解析 message**）。
+ *
+ * ## 本表**一次定义 20 键**（后续计划只用不增）
+ *
+ * `51-04` 只补**一个**真实缺失的原因（`INVALID_NAME`，改名非法 ⇒ 最终 21 键）——
+ * 避免「常量跨 wave 追加」造成的三处账本（常量 + `docs/product/ai-skills.md`
+ * 错误码表 + `AGENTS.md` 测试清单）反复漂移。
+ *
+ * `CONFLICT_UNRESOLVED` 是**本计划中间态专用**：`skills/<name>/` 已存在且尚未给出
+ * 冲突选择 ⇒ **拒绝**而非静默覆盖。它保证 `51-04` 之前不存在任何静默覆盖路径。
+ */
+const IMPORT_SKILL_ERROR = Object.freeze({
+  UNSUPPORTED_URL: 'unsupported_url',
+  DOWNLOAD_FAILED: 'download_failed',
+  REDIRECT_LIMIT: 'redirect_limit',
+  NOT_A_ZIP: 'not_a_zip',
+  INVALID_ZIP: 'invalid_zip',
+  UNSUPPORTED_ZIP64: 'unsupported_zip64',
+  UNDECODABLE_ENTRY: 'undecodable_entry',
+  UNSAFE_ENTRY: 'unsafe_entry',
+  LIMIT_EXCEEDED: 'limit_exceeded',
+  SKILL_ROOT_COUNT: 'skill_root_count',
+  FRONTMATTER_INVALID: 'frontmatter_invalid',
+  OVERSIZE: 'oversize',
+  INJECTION_DETECTED: 'injection_detected',
+  SEEDED_CONFLICT: 'seeded_conflict',
+  IMPORT_EXPIRED: 'import_expired',
+  IMPORT_NOT_FOUND: 'import_not_found',
+  TOO_MANY_PENDING: 'too_many_pending',
+  READBACK_FAILED: 'readback_failed',
+  UNKNOWN: 'unknown',
+  // 本计划中间态（51-04 接三档冲突事务后由它细化）
+  CONFLICT_UNRESOLVED: 'conflict_unresolved',
+});
+
+/**
+ * 构造带机器可读原因码的导入错误 —— 导入面错误对象的**唯一构造点**
+ *
+ * 与 `makeManageSkillError` 同款（业务失败一律 `throw`），但**刻意不导出**：
+ * 判定全在模块内，调用方只消费带 `code` 的错误对象（与 `makeManageSkillError` 同纪律）。
+ *
+ * 消息**不回显被拒内容原文**（49 纪律）：包内的 entry 名 / 正文一律不进 message，
+ * 只进 `extra`（`extra` 不会被 HTTP handler 序列化回客户端）。
+ *
+ * @param {string} code - 原因码（取 `IMPORT_SKILL_ERROR` 之一）
+ * @param {string} message - 中文可读原因
+ * @param {object} [extra] - 附加结构化字段（limit / currentValue / entryName 等，**不回传客户端**）
+ * @returns {Error} 带 code 的错误对象
+ */
+function makeImportError(code, message, extra = {}) {
+  const err = new Error(message);
+  err.code = code;
+  Object.assign(err, extra);
+  return err;
+}
+
+/** 脚本清单的扩展名白名单（D-13 的判据之一；另一条是 POSIX 可执行位） */
+const IMPORT_SCRIPT_EXTENSIONS = new Set([
+  '.py', '.sh', '.bash', '.zsh', '.js', '.mjs', '.cjs', '.ts', '.rb', '.pl',
+  '.php', '.ps1', '.bat', '.cmd', '.exe', '.dylib', '.so', '.node',
+]);
+
+/**
+ * 校验一个 zip entry 名是否安全 —— **自建**判据（yauzl 的 `validateFileName` 实测六类漏网）
+ *
+ * yauzl 默认只拦三类（含 `\`、盘符 / 绝对路径、`split('/').includes('..')`），
+ * 实测**放行**：NTFS ADS（`evil.txt:ads`）、控制字符（`evil\x01.txt`，UTF-8 flag 关时
+ * 还会被 CP437 解码成 `evil☺.txt`）、NUL、尾随空格与点（`evil.` / `evil `）、空段
+ *（`a//tmp/x.txt`）、RTL override（`x\u202ey/SKILL.md`）。
+ *
+ * ## 判据顺序**不可换**（顺序本身是判据）
+ *
+ * ① **先判原始字节面**：`[\x00-\x1F\x7F]`。CP437 会把 `\x01` 解码成 `☺`，
+ *    只看解码值会漏。
+ * ② 再判**解码后**含 `\`：默认 `strictFileNames:false` 时库已把 `\` 归一成 `/`，
+ *    此处判的是漏网形态（未来若显式开 `strictFileNames` 即刻生效）。
+ * ③ 取 `path.posix.normalize(decoded)` **之后**的形态判 `''` / `'.'` / `'..'` /
+ *    `'../'` 前缀 / `'/'` 前缀。**不得**用字符串 `includes('..')` ——
+ *    `a/../b` 是合法的包内相对路径，字符串判定会误杀；而 `a/b/../../../evil.txt`
+ *    归一化后才是真正的逃逸形态。
+ * ④ 盘符 `/^[A-Za-z]:/`、UNC `'//'` 前缀。
+ * ⑤ NTFS ADS（含 `:`）。
+ * ⑥ 每个路径段不得以空格或点**结尾**（Windows 会静默剥掉 ⇒ 落盘名与包内名不一致）。
+ * ⑦ 不含空段（`//`）。
+ * ⑧ 双向控制符（`\u202A-\u202E` / `\u2066-\u2069`）—— 会让显示名与实际名不一致。
+ *
+ * **空串 / 仅 `/` / 仅 `.`** 一律拒绝（SEC-03#empty），**不得静默跳过**。
+ *
+ * @param {Buffer} rawNameBuffer - entry 名的**原始字节**（`entry.fileNameRaw`）
+ * @param {string} decodedName - yauzl 解码（并已把 `\` 归一成 `/`）后的名字
+ * @returns {null | {code: string, detail: string, reason: string}} `null` = 安全
+ */
+function validateEntryName(rawNameBuffer, decodedName) {
+  const reject = (detail, reason) => ({
+    code: IMPORT_SKILL_ERROR.UNSAFE_ENTRY,
+    detail,
+    reason,
+  });
+
+  // ① 原始字节面（必须先判：CP437 会把 \x01 解码成 ☺）
+  const raw = Buffer.isBuffer(rawNameBuffer)
+    ? rawNameBuffer.toString('latin1')
+    : String(rawNameBuffer == null ? '' : rawNameBuffer);
+  if (/[\x00-\x1F\x7F]/.test(raw)) {
+    return reject('control_char_raw', '压缩包条目名含控制字符（原始字节面），已拒绝整包');
+  }
+
+  const name = String(decodedName == null ? '' : decodedName);
+
+  // ② 解码后仍含反斜杠（库归一化后的漏网形态）
+  if (name.includes('\\')) {
+    return reject('backslash', '压缩包条目名含反斜杠，已拒绝整包');
+  }
+
+  // ③ 归一化后判逃逸族与空名
+  const norm = path.posix.normalize(name);
+  if (norm === '' || norm === '.' || name === '') {
+    return reject('empty_name', '压缩包条目名为空或仅表示当前目录，已拒绝整包');
+  }
+  if (norm === '..' || norm.startsWith('../') || norm.startsWith('/')) {
+    return reject('path_escape', '压缩包条目名试图逃出解压目录，已拒绝整包');
+  }
+
+  // ④ 盘符 / UNC
+  if (/^[A-Za-z]:/.test(name)) {
+    return reject('drive_letter', '压缩包条目名含盘符，已拒绝整包');
+  }
+  if (name.startsWith('//')) {
+    return reject('unc', '压缩包条目名为 UNC 路径，已拒绝整包');
+  }
+
+  // ⑤ NTFS ADS
+  if (name.includes(':')) {
+    return reject('ntfs_ads', '压缩包条目名含 NTFS 数据流分隔符，已拒绝整包');
+  }
+
+  // ⑥ 段尾空格 / 点（Windows 会静默剥掉）—— `.` / `..` 是**路径归一化符**而非名字，
+  //    它们在 ③ 已按归一化后的形态判过，此处必须豁免（否则 `a/../b` 这种合法形态被误杀）
+  if (name.split('/').some((seg) => seg !== '.' && seg !== '..' && /[ .]$/.test(seg))) {
+    return reject('trailing', '压缩包条目名的路径段以空格或点结尾，已拒绝整包');
+  }
+
+  // ⑦ 空段
+  if (name.includes('//')) {
+    return reject('empty_segment', '压缩包条目名含空路径段，已拒绝整包');
+  }
+
+  // ⑧ 双向控制符
+  if (/[\u202A-\u202E\u2066-\u2069]/.test(name)) {
+    return reject('bidi_control', '压缩包条目名含双向控制符，已拒绝整包');
+  }
+
+  return null;
+}
+
+/**
+ * 归一化查重键（SEC-03#encoding）—— NFD + 小写
+ *
+ * 实测：`café`（NFC，U+00E9）与 `cafe\u0301`（NFD）在 NFD 归一化后**相等**，
+ * 而二者在同一个 zip 里可共存且都能通过 yauzl 的校验 ⇒ 落盘时后写的静默覆盖先写的
+ *（名字碰撞覆盖）。
+ *
+ * 判据对象是**归一化值**，不是原始字节或码点个数。
+ *
+ * @param {string} name - entry 名
+ * @returns {string} 查重键
+ */
+function normalizedEntryKey(name) {
+  return String(name == null ? '' : name).normalize('NFD').toLowerCase();
+}
+
+/** 首部 YAML frontmatter 块（读侧；与写侧的 `LEADING_FRONTMATTER_RE` 判据同一形状） */
+const IMPORT_FRONTMATTER_RE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
+
+/**
+ * 解析 SKILL.md 的 YAML frontmatter（导入面专用，D-14）
+ *
+ * ## 为什么必须自行解析（而不是等 SDK）
+ *
+ * 实测四种形态会让「落盘成功但整条被加载管线跳过」的**幽灵技能**成立：
+ * - `description: Use this: for stuff` ⇒ `yaml` 抛 `Nested mappings are not allowed…`
+ *   ⇒ SDK 记为 `parse_failed` 并**丢弃整条技能**；
+ * - `description: has # hash` ⇒ **静默截断**成 `has`（不报错、不告警）；
+ * - 缺 `description` ⇒ SDK 直接丢弃整条；
+ * - 顶层是数组 / 标量（`parse('')` 返回 `null`）⇒ 取 `.name` 得 `undefined`。
+ *
+ * 因此本函数把解析失败当**硬错误**（调用方据此整包拒绝），而不是警告。
+ *
+ * ## 类型检查是硬要求
+ *
+ * `parse()` 的返回值可能是 `null`（空文本）、数组（顶层序列）、标量 ⇒ 必须显式判
+ * 「非 null 对象且非数组」才继续。
+ *
+ * `allowed-tools` 归一化：字符串（逗号分隔）或数组 ⇒ 字符串数组；`null` / 缺失 ⇒ `null`。
+ *
+ * @param {string} text - SKILL.md 全文
+ * @returns {{ok: true, name: string|null, description: string, allowedTools: string[]|null}
+ *           | {ok: false, code: string, reason: string}}
+ */
+function parseSkillFrontmatter(text) {
+  const raw = String(text == null ? '' : text);
+  const m = IMPORT_FRONTMATTER_RE.exec(raw);
+  if (!m) {
+    return {
+      ok: false,
+      code: IMPORT_SKILL_ERROR.FRONTMATTER_INVALID,
+      reason: '技能文件缺少 YAML frontmatter（文件必须以 --- 开头并以 --- 收尾）',
+    };
+  }
+
+  let parsed;
+  try {
+    parsed = getYamlLazy().parse(m[1]);
+  } catch (err) {
+    // `YAMLParseError.message` 自带 line/column —— 直接作为可读原因（不回显被拒原文）
+    return {
+      ok: false,
+      code: IMPORT_SKILL_ERROR.FRONTMATTER_INVALID,
+      reason: `技能 frontmatter 解析失败：${err && err.message ? err.message : String(err)}`,
+    };
+  }
+
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {
+      ok: false,
+      code: IMPORT_SKILL_ERROR.FRONTMATTER_INVALID,
+      reason: '技能 frontmatter 必须是非空的键值映射（当前为空、数组或标量）',
+    };
+  }
+
+  const name = typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name : null;
+
+  const descRaw = parsed.description;
+  const description = typeof descRaw === 'string' ? descRaw : null;
+  if (description === null || description.trim() === '') {
+    return {
+      ok: false,
+      code: IMPORT_SKILL_ERROR.FRONTMATTER_INVALID,
+      reason: '技能 frontmatter 缺少可用的 description（加载管线会整条丢弃该技能）',
+    };
+  }
+
+  let allowedTools = null;
+  const at = parsed['allowed-tools'];
+  if (typeof at === 'string') {
+    allowedTools = at.split(',').map((s) => s.trim()).filter(Boolean);
+  } else if (Array.isArray(at)) {
+    allowedTools = at.map((s) => String(s)).filter(Boolean);
+  }
+  // `null` / 其它类型 ⇒ 视为缺失（不做猜测）
+
+  return { ok: true, name, description, allowedTools };
+}
+
+/**
+ * 由 frontmatter 与技能根相对路径推导**落盘目录名**
+ *
+ * 优先级：`frontmatter.name` → 技能根的目录 basename。
+ * 两者都拿不到合法值 ⇒ 失败。
+ *
+ * **必须过 `validateManagedSkillName`（复用那一份，绝不写第二份正则）** ——
+ * 这是「写入门严、读入门宽」不对称的写侧半边（D-06）；拒绝原因原样带出。
+ *
+ * 目录名**一律以本函数返回的 name 命名**（`skills/<name>/`），**绝不使用包内原始
+ * 目录名拼路径**（P5 第 2 条：那又是一个注入点）。
+ *
+ * @param {{name: string|null}} frontmatter - `parseSkillFrontmatter` 的成功结果
+ * @param {string} rootRel - 技能根相对包根的 posix 相对路径（'' 表示包根）
+ * @returns {{ok: true, name: string} | {ok: false, code: string, reason: string}}
+ */
+function deriveImportName(frontmatter, rootRel) {
+  const fromFm = frontmatter && typeof frontmatter.name === 'string' ? frontmatter.name.trim() : '';
+  const fromDir = rootRel ? path.posix.basename(String(rootRel)) : '';
+  const candidate = fromFm || fromDir;
+  if (!candidate) {
+    return {
+      ok: false,
+      code: IMPORT_SKILL_ERROR.FRONTMATTER_INVALID,
+      reason: '无法确定技能名：frontmatter 未声明 name，且技能根目录名不可用',
+    };
+  }
+  const check = validateManagedSkillName(candidate);
+  if (!check.ok) return { ok: false, code: check.code, reason: check.reason };
+  return { ok: true, name: candidate.trim() };
+}
+
+/** 目录存在且是目录（Node fs 版；`env.exists` 对普通文件也返回 true，不能用来判目录） */
+function isExistingDir(p) {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** 存在且是普通文件 */
+function isExistingFile(p) {
+  try {
+    return fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** 绝对路径 → 包根相对的 posix 路径 */
+function toPosixRelative(base, target) {
+  const rel = path.relative(base, target);
+  return rel ? rel.split(path.sep).join('/') : '';
+}
+
+/**
+ * 逐 entry 解压 + 校验（**导入面唯一的解压入口**，T-51-22）
+ *
+ * ## 实现硬约束（全部来自实测，改实现前必须重新实测）
+ *
+ * - **开流必须在 `for await` 循环体内**：`eachEntry()` 的 async iterator 在 `return()`
+ *   （`break` / 循环自然结束）时执行 `cleanup()`，其中 `if (self.autoClose) self.close()`
+ *   ⇒ 「先枚举收集数组、循环外再 `openReadStream`」**100% 得 `Error: closed`**。
+ * - **`validateFileName` 不够**：六类实测漏网 ⇒ 自建 `validateEntryName`（含原始字节面）。
+ * - **`uncompressedSize === 0xFFFFFFFF` 完全静默**（缺 zip64 extra field 时不报错）⇒
+ *   显式判 `=== 0xFFFFFFFF` 即拒绝，否则 4 GiB 的荒谬值会参与压缩比运算。
+ * - **`validateEntrySizes` 不能替代自建计数器**：stored 条目在枚举期报错，deflate 的
+ *   在**流中**才报（实测已流过 16 KiB）。
+ * - **写盘用 Node `fs`（不是沙箱 `env.writeFile`）**（D-04）：yauzl 给的是流；
+ *   symlink 判定与「最近已存在祖先 realpath」复核都要在写**之前**自己控制；
+ *   解压目标是 `mkdtemp` 出来的全新空目录（前缀内不可能有预埋链接）。
+ *
+ * @param {string} zipPath - 包文件绝对路径
+ * @param {{destDir: string}} params - 解压目标（调用方保证已创建）
+ * @returns {Promise<Array<{name: string, isDirectory: boolean, bytes?: number}>>} 接受的条目
+ * @throws {Error} 任一条目不合格 ⇒ **拒绝整包**（code 取 `IMPORT_SKILL_ERROR`）
+ */
+async function readSkillPackageEntries(zipPath, { destDir } = {}) {
+  const yauzl = getYauzlLazy();
+  const zf = await yauzl.openPromise(zipPath);
+  const entries = [];
+  const seenKeys = new Map();
+  let count = 0;
+  let totalBytes = 0;
+
+  try {
+    for await (const entry of zf.eachEntry()) {
+      // 闸 ① entry 数
+      count += 1;
+      if (count > IMPORT_LIMITS.MAX_ENTRIES) {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.LIMIT_EXCEEDED,
+          `压缩包条目数超过上限：限额 ${IMPORT_LIMITS.MAX_ENTRIES} 个，当前已超过该值`,
+          { limit: 'MAX_ENTRIES', limitValue: IMPORT_LIMITS.MAX_ENTRIES, currentValue: count }
+        );
+      }
+
+      // 闸 ② entry 名（必须先判原始字节面）
+      const rawName = Buffer.isBuffer(entry.fileNameRaw)
+        ? entry.fileNameRaw
+        : Buffer.from(String(entry.fileName), 'utf8');
+      const nameCheck = validateEntryName(rawName, entry.fileName);
+      if (nameCheck) {
+        throw makeImportError(nameCheck.code, nameCheck.reason, {
+          detail: nameCheck.detail,
+          entryName: entry.fileName,
+        });
+      }
+
+      // 闸 ③ 归一化查重（NFD + 小写）—— 同包内两个 entry 归一化后相等 ⇒ 拒绝整包
+      const key = normalizedEntryKey(entry.fileName);
+      if (seenKeys.has(key)) {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.UNSAFE_ENTRY,
+          '压缩包内存在归一化后同名的条目（大小写或 Unicode 形式冲突），已拒绝整包',
+          { detail: 'name_conflict', entryName: entry.fileName, conflictWith: seenKeys.get(key) }
+        );
+      }
+      seenKeys.set(key, entry.fileName);
+
+      // 闸 ④ symlink / 非普通文件（先看 versionMadeBy 高字节 === 3 再看 mode）
+      const unixKind =
+        entry.versionMadeBy >>> 8 === 3 ? (entry.externalFileAttributes >>> 16) & 0xf000 : 0;
+      if (unixKind === 0xa000) {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.UNSAFE_ENTRY,
+          '压缩包内含符号链接条目，已拒绝整包（不跳过该条目）',
+          { detail: 'symlink_entry', entryName: entry.fileName }
+        );
+      }
+      if (unixKind !== 0 && unixKind !== 0x8000 && unixKind !== 0x4000) {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.UNSAFE_ENTRY,
+          '压缩包内含非普通文件条目（设备 / FIFO / socket），已拒绝整包',
+          { detail: 'special_file', entryName: entry.fileName }
+        );
+      }
+
+      // 闸 ⑤ zip64 声明特例（缺 extra field 时静默停在 0xFFFFFFFF）
+      if (entry.uncompressedSize === 0xffffffff || entry.compressedSize === 0xffffffff) {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.UNSUPPORTED_ZIP64,
+          '压缩包条目的尺寸声明为 ZIP64 占位值（0xFFFFFFFF）而无 ZIP64 扩展字段，已拒绝整包',
+          { entryName: entry.fileName }
+        );
+      }
+
+      // 闸 ⑥ 单 entry 字节闸（central-directory 声明值预检）
+      if (entry.uncompressedSize > IMPORT_LIMITS.MAX_ENTRY_BYTES) {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.LIMIT_EXCEEDED,
+          `压缩包单个条目超过上限：限额 ${IMPORT_LIMITS.MAX_ENTRY_BYTES} 字节，该条目声明 ${entry.uncompressedSize} 字节`,
+          {
+            limit: 'MAX_ENTRY_BYTES',
+            limitValue: IMPORT_LIMITS.MAX_ENTRY_BYTES,
+            currentValue: entry.uncompressedSize,
+            entryName: entry.fileName,
+          }
+        );
+      }
+
+      // 闸 ⑦ 压缩比闸（**独立于累计字节闸**，CR-5：上传闸对炸弹零贡献）
+      if (
+        entry.uncompressedSize > 0 &&
+        entry.compressedSize > 0 &&
+        entry.uncompressedSize / entry.compressedSize > IMPORT_LIMITS.MAX_COMPRESSION_RATIO
+      ) {
+        const ratio = entry.uncompressedSize / entry.compressedSize;
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.LIMIT_EXCEEDED,
+          `压缩包条目压缩比超过上限：限额 ${IMPORT_LIMITS.MAX_COMPRESSION_RATIO}:1，该条目实测约 ${Math.round(ratio)}:1`,
+          {
+            limit: 'MAX_COMPRESSION_RATIO',
+            limitValue: IMPORT_LIMITS.MAX_COMPRESSION_RATIO,
+            currentValue: Math.round(ratio),
+            entryName: entry.fileName,
+          }
+        );
+      }
+
+      // 闸 ⑧ 累计字节闸（声明值预检）
+      if (totalBytes + entry.uncompressedSize > IMPORT_LIMITS.MAX_TOTAL_BYTES) {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.LIMIT_EXCEEDED,
+          `压缩包解压总量超过上限：限额 ${IMPORT_LIMITS.MAX_TOTAL_BYTES} 字节，当前累计将达 ${totalBytes + entry.uncompressedSize} 字节`,
+          {
+            limit: 'MAX_TOTAL_BYTES',
+            limitValue: IMPORT_LIMITS.MAX_TOTAL_BYTES,
+            currentValue: totalBytes + entry.uncompressedSize,
+          }
+        );
+      }
+      totalBytes += entry.uncompressedSize;
+
+      const isDirectory = entry.fileName.endsWith('/');
+      if (isDirectory) {
+        fs.mkdirSync(path.join(destDir, entry.fileName), { recursive: true });
+        entries.push({ name: entry.fileName, isDirectory: true });
+        continue;
+      }
+
+      // 闸 ⑨ 加密 / 不支持的压缩方法
+      if (!entry.canDecodeFileData()) {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.UNDECODABLE_ENTRY,
+          '压缩包内含加密条目或使用不支持的压缩方法，已拒绝整包',
+          { entryName: entry.fileName }
+        );
+      }
+
+      const target = path.join(destDir, entry.fileName);
+      // 纵深：词法路径必须仍在 destDir 内（`validateEntryName` 已保证，第二道）
+      if (target !== destDir && !target.startsWith(destDir + path.sep)) {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.UNSAFE_ENTRY,
+          '压缩包条目落点越出解压目录，已拒绝整包',
+          { detail: 'lexical_escape', entryName: entry.fileName }
+        );
+      }
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+
+      // 闸 ⑩ 流内兜底：`validateEntrySizes` 对 deflate 条目是**流中**才报错
+      //（实测已流过 16 KiB），不能替代自建计数器 ⇒ 边写边累加，超限即撕流。
+      const rs = await zf.openReadStreamPromise(entry);
+      let written = 0;
+      try {
+        await pipeline(
+          rs,
+          async function* (source) {
+            for await (const chunk of source) {
+              written += chunk.length;
+              if (written > IMPORT_LIMITS.MAX_ENTRY_BYTES) {
+                throw makeImportError(
+                  IMPORT_SKILL_ERROR.LIMIT_EXCEEDED,
+                  `压缩包单个条目超过上限：限额 ${IMPORT_LIMITS.MAX_ENTRY_BYTES} 字节（流内实测已超出）`,
+                  {
+                    limit: 'MAX_ENTRY_BYTES',
+                    limitValue: IMPORT_LIMITS.MAX_ENTRY_BYTES,
+                    currentValue: written,
+                    entryName: entry.fileName,
+                  }
+                );
+              }
+              yield chunk;
+            }
+          },
+          fs.createWriteStream(target)
+        );
+      } catch (err) {
+        if (err && err.code === IMPORT_SKILL_ERROR.LIMIT_EXCEEDED) {
+          try {
+            rs.destroy();
+          } catch {
+            /* 已结束 */
+          }
+        }
+        // 半成品不得留下（解压失败即整包拒绝）
+        try {
+          fs.rmSync(target, { force: true });
+        } catch {
+          /* 未创建 */
+        }
+        throw err;
+      }
+
+      entries.push({ name: entry.fileName, isDirectory: false, bytes: written });
+    }
+  } finally {
+    try {
+      zf.close();
+    } catch {
+      /* 已关闭（eachEntry 的 autoClose / 异常路径） */
+    }
+  }
+
+  return entries;
+}
+
+/**
+ * 解析「包根」——剥离 GitHub zipball 的**恒定顶层前缀**
+ *
+ * 实测：GitHub zipball 恒包一层 `<repo>-<ref>/`；**不剥**会解出
+ * `skills-main/skills/foo/SKILL.md`（幽灵技能来源之一），且 URL 显式子路径
+ * （`scopeRel`）无处可落。
+ *
+ * ## 剥离判据（刻意保守：只剥「恰一个顶层目录」且必须有助于定位）
+ *
+ * - 顶层不是「恰一个目录」⇒ 不剥（多顶层目录一定是多技能包的形态，交给 `locateSkillRoot` 拒绝）。
+ * - 给了 `scopeRel` ⇒ 只在「不剥时该子路径不存在、剥一层后存在」时剥（**唯一无歧义判据**）。
+ * - 未给 `scopeRel` ⇒ 只在「包根自身没有 SKILL.md」时剥一层（多剥一层不影响
+ *   `locateSkillRoot` 的全包扫描结果，但能让 `rootRel` 更短、预览更可读）。
+ *
+ * @param {string} pkgRoot - 解压目录（`<importDir>/pkg`）
+ * @param {string|null} scopeRel - URL 显式子路径（本地上传为 null）
+ * @returns {{root: string, prefixStripped: boolean}}
+ */
+function resolvePackageRoot(pkgRoot, scopeRel) {
+  let tops = [];
+  try {
+    tops = fs.readdirSync(pkgRoot, { withFileTypes: true });
+  } catch {
+    return { root: pkgRoot, prefixStripped: false };
+  }
+  if (tops.length !== 1 || !tops[0].isDirectory()) return { root: pkgRoot, prefixStripped: false };
+  const prefixed = path.join(pkgRoot, tops[0].name);
+
+  if (scopeRel) {
+    const direct = path.join(pkgRoot, scopeRel);
+    const shifted = path.join(prefixed, scopeRel);
+    if (!isExistingDir(direct) && isExistingDir(shifted)) {
+      return { root: prefixed, prefixStripped: true };
+    }
+    return { root: pkgRoot, prefixStripped: false };
+  }
+
+  if (isExistingFile(path.join(pkgRoot, 'SKILL.md'))) {
+    return { root: pkgRoot, prefixStripped: false };
+  }
+  return { root: prefixed, prefixStripped: true };
+}
+
+/**
+ * 解压 + 全树校验（**三条来源共用的准备段**）
+ *
+ * ## 入参契约（先行定死，`51-05` 复用同一形状）
+ *
+ * **调用方**负责建 `importDir`（`fs.mkdtempSync(path.join(getTmpDir(), 'skill-import-'))`）
+ * 并把包写到 `<importDir>/pkg.zip`；本函数只做 ① 解压到 `<importDir>/pkg/`、
+ * ② 剥恒定顶层前缀、③ 调 `readSkillPackageEntries`、④ 返回 `{ importDir, pkgRoot, entries }`。
+ *
+ * **不得**用 `os.tmpdir()`、**不得**用 `path.join(__dirname, …)`、**不得**在本函数内再建
+ * 一个临时根（临时根的创建只在调用方一处）—— 这是「只经访问器拿路径」的硬约束
+ * （自己拼路径会落到沙箱之外，随即失去 `env.renameFile` 的双基准保护且可能 EXDEV）。
+ *
+ * ⚠️ 与之并列的 `prepareFromRawFile({ importDir, name, text })` 由 `51-05` 交付，
+ * 它把单文件写进 `<importDir>/pkg/<name>/SKILL.md` 并返回**同一个 `pkgRoot` 形状**
+ * ⇒ 两条准备路径之后的**全树校验 / 技能根定位 / 预览 / 落盘必须是同一段代码**。
+ *
+ * @param {object} env - 沙箱 ExecutionEnv（本段尚未用到，保持签名与落盘段一致）
+ * @param {{importDir: string, scopeRel?: string|null}} params
+ * @returns {Promise<{importDir: string, pkgRoot: string, entries: Array<object>, prefixStripped: boolean}>}
+ * @throws {Error} 解压或任一条目校验失败（code 取 `IMPORT_SKILL_ERROR`）
+ */
+async function extractAndValidatePackage(env, { importDir, scopeRel = null } = {}) {
+  void env;
+  const zipPath = path.join(importDir, 'pkg.zip');
+  const pkgRoot = path.join(importDir, 'pkg');
+  // 目录必须先建（`fs.mkdirSync(..., { recursive: true })`）
+  fs.mkdirSync(pkgRoot, { recursive: true });
+
+  let entries;
+  try {
+    entries = await readSkillPackageEntries(zipPath, { destDir: pkgRoot });
+  } catch (err) {
+    // yauzl 的打开 / 枚举期失败折叠成显式码（不回显底层 message 之外的原文）
+    if (err && err.code && Object.values(IMPORT_SKILL_ERROR).includes(err.code)) throw err;
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.INVALID_ZIP,
+      `压缩包无法解析（不是有效的 zip 或缺中央目录）：${err && err.message ? err.message : String(err)}`
+    );
+  }
+
+  const resolved = resolvePackageRoot(pkgRoot, scopeRel);
+  return { importDir, pkgRoot: resolved.root, entries, prefixStripped: resolved.prefixStripped };
+}
+
+/**
+ * 定位技能根（**同步、纯 fs 只读**）
+ *
+ * 优先级（命中 **0 个或 > 1 个** ⇒ 拒绝并给**可操作**提示）：
+ * ① `scopeRel` 非空 ⇒ 限域到该子路径（地址里的路径必须真实存在）；
+ * ② 限域目录下**直接**有 `SKILL.md` ⇒ 该目录为根；
+ * ③ 否则**全包扫描**收集所有「任意深度」的 `SKILL.md`——**不得限定 `skills/`**
+ *   （CR-7 实测：`anthropics/skills` 的 `template/SKILL.md` 位于**包根**，只扫 `skills/`
+ *   会漏）；
+ * ④ 命中数 ≠ 1 ⇒ `SKILL_ROOT_COUNT`，message 含**实测条目数**、一个**可直接复制**的
+ *   `tree/<ref>/<path>` 示例，并在 `> 1` 时列出（最多 20 个）根路径。
+ *
+ * ⚠️ 多技能拒绝文案里必须给出 `tree/<ref>/<path>` 形态（CR-8）：`find-skills` 给出的
+ * 候选**正是** GitHub 仓库 URL，用户必须自己补子路径；**处置走拒绝文案，不改内置技能
+ * 正文** —— 改 `skills-builtin/**` 会连带触发 `THIRD_PARTY_NOTICES.md` 五要素同步与
+ * 零安装语义扫描，成本远高于文案。
+ *
+ * @param {string} pkgRoot - 包根（已剥前缀）
+ * @param {string|null} scopeRel - URL 显式子路径
+ * @returns {{rootRel: string, skillRootAbs: string}}
+ * @throws {Error} 0 个 / 多个技能根（code: `skill_root_count`）
+ */
+function locateSkillRoot(pkgRoot, scopeRel) {
+  const base = scopeRel ? path.join(pkgRoot, scopeRel) : pkgRoot;
+  if (!isExistingDir(base)) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.SKILL_ROOT_COUNT,
+      `地址中的路径在包内不存在或不是目录：${scopeRel}。请确认该地址指向技能目录`
+    );
+  }
+
+  const baseRel = scopeRel ? toPosixRelative(pkgRoot, base) : '';
+  if (isExistingFile(path.join(base, 'SKILL.md'))) {
+    return { rootRel: baseRel, skillRootAbs: base };
+  }
+
+  const hits = [];
+  const walk = (dir, rel, depth) => {
+    if (depth > SKILL_SIZE_WALK_MAX_DEPTH) return;
+    let items = [];
+    try {
+      items = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const it of items) {
+      if (it.isSymbolicLink()) continue; // 解压段已拒绝链接；此处只作纵深兜底
+      const childRel = rel ? `${rel}/${it.name}` : it.name;
+      if (it.isDirectory()) {
+        walk(path.join(dir, it.name), childRel, depth + 1);
+        continue;
+      }
+      if (it.name === 'SKILL.md') hits.push(childRel);
+    }
+  };
+  walk(base, baseRel, 0);
+
+  const roots = hits.map((h) => path.posix.dirname(h)).sort();
+  const example = 'https://github.com/<owner>/<repo>/tree/<ref>/<path>';
+
+  if (hits.length === 0) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.SKILL_ROOT_COUNT,
+      `包内未找到 SKILL.md：技能根数量应为 1，实测 0。请确认该地址指向一个技能目录（例如 ${example}）`
+    );
+  }
+  if (hits.length > 1) {
+    const listed = roots.slice(0, 20).join('、');
+    const more = roots.length > 20 ? ` 等共 ${roots.length} 个` : '';
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.SKILL_ROOT_COUNT,
+      `该地址包含 ${hits.length} 个技能，请改用指向具体技能目录的地址。例如：${example}` +
+        `（实测技能根：${listed}${more}）`,
+      { count: hits.length, roots: roots.slice(0, 20) }
+    );
+  }
+
+  const rootRel = path.posix.dirname(hits[0]);
+  return {
+    rootRel: rootRel === '.' ? '' : rootRel,
+    skillRootAbs: path.join(pkgRoot, rootRel === '.' ? '' : rootRel),
+  };
+}
+
+/** 单条 entry 是否算「脚本」（扩展名白名单 **或** POSIX 可执行位，D-13） */
+function isScriptEntry(name, absPath) {
+  if (IMPORT_SCRIPT_EXTENSIONS.has(path.extname(String(name || '')).toLowerCase())) return true;
+  try {
+    return (fs.lstatSync(absPath).mode & 0o111) !== 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 预览统计（**一次遍历**产出目录树 / 计数 / 字节 / 深度 / 脚本清单）
+ *
+ * ## 三条口径
+ *
+ * - **同一父节点下目录在前**，同级按路径字符串的 **UTF-16 码元序**（JS `<` / `>`）。
+ *   **不用 `localeCompare`** —— 它随机器 locale 变，会破坏预览可复现性。
+ * - `bytes` **只累加 `kind === 'file'`**（目录的 `size` 是 inode 数据，不得累加）。
+ * - `depth` **按技能根相对计**（CR-4）：root 下的直接文件 = 1 层。
+ *
+ * ## 两道护栏（禁静默截断）
+ *
+ * - **嵌套深度**：超过 `IMPORT_LIMITS.MAX_NESTING_DEPTH` ⇒ **硬拒绝**
+ *   （`LIMIT_EXCEEDED`，message 含「嵌套深度」、当前深度与限额）。这是 T-51-13 的
+ *   深度闸，判据锚在**技能根相对**这个唯一正确口径上。
+ * - **条目数**：超过 `SKILL_SIZE_WALK_MAX_ENTRIES` ⇒ 停止遍历并带 `truncated: true`
+ *   （读盘阶段已按 `MAX_ENTRIES` 更早拒绝，这里是纵深兜底；**不得**静默截断）。
+ *
+ * @param {object} env - 沙箱 ExecutionEnv（本函数用 Node `fs` 直读解压产物，参数保持签名一致）
+ * @param {string} pkgRoot - 包根
+ * @param {string} rootRel - 技能根相对包根
+ * @returns {Promise<{tree: Array<{path: string, kind: string}>, fileCount: number, dirCount: number,
+ *                    bytes: number, maxFileBytes: number, depth: number, scripts: string[],
+ *                    truncated: boolean}>}
+ */
+async function collectPreviewStats(env, pkgRoot, rootRel) {
+  void env;
+  const rootAbs = rootRel ? path.join(pkgRoot, rootRel) : pkgRoot;
+  const tree = [];
+  const scripts = [];
+  let fileCount = 0;
+  let dirCount = 0;
+  let bytes = 0;
+  let maxFileBytes = 0;
+  let depth = 0;
+  let truncated = false;
+  let seen = 0;
+
+  const walk = (dir, rel, level) => {
+    if (truncated) return;
+    let items = [];
+    try {
+      items = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    items.sort((a, b) => {
+      const ad = a.isDirectory() ? 0 : 1;
+      const bd = b.isDirectory() ? 0 : 1;
+      if (ad !== bd) return ad - bd;
+      // UTF-16 码元序（< > 运算符），**不用 localeCompare**
+      return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+    });
+    for (const it of items) {
+      if (truncated) return;
+      seen += 1;
+      if (seen > SKILL_SIZE_WALK_MAX_ENTRIES) {
+        truncated = true;
+        return;
+      }
+      const childRel = rel ? `${rel}/${it.name}` : it.name;
+      if (it.isSymbolicLink()) continue; // 统计跳过（与 measureSkillDir 同款；拒绝判据在解压段）
+      if (it.isDirectory()) {
+        const childDepth = level + 1;
+        if (childDepth > IMPORT_LIMITS.MAX_NESTING_DEPTH) {
+          throw makeImportError(
+            IMPORT_SKILL_ERROR.LIMIT_EXCEEDED,
+            `技能目录嵌套深度超过上限：限额 ${IMPORT_LIMITS.MAX_NESTING_DEPTH} 层（按技能根相对计），当前 ${childDepth} 层`,
+            {
+              limit: 'MAX_NESTING_DEPTH',
+              limitValue: IMPORT_LIMITS.MAX_NESTING_DEPTH,
+              currentValue: childDepth,
+            }
+          );
+        }
+        dirCount += 1;
+        tree.push({ path: childRel, kind: 'directory' });
+        walk(path.join(dir, it.name), childRel, childDepth);
+        continue;
+      }
+      const segs = childRel.split('/').length;
+      if (segs > IMPORT_LIMITS.MAX_NESTING_DEPTH) {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.LIMIT_EXCEEDED,
+          `技能目录嵌套深度超过上限：限额 ${IMPORT_LIMITS.MAX_NESTING_DEPTH} 层（按技能根相对计），当前 ${segs} 层`,
+          {
+            limit: 'MAX_NESTING_DEPTH',
+            limitValue: IMPORT_LIMITS.MAX_NESTING_DEPTH,
+            currentValue: segs,
+          }
+        );
+      }
+      if (segs > depth) depth = segs;
+      const abs = path.join(dir, it.name);
+      let size = 0;
+      try {
+        size = fs.lstatSync(abs).size;
+      } catch {
+        size = 0;
+      }
+      fileCount += 1;
+      bytes += size;
+      if (size > maxFileBytes) maxFileBytes = size;
+      if (isScriptEntry(it.name, abs)) scripts.push(childRel);
+      tree.push({ path: childRel, kind: 'file' });
+    }
+  };
+
+  walk(rootAbs, '', 0);
+  scripts.sort();
+
+  return { tree, fileCount, dirCount, bytes, maxFileBytes, depth, scripts, truncated };
+}
+
+/**
+ * 导入限额的 camelCase 数值投影（`preview.limits`，**前端零字面量的唯一来源**）
+ *
+ * 合并 `IMPORT_LIMITS`（八项）与 `LIMITS` 的两项（`SKILL.md` 字节闸 / 用户技能数量闸）——
+ * 这两项是**导入面真实会拒绝**的既有闸口，设置页需要展示对照值，但**不得**自己写数值。
+ *
+ * @returns {object} camelCase 数值表
+ */
+function buildImportLimitsProjection() {
+  return {
+    maxEntryBytes: IMPORT_LIMITS.MAX_ENTRY_BYTES,
+    maxTotalBytes: IMPORT_LIMITS.MAX_TOTAL_BYTES,
+    maxEntries: IMPORT_LIMITS.MAX_ENTRIES,
+    maxCompressionRatio: IMPORT_LIMITS.MAX_COMPRESSION_RATIO,
+    maxNestingDepth: IMPORT_LIMITS.MAX_NESTING_DEPTH,
+    previewListLimit: IMPORT_LIMITS.PREVIEW_LIST_LIMIT,
+    maxPendingImports: IMPORT_LIMITS.MAX_PENDING_IMPORTS,
+    importTtlMs: IMPORT_LIMITS.IMPORT_TTL_MS,
+    maxSkillMdBytes: LIMITS.MAX_SKILL_MD_BYTES,
+    maxUserSkills: LIMITS.MAX_USER_SKILLS,
+  };
+}
+
+/** 沙箱上判「存在且是目录」（`env.exists` 对普通文件也返回 true，不能用来判目录） */
+async function envDirExists(env, p) {
+  const info = await env.fileInfo(p);
+  return !!(info && info.ok === true && info.value && info.value.kind === 'directory');
+}
+
+/** user 来源技能数（`MAX_USER_SKILLS` 的统计对象；读盘统计，失败按 0 计） */
+async function countUserSkills(env, skillsDir) {
+  const entries = await env.listDir(skillsDir);
+  if (!entries || entries.ok !== true || !Array.isArray(entries.value)) return 0;
+  return entries.value.filter((entry) => entry && entry.kind === 'directory').length;
+}
+
+/**
+ * 组装导入预览（D-13 的六字段骨架）
+ *
+ * `description` 是**原文**（不净化、不截断语义）：`sanitizeSkillDescription` 只作用于
+ * **落盘时写进 frontmatter** 的值 —— 预览的意义正是让用户判断净化是否误伤。
+ *
+ * `scan.injection` 恒为 `{ hit: false }`：注入类命中在**更早的阶段**就整包拒绝了
+ * （`51-05` 接的硬拒判据），到了这里不可能是 `true`。
+ *
+ * `conflict` 本计划**只出** `{ kind: 'none' }` 或 `{ kind: 'taken' }`
+ * （后者由调用方在 `51-04` 细化为覆盖 / 改名 / 取消三档）。
+ *
+ * @param {object} env - 沙箱 ExecutionEnv
+ * @param {{pkgRoot: string, rootRel: string, origin?: string, seededNames?: string[]|Set<string>}} params
+ * @returns {Promise<object>} 预览对象
+ * @throws {Error} frontmatter / 技能名 / 深度 / 统计失败
+ */
+async function buildImportPreview(env, { pkgRoot, rootRel, origin = 'zip', seededNames } = {}) {
+  void seededNames;
+  const skillRootAbs = rootRel ? path.join(pkgRoot, rootRel) : pkgRoot;
+  const skillMdPath = path.join(skillRootAbs, 'SKILL.md');
+
+  let text;
+  try {
+    text = fs.readFileSync(skillMdPath, 'utf8');
+  } catch (err) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.FRONTMATTER_INVALID,
+      `无法读取技能文件 SKILL.md：${err && err.message ? err.message : String(err)}`
+    );
+  }
+
+  const fm = parseSkillFrontmatter(text);
+  if (!fm.ok) throw makeImportError(fm.code, fm.reason);
+
+  const derived = deriveImportName(fm, rootRel);
+  if (!derived.ok) throw makeImportError(derived.code, derived.reason);
+
+  const stats = await collectPreviewStats(env, pkgRoot, rootRel);
+
+  const skillsDir = getAgentWorkspaceLazy().getSkillsDir();
+  const taken = await envDirExists(env, path.join(skillsDir, derived.name));
+
+  return {
+    name: derived.name,
+    description: fm.description,
+    tree: stats.tree,
+    fileCount: stats.fileCount,
+    dirCount: stats.dirCount,
+    bytes: stats.bytes,
+    maxFileBytes: stats.maxFileBytes,
+    depth: stats.depth,
+    scripts: stats.scripts,
+    truncated: stats.truncated,
+    // 注入类命中在更早阶段整包拒绝；技能域启发式由 Phase 51 的威胁扫描填充
+    scan: { injection: { hit: false }, heuristic: [] },
+    allowedTools: {
+      status: fm.allowedTools ? 'ok' : 'missing',
+      value: fm.allowedTools,
+    },
+    conflict: taken ? { kind: 'taken' } : { kind: 'none' },
+    limits: buildImportLimitsProjection(),
+    origin,
+    rootRel,
+  };
+}
+
+/**
+ * **三种来源唯一的落盘实现**（D-03 / D-07 / T-51-21）
+ *
+ * ## 唯一性是可机械检查的不变式
+ *
+ * zip 上传、网络 zipball、直链 SKILL.md 三条来源全部汇入**这一个函数**；分流只发生在
+ * **入参解析层**。判据（源码扫描）：`importUserSkill(` 在全仓恰 2 处出现 ——
+ * `ai-skills-manager.js` 的定义 1 处 + `ai-manager.js` 的调用 1 处，
+ * `main.js` 与 `src/settings-page.js` 各 0 处。
+ *
+ * ## 步骤顺序（与 `createManagedSkill` 的九步同构）
+ *
+ * ① seeded 同名 ⇒ `SEEDED_CONFLICT`（**拒绝、不提供覆盖**，P3 / SEC-07 字面）；
+ * ② `skills/<name>/` 已存在 ⇒ 本计划返回 `CONFLICT_UNRESOLVED`（**不静默覆盖**；
+ *    `51-04` 在这里接三档事务）；
+ * ③ `managed-skills/<name>/` 已存在 ⇒ 不覆盖（`51-04` 给「永久遮蔽」提示）；
+ * ④ 数量闸（`MAX_USER_SKILLS`，**读盘**统计，失败按 0 计）；
+ * ⑤ **组装后全文的 64 KiB 闸** —— 导入**不重写文件** ⇒ 判据对象 = 包内 `SKILL.md` 的
+ *    **实际字节数**。49 的不变式是「写侧权威字节闸口的判据对象 = 组装后的全文」，
+ *    导入路径不组装 ⇒ **包内文件即组装结果**（两侧判的是同一个量）；
+ * ⑥ `env.renameFile(<srcDir>, <skillsDir>/<name>)`（同设备、原子；`.tmp/` 与 `skills/`
+ *    同沙箱 root ⇒ 无 EXDEV）；
+ * ⑦ **回读验证**：`refreshSkills` 恰一次后确认该 name 出现在快照里且 `filePath` 指向
+ *    `skills/`；不在 ⇒ 把刚移入的目录 `rename` 回 `srcDir` 并抛 `READBACK_FAILED`
+ *   （`extra.diagnostics` 带**含 path** 的诊断原文）。**不提供「部分导入」**。
+ *
+ * ## 路径恒由 `path.join` 计算，目录名一律用**校验后的 name**
+ *
+ * 绝不用包内原始目录名拼路径（P5 第 2 条 —— 那是一个注入点）。
+ *
+ * @param {object} env - 沙箱 ExecutionEnv
+ * @param {{srcDir: string, name: string, conflict?: string, newName?: string}} params
+ *   `conflict` / `newName` 为 `51-04` 的三档冲突事务预留（本计划**只走无冲突路径**）
+ * @param {{seededNames?: string[]|Set<string>}} [inject] - seeded 集合由**调用方注入**
+ *   （`ai-skills-manager` 保持零 electron 依赖，见 D-11 的注入式签名纪律）
+ * @returns {Promise<{name: string, source: string, bytes: number, files: number,
+ *                    scripts: string[], scan: object, warnings: Array<object>,
+ *                    allowedTools: object}>}
+ * @throws {Error} 任一拒绝路径（带 `code`）
+ */
+async function importUserSkill(env, { srcDir, name, conflict, newName } = {}, { seededNames } = {}) {
+  // 本计划只交付「无同名冲突」路径；三档冲突（覆盖 / 改名 / 取消）与落点事务归 51-04
+  void conflict;
+  void newName;
+
+  const nameCheck = validateManagedSkillName(name);
+  if (!nameCheck.ok) throw makeImportError(nameCheck.code, nameCheck.reason);
+  const skillName = name.trim();
+
+  const workspace = getAgentWorkspaceLazy();
+  const skillsDir = workspace.getSkillsDir();
+  const managedDir = workspace.getManagedSkillsDir();
+  const destDir = path.join(skillsDir, skillName);
+
+  // ① seeded 同名 —— 拒绝导入、不提供覆盖
+  if (isSeededName(skillName, seededNames)) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.SEEDED_CONFLICT,
+      `"${skillName}" 是随包内置技能名，受保护、不能被导入覆盖。请改用其它技能名`
+    );
+  }
+
+  // ② 同名用户技能存在 ⇒ 本阶段拒绝（51-04 接三档事务）
+  if (await envDirExists(env, destDir)) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.CONFLICT_UNRESOLVED,
+      `已存在同名用户技能 "${skillName}"：覆盖 / 改名 / 取消的处置尚未启用，导入已停止（未改动任何文件）`
+    );
+  }
+
+  // ③ 同名 AI 自建（managed）技能存在 ⇒ 不允许覆盖（导入只管 skills/）
+  if (await envDirExists(env, path.join(managedDir, skillName))) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.CONFLICT_UNRESOLVED,
+      `已存在同名 AI 创建技能 "${skillName}"：导入后将永久遮蔽它，该处置尚未启用，导入已停止（未改动任何文件）`
+    );
+  }
+
+  // ④ 数量闸（读盘统计）
+  const userCount = await countUserSkills(env, skillsDir);
+  if (userCount >= LIMITS.MAX_USER_SKILLS) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.LIMIT_EXCEEDED,
+      `用户技能数量已达上限：限额 ${LIMITS.MAX_USER_SKILLS} 个（当前 ${userCount} 个）。请先卸载不再使用的技能`,
+      { limit: 'MAX_USER_SKILLS', limitValue: LIMITS.MAX_USER_SKILLS, currentValue: userCount }
+    );
+  }
+
+  // ⑤ 权威字节闸：包内 SKILL.md 的**实际字节数**即「组装后的全文」
+  const skillMdPath = path.join(srcDir, 'SKILL.md');
+  let mdBytes = 0;
+  let mdText = '';
+  try {
+    mdBytes = fs.statSync(skillMdPath).size;
+    mdText = fs.readFileSync(skillMdPath, 'utf8');
+  } catch (err) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.FRONTMATTER_INVALID,
+      `技能目录内缺少可读的 SKILL.md：${err && err.message ? err.message : String(err)}`
+    );
+  }
+  if (mdBytes > LIMITS.MAX_SKILL_MD_BYTES) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.OVERSIZE,
+      `技能文件超过上限：限额 ${LIMITS.MAX_SKILL_MD_BYTES} 字节，当前 ${mdBytes} 字节（按整文件计）`,
+      { limit: 'MAX_SKILL_MD_BYTES', limitValue: LIMITS.MAX_SKILL_MD_BYTES, currentValue: mdBytes }
+    );
+  }
+
+  const fm = parseSkillFrontmatter(mdText);
+  const allowedTools = {
+    status: fm.ok && fm.allowedTools ? 'ok' : 'missing',
+    value: fm.ok ? fm.allowedTools : null,
+  };
+
+  const stats = await collectPreviewStats(env, path.dirname(srcDir), path.basename(srcDir));
+
+  // ⑥ 落盘：同设备原子 rename（目录级）
+  const renamed = await env.renameFile(srcDir, destDir);
+  if (!renamed || renamed.ok !== true) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.UNKNOWN,
+      `技能落盘失败（沙箱码 ${sandboxErrorCode(renamed)}）`
+    );
+  }
+
+  // ⑦ 回读验证（P12 / D-10）：失败即回滚，不提供「部分导入」
+  let readbackOk = false;
+  let diagnostics = [];
+  try {
+    await refreshSkills(env, { rootDirs: [managedDir, skillsDir] });
+    const snap = getSkillsSnapshot();
+    diagnostics = Array.isArray(snap.diagnostics) ? snap.diagnostics : [];
+    readbackOk = snap.skills.some(
+      (entry) =>
+        entry &&
+        entry.skill &&
+        entry.skill.name === skillName &&
+        typeof entry.skill.filePath === 'string' &&
+        entry.skill.filePath.startsWith(skillsDir + path.sep)
+    );
+  } catch (err) {
+    diagnostics = [
+      { level: 'error', code: 'realm_skill_readback_threw', message: String(err && err.message ? err.message : err) },
+    ];
+    readbackOk = false;
+  }
+
+  if (!readbackOk) {
+    // 回滚：把刚移入的目录搬回临时区（「不提供部分导入」）
+    await env.renameFile(destDir, srcDir);
+    const detail = diagnostics
+      .filter((d) => d && typeof d.path === 'string' && d.path.startsWith(destDir))
+      .map((d) => d.message)
+      .join('；');
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.READBACK_FAILED,
+      detail
+        ? `技能已写入但回读验证失败，已回滚：${detail}`
+        : '技能已写入但回读验证失败（加载管线未识别该技能），已回滚',
+      { diagnostics: diagnostics.filter((d) => d && typeof d.path === 'string' && d.path.startsWith(destDir)) }
+    );
+  }
+
+  return {
+    name: skillName,
+    source: 'zip',
+    bytes: stats.bytes,
+    files: stats.fileCount,
+    scripts: stats.scripts,
+    scan: { injection: { hit: false }, heuristic: [] },
+    warnings: diagnostics.filter(
+      (d) => d && typeof d.path === 'string' && d.path.startsWith(destDir)
+    ),
+    allowedTools,
+  };
+}
+
 module.exports = {
   LIMITS,
   refreshSkills,
@@ -2141,5 +3340,21 @@ module.exports = {
   validateSkillNameForManagement,
   validateDisabledListForSettings,
   MAX_DISABLED_SKILLS,
+  // 51 新增（导入面：限额 / 错误码 / entry 名校验 / frontmatter 解析 / 解压校验 /
+  //          技能根定位 / 预览 / **唯一落盘实现**）
+  // 注：makeImportError 与 makeManageSkillError 同款**刻意不导出** —— 判定全在模块内，
+  //     调用方只消费带 `code` 的错误对象。
+  IMPORT_LIMITS,
+  IMPORT_SKILL_ERROR,
+  validateEntryName,
+  normalizedEntryKey,
+  parseSkillFrontmatter,
+  deriveImportName,
+  readSkillPackageEntries,
+  extractAndValidatePackage,
+  locateSkillRoot,
+  collectPreviewStats,
+  buildImportPreview,
+  importUserSkill,
   _resetCacheForTest,
 };

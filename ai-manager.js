@@ -18,6 +18,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { webContents, BrowserWindow } = require('electron');
 const tabManager = require('./tab-manager');
 const historyManager = require('./history-manager');
@@ -723,6 +724,15 @@ class AIManager {
     this._sdkFileTools = null;
     /** @type {Object|null} 沙箱 ExecutionEnv（文件/Bash 工具共用） */
     this.sandboxEnv = null;
+    /**
+     * @type {Map<string, {dir: string, srcDir: string, preview: object, createdAt: number, origin: string}>}
+     *
+     * 技能导入的两阶段句柄表（Phase 51 D-02）—— **不透明 `importId` 而非路径**：
+     * 客户端永远不能指定落点，这是接口设计边界（镜像 ARCHITECTURE Anti-Pattern 1，
+     * 沙箱兜不住后续任何一处疏漏）。preview 阶段建临时目录并登记，commit 阶段只收
+     * `importId`。TTL 清扫与并发上限由 51-04 消费 `IMPORT_LIMITS` 落地。
+     */
+    this._skillImports = new Map();
     /**
      * @type {boolean} 忙时收到的技能集变更标记（D-03）
      *
@@ -1700,6 +1710,157 @@ class AIManager {
 
     // ⑤ 返回删除结果 + 最新投影
     return { ...result, management: this.getSkillsForManagement() };
+  }
+
+  /**
+   * 技能导入 **preview 阶段**（Phase 51 D-02）—— 解压 + 校验 + 六字段预览
+   *
+   * ## 转发层纪律（零判定）
+   *
+   * 解压 / 校验 / 技能根定位 / 预览组装 / 限额全部住 `ai-skills-manager.js`
+   * （技能集单一数据权威，零 electron 依赖）。本方法只做三件事：建临时目录、
+   * 把包落到 `<importDir>/pkg.zip`、登记句柄。**在这里加工一份就是第二份实现**。
+   *
+   * ## 为什么上传路径也要写盘（D-01 / D-07）
+   *
+   * 三种来源（zip 上传 / 网络 zipball / 直链 SKILL.md 包装包）**必须共用同一条解压
+   * 入口**（`extractAndValidatePackage`）。上传分支改走 `yauzl.fromBufferPromise`
+   * 能省一次 ≤ 32 MiB 的临时写，但会让「三条来源共用一条解压入口」这条判据**结构上
+   * 不成立**（源码扫描 `yauzl.openPromise(` 恰 1 处会失效），且 32 MiB Buffer 要在
+   * 内存里存两份。代价换来的是把「只有一个落盘实现」从口号变成代码形状。
+   *
+   * ## 失败即清理
+   *
+   * preview 任何一步失败都要把 `importDir` 整个删掉（否则 `.tmp/` 会随每次失败解压
+   * 累积垃圾）。**用户可见的失败文案里不得出现临时路径** —— 错误消息由
+   * `ai-skills-manager` 给出，本方法只做清理与转发。
+   *
+   * @param {{kind: 'zip'|'url', buffer?: Buffer, url?: string}} params
+   * @returns {Promise<{importId: string, preview: object}>}
+   * @throws {Error} 解压 / 校验失败（带 `code`）；`kind: 'url'` 在本阶段抛 `unsupported_url`
+   */
+  async previewSkillImport({ kind, buffer, url } = {}) {
+    if (kind === 'url') {
+      // 网络地址来源由 51-05 交付（URL 分流 + 逐跳白名单 + 流式下载 + magic bytes）。
+      // 本阶段给**真实失败**而不是占位静默 —— 设置页据此给出可读文案。
+      void url;
+      const err = new Error('网络地址导入尚未启用，请改用「本地上传」选择 zip 文件');
+      err.code = 'unsupported_url';
+      throw err;
+    }
+    if (kind !== 'zip') {
+      const err = new Error('不支持的导入来源');
+      err.code = 'unsupported_url';
+      throw err;
+    }
+    if (!Buffer.isBuffer(buffer)) {
+      const err = new Error('上传内容为空或不是二进制数据');
+      err.code = 'not_a_zip';
+      throw err;
+    }
+
+    const workspace = getAgentWorkspaceLazy();
+    const env = this.sandboxEnv || (this.sandboxEnv = await workspace.createSandboxEnv());
+    // 临时根**只在这里建一次**（`importDir` 契约：调用方建根并写 `<importDir>/pkg.zip`，
+    // `extractAndValidatePackage` 不得自建第二个临时根）
+    const importDir = fs.mkdtempSync(path.join(workspace.getTmpDir(), 'skill-import-'));
+
+    try {
+      fs.writeFileSync(path.join(importDir, 'pkg.zip'), buffer);
+
+      const skillsManager = getAiSkillsManagerLazy();
+      const prepared = await skillsManager.extractAndValidatePackage(env, {
+        importDir,
+        scopeRel: null,
+      });
+      const located = skillsManager.locateSkillRoot(prepared.pkgRoot, null);
+      const preview = await skillsManager.buildImportPreview(env, {
+        pkgRoot: prepared.pkgRoot,
+        rootRel: located.rootRel,
+        origin: 'zip',
+        seededNames: this.getSeededSkillNamesSafe(),
+      });
+
+      const importId = crypto.randomUUID();
+      this._skillImports.set(importId, {
+        dir: importDir,
+        srcDir: located.skillRootAbs,
+        preview,
+        createdAt: Date.now(),
+        origin: 'zip',
+      });
+      return { importId, preview };
+    } catch (err) {
+      try {
+        await env.remove(importDir, { recursive: true, force: true });
+      } catch {
+        /* 清理失败不遮蔽原始错误 */
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * 技能导入 **commit 阶段**（Phase 51 D-02 / D-19）—— 落盘 + 重扫 + 补播
+   *
+   * ## 落盘是唯一实现（`ai-skills-manager.importUserSkill`）
+   *
+   * 本方法**不含任何落盘 / 落点校验逻辑**（源码判据：`importUserSkill(` 在
+   * `ai-manager.js` 恰 1 处，`main.js` 与前端各 0 处）。
+   *
+   * ## 收口次数账（与 `uninstallUserSkill` / `setSkillDisabled` 同一套）
+   *
+   * `await this.ensureSkillsFresh()` **恰一次** + **调用侧**
+   * `windowManager.broadcast('skills:changed')` **恰一次**。补播的理由覆盖
+   * `syncAgentSystemPrompt()` 的 `isProcessing || streaming` 分支「只置脏、return、
+   * 不广播」：设置页点「导入确认」**不经过 Agent 轮次**，用户若不再发消息，
+   * `/` 面板会一直显示旧技能集。**禁止**把这行挪进 `syncAgentSystemPrompt()` 的
+   * 函数体（46-04 的方法体源码扫描断言与 48 的广播次数断言同时钉着它）。
+   *
+   * ## 句柄未命中与过期
+   *
+   * `importId` 不在表里 ⇒ `import_not_found`（文案「预览已失效，请重新选择文件」）；
+   * TTL 判定与清扫由 51-04 接（本阶段建表即含 `createdAt`，不静默失败）。
+   *
+   * @param {{importId: string, conflict?: string, newName?: string}} params
+   * @returns {Promise<object>} 导入报告 + `management`（最新管理面投影）
+   * @throws {Error} 句柄失效 / 任一拒绝路径（带 `code`，由调用方按 code 查文案表）
+   */
+  async commitSkillImport({ importId, conflict, newName } = {}) {
+    const record = this._skillImports.get(importId);
+    if (!record) {
+      const err = new Error('导入预览已失效，请重新选择文件');
+      err.code = 'import_not_found';
+      throw err;
+    }
+
+    const env = this.sandboxEnv || (this.sandboxEnv = await getAgentWorkspaceLazy().createSandboxEnv());
+
+    // 落盘：判据 / 校验 / 两段 rename / 回读验证全在 manager
+    const report = await getAiSkillsManagerLazy().importUserSkill(
+      env,
+      {
+        srcDir: record.srcDir,
+        name: record.preview && record.preview.name,
+        conflict,
+        newName,
+      },
+      { seededNames: this.getSeededSkillNamesSafe() }
+    );
+
+    // 成功出口收口：重扫恰一次 + 调用侧补播恰一次
+    await this.ensureSkillsFresh();
+    windowManager.broadcast('skills:changed');
+
+    // 成功后立刻清句柄与临时目录（D-02 的生命周期要求）
+    this._skillImports.delete(importId);
+    try {
+      await env.remove(record.dir, { recursive: true, force: true });
+    } catch (err) {
+      console.warn('[Realm AI] 清理技能导入临时目录失败:', err && err.message ? err.message : err);
+    }
+
+    return { ...report, management: this.getSkillsForManagement() };
   }
 
   /**

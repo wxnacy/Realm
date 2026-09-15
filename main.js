@@ -888,6 +888,19 @@ app.whenReady().then(async () => {
   const MAX_JSON_BODY_BYTES = 1024 * 1024;
   const MAX_JSON_BODY_BYTES_LARGE = 32 * 1024 * 1024;
 
+  // 技能包上传的体积上限（Phase 51 D-01，单源常量；端点与前端零字面量）
+  //
+  // ⚠️ 与 `MAX_JSON_BODY_BYTES_LARGE`（书签导入专用）**同数不同量**：前者是技能 zip 包
+  //    的 raw binary body 上限，后者是书签文件全文的 JSON body 上限。命名必须区分。
+  // ⚠️ 与 P7 的「单 entry 解压 ≤ 1 MB」同理是**同数不同量**的不同层闸口。
+  //
+  // 与解压侧的 `IMPORT_LIMITS.MAX_TOTAL_BYTES`（32 MiB）同值，方向必须写对（CR-5）：
+  // 「**合法包**的解压总量 ≤ 32 MiB ⇒ 其**压缩后**体积必然 ≤ 32 MiB，故本闸不会误杀
+  // 合法包」。**反向不成立** —— 实测一个 101,923 B 的包声明解出 104,857,600 B
+  // ⇒ **本闸对 zip 炸弹防护零贡献**，真正的两道独立闸是「压缩比闸」与「累计字节闸」
+  //（都在 `ai-skills-manager.readSkillPackageEntries` 里）。
+  const MAX_SKILL_PACKAGE_BYTES = 32 * 1024 * 1024;
+
   /**
    * 发送 JSON 响应
    *
@@ -972,6 +985,68 @@ app.whenReady().then(async () => {
         } catch (err) {
           reject(err);
         }
+      });
+      req.on('error', reject);
+    });
+  }
+
+  /**
+   * 读取 POST 请求的**原始二进制** body（带体积上限，Phase 51 D-01）
+   *
+   * 与 `readJsonBody` 的唯一差异是 `chunks.push(chunk)` + `Buffer.concat(chunks)`
+   * （二进制），**不是**字符串拼接。三条教训逐条照抄，缺一即回归：
+   * 1. **累积中拒收**：`if (rejected) return;` **先于**累加 size（顺序即判据）。
+   * 2. **不断连**：超限走 `req.resume()` 排水，**不** `req.destroy()`（实测客户端会拿到
+   *    EPIPE 而非 413）、**不**设 `Connection: close`。两条禁令在源码里由
+   *    `tests/test-skills-http-api.js` 的负向 token 判据钉着（判据先剥注释再判）。
+   * 3. **`res` 缺失时只 reject**（降级分支）：全仓没有 `uncaughtException` /
+   *    `unhandledRejection` 全局兜底 ⇒ 对 `undefined` 调 `sendJson` 会 `TypeError`
+   *    ⇒ Electron 主进程直接退出。
+   *
+   * **禁止**「先 `arrayBuffer()` 再判大小」—— 那已经吃掉内存；ROADMAP 判据 5 的判据
+   * 对象是「**不无上限读入内存**」。内存上界**如实**为 `maxBytes`（≈32 MiB）：body 最终
+   * 要累积成一个 Buffer 交给解压段，这是有界增长，**不得**声称「零堆增长」。
+   *
+   * @param {http.IncomingMessage} req - 请求对象
+   * @param {http.ServerResponse} [res] - 响应对象（漏传 ⇒ 只 reject，不答响应）
+   * @param {{maxBytes?: number}} [options] - `maxBytes` 缺省取 `MAX_SKILL_PACKAGE_BYTES`
+   * @returns {Promise<Buffer>} 原始 body 字节
+   */
+  function readRawBody(req, res, { maxBytes = MAX_SKILL_PACKAGE_BYTES } = {}) {
+    // 能力探测：`res` 的存在性与 `writeHead` 的能力**两个原始条件都要判**
+    const canRespond = !!(res && typeof res.writeHead === 'function');
+    return new Promise((resolve, reject) => {
+      const chunks = [];
+      let size = 0;
+      let rejected = false;
+      const tooLarge = () => {
+        rejected = true;
+        if (canRespond) {
+          sendJson(res, 413, { error: '请求体超过上限（' + maxBytes + ' 字节）', limit: maxBytes });
+          req.resume(); // 停止累积、把剩余流排空（内存 O(1) 且 413 可达）
+        }
+      };
+      // 快路径：`Content-Length` 预检（零字节读取即拒）。
+      // ⚠️ 该头可伪造 / 可缺失 ⇒ 只作加速，**不得**取代下面的累积中判（那才是唯一判据）。
+      const declared = Number(req.headers['content-length']);
+      if (Number.isFinite(declared) && declared > maxBytes) {
+        tooLarge();
+        reject(Object.assign(new Error('请求体超过上限'), { code: 'BODY_TOO_LARGE', limit: maxBytes }));
+        return;
+      }
+      req.on('data', (chunk) => {
+        if (rejected) return; // 停止累积（关键：不再 push，堆不随 body 线性增长）
+        size += chunk.length;
+        if (size > maxBytes) {
+          tooLarge();
+          reject(Object.assign(new Error('请求体超过上限'), { code: 'BODY_TOO_LARGE', limit: maxBytes }));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      req.on('end', () => {
+        if (rejected) return;
+        resolve(Buffer.concat(chunks));
       });
       req.on('error', reject);
     });
@@ -2877,6 +2952,75 @@ app.whenReady().then(async () => {
         }
         const { name } = await readJsonBody(req, res);
         sendJson(res, 200, await aiManager.uninstallUserSkill(name));
+        return;
+      }
+
+      // 技能导入（Phase 51 D-03）—— 一个路由按 `Content-Type` / `mode` 分流。
+      //
+      // 三条分支：① `application/zip`（含 `x-zip-compressed` / `octet-stream`）⇒ raw
+      // 上传 → 解压校验 → `{ importId, preview }`；② `application/json` + `mode: 'url'`
+      // ⇒ 网络下载（51-05）→ **同一**解压校验管线；③ `mode: 'commit'` ⇒ 落盘。
+      //
+      // **分流只发生在本入参解析层**（D-03 的全部理由）：三种来源必须汇进同一个校验 +
+      // 落盘函数，把分流做在这里才让「只有一个落盘实现」成为**可机械检查**的源码判据。
+      // 本段仍是**零判定转发层**：不得出现 `kind ===` 之外的领域判定素材
+      //（`isSeededName` / `managed-skills` 一律不得出现），Content-Type 与 `mode` 的
+      // 入参解析是唯一允许的一层。
+      //
+      // ⚠️ body 上限**必须显式声明**（50 D-16 的交接要求）：形状是「默认小 + 需大者
+      //    显式放大」，让「忘了声明」在 413 处当场可见。zip 分支显式放大；JSON 分支
+      //    （url / commit 两个小载荷）同样走显式值以免被 1 MiB 默认闸静默截断。
+      if (route === 'import' && req.method === 'POST') {
+        if (!aiManager) {
+          sendJson(res, 503, { error: 'AI 服务尚未就绪' });
+          return;
+        }
+        const contentType = String(req.headers['content-type'] || '')
+          .split(';')[0]
+          .trim()
+          .toLowerCase();
+        const RAW_ZIP_TYPES = [
+          'application/zip',
+          'application/x-zip-compressed',
+          'application/octet-stream',
+        ];
+
+        if (RAW_ZIP_TYPES.includes(contentType)) {
+          const buf = await readRawBody(req, res, { maxBytes: MAX_SKILL_PACKAGE_BYTES });
+          sendJson(res, 200, await aiManager.previewSkillImport({ kind: 'zip', buffer: buf }));
+          return;
+        }
+
+        if (contentType === 'application/json') {
+          const body = await readJsonBody(req, res, { maxBytes: MAX_SKILL_PACKAGE_BYTES });
+          const mode = body && body.mode;
+          if (mode === 'url') {
+            sendJson(res, 200, await aiManager.previewSkillImport({ kind: 'url', url: body.url }));
+            return;
+          }
+          if (mode === 'commit') {
+            sendJson(
+              res,
+              200,
+              await aiManager.commitSkillImport({
+                importId: body.importId,
+                conflict: body.conflict,
+                newName: body.newName,
+              })
+            );
+            return;
+          }
+          // 未识别的 mode：显式码而非让 readJsonBody 的解析失败伪装成 400
+          sendJson(res, 400, { error: '不支持的导入模式', code: 'unsupported_url' });
+          return;
+        }
+
+        // 其它 Content-Type：显式三分支之一（T-51-20），**不得**把非 JSON body 喂给
+        // JSON.parse 产生误导性错误。码取闭合码表内的 unsupported_url。
+        sendJson(res, 400, {
+          error: '不支持的请求内容类型，请使用 application/zip 或 application/json',
+          code: 'unsupported_url',
+        });
         return;
       }
 

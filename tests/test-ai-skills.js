@@ -880,7 +880,14 @@ describe('诊断与限额（SKILL-06/07）', () => {
     const src = readSource('ai-skills-manager.js');
     assert.ok(src.includes('fixedOverhead'), '应存在固定开销测量量');
     assert.ok(src.includes('entryCost'), '应存在逐条差量成本函数');
-    assert.strictEqual(src.includes('localeCompare'), false, '不得用 localeCompare（跨机 ICU 漂移 → 前缀缓存漂移）');
+    // 判据是「**调用** localeCompare」而不是「源码里出现这个词」：自 Phase 51 起，
+    // 导入面的目录树排序必须**如实登记**「不用 localeCompare（随机器 locale 变）」
+    // 这条口径 ⇒ 注释里出现该词是预期行为，不得据此转红。
+    assert.strictEqual(
+      /\.localeCompare\s*\(/.test(src),
+      false,
+      '不得**调用** localeCompare（跨机 ICU 漂移 → 前缀缓存漂移）'
+    );
     assert.strictEqual(
       src.includes('The following skills provide'), false,
       '不得手写 SDK 的可用技能段前言（自拼等于复制 SDK 模板，升级即漂移）'
@@ -1146,14 +1153,21 @@ describe('模块级缓存 + 同步访问器（SKILL-03）', () => {
 });
 
 describe('依赖纪律（源码扫描）', () => {
-  const YAML_OR_IGNORE_REQUIRE = /require\(\s*['"](yaml|ignore)['"]\s*\)/;
+  const IGNORE_REQUIRE_RE = /require\(\s*['"]ignore['"]\s*\)/;
+  const YAML_REQUIRE_RE = /require\(\s*['"]yaml['"]\s*\)/;
   const HARNESS_SUBPATH_RE = /pi-agent-core\/harness\//;
 
+  /*
+   * ⚠️ 本组在 51-03 前把 `yaml` 与 `ignore` **同列**为「SDK 的传递依赖，不得直接 require」。
+   * Phase 51 的 D-14 把 `yaml` 提升为**直接依赖**（与 SDK 同版精确钉 `2.9.0`，见 51-02），
+   * 因此 `yaml` 从禁令里移出、改为「只允许经唯一惰性入口 `getYamlLazy()` 引入」；
+   * `ignore` 仍在禁令内（它没有任何直接消费点）。
+   */
   for (const file of ['ai-skills-manager.js', 'ai-manager.js']) {
-    test(`${file} 不含 YAML / ignore 库直接 require，也不含 SDK harness 子路径导入`, () => {
+    test(`${file} 不含 ignore 库直接 require，也不含 SDK harness 子路径导入`, () => {
       const src = readSource(file);
       assert.strictEqual(
-        YAML_OR_IGNORE_REQUIRE.test(src), false,
+        IGNORE_REQUIRE_RE.test(src), false,
         `${file} 不得直接 require SDK 的传递依赖（换包管理器会 MODULE_NOT_FOUND）`
       );
       assert.strictEqual(
@@ -1163,9 +1177,24 @@ describe('依赖纪律（源码扫描）', () => {
     });
   }
 
+  test('yaml 是直接依赖：只经 getYamlLazy() 引入，且只住在 ai-skills-manager.js', () => {
+    const src = readSource('ai-skills-manager.js');
+    const hits = src.match(YAML_REQUIRE_RE) || [];
+    assert.strictEqual(hits.length, 1, `ai-skills-manager.js 的 require('yaml') 必须恰 1 处，实测 ${hits.length}`);
+    assert.ok(
+      src.indexOf("require('yaml')") > src.indexOf('function getYamlLazy('),
+      "require('yaml') 必须住在 getYamlLazy() 内（唯一惰性入口）"
+    );
+    assert.strictEqual(
+      YAML_REQUIRE_RE.test(readSource('ai-manager.js')), false,
+      'ai-manager.js 不得直接 require yaml（判定与解析都住 ai-skills-manager.js）'
+    );
+  });
+
   test('依赖纪律断言本身有效（自校验：能命中注入的样本）', () => {
-    assert.strictEqual(YAML_OR_IGNORE_REQUIRE.test("const y = require('yaml');"), true);
-    assert.strictEqual(YAML_OR_IGNORE_REQUIRE.test('const i = require("ignore");'), true);
+    assert.strictEqual(IGNORE_REQUIRE_RE.test('const i = require("ignore");'), true);
+    assert.strictEqual(YAML_REQUIRE_RE.test("const y = require('yaml');"), true);
+    assert.strictEqual(YAML_REQUIRE_RE.test("const y = require('yamlx');"), false, '必须词边界精确');
     assert.strictEqual(
       HARNESS_SUBPATH_RE.test("import('@earendil-works/pi-agent-core/harness/skills')"), true
     );
