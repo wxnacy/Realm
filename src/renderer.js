@@ -2330,6 +2330,12 @@ function initShortcuts() {
           webview.reload();
         }
         break;
+      case 'hardReload':
+        const hardReloadWebview = state.webviews.get(state.activeTabId);
+        if (hardReloadWebview) {
+          hardReloadWebview.reloadIgnoringCache();
+        }
+        break;
       case 'back':
         const backWebview = state.webviews.get(state.activeTabId);
         if (backWebview && backWebview.canGoBack()) {

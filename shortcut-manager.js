@@ -85,6 +85,7 @@ const DEFAULT_SHORTCUTS = {
   'nextTab': 'CmdOrCtrl+Shift+]',
   'prevTab': 'CmdOrCtrl+Shift+[',
   'reload': 'CmdOrCtrl+R',
+  'hardReload': 'CmdOrCtrl+Shift+R',
   'back': 'CmdOrCtrl+Left',
   'forward': 'CmdOrCtrl+Right',
   'bookmark': 'CmdOrCtrl+D',

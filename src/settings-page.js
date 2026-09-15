@@ -847,6 +847,7 @@ const SHORTCUT_NAMES = {
   'nextTab': '下一个标签页',
   'prevTab': '上一个标签页',
   'reload': '刷新页面',
+  'hardReload': '强制刷新页面',
   'back': '后退',
   'forward': '前进',
   'bookmark': '收藏此页面',
@@ -864,7 +865,7 @@ const SHORTCUT_NAMES = {
  */
 const SHORTCUT_GROUPS = {
   '标签页操作': ['newTab', 'closeTab', 'nextTab', 'prevTab'],
-  '导航操作': ['reload', 'back', 'forward'],
+  '导航操作': ['reload', 'hardReload', 'back', 'forward'],
   '收藏': ['bookmark', 'openFavorites'],
   '浏览': ['openHistory'],
   '其他': ['openSettings', 'toggleSidebar', 'focusPage', 'setDefaultBrowser', 'quickSaveCookies'],
