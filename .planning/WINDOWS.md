@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 39
+open_count: 42
 waived_count: 0
 fixed_count: 2
-total_count: 41
-last_updated: 2026-09-15T07:56:57.770Z
+total_count: 44
+last_updated: 2026-09-15T08:16:02.270Z
 ---
 
 # Broken Windows Ledger
@@ -56,6 +56,9 @@ last_updated: 2026-09-15T07:56:57.770Z
 | 39 | 51 | unrun-verify | .planning/phases/51-zip/51-03-PLAN.md |  | 51-03 计划门禁五（传输面）锚点取错行 ⇒ 对任何正确实现恒红：它用 main.indexOf("route === 'import'") 取窗口起点，而 main.js 在 handleSkillsApi 之前已有一处同名分支（handleRulesApi 的分配规则导入，main.js:2745）⇒ 窗口落在另一个函数上，报「import 分支未使用 readRawBody / 未显式声明 maxBytes」。计划判据一字未改；已按计划 acceptance_criteria 自己声明的口径（用函数名 / token 定界）在 tests/test-skills-import.js 的「传输面（main.js 源码契约，窗口按函数名 / token 定界）」组补等价判据（同四条负向 token + 顺序判据），单点变异 req.resume()→req.destroy() / 交换早退与累加顺序 各确认转红 | open |  | 2026-09-15T07:56:48.653Z |  |
 | 40 | 51 | deviation | tests/test-manage-skill.js |  | 51-03 Rule 3: 三条既有护栏断言编码的是 51-02/51-03 之前的「yaml 是 SDK 传递依赖、不得直接 require」纪律，与 Phase 51 D-14（yaml 提升为直接依赖、精确钉 2.9.0）直接冲突 ⇒ 新增 require('yaml') 后确定性转红。按新语义最小改写：① test-manage-skill.js 的「不得引入 yaml 包」改为「yamlScalar 函数体内不得出现 yaml + 全仓 require('yaml') 恰 1 处且住在 getYamlLazy() 内」；② test-ai-skills.js 的 YAML_OR_IGNORE_REQUIRE 只保留 ignore（yaml 移出禁令）并拆出「yaml 只经 getYamlLazy 引入」独立用例；③ test-ai-skills.js 的 localeCompare 判据由 src.includes('localeCompare') 改为判『调用』(\\.localeCompare\\s*\\()—— 导入面的目录树排序必须如实登记『不用 localeCompare』这条口径，注释里出现该词是预期行为。另 test-ai-skills.js 新增的 lookbehind 负向 token 判据改在剥注释面上判定（与计划门禁同口径）。三处判别力零损失（分别做过等价变异的反向验证） | open |  | 2026-09-15T07:56:57.676Z |  |
 | 41 | 51 | deviation | AGENTS.md |  | 51-03 Rule 3: counts-parity 账本（AGENTS.md 测试行 + docs/product/ai-skills.md §七/§11.8/§12）随本计划的套件改动刷新到实测值 —— test-ai-skills.js 187 → 198、test-skills-http-api.js 32 → 41。注：T1 提交时漏刷（test-ai-skills 187 → 188 已在 T1 落地但账本未同批改），T2 一并补齐；此后 T3 再次刷新到 198。cells 仍为 16（两个新套件各 2 个账本单元由 51-07 扩到 20） | open |  | 2026-09-15T07:56:57.770Z |  |
+| 42 | 51 | deviation | src/settings-page.js |  | 51-04 T1 Rule 3: buildImportPreview 的 conflict 字段由 {kind:'none'\|'taken'} 细化为三档（none/user/managed），51-03 的最小导入入口在 settings-page.js:5914 判 'taken' 的分支随之失效（用户上传同名技能时不再看到任何冲突提示 ⇒ 提交才失败，属静默失败面）。最小改写为按三档给出如实文案（'覆盖 / 改名 / 取消的处置界面尚未启用，本次导入会被拒绝'），完整三选一 UI 仍归 51-06 | open |  | 2026-09-15T08:15:57.174Z |  |
+| 43 | 51 | deviation | main.js |  | 51-04 T3: D-10 的失败报告结构 {code, error, quota?, diagnostics[]} 只在 manager 侧成立 —— main.js 既有的两个 catch 分支仍只回 {error, code}（计划明文『只需复核，不改 main.js』）。后果：限额类的 quota（限额名 + 当前值）与 READBACK_FAILED 的 diagnostics 原文不会到达设置页；前端只能按 code 查文案表。若 51-06 的完整 UI 需要展示 quota/diagnostics，须同批扩该响应形状 | open |  | 2026-09-15T08:16:02.185Z |  |
+| 44 | 51 | deviation | ai-skills-manager.js |  | 51-04 实现顺序微调：IMPORT_TMP_PREFIXES 在 Task 1 就定义（覆盖备份是该前缀的第一个消费者），isImportResidueName 在 Task 2 补 —— 计划把两者都登记在 Task 2，但『前缀只在一处定义』的不变式要求 Task 1 的备份目录名不能写死字面量。判据与语义不变 | open |  | 2026-09-15T08:16:02.270Z |  |
 
 ````json
 [
@@ -549,6 +552,42 @@ last_updated: 2026-09-15T07:56:57.770Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-15T07:56:57.770Z",
+    "resolved_at": null
+  },
+  {
+    "id": 42,
+    "kind": "deviation",
+    "phase": "51",
+    "file": "src/settings-page.js",
+    "line": null,
+    "description": "51-04 T1 Rule 3: buildImportPreview 的 conflict 字段由 {kind:'none'|'taken'} 细化为三档（none/user/managed），51-03 的最小导入入口在 settings-page.js:5914 判 'taken' 的分支随之失效（用户上传同名技能时不再看到任何冲突提示 ⇒ 提交才失败，属静默失败面）。最小改写为按三档给出如实文案（'覆盖 / 改名 / 取消的处置界面尚未启用，本次导入会被拒绝'），完整三选一 UI 仍归 51-06",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T08:15:57.174Z",
+    "resolved_at": null
+  },
+  {
+    "id": 43,
+    "kind": "deviation",
+    "phase": "51",
+    "file": "main.js",
+    "line": null,
+    "description": "51-04 T3: D-10 的失败报告结构 {code, error, quota?, diagnostics[]} 只在 manager 侧成立 —— main.js 既有的两个 catch 分支仍只回 {error, code}（计划明文『只需复核，不改 main.js』）。后果：限额类的 quota（限额名 + 当前值）与 READBACK_FAILED 的 diagnostics 原文不会到达设置页；前端只能按 code 查文案表。若 51-06 的完整 UI 需要展示 quota/diagnostics，须同批扩该响应形状",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T08:16:02.185Z",
+    "resolved_at": null
+  },
+  {
+    "id": 44,
+    "kind": "deviation",
+    "phase": "51",
+    "file": "ai-skills-manager.js",
+    "line": null,
+    "description": "51-04 实现顺序微调：IMPORT_TMP_PREFIXES 在 Task 1 就定义（覆盖备份是该前缀的第一个消费者），isImportResidueName 在 Task 2 补 —— 计划把两者都登记在 Task 2，但『前缀只在一处定义』的不变式要求 Task 1 的备份目录名不能写死字面量。判据与语义不变",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T08:16:02.270Z",
     "resolved_at": null
   }
 ]
