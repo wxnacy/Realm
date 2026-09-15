@@ -199,6 +199,24 @@ function sendToast(hostWebContents, message) {
   }
 }
 
+/**
+ * 菜单 label 中选中文本的最大长度（超出截断加省略号）
+ * 选中文本是网页内容、长度不受控，不截断会把菜单撑爆
+ * @type {number}
+ */
+const MENU_SELECTION_MAX_LENGTH = 24;
+
+/**
+ * 把选中文本压成适合做菜单 label 的单行短串
+ * @param {string} text - 原始选中文本
+ * @returns {string} 压平并截断后的文本
+ */
+function toMenuSelectionLabel(text) {
+  const flattened = String(text).replace(/\s+/g, ' ').trim();
+  if (flattened.length <= MENU_SELECTION_MAX_LENGTH) return flattened;
+  return `${flattened.slice(0, MENU_SELECTION_MAX_LENGTH)}…`;
+}
+
 // ==================== 通用菜单模板 ====================
 
 /**
@@ -521,10 +539,11 @@ function buildTabBarMenu(mainWindow) {
 /**
  * 构建网页右键菜单
  *
- * 专属菜单按 hasImage / hasLink 两个可同时成立的维度拼接：
+ * 专属菜单按可同时成立的维度拼接（组序：图片 → 链接 → 选中文本）：
  * - 命中图片 → 图片专属项（4 项）
  * - 命中链接 → 链接专属项（4 项 + 容器子菜单）
- * - 两者同时命中（`<a><img></a>` 即图片链接）→ 图片组在前、链接组在后
+ * - 图片链接（`<a><img></a>`）→ 图片组 + 链接组
+ * - 有选中文本 → 追加「搜索"<选中文本>"」（文本压平并截断后进 label）
  * - 都没有 → 仅通用菜单
  *
  * @param {Object} contextInfo - 上下文信息
@@ -655,6 +674,21 @@ function buildWebMenu(contextInfo, mainWindow) {
         click: () => {
           clipboard.writeText(contextInfo.linkURL);
           sendToast(hostWebContents, '已复制');
+        },
+      },
+      { type: 'separator' },
+    ]);
+  }
+
+  // 选中文本（给搜索入口；「复制」已由通用菜单承担，不重复加项）
+  if (contextInfo.selectionText) {
+    specificGroups.push([
+      {
+        label: `搜索"${toMenuSelectionLabel(contextInfo.selectionText)}"`,
+        click: () => {
+          if (!hostWebContents.isDestroyed()) {
+            hostWebContents.send('context-menu:search-text', { text: contextInfo.selectionText });
+          }
         },
       },
       { type: 'separator' },

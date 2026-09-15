@@ -685,9 +685,9 @@ contextBridge.exposeInMainWorld('realmAPI', {
    * context-menu:close-left-tabs, context-menu:close-right-tabs,
    * context-menu:reopen-tab, context-menu:toggle-pin, context-menu:new-tab,
    * context-menu:open-in-new-tab, context-menu:open-in-bg-tab,
-   * context-menu:open-in-container, context-menu:add-to-favorites,
-   * context-menu:toast, context-menu:text-action,
-   * context-menu:open-in-new-window
+   * context-menu:open-in-container, context-menu:search-text,
+   * context-menu:add-to-favorites, context-menu:toast,
+   * context-menu:text-action, context-menu:open-in-new-window
    *
    * 该清单必须与主进程 send 侧、renderer 的 case 分支三方一致：
    * 多出条目 = 永远收不到的死通道，缺失条目 = 菜单项点了没反应。
@@ -706,6 +706,7 @@ contextBridge.exposeInMainWorld('realmAPI', {
       'context-menu:open-in-new-tab',
       'context-menu:open-in-bg-tab',
       'context-menu:open-in-container',
+      'context-menu:search-text',
       'context-menu:add-to-favorites',
       'context-menu:toast',
       'context-menu:text-action',

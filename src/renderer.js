@@ -3865,6 +3865,13 @@ function handleContextMenuAction(channel, data) {
       }
       break;
 
+    case 'context-menu:search-text':
+      if (data && data.text) {
+        // 统一导航入口：纯文本经 normalizeUrl 转默认搜索引擎 URL，新标签前台打开
+        openUrl(data.text, { disposition: 'new-tab' });
+      }
+      break;
+
     case 'context-menu:add-to-favorites':
       if (data && data.url) {
         window.realmAPI.favoritesAdd({
