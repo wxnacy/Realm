@@ -206,6 +206,11 @@ const state = {
   // Tab 管理
   tabs: new Map(),
   activeTabId: null,
+  // 当前**实际显示**的 Tab（可见性与鼠标可命中的唯一真源，由 showWebview 写入）。
+  // 与 activeTabId 分开存是刻意的：拖拽收尾要按「屏幕上那个 webview」恢复可命中，
+  // 而不是按「tab 栏高亮的那个」猜——两者不一致时按后者恢复会把可见页面打成点不动
+  // （见 docs/debug/webview-hit-test-stuck.md）
+  visibleTabId: null,
   tabCounter: 0,
   webviews: new Map(),
 
@@ -1937,26 +1942,188 @@ function bindWebviewEvents(tabId, webview) {
   bindFindInPageEvents(webview);
 }
 
+// ==================== webview 可命中性（拖拽/改宽期间临时禁用） ====================
+
+/**
+ * 「所有 webview 的鼠标命中被临时关闭」的登记状态。
+ *
+ * 为什么必须收敛到一处：拖拽/改宽期间把 webview 的 pointer-events 置 none 是
+ * 防止 guest 吞掉 mousemove 的必要手段（否则拖几像素就断流、浮动预览卡在页面上），
+ * 但这个状态**不改变可见性**——一旦收尾没跑到（mouseup 丢在窗口外 / 中途窗口失焦 /
+ * 面板被关闭），页面就变成「看得见、链接和输入框全点不动、宿主 UI 正常、刷新页面
+ * 无效」，只有重启能解。此前三处各写各的、恢复只挂各自 mouseup，正是残留的来源。
+ * 详见 docs/debug/webview-hit-test-stuck.md。
+ *
+ * @type {{active: boolean, reason: string, since: number, timer: NodeJS.Timeout|null}}
+ */
+const webviewHitTestSuspend = { active: false, reason: '', since: 0, timer: null };
+
+/** 最近一次「观察到鼠标键按下」的时间戳；用于判定 suspend 是否已成为残留 */
+let lastPointerPressedAt = 0;
+
+/**
+ * 残留判定：看门狗复查间隔（毫秒）
+ *
+ * 语义 = 「连续 3 秒都没能确认按键仍按着（证据见 EVIDENCE_MS）⇒ 判定收尾事件已丢失」。
+ * 正常拖拽期间指针只要动一下就会刷新证据，因此只有两类情形会被恢复：
+ * ① 松手事件丢了（要救，这正是本机制的目标）；② 指针按住不动超过该时长（此时按下的
+ * 指针也不会产生错位，恢复最快只是让改宽短暂卡顿一下，可接受）。
+ */
+const WEBVIEW_SUSPEND_WATCHDOG_MS = 3000;
+
+/**
+ * 残留判定：「按键仍按着」的证据有效期（毫秒）
+ *
+ * 必须明显短于复查间隔：两者相等时看门狗每次复查都会算「证据刚过期/还没过期」而
+ * 反复重排，残留永远救不回来（判决也不确定）。
+ */
+const WEBVIEW_SUSPEND_EVIDENCE_MS = 1000;
+
+/**
+ * 按 state.visibleTabId 重算所有 webview 的可见性与鼠标可命中性（唯一实现）
+ *
+ * 这是「网页区能不能被鼠标点到」的唯一写入点：showWebview 与拖拽/改宽收尾都走它。
+ * 此前 restoreWebviewPointerEvents 自行按 activeTabId 写 pointer-events，与可见性
+ * 各用一套真源，是残留的第二个入口（activeTabId 与显示不一致时会把可见页面打成
+ * 不可命中）。
+ */
+function applyWebviewInteractivity() {
+  const visibleId = state.visibleTabId;
+  state.webviews.forEach((wv, id) => {
+    if (!wv) return;
+    wv.style.visibility = id === visibleId ? 'visible' : 'hidden';
+    wv.style.position = id === visibleId ? 'relative' : 'absolute';
+    wv.style.pointerEvents = id === visibleId ? 'auto' : 'none';
+    if (id !== visibleId) {
+      // 对非活动 webview 设置 inert，阻止其及其子树接收所有输入事件
+      wv.inert = true;
+      wv.blur();
+      wv.executeJavaScript('window.blur();').catch(() => {});
+    } else {
+      wv.inert = false;
+    }
+  });
+}
+
+/**
+ * 清除 suspend 登记与看门狗（不重算样式，由调用方决定何时 apply）
+ */
+function clearWebviewHitTestSuspend() {
+  if (webviewHitTestSuspend.timer) {
+    clearTimeout(webviewHitTestSuspend.timer);
+  }
+  webviewHitTestSuspend.active = false;
+  webviewHitTestSuspend.reason = '';
+  webviewHitTestSuspend.since = 0;
+  webviewHitTestSuspend.timer = null;
+}
+
+/**
+ * suspend 看门狗：持续无「按键按下」证据 ⇒ 判定收尾事件已丢失
+ */
+function armWebviewSuspendWatchdog() {
+  clearTimeout(webviewHitTestSuspend.timer);
+  webviewHitTestSuspend.timer = setTimeout(() => {
+    if (!webviewHitTestSuspend.active) return;
+    if (Date.now() - lastPointerPressedAt < WEBVIEW_SUSPEND_EVIDENCE_MS) {
+      // 仍有按键证据：拖拽还在进行，继续观察（保留 since 以便日志里给出总时长）
+      armWebviewSuspendWatchdog();
+      return;
+    }
+    resumeWebviewHitTest('watchdog');
+  }, WEBVIEW_SUSPEND_WATCHDOG_MS);
+}
+
+/**
+ * 临时关闭所有 webview 的鼠标命中（拖拽/改宽期间）
+ *
+ * @param {string} reason - 触发来源，用于残留日志归因（tab-cross-drag / ai-panel-resize）
+ */
+function suspendWebviewHitTest(reason) {
+  webviewHitTestSuspend.active = true;
+  webviewHitTestSuspend.reason = reason;
+  webviewHitTestSuspend.since = Date.now();
+  // 正在拖拽 ⇒ 此刻必然有键按下，作为看门狗的第一份证据
+  lastPointerPressedAt = Date.now();
+  state.webviews.forEach((wv) => {
+    if (wv) wv.style.pointerEvents = 'none';
+  });
+  armWebviewSuspendWatchdog();
+}
+
+/**
+ * 恢复 webview 可命中性（幂等；未处于 suspend 时是 no-op，避免覆盖 showWebview 的结果）
+ *
+ * @param {string} source - 'drag-end' 为正常收尾（不打日志）；其余为兜底路径
+ */
+function resumeWebviewHitTest(source) {
+  if (!webviewHitTestSuspend.active) return;
+  const reason = webviewHitTestSuspend.reason;
+  const suspendedMs = Date.now() - webviewHitTestSuspend.since;
+  clearWebviewHitTestSuspend();
+  applyWebviewInteractivity();
+  if (source !== 'drag-end') {
+    // 能走到这里说明正常收尾没跑到、由兜底救回：这正是「网页点不动只能重启」
+    // 故障的现场证据（打印原始禁用来源即可一眼定位是哪条拖拽路径），必须留痕
+    console.warn(
+      `[Realm] webview 可命中性残留已恢复（兜底=${source}，原始禁用=${reason}，已禁用 ${suspendedMs}ms）`
+    );
+  }
+}
+
+/**
+ * 可命中性兜底网：不再依赖各拖拽路径自己的 mouseup 收尾
+ *
+ * - mousemove 的 e.buttons 是「此刻实际按下的键」的权威值，松手事件丢了也能纠正
+ * - 窗口失焦 / 页面不可见时按键不可能仍按在窗口内，证据作废并尝试恢复
+ * - 正常收尾由各拖拽路径自己调用 resume（source='drag-end'），此处只兜异常
+ */
+function initWebviewHitTestSafetyNet() {
+  document.addEventListener('mousedown', (e) => {
+    if (e.button === 0) lastPointerPressedAt = Date.now();
+  }, true);
+
+  document.addEventListener('mousemove', (e) => {
+    if (!webviewHitTestSuspend.active) return;
+    if (e.buttons !== 0) {
+      lastPointerPressedAt = Date.now();
+      return;
+    }
+    // 指针在移动却没有按键 ⇒ 拖拽早已结束而收尾事件丢失
+    resumeWebviewHitTest('mousemove-no-button');
+  }, true);
+
+  document.addEventListener('mouseup', (e) => {
+    if (e.button !== 0) return;
+    // 只作废证据：正常收尾由拖拽路径自己 resume，这里不抢（否则每次拖拽都会误报残留）。
+    // 收尾真丢了时，看门狗与 mousemove 兜底会在数秒内接住。
+    lastPointerPressedAt = 0;
+  }, true);
+
+  window.addEventListener('blur', () => {
+    lastPointerPressedAt = 0;
+    resumeWebviewHitTest('window-blur');
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') {
+      lastPointerPressedAt = 0;
+      return;
+    }
+    resumeWebviewHitTest('visibility-restored');
+  });
+}
+
 /**
  * 显示指定 Tab 的 webview
  * @param {string} tabId - Tab ID
  */
 function showWebview(tabId) {
-  state.webviews.forEach((wv, id) => {
-    if (wv) {
-      wv.style.visibility = id === tabId ? 'visible' : 'hidden';
-      wv.style.position = id === tabId ? 'relative' : 'absolute';
-      wv.style.pointerEvents = id === tabId ? 'auto' : 'none';
-      if (id !== tabId) {
-        // 对非活动 webview 设置 inert，阻止其及其子树接收所有输入事件
-        wv.inert = true;
-        wv.blur();
-        wv.executeJavaScript('window.blur();').catch(() => {});
-      } else {
-        wv.inert = false;
-      }
-    }
-  });
+  state.visibleTabId = tabId;
+  // 切 tab 意味着拖拽语境已结束：清掉 suspend 登记，避免跨状态残留
+  // （样式由下方 applyWebviewInteractivity 一并重算）
+  clearWebviewHitTestSuspend();
+  applyWebviewInteractivity();
 
   // 更新导航按钮状态
   updateNavigationButtons();
@@ -7038,6 +7205,9 @@ function setupEventListeners() {
 
   // 初始化 AI 面板拖拽调整宽度
   initAIPanelResize();
+
+  // 初始化 webview 可命中性兜底（拖拽/改宽期间禁用鼠标命中的收尾保底）
+  initWebviewHitTestSafetyNet();
 
   // 初始化 AI 聊天附件（面板拖拽接管 + 输入框粘贴附件）
   initAIAttachments();
@@ -13790,16 +13960,6 @@ function initTabDragAndDrop() {
   }
 
   /**
-   * 拖拽结束后恢复 webview 的 pointer-events
-   * 与 showWebview 的语义一致：活动 Tab 的 webview 可交互，其余不可交互
-   */
-  function restoreWebviewPointerEvents() {
-    state.webviews.forEach((wv, id) => {
-      if (wv) wv.style.pointerEvents = id === state.activeTabId ? 'auto' : 'none';
-    });
-  }
-
-  /**
    * 跨窗口拖拽：mousedown 处理器
    * 记录起始位置和 Tab ID，等待超过阈值后激活
    */
@@ -13869,12 +14029,10 @@ function initTabDragAndDrop() {
         tabEl.classList.add('cross-dragging');
       }
 
-      // 拖拽期间禁用所有 webview 的 pointer-events：
+      // 拖拽期间关闭所有 webview 的鼠标命中：
       // 鼠标经过 webview 区域时事件会被 guest 页吞掉，导致 mousemove/mouseup 断流、
-      // 浮动预览卡在页面上（与 initAIPanelResize 的处理相同）
-      document.querySelectorAll('webview').forEach(wv => {
-        wv.style.pointerEvents = 'none';
-      });
+      // 浮动预览卡在页面上（与 initAIPanelResize 同款需求，统一走 suspend 入口）
+      suspendWebviewHitTest('tab-cross-drag');
     }
 
     // 窗口内排序反馈：鼠标在 Tab 栏内时显示插入指示器并隐藏浮动预览；
@@ -13959,8 +14117,8 @@ function initTabDragAndDrop() {
 
     // 移除浮动预览
     removeDragPreview();
-    // 恢复 webview 鼠标事件（拖拽激活时为防止 guest 吞事件而禁用）
-    restoreWebviewPointerEvents();
+    // 恢复 webview 鼠标命中（拖拽激活时为防止 guest 吞事件而禁用）
+    resumeWebviewHitTest('drag-end');
 
     // 判断松手位置
     const dx = e.screenX - state.crossDrag.startScreenX;
@@ -14064,8 +14222,8 @@ function initTabDragAndDrop() {
 
       // 移除浮动预览
       removeDragPreview();
-      // 恢复 webview 鼠标事件
-      restoreWebviewPointerEvents();
+      // 恢复 webview 鼠标命中
+      resumeWebviewHitTest('drag-end');
 
       // 通知主进程取消拖拽
       window.realmAPI.cancelDrag();
@@ -14277,10 +14435,8 @@ function initAIPanelResize() {
 
     // 关闭过渡动画，拖拽实时跟手
     elements.aiPanel.classList.add('resizing');
-    // 防止 webview 吞掉鼠标事件
-    document.querySelectorAll('webview').forEach(wv => {
-      wv.style.pointerEvents = 'none';
-    });
+    // 防止 webview 吞掉鼠标事件（统一 suspend 入口，收尾有兜底，丢 mouseup 不再卡死）
+    suspendWebviewHitTest('ai-panel-resize');
   }
 
   function onMouseMove(e) {
@@ -14298,11 +14454,12 @@ function initAIPanelResize() {
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
 
-    // 恢复过渡动画和 webview 事件
+    // 先恢复 webview 鼠标命中再动其它 DOM 状态：本函数后续任何一步抛错都不能
+    // 把「网页区点不动」留在用户界面上（前面那步是唯一会关掉命中的地方）
+    resumeWebviewHitTest('drag-end');
+
+    // 恢复过渡动画
     elements.aiPanel.classList.remove('resizing');
-    document.querySelectorAll('webview').forEach(wv => {
-      wv.style.pointerEvents = '';
-    });
 
     // 持久化面板宽度到 electron-store（D-17）
     const currentWidth = elements.aiPanel.offsetWidth;
