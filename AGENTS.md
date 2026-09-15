@@ -450,6 +450,16 @@ restoreWindowBounds(windowId);
 - 状态机：idle -> dragging -> ended/cancelled
 - IPC 通道：drag:start/update-position/end/cancel/state-changed
 
+### webview 鼠标可命中性（拖拽/改宽期间的禁用必须成对）
+
+拖标签与拖 AI 面板宽度期间必须临时关闭所有 webview 的鼠标命中（否则鼠标经过网页区会被 guest 吞掉、`mousemove` 断流、浮动预览卡在页面上），而该状态**不改变可见性**。一旦收尾丢失，页面会变成「看得见、链接与输入框全点不动、宿主 UI 正常、刷新页面无效、只能重启」；同时 hint 模式（`executeJavaScript` + `el.click()`，不经命中测试）**仍能**聚焦输入框 —— 这是本故障的专属判别签名（完整实录见 [docs/debug/webview-hit-test-stuck.md](docs/debug/webview-hit-test-stuck.md)）。
+
+- **硬约定**：任何「关掉 webview 命中」的代码必须走 `suspendWebviewHitTest(reason)`，恢复一律走幂等的 `resumeWebviewHitTest(source)`，**不得再自行写 `wv.style.pointerEvents`**。可见性与可命中性只有 `applyWebviewInteractivity()` 一个写入点，真源是 `state.visibleTabId`（**不是** `state.activeTabId` —— 按后者猜会把屏幕上的那个打成不可命中）
+- 正常收尾**静默**；只在兜底救回时打一行 `[Realm] webview 可命中性残留已恢复（兜底=…，原始禁用=tab-cross-drag|ai-panel-resize，已禁用 Nms）`。因此正常使用零新增输出，一旦出现即指明是哪条拖拽路径丢了收尾
+- 三层兜底：`mousemove` 的 `buttons === 0`（第一现场信号）/ `window blur` 与 `visibilitychange` / 3s 看门狗。**`WEBVIEW_SUSPEND_WATCHDOG_MS` 与 `WEBVIEW_SUSPEND_EVIDENCE_MS` 必须不相等** —— 相等时看门狗每次复查都判「证据还没过期」而无限重排，残留永远救不回来
+- 回归门禁：`NODE_PATH="$(npm root -g)" node tests/uat-webview-hit-test-stuck.js`
+- guest 侧分诊观测（仅 dev/debug，生产零输出）：`unresponsive` / `responsive` / `render-process-gone` / `did-fail-load`（滤 `-3 ERR_ABORTED`）。有这些信号 ⇒ guest 渲染进程卡死/崩溃（`executeJavaScript` 注入也会失效）；没有 ⇒ 命中测试层问题
+
 ## 数据库架构
 
 ### 共享数据库：history.db
