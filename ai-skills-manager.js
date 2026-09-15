@@ -2383,6 +2383,270 @@ function makeImportError(code, message, extra = {}) {
   return err;
 }
 
+// ==================== 网络地址来源（51-05）：白名单 + 分类器 + 下载器 ====================
+//
+// 本段是 **P9（S2）SSRF 门禁**的承重面。六道校验（https 强制 / 主机白名单精确匹配 /
+// 逐跳私网校验 / 跳数上限 / 流式字节上限 / magic bytes）里，本段负责前三道的入口与
+// 目标构造；后三道在 `downloadPackage` / `verifyPackageBytes`。
+//
+// **结构风险两条**（本计划各有机械判据）：
+// ① 直链 SKILL.md 很容易被写成「第二条落盘路径」⇒ `prepareFromRawFile` 只产出
+//    `pkgRoot`，其后与 zip 来源**共用同一段**后段（判据：`importUserSkill(` 恰 2 处、
+//    `yauzl.openPromise(` 恰 1 处）。
+// ② 逐跳校验的事后补救形态会让重定向成为绕过白名单的通道 ⇒ 三校验在**每一跳**执行，
+//    且跳数超限**抛错**而不是带着最后一个 3xx 掉出（后者会让用户看到 `HTTP 301`
+//    这种误导性错误 —— 那正是 `search-manager.fetchUrl` 的既有缺陷）。
+
+/**
+ * 主机白名单（D-05 六条 —— 不是黑名单）
+ *
+ * 与 `COVERAGE.md` 的外部来源面矩阵逐条对应。**精确成员判定**（`isWhitelistedHost`），
+ * 不做后缀 / 子串匹配。
+ *
+ * - `api.github.com`：**显式拒绝**（CR-1b）—— 它在白名单里只服务 `find-skills` 的检索，
+ *   导入管线无载荷语义（D-06 不做 Contents API）⇒ 分类器直接回 `unsupported_url`，
+ *   避免出现「白名单放行但行为未定义」的第四分支。
+ * - `objects.githubusercontent.com` / `skills.sh`（归一化后含 `www.skills.sh`）：
+ *   **保留为未来兼容，本阶段导入管线无载荷语义**（CR-1 的如实表述）。
+ * - `codeload.github.com` / `raw.githubusercontent.com`：真正的两个载荷来源。
+ *
+ * @type {readonly string[]}
+ */
+const HOST_WHITELIST = Object.freeze([
+  'github.com',
+  'api.github.com',
+  'codeload.github.com',
+  'raw.githubusercontent.com',
+  'objects.githubusercontent.com',
+  'skills.sh',
+]);
+
+/**
+ * 重定向跳数上限（**单源**，`downloadPackage` 的逐跳循环读它）
+ *
+ * 超限 ⇒ `redirect_limit`。**不得**把这个上限实现成「循环结束自然掉出」——
+ * 那会带着最后一个 3xx 抛「HTTP 301」这类与真实原因无关的错误。
+ */
+const MAX_REDIRECTS = 5;
+
+/**
+ * 单跳超时（毫秒）
+ *
+ * 与 `search-manager` 的同名量**各自独立**：导入是用户交互路径（用户盯着设置页等），
+ * 超时体感与后台搜索不同，共用一个数字会让一边的调优伤害另一边。
+ */
+const FETCH_TIMEOUT_MS = 30 * 1000;
+
+/** 分类结果的 `kind` 值域（**只有三种**，不设第四分支） */
+const IMPORT_URL_KIND = Object.freeze({
+  ZIPBALL: 'zipball',
+  RAW_SKILL: 'raw-skill',
+  UNSUPPORTED: 'unsupported',
+});
+
+/**
+ * 主机名归一化 —— 小写 + **只剥前导 `www.`**
+ *
+ * 归一化口径与 `isWhitelistedHost` 内联的表达式**必须一致**（同一条：
+ * `toLowerCase().replace(/^www\./, '')`）。这里的副本供 `downloadPackage` 的逐跳
+ * 校验复用（它拿归一化后的主机名与可注入的 `hostWhitelist` 做精确 `includes`）。
+ *
+ * ⚠️ **只剥一个前缀**：`github.com.evil.com` 归一化后**仍是** `github.com.evil.com`
+ * ⇒ 必须被拒（后缀 / 子串匹配会放行它，也会放行 `evilgithub.com`）。
+ *
+ * @param {string} hostname
+ * @returns {string} 归一化后的主机名（非字符串输入返回空串）
+ */
+function normalizeHost(hostname) {
+  return typeof hostname === 'string' ? hostname.toLowerCase().replace(/^www\./, '') : '';
+}
+
+/**
+ * 白名单成员判定 —— **精确成员判定**，不是后缀 / 子串匹配
+ *
+ * ## 两条判据（改实现前先读这里）
+ *
+ * ① **归一化只剥前导 `www.`**（CR-1 的等价做法）：这让 `www.skills.sh` **可达** ——
+ *    否则 `skills.sh` 的 308 会在第一跳被自己的逐跳校验拒（挂一条永远不可达的白名单项）。
+ * ② **归一化后与白名单做精确 `includes`**：`evilgithub.com` 与 `github.com.evil.com`
+ *    都必须是 `false`。**不得**写成 `endsWith('github.com')` / 后缀正则 ——
+ *    实测 `endsWith` 会放行 `evilgithub.com`。
+ *
+ * 归一化表达式与 `normalizeHost` 同源（刻意内联，让「归一化 + 精确判定」在本函数内一次可读）。
+ *
+ * @param {string} hostname - `new URL(...).hostname`（不含端口以外的大小写保证）
+ * @returns {boolean} 是否命中白名单
+ */
+function isWhitelistedHost(hostname) {
+  if (typeof hostname !== 'string' || hostname.length === 0) return false;
+  const normalized = String(hostname).toLowerCase().replace(/^www\./, '');
+  return HOST_WHITELIST.includes(normalized);
+}
+
+/** 受支持形态的提示文案（`unsupported_url` 的可操作原因，不给用户留「为什么不行」） */
+const SUPPORTED_URL_FORMS_TEXT =
+  '本阶段支持的地址形态有三种：' +
+  '① 仓库地址 https://github.com/<组织>/<仓库>；' +
+  '② 子目录地址 https://github.com/<组织>/<仓库>/tree/<分支>/<路径>（多技能仓库必须自定路径）；' +
+  '③ SKILL.md 直链（blob 或 raw.githubusercontent.com 形态）';
+
+/** 构造 `unsupported_url` 分类结果（形状与成功结果一致，调用方无需判空） */
+function unsupportedUrl(message) {
+  return {
+    kind: IMPORT_URL_KIND.UNSUPPORTED,
+    target: null,
+    scopeRel: null,
+    ref: null,
+    code: IMPORT_SKILL_ERROR.UNSUPPORTED_URL,
+    message,
+  };
+}
+
+/**
+ * `SKILL.md` 判定 —— **大小写敏感**（与 `locateSkillRoot` 的判据一致）
+ *
+ * 用大小写不敏感匹配会让 `/blob/main/x/skill.md` 被当成直链，而它实际是**无载荷语义**
+ * 的 HTML 页（会是 GitHub 的网页渲染结果而不是文件内容）。
+ *
+ * @param {string} rel - 包内相对路径（posix）
+ * @returns {boolean}
+ */
+function isSkillMdRel(rel) {
+  return rel === 'SKILL.md' || rel.endsWith('/SKILL.md');
+}
+
+/**
+ * 把用户提供的 URL 分类成「zipball / raw 单文件 / 不支持」—— **纯函数，可单测，零网络**
+ *
+ * ## 分流规则（`51-RESEARCH.md` 实测 2 逐条支撑）
+ *
+ * | 输入形态 | 产出 |
+ * |---|---|
+ * | `github.com/<o>/<r>` | zipball 直连 `codeload…/zip/refs/heads/main`，并记 `fallbackRef='master'` |
+ * | `github.com/<o>/<r>/tree/<ref>/<path>` | zipball + `ref` + `scopeRel=<path>` |
+ * | `github.com/<o>/<r>/blob/<ref>/…/SKILL.md` | raw-skill → `raw.githubusercontent.com/…` |
+ * | `github.com/<o>/<r>/archive/**` | zipball（实测 302 → codeload，逐跳校验会跟随） |
+ * | `raw.githubusercontent.com/<o>/<r>/<ref>/…/SKILL.md` | raw-skill |
+ * | 其余（`/issues` `/pull` `/releases` …） | `unsupported_url` + 三种受支持形态的提示 |
+ *
+ * ## ref 缺省策略（本计划的裁量，已在 `51-05-SUMMARY.md` 成文）
+ *
+ * 仓库地址（无 `tree` / `blob` 段）⇒ `ref` 缺省 `main`，并在结果里带 `fallbackRef='master'`
+ * 与 `refBase`：下载层在 **404** 时用 `fallbackRef` **重试恰一次**，仍失败则把 404 的真实
+ * 原因抛给用户（message 明说「未找到默认分支（已尝试 main / master）」）。
+ * **不得**静默换 ref 或猜其它分支名 —— 猜错会解出一个与用户意图不符的包。
+ *
+ * ## 路径**不做二次解码拼装**
+ *
+ * 用 `URL.pathname` 的既有分段结果，**不得**再手工 `decodeURIComponent` 拼路径
+ * （二次解码会重新打开 `%2e%2e` 这类编码逃逸面；不匹配时 `locateSkillRoot` 会以
+ * 「地址中的路径在包内不存在」如实失败）。
+ *
+ * @param {string} url - 用户粘贴的地址
+ * @returns {{kind: 'zipball'|'raw-skill'|'unsupported', target: string|null,
+ *            scopeRel: string|null, ref: string|null, code?: string, message?: string,
+ *            fallbackRef?: string, refBase?: string}}
+ * @throws {never} 分类失败一律**返回** `unsupported` 结果（调用方据此抛显式码）
+ */
+function classifyImportUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(String(url));
+  } catch {
+    return unsupportedUrl('地址格式不正确，请粘贴完整的 https 地址');
+  }
+
+  if (parsed.protocol !== 'https:') {
+    return unsupportedUrl(`只支持 https 地址（当前协议为 ${parsed.protocol}）`);
+  }
+  if (!isWhitelistedHost(parsed.hostname)) {
+    return unsupportedUrl(`主机不在下载白名单：${normalizeHost(parsed.hostname)}`);
+  }
+
+  const host = normalizeHost(parsed.hostname);
+  const segs = parsed.pathname.split('/').filter((s) => s.length > 0);
+
+  // `api.github.com`：白名单内但**导入管线无载荷语义**（CR-1b）⇒ 显式拒绝并给可读原因，
+  // 不给「白名单放行但行为未定义」的第四分支留口子。
+  if (host === 'api.github.com') {
+    return unsupportedUrl(
+      'GitHub API 地址不受支持；请改用仓库或子目录地址（github.com/<组织>/<仓库>/tree/<分支>/<路径>）或 SKILL.md 直链'
+    );
+  }
+
+  // 保留为未来兼容（CR-1）：如实写成「无载荷语义」—— 不得写成「承载产品闭环」
+  // （那已被实测推翻：`find-skills` 的候选输出是 GitHub 仓库 URL）。
+  if (host === 'objects.githubusercontent.com' || host === 'skills.sh') {
+    return unsupportedUrl('该来源保留为未来兼容，本阶段导入管线无载荷语义');
+  }
+
+  if (host === 'codeload.github.com') {
+    if (segs.length >= 3 && segs[2] === 'zip') {
+      return { kind: IMPORT_URL_KIND.ZIPBALL, target: parsed.href, scopeRel: null, ref: null };
+    }
+    return unsupportedUrl(`codeload 地址形态不受支持。${SUPPORTED_URL_FORMS_TEXT}`);
+  }
+
+  if (host === 'raw.githubusercontent.com') {
+    if (segs.length < 4) return unsupportedUrl('raw 直链缺少分支或文件路径');
+    const fileRel = segs.slice(3).join('/');
+    const rawUrl = `https://raw.githubusercontent.com/${segs[0]}/${segs[1]}/${segs[2]}/${fileRel}`;
+    if (isSkillMdRel(fileRel)) {
+      return { kind: IMPORT_URL_KIND.RAW_SKILL, target: rawUrl, scopeRel: null, ref: segs[2] };
+    }
+    if (fileRel.endsWith('.zip')) {
+      return { kind: IMPORT_URL_KIND.ZIPBALL, target: rawUrl, scopeRel: null, ref: segs[2] };
+    }
+    return unsupportedUrl('raw 直链只支持 SKILL.md 或 .zip');
+  }
+
+  // ---- github.com（分段逐条判，**顺序即语义**）----
+  if (segs.length === 2) {
+    const refBase = `https://codeload.github.com/${segs[0]}/${segs[1]}/zip/refs/heads/`;
+    return {
+      kind: IMPORT_URL_KIND.ZIPBALL,
+      target: `${refBase}main`,
+      scopeRel: null,
+      ref: 'main',
+      // 缺省分支是 main；两次都 404 ⇒ download_failed 并明说已尝试 main / master
+      fallbackRef: 'master',
+      refBase,
+    };
+  }
+
+  if (segs.length >= 4 && segs[2] === 'tree') {
+    const ref = segs[3];
+    const rel = segs.slice(4).join('/');
+    const refBase = `https://codeload.github.com/${segs[0]}/${segs[1]}/zip/refs/heads/`;
+    return {
+      kind: IMPORT_URL_KIND.ZIPBALL,
+      target: `${refBase}${ref}`,
+      scopeRel: rel || null,
+      ref,
+    };
+  }
+
+  if (segs.length >= 4 && segs[2] === 'blob') {
+    const ref = segs[3];
+    const rel = segs.slice(4).join('/');
+    const rawUrl = `https://raw.githubusercontent.com/${segs[0]}/${segs[1]}/${ref}/${rel}`;
+    if (isSkillMdRel(rel)) {
+      return { kind: IMPORT_URL_KIND.RAW_SKILL, target: rawUrl, scopeRel: null, ref };
+    }
+    if (rel.endsWith('.zip')) {
+      return { kind: IMPORT_URL_KIND.ZIPBALL, target: rawUrl, scopeRel: null, ref };
+    }
+    return unsupportedUrl('blob 地址只支持 SKILL.md 或 .zip 文件');
+  }
+
+  // `archive/refs/heads/<ref>.zip` 实测 302 → codeload，逐跳校验会跟随到 codeload
+  if (segs.length >= 3 && segs[2] === 'archive') {
+    return { kind: IMPORT_URL_KIND.ZIPBALL, target: parsed.href, scopeRel: null, ref: null };
+  }
+
+  return unsupportedUrl(`不支持的 GitHub 地址形态。${SUPPORTED_URL_FORMS_TEXT}`);
+}
+
 /** 脚本清单的扩展名白名单（D-13 的判据之一；另一条是 POSIX 可执行位） */
 const IMPORT_SCRIPT_EXTENSIONS = new Set([
   '.py', '.sh', '.bash', '.zsh', '.js', '.mjs', '.cjs', '.ts', '.rb', '.pl',
@@ -4076,6 +4340,14 @@ module.exports = {
   countUserSkills,
   IMPORT_TMP_PREFIXES,
   isImportResidueName,
+  // 51-05 新增（网络地址来源：白名单 + 分类器 + 下载器 + 直链准备器）
+  // 注：normalizeHost / IMPORT_URL_KIND 与 makeImportError 同款
+  //     **刻意不导出** —— 内部实现，经 isWhitelistedHost 与 classifyImportUrl 的行为面覆盖。
+  HOST_WHITELIST,
+  MAX_REDIRECTS,
+  FETCH_TIMEOUT_MS,
+  isWhitelistedHost,
+  classifyImportUrl,
   // 51 新增第三段（技能域威胁扫描：分表 + 返回命中列表的并列扫描函数）
   SKILL_THREAT_PATTERNS,
   scanSkillThreats,
