@@ -373,7 +373,7 @@ Plans:
   4. 解压只在 `fs.mkdtempSync` 新建的空目录内进行，落盘前用**最近已存在祖先的 realpath** 复核；导入完成后工作区外不产生任何文件（含 `~` 下敏感位置），且既有沙箱 `writeFile` 的 ENOENT symlink 缺口一并加固。
   5. 网络导入 https-only + 主机白名单 + 逐跳内网地址校验 + 流式字节上限 + magic bytes 校验；扫描同时覆盖 `description` 与 body（复用 `scanInjectionPatterns` + 新增 `SKILL_THREAT_PATTERNS`）；与内置同名拒绝导入、与已有用户技能同名需显式选择（覆盖 / 改名 / 取消）；失败按"命中哪个限额 / 扫描结论 / 校验错误"给出真实原因。
 
-**Plans**: 5/7 plans executed planned / 6 waves（已规划，未执行）
+**Plans**: 6/7 plans executed planned / 6 waves（已规划，未执行）
 **UI hint**: yes
 
 > ⚠️ `51-02` 的 `autonomous: false`：它的 T1 含唯一的 `checkpoint:human-verify gate="blocking-human"`（`yaml` 的 `[SUS] too-new` 供应链闸 ⇒ 安装前必须用户回话）。
@@ -397,7 +397,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] **51-06-PLAN.md — 导入 UI 完整面 + uat 驱动**：两 tab 弹框 + 六字段预览卡片（目录树与脚本清单的截断折叠、扫描结论两栏、`allowed-tools` 免责标注）+ 必勾风险确认 + 冲突三选一 + 显示层净化与属性上下文转义 + 15 个新增元素零内联 `style`（USER-05、USER-08）
+- [x] **51-06-PLAN.md — 导入 UI 完整面 + uat 驱动**：两 tab 弹框 + 六字段预览卡片（目录树与脚本清单的截断折叠、扫描结论两栏、`allowed-tools` 免责标注）+ 必勾风险确认 + 冲突三选一 + 显示层净化与属性上下文转义 + 15 个新增元素零内联 `style`（USER-05、USER-08）
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
@@ -436,4 +436,4 @@ Plans:
 | 48. 技能发现与调用 | 8/8 | In Progress|  |
 | 49. `manage_skill` 工具 | 8/8 | In Progress|  |
 | 50. 设置页技能管理区 + `/api/skills/*` | 5/5 | In Progress|  |
-| 51. 用户技能导入管线 | 5/7 | In Progress|  |
+| 51. 用户技能导入管线 | 6/7 | In Progress|  |
