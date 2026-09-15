@@ -2,45 +2,45 @@
 gsd_state_version: "1.0"
 milestone: v2.6
 milestone_name: AI 助手技能（Skill）能力
-current_phase: 50
-current_phase_name: 设置页技能管理区 + /api/skills/*
-status: verifying
-stopped_at: Completed 50-05-PLAN.md
-last_updated: "2026-09-14T14:59:04.508Z"
-last_activity: 2026-09-14
-last_activity_desc: Phase 50 execution complete (5/5 plans)
-state_head: ae630a52b4eacdaf30eca2ead9b06b5bb0c05190
+current_phase: 51
+current_phase_name: 用户技能导入管线（zip + 网络地址）
+status: planning
+stopped_at: Phase 50 complete, ready to plan Phase 51
+last_updated: "2026-09-15T02:07:37.537Z"
+last_activity: 2026-09-15
+last_activity_desc: Phase 50 complete, transitioned to Phase 51
+state_head: 426fe4a2d74ad59c0c89963ceb68ca4c05cdf0ab
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 31
   completed_plans: 31
-  percent: 0
+  percent: 17
 ---
 
 # Project State: Realm Browser
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-14)
+See: .planning/PROJECT.md (updated 2026-09-15)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** Phase 50 — 设置页技能管理区 + /api/skills/*
+**Current focus:** Phase 51 — 用户技能导入管线（zip + 网络地址）
 
 ## Current Position
 
-Phase: 50 (设置页技能管理区 + /api/skills/*) — EXECUTING
-Plan: 5 of 5
-Status: Phase complete — ready for verification
-Last activity: 2026-09-14 — Phase 50 execution started
+Phase: 51 — 用户技能导入管线（zip + 网络地址）
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-09-15 — Phase 50 complete, transitioned to Phase 51
 
-Progress: [████████████████████] 29/31 plans ([░░░░░░░░░░] 0%)
+Progress: [████████████████████] 31/31 plans ([██████████] 100%)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 73+ (v1.0 through v2.4)
+- Total plans completed: 78+ (v1.0 through v2.4)
 - Previous milestones: 39 phases complete
 
 **By Phase:**
@@ -60,6 +60,7 @@ Progress: [████████████████████] 29/31 p
 | 47 | 6 | - | - |
 | 48 | 8 | - | - |
 | 49 | 8 | - | - |
+| 50 | 5 | - | - |
 
 *Updated after each plan completion*
 **Per-Plan Metrics:**
@@ -304,11 +305,14 @@ None yet.
 - O5（51）：frontmatter 是否显式 require `yaml`——若 require 必须提升为直接 `dependencies`（否则换 pnpm 立刻 MODULE_NOT_FOUND）
 - ~~O7（46/50）：`MAX_SKILL_MD_BYTES` / `MAX_USER_SKILLS` / prompt 段字符预算具体数值需结合实测用量定~~ — **已在 Phase 46 落定**（`ai-skills-manager.js LIMITS`：64 KiB / 50 / 8000）。Phase 50 只负责把这些数值渲染给用户，不得重新定义
 - ~~O8（46）：`/compact` 不保留技能正文，须写进 `docs/product/ai-skills.md` 已知限制~~ — **已在 Phase 46 落定**（文档「六、已知限制」）
-- ⚠️ [Phase 50/51] `syncAgentSystemPrompt()` 的生产调用方 —— **Phase 49 半边已闭合（2026-09-14）**：`manage_skill` 三动作的成功出口**恰调用一次** `await this.syncAgentSystemPrompt()`（`ai-manager.js:6254`，函数体逐字未改），新技能集在本轮成功出口回写、下一条消息起可见（49-01 的 L 组行为断言 `rescanCalls === 2` 而非 3，证明未双写；UAT test 1 端到端实测）。**仍待办**：设置页启停卸载（50）与导入（51）的写路径必须同样把「写成功后调用 `syncAgentSystemPrompt()`」写成显式交付项与验收项；P8 失效链 49 阶段只完成其应负的那一份，**不得读成 6/6 全覆盖** —— **2026-09-12 规划期注记**：Phase 48 已新增**读侧**生产调用方 `refreshSkillsForPanel()` → `await this.syncAgentSystemPrompt()`（D-17 / P8 触发点，48-01 Task 2），并在 48-08 把「延迟回写 + 广播」补到两个**成功出口**（含纯文本轮）
+- ⚠️ [Phase 50/51] `syncAgentSystemPrompt()` 的生产调用方 —— **Phase 49 半边已闭合（2026-09-14）**：`manage_skill` 三动作的成功出口**恰调用一次** `await this.syncAgentSystemPrompt()`（`ai-manager.js:6254`，函数体逐字未改），新技能集在本轮成功出口回写、下一条消息起可见（49-01 的 L 组行为断言 `rescanCalls === 2` 而非 3，证明未双写；UAT test 1 端到端实测）。**仍待办**：~~设置页启停卸载（50）~~ — ✅ **50 半边已闭合（2026-09-15）**：`setSkillDisabled` 与 `uninstallUserSkill` 均为「重扫恰一次 + 调用侧补播恰一次」（`windowManager.broadcast('skills:changed')` 落 `ai-manager.js:1660/1699`），`syncAgentSystemPrompt()` 函数体逐字未改、广播次数仍为 1；UAT test 4 以「面板未打开时读 `state.aiSkills` ⇒ 该条 `disabled` 由 false 变 true」独立归因了广播路径。**仍待办只剩导入（51）**；P8 失效链的**写路径**份额现为 **2/3**（49 的 `manage_skill` 三动作 + 50 的启停/卸载），**不得读成 6/6 全覆盖** —— **2026-09-12 规划期注记**：Phase 48 已新增**读侧**生产调用方 `refreshSkillsForPanel()` → `await this.syncAgentSystemPrompt()`（D-17 / P8 触发点，48-01 Task 2），并在 48-08 把「延迟回写 + 广播」补到两个**成功出口**（含纯文本轮）
 - ~~⚠️ [Phase 48] `/skill:name` **显式调用必须实时读盘**~~ — ✅ **已闭合（2026-09-13 Phase 48 收尾）**：运行期新增技能目录 → `/skill:<新名>` 经 `syncAgentSystemPrompt()` 重扫一次后当场读盘成功（48-07），纯文本轮的延迟回写与广播也在成功出口落地（48-08）；UAT round 3 test 14 + round 4 test 19 端到端实测通过
 - ~~⚠️ [Phase 48] prompt 未区分「工具 / 技能」两个概念~~ — ✅ **已闭合（D-18）**：`REALM_SYSTEM_PROMPT` 已含「技能」与「工具」两段并有源码断言钉住（`buildSystemPrompt()` 的技能段 === `buildSkillsPrompt()`）；round 1 test 8 判定交付物①通过，②（模型自发遵守 `read` 指令）归模型能力、记 REVIEW IN-04
-- ⚠️ [无归属阶段 · Phase 49 未处置] **TD-48-01**（原 CR-01，用户已裁决「阶段 48 不发版 → 延后」）：`src/renderer.js` 的面板行 `rowTitle` / 徽标 `title` / 标注 `title` 三处属性上下文里，`escapeHtml` 是 DOM 版、**只转义 `& < >` 不转义引号** ⇒ 技能名含 `"` 时可逃逸属性。**Phase 49 原定「开工前处置」但实际未做**（49-02/49-03 明文逐字保持挂账、实测 `escapeHtml` 零 diff；49 只保证**不扩大**该缺口）。行号已随 49 漂移，执行前需重新定位
-- ⚠️ [无归属阶段 · Phase 49 未处置] **TD-48-02**（原 CR-05）：取消分支判据仍只有 flag（无锚点自校验），`finalizeAIStreamingBubble` 只清 `aiStreaming` / `aiCurrentMessageId`。同样**Phase 49 原定同批但未做**，行号需重新定位后处置
+- ⚠️ [无归属阶段 · Phase 49/50 均未处置] **TD-48-01**（原 CR-01，用户已裁决「阶段 48 不发版 → 延后」）：`src/renderer.js` 的面板行 `rowTitle` / 徽标 `title` / 标注 `title` 三处属性上下文里，`escapeHtml` 是 DOM 版、**只转义 `& < >` 不转义引号** ⇒ 技能名含 `"` 时可逃逸属性。**Phase 49 原定「开工前处置」但实际未做**（49-02/49-03 明文逐字保持挂账、实测 `escapeHtml` 零 diff；49 只保证**不扩大**该缺口）。**Phase 50 同样未处置**：50 的 T-50-06 / T-50-24 两条 high 威胁的处置口径就是「本阶段只保证**不扩大缺口**、**不声称已修**」，`50-SECURITY.md` 的诚实边界第 1 条已具名留档（实测：技能管理区内 `innerHTML` / `insertAdjacentHTML` 零真实命中，插值全走 DOM API）。行号已随 49/50 漂移，执行前需重新定位
+- ⚠️ [无归属阶段 · Phase 49/50 均未处置] **TD-48-02**（原 CR-05）：取消分支判据仍只有 flag（无锚点自校验），`finalizeAIStreamingBubble` 只清 `aiStreaming` / `aiCurrentMessageId`。同样**Phase 49 原定同批但未做**、Phase 50 亦未触及；行号需重新定位后处置
+- ⚠️ [Phase 50 · 收尾带出 · 不阻断] **`/api/skills/set-disabled` 不校验技能是否存在（新发现，2026-09-15）**：把技能目录改名消失后**直接**调用该端点，实测 **HTTP 200**（不是 `not_found`），且该名字被写进 `settings.aiSkills.disabled`。后果两条：① `src/settings-page.js:5361-5364` 的**失败回滚分支无真实触发路径**（该分支接线本身已由 `tests/uat-50-b-interactions-perf-layout.js` 经 `window.skillsApi` **stub** 验证，证据强度低于真实失败，已标注）；② 删目录后点开关，行会因**重扫丢弃盘上已无的技能**而消失，观感像「成功」而非「明确失败」。对照 `/api/skills/uninstall` **有**存在性校验（真 `not_found`）⇒ 两者不对称。不构成数据损坏（名单里多一个不存在的名字是 no-op），且 ROADMAP 五条成功标准均未涉及该行为 ⇒ 不列为本阶段 gap。**根治**：在 `setSkillDisabled` 的名字谓词之后加一条存在性判据并复用 `not_found` 码（须同步 `tests/test-skills-http-api.js` / `test-skills-management.js` 与 `docs/product/ai-skills.md` §十二）。详见 `50-UAT.md` §Observations 与 `50-SECURITY.md` 的诚实边界
+- ⚠️ [Phase 50 · 收尾带出 · 可复现性债（同 IN-16/WR-09 类）] **四个新 UAT 驱动的证据只活 `/tmp/uat50/`**：`tests/uat-50-t1-*.js` / `uat-50-a-*.js` / `uat-50-b-*.js` / `uat-50-t3-*.js` 的断言细节（含 T1D 单点变异自证、T8 的 stub 回滚时间线、T3 的产物重建字节数）都只在 `evidence-*.json` 与截图里。驱动本身可重跑，但 `uat-50-b-*.js` 依赖本机 `realm-dev` 的既有技能集（基线**动态取**而非硬编码 ⇒ 已规避漂移），`uat-50-t3-*.js` 依赖 `make install-nightly` 产物。新机器 / CI 需先满足这两条前置
+- ⚠️ [Phase 50 · 收尾带出 · 探针教训（写同类驱动时直接可用）] **三处「假绿」形态已实测复现并修复**，均属「断言恒真」而非产品缺陷：① 把「点击前基线采样点」算进「回滚态计数」⇒ 恒真（时间线采样器必须排除 pre-click/same-tick）；② 读 `hint` 晚于 `setSkillManageHint` 的 **2000ms 自动清空**⇒ 恒空，且 danger 类名是 `skill-manage-hint-danger` 而非 `danger`；③ 技能管理区未切到 `ai-assistant` 子页时它在 `display:none` 面板内、`getBoundingClientRect` 全 0 ⇒ 「0 vs 0 全等」的假绿。另有两次在**生成给 guest 执行的源码字符串**里写了含反引号的注释（`` `/` ``、`` `.skill-manage-row-main` ``），提前终止外层模板字面量 —— 与 Phase 38「单引号模板字符串不插值」同型
 - ⚠️ [Phase 49 · 收尾带出 · 不阻断] **a11y：卡片语境下技能正文折叠块无键盘入口** —— `{ interactive: false }` 让卡片回到 49 之前的既有范式（`.tool-card-content` 与 `.tool-card-header` 同样不可聚焦），键盘用户无法展开卡片读 AI 刚写下的技能正文，鼠标是唯一入口。**这是既有状态而非 49 的回归**，但属真实 a11y 改善项，需**单独立项**（`49-UI-SPEC.md` 契约锁定行要求本阶段零改动；Phase 50 的设置页技能管理区是同一族折叠控件的第二个宿主，届时一并决策更合适）
 - ⚠️ [Phase 49 · 收尾带出 · 守卫强度债] **`WR-12`（49-REVIEW 轮 5）**：`tests/uat-49-g49-4-card-a11y-tab-order.js` 的承重判据 `R3` 在**绿轮是空集真**（`inCardCount = 0`），且全套 8 条断言**只有否命题**（把 `.tool-card-content .ai-skill-content-box` 设 `display: none` 反而全绿）⇒ 「正文折叠块整块消失」这类回归在该门禁下不可见。红轮方向**可失败性成立**（实测 `inCard 2 / 违反 2`、命中承载裁切的祖先），故设计方向正确、缺的是**正命题**（改法见 `49-REVIEW.md` 的 R7 建议）。本轮由 verifier **自建阳性对照探针**独立补足闭合证据（页面内把 `tabindex` 加回同一 header → 可聚焦、矩形高 29px、中心点命中别的消息的 `<CODE>`），**但驱动自体仍缺正命题**
 - ⚠️ [Phase 49 · 收尾带出 · 守卫强度债] **`IN-14`**：`tests/test-ai-skills.js` 的 `M9b` 是**纯源码形态扫描** —— 三处等价变异（强制 `interactive = true` / 属性移到紧凑守卫之后 / 调用点后外部补 `tabindex`）可全部绕过而仍绿。当前树无实害，但它是 package.json 无 `test` 脚本时**唯一能自动跑**的该面护栏
@@ -394,17 +398,19 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-14T14:33:08.557Z
-Stopped at: Completed 50-05-PLAN.md
+Last session: 2026-09-15T02:07:37.537Z
+Stopped at: Phase 50 complete, ready to plan Phase 51
 Resume file: None
 
 ## Operator Next Steps
 
+- **Phase 50 已收尾**（5/5 计划、4 waves；verifier 19/22 VERIFIED / 0 FAILED；`code-review` 1 Critical + 6 Warning + 5 Info，CR-01/WR-01/WR-04 已 hotfix 修复合并，其余记技术债不阻断）。**2026-09-15 `/gsd-verify-work 50` 把 9 项人工 UAT 全部自动化并跑通（9/9 pass、0 issues）**：新增四个运行期驱动（`tests/uat-50-t1-*.js` / `uat-50-a-*.js` / `uat-50-b-*.js` / `uat-50-t3-*.js`，`uat-` 前缀 ⇒ 不被 `test-*` 套件拾取），逐项对应 VERIFICATION 的 9 条人工项；证据落 `/tmp/uat50/`。`50-SECURITY.md` 由 `/gsd-secure-phase 50` 以 **State B 新建**（37 条威胁全 closed、`threats_open: 0`、ASVS L1 grep-depth、未派发 auditor —— ASVS 提到 ≥2 时须重跑并派发）。**两条诚实边界**：① UAT 第 9 项原文的「四合一最宽行」（诊断徽标+已遮蔽+开关+卸载）**在数据层不可构造**（卸载按钮仅 user 行、已遮蔽落在 managed 败者），已改为两类最宽真实行 + 断言该组合不存在；② UAT 第 3 项「errors 非空时汇总条渲染」分支本次未被执行到（`errors=[]`）。
+- **Phase 50 收尾时门禁侧两件事（下次同类收尾可直接复用）**：① `verify:pre` 的 `api-coverage` **阻塞门**要求 `COVERAGE.md`，已按 46/47/48/49 先例补一份零矩阵行的 no-integration 声明（探针唯一命中信号是计划 prose 里的 `DOM API` ⇒ 与 49 同款误报，非真实外部 API 集成），文件已提交；② `make install-nightly` 会**临时把 `process.env.NODE_ENV = 'nightly'` 注入 `main.js`** 并在退出时由 `trap` 还原 —— 构建窗口期内**不得**并发启动 dev 探针（否则 NODE_ENV 串到 `realm-nightly`）。本次构建后已按 sha256 逐字复核 `main.js` 还原、`.bak` 已清理
 - **Phase 49 已收尾**（8/8 计划：3 original + 5 gap-closure；验证 24/24 must-have、`behavior_unverified: 0`、最终判 `passed`；`code-review` 轮 5 为 0 Critical / 8 Warning / 11 Info，全部记技术债不阻断；回归门禁 22/22 套件、账本 `counts-parity cells=8` 即 55 / 178 / 111）。**本轮（`--gaps-only`）闭合 `UI-49-W6-01`**：`renderSkillContentBox` 加 `{ interactive = true }` 语境开关，卡片调用点传 `false` —— 焦点语义只在气泡实例（恒可见）施加；卡片实例不施加，因为 `.tool-card-content` 的 `max-height: 0` + `overflow: hidden` **不移出 Tab 序**，施加即产出零可见高度的隐形停靠点。收尾时按用户裁决顺手闭合了审查轮 5 的 `IN-15`（两处 `49-UI-SPEC.md:508` 引用因 49-08 自己的插入漂成空行 → 改**按名引用**「展开 / 折叠（卡片）」行，对后续插入免疫）与 `IN-17`（§11.7 只写原因未写**代价** → 补记「卡片语境正文折叠块无键盘入口、鼠标是唯一入口、属 49 之前的既有状态而非回归」）；因这两处改动落在 `covered_files` 内，重跑 verifier 刷新指纹（`f00b67cd…`）后状态由 `human_needed` 改判 `passed`
 - **Phase 49 挂账未修（不阻断，建议随 Phase 50 同批看）**：`WR-12`（49-08 驱动承重判据 `R3` 绿轮**空集真**、全套 8 条断言只有否命题 —— 本次由 verifier 自建阳性对照探针独立补足闭合证据，**驱动自体仍缺正命题**，改法见 `49-REVIEW.md` 的 R7 建议）、`IN-14`（`M9b` 为纯源码形态扫描，强制开启 / 紧凑守卫 / 调用点后补 `tabindex` 三种等价变异可绕过）、`IN-16`/`WR-09`（红→绿证据只活 `/tmp` + `E-DATA-DB` 依赖本机 `realm-dev` 用户数据，新机器/CI 跑不动）、`IN-10`~`IN-13`（文案/注释口径）；另记 `IN-17` 已闭合但**卡片语境正文折叠块无键盘入口**这一 a11y 面仍待单独立项（`49-UI-SPEC.md:508` 的锁定决策要求本阶段零改动，升级全仓卡片范式需另开阶段）
 - **Phase 49 开工前第一条仍未办**：处置 **TD-48-01**（`escapeHtml` 不转义引号 → 面板行属性上下文逃逸）与 **TD-48-02**（取消分支无锚点自校验）；两条为 Phase 48 用户明确裁决「延后」的 Critical。49 阶段**未扩大**该缺口但**也未闭合**（49-02/49-03 逐字保持挂账；`escapeHtml` 实测零 diff）。形态与修法见 `48-REVIEW.md` 的 Disposition 表。同批建议顺手清 UI-REVIEW 的 3 条 priority fix（pill 字体缺规则 / 徽标与超限标注对比度 / 长名行分组）
 - **Phase 47 已收尾**（override 收尾：SC3 普遍性表述 + CR-01/CR-02 记技术债）。技术债与建议修法见 `.planning/phases/47-bash/47-REVIEW.md` 的 Disposition 与处置补记：CR-01（`npm -g update` 类旗标取值槽吞子命令）、CR-02（`npm audit --json fix` 类）、残余 ③（`npm -g update ls`）、`matchDangerous` 未同源归一化、`sweepSeedResidue` 缺陈旧性判据、`npm version` 被列只读、`ai-bash-policy.js:249` JSDoc 不准确、docs 只读枚举缺漂移护栏 —— 根治走 **argv 级分词 + 显式「带值旗标」清单**（可一次消除 CR-01/CR-02/残余 ③）
-- ⚠ **发布前必办**：生产包 `/Applications/Realm.app` 仍是 2026-09-10 构建（无 `skills-builtin/` 与 `THIRD_PARTY_NOTICES.md`、仍含 `.planning`/`tests`）；SC5 的打包面证据经 47-04 的 Nightly 路线取得，**正式发布前必须重跑 `make install`**
+- ⚠ **发布前必办**：生产包 `/Applications/Realm.app` 仍是 2026-09-10 构建（无 `skills-builtin/` 与 `THIRD_PARTY_NOTICES.md`、仍含 `.planning`/`tests`）；SC5 与 Phase 50 T3 的打包面证据均经 **Nightly 路线**取得（T3 于 2026-09-15 重跑 `make install-nightly`，`/Applications/Realm Nightly.app` 的 `app.asar.unpacked/skills-builtin/` 下 `find-skills` + `skill-creator` 齐备），**正式发布前必须重跑 `make install`** —— 注意它当前**会覆盖正在运行的生产实例**（本次收尾时 PID 22083 在运行），下次执行前须先确认用户已自行退出该实例
 - 用户已定：Phase 48 的 `/skill:name` 必须实时读盘（写路径接线 + 实时正文两条都是显式验收项）—— ✅ 已闭合（48-07 / 48-08 + UAT round 3 test 14 / round 4 test 19）
 - 遗留验证待办：Phase 46 的 P8 失效链 3/6 需在 49/50/51 逐点闭合（Phase 48 已落下**读侧**调用方与两个成功出口的延迟回写，**写路径回写**仍待补）
 - Phase 47 收尾时 `phase.complete` 报两条非阻断警告：① 各 SUMMARY 的「files referenced」误报（把代码块里的命令当文件路径）；② `REQUIREMENTS.md` 正文含 `ECO-01..06` 但 Traceability 表未登记（属 `## v2 Requirements` 的**延后生态项**，非本里程碑交付，收尾时未擅自补录 —— 该警告在 Phase 48 收尾时**再次出现**，属同一已知误报类）

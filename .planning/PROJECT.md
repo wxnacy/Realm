@@ -185,6 +185,8 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 ## Current State
 
+**In progress:** v2.6 AI 助手技能（Skill）能力 — 6 阶段中 **5 完成**（46 技能基础设施 / 47 播种+bash 加固 / 48 发现与调用 / 49 `manage_skill` / **50 设置页技能管理区 + `/api/skills/*` 于 2026-09-15 收尾**：9/9 UAT、`threats_open: 0`、5/5 计划、账本 438 例全绿），**剩余 1 阶段**（51 用户技能导入管线 zip + 网络地址）。注：STATE.md frontmatter 的 `progress` 计数器只从本里程碑**开工点**起算，与 ROADMAP 的「已勾选阶段数」口径不同，**以 ROADMAP 为准**。
+
 **Shipped:** v2.5 (2026-09-10)
 - 45 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0 + 4 v2.1 + 4 v2.2 + 4 v2.3 + 6 v2.4 + 6 v2.5)
 - 所有里程碑已完成归档
@@ -380,6 +382,13 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | `escapeHtml` 对属性上下文不转义引号（TD-48-01）与取消分支无锚点自校验（TD-48-02）**用户裁定延后** | 阶段 48 不发版；两条为 48-REVIEW 的 Critical，但形态在阶段基线即存在、修复属独立规模；用户 2026-09-12 裁定「延后至 Phase 49 开工前与 TD-48-01/02 同批处置」 | ✓ 用户裁定 — Phase 48（`48-REVIEW.md` Disposition） |
 | UAT 多轮同文件用**轮次前缀**（`### [Round N] M.`）隔断编号，正文与结果一字不改 | `uat-predicate` 按 `^###\s*(\d+)\.` 扫全文件，多轮共用编号时历史 issue / skipped 会**永久**把 `phase uat-passed` 判为 false；加前缀后只有当前轮次参与门禁 | ✓ 已验证 — Phase 48 收尾（round 1–3 归档，round 4 全 pass ⇒ `uat-passed: true`） |
 
+| 管理投影（`getSkillsForManagement`）与 `/` 面板投影（`getSkillsForUI`）**刻意不合并**，尺寸统计只随 `refreshedAt` 失效、**不进 digest** | 两个消费者字段需求本就不同：面板投影是**有意收窄**（48 明文剔除 `content`/`filePath`/`diagnostics`，防一次 IPC 送最坏 ~3 MB 正文），管理投影**新增** `bytes`/`fileCount`/`statsUnavailable`/`diagnostics` 并做完分组排序；合并会让面板每次打开白传它一条都不消费的数据 ⇒ 实打实的负优化。尺寸若进 digest 会把「纯统计变化」当内容变化广播 | ✓ 已验证 — Phase 50（50-01 / `50-UAT.md` T2 实测 121 条投影 109 463 字节且不含正文） |
+| 两入口**读同一权威**：设置页（`realm://` guest）走 `/api/skills/*` + token，主窗口走 `realmAPI` IPC；判定/校验/投影全住 `ai-skills-manager.js`（**零 electron 依赖**），handler **只做转发、零判定** | 两入口不可互换（主窗口 `file://` fetch 本地 HTTP 会被 CORS 拦 —— Phase 38 事故）；handler 里加工一份就是第二份实现必然漂移。零判定是**可源码断言的不变式**，「手改 URL 直接调端点也不例外」的承重点在 manager 层 | ✓ 已验证 — Phase 50（50-02/50-03 / UAT T5 两设置页重进即同步） |
+| 卸载仅 `source === 'user'` 可删，判据 = 「`skills/<name>` 存在**且** `kind === 'directory'`」（用 `env.fileInfo` 判，**不用** `env.exists`） | `env.exists` 对普通文件也返回 true ⇒ 会连文件一起删；同名双存在（user + managed）**允许**卸载（managed 的存在只用来区分拒绝态，不作拒绝条件，否则用户点自己列表里的技能会被告知「这不是你的技能」） | ✓ 已验证 — Phase 50（50-02 / UAT T8 真 `not_found` 与 `not_user_owned` 两条独立文案） |
+| 启停用**增量载荷** `{name, disabled}`（**非**全量名单 `{disabled: [...]}`）+ 乐观翻转 + 失败回滚 | 增量载荷的读-改-写全程在主进程内**同步**完成，两个并发设置页操作不会互相覆盖；全量载荷会在并发下丢更新 | ✓ 已验证 — Phase 50（50-02/50-04 / UAT T8 同 tick 判别器） |
+| 设置页**不做**即时同步（多开设置页之间不广播），但「重进该页即同步」是被承诺的语义 —— 诚实边界成文 | `windowManager.broadcast` 只发到各 `BrowserWindow` 的 webContents、**不到 webview guest**；设置页也收不到任何主进程广播 ⇒ 每次操作后用响应体回传的**最新投影**就地重渲染。不假装即时同步是设计决定，不是缺陷 | ✓ 已验证 — Phase 50（50-04 / UAT T5 只断言「重进即同步」，**刻意未**断言即时刷新） |
+| SEC-09 的形状 = 「默认 1 MiB **fail-closed** + 需大者**显式**放大」，全仓恰好 2 处显式放大 | `MAX_JSON_BODY_BYTES`(1 MiB) 是 `/api/*` POST 全局默认；`MAX_JSON_BODY_BYTES_LARGE`(32 MiB) 只给两个 **by-design** 大 body 端点（`import-chrome`/`import-html`，body 是用户书签文件**全文**）。`rules/import` 虽也是用户选定文件内容但非 by-design 大 body，不做第三处覆盖（1 MiB 对它的后果是可读 413 而非静默破坏）；配合 `sendJson` 幂等护栏 + `res` 缺失降级分支一次关闭两条会崩主进程的隐患 | ✓ 已验证 — Phase 50（50-03 / UAT T6 Electron 内 413 + 反向对照 + `50-SECURITY.md` T-50-16..19） |
+
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries.
@@ -398,4 +407,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-14 after Phase 49 (`manage_skill` 工具 / AI 自建技能) complete*
+*Last updated: 2026-09-15 after Phase 50 (设置页技能管理区 + `/api/skills/*`) complete*

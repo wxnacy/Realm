@@ -1,9 +1,10 @@
 ---
 phase: 50-api-skills
 verified: 2026-09-14T15:52:30Z
-status: human_needed
+status: passed
 score: 19/22 must-haves verified
 covered_files:
+
   - .planning/REQUIREMENTS.md
   - .planning/ROADMAP.md
   - .planning/phases/50-api-skills/50-01-PLAN.md
@@ -34,6 +35,7 @@ covered_files:
   - tests/test-skill-picker-model.js
   - tests/test-skills-http-api.js
   - tests/test-skills-management.js
+
 covered_digest: "v1:sha256:5f912b3a22d5c5337f6f8bb18c3efe90fc33077be6c07ae260e7c52989f3b163"
 behavior_unverified: 3
 overrides_applied: 0
@@ -45,6 +47,7 @@ re_verification:
   gaps_remaining: []
   regressions: []
 behavior_unverified_items:
+
   - truth: "[E5] 启停开关在途时立即乐观翻转 `.on` / `aria-checked` 并置 `disabled`，失败 ⇒ 回滚 `.on` / `aria-checked`、解除 `disabled`、区级 hint"
     test: "在设置页连点两个技能的启停开关；一次让请求成功、一次制造后端 400（例如先手改 URL 卸载该技能），观察开关状态与失败回滚"
     expected: "点击瞬间开关乐观翻转并进入在途态；成功保持；失败必须回滚到点击前的状态并解除 disabled，区级 hint 给出按 code 查表的文案"
@@ -58,6 +61,7 @@ behavior_unverified_items:
     expected: "每行首行**单行**且右侧操作簇完整可见（不被裁切、不与描述重叠、头部高度不变），仅技能名缩到省略号（`title` 仍可读全名）"
     why_human: "该 truth 的 `verification` 标记为 `backstop`（非可推断）：无显式证据时必须弃权。行盒度量需要真实渲染引擎，纯 Node 无法度量。"
 human_verification:
+
   - test: "设置页在 `realm://` CSP 下加载 `skill-picker-model.js`"
     expected: "DevTools 断言 `window.SkillPickerModel` 存在，且两个空态分支按 `refreshedAt`（=== 0 / > 0）而非「数组为空」判定"
     why_human: "CSP `script-src 'self'` 下的真实加载行为跑不到；代码面已由源码扫描覆盖（脚本在列且序在 `settings-page.js` 之前），运行期表现属人工（research A3）"
@@ -332,3 +336,38 @@ human_verification:
 
 _Verified: 2026-09-14T15:52:30Z_
 _Verifier: Claude (gsd-verifier)_
+
+---
+
+## 人工项闭合记录（2026-09-15，由 `/gsd-verify-work 50` 回填）
+
+上方 `human_verification` 的 9 条人工项已全部在**真实运行期**执行完毕，`50-UAT.md` 记 9/9 pass、0 issues。
+`status` 由 `human_needed` 规范化为 `passed` 的依据是 UAT 零 issues（verification 的人工项已非「未验证」）。
+逐条对应（驱动 + 证据）：
+
+| # | 人工项 | UAT 测试 | 驱动 | 证据 |
+|---|-------|---------|------|------|
+| 1 | CSP `script-src 'self'` 下真实加载 `skill-picker-model.js` | 1 | `tests/uat-50-t1-skill-picker-model-csp.js` | `/tmp/uat50/evidence-t1.json`（请求 `…/settings/skill-picker-model.js` → 200 / 27599 B） |
+| 2 | D-19：无 provider 仍列出盘上技能 | 2 | `tests/uat-50-a-manage-read-write.js` | `evidence-a.json`（`settings.ai` 实测不存在；builtin 档 = find-skills + skill-creator） |
+| 3 | `asarUnpack` + `app.isPackaged` 打包态分支 | 3 | `tests/uat-50-t3-packaged-seeding.js` | `evidence-t3.json`（清空 managed-skills 后产物自愈重建 6933 / 32672 B） |
+| 4 | 真实 `/` 面板渲染不含 disabled 技能 | 4 | `tests/uat-50-a-manage-read-write.js` | `evidence-a.json`（广播路径 + 面板 DOM 两段独立证据） |
+| 5 | 多设置页不做即时同步的诚实边界 | 5 | `tests/uat-50-a-manage-read-write.js` | `evidence-a.json`（A 禁用 → B **reload** 后 `ariaChecked=false`；刻意未断言即时刷新） |
+| 6 | 运行时内复跑（Electron 43.6.0 / Node 24.20.0） | 6 | `tests/uat-50-a-manage-read-write.js` | `evidence-a.json`（1.5 MiB → 413 + `limit:1048576`；反向对照 400 `invalid_name`） |
+| 7 | 投影字节数实测（~200 KB 上界原为估值） | 7 | `tests/uat-50-b-interactions-perf-layout.js` | `evidence-b.json`（121 条 → **109 463 B**，未超；正文 marker 命中 0） |
+| 8 | 启停乐观翻转/回滚 + 卸载弹框时序（含 WR-02 挂账） | 8 | `tests/uat-50-b-interactions-perf-layout.js` | `evidence-b.json`（同 tick 判别器；回滚接线经 **stub** 验证并已标注强度） |
+| 9 | 800px 行盒 backstop | 9 | `tests/uat-50-b-interactions-perf-layout.js` | `evidence-b.json` + `/tmp/uat50/t9-800px.png` |
+
+**两处未闭合的诚实边界（不阻断，如实留档）**：
+
+1. 第 9 项原文要求的「同一行**同时**命中诊断徽标 + 「已遮蔽」+ 开关 + 卸载按钮」**在数据层不可构造**
+   （卸载按钮只在 `tier === 'user'` 行渲染，而「已遮蔽」落在同名遮蔽的 **managed 败者**上）。
+   已改为断言两类最宽**真实**行并证明该组合不存在 ⇒ 原文的四合一组合**未被覆盖**。
+2. 第 3 项「`errors` 非空时顶部汇总条必须渲染 `realm_*` 诊断」的分支本次因 `errors = []` **未被执行到**。
+
+**第 8 项的附带发现（新登记）**：`/api/skills/set-disabled` **不校验技能是否存在** —— 技能目录消失后
+直接调用实测 HTTP **200**（非 `not_found`），且名字被写入 `settings.aiSkills.disabled`。因此
+`settings-page.js:5361-5364` 的失败回滚分支**无真实触发路径**；对照 `/api/skills/uninstall` 有存在性校验，
+两者不对称。ROADMAP 五条成功标准均未涉及该行为，故不列为本阶段 gap，详情见 `50-UAT.md` §Observations。
+
+_Closed: 2026-09-15T02:00:09Z_
+_Closed by: /gsd-verify-work 50（9/9 pass，0 issues）_
