@@ -14,6 +14,10 @@
  * Result）。bash 命令本身是任意 shell，无法静态穷举拦截，其逃逸风险由
  * ai-bash-policy 的三档权限（白名单/默认确认/危险强制确认）缓解。
  *
+ * SEC-10（51-01）：**写面**判据另立 resolveInsideForWrite —— 写目标往往尚不
+ * 存在（ENOENT），此时不能只做词法校验（中间目录是 symlink 时写盘会跑出
+ * root）。读面仍走 resolveInside，两面并列存在、各管一面。
+ *
  * electron 依赖惰性获取（与 ai-memory-manager.js 先例一致）：纯 Node
  * 测试环境下 require('electron') 不可加载，延迟到真正需要路径时才 require。
  */
@@ -145,6 +149,44 @@ function migrateAiMemory() {
 }
 
 /**
+ * 构造沙箱根的双基准（root 与 root 的 realpath）与前缀判据
+ *
+ * macOS /var → /private/var 等场景下 canonicalPath/bash 的 cwd 输出天然是
+ * realpath 形态，单基准会误拒；两个前缀都带 `path.sep`，据此排除撞名兄弟
+ * 目录（`/agent-workspace-evil` 对 root `/agent-workspace`）。
+ *
+ * @param {string} root - 沙箱根目录绝对路径
+ * @returns {{root: string, realRoot: string, rootPrefix: string, realPrefix: string}}
+ */
+function buildRootBaseline(root) {
+  let realRoot = root;
+  try {
+    realRoot = fs.realpathSync(root);
+  } catch {
+    // root 本身 realpath 失败（理论上 ensureWorkspaceDir 已建），退化为单基准
+  }
+  const rootPrefix = root.endsWith(path.sep) ? root : root + path.sep;
+  const realPrefix = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
+  return { root, realRoot, rootPrefix, realPrefix };
+}
+
+/**
+ * 双基准前缀比对（唯一判据；resolveInside 与 resolveInsideForWrite 共用）
+ *
+ * 读面与写面对「是否落在沙箱基准内」的判据必须同源 —— 各写一份前缀比较会
+ * 让两面的放行集合静默分叉。判据对象既可以是词法绝对路径，也可以是
+ * realpath 结果（因此等值分支与双前缀分支都在这里）。
+ *
+ * @param {string} abs - 待判定的绝对路径（词法或 realpath）
+ * @param {{root: string, realRoot: string, rootPrefix: string, realPrefix: string}} base
+ * @returns {boolean} 落在 root 或 realpath(root) 之内（含等值）
+ */
+function isInsideBaseline(abs, base) {
+  if (abs === base.root || abs === base.realRoot) return true;
+  return abs.startsWith(base.rootPrefix) || abs.startsWith(base.realPrefix);
+}
+
+/**
  * 判定路径解析后是否落在 root 内（纯函数，供沙箱与测试共用）
  *
  * 算法：
@@ -154,6 +196,11 @@ function migrateAiMemory() {
  * 3. 必须匹配 `基准 + path.sep` 前缀——排除撞名兄弟目录（/agent-workspace-evil）
  * 4. 已存在的路径做 realpath 复核（防 symlink 二段式逃逸：bash 先 ln -s /etc
  *    再用 read 工具读 link）
+ *
+ * ⚠️ 本函数是**读面**判据，语义由 SEC-10 明文冻结（既有放行 / 拒绝集合零变化）：
+ * 「尚不存在」（ENOENT）的路径只做词法校验即放行，交由底层 fs 报 ENOENT。
+ * 写目标不能沿用这一取向（中间目录是 symlink 时词法看着在 root 内、实际写盘
+ * 跟随链接跑出去）—— 写面走 resolveInsideForWrite，两者并列存在、各管一面。
  *
  * @param {string} root - 沙箱根目录绝对路径
  * @param {string} p - 待校验路径（绝对或相对 root）
@@ -167,27 +214,73 @@ function resolveInside(root, p) {
   } catch {
     return null;
   }
-  let realRoot = root;
-  try {
-    realRoot = fs.realpathSync(root);
-  } catch {
-    // root 本身 realpath 失败（理论上 ensureWorkspaceDir 已建），退化为单基准
-  }
-  const rootPrefix = root.endsWith(path.sep) ? root : root + path.sep;
-  const realPrefix = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
-  if (abs === root || abs === realRoot) return abs;
-  const lexicallyInside = abs.startsWith(rootPrefix) || abs.startsWith(realPrefix);
-  if (!lexicallyInside) return null;
+  const base = buildRootBaseline(root);
+  if (abs === base.root || abs === base.realRoot) return abs;
+  if (!isInsideBaseline(abs, base)) return null;
   // symlink 复核：仅当路径已存在时；不存在（ENOENT）词法通过即可
   try {
     const real = fs.realpathSync(abs);
-    if (real === root || real === realRoot) return abs;
-    if (real.startsWith(rootPrefix) || real.startsWith(realPrefix)) return abs;
-    return null;
+    return isInsideBaseline(real, base) ? abs : null;
   } catch (err) {
     if (err && err.code === 'ENOENT') return abs;
     // realpath 其他失败（权限等）按拒绝处理（fail-closed）
     return null;
+  }
+}
+
+/**
+ * 判定**写目标**路径解析后是否落在 root 内（纯函数，供沙箱与测试共用）
+ *
+ * 与 resolveInside 的差别**只在缺口那一段**：写目标往往尚不存在（ENOENT），
+ * 此时不能凭词法放行 —— 中间目录可能是 symlink，写盘会跟随链接跑到 root 外
+ * （SEC-10 / P2，实测 `escaped file exists outside? true`）。本函数改为
+ * 「自内向外找最近已存在祖先，realpath 后拼回未创建的尾段，再与双基准比对」。
+ *
+ * 两条判据叠加（顺序不可换）：
+ * ① 词法前缀校验 —— 与 resolveInside 同一判据、同一双基准（`buildRootBaseline`
+ *    + `isInsideBaseline`）。保留它是必要的：若只用 ②，会放行「root 自身不存在
+ *    且 realpath 失败」这类退化形态（此时 realRoot 退化为单基准）。
+ * ② 最近已存在祖先 realpath 复核 —— 通过则返回**词法**绝对路径 `abs`
+ *    （不返回 realpath：调用方后续用返回值做 IO，返回 realpath 会把「root
+ *    自己也是 symlink」的合法形态改写成另一条路径）。
+ *
+ * 返回值语义与 resolveInside 一致（通过返回词法绝对路径，越界 null），
+ * fail-closed：realpath 的非 ENOENT 失败、上溯到根仍缺、非字符串输入一律 null。
+ *
+ * ⚠️ 诚实边界：本判据只覆盖 ExecutionEnv 的文件方法；`bash` 的命令内容不在
+ * 这一层校验（D-15），`echo x > /etc/y` 仍可写出 root 外 —— 那道边界是三档
+ * 权限与确认卡片，不在本函数内。
+ *
+ * @param {string} root - 沙箱根目录绝对路径
+ * @param {string} target - 写目标路径（绝对或相对 root）
+ * @returns {string|null} 校验通过返回词法规范化的绝对路径；越界返回 null
+ */
+function resolveInsideForWrite(root, target) {
+  if (typeof target !== 'string' || !target.trim()) return null;
+  let abs;
+  try {
+    abs = path.resolve(root, target);
+  } catch {
+    return null;
+  }
+  const base = buildRootBaseline(root);
+  // ① 保留原有词法前缀校验（同一判据、同一双基准）
+  if (!isInsideBaseline(abs, base)) return null;
+  // ② 自内向外找最近已存在祖先：realpath 后拼回未创建的尾段，再与双基准比对
+  let cur = abs;
+  const rest = [];
+  for (;;) {
+    try {
+      const real = fs.realpathSync(cur);
+      const joined = path.join(real, ...rest);
+      return isInsideBaseline(joined, base) ? abs : null;
+    } catch (err) {
+      if (!err || err.code !== 'ENOENT') return null; // fail-closed（权限等一律拒）
+      const parent = path.dirname(cur);
+      if (parent === cur) return null;
+      rest.unshift(path.basename(cur));
+      cur = parent;
+    }
   }
 }
 
@@ -224,8 +317,19 @@ async function createSandboxEnv(options = {}) {
   /** 单路径校验；通过返回规范化绝对路径，越界返回 null */
   const guard = (p) => resolveInside(root, p);
 
-  /** 校验失败时返回 deny Result 的快捷判定 */
+  /** 校验失败时返回 deny Result 的快捷判定（**读面**：与既有语义逐字一致） */
   const guardResult = (p) => (guard(p) === null ? deny(p) : null);
+
+  /**
+   * 写面校验的快捷判定（SEC-10）：与 guardResult **并列**，不改它的本体。
+   *
+   * 为什么不能把 guardResult 本体换成写面判据：`absolutePath` / `canonicalPath`
+   * 与六个读方法共用它，改本体等于顺手改读面语义 —— 而 SEC-10 的验收判据之一
+   * 就是「既有放行 / 拒绝集合零变化」（含「读一个尚不存在的路径」仍由底层 fs
+   * 报 ENOENT，而不是 permission_denied）。两条判据并列存在，也让「写面被切
+   * 过去了」有独立的判据对象。
+   */
+  const guardForWriteResult = (p) => (resolveInsideForWrite(root, p) === null ? deny(p) : null);
 
   // 临时文件名安全化：只保留字母数字下划线连字符，防前缀/后缀带路径分隔符
   const sanitizeNamePart = (s) => String(s || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
@@ -263,22 +367,22 @@ async function createSandboxEnv(options = {}) {
     },
 
     async writeFile(p, content, abortSignal) {
-      const blocked = guardResult(p);
+      const blocked = guardForWriteResult(p);
       if (blocked) return blocked;
       return inner.writeFile(p, content, abortSignal);
     },
 
     async appendFile(p, content) {
-      const blocked = guardResult(p);
+      const blocked = guardForWriteResult(p);
       if (blocked) return blocked;
       return inner.appendFile(p, content);
     },
 
     async renameFile(sourcePath, destinationPath, abortSignal) {
-      // 双路径分别校验：destination 逃逸 = 写逃逸
-      const blockedSrc = guardResult(sourcePath);
+      // 双路径分别校验：destination 逃逸 = 写逃逸（两面都走写面判据）
+      const blockedSrc = guardForWriteResult(sourcePath);
       if (blockedSrc) return blockedSrc;
-      const blockedDst = guardResult(destinationPath);
+      const blockedDst = guardForWriteResult(destinationPath);
       if (blockedDst) return blockedDst;
       return inner.renameFile(sourcePath, destinationPath, abortSignal);
     },
@@ -313,22 +417,31 @@ async function createSandboxEnv(options = {}) {
     },
 
     async createDir(p, opts) {
-      const blocked = guardResult(p);
+      const blocked = guardForWriteResult(p);
       if (blocked) return blocked;
       return inner.createDir(p, opts);
     },
 
     async remove(p, opts) {
-      const blocked = guardResult(p);
+      const blocked = guardForWriteResult(p);
       if (blocked) return blocked;
       return inner.remove(p, opts);
     },
 
     async createTempDir(prefix) {
-      // 重定向到工作区 .tmp/（SDK 默认 os.tmpdir() 会破沙箱封闭）
+      // 重定向到工作区 .tmp/（SDK 默认 os.tmpdir() 会破沙箱封闭）。
+      // ⚠️ 产物命名形状（`tmp-<prefix>-<rand>`）与 builtin-skills-seeder 的
+      //    sweepSeedResidue 清扫正则成对 —— 崩溃残留清扫依赖这个前缀，
+      //    不得改名（改名会让清扫静默失效）。
       try {
+        // 写面复核（父目录 + 产物路径两段）：mkdtemp 本身不经 guard，
+        // .tmp/ 若被替换成 symlink，产物就会落到 root 外
+        const blockedParent = guardForWriteResult(getTmpDir());
+        if (blockedParent) return blockedParent;
         const safePrefix = 'tmp-' + sanitizeNamePart(prefix);
         const dir = await fs.promises.mkdtemp(path.join(getTmpDir(), safePrefix + '-'));
+        const blockedDir = guardForWriteResult(dir);
+        if (blockedDir) return blockedDir;
         return ok(dir);
       } catch (e) {
         return err(new FileError('unknown', `创建临时目录失败: ${e.message}`));
@@ -337,13 +450,20 @@ async function createSandboxEnv(options = {}) {
 
     async createTempFile(opts = {}) {
       try {
+        // 同 createTempDir：父目录 + 产物路径两段写面复核
+        const blockedParent = guardForWriteResult(getTmpDir());
+        if (blockedParent) return blockedParent;
         const safePrefix = sanitizeNamePart(opts.prefix);
         const safeSuffix = sanitizeNamePart(opts.suffix);
         const dir = await fs.promises.mkdtemp(path.join(getTmpDir(), 'tmp-'));
+        const blockedDir = guardForWriteResult(dir);
+        if (blockedDir) return blockedDir;
         const file = path.join(
           dir,
           `${safePrefix}${Date.now()}-${Math.random().toString(36).slice(2, 8)}${safeSuffix}`
         );
+        const blockedFile = guardForWriteResult(file);
+        if (blockedFile) return blockedFile;
         await fs.promises.writeFile(file, '');
         return ok(file);
       } catch (e) {
@@ -387,5 +507,8 @@ module.exports = {
   ensureWorkspaceDir,
   migrateAiMemory,
   resolveInside,
+  // 51-01（SEC-10 写面加固）：导出以便单测直调纯函数；
+  // 内部包装 guardForWriteResult 不导出 —— 只经 env 的行为面覆盖
+  resolveInsideForWrite,
   createSandboxEnv,
 };

@@ -176,6 +176,49 @@ describe('createSandboxEnv 沙箱包装', () => {
   });
 });
 
+describe('写面加固（SEC-10）—— 最小集', () => {
+  test('env.writeFile 经逃逸链接写入被拒，且 root 外真的没有产生文件', async (t) => {
+    const root = withTempRoot(t);
+    const external = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-ws-external-'));
+    t.after(() => fs.rmSync(external, { recursive: true, force: true }));
+    fs.symlinkSync(external, path.join(root, 'link'));
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    const result = await env.writeFile('link/x.txt', '1');
+    assert.strictEqual(result.ok, false, '写逃逸必须被拒');
+    assert.strictEqual(result.error.code, 'permission_denied');
+    // 真副作用判据：断言盘上没这个文件（不是断言「没调用过 fs」）
+    assert.strictEqual(fs.existsSync(path.join(external, 'x.txt')), false, 'root 外不得产生文件');
+  });
+
+  test('env.writeFile 经沙箱内自指链接写入成功（加固未收紧过头）', async (t) => {
+    const root = withTempRoot(t);
+    fs.mkdirSync(path.join(root, 'references'));
+    // 等价于 `cd <root> && ln -s . references/self`：realpath 归一化后仍在 root 内
+    fs.symlinkSync('.', path.join(root, 'references', 'self'));
+    const env = await workspace.createSandboxEnv({ cwd: root });
+    const result = await env.writeFile('references/self/y.txt', '1');
+    assert.strictEqual(result.ok, true, result.ok ? '' : `自指链接应放行: ${result.error.message}`);
+    assert.strictEqual(fs.readFileSync(path.join(root, 'references', 'y.txt'), 'utf8'), '1');
+  });
+
+  test('resolveInsideForWrite 非字符串/空串/纯空白返回 null（不抛、不 fallback 到 root）', (t) => {
+    const root = withTempRoot(t);
+    assert.strictEqual(workspace.resolveInsideForWrite(root, ''), null);
+    assert.strictEqual(workspace.resolveInsideForWrite(root, '   '), null);
+    assert.strictEqual(workspace.resolveInsideForWrite(root, null), null);
+    assert.strictEqual(workspace.resolveInsideForWrite(root, 42), null);
+    assert.strictEqual(workspace.resolveInsideForWrite(root, {}), null);
+  });
+
+  test('resolveInsideForWrite 的 .. 逃逸 / 绝对路径越界 / 兄弟前缀目录拒绝', (t) => {
+    const root = withTempRoot(t);
+    assert.strictEqual(workspace.resolveInsideForWrite(root, '../evil.txt'), null, '.. 逃逸');
+    assert.strictEqual(workspace.resolveInsideForWrite(root, '/etc/passwd'), null, '绝对路径越界');
+    const sibling = path.join(path.dirname(root), 'root-evil', 'x.txt');
+    assert.strictEqual(workspace.resolveInsideForWrite(root, sibling), null, '撞名前缀兄弟目录');
+  });
+});
+
 describe('migrateAiMemory 一次性迁移', () => {
   test('旧存在 && 新不存在 → 递归复制', (t) => {
     const root = withTempRoot(t);
