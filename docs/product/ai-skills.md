@@ -95,14 +95,14 @@
 
 ## 七、测试与验证
 
-- 单元测试：`node tests/test-ai-skills.js`（**187 例，实测**）—— 加载管线 / 诊断 / 限额 / 启停 / prompt 注入 / Agent 回写 / P8 机制断言；覆盖已扩到**显式调用解析与实时读盘 / 面板投影收窄 / 三档 tier / `promptOmitted` / `read` 卡片标记 / 重载装饰 / 运行期新增技能的调用瞬间重扫 + 当场读盘（G-48-12） / 延迟补刷在纯文本流的成功出口落地（G-48-18） / 重扫或重试读盘抛错沿用原判定（G-48-19） / `manage_skill` 卡片标记的两时点与终态元数据通道（M 组） / `manage_skill` 的刷新链时序与次数账（L 组） / 失败态原因码的词缀与重载还原 / 三态 `promptIncluded` 的消费侧 / a11y 增量的条件施加（M9b：三条属性与 `keydown` 落在守卫内 + 卡片调用点传 `false` + 气泡调用点原样 + 单源未破）**
+- 单元测试：`node tests/test-ai-skills.js`（**188 例，实测**）—— 加载管线 / 诊断 / 限额 / 启停 / prompt 注入 / Agent 回写 / P8 机制断言；覆盖已扩到**显式调用解析与实时读盘 / 面板投影收窄 / 三档 tier / `promptOmitted` / `read` 卡片标记 / 重载装饰 / 运行期新增技能的调用瞬间重扫 + 当场读盘（G-48-12） / 延迟补刷在纯文本流的成功出口落地（G-48-18） / 重扫或重试读盘抛错沿用原判定（G-48-19） / `manage_skill` 卡片标记的两时点与终态元数据通道（M 组） / `manage_skill` 的刷新链时序与次数账（L 组） / 失败态原因码的词缀与重载还原 / 三态 `promptIncluded` 的消费侧 / a11y 增量的条件施加（M9b：三条属性与 `keydown` 落在守卫内 + 卡片调用点传 `false` + 气泡调用点原样 + 单源未破）**
 - 自建技能域：`node tests/test-manage-skill.js`（**55 例，实测**）—— `manage_skill` 三动作（create / update / delete）/ 校验器值域（name 四判据、description 与正文上限，含 description 值域与写↔读闸口边界：`: ` / `#` / 裸标量 / 纯零宽）/ 四类撞名与 seeded 三入口保护 / 原子写与失败清理 / 字段分离扫描（description 两组、content 一组）/ 扫描-净化顺序 / 数量闸 / 幽灵技能与越界护栏
 - 面板纯逻辑：`node --test tests/test-skill-picker-model.js`（解析与 args 取值 / 过滤两档 / 展平与可选中性 / 导航取模 / 三条接线扫描）
 - 取消归属与用户气泡时序：`node --test tests/test-ai-cancel-state.js`（取消归属判定与用户气泡时序的纯逻辑用例 + renderer 接线护栏）
 - 内置技能播种：`node tests/test-builtin-skills-seeder.js`（随包源解析 / 自愈式播种 / 差异诊断 / 零安装语义扫描 / 上游快照与归属门禁）
 - 回归：`node tests/test-agent-workspace.js`（沙箱与工作区目录）
 - 技能管理数据面：`node tests/test-skills-management.js`（**49 例，实测**）—— 管理投影形状与三档分组 / 体积与文件数口径（含「统计不可用」分支与「不进 digest」的值副本用例）/ 仅 user 可卸载的三态拒绝面（**直接调 manager 函数**，不经 handler）/ 管理面名称谓词与禁用名单校验 / 样式硬禁令 / 交互面（启停四态 / 卸载确认 / inline hint / 位置保持）/ 诊断两层承载
-- 技能管理 HTTP 与传输面：`node tests/test-skills-http-api.js`（**32 例，实测**）—— 两个写子路由与转发目标 / `{ error, code }` 形状 / `/api/settings/update` 双键覆盖与「拒绝时不落盘」/ 体积闸的真实 `http` 行为（413 可达 / 无 `unhandledRejection` / 堆不线性增长 / 反向对照）/ 调用点覆盖度与常量单源 / 双入口跨文件一致性
+- 技能管理 HTTP 与传输面：`node tests/test-skills-http-api.js`（**41 例，实测**）—— 两个写子路由与转发目标 / `{ error, code }` 形状 / `/api/settings/update` 双键覆盖与「拒绝时不落盘」/ 体积闸的真实 `http` 行为（413 可达 / 无 `unhandledRejection` / 堆不线性增长 / 反向对照）/ 调用点覆盖度与常量单源 / 双入口跨文件一致性
 - 端到端（人工）：`npm run dev` → 确认两个技能目录已创建 → 问 AI「你有哪些技能」应答出 name / description → 问一个命中 description 的任务，观察是否调 `read` 打开 `location` → 直接编辑 `agent-workspace/skills/<x>/SKILL.md` 后切换对话，下一条消息应反映改动
 - 打包态（人工，**不可用 `npm run dev` 替代**）：`make install-nightly` 后启动 .app，确认 `Contents/Resources/app.asar.unpacked/skills-builtin/` 与 `~/Library/Application Support/realm-nightly/agent-workspace/managed-skills/` 下两个内置技能都在
 
@@ -540,10 +540,10 @@ AI 通过一个 `manage_skill` 工具把流程 / 经验沉淀为自己的技能�
 维护约定在 [AGENTS.md](../../AGENTS.md) 的「AI 自建技能（`manage_skill`）的维护约定」条目：产品说明权威 = 本节；改动**校验器 / 三动作 / 限额常量 / 扫描与净化口径 / 拒绝面 / 卡片形态**时**必须同步本节与该节测试清单**。
 
 - 自建技能域：`node tests/test-manage-skill.js`（**55 例，实测**）—— 三动作 / 校验器值域（含 description 值域与写↔读闸口边界：`: ` / `#` / 裸标量 / 纯零宽） / 四类撞名与 seeded 三入口 / 原子写与失败清理 / 字段分离扫描 / 扫描-净化顺序 / 数量闸 / 幽灵技能与越界护栏
-- 接线与刷新链：`node tests/test-ai-skills.js`（**187 例，实测**）的 M 组（卡片标记两时点与终态元数据通道，含失败态原因码的词缀与重载还原）与 L 组（刷新链时序与次数账，含三态 `promptIncluded` 的消费侧）；M9b：a11y 增量的条件施加（守卫内施加 + 两个调用点取值 + 单源未破）
+- 接线与刷新链：`node tests/test-ai-skills.js`（**188 例，实测**）的 M 组（卡片标记两时点与终态元数据通道，含失败态原因码的词缀与重载还原）与 L 组（刷新链时序与次数账，含三态 `promptIncluded` 的消费侧）；M9b：a11y 增量的条件施加（守卫内施加 + 两个调用点取值 + 单源未破）
 - 卡片纯逻辑：`node --test tests/test-skill-picker-model.js`（**115 例，实测**）—— 含卡片标记并入函数 `mergeManageSkillMarker` 的值域，以及本轮新增的卡片头部超预算标注面：**≤ 4 字投影**（`PROMPT_OMITTED_CARD_NOTE` 的投影性 / 第二段 / 值域）、**48 原文冻结**（`STATUS_TEXT.promptOmitted` 逐字未变 + 另三键冻结）与**九码长度上限**（失败短原因每值非空且 ≤ 6 字）
 - 技能管理数据面：`node tests/test-skills-management.js`（**49 例，实测**）—— 管理投影 / 尺寸口径 / 启停 / 卸载三态 / 名单清理 / 双入口与注入纪律源码扫描
-- 技能管理 HTTP 与传输面：`node tests/test-skills-http-api.js`（**32 例，实测**）—— 写路由与转发 / 双键校验「拒绝时不落盘」 / SEC-09 体积闸与降级分支 / 调用点覆盖度 / 双入口跨文件
+- 技能管理 HTTP 与传输面：`node tests/test-skills-http-api.js`（**41 例，实测**）—— 写路由与转发 / 双键校验「拒绝时不落盘」 / SEC-09 体积闸与降级分支 / 调用点覆盖度 / 双入口跨文件
 - 人工观察（唯一）：让 AI 建一个技能 → 观察卡片 → **不重开对话**发下一条消息问「你有哪些技能」→ 应答含新技能名。此层需要真实 LLM 往返，**不可自动化**（步骤见 `49-VALIDATION.md` 的 Manual-Only 表）
 
 **例数一致性判据（可重跑，不是人工核对）。** 上述五条计数与 [AGENTS.md](../../AGENTS.md) 测试行的五条计数必须与五个套件的**实测** `# tests` 逐字一致。判据是一条命令：现场跑五个套件读出实测值，再扫描 `AGENTS.md` 与本节的例数账本，**逐账本单元**比对 —— 单元右边界由**同一行内下一个测试文件名**（无后继则行尾）决定，因此 `AGENTS.md` 单行多套件、文件名与例数间距达数百字符的形态也不会漏检（固定宽度窗口会漏检其中至少一个）；任一单元取到的值与实测不符即以非零退出并指名到「文件:行号 + 套件名 + 取到的值」：
@@ -679,7 +679,7 @@ console.log("counts-parity ok");console.log("cells="+cells+" measured="+JSON.str
 维护约定见 [AGENTS.md](../../AGENTS.md) 的「技能管理面（设置页 + `/api/skills/*`）的维护约定」条目（权威指针 + 同步义务 + 四条硬约束 + 测试口径）。
 
 - 管理数据面：`node tests/test-skills-management.js`（**49 例，实测**）—— 管理投影形状与三档分组 / 体积与文件数口径（含「统计不可用」分支与「不进 `digest`」的值副本用例）/ 仅 user 可卸载的三态拒绝面（**直接调 manager 函数**，不经 handler）/ 管理面名称谓词与禁用名单校验 / 服务端拒绝不经 handler / 样式硬禁令 / 交互面（启停四态 / 卸载确认 / inline hint / 位置保持）/ 诊断两层承载
-- HTTP 与传输面：`node tests/test-skills-http-api.js`（**32 例，实测**）—— 写子路由与转发目标 / `{ error, code }` 形状 / `/api/settings/update` 双键覆盖与「拒绝时不落盘」/ 体积闸的真实 `http` 行为（413 可达 / 无 `unhandledRejection` / 堆不线性增长 / 反向对照）/ 降级分支 / 调用点覆盖度与常量单源 / 双入口跨文件一致性
+- HTTP 与传输面：`node tests/test-skills-http-api.js`（**41 例，实测**）—— 写子路由与转发目标 / `{ error, code }` 形状 / `/api/settings/update` 双键覆盖与「拒绝时不落盘」/ 体积闸的真实 `http` 行为（413 可达 / 无 `unhandledRejection` / 堆不线性增长 / 反向对照）/ 降级分支 / 调用点覆盖度与常量单源 / 双入口跨文件一致性
 - **本项目没有 `npm test` 脚本**：所有命令一律用具名形式（`node tests/<file>.js` / `node --test tests/<file>.js`）。
 
 **进度账本必须分开记两个数（不得合并）**：本阶段完成后 `syncAgentSystemPrompt()` 的**写路径**收口达 **2/3**（§十一的 `manage_skill` 三动作 + 本节的设置页启停 / 卸载；只剩 Phase 51 的导入）；本阶段新增的**读侧 / 兜底**初始化调用方（管理读路径的初始化，不依赖 Agent）**另计**，**不得并入**「6 个触发点」的分子 —— 合并会被读成 P8 失效链已 6/6 全覆盖。

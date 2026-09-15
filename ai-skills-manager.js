@@ -2812,6 +2812,10 @@ async function extractAndValidatePackage(env, { importDir, scopeRel = null } = {
     );
   }
 
+  // D-17 第 2 层：解压完成后**递归 `lstat` 复核整棵树**（第二路 symlink 判据；
+  // 断言点是「拒绝整包」而不是「跳过条目」）
+  assertNoSymlinkTree(pkgRoot, importDir);
+
   const resolved = resolvePackageRoot(pkgRoot, scopeRel);
   return { importDir, pkgRoot: resolved.root, entries, prefixStripped: resolved.prefixStripped };
 }
@@ -2900,8 +2904,160 @@ function locateSkillRoot(pkgRoot, scopeRel) {
   };
 }
 
-/** 单条 entry 是否算「脚本」（扩展名白名单 **或** POSIX 可执行位，D-13） */
-function isScriptEntry(name, absPath) {
+/**
+ * 解压后**递归 `lstat` 复核整棵树**（D-17 第 2 层 / T-51-12 的第二条独立判据）
+ *
+ * ## 为什么需要（第一路已判过 symlink）
+ *
+ * 第一路判据读的是 **central directory 的 external attributes** —— 它依赖造包者如实填写
+ * 且依赖库的解析正确。第二路在**真实文件系统上**复核一遍，防「库的 attribute 解析漏网」。
+ * 两路**互相不遮蔽**（把任一路注释掉，另一路的用例仍绿）。
+ *
+ * ## 与 `measureSkillDir` 的语义**相反**（不可混抄）
+ *
+ * `measureSkillDir` 对 symlink 是 **`continue`**（为统计而跳过）；本函数命中 symlink 即
+ * **抛错、拒绝整包**（不是跳过该条目）—— 一个包里出现链接是强恶意信号。
+ *
+ * ## `realpathSync` 复核
+ *
+ * 每个子项 `realpathSync` 后必须仍在 `baselineRoot`（或其 realpath）内 —— 这是
+ * 「解压产物整体不越界」的机械判据（配合 mkdtemp 空目录，双层）。
+ *
+ * @param {string} dir - 待复核的根（解压根）
+ * @param {string} baselineRoot - 允许范围的根（`importDir`）
+ * @throws {Error} 命中 symlink 或 realpath 越界（code: `unsafe_entry`）
+ */
+function assertNoSymlinkTree(dir, baselineRoot) {
+  const baselines = [baselineRoot];
+  try {
+    baselines.push(fs.realpathSync(baselineRoot));
+  } catch {
+    /* 单基准退化 */
+  }
+  const inside = (abs) =>
+    baselines.some((b) => abs === b || abs.startsWith(b.endsWith(path.sep) ? b : b + path.sep));
+
+  const stack = [dir];
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    let items = [];
+    try {
+      items = fs.readdirSync(cur, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const it of items) {
+      const child = path.join(cur, it.name);
+      let ls = null;
+      try {
+        ls = fs.lstatSync(child);
+      } catch (err) {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.UNSAFE_ENTRY,
+          `解压产物复核失败：无法读取条目状态（${err && err.code ? err.code : 'unknown'}）`,
+          { detail: 'lstat_failed' }
+        );
+      }
+      if (ls.isSymbolicLink()) {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.UNSAFE_ENTRY,
+          '解压产物含符号链接，已拒绝整包（第二路：解压后递归 lstat）',
+          { detail: 'symlink_lstat' }
+        );
+      }
+      let real = null;
+      try {
+        real = fs.realpathSync(child);
+      } catch (err) {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.UNSAFE_ENTRY,
+          `解压产物复核失败：无法解析真实路径（${err && err.code ? err.code : 'unknown'}）`,
+          { detail: 'realpath_failed' }
+        );
+      }
+      if (!inside(real)) {
+        throw makeImportError(
+          IMPORT_SKILL_ERROR.UNSAFE_ENTRY,
+          '解压产物越出解压目录，已拒绝整包（第二路：realpath 复核）',
+          { detail: 'realpath_escape' }
+        );
+      }
+      if (ls.isDirectory()) stack.push(child);
+    }
+  }
+}
+
+/** 自内向外找**最近已存在的祖先**（不存在的一律上溯；找不到返回 `null`） */
+function nearestExistingAncestor(p) {
+  let cur = p;
+  for (let i = 0; i < 128; i += 1) {
+    if (fs.existsSync(cur)) return cur;
+    const parent = path.dirname(cur);
+    if (parent === cur) return null;
+    cur = parent;
+  }
+  return null;
+}
+
+/**
+ * **落点复核**（D-17 第 3 层 / SEC-05 / T-51-12 的第三道）—— 与 51-01 并列的独立判据
+ *
+ * 对**父目录链上最近的已存在祖先**做 `realpathSync`，结果必须仍在 AI 工作区根的
+ * **双基准**（`getWorkspaceDir()` 与其 realpath）内。中间目录是符号链接时，词法路径
+ * 看着在工作区内、实际会跟随链接写出去 —— 本函数就是拦这一类。
+ *
+ * ## 为什么是本模块自己实现（不复用 `agent-workspace.resolveInsideForWrite`）
+ *
+ * `env.renameFile` 已由 51-01 的写面判据保护；本函数是**显式的第二道**：使
+ * 「51-01 被回退」时本阶段仍有一条**独立**判据（两条判据的实现不共享代码路径）。
+ *
+ * ## 与 `resolveInsideForWrite` 的一处刻意差异
+ *
+ * 基准取**工作区根**而非 `skills/` 目录：若 `skills/` 本身被换成指向工作区外的符号链接，
+ * 以 `skills/` 为基准会把它自己的 realpath 当作合法基准而放行 —— 那正是要拦的形态。
+ *
+ * @param {string} target - 待校验的落点（文件或目录的绝对路径，可不存在）
+ * @throws {Error} 基准缺失 / 解析失败 / 祖先解析到工作区外（code: `unsafe_entry`）
+ */
+function assertLandingInsideWriteRoot(target) {
+  const workspaceRoot = getAgentWorkspaceLazy().getWorkspaceDir();
+  const baselines = [workspaceRoot];
+  try {
+    baselines.push(fs.realpathSync(workspaceRoot));
+  } catch {
+    /* 单基准退化（工作区根不存在时下游 IO 自会失败） */
+  }
+  const ancestor = nearestExistingAncestor(path.dirname(target));
+  if (!ancestor) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.UNSAFE_ENTRY,
+      '落点复核失败：父目录链上找不到已存在的祖先目录',
+      { detail: 'landing_no_ancestor' }
+    );
+  }
+  let real = null;
+  try {
+    real = fs.realpathSync(ancestor);
+  } catch (err) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.UNSAFE_ENTRY,
+      `落点复核失败：无法解析父目录真实路径（${err && err.code ? err.code : 'unknown'}）`,
+      { detail: 'landing_realpath_failed' }
+    );
+  }
+  const ok = baselines.some(
+    (b) => real === b || real.startsWith(b.endsWith(path.sep) ? b : b + path.sep)
+  );
+  if (!ok) {
+    throw makeImportError(
+      IMPORT_SKILL_ERROR.UNSAFE_ENTRY,
+      '落点复核失败：父目录链上最近的已存在祖先解析到 AI 工作区之外（中间目录可能是符号链接），已拒绝落盘',
+      { detail: 'landing_escape' }
+    );
+  }
+}
+
+/** 单条 entry 是否算「脚本」（扩展名白名单 **或** POSIX 可执行位，D-13） */function isScriptEntry(name, absPath) {
   if (IMPORT_SCRIPT_EXTENSIONS.has(path.extname(String(name || '')).toLowerCase())) return true;
   try {
     return (fs.lstatSync(absPath).mode & 0o111) !== 0;
@@ -3147,9 +3303,12 @@ async function buildImportPreview(env, { pkgRoot, rootRel, origin = 'zip', seede
  * ⑤ **组装后全文的 64 KiB 闸** —— 导入**不重写文件** ⇒ 判据对象 = 包内 `SKILL.md` 的
  *    **实际字节数**。49 的不变式是「写侧权威字节闸口的判据对象 = 组装后的全文」，
  *    导入路径不组装 ⇒ **包内文件即组装结果**（两侧判的是同一个量）；
- * ⑥ `env.renameFile(<srcDir>, <skillsDir>/<name>)`（同设备、原子；`.tmp/` 与 `skills/`
+ * ⑥ **落点复核**（D-17 第 3 层 / SEC-05）：`srcDir` 与 `destDir` 的父目录链上最近已存在
+ *    祖先做 `realpathSync` 后必须仍在 AI 工作区根（双基准）内 —— 与 51-01 的写面判据
+ *    **并列的独立第二道**；
+ * ⑦ `env.renameFile(<srcDir>, <skillsDir>/<name>)`（同设备、原子；`.tmp/` 与 `skills/`
  *    同沙箱 root ⇒ 无 EXDEV）；
- * ⑦ **回读验证**：`refreshSkills` 恰一次后确认该 name 出现在快照里且 `filePath` 指向
+ * ⑧ **回读验证**：`refreshSkills` 恰一次后确认该 name 出现在快照里且 `filePath` 指向
  *    `skills/`；不在 ⇒ 把刚移入的目录 `rename` 回 `srcDir` 并抛 `READBACK_FAILED`
  *   （`extra.diagnostics` 带**含 path** 的诊断原文）。**不提供「部分导入」**。
  *
@@ -3244,7 +3403,12 @@ async function importUserSkill(env, { srcDir, name, conflict, newName } = {}, { 
 
   const stats = await collectPreviewStats(env, path.dirname(srcDir), path.basename(srcDir));
 
-  // ⑥ 落盘：同设备原子 rename（目录级）
+  // ⑥ 落点复核（D-17 第 3 层 / SEC-05）：两个端点的父目录链最近已存在祖先 realpath
+  //    必须仍在 AI 工作区内 —— 这是与 51-01 写面判据**并列的独立第二道**
+  assertLandingInsideWriteRoot(srcDir);
+  assertLandingInsideWriteRoot(destDir);
+
+  // ⑦ 落盘：同设备原子 rename（目录级）
   const renamed = await env.renameFile(srcDir, destDir);
   if (!renamed || renamed.ok !== true) {
     throw makeImportError(
@@ -3253,7 +3417,7 @@ async function importUserSkill(env, { srcDir, name, conflict, newName } = {}, { 
     );
   }
 
-  // ⑦ 回读验证（P12 / D-10）：失败即回滚，不提供「部分导入」
+  // ⑧ 回读验证（P12 / D-10）：失败即回滚，不提供「部分导入」
   let readbackOk = false;
   let diagnostics = [];
   try {

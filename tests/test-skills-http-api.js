@@ -831,3 +831,229 @@ describe('双入口（跨文件）：三个 IPC 通道只做转发，判定住�
     assert.ok(iEffect === -1 || iEffect > i403, '鉴权必须早于任何 manager 调用（副作用不得先于鉴权）');
   });
 });
+
+// ==================== ⑤ readRawBody（Phase 51 D-01）：二进制 body 的体积闸 ====================
+
+/**
+ * ⚠️ **可测性声明（同 ③ 组）**：`readRawBody` 同样住在 `main.js` 的 `realmServer` 闭包内、
+ * **不可 require** ⇒ 本组用「等价 harness 的 `http` 行为 + `main.js` 的源码契约」双层承担。
+ * 与 ③ 组唯一的实现差异是 `chunks.push(chunk)` + `Buffer.concat(chunks)`（二进制）。
+ */
+
+/** 等价 `readRawBody`：与 `main.js` 同形（含幂等护栏与三条教训） */
+function readRawBodyEq(
+  req,
+  res,
+  { maxBytes = MAX_SKILL_PACKAGE_BYTES, rejectForm = 'resume' } = {}
+) {
+  const canRespond = !!(res && typeof res.writeHead === 'function');
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    let rejected = false;
+    const tooLarge = () => {
+      rejected = true;
+      if (canRespond) {
+        sendJsonEq(res, 413, { error: '请求体超过上限（' + maxBytes + ' 字节）', limit: maxBytes });
+        if (rejectForm === 'destroy') req.destroy();
+        else req.resume();
+      }
+    };
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      tooLarge();
+      reject(Object.assign(new Error('请求体超过上限'), { code: 'BODY_TOO_LARGE', limit: maxBytes }));
+      return;
+    }
+    req.on('data', (chunk) => {
+      if (rejected) return;
+      size += chunk.length;
+      if (size > maxBytes) {
+        tooLarge();
+        reject(Object.assign(new Error('请求体超过上限'), { code: 'BODY_TOO_LARGE', limit: maxBytes }));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (rejected) return;
+      resolve(Buffer.concat(chunks));
+    });
+    req.on('error', reject);
+  });
+}
+
+/** 起一个与 main.js 的 13 处宿主同形的 raw body harness server */
+function startRawBodyServer({ maxBytes = MAX_SKILL_PACKAGE_BYTES, rejectForm = 'resume', passRes = true } = {}) {
+  const server = http.createServer(async (req, res) => {
+    try {
+      const buf = await readRawBodyEq(req, passRes ? res : undefined, { maxBytes, rejectForm });
+      sendJsonEq(res, 200, { ok: true, bytes: buf.length });
+    } catch (err) {
+      sendJsonEq(res, 400, { error: err.message, code: err.code || undefined });
+    }
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+  });
+}
+
+/** 上传上限常量（`main.js` 的单源值；测试侧只能写字面量，源码契约组钉住它单源） */
+const MAX_SKILL_PACKAGE_BYTES = 32 * 1024 * 1024;
+
+/** 40 MiB body：远大于 32 MiB 上限，量级足够绕开堆噪声 */
+const RAW_PAYLOAD_BYTES = 40 * 1024 * 1024;
+
+describe('readRawBody（Phase 51）：二进制 body 的 413 形态', () => {
+  test('① 超限 ⇒ 客户端拿到 413 且 body 可 JSON.parse、limit === 上传上限（chunked 走累积中判）', async () => {
+    const { server, port } = await startRawBodyServer();
+    try {
+      const res = await postStream(port, { payloadBytes: RAW_PAYLOAD_BYTES });
+      assert.strictEqual(res.status, 413, '超限必须答 413（不是网络错误、不是 200）');
+      const parsed = JSON.parse(res.text);
+      assert.ok(typeof parsed.error === 'string' && parsed.error.length > 0, '413 body 必须带可读 error');
+      assert.strictEqual(parsed.limit, MAX_SKILL_PACKAGE_BYTES, '413 body 必须回传上传上限（前端可展示）');
+    } finally {
+      closeSec09Server(server);
+    }
+  });
+
+  test('①b 带 content-length 的同一请求同样拿到 413（快路径与累积中判皆可，判据是行为）', async () => {
+    const { server, port } = await startRawBodyServer();
+    try {
+      const res = await postStream(port, { payloadBytes: RAW_PAYLOAD_BYTES, withContentLength: true });
+      assert.strictEqual(res.status, 413);
+      assert.strictEqual(JSON.parse(res.text).limit, MAX_SKILL_PACKAGE_BYTES);
+    } finally {
+      closeSec09Server(server);
+    }
+  });
+
+  test('② 413 路径不产生 unhandledRejection（幂等护栏吸收 catch 的二次写头）', async () => {
+    const { server, port } = await startRawBodyServer();
+    const seen = [];
+    const onRejection = (reason) => {
+      seen.push(reason && reason.message ? reason.message : String(reason));
+    };
+    process.on('unhandledRejection', onRejection);
+    try {
+      const res = await postStream(port, { payloadBytes: RAW_PAYLOAD_BYTES });
+      assert.strictEqual(res.status, 413);
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+      assert.deepStrictEqual(seen, [], '无护栏时 ERR_HTTP_HEADERS_SENT 会变成 unhandled rejection');
+    } finally {
+      process.off('unhandledRejection', onRejection);
+      closeSec09Server(server);
+    }
+  });
+
+  test('④ 反向对照：`req.destroy()` 形态**不保证**送达 413（证明 ① 的断言能失败）', async () => {
+    /*
+     * ⚠️ **为什么是「3 次里至少一次」而不是单次断言**（实测，不是猜测）
+     *
+     * `resume` 形态 100% 送达 413（①/①b 已证）；`destroy` 形态实测约 **2%** 仍能送达
+     *（本机 60 次实测：59 次客户端 `EPIPE` / 1 次拿到**完整**的 413）——「socket 在响应
+     * 被读出之前被撕掉」是**概率**行为，不是确定行为。
+     * 单次 `notStrictEqual(status, 413)` 会有约 2% 的**假红**（本计划执行期实测到 1/12）；
+     * 取「3 次里至少一次拿不到 413」把假红概率压到 1e-5 量级，**判别力零损失**
+     *（destroy 形态与 resume 形态的差异仍被抓住）。
+     */
+    const outcomes = [];
+    for (let i = 0; i < 3; i += 1) {
+      const { server, port } = await startRawBodyServer({ rejectForm: 'destroy' });
+      const big = Buffer.alloc(RAW_PAYLOAD_BYTES, 0x61);
+      try {
+        const r = await fetch(`http://127.0.0.1:${port}/api/harness`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/zip' },
+          body: big,
+        });
+        await r.text().catch(() => '');
+        outcomes.push(r.status);
+      } catch {
+        outcomes.push('THREW');
+      } finally {
+        closeSec09Server(server);
+      }
+    }
+    assert.ok(
+      outcomes.some((o) => o !== 413),
+      `destroy 形态把 socket 在响应可读之前撕掉 ⇒ 客户端拿不到 413（三次实测：[${outcomes.join(', ')}]）`
+    );
+    assert.ok(
+      outcomes.some((o) => o !== 413) || outcomes.some((o) => o === 'THREW'),
+      'destroy 形态下客户端只能看到网络错误或非 413 状态'
+    );
+  });
+});
+
+describe('readRawBody 源码契约（main.js）：签名 / 降级 / 413 形态 / 累积顺序', () => {
+  /** `readRawBody` 的函数体（按「到相邻函数定义为止」定界，不用固定字符数） */
+  function rawBodyWindow() {
+    const code = stripCodeComments(readSource('main.js'));
+    const start = code.indexOf('function readRawBody(req, res,');
+    assert.ok(start >= 0, '缺 readRawBody（口径失效）');
+    const end = code.indexOf('\n  }\n', start);
+    assert.ok(end > start, 'readRawBody 的函数体未闭合（窗口判据失效）');
+    return { code, start, body: code.slice(start, end) };
+  }
+
+  test('签名逐字为 (req, res, { maxBytes = MAX_SKILL_PACKAGE_BYTES } = {})', () => {
+    const src = readSource('main.js');
+    assert.ok(
+      /function readRawBody\(req, res, \{ maxBytes = MAX_SKILL_PACKAGE_BYTES \} = \{\}\)/.test(src),
+      'readRawBody 签名必须是三参（res 为第二位置参）且默认上限取单源常量'
+    );
+  });
+
+  test('res 缺失的降级分支：存在性判断与 writeHead 能力判断都在函数体内（canRespond）', () => {
+    const { body } = rawBodyWindow();
+    assert.ok(/res\s* && \s*typeof res\.writeHead/.test(body), '降级分支必须同时判 res 存在性与 writeHead 能力');
+    assert.ok(/canRespond/.test(body), '降级分支必须以 canRespond 布尔承载（漏改调用点 ⇒ 只 reject 不答响应）');
+  });
+
+  test('413 形态：sendJson(res, 413 + req.resume()；无 req.destroy( / 无 Connection 头（先剥注释再判）', () => {
+    const { body } = rawBodyWindow();
+    assert.ok(body.includes('sendJson(res, 413'), '超限必须答 413');
+    assert.ok(body.includes('req.resume()'), '超限必须 req.resume() 排水（不 destroy）');
+    assert.strictEqual(body.includes('req.destroy('), false, '不得使用 req.destroy()（客户端拿 EPIPE，413 不可达）');
+    assert.strictEqual(
+      /setHeader\(\s*['"]Connection['"]/.test(body) || /['"]Connection['"]\s*:/.test(body),
+      false,
+      '不得写入 Connection 头'
+    );
+  });
+
+  test('二进制形态：必须用 Buffer.concat(chunks)，且 data 监听器内顺序为 早退 → 累加 → 比较 → 才 push', () => {
+    const { body } = rawBodyWindow();
+    assert.ok(body.includes('Buffer.concat('), '二进制 body 必须用 Buffer.concat（字符串拼接会破坏字节）');
+    assert.strictEqual(
+      /let\s+body\s*=\s*''/.test(body),
+      false,
+      'readRawBody 不得沿用字符串累积形态（那是 readJsonBody 的形状）'
+    );
+
+    const dataStart = body.indexOf("req.on('data',");
+    const dataEnd = body.indexOf("req.on('end'");
+    assert.ok(dataStart >= 0 && dataEnd > dataStart, '必须含完整的 data 监听器（口径失效）');
+    const seg = body.slice(dataStart, dataEnd);
+    const iEarly = seg.indexOf('if (rejected) return;');
+    const iSize = seg.indexOf('size += chunk.length');
+    const iLimit = seg.indexOf('if (size > maxBytes)');
+    const iPush = seg.indexOf('chunks.push(chunk);');
+    assert.ok(iEarly >= 0, 'data 监听器内必须有早退');
+    assert.ok(iSize > iEarly, '早退必须**先于**累加 size');
+    assert.ok(iLimit > iSize, '必须每累加一个 chunk 就立即比较上限');
+    assert.ok(iPush > iLimit, '必须在比较之后才 push chunk');
+  });
+
+  test('上传上限常量单源：MAX_SKILL_PACKAGE_BYTES 恰 1 处定义且值为 32 MiB', () => {
+    const code = stripCodeComments(readSource('main.js'));
+    assert.strictEqual(
+      (code.match(/const MAX_SKILL_PACKAGE_BYTES = 32 \* 1024 \* 1024;/g) || []).length,
+      1,
+      'MAX_SKILL_PACKAGE_BYTES 必须恰一处（与 MAX_JSON_BODY_BYTES_LARGE 同数不同量，命名必须区分）'
+    );
+  });
+});

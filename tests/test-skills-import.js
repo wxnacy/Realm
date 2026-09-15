@@ -663,7 +663,447 @@ describe('常量契约', () => {
   });
 });
 
-// ==================== ⑧ 传输面（main.js 源码契约） ====================
+// ==================== ⑨ zip 全量校验（六类限额 / 逃逸族 / 两路 symlink / 归一化查重） ====================
+
+/** 跑完整条 preview 管线（解压校验 → 定位 → 预览） */
+async function runPipeline(env, zipBuffer, { scopeRel = null } = {}) {
+  const importDir = stageZip(zipBuffer);
+  const prepared = await aiSkills.extractAndValidatePackage(env, { importDir, scopeRel });
+  const located = aiSkills.locateSkillRoot(prepared.pkgRoot, scopeRel);
+  const preview = await aiSkills.buildImportPreview(env, {
+    pkgRoot: prepared.pkgRoot,
+    rootRel: located.rootRel,
+    origin: 'zip',
+    seededNames: SEEDED,
+  });
+  return { importDir, prepared, located, preview };
+}
+
+/** 断言管线在给定码集合内被拒，且 `skills/` 下**零新增**（拒绝整包而非跳过条目） */
+async function expectPipelineReject(env, zipBuffer, codes, label, opts = {}) {
+  const before = userSkillNames();
+  let err = null;
+  try {
+    await runPipeline(env, zipBuffer, opts);
+  } catch (e) {
+    err = e;
+  }
+  assert.ok(err, `${label}：必须被拒绝，但管线成功返回`);
+  assert.ok(
+    codes.includes(err.code),
+    `${label}：期望码 ∈ [${codes.join(', ')}]，实测 ${err.code}（message: ${err.message}）`
+  );
+  assert.deepStrictEqual(userSkillNames(), before, `${label}：拒绝路径不得在 skills/ 下新增任何目录`);
+  return err;
+}
+
+describe('symlink 两路独立判据（属性路 + 解压后递归 lstat 路）', () => {
+  test('属性路：central directory 的 external attributes 判出 symlink ⇒ 拒绝整包', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const err = await expectPipelineReject(
+      env,
+      makeZip.symlinkZip(),
+      [aiSkills.IMPORT_SKILL_ERROR.UNSAFE_ENTRY],
+      'symlink 条目（文件型）'
+    );
+    assert.strictEqual(err.detail, 'symlink_entry');
+  });
+
+  test('属性路：目录型 symlink 同样拒绝', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const err = await expectPipelineReject(
+      env,
+      makeZip.symlinkDirZip(),
+      [aiSkills.IMPORT_SKILL_ERROR.UNSAFE_ENTRY],
+      'symlink 条目（目录型）'
+    );
+    assert.strictEqual(err.detail, 'symlink_entry');
+  });
+
+  test('lstat 路：属性正常但磁盘上真是链接（模拟库解析漏网）⇒ 拒绝整包', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-outside-'));
+    t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+
+    const importDir = stageZip(makeZip.skillPackage({ name: 'lstat-skill' }));
+    fs.mkdirSync(path.join(importDir, 'pkg'), { recursive: true });
+    fs.symlinkSync(outside, path.join(importDir, 'pkg', 'evil-link'));
+
+    const before = userSkillNames();
+    const err = await expectThrowCode(
+      () => aiSkills.extractAndValidatePackage(env, { importDir, scopeRel: null }),
+      aiSkills.IMPORT_SKILL_ERROR.UNSAFE_ENTRY
+    );
+    assert.strictEqual(err.detail, 'symlink_lstat', '必须由第二路（解压后递归 lstat）拦下');
+    assert.deepStrictEqual(userSkillNames(), before, '第二路拒绝同样不得落盘');
+  });
+
+  test('非普通文件（chrdev / fifo / socket）逐类拒绝', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    for (const kind of ['chrdev', 'fifo', 'socket']) {
+      const err = await expectPipelineReject(
+        env,
+        makeZip.specialFileZip(kind),
+        [aiSkills.IMPORT_SKILL_ERROR.UNSAFE_ENTRY],
+        `非普通文件 ${kind}`
+      );
+      assert.strictEqual(err.detail, 'special_file');
+    }
+  });
+
+  test('Windows 造包（versionMadeBy 高字节非 3）必须被**接受** —— 不得把 DOS 属性位当 Unix mode', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const { preview } = await runPipeline(env, makeZip.windowsZip({ name: 'win-skill' }));
+    assert.strictEqual(preview.name, 'win-skill');
+  });
+});
+
+describe('逃逸族十二类 + 空 entry 名（逐类一例，整包拒绝）', () => {
+  test('15 条逃逸 / 畸形 entry 名逐条拒绝，且 root 外零新文件', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-escape-'));
+    t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+
+    const accepted = [];
+    for (const name of makeZip.ESCAPE_NAMES) {
+      let err = null;
+      try {
+        await runPipeline(env, makeZip.escapeZip(name));
+      } catch (e) {
+        err = e;
+      }
+      if (!err) accepted.push(name);
+      else {
+        assert.ok(
+          [
+            aiSkills.IMPORT_SKILL_ERROR.UNSAFE_ENTRY,
+            aiSkills.IMPORT_SKILL_ERROR.INVALID_ZIP,
+          ].includes(err.code),
+          `逃逸样本 ${JSON.stringify(name)} 的失败码异常：${err.code}`
+        );
+      }
+    }
+    assert.deepStrictEqual(accepted, [], `以下逃逸 / 畸形样本被放行：${accepted.map((s) => JSON.stringify(s)).join(', ')}`);
+    // 越界对照组（真跑一次）：root 外目录零新文件
+    assert.deepStrictEqual(fs.readdirSync(outside), [], '解压产物不得在临时根之外产生任何文件');
+  });
+
+  test('空 entry 名（空串 / 仅 `/` / 仅 `.`）逐例拒绝（不静默跳过）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    for (const name of ['', '/', '.']) {
+      await expectPipelineReject(
+        env,
+        makeZip.escapeZip(name),
+        [aiSkills.IMPORT_SKILL_ERROR.UNSAFE_ENTRY, aiSkills.IMPORT_SKILL_ERROR.INVALID_ZIP],
+        `空 entry 名 ${JSON.stringify(name)}`
+      );
+    }
+  });
+
+  test('越界对照组：全部恶意样本跑完一轮后，临时根之外的目录**零新文件**', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-control-'));
+    t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+
+    const samples = [
+      makeZip.symlinkZip(),
+      makeZip.symlinkDirZip(),
+      makeZip.specialFileZip('chrdev'),
+      makeZip.specialFileZip('fifo'),
+      makeZip.specialFileZip('socket'),
+      makeZip.ratioBombZip(),
+      makeZip.manyEntriesZip(2100),
+      makeZip.deepZip(20),
+      makeZip.zip64DeclaredZip(),
+      makeZip.encryptedZip(),
+      makeZip.unsupportedMethodZip(),
+      makeZip.emptyZip(),
+      makeZip.collisionZip(makeZip.COLLISION_PAIRS[0]),
+      makeZip.collisionZip(makeZip.COLLISION_PAIRS[2]),
+      ...makeZip.ESCAPE_NAMES.map((n) => makeZip.escapeZip(n)),
+    ];
+
+    for (const zip of samples) {
+      try {
+        await runPipeline(env, zip);
+      } catch {
+        /* 预期全部被拒 */
+      }
+    }
+    assert.deepStrictEqual(
+      fs.readdirSync(outside),
+      [],
+      '全部恶意样本跑完后，临时根之外的目录必须零新文件（**真跑一次**统计，不是断言「没写过」）'
+    );
+  });
+});
+
+describe('归一化查重（NFD + 小写）：同包内冲突即拒绝整包', () => {
+  test('夹具提供四对冲突名（大小写 2 + NFC/NFD 2）', () => {
+    const firsts = makeZip.COLLISION_PAIRS.map((p) => p[0]);
+    assert.strictEqual(makeZip.COLLISION_PAIRS.length, 4, '冲突名对必须恰 4 例');
+    assert.deepStrictEqual(
+      firsts,
+      ['Skill/SKILL.md', 'nf-core/SKILL.md', 'caf\u00e9/SKILL.md', 'r\u00e9sum\u00e9/a.md'],
+      '两对纯大小写（Skill/skill、nf-core/NF-CORE）+ 两对 Unicode 形式（NFC 的 café 与 résumé）'
+    );
+  });
+
+  test('四个冲突名对各一例（大小写 2 + NFC/NFD 2）逐对拒绝整包', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    for (const pair of makeZip.COLLISION_PAIRS) {
+      const err = await expectPipelineReject(
+        env,
+        makeZip.collisionZip(pair),
+        [aiSkills.IMPORT_SKILL_ERROR.UNSAFE_ENTRY],
+        `冲突名对 ${JSON.stringify(pair)}`
+      );
+      assert.strictEqual(err.detail, 'name_conflict');
+    }
+  });
+});
+
+describe('六类限额逐类一例 + zip64 / 加密 / 不支持方法 / 空包 / data descriptor', () => {
+  test('① 单 entry 字节闸（stored 2 MiB > 1 MiB）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const zip = makeZip.buildZip({
+      entries: [
+        { name: 'demo-skill/SKILL.md', data: '---\nname: x\ndescription: y\n---\n\n', method: makeZip.METHOD_STORED },
+        { name: 'demo-skill/huge.bin', data: Buffer.alloc(2 * 1024 * 1024, 7), method: makeZip.METHOD_STORED },
+      ],
+    });
+    const err = await expectPipelineReject(env, zip, [aiSkills.IMPORT_SKILL_ERROR.LIMIT_EXCEEDED], '单 entry 字节闸');
+    assert.strictEqual(err.limit, 'MAX_ENTRY_BYTES');
+  });
+
+  test('② 累计字节闸（33 × 1 MiB stored > 32 MiB）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const entries = [
+      { name: 'demo-skill/SKILL.md', data: '---\nname: x\ndescription: y\n---\n\n', method: makeZip.METHOD_STORED },
+    ];
+    for (let i = 0; i < 33; i += 1) {
+      entries.push({
+        name: `demo-skill/f${i}.bin`,
+        data: Buffer.alloc(1024 * 1024, i & 0xff),
+        method: makeZip.METHOD_STORED,
+      });
+    }
+    const err = await expectPipelineReject(env, makeZip.buildZip({ entries }), [aiSkills.IMPORT_SKILL_ERROR.LIMIT_EXCEEDED], '累计字节闸');
+    assert.strictEqual(err.limit, 'MAX_TOTAL_BYTES');
+  });
+
+  test('③ entry 数闸（2500 > 2000）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const err = await expectPipelineReject(env, makeZip.manyEntriesZip(2500), [aiSkills.IMPORT_SKILL_ERROR.LIMIT_EXCEEDED], 'entry 数闸');
+    assert.strictEqual(err.limit, 'MAX_ENTRIES');
+  });
+
+  test('④ 压缩比闸（**独立归因**：失败码是 limit_exceeded 且 message 含「压缩比」）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const zip = makeZip.ratioBombZip();
+    const err = await expectPipelineReject(env, zip, [aiSkills.IMPORT_SKILL_ERROR.LIMIT_EXCEEDED], '压缩比闸');
+    assert.strictEqual(err.limit, 'MAX_COMPRESSION_RATIO');
+    assert.ok(err.message.includes('压缩比'), `message 必须含「压缩比」：${err.message}`);
+    // 上传闸对炸弹**零贡献**（CR-5）：这个炸弹远小于 32 MiB，上传闸会放行它
+    assert.ok(
+      zip.length < 32 * 1024 * 1024,
+      `炸弹样本 ${zip.length} B 远小于上传上限 ⇒ 上传闸放行它（对炸弹零贡献）`
+    );
+    assert.ok(
+      zip.length < 1024 * 1024,
+      `炸弹压缩后体积应远小于其声明解压量（实测 ${zip.length} B 承载 1 MiB 声明解压量）`
+    );
+  });
+
+  test('⑤ 嵌套深度闸：按**技能根相对**计（16 接受 / 17 拒绝）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+
+    // 技能根路径为 `skills/deep-skill`（2 段）⇒ 包根口径会比技能根口径多算 2 层。
+    // 这样「按包根计深」的错误实现会让本用例的**接受**分支转红（16 + 2 = 18 > 16）。
+    const okZip = makeZip.depthPackage({
+      skillPath: 'skills/deep-skill',
+      depth: 16,
+      wrapPrefix: 'repo-main',
+      name: 'deep-skill',
+    });
+    const okCase = await runPipeline(env, okZip, { scopeRel: 'skills/deep-skill' });
+    assert.strictEqual(okCase.preview.depth, 16, '技能根相对深度 16 必须被接受并如实上报');
+
+    const badZip = makeZip.depthPackage({
+      skillPath: 'skills/deep-skill',
+      depth: 17,
+      wrapPrefix: 'repo-main',
+      name: 'deep-skill',
+    });
+    const err = await expectPipelineReject(
+      env,
+      badZip,
+      [aiSkills.IMPORT_SKILL_ERROR.LIMIT_EXCEEDED],
+      '深度 17',
+      { scopeRel: 'skills/deep-skill' }
+    );
+    assert.strictEqual(err.limit, 'MAX_NESTING_DEPTH');
+    assert.ok(err.message.includes('嵌套深度'), `message 必须含「嵌套深度」：${err.message}`);
+  });
+
+  test('⑤b 深度口径反证：包根口径超标但技能根相对不超标 ⇒ **接受**（不得按包根计深）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    // 顶层前缀（repo-main/skills）贡献 2 层包根深度；技能根相对深度仅 15
+    const zip = makeZip.depthPackage({
+      skillPath: 'skills/deep-skill',
+      depth: 15,
+      wrapPrefix: 'repo-main',
+      name: 'deep-skill',
+    });
+    const { preview } = await runPipeline(env, zip, { scopeRel: 'skills/deep-skill' });
+    assert.strictEqual(preview.name, 'deep-skill');
+    assert.strictEqual(preview.depth, 15, '深度必须按技能根相对计（15），而不是按包根计（19）');
+  });
+
+  test('⑥ SKILL.md 64 KiB 闸：超限 ⇒ oversize（在任何落盘之前）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const big = `---\nname: big-skill\ndescription: y\n---\n\n${'x'.repeat(70 * 1024)}`;
+    const zip = makeZip.buildZip({
+      entries: [{ name: 'big-skill/SKILL.md', data: big, method: makeZip.METHOD_STORED }],
+    });
+    const importDir = stageZip(zip);
+    const prepared = await aiSkills.extractAndValidatePackage(env, { importDir, scopeRel: null });
+    const located = aiSkills.locateSkillRoot(prepared.pkgRoot, null);
+    const before = userSkillNames();
+    await expectThrowCode(
+      () => aiSkills.importUserSkill(env, { srcDir: located.skillRootAbs, name: 'big-skill' }, { seededNames: SEEDED }),
+      aiSkills.IMPORT_SKILL_ERROR.OVERSIZE
+    );
+    assert.deepStrictEqual(userSkillNames(), before, '字节闸必须先于任何落盘');
+  });
+
+  test('⑦ `uncompressedSize === 0xFFFFFFFF` ⇒ unsupported_zip64（不得静默参与压缩比运算）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    await expectPipelineReject(
+      env,
+      makeZip.zip64DeclaredZip(),
+      [aiSkills.IMPORT_SKILL_ERROR.UNSUPPORTED_ZIP64],
+      'zip64 声明特例'
+    );
+  });
+
+  test('⑧ 加密条目 ⇒ undecodable_entry；不支持的压缩方法 ⇒ undecodable_entry', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    await expectPipelineReject(
+      env,
+      makeZip.encryptedZip(),
+      [aiSkills.IMPORT_SKILL_ERROR.UNDECODABLE_ENTRY, aiSkills.IMPORT_SKILL_ERROR.INVALID_ZIP],
+      '加密条目'
+    );
+    await expectPipelineReject(
+      env,
+      makeZip.unsupportedMethodZip(),
+      [aiSkills.IMPORT_SKILL_ERROR.UNDECODABLE_ENTRY, aiSkills.IMPORT_SKILL_ERROR.INVALID_ZIP],
+      '不支持的压缩方法'
+    );
+  });
+
+  test('⑨ 空包（只有 EOCD）⇒ skill_root_count（0 个技能根）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const err = await expectPipelineReject(
+      env,
+      makeZip.emptyZip(),
+      [aiSkills.IMPORT_SKILL_ERROR.SKILL_ROOT_COUNT],
+      '空包'
+    );
+    assert.ok(err.message.includes('实测 0'), `message 必须含实测条目数：${err.message}`);
+  });
+
+  test('⑩ data descriptor（gpb bit3）与正常 zip64 **被接受**（实测不构成额外风险）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const a = await runPipeline(env, makeZip.dataDescriptorZip());
+    assert.strictEqual(a.preview.fileCount, 1, 'data descriptor 包必须被接受，尺寸取自 central directory');
+    const b = await runPipeline(env, makeZip.normalZip64Zip());
+    assert.strictEqual(b.preview.fileCount, 1, '正常 zip64 包必须被接受');
+  });
+});
+
+describe('落盘原子性：同设备 + 失败零半成品', () => {
+  test('`.tmp/` / `skills/` / `mkdtemp` 产物三者 dev 相同（两段 rename 不会 EXDEV）', async (t) => {
+    const root = withTempRoot(t);
+    await makeEnv(root);
+    const importDir = stageZip(makeZip.skillPackage({ name: 'dev-check' }));
+    const dev = (p) => fs.statSync(p).dev;
+    const skillsDev = dev(workspace.getSkillsDir());
+    assert.strictEqual(dev(workspace.getTmpDir()), skillsDev, '.tmp/ 与 skills/ 必须同设备');
+    assert.strictEqual(dev(importDir), skillsDev, 'mkdtemp 产物与 skills/ 必须同设备');
+    assert.strictEqual(dev(workspace.getWorkspaceDir()), skillsDev, '工作区根与 skills/ 同设备');
+  });
+
+  test('落盘失败（目标位置被普通文件占位）⇒ 抛错且源目录完好、无半成品', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const importDir = stageZip(makeZip.skillPackage({ name: 'atomic-skill' }));
+    const prepared = await aiSkills.extractAndValidatePackage(env, { importDir, scopeRel: null });
+    const located = aiSkills.locateSkillRoot(prepared.pkgRoot, null);
+
+    // 目标位置放一个**普通文件**：envDirExists 判 false（不是目录）⇒ 冲突预检放行，
+    // 但 rename(dir → 已存在的普通文件) 在 POSIX 下失败
+    const blocker = path.join(workspace.getSkillsDir(), 'atomic-skill');
+    fs.writeFileSync(blocker, 'blocker');
+
+    let err = null;
+    try {
+      await aiSkills.importUserSkill(env, { srcDir: located.skillRootAbs, name: 'atomic-skill' }, { seededNames: SEEDED });
+    } catch (e) {
+      err = e;
+    }
+    assert.ok(err, '落盘必须失败');
+    assert.strictEqual(err.code, aiSkills.IMPORT_SKILL_ERROR.UNKNOWN);
+    assert.ok(fs.existsSync(located.skillRootAbs), '源目录必须完好（rename 原子 ⇒ 无半成品，也不得删除可重试的源）');
+    assert.strictEqual(fs.readFileSync(blocker, 'utf8'), 'blocker', '占位文件未被破坏');
+  });
+
+  test('落点复核：父目录链最近已存在祖先为 symlink（skills/ 指向工作区外）⇒ 拒绝落盘', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'realm-landing-'));
+    t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+
+    const importDir = stageZip(makeZip.skillPackage({ name: 'landing-skill' }));
+    const prepared = await aiSkills.extractAndValidatePackage(env, { importDir, scopeRel: null });
+    const located = aiSkills.locateSkillRoot(prepared.pkgRoot, null);
+
+    // 把 skills/ 换成指向工作区外的符号链接（D-17 第 3 层要拦的形态）
+    const skillsRoot = workspace.getSkillsDir();
+    fs.rmSync(skillsRoot, { recursive: true, force: true });
+    fs.symlinkSync(outside, skillsRoot);
+
+    const err = await expectThrowCode(
+      () => aiSkills.importUserSkill(env, { srcDir: located.skillRootAbs, name: 'landing-skill' }, { seededNames: SEEDED }),
+      aiSkills.IMPORT_SKILL_ERROR.UNSAFE_ENTRY
+    );
+    assert.strictEqual(err.detail, 'landing_escape');
+    assert.deepStrictEqual(fs.readdirSync(outside), [], '越界目录必须零新文件');
+  });
+});
+
+// ==================== ⑩ 传输面（main.js 源码契约） ====================
 
 /*
  * ## ⚠️ 本组是对**计划自带门禁 5** 的等价补判据（计划判据一字未改）

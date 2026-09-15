@@ -335,7 +335,10 @@ function escapeZip(entryName) {
   return buildZip({
     entries: [
       { name: 'demo-skill/SKILL.md', data: '---\nname: x\ndescription: y\n---\n\n', method: METHOD_STORED },
-      { name: entryName, data: 'x', method: METHOD_STORED },
+      // `utf8: true`（gpb bit11）：让 yauzl 按 UTF-8 解码，`entry.fileName` 保留原始字形
+      // —— 否则 CP437 解码会把 U+202E 一类字符换成别的可打印字符，样本失去判别力。
+      // CP437 路径另由单测直接喂「原始字节 ≠ 解码值」的形态覆盖。
+      { name: entryName, data: 'x', method: METHOD_STORED, utf8: true },
     ],
   });
 }
@@ -345,8 +348,8 @@ function collisionZip(pair = ['Skill/SKILL.md', 'skill/SKILL.md']) {
   return buildZip({
     entries: [
       { name: 'demo-skill/SKILL.md', data: '---\nname: x\ndescription: y\n---\n\n', method: METHOD_STORED },
-      { name: pair[0], data: 'a', method: METHOD_STORED },
-      { name: pair[1], data: 'b', method: METHOD_STORED },
+      { name: pair[0], data: 'a', method: METHOD_STORED, utf8: true },
+      { name: pair[1], data: 'b', method: METHOD_STORED, utf8: true },
     ],
   });
 }
@@ -409,6 +412,72 @@ function normalZip64Zip() {
   });
 }
 
+/**
+ * Windows 造包（`versionMadeBy = 0x0014` ⇒ 高字节 0 ⇒ **高 16 位无 Unix mode**）
+ *
+ * 实测形态：这类包的 `externalFileAttributes` 高 16 位是 DOS 属性（如 `0x10` =
+ * `FILE_ATTRIBUTE_DIRECTORY`），**不是** Unix mode。symlink 判定若漏了
+ * 「先看 `versionMadeBy >>> 8 === 3`」这一步，会把 DOS 属性位误读成 mode。
+ * 本样本必须**被正常接受**（不是恶意包）。
+ */
+function windowsZip({ name = 'win-skill' } = {}) {
+  return buildZip({
+    entries: [
+      {
+        name: `${name}/SKILL.md`,
+        data: `---\nname: ${name}\ndescription: 由 Windows 工具打包\n---\n\n`,
+        versionMadeBy: VERSION_MADE_BY_WINDOWS,
+        externalFileAttributes: 0x20, // DOS FILE_ATTRIBUTE_ARCHIVE
+        method: METHOD_STORED,
+      },
+    ],
+  });
+}
+
+/** 归一化冲突的四种名对（大小写 2 + NFC/NFD 2） */
+const COLLISION_PAIRS = [
+  ['Skill/SKILL.md', 'skill/SKILL.md'],
+  ['nf-core/SKILL.md', 'NF-CORE/SKILL.md'],
+  ['caf\u00e9/SKILL.md', 'cafe\u0301/SKILL.md'], // NFC U+00E9 vs NFD e + U+0301
+  ['r\u00e9sum\u00e9/a.md', 're\u0301sume\u0301/a.md'],
+];
+
+/** 技能根相对深度恰为 `depth` 层的包（文件相对技能根的路径段数 = depth） */
+function depthZip(depth = 16) {
+  const segments = [];
+  for (let i = 0; i < depth - 1; i += 1) segments.push(`d${i}`);
+  segments.push('leaf.txt');
+  return buildZip({
+    entries: [
+      { name: 'demo-skill/SKILL.md', data: '---\nname: x\ndescription: y\n---\n\n', method: METHOD_STORED },
+      { name: `demo-skill/${segments.join('/')}`, data: 'x', method: METHOD_STORED },
+    ],
+  });
+}
+
+/**
+ * 深度样本（**技能根路径可指定**）—— 用于把「按技能根相对计」与「按包根计」两种口径
+ * 区分开：`skillPath` 的段数即「包根口径比技能根口径多算的层数」。
+ *
+ * @param {{skillPath?: string, depth?: number, wrapPrefix?: string, name?: string}} params
+ */
+function depthPackage({ skillPath = 'deep-skill', depth = 16, wrapPrefix = '', name = 'deep-skill' } = {}) {
+  const base = wrapPrefix ? `${wrapPrefix}/${skillPath}` : skillPath;
+  const segments = [];
+  for (let i = 0; i < depth - 1; i += 1) segments.push(`d${i}`);
+  segments.push('leaf.txt');
+  return buildZip({
+    entries: [
+      {
+        name: `${base}/SKILL.md`,
+        data: `---\nname: ${name}\ndescription: y\n---\n\n`,
+        method: METHOD_STORED,
+      },
+      { name: `${base}/${segments.join('/')}`, data: 'x', method: METHOD_STORED },
+    ],
+  });
+}
+
 module.exports = {
   buildZip,
   skillPackage,
@@ -428,7 +497,11 @@ module.exports = {
   unsupportedMethodZip,
   dataDescriptorZip,
   normalZip64Zip,
+  windowsZip,
+  depthZip,
+  depthPackage,
   ESCAPE_NAMES,
+  COLLISION_PAIRS,
   // 常量（用例引用）
   SIG_LOCAL,
   SIG_CENTRAL,
