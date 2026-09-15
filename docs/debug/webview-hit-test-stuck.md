@@ -1,9 +1,9 @@
 # webview 鼠标命中残留：网页点不动、刷新无效、只能重启
 
-> **状态**：已修复、**未合入 master**（2026-09-15）
-> **分支**：`hotfix/webview-hit-test-stuck`　**worktree**：`.worktrees/webview-hit-test-stuck`　**基点**：`40a58cb`
+> **状态**：已修复，**已合入 master**（2026-09-15，merge `dc08c18`）
+> **分支**：`hotfix/webview-hit-test-stuck`（已合入；worktree `.worktrees/webview-hit-test-stuck`）　**基点**：`40a58cb`
 > **一句话根因**：拖标签 / 拖 AI 面板宽度期间会把**所有** webview 的 `pointer-events` 置 `none`（且不改可见性），而恢复只挂在各自的 `mouseup` 上——那次 `mouseup` 一丢，网页区就永久失去鼠标命中。
-> **本文档行号**：除特别注明外均为分支 tip `47dc69c` 时的值；改前（基点）行号已单独标注。
+> **本文档行号**：除特别注明外均为 master `dc08c18` 时的值（该 merge 的 tree 与分支 tip `f55d703` **逐字节相同**，故分支上跑的验证结论直接继承）；改前（基点）行号已单独标注。
 
 ---
 
@@ -321,8 +321,12 @@ NODE_PATH="$(npm root -g)" node tests/uat-hard-reload-shortcut.js   # 全绿
 | 项 | 值 |
 |---|---|
 | 分支 / worktree | `hotfix/webview-hit-test-stuck` / `.worktrees/webview-hit-test-stuck`（仓库内，含 `node_modules` 符号链接） |
-| 基点 | `40a58cb`（master，期间被并发会话推进过；本分支未动 master） |
-| 提交 | `3959765` fix(webview) 代码修复 · `8603bad` feat(main) guest 观测 · `94cf805` test(webview) 驱动 · `47dc69c` docs(webview) 本文档 + AGENTS.md |
-| 落点 | **master**（尚未合入，等观察一段时间；合入前按 `docs/dev/branching-spec.md` §3 做回合三步校验） |
+| 基点 | `40a58cb`（master；分支期间 master **未前进**，故合并零重叠） |
+| 提交 | `3959765` fix(webview) 代码修复 · `8603bad` feat(main) guest 观测 · `94cf805` test(webview) 驱动 · `47dc69c` docs(webview) 本文档初版 + AGENTS.md · `f55d703` docs(webview) 本文档扩写为交接版 |
+| 落点 | **已合入 master**：merge `dc08c18`（`--no-ff`）。tree hash 与分支 tip 逐字节相同（`e91036ab…`）⇒ **分支上的红绿轮验证结论直接继承**，无需在 master 重跑整套 |
+| 合入后复跑 | 按改动面（`src/renderer.js` + `main.js`）复跑**源码扫描类** 11 个套件：`test-ai-cancel-state` / `test-ai-skills` / `test-builtin-skills-seeder` / `test-context-menu-channels` / `test-context-menu-menu` / `test-media-remuxer` / `test-skill-picker-model` / `test-skills-http-api` / `test-skills-import-net` / `test-skills-import` / `test-skills-management` —— **全部 PASS** |
+| 观察期 | 在 **Nightly** 上观察（`make install-nightly`，构建自仓库根 = master 工作树） |
+| 分支与 worktree | **保留中**（观察期结束时按规范 §4 两步清理：`git worktree remove .worktrees/webview-hit-test-stuck` → `git branch -d hotfix/webview-hit-test-stuck`） |
+| 远端 | 未推送（本地 master 领先 `origin/master` 99+ 提交，是否推送由维护者定） |
 | 复查命令 | `git -C .worktrees/webview-hit-test-stuck log --oneline master..HEAD` |
 | 相关文档 | `docs/debug/vim-mode-input-field-bug.md`（键盘侧，另一层，别混）· `docs/debug/vim-hint-focus-cross-tab-failure.md`（hint 按键路由不依赖 guest 焦点，正是本次判据的基础） |
