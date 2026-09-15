@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 33
+open_count: 35
 waived_count: 0
 fixed_count: 2
-total_count: 35
-last_updated: 2026-09-14T13:50:38.408Z
+total_count: 37
+last_updated: 2026-09-15T07:11:46.134Z
 ---
 
 # Broken Windows Ledger
@@ -50,6 +50,8 @@ last_updated: 2026-09-14T13:50:38.408Z
 | 33 | 50 | deviation | ai-manager.js |  | 计划文本的「非忙时 channels 恰一次」与 D-18 双广播事实冲突，已拆成合成账/忙时账并如实披露 | open |  | 2026-09-14T13:50:32.895Z |  |
 | 34 | 50 | deviation | main.js |  | 计划建议的取值写法（key === 'aiSkills' 三元表达式）会让自带门禁的变异不转红（双键假绿）；改为 !key.includes('.') 后变异如实转红 | open |  | 2026-09-14T13:50:38.325Z |  |
 | 35 | 50 | deviation | main.js |  | 两个新写子路由补 aiManager 空值守卫（503），对齐 50-01 的既有范式，避免早期请求撞 null ⇒ 500 | open |  | 2026-09-14T13:50:38.408Z |  |
+| 36 | 51 | deviation | tests/test-agent-workspace.js |  | 51-01 Rule 2: env.remove 用例的承重断言改用「尚不存在的逃逸目标」（计划原文 `remove('<link OUT>/x')` 形态）—— 首版删已存在的 root 外文件时，回退加固的树同样拒绝（resolveInside 对已存在路径本就做 realpath 复核）故该用例恒绿、无检出力；改用 ENOENT 目标后回退会退化成底层 not_found 而非 permission_denied，MA 变异可转红（已实测） | open |  | 2026-09-15T07:11:46.049Z |  |
+| 37 | 51 | deviation | tests/test-agent-workspace.js |  | 51-01 Rule 2: 新增一条「未覆盖面」行为用例（计划仅要求注释登记）—— 断言 env.exec('echo escaped > ../x') 之后 root 外**确实**存在该文件，把「本加固不封闭 bash 写盘」（prohibitions 第 2 条 / D-15 诚实边界）从注释承诺升级为可执行反证据 | open |  | 2026-09-15T07:11:46.134Z |  |
 
 ````json
 [
@@ -471,6 +473,30 @@ last_updated: 2026-09-14T13:50:38.408Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-14T13:50:38.408Z",
+    "resolved_at": null
+  },
+  {
+    "id": 36,
+    "kind": "deviation",
+    "phase": "51",
+    "file": "tests/test-agent-workspace.js",
+    "line": null,
+    "description": "51-01 Rule 2: env.remove 用例的承重断言改用「尚不存在的逃逸目标」（计划原文 `remove('<link OUT>/x')` 形态）—— 首版删已存在的 root 外文件时，回退加固的树同样拒绝（resolveInside 对已存在路径本就做 realpath 复核）故该用例恒绿、无检出力；改用 ENOENT 目标后回退会退化成底层 not_found 而非 permission_denied，MA 变异可转红（已实测）",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T07:11:46.049Z",
+    "resolved_at": null
+  },
+  {
+    "id": 37,
+    "kind": "deviation",
+    "phase": "51",
+    "file": "tests/test-agent-workspace.js",
+    "line": null,
+    "description": "51-01 Rule 2: 新增一条「未覆盖面」行为用例（计划仅要求注释登记）—— 断言 env.exec('echo escaped > ../x') 之后 root 外**确实**存在该文件，把「本加固不封闭 bash 写盘」（prohibitions 第 2 条 / D-15 诚实边界）从注释承诺升级为可执行反证据",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T07:11:46.134Z",
     "resolved_at": null
   }
 ]
