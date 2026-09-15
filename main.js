@@ -546,6 +546,35 @@ app.on('web-contents-created', (event, contents) => {
     contents.once('destroyed', () => {
       console.log(`[Realm] webContents destroyed id=${contents.id} type=${wcType} url=${lastUrl}`);
     });
+
+    // 网页区「点不动」类故障的权威信号（docs/debug/webview-hit-test-stuck.md 的判别依据）：
+    // - unresponsive：渲染进程主线程卡住，页面保留最后一帧、点击与打字全部无响应、
+    //   刷新不生效（刷新请求也送不进卡住的进程）——「只能重启」类故障最可能的形态
+    // - render-process-gone：渲染进程崩溃或被系统回收，画面同样冻结在最后一帧
+    // - responsive：从卡死中恢复
+    // 这三条是「guest 进程死了」与「宿主命中测试坏了」的分界线：guest 卡死时
+    // executeJavaScript（hint/搜索栏注入）也会失效，反之则注入仍可用——用户报的
+    // 「f 能聚焦输入框但鼠标点不动」正属于后者。
+    contents.on('unresponsive', () => {
+      console.warn(`[Realm 诊断] webContents 无响应 id=${contents.id} type=${wcType} url=${lastUrl}`);
+    });
+    contents.on('responsive', () => {
+      console.log(`[Realm 诊断] webContents 已恢复响应 id=${contents.id} type=${wcType} url=${lastUrl}`);
+    });
+    contents.on('render-process-gone', (goneEvent, details) => {
+      console.warn(
+        `[Realm 诊断] 渲染进程退出 id=${contents.id} type=${wcType} url=${lastUrl}` +
+        ` reason=${details && details.reason} exitCode=${details && details.exitCode}`
+      );
+    });
+    // -3 是 ERR_ABORTED（正常导航取消/被 stop 打断），滤掉以免刷屏
+    contents.on('did-fail-load', (failEvent, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (!isMainFrame || errorCode === -3) return;
+      console.warn(
+        `[Realm 诊断] 主框架加载失败 id=${contents.id} type=${wcType} url=${validatedURL}` +
+        ` code=${errorCode} ${errorDescription}`
+      );
+    });
   }
 
   if (contents.getType() !== 'webview') return;
