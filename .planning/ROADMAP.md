@@ -373,14 +373,14 @@ Plans:
   4. 解压只在 `fs.mkdtempSync` 新建的空目录内进行，落盘前用**最近已存在祖先的 realpath** 复核；导入完成后工作区外不产生任何文件（含 `~` 下敏感位置），且既有沙箱 `writeFile` 的 ENOENT symlink 缺口一并加固。
   5. 网络导入 https-only + 主机白名单 + 逐跳内网地址校验 + 流式字节上限 + magic bytes 校验；扫描同时覆盖 `description` 与 body（复用 `scanInjectionPatterns` + 新增 `SKILL_THREAT_PATTERNS`）；与内置同名拒绝导入、与已有用户技能同名需显式选择（覆盖 / 改名 / 取消）；失败按"命中哪个限额 / 扫描结论 / 校验错误"给出真实原因。
 
-**Plans**: 7/7 plans planned / 6 waves（已规划，未执行）
+**Plans**: 1/7 plans executed planned / 6 waves（已规划，未执行）
 **UI hint**: yes
 
 > ⚠️ `51-02` 的 `autonomous: false`：它的 T1 含唯一的 `checkpoint:human-verify gate="blocking-human"`（`yaml` 的 `[SUS] too-new` 供应链闸 ⇒ 安装前必须用户回话）。
 
 **Wave 1**
 
-- [ ] **51-01-PLAN.md — SEC-10 沙箱写面加固（端到端纵切）**：`resolveInsideForWrite`（最近已存在祖先 realpath 复核）+ `guardForWriteResult` 包装 + 五个写方法切面 + 自指 symlink 仍放行 + 既有用例集合零变化（SEC-10）
+- [x] **51-01-PLAN.md — SEC-10 沙箱写面加固（端到端纵切）**：`resolveInsideForWrite`（最近已存在祖先 realpath 复核）+ `guardForWriteResult` 包装 + 五个写方法切面 + 自指 symlink 仍放行 + 既有用例集合零变化（SEC-10）
 - [ ] **51-02-PLAN.md — 两个依赖按实测口径落定（含 blocking-human 检查点）**：`yauzl@^3.4.0`（库自身从不写盘）+ `yaml@2.9.0`（**精确钉版** ⇒ 单实例）+ 依赖审计四条 + `build.files` 的 `!` 前缀护栏（USER-03、USER-04）
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -409,7 +409,6 @@ Plans:
 - 「只有一个落盘实现」是跨计划回归判据：`importUserSkill(` 定义恰 1 + 调用恰 1 + handler 与前端各 0；`yauzl.openPromise(` 恰 1（51-03 立、51-04 / 51-05 复验）
 - `MANAGE_SKILL_ERROR` 恰 11 键不变（导入码另立 `IMPORT_SKILL_ERROR`）；`main.js` 的 `res.writeHead(` 基线 14 不变；`await readJsonBody(req` 59 → 60
 
-
 **Security gate**: P2（S1，阻断门禁）resolveInside ENOENT symlink 逃逸 + P4（S1）zip 路径类校验 + P9（S2）SSRF 逐跳校验；SEC-06 技能域威胁扫描（description + body 双扫，与 SEC-07 名称冲突策略共同闭合 P3 后半）。
 **Research needed**: yauzl 解压 API 形态与四处错误处理面实测（zip-slip / symlink / 炸弹三类恶意样本）；GitHub 三种 URL 形态（zipball / SKILL.md 直链 / contents 列一层）的分流语义需真实网络请求验证。
 **Doc sync**: `docs/product/ai-skills.md` 安全边界与已知限制章节在此定稿（含 DNS rebinding 残余风险的如实披露）。
@@ -437,4 +436,4 @@ Plans:
 | 48. 技能发现与调用 | 8/8 | In Progress|  |
 | 49. `manage_skill` 工具 | 8/8 | In Progress|  |
 | 50. 设置页技能管理区 + `/api/skills/*` | 5/5 | In Progress|  |
-| 51. 用户技能导入管线 | 0/7 | Ready to execute | - |
+| 51. 用户技能导入管线 | 1/7 | In Progress|  |

@@ -5,17 +5,17 @@ milestone_name: AI 助手技能（Skill）能力
 current_phase: 51
 current_phase_name: 用户技能导入管线（zip + 网络地址）
 status: executing
-stopped_at: Phase 51 context gathered
-last_updated: "2026-09-15T06:53:51.372Z"
+stopped_at: Completed 51-01-PLAN.md
+last_updated: "2026-09-15T07:11:14.950Z"
 last_activity: 2026-09-15
-last_activity_desc: Phase 50 complete, transitioned to Phase 51
-state_head: e370eec1ab65b4911a0ccd4cc76940a7a41362f9
+last_activity_desc: Phase 51 execution started
+state_head: e93539cd75d3bcac56440973c408ed7ec26ecde7
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 0
   total_plans: 38
-  completed_plans: 31
-  percent: 17
+  completed_plans: 32
+  percent: 0
 ---
 
 # Project State: Realm Browser
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-09-15)
 
 ## Current Position
 
-Phase: 51 (用户技能导入管线（zip + 网络地址）) — READY TO EXECUTE
-Plan: Not started
+Phase: 51 (用户技能导入管线（zip + 网络地址）) — EXECUTING
+Plan: 2 of 7
 Status: Ready to execute
-Last activity: 2026-09-15 — Phase 50 complete, transitioned to Phase 51
+Last activity: 2026-09-15 — Phase 51 execution started
 
-Progress: [████████████████████] 31/31 plans ([██░░░░░░░░] 17%)
+Progress: [████████████████████] 31/31 plans ([░░░░░░░░░░] 0%)
 
 ## Performance Metrics
 
@@ -124,6 +124,7 @@ Progress: [████████████████████] 31/31 p
 | Phase 50 P02 | 10 min | 3 tasks | 7 files |
 | Phase 50 P03 | 12min | 3 tasks | 4 files |
 | Phase 50 P04 | 21 min | 3 tasks | 7 files |
+| Phase 51 P01 | 13min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -276,6 +277,10 @@ Recent decisions affecting current work:
 - [Phase 50]: SEC-09 的形状 = 「默认 1 MiB fail-closed + 需大者显式放大」：MAX_JSON_BODY_BYTES(1 MiB) 是 /api/* POST 全局默认，MAX_JSON_BODY_BYTES_LARGE(32 MiB) 只给两个 by-design 的大 body 端点（import-chrome / import-html，body 是用户书签文件全文）；rules/import 虽也是用户选定文件的内容但非 by-design 大 body，不做第三处覆盖（计划在 5 处把「恰 2 处」写成锁定口径，且 1 MiB 对它的后果是可读 413 而非静默破坏）
 - [Phase 50]: sendJson 幂等护栏 + res 缺失降级分支 = 一次关闭两条会崩主进程的隐患（本仓零 process.on(uncaughtException/unhandledRejection) 兜底）：① 13 处宿主 catch → sendJson 的二次写头由 headersSent||writableEnded 吸收；② 漏改调用点（res 为 undefined）在 data 监听器里只 reject BODY_TOO_LARGE，外层 catch 答 400 而非 TypeError 退出
 - [Phase 50]: 双入口 IPC 接线（USER-07 的 IPC 半边）：三通道 ai:get-skills-management / ai:set-skill-disabled / ai:uninstall-skill 只做转发（assertTrustedSender(event) → aiManager 空值守卫 → 同一 manager 函数），零判定素材是可源码断言的不变式；preload 三方法名与通道名逐字一致。IPC 写侧当前无 UI 消费者（D-17）⇒ 本计划只接线、不新建主窗口管理 UI
+- [Phase 51]: [Phase 51-01]: SEC-10 写面加固新增 guardForWriteResult 并列于 guardResult，不改 guardResult 本体 —— 后者被 absolutePath/canonicalPath 与六个读方法共用，改本体等于顺手改读面语义，而 SEC-10 的验收判据之一就是「既有放行/拒绝集合零变化」（含「读一个尚不存在的路径」仍由底层 fs 报 ENOENT 而非 permission_denied）。两条判据并列存在，也让「写面被切过去了」有独立判据对象（源码契约断言两侧同时成立）。
+- [Phase 51]: [Phase 51-01]: resolveInsideForWrite 两条判据叠加且顺序不可换：先词法双基准前缀校验（与 resolveInside 同一判据），再「自内向外最近已存在祖先 realpath + 拼回未创建尾段」复核；通过时返回词法绝对路径而非 realpath（返回 realpath 会把「root 自己也是 symlink」的合法形态改写成另一条路径）。只留 realpath 复核会放行「root 自身不存在且 realpath 失败」的退化形态。
+- [Phase 51]: [Phase 51-01]: 抽出 buildRootBaseline / isInsideBaseline 作为双基准前缀判据单源（读面 resolveInside 与写面 resolveInsideForWrite 共用）。这是本计划对 resolveInside 唯一的结构性改动，抽出后逐字等价、既有 21 例零变化 —— 计划要求「同一判据、同一双基准、不得重新发明一套前缀比较」，抽出是唯一能同时满足「单源」与「读面语义零变化」的形态。
+- [Phase 51]: [Phase 51-01]: createTempDir/createTempFile 纳入写面复核（父目录 getTmpDir() + 产物路径两段，任一失败返回 permission_denied）—— mkdtemp 本身不经 guard，.tmp/ 被替换成 symlink 产物即逃逸，而导入管线（51-03/04）会在 .tmp/ 下大量建目录。产物前缀形状 tmp-<prefix>-<rand> 与 builtin-skills-seeder 的 sweepSeedResidue 清扫正则成对，不得改名（改名会让崩溃清扫静默失效）；已加形状断言钉住。
 
 ### Roadmap Evolution
 
@@ -398,9 +403,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-15T02:25:09.902Z
-Stopped at: Phase 51 context gathered
-Resume file: .planning/phases/51-zip/51-CONTEXT.md
+Last session: 2026-09-15T07:11:14.893Z
+Stopped at: Completed 51-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
