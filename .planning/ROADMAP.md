@@ -373,7 +373,7 @@ Plans:
   4. 解压只在 `fs.mkdtempSync` 新建的空目录内进行，落盘前用**最近已存在祖先的 realpath** 复核；导入完成后工作区外不产生任何文件（含 `~` 下敏感位置），且既有沙箱 `writeFile` 的 ENOENT symlink 缺口一并加固。
   5. 网络导入 https-only + 主机白名单 + 逐跳内网地址校验 + 流式字节上限 + magic bytes 校验；扫描同时覆盖 `description` 与 body（复用 `scanInjectionPatterns` + 新增 `SKILL_THREAT_PATTERNS`）；与内置同名拒绝导入、与已有用户技能同名需显式选择（覆盖 / 改名 / 取消）；失败按"命中哪个限额 / 扫描结论 / 校验错误"给出真实原因。
 
-**Plans**: 3/7 plans executed planned / 6 waves（已规划，未执行）
+**Plans**: 4/7 plans executed planned / 6 waves（已规划，未执行）
 **UI hint**: yes
 
 > ⚠️ `51-02` 的 `autonomous: false`：它的 T1 含唯一的 `checkpoint:human-verify gate="blocking-human"`（`yaml` 的 `[SUS] too-new` 供应链闸 ⇒ 安装前必须用户回话）。
@@ -389,7 +389,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] **51-04-PLAN.md — 落盘事务与句柄生命周期**：冲突三档（seeded 拒 / user 三选一 / managed 只改名）+ 覆盖的备份与两段 rename 回滚 + 回读验证失败即回滚 + TTL / 并发上限 / 显式取消 / 崩溃残留清扫 + `IMPORT_SKILL_ERROR` 码矩阵与「上传闸对炸弹零贡献」两道独立闸（USER-05、USER-08、SEC-07）
+- [x] **51-04-PLAN.md — 落盘事务与句柄生命周期**：冲突三档（seeded 拒 / user 三选一 / managed 只改名）+ 覆盖的备份与两段 rename 回滚 + 回读验证失败即回滚 + TTL / 并发上限 / 显式取消 / 崩溃残留清扫 + `IMPORT_SKILL_ERROR` 码矩阵与「上传闸对炸弹零贡献」两道独立闸（USER-05、USER-08、SEC-07）
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -436,4 +436,4 @@ Plans:
 | 48. 技能发现与调用 | 8/8 | In Progress|  |
 | 49. `manage_skill` 工具 | 8/8 | In Progress|  |
 | 50. 设置页技能管理区 + `/api/skills/*` | 5/5 | In Progress|  |
-| 51. 用户技能导入管线 | 3/7 | In Progress|  |
+| 51. 用户技能导入管线 | 4/7 | In Progress|  |
