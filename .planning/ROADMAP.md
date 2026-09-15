@@ -127,7 +127,7 @@ v2.6 把 AI 助手推进到**可扩展能力体系**：接入 pi-agent-core 原�
 
 </details>
 
-### 🚧 v2.6 AI 助手技能（Skill）能力 (In Progress)
+### ✅ v2.6 AI 助手技能（Skill）能力 (Phases 46-51 Complete — 待 `/gsd-complete-milestone v2.6` 归档)
 
 **Milestone Goal:** 让 Realm AI 助手具备符合 Anthropic Agent Skills 开放规范的技能发现、调用、创建与管理能力——用户可 `/` 唤出技能、可导入自己的技能，AI 可自主查找与创建技能。
 
