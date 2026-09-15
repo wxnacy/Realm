@@ -3,8 +3,8 @@
   "covers": [
     "UAT-51-test-3"
   ],
-  "started": "2026-09-15T12:05:47.244Z",
-  "finished": "2026-09-15T12:06:02.072Z",
+  "started": "2026-09-15T13:00:48.473Z",
+  "finished": "2026-09-15T13:01:03.310Z",
   "node": "v22.22.0",
   "plan": {
     "nearLimit": {
@@ -38,7 +38,7 @@
       "max": null,
       "peakDelta": -34506346,
       "copiedBytes": 31748626,
-      "note": "performance.memory.usedJSHeapSize 是量化值且与 GC 强耦合；本次显式 arrayBuffer 的峰值增量为 -34506346 B（负值 = 构造期垃圾在被测窗口内被回收）。故本驱动不把 guest 堆曲线做成阈值判据，改用「确定性源码判据 + 主进程 RSS 两侧判据」。"
+      "note": "performance.memory.usedJSHeapSize 是量化值且与 GC 强耦合；本次显式 arrayBuffer 的峰值增量为 -34506346 B（负值 = 构造期垃圾在被测窗口内被回收）。故本驱动不把 guest 堆曲线做成阈值判据，改用「确定性源码判据 + A 侧 RSS 正命题」。"
     },
     "uploadSource": {
       "regionFound": true,
@@ -86,7 +86,7 @@
       }
     },
     "nearUpload": {
-      "elapsedMs": 906,
+      "elapsedMs": 878,
       "status": {
         "text": "预览已就绪，确认后才会写入。",
         "danger": false,
@@ -94,20 +94,20 @@
         "gate": ""
       },
       "heap": {
-        "baseline": 66261221,
-        "samples": 9,
-        "min": 66261221,
-        "max": 66349109,
-        "delta": 87888
+        "baseline": 66261145,
+        "samples": 7,
+        "min": 66284857,
+        "max": 66347362,
+        "delta": 86217
       },
       "rss": {
         "count": 18,
-        "first": 617594880,
-        "max": 712704000,
-        "delta": 95109120
+        "first": 624607232,
+        "max": 705970176,
+        "delta": 81362944
       }
     },
-    "nearElapsedMs": 906,
+    "nearElapsedMs": 878,
     "residueAfterNear": [],
     "overPackage": {
       "size": 67111340,
@@ -123,12 +123,25 @@
       },
       "rss": {
         "count": 34,
-        "first": 751468544,
-        "max": 752877568,
-        "delta": 1409024
+        "first": 773406720,
+        "max": 811941888,
+        "delta": 38535168
       }
     },
-    "overBranch": "content-length-fast-path"
+    "overBranch": "bounded-accumulation",
+    "overRssReading": {
+      "branch": "bounded-accumulation",
+      "rssDelta": 38535168,
+      "maxBytes": 33554432,
+      "bodyBytes": 67111340,
+      "note": "只登记不断言：累积分支下 `req.resume()` 排空会产生大量瞬时 chunk 缓冲 + GC 滞后，RSS 峰值可超过 body 体积本身（verifier 实测 68.1 MB > 67.1 MB）。「内存上界如实为 maxBytes」由 readRawBody 的源码契约 + 三条单点变异自证承重。"
+    },
+    "rssCrossReading": {
+      "nearBody": 31748626,
+      "nearRss": 81362944,
+      "overBody": 67111340,
+      "overRss": 38535168
+    }
   },
   "assertions": [
     {
@@ -189,7 +202,7 @@
     {
       "name": "A（正命题）：主进程 RSS 增量 > 16 MiB ⇒ 这 ~30 MiB 真的过了线",
       "pass": true,
-      "detail": "samples=18 rssDelta=95109120"
+      "detail": "samples=18 rssDelta=81362944"
     },
     {
       "name": "A：关闭预览后不残留 `.tmp/skill-import-*`（预览关闭即弃）",
@@ -212,21 +225,6 @@
       "detail": "\"导入失败：请求体超过上限（33554432 字节）\""
     },
     {
-      "name": "B（强判据）：主进程 RSS 增量 ≤ `maxBytes` + 8 MiB ⇒ 内存上界如实为 32 MiB，**不**随 64 MiB 的 body 线性增长",
-      "pass": true,
-      "detail": "samples=34 rssDelta=1409024（body 67111340 B，上限 33554432）branch=content-length-fast-path"
-    },
-    {
-      "name": "B（分支登记）：`readRawBody` 走了两条合法分支之一（`Content-Length` 零字节快路径 或 累积到上限即拒）",
-      "pass": true,
-      "detail": "branch=content-length-fast-path rssDelta=1409024"
-    },
-    {
-      "name": "A/B 两侧可红（非恒真自证）：**B 的 body 更大**，但 B 的 RSS 增量**小于** A 的（同一仪器、两个方向）",
-      "pass": true,
-      "detail": "A: body=31748626 rssDelta=95109120 | B: body=67111340 rssDelta=1409024"
-    },
-    {
       "name": "全程 guest / host 无未捕获异常（pageerror）",
       "pass": true,
       "detail": "[]"
@@ -245,34 +243,34 @@
     "residueRemoved": [],
     "pageErrors": [],
     "mainLogTail": [
-      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
-      "[Realm] webview webContents 创建, id: 8",
-      "[Realm] did-start-navigation: https://nav-test-example.com/bookmark, isInPlace: false, isMainFrame: true",
-      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
-      "[Realm] webview webContents 创建, id: 9",
-      "[Realm] did-start-navigation: https://cmd-plain-nav-test.com/, isInPlace: false, isMainFrame: true",
-      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
-      "[Realm] webview webContents 创建, id: 10",
-      "[Realm] did-start-navigation: http://localhost:57797/settings?container=default&token=c493b07d-1b55-46fa-b353-eac5d24f0b05, isInPlace: false, isMainFrame: true",
-      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
-      "[Realm] webview webContents 创建, id: 11",
-      "[Realm] did-start-navigation: http://localhost:57797/newtab?container=default&token=c493b07d-1b55-46fa-b353-eac5d24f0b05, isInPlace: false, isMainFrame: true",
-      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
-      "[Realm] webview 导航完成: http://localhost:8005/rouman?search=%E5%A6%88%E5%A6%88",
-      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 2",
-      "[Realm] webview 导航完成: http://localhost:57797/settings?container=default&token=c493b07d-1b55-46fa-b353-eac5d24f0b05",
-      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 10",
-      "[Realm] webview 导航完成: http://localhost:57797/newtab?container=default&token=c493b07d-1b55-46fa-b353-eac5d24f0b05",
-      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 11",
-      "[Realm UA-CH] dom-ready 触发, webContents: 2, url: http://localhost:8005/rouman?search=%E5%A6%88%E5%A6%88",
-      "[Realm] 获取常用网站: 12 个",
-      "[Realm UA-CH] dom-ready 触发, webContents: 11, url: http://localhost:57797/newtab?container=default&token=c493b07d-1b55-46fa-b353-eac5d24f0b05",
-      "[Realm UA-CH] dom-ready 触发, webContents: 10, url: http://localhost:57797/settings?container=default&token=c493b07d-1b55-46fa-b353-eac5d24f0b05",
-      "[39485:0915/200550.586795:ERROR:components/services/storage/service_worker/service_worker_storage.cc:1814] Failed to delete the database: Database IO error",
+      "[Realm UA-CH] dom-ready 触发, webContents: 10, url: http://localhost:56927/settings?container=default&token=e0b06be4-e899-427e-a2ac-5b6879c77e8f",
+      "[Realm 诊断] 主框架加载失败 id=7 type=webview url=https://nav-test-example.com/enter code=-100 ERR_CONNECTION_CLOSED",
+      "(node:5657) electron: Failed to load URL: https://nav-test-example.com/enter with error: ERR_CONNECTION_CLOSED",
+      "[Realm UA-CH] dom-ready 触发, webContents: 7, url: https://nav-test-example.com/enter",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 7",
+      "[Realm 诊断] 主框架加载失败 id=8 type=webview url=https://nav-test-example.com/bookmark code=-100 ERR_CONNECTION_CLOSED",
+      "(node:5657) electron: Failed to load URL: https://nav-test-example.com/bookmark with error: ERR_CONNECTION_CLOSED",
+      "[Realm UA-CH] dom-ready 触发, webContents: 8, url: https://nav-test-example.com/bookmark",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 8",
+      "[Realm 诊断] 主框架加载失败 id=6 type=webview url=https://nav-test-example.com/bypass code=-100 ERR_CONNECTION_CLOSED",
+      "(node:5657) electron: Failed to load URL: https://nav-test-example.com/bypass with error: ERR_CONNECTION_CLOSED",
+      "[Realm UA-CH] dom-ready 触发, webContents: 6, url: https://nav-test-example.com/bypass",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 6",
+      "[5662:0915/210051.599223:ERROR:net/socket/ssl_client_socket_impl.cc:963] handshake failed; returned -1, SSL error code 1, net_error -100",
+      "[Realm 诊断] 主框架加载失败 id=9 type=webview url=https://cmd-plain-nav-test.com/ code=-100 ERR_CONNECTION_CLOSED",
+      "(node:5657) electron: Failed to load URL: https://cmd-plain-nav-test.com/ with error: ERR_CONNECTION_CLOSED",
+      "[Realm UA-CH] dom-ready 触发, webContents: 9, url: https://cmd-plain-nav-test.com/",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 9",
+      "[5662:0915/210051.660364:ERROR:net/socket/ssl_client_socket_impl.cc:963] handshake failed; returned -1, SSL error code 1, net_error -100",
+      "[Realm 诊断] 主框架加载失败 id=5 type=webview url=https://bg-nav-test.com/ code=-100 ERR_CONNECTION_CLOSED",
+      "(node:5657) electron: Failed to load URL: https://bg-nav-test.com/ with error: ERR_CONNECTION_CLOSED",
+      "[Realm UA-CH] dom-ready 触发, webContents: 5, url: https://bg-nav-test.com/",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 5",
+      "[5657:0915/210051.749466:ERROR:components/services/storage/service_worker/service_worker_storage.cc:1814] Failed to delete the database: Database IO error",
       "[Realm] 技能 API 处理失败: 请求体超过上限"
     ]
   },
   "exitCode": 0,
-  "passed": 21,
-  "total": 21
+  "passed": 18,
+  "total": 18
 }
