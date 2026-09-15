@@ -610,9 +610,11 @@ function buildWebMenu(contextInfo, mainWindow) {
   // 链接菜单（per D-18 + UI-SPEC.md Link Context Menu）
   if (contextInfo.hasLink && contextInfo.linkURL) {
     // 构建容器子菜单
+    // 容器 icon 字段存的是语义名（briefcase / fingerprint / user / bank），
+    // 不是可渲染的字形，拼进 label 会显示成「briefcase 工作」，故只取名称
     const containers = contextInfo.containers || [];
     const containerSubmenu = containers.map((container) => ({
-      label: `${container.icon || ''} ${container.name || container.id}`,
+      label: container.name || container.id,
       click: () => {
         if (!hostWebContents.isDestroyed()) {
           hostWebContents.send('context-menu:open-in-container', {
