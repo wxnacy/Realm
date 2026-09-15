@@ -2441,6 +2441,180 @@ describe('网络面四码（51-05 交付）：四码各有真实用例，矩阵�
   });
 });
 
+// ==================== ⑫c 导入弹框前端契约（51-06 T2：双向覆盖 + 注入纪律） ====================
+
+/**
+ * 设置页导入区的 **region-scoped** 源码判据
+ *
+ * 为什么按 region 定界而不是整文件：`src/settings-page.js` 有 6000+ 行、含多处**既有**的
+ * HTML 字符串路径（`rulesList` / `shortcutList` 等），整文件扫描会恒红且毫无判别力。
+ * region 内的每一条插值都来自**不可信包** ⇒ 只对该区间施加注入纪律。
+ */
+describe('导入弹框前端契约（51-06）：码表双向覆盖 + 注入纪律', () => {
+  const SETTINGS_PAGE = 'src/settings-page.js';
+  const REGION_START = '/* Phase 51 skill-import region: start */';
+  const REGION_END = '/* Phase 51 skill-import region: end */';
+
+  /** 取 region 原文（注释未剥） */
+  function regionRaw() {
+    const raw = readSource(SETTINGS_PAGE);
+    const i = raw.indexOf(REGION_START);
+    assert.notStrictEqual(i, -1, `缺 region 起点标记 ${REGION_START}`);
+    const j = raw.indexOf(REGION_END, i);
+    assert.notStrictEqual(j, -1, `缺 region 终点标记 ${REGION_END}`);
+    assert.ok(j > i, 'region 终点标记必须在起点之后');
+    return raw.slice(i, j);
+  }
+
+  /** 取 region 的剥注释面 */
+  function regionCode() {
+    return stripCodeComments(regionRaw());
+  }
+
+  test('SKILL_IMPORT_ERROR_TEXT ↔ IMPORT_SKILL_ERROR 双向覆盖（缺哪个码在此指名）', () => {
+    const code = regionCode();
+    const start = code.indexOf('SKILL_IMPORT_ERROR_TEXT');
+    assert.notStrictEqual(start, -1, 'region 内未定义 SKILL_IMPORT_ERROR_TEXT');
+    const end = code.indexOf('});', start);
+    assert.notStrictEqual(end, -1, 'SKILL_IMPORT_ERROR_TEXT 的 Object.freeze 未闭合');
+    const seg = code.slice(start, end);
+
+    // ⚠️ 计划自带的同一条判据用 /[a-z_]{4,}:/ 取键 —— 它**无法匹配含数字的键**
+    //（`unsupported_zip64`）⇒ 对任何正确实现恒红。本判据用同语义但正确的键正则，
+    // 是那条门禁的等价替换（见 51-06-SUMMARY 的「计划门禁缺陷」）。
+    const tableKeys = new Set(
+      (seg.match(/^\s*([A-Za-z][A-Za-z0-9_]*)\s*:/gm) || []).map((s) =>
+        s.trim().replace(/\s*:$/, '')
+      )
+    );
+    const constVals = Object.values(aiSkills.IMPORT_SKILL_ERROR);
+
+    const missInTable = constVals.filter((v) => !tableKeys.has(v));
+    const extraInTable = [...tableKeys].filter((k) => !constVals.includes(k));
+
+    assert.deepStrictEqual(
+      missInTable,
+      [],
+      `常量有码但前端表里没文案（缺哪个码在此指名）：${missInTable.join(', ')}`
+    );
+    assert.deepStrictEqual(
+      extraInTable,
+      [],
+      `前端表里有已不存在的码（双向覆盖的另一半）：${extraInTable.join(', ')}`
+    );
+    assert.strictEqual(
+      tableKeys.size,
+      constVals.length,
+      `键数（${tableKeys.size}）必须等于常量值数（${constVals.length}）`
+    );
+    // 正命题：确认真读到了 21 个键（空集也会让上面的两个 deepStrictEqual 全绿）
+    assert.ok(tableKeys.size >= 21, `前端表键数异常偏少：${tableKeys.size}`);
+  });
+
+  test('失败文案是**闭合**白名单：表外码走兜底，不回落 undefined', () => {
+    const code = regionCode();
+    assert.ok(code.includes('function skillImportErrorText('), '缺 skillImportErrorText(');
+    assert.ok(
+      code.includes('Object.prototype.hasOwnProperty.call(SKILL_IMPORT_ERROR_TEXT, code)'),
+      '查表必须用 hasOwnProperty（原型链上的键会让表外码被误判为「有文案」）'
+    );
+    assert.ok(code.includes('导入失败，请重试。'), '缺表外码的兜底文案');
+    assert.ok(code.includes('导入失败：'), '缺承载后端 error 原文的兜底文案');
+  });
+
+  test('注入纪律：region 内零 HTML 字符串模板（负命题 + 正命题）', () => {
+    const code = regionCode();
+    // 负命题
+    assert.strictEqual(code.includes('innerHTML'), false, 'region 内出现 innerHTML');
+    assert.strictEqual(
+      code.includes('insertAdjacentHTML'),
+      false,
+      'region 内出现 insertAdjacentHTML'
+    );
+    // 正命题（**缺它则该判据在「region 为空」时假绿** —— 49 的 WR-12 教训）
+    assert.ok(code.includes('document.createElement('), 'region 内缺 document.createElement(');
+    assert.ok(code.includes('.textContent'), 'region 内缺 .textContent');
+    // 属性上下文**不拼接**（固定 token 判定，不猜全文）
+    assert.strictEqual(
+      /setAttribute\(\s*['"][A-Za-z-]+['"]\s*,\s*['"][^'"]*['"]\s*\+/.test(code),
+      false,
+      '出现「拼字符串再 setAttribute」的形态（TD-48-01 的扩大形态）'
+    );
+    assert.strictEqual(
+      /class="\$\{/.test(code),
+      false,
+      '出现把变量拼进 class 的字符串模板'
+    );
+    assert.strictEqual(
+      /(className|id)\s*=\s*[A-Za-z_$][\w$]*\s*\+/.test(code),
+      false,
+      '出现把变量拼进 className / id 的形态（类名与 id 必须是白名单字面量）'
+    );
+  });
+
+  test('文件选择链路：change 处理器在 finally 里置空文件输入（同一文件可重复触发）', () => {
+    const code = regionCode();
+    const anchor = code.indexOf("fileInput.addEventListener('change'");
+    assert.notStrictEqual(anchor, -1, '未找到文件输入的 change 监听');
+    const end = code.indexOf('\n    });', anchor);
+    assert.notStrictEqual(end, -1, '未找到 change 处理器的收尾');
+    const handler = code.slice(anchor, end);
+    assert.ok(/finally\s*\{/.test(handler), 'change 处理器必须有 finally（否则异常路径不清空）');
+    assert.ok(
+      /finally\s*\{[\s\S]*?\.value\s*=\s*''/.test(handler),
+      'change 处理器的 finally 必须在清空文件输入（input.value = \'\'）—— 否则同一文件第二次选不触发'
+    );
+    assert.strictEqual(
+      /\.reset\(\)/.test(handler),
+      false,
+      '不得对 <input> 调 reset()（那是 <form> 的方法）'
+    );
+  });
+
+  test('四条诚实边界恒显在可见文本里（不折叠、不省略、不只进 tooltip）', () => {
+    const code = regionCode();
+    const boundaries = [
+      '不是安全边界',
+      '不代表该技能是安全的',
+      '不被强制，仅供参考',
+      '不构成额外权限',
+    ];
+    for (const t of boundaries) {
+      assert.ok(code.includes(t), `缺诚实边界文案：${t}`);
+      assert.strictEqual(
+        new RegExp(`\\.title\\s*=\\s*'[^']*${t}`).test(code),
+        false,
+        `诚实边界「${t}」不得只进 tooltip（必须上屏）`
+      );
+    }
+    assert.strictEqual(code.includes('ai-skill-content-box'), false, '不得复用 48 的折叠族');
+    assert.strictEqual(
+      code.includes('aria-expanded'),
+      false,
+      '「展开全部」是内容截断开关，不得引入 aria-expanded'
+    );
+  });
+
+  test('改名的合法性判定不复刻到前端（不出现校验器正则 / maxlength / 字数计数）', () => {
+    const code = regionCode();
+    assert.strictEqual(
+      code.includes('maxlength') || code.includes('maxLength'),
+      false,
+      '改名输入框不得设 maxlength（静默截断与「拒绝必须可见」相悖）'
+    );
+    assert.strictEqual(
+      code.includes('a-z0-9') || code.includes('MANAGED_SKILL_NAME_RE'),
+      false,
+      '前端不得复刻 validateManagedSkillName 的值域（两份实现必然漂移）'
+    );
+    assert.strictEqual(
+      code.includes('aria-disabled'),
+      false,
+      '禁用一律原生 disabled（aria-disabled 不阻止激活 ⇒ 假安全）'
+    );
+  });
+});
+
 // ==================== ⑬ 矩阵机械判据（必须是文件里的**最后一个** describe） ====================
 
 describe('拒绝面矩阵：每个可达的 IMPORT_SKILL_ERROR 码至少一条用例（缺码即指名）', () => {
