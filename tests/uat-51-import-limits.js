@@ -95,6 +95,47 @@ function check(name, pass, detail) {
   return !!pass;
 }
 
+/**
+ * 列出本机正在跑的 Electron 实例 PID（**只读探测**，不做任何杀进程）
+ *
+ * 本仓的 `realm-dev` userData 是**单例语义**：并存的第二个实例会与当前驱动共用同一份
+ * 设置页 / 配置 / 技能目录。实测证据（2026-09-15）：一次驱动退出后留下的**孤儿实例**
+ * 使随后一轮的「设置页 guest 被重新初始化」，表现为超限（413）用例间歇转红
+ * （6 次实跑 1 红，红轮指纹 ≡ `location.reload()` 后态）。
+ * 故驱动必须在开跑前登记这个数、收尾后再核对一次。
+ */
+function listElectronInstances() {
+  try {
+    const out = require('child_process').execSync(
+      "ps -eo pid=,ppid=,command= | grep 'electron/dist/Electron.app/Contents/MacOS/Electron' | grep -v grep || true",
+      { encoding: 'utf8' }
+    );
+    return out
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => {
+        const m = l.match(/^(\d+)\s+(\d+)\s+(.*)$/);
+        return m
+          ? { pid: Number(m[1]), ppid: Number(m[2]), command: m[3].slice(0, 180) }
+          : { raw: l.slice(0, 180) };
+      });
+  } catch (_e) {
+    return null;
+  }
+}
+
+/** PID 是否仍存活（`kill(pid, 0)` 不发信号，只做存在性探测） */
+function isPidAlive(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (_e) {
+    return false;
+  }
+}
+
 function writeEvidence(ev) {
   fs.mkdirSync(OUT_DIR, { recursive: true });
   fs.writeFileSync(EVIDENCE_PATH, JSON.stringify(ev, null, 2) + '\n');
@@ -502,6 +543,7 @@ async function main() {
   };
 
   log('=== 前置清理 ===');
+  evidence.cleanup.instancesBefore = listElectronInstances();
   evidence.cleanup.preSkillDir = removeDirIfAny(path.join(USER_SKILLS_DIR, PROBE_NAME));
   evidence.cleanup.preTmpResidue = listImportResidue();
 
@@ -535,6 +577,8 @@ async function main() {
   let electronApp = null;
   let page = null;
   let exitCode = 1;
+  /** 本驱动自己拉起的 Electron 主进程 PID（收尾按精确 PID 核对） */
+  let ownPid = null;
 
   try {
     electronApp = await electronLauncher.launch({
@@ -545,6 +589,7 @@ async function main() {
       timeout: 60000,
     });
     const proc = electronApp.process();
+    ownPid = proc ? proc.pid : null;
     if (proc) {
       const push = (d) =>
         String(d)
@@ -937,6 +982,27 @@ async function main() {
     } catch (e) {
       log('[cleanup] 失败:', e.message);
     }
+    if (electronApp) {
+      try {
+        await Promise.race([electronApp.close(), sleep(6000)]);
+      } catch (e) {
+        console.error('electronApp.close() 失败:', e.message);
+      }
+      /* ⚠ 收尾必须确认**自己的**子进程真的没了：`process.exit()` 可能抢在异步 close 之前执行，
+         留下 PPID=1 的孤儿实例 —— 它会与后续运行共用 realm-dev userData，并让设置页 guest
+         被重新初始化（实测导致超限用例间歇转红）。只按**精确 PID** 收，不用模式匹配杀进程。 */
+      if (isPidAlive(ownPid)) {
+        try {
+          process.kill(ownPid, 'SIGKILL');
+          evidence.cleanup.orphanKilled = ownPid;
+        } catch (e) {
+          evidence.cleanup.orphanKilled = `failed(${e.message})`;
+        }
+      } else {
+        evidence.cleanup.orphanKilled = null;
+      }
+      evidence.cleanup.instancesAfter = listElectronInstances();
+    }
     evidence.finished = new Date().toISOString();
     evidence.passed = results.filter((r) => r.pass).length;
     evidence.total = results.length;
@@ -946,13 +1012,6 @@ async function main() {
       writeEvidence(evidence);
     } catch (e) {
       console.error('写证据 JSON 失败:', e.message);
-    }
-    if (electronApp) {
-      try {
-        await Promise.race([electronApp.close(), sleep(6000)]);
-      } catch (e) {
-        console.error('electronApp.close() 失败:', e.message);
-      }
     }
   }
 

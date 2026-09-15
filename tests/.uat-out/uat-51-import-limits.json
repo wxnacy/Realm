@@ -3,8 +3,8 @@
   "covers": [
     "UAT-51-test-3"
   ],
-  "started": "2026-09-15T13:00:48.473Z",
-  "finished": "2026-09-15T13:01:03.310Z",
+  "started": "2026-09-15T13:31:22.998Z",
+  "finished": "2026-09-15T13:31:43.721Z",
   "node": "v22.22.0",
   "plan": {
     "nearLimit": {
@@ -86,7 +86,7 @@
       }
     },
     "nearUpload": {
-      "elapsedMs": 878,
+      "elapsedMs": 963,
       "status": {
         "text": "预览已就绪，确认后才会写入。",
         "danger": false,
@@ -94,20 +94,20 @@
         "gate": ""
       },
       "heap": {
-        "baseline": 66261145,
-        "samples": 7,
-        "min": 66284857,
-        "max": 66347362,
-        "delta": 86217
+        "baseline": 66269712,
+        "samples": 9,
+        "min": 66269712,
+        "max": 66355909,
+        "delta": 86197
       },
       "rss": {
-        "count": 18,
-        "first": 624607232,
-        "max": 705970176,
-        "delta": 81362944
+        "count": 19,
+        "first": 453246976,
+        "max": 558759936,
+        "delta": 105512960
       }
     },
-    "nearElapsedMs": 878,
+    "nearElapsedMs": 963,
     "residueAfterNear": [],
     "overPackage": {
       "size": 67111340,
@@ -123,24 +123,24 @@
       },
       "rss": {
         "count": 34,
-        "first": 773406720,
-        "max": 811941888,
-        "delta": 38535168
+        "first": 625688576,
+        "max": 681246720,
+        "delta": 55558144
       }
     },
     "overBranch": "bounded-accumulation",
     "overRssReading": {
       "branch": "bounded-accumulation",
-      "rssDelta": 38535168,
+      "rssDelta": 55558144,
       "maxBytes": 33554432,
       "bodyBytes": 67111340,
       "note": "只登记不断言：累积分支下 `req.resume()` 排空会产生大量瞬时 chunk 缓冲 + GC 滞后，RSS 峰值可超过 body 体积本身（verifier 实测 68.1 MB > 67.1 MB）。「内存上界如实为 maxBytes」由 readRawBody 的源码契约 + 三条单点变异自证承重。"
     },
     "rssCrossReading": {
       "nearBody": 31748626,
-      "nearRss": 81362944,
+      "nearRss": 105512960,
       "overBody": 67111340,
-      "overRss": 38535168
+      "overRss": 55558144
     }
   },
   "assertions": [
@@ -202,7 +202,7 @@
     {
       "name": "A（正命题）：主进程 RSS 增量 > 16 MiB ⇒ 这 ~30 MiB 真的过了线",
       "pass": true,
-      "detail": "samples=18 rssDelta=81362944"
+      "detail": "samples=19 rssDelta=105512960"
     },
     {
       "name": "A：关闭预览后不残留 `.tmp/skill-import-*`（预览关闭即弃）",
@@ -236,6 +236,13 @@
     }
   ],
   "cleanup": {
+    "instancesBefore": [
+      {
+        "pid": 73385,
+        "ppid": 73384,
+        "command": "/Users/wxnacy/Projects/Realm/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron ."
+      }
+    ],
     "preSkillDir": "absent",
     "preTmpResidue": [],
     "skillDir": "absent",
@@ -243,31 +250,39 @@
     "residueRemoved": [],
     "pageErrors": [],
     "mainLogTail": [
-      "[Realm UA-CH] dom-ready 触发, webContents: 10, url: http://localhost:56927/settings?container=default&token=e0b06be4-e899-427e-a2ac-5b6879c77e8f",
-      "[Realm 诊断] 主框架加载失败 id=7 type=webview url=https://nav-test-example.com/enter code=-100 ERR_CONNECTION_CLOSED",
-      "(node:5657) electron: Failed to load URL: https://nav-test-example.com/enter with error: ERR_CONNECTION_CLOSED",
-      "[Realm UA-CH] dom-ready 触发, webContents: 7, url: https://nav-test-example.com/enter",
-      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 7",
-      "[Realm 诊断] 主框架加载失败 id=8 type=webview url=https://nav-test-example.com/bookmark code=-100 ERR_CONNECTION_CLOSED",
-      "(node:5657) electron: Failed to load URL: https://nav-test-example.com/bookmark with error: ERR_CONNECTION_CLOSED",
-      "[Realm UA-CH] dom-ready 触发, webContents: 8, url: https://nav-test-example.com/bookmark",
-      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 8",
-      "[Realm 诊断] 主框架加载失败 id=6 type=webview url=https://nav-test-example.com/bypass code=-100 ERR_CONNECTION_CLOSED",
-      "(node:5657) electron: Failed to load URL: https://nav-test-example.com/bypass with error: ERR_CONNECTION_CLOSED",
-      "[Realm UA-CH] dom-ready 触发, webContents: 6, url: https://nav-test-example.com/bypass",
-      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 6",
-      "[5662:0915/210051.599223:ERROR:net/socket/ssl_client_socket_impl.cc:963] handshake failed; returned -1, SSL error code 1, net_error -100",
-      "[Realm 诊断] 主框架加载失败 id=9 type=webview url=https://cmd-plain-nav-test.com/ code=-100 ERR_CONNECTION_CLOSED",
-      "(node:5657) electron: Failed to load URL: https://cmd-plain-nav-test.com/ with error: ERR_CONNECTION_CLOSED",
-      "[Realm UA-CH] dom-ready 触发, webContents: 9, url: https://cmd-plain-nav-test.com/",
-      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 9",
-      "[5662:0915/210051.660364:ERROR:net/socket/ssl_client_socket_impl.cc:963] handshake failed; returned -1, SSL error code 1, net_error -100",
-      "[Realm 诊断] 主框架加载失败 id=5 type=webview url=https://bg-nav-test.com/ code=-100 ERR_CONNECTION_CLOSED",
-      "(node:5657) electron: Failed to load URL: https://bg-nav-test.com/ with error: ERR_CONNECTION_CLOSED",
-      "[Realm UA-CH] dom-ready 触发, webContents: 5, url: https://bg-nav-test.com/",
-      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 5",
-      "[5657:0915/210051.749466:ERROR:components/services/storage/service_worker/service_worker_storage.cc:1814] Failed to delete the database: Database IO error",
+      "[Realm] did-start-navigation: https://nav-test-example.com/bookmark, isInPlace: false, isMainFrame: true",
+      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
+      "[Realm] webview webContents 创建, id: 9",
+      "[Realm] did-start-navigation: https://cmd-plain-nav-test.com/, isInPlace: false, isMainFrame: true",
+      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
+      "[Realm] webview webContents 创建, id: 10",
+      "[Realm] did-start-navigation: http://localhost:56828/settings?container=default&token=d98e41cb-ec1c-436a-bd60-d7da3d368205, isInPlace: false, isMainFrame: true",
+      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
+      "[Realm] webview webContents 创建, id: 11",
+      "[Realm] did-start-navigation: http://localhost:56828/newtab?container=default&token=d98e41cb-ec1c-436a-bd60-d7da3d368205, isInPlace: false, isMainFrame: true",
+      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
+      "2026-09-15 21:31:25.231 Electron[82248:23060787] +[IMKClient subclass]: chose IMKClient_Modern",
+      "2026-09-15 21:31:25.231 Electron[82248:23060787] +[IMKInputSession subclass]: chose IMKInputSession_Modern",
+      "[Realm] webview 导航完成: http://localhost:8005/rouman?search=%E5%A6%88%E5%A6%88",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 2",
+      "[Realm] webview 导航完成: http://localhost:56828/settings?container=default&token=d98e41cb-ec1c-436a-bd60-d7da3d368205",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 10",
+      "[Realm] webview 导航完成: http://localhost:56828/newtab?container=default&token=d98e41cb-ec1c-436a-bd60-d7da3d368205",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 11",
+      "[Realm UA-CH] dom-ready 触发, webContents: 2, url: http://localhost:8005/rouman?search=%E5%A6%88%E5%A6%88",
+      "[Realm] 获取常用网站: 12 个",
+      "[Realm UA-CH] dom-ready 触发, webContents: 11, url: http://localhost:56828/newtab?container=default&token=d98e41cb-ec1c-436a-bd60-d7da3d368205",
+      "[Realm UA-CH] dom-ready 触发, webContents: 10, url: http://localhost:56828/settings?container=default&token=d98e41cb-ec1c-436a-bd60-d7da3d368205",
+      "2026-09-15 21:31:30.701 Electron[82248:23060787] error messaging the mach port for IMKCFRunLoopWakeUpReliable",
       "[Realm] 技能 API 处理失败: 请求体超过上限"
+    ],
+    "orphanKilled": 82248,
+    "instancesAfter": [
+      {
+        "pid": 73385,
+        "ppid": 73384,
+        "command": "/Users/wxnacy/Projects/Realm/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron ."
+      }
     ]
   },
   "exitCode": 0,

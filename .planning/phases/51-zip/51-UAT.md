@@ -107,6 +107,28 @@ boundary: |
   故最终承重判据是：确定性源码判据（含三条单点变异自证）+ A 侧的「RSS 增量 > 16 MiB」正命题
   （证明这 ~30 MiB 真的过了线，不是空跑）。
 
+  ③ ⚠️ **「无抖动」这句口径曾被 verifier 打回，并查出了根因**：verifier 末轮实跑 **6 次 1 红**
+     （16/18，红的是超限用例的「danger 状态行非空」+「文案含真实限额数字」两条），
+     红轮 DOM 指纹经其「签名实验室」判定为**设置页 guest 被重新初始化**
+     （指纹 ≡ `location.reload()` 后态；同轮 `guestWaitFor(danger)` 已返回 true
+     ⇒ **已排除**「应用静默吞掉 413」）。它同时指出一处它无法排除的混淆：
+     本机有另一个实例在共用同一个 realm-dev userData。
+     **本轮查明并已修**：那个实例是**本驱动自己留下的孤儿** —— PID 21151、PPID=1（父进程已退出）、
+     带 playwright 的 `--inspect=0 --remote-debugging-port=0` 标志、启动时刻正好在上一批实跑结束之后。
+     成因：收尾的 `process.exit()` 会抢在异步 `electronApp.close()` 之前执行，把 Electron 留成孤儿；
+     孤儿与后续运行共用 userData ⇒ settings guest 被重初始化 ⇒ 该腿间歇转红。
+     **加固**：三支驱动均已加入 ① 开跑前登记本机 Electron 实例数（并存时告警并记入证据
+     `cleanup.instancesBefore`）；② 收尾按**精确 PID**（自己的子进程 PID，非模式匹配）
+     核对并收掉未退出的子进程，结果记入 `cleanup.orphanKilled` / `cleanup.instancesAfter`。
+     孤儿已按精确 PID 清理（清理后实例数 0）。
+
+     **第二处混淆源（不在本会话控制内，已如实登记）**：本机另有**另一会话的 dev 实例**在跑 ——
+     PID 73385 / PPID 73384 = `node .worktrees/webview-hit-test-stuck/node_modules/.bin/electron .`，
+     它解析到**同一个** `node_modules/electron/dist` 二进制并共用同一份 realm-dev userData。
+     驱动已把它记进 `cleanup.instancesBefore`（含 command）。这意味着**本驱动的读数在并发实例
+     存在时天然带噪**：在孤儿子进程已修掉之后连跑 5 轮均 18/18，仍不能据此声称「该腿零抖动」，
+     只能说「在已登记的环境下未复现」。verifier 末轮那 1 次红是否由该实例造成**无法证实**。
+
 ### 4. 其余窗口尺寸档下的预览弹框布局
 
 expected: |
