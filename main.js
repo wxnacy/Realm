@@ -69,6 +69,22 @@ if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'debug') 
 // 应用图标：Nightly 版用深色背景圆角图标，正式版/开发环境用透明背景版
 const APP_ICON_FILE = process.env.NODE_ENV === 'nightly' ? 'icon-nightly.png' : 'icon.png';
 
+// 诊断日志落盘：打包版（Nightly/正式）没有终端，事后取证只能靠文件。
+// 路径 <userData>/logs/diagnostics.log；启用环境 development/debug/nightly，
+// production 完全不落盘。必须在任何 webContents 创建之前 init —— 下面
+// web-contents-created 里靠 isEnabled() 决定是否挂诊断监听。详见 diagnostics-log.js
+const diagnosticsLog = require('./diagnostics-log');
+const diagnosticsInit = diagnosticsLog.init({
+  dir: app.getPath('userData'),
+  env: process.env.NODE_ENV || 'production',
+  version: app.getVersion(),
+});
+diagnosticsLog.hookMainConsole(console);
+if (diagnosticsInit.enabled) {
+  // 走 diagLog：文件一定记，控制台回显只在 dev/debug（Nightly 保持零控制台输出）
+  diagnosticsLog.diagLog('info', '诊断日志落盘已启用', diagnosticsInit.filePath);
+}
+
 // 加载 shell 环境变量（打包后 .app 需要）
 loadShellEnv();
 
@@ -530,23 +546,40 @@ function notifyOpenUrlInTab(contents, url, containerId) {
 // guest 页面 target=_blank / window.open 必须在主进程用 setWindowOpenHandler 拦截：
 // 一律 deny 独立窗口，改为通知渲染进程在 guest 所在容器新建 Tab（D-09）
 app.on('web-contents-created', (event, contents) => {
-  // G-44-2 诊断（仅 dev/debug）：为每个 webContents 留存「最近 URL + 销毁日志」。
+  // 渲染进程控制台落盘（主窗口与 webview guest 都挂）。**guest 必须挂在 guest 自身的
+  // webContents 上**——挂在主窗口上收不到 guest 日志（Electron 43 实测，见
+  // docs/debug/webview-hit-test-stuck.md §6.5）。过滤与环境门槛在 diagnostics-log 内。
+  diagnosticsLog.attachContents(contents);
+
+  // G-44-2 诊断：为每个 webContents 留存「最近 URL + 销毁日志」。
   // 用户下次复现闪退时，崩溃前最后一条 destroyed 日志即被销毁的具体 webContents
   //（候选：ERR_FAILED 的 mp4 webview guest 或播放器窗口本体）。
   // URL 取局部变量，不在 destroyed 回调里调 getURL——销毁后取值抛错。
-  // 生产/Nightly 环境零输出；本块只挂监听与日志，不含行为逻辑
-  //（UA 覆盖、预加载注入等既有逻辑不动）
-  if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'debug') {
-    const wcType = contents.getType();
-    let lastUrl = '';
+  // 本块只挂监听与日志，不含行为逻辑（UA 覆盖、预加载注入等既有逻辑不动）。
+  //
+  // 输出分工（2026-09-15 变更）：
+  // - `webContents destroyed`：仍只在 dev/debug 打控制台（正常关标签也会触发，落盘会刷屏）
+  // - 下面几条「点不动」类故障的权威信号：改走 diagnosticsLog.diagLog ——
+  //   **落盘在 development/debug/nightly 都生效**，控制台回显仍只在 dev/debug
+  //   （Nightly 控制台保持零输出）。这是本次「合到 master 后在 Nightly 观察」所需的取证通道。
+  const isDebugConsole = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'debug';
+  const diagnosticsActive = diagnosticsLog.isEnabled() || isDebugConsole;
+  const wcType = contents.getType();
+  let lastUrl = '';
+
+  if (diagnosticsActive) {
     contents.on('did-navigate', (navEvent, url) => { lastUrl = url; });
     contents.on('dom-ready', () => {
       try { lastUrl = contents.getURL(); } catch { /* 过渡态取值失败，保留上次记录 */ }
     });
+  }
+  if (isDebugConsole) {
     contents.once('destroyed', () => {
       console.log(`[Realm] webContents destroyed id=${contents.id} type=${wcType} url=${lastUrl}`);
     });
+  }
 
+  if (diagnosticsActive) {
     // 网页区「点不动」类故障的权威信号（docs/debug/webview-hit-test-stuck.md 的判别依据）：
     // - unresponsive：渲染进程主线程卡住，页面保留最后一帧、点击与打字全部无响应、
     //   刷新不生效（刷新请求也送不进卡住的进程）——「只能重启」类故障最可能的形态
@@ -556,23 +589,25 @@ app.on('web-contents-created', (event, contents) => {
     // executeJavaScript（hint/搜索栏注入）也会失效，反之则注入仍可用——用户报的
     // 「f 能聚焦输入框但鼠标点不动」正属于后者。
     contents.on('unresponsive', () => {
-      console.warn(`[Realm 诊断] webContents 无响应 id=${contents.id} type=${wcType} url=${lastUrl}`);
+      diagnosticsLog.diagLog('warn', 'webContents 无响应', `id=${contents.id} type=${wcType} url=${lastUrl}`);
     });
     contents.on('responsive', () => {
-      console.log(`[Realm 诊断] webContents 已恢复响应 id=${contents.id} type=${wcType} url=${lastUrl}`);
+      diagnosticsLog.diagLog('info', 'webContents 已恢复响应', `id=${contents.id} type=${wcType} url=${lastUrl}`);
     });
     contents.on('render-process-gone', (goneEvent, details) => {
-      console.warn(
-        `[Realm 诊断] 渲染进程退出 id=${contents.id} type=${wcType} url=${lastUrl}` +
-        ` reason=${details && details.reason} exitCode=${details && details.exitCode}`
+      diagnosticsLog.diagLog(
+        'warn',
+        '渲染进程退出',
+        `id=${contents.id} type=${wcType} url=${lastUrl} reason=${details && details.reason} exitCode=${details && details.exitCode}`
       );
     });
     // -3 是 ERR_ABORTED（正常导航取消/被 stop 打断），滤掉以免刷屏
     contents.on('did-fail-load', (failEvent, errorCode, errorDescription, validatedURL, isMainFrame) => {
       if (!isMainFrame || errorCode === -3) return;
-      console.warn(
-        `[Realm 诊断] 主框架加载失败 id=${contents.id} type=${wcType} url=${validatedURL}` +
-        ` code=${errorCode} ${errorDescription}`
+      diagnosticsLog.diagLog(
+        'warn',
+        '主框架加载失败',
+        `id=${contents.id} type=${wcType} url=${validatedURL} code=${errorCode} ${errorDescription}`
       );
     });
   }
