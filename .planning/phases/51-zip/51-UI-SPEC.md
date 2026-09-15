@@ -1,10 +1,11 @@
 ---
 phase: "51"
 slug: "zip"
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: "2026-09-15"
+reviewed_at: "2026-09-15T03:05:45Z"
 ---
 
 # Phase 51 — UI Design Contract
@@ -104,7 +105,7 @@ grep -cE '^\.(settings-group|settings-group-title|setting-description|ai-modal|a
 | `.slash-picker-source-badge*` / `.slash-picker-tag-explicit` | `main.css:7243-7281` | 三档来源徽标（**本阶段预览卡片不使用** —— 导入的技能在写入前没有来源档位；来源徽标属列表行，见 50） |
 | `.skill-manage-*` 全套（50 建） | `main.css:10491-10735` | **本阶段直接复用**：`.skill-manage-hint` / `-success` / `-danger`（区级 hint）、`.skill-manage-section`（本阶段三条作用域覆盖的**统一前缀**）、`.skill-manage-confirm-actions`（动作区形状的照抄对象）。**类本体零改动** |
 | `#skillManageConfirm` 的 `.ai-modal-overlay` + `.ai-modal` 形态 | `settings.html:555-567` | **弹框形态模板**（D-18）：外壳复用 + 初始隐藏走类 + CSSOM 显隐。本阶段的导入弹框是**同族新实例**，不是它的改写 |
-| `#rulesFileInput` 的文件选择链路 | `settings.html:197` / `settings-page.js:231 / 769 / 1242` / `main.css:3182-3191` | **文件选择的完整先例**：`<input type="file">` 经 **CSS 类规则** `display:none` 初始隐藏、由可见 button 调 `.click()` 触发、`change` → 处理函数、**`finally` 里 `reset()` 保证同一文件可重复触发**。本阶段照抄这条链路（**不新增 native dialog / 不新增 IPC 通道**） |
+| `#rulesFileInput` 的文件选择链路 | `settings.html:197` / `settings-page.js:231 / 769 / 812-814 / 1242` / `main.css:3182-3191` | **文件选择的完整先例**：`<input type="file">` 经 **CSS 类规则** `display:none` 初始隐藏、由可见 button 调 `.click()` 触发、`change` → 处理函数、**`finally` 里清空 `e.target.value`**（`:812-814`，形如 `e.target.value = ''`）**保证同一文件可重复触发**。本阶段照抄这条链路（**不新增 native dialog / 不新增 IPC 通道**） |
 | `skillsApi(route, options, query)` | `settings-page.js:4874-4897` | **HTTP 客户端的逐行模板**：`token` 查询参数 → `fetch(\`/api/skills${suffix}?…\`)` → 非 2xx 时优先取后端 `{ error, code }`。本阶段的 preview / commit 两个调用直接复用它（`options.body` 允许传 `File` / `ArrayBuffer`） |
 | `setSkillManageHint` / `resetSkillManageHint` + `skillManageHintTimer` | `settings-page.js:4822 / 5289-5306` | **区级 inline hint 的既有单源**（`clearTimeout` 纪律 + 2 秒无条件复位）。本阶段**直接调用同一函数**，不新建 hint 实例、不新建 toast |
 | `STATUS_TEXT` / `TIER_BADGE` / `PROMPT_OMITTED_CARD_NOTE`（`src/skill-picker-model.js:239 / 394 / 314`） | 状态文案单源 | 本阶段**不新增状态文案键**：导入不产生新的行尾状态（导入成功后技能即普通 `user` 技能，状态由 50 的链决定） |
@@ -145,7 +146,7 @@ Exceptions 的 **B 表** —— 偏离值必须逐条登记并附理由与既有
 |--------------|-----|------|------|
 | `.settings-group` | `padding: 16px 20px` / `margin-bottom: 12px` / `border-radius: 8px` | `main.css:3202-3208` | **不改** |
 | `.settings-group-title` | `margin-bottom: 16px` / 14px / 600 | `main.css:3210-3215` | 类本体**不改**；本区标题行内由作用域覆盖 ② 归零（值 16px 由 `.skill-manage-header` 承担，几何结果逐值相同） |
-| `.ai-modal` | **`gap: 10px`** / `padding: 16px` / `max-height: 80vh` | `main.css:5383-5394` | **不改** —— 弹框内层宿主的既有子元素间距。本阶段弹框的「标题 → 模式选择 → 面板 → 状态行 → 预览 → 确认区 → 动作区」**全部**落在它内部，故 10px 在本阶段真实生效；它是存量值、非本阶段新增，按「存量继承」登记，本阶段**不新增**任何 10px |
+| `.ai-modal` | **`gap: 10px`** / `padding: 16px` / `max-height: 80vh` | `main.css:5383-5394` | **不改** —— 弹框内层宿主的既有子元素间距。本阶段弹框的「标题 → 模式选择 → 面板 → 状态行 → 预览 → 必勾 → 冲突 → 动作区」**全部**落在它内部（与 `## 结构与交互契约` 的「元素顺序是契约」逐段同序），故 10px 在本阶段真实生效；它是存量值、非本阶段新增，按「存量继承」登记，本阶段**不新增**任何 10px |
 | `.ai-modal-header h3` | 16px / 600 | `main.css:5402-5405` | **不改**（弹框标题；本页唯一 16px 用途，不进本阶段字号预算） |
 | `.ai-memory-tabs` | `gap: 4px` / `border-bottom: 1px` / `margin-bottom: 16px` | `main.css:10389-10394` | **不改**（本阶段第二次复用，类本体零改动） |
 | `.ai-memory-tab` | `padding: 8px 12px` / `font-size: 14px` / `border-bottom: 2px solid transparent` / `margin-bottom: -1px` | `main.css:10396-10406` | **不改**（同上） |
@@ -227,7 +228,7 @@ Exceptions：
 |------|-------|-------|
 | Dominant (60%) | `--bg-primary` — 暗 `#1a1a1a` / 亮 `#ffffff` | 设置页页面底（`.settings-content`）与遮罩下的内容（`.ai-modal-overlay` 的 `rgba(0,0,0,.6)` 是压暗层，不是新底色） |
 | Secondary (30%) | `--bg-secondary` — 暗 `#2a2a2a` / 亮 `#f5f5f5`；次级 `--bg-tertiary` — 暗 `#3a3a3a` / 亮 `#e5e5e5` | **本阶段全部文字的生效底恒为 `--bg-secondary`**：`.settings-group` 卡片底（`main.css:3203`）与**弹框内层 `.ai-modal` 底**（`main.css:5384`）是**同一个不透明令牌** ⇒ 区文字与预览卡片文字落**在同一个底上**，本契约的对比度表因此只有一套底。`--bg-tertiary` 只作**输入框与按钮**的填充底（沿用既有 `.text-input` / `.btn-secondary`）；hover 底 `--bg-hover` — 暗 `#404040` / 亮 `#e0e0e0`（**仅按钮 hover**，本阶段不用于行） |
-| Accent (10%) | `--accent-color` `#3B82F6` | 见下方 **Accent reserved for** 显式清单（只有三处，且**没有一处是文字色**） |
+| Accent (10%) | `--accent-color` `#3B82F6` | 见下方 **Accent reserved for** 显式清单（**共四处** —— 三条既有/机制性的 + 一条本阶段新增的勾选框填充，且**没有一处是文字色**） |
 | Warning / 注意 | `--skill-limit-text` — 暗 `#F59E0B` / 亮 `#92400E` | 启发式高亮条目文字；必勾提示与冲突提示文字；**两处高亮条的左边框**（非文本，2px） |
 | Error | `--skill-error-text` — 暗 `#FCA5A5` / 亮 `#B91C1C` | **脚本清单标红**（路径文字）；失败状态行；改名校验失败内联文案；注入类扫描结论的拒绝原因 |
 | Success | `--skill-success-text` — 暗 `#6EE7B7` / 亮 `#065F46` | 区级 inline hint 的导入成功文案（50 建的令牌，本阶段首次在**弹框关闭后**的成功路径上使用） |
@@ -245,8 +246,15 @@ Exceptions：
    **非文本边界**，是本阶段唯一用 accent 表达「主行动」的地方。
 3. **既有 `.ai-memory-tab.active` 的 `border-bottom-color`**（`main.css:10414`）—— 复用类的存量用法；
    本阶段的模式选择因此获得一条**非颜色冗余**的「当前项」指示（下边框 + `aria-pressed`）。
-4. **显式排除**：`--bg-hover` 行高亮 / 按钮 hover / 状态文本 / 任何填充色 —— **一律不用 accent**。
-5. `.btn-primary`（accent 填充）**本阶段不使用** —— 白字对其底实测 **3.68:1 < 4.5**（12px 小字），
+4. **必勾复选框的勾选态填充**（`.skill-import-ack-box { accent-color: var(--accent-color) }`，**本阶段新增**）——
+   **非文本填充**：`accent-color` 只决定 UA 绘制勾选框时用的强调色，**不参与任何文字渲染**，也不构成
+   背景板（「框」本身仍由 UA 用系统色绘制）。**这是本阶段唯一用 accent 做填充的地方**，与第 2 条（边框）、
+   第 3 条（既有下边框）一样，都不承担「唯一状态指示」的职责 ⇒ **中性化替代**：删掉该声明即回落到
+   UA 默认强调色（macOS = 系统蓝），**功能与可达性零损失** —— 勾选 / 未勾选的差异**另有文本冗余表达**
+   （禁用原因文本的出现 / 消失 + 确认按钮由 `disabled` 变可用，见表 A-2 末行）⇒ 它是**可撤回的装饰性强化**，
+   不是承重件。CSS 块内同步标了交叉引用（见 `## 结构与交互契约` 的 `.skill-import-ack-box` 注释）。
+5. **显式排除**：`--bg-hover` 行高亮 / 按钮 hover / 状态文本 / **除第 4 项以外的任何填充色** —— **一律不用 accent**。
+6. `.btn-primary`（accent 填充）**本阶段不使用** —— 白字对其底实测 **3.68:1 < 4.5**（12px 小字），
    见下方「禁用记录」。
 
 ### 对比度核算（WCAG 1.4.3；11px / 12px / 13px / 14px 全部属小字 ⇒ 硬要求 **≥ 4.5:1**）
@@ -315,7 +323,7 @@ Exceptions：
 | ④ | `.ai-memory-tab.active` 的 `--accent-color` 文字在 **AI 记忆区**仍不达标（暗 3.90 / 亮 3.37） | `main.css:10411-10415` + `settings.html:490-493` | 本页只覆盖自己的实例（①）。修类本体会改动本阶段以外的实名宿主 ⇒ **须单独立项** |
 | ⑤ | `.text-input:focus` / `.settings-select:focus` 的 `outline: none` + 1px accent 边框焦点指示器（≤ 3.09:1） | `main.css:3238-3241` / `:3286-3289` / `:3414-3417` / `:8674-8677` | 页面级既有模式（4 处以上）。修它 = 跨区域视觉决策 ⇒ **须单独立项**。本阶段只保证**新增**输入框不复制该形态（③） |
 | ⑥ | `.btn-secondary` 的填充与卡片底分界仅 1.16–1.26:1（< 3:1，1.4.11） | `main.css:930-933` + `.settings-group` `:3203` | 页面级既有事实（50 的全部按钮实例亦然）。改 `.btn-secondary` 底色或加统一边框会改动全页按钮外观 ⇒ **须单独立项** |
-| ⑦ | 设置页 4 个既有多候选弹框缺 `role="dialog"`、且 2 个 `.ai-modal-overlay` 遮罩弹框无焦点陷阱 | `settings.html:371` / `:402`（遮罩式）与 `:755` / `:769`（原生 `<dialog>`，走 `showModal()` —— **这两个自带平台焦点陷阱**） | 本阶段**沿用 50 的「不做焦点陷阱」决定**并按 50 的登记口径如实挂账；本阶段新增弹框另加 `role="dialog"` + `aria-labelledby`（零机制成本），**但不写 `aria-modal`**（理由见 `## 结构与交互契约` 的键盘契约）。既有的 4 个弹框**零变化** |
+| ⑦ | 设置页 4 个既有多候选弹框缺 `role="dialog"`、且 2 个 `.ai-modal-overlay` 遮罩弹框无焦点陷阱 | `settings.html:371` / `:402`（遮罩式）与 `:792` / `:806`（原生 `<dialog class="modal">`，走 `showModal()` —— **这两个自带平台焦点陷阱**） | 本阶段**沿用 50 的「不做焦点陷阱」决定**并按 50 的登记口径如实挂账；本阶段新增弹框另加 `role="dialog"` + `aria-labelledby`（零机制成本），**但不写 `aria-modal`**（理由见 `## 结构与交互契约` 的键盘契约）。既有的 4 个弹框**零变化** |
 
 ### 须在真实渲染下取数的读数（UAT 驱动必须断言；不得只信上表算值）
 
@@ -342,7 +350,7 @@ Exceptions：
 | 3 | 模式按钮 | `本地上传` / `网络地址` | 本契约（D-18 的两个 tab，措辞取 D-18 原文） |
 | 4 | 本地上传说明 | `选择技能的 zip 压缩包。包内必须恰好包含一个技能（一个 SKILL.md 所在的目录）。` | 本契约（D-06「恰好一个技能根」的用户可见投影；`SKILL.md` 以 `<code>` 呈现） |
 | 5 | 选择文件按钮 | `选择 zip 文件` | 本契约（`<input type="file">` 的 visible 触发器） |
-| 6 | 未选文件的空态 | `尚未选择 zip 文件` | 本契约（E4 空态，放状态行） |
+| 6 | 未选文件的空态（**仅本地上传模式**） | `尚未选择 zip 文件` | 本契约（E4 空态；**落点 = 弹框内状态行**，见状态机 `idle·本地` 行。⚠️ **网络地址模式的空态不使用本条** —— 它由 #7 的地址形态说明 + 禁用原因 `请输入网络地址` 承担，见状态机 `idle·网络` 行） |
 | 7 | 网络地址说明 | `粘贴技能包地址：GitHub 仓库或子目录（github.com/<组织>/<仓库>/tree/<分支>/<路径>）、raw.githubusercontent.com 上的 SKILL.md 直链。地址必须为 https。` | 本契约（D-06 的三种 URL 形态 + CR-8 的「必须自己补 tree/<ref>/<path>」提示；host 以 `<code>` 呈现） |
 | 8 | 获取预览按钮 | `获取预览` | 本契约 |
 | 9 | 在途状态行 | `正在读取技能包…` / `正在从网络地址下载…` / `正在写入技能，请稍候…` | 本契约（三条定长；沿设置页 `加载中…` 的单行纯文本先例，**零 spinner、零骨架屏**） |
@@ -427,10 +435,10 @@ Exceptions：
 
 | Element | Copy |
 |---------|------|
-| Empty state heading | **本阶段的空态没有独立标题行** —— 空态一律由**弹框内状态行的单行文本**承载（#6 `尚未选择 zip 文件` / #4 的包形态说明），预览区在未就绪时不渲染（`display:none`，不占位）。理由：这是设置页既有的「单行纯文本」加载/空态范式（`加载中…` / `0 / 0`），本阶段不新建空态容器 |
-| Empty state body | 见上表 #4 / #6 / #7 —— 每态一句「现状 + 下一步」；**URL 模式的空态**由 #7 的地址形态说明 + 禁用原因 `请输入网络地址` 共同承担 |
+| Empty state heading | **本阶段的空态没有独立标题行**，也**不新建空态容器**：**本地上传**模式的空态由**弹框内状态行的单行文本**承载（#6 `尚未选择 zip 文件`，见状态机 `idle·本地` 行）；面板内的 #4 是**包形态说明**（`p.skill-import-note`，恒渲染），不承担空态文案。**网络地址**模式的空态**不写进状态行**（该行留空并 CSSOM `display:none`），由面板内 #7 的地址形态说明 + 动作区的禁用原因 `请输入网络地址` 共同承担（E5 已如此建模）。预览区在未就绪时不渲染（`display:none`，不占位）。理由：这是设置页既有的「单行纯文本」加载/空态范式（`加载中…` / `0 / 0`），本阶段不新建空态容器 |
+| Empty state body | 见上表 #4 / #6 / #7 —— 每态一句「现状 + 下一步」；**URL 模式的空态**由 #7 的地址形态说明（面板内）+ 禁用原因 `请输入网络地址`（动作区）共同承担 |
 | Error state | **两种落点**：① 弹框打开期间 ⇒ 弹框内状态行（E6）danger（`--skill-error-text`），按上表 `code` 查表，**不清空用户已选的文件 / 已填的 URL / 已勾的必勾项**（除 `import_expired` 外）；② 弹框关闭后 ⇒ 区级 inline hint（E18，`setSkillManageHint` + 2 秒无条件复位 + `clearTimeout` 纪律） |
-| Destructive confirmation | **覆盖同名技能**是本阶段唯一的破坏性动作：`冲突三选一 → 选中「覆盖」 → 必勾（如命中启发式） → 点「导入」`。确认面由**结构**承担（不是二次弹框）：冲突提示句 #23 + 三选一 #24 + 后果说明 #25（**必须写清「先备份、失败自动恢复」** —— D-09 的回滚是用户可见承诺，不写用户就不知道可以反悔）+ 必勾 #22。**不新建第二层确认弹框** |
+| Destructive confirmation | **覆盖同名技能**是本阶段唯一的破坏性动作。**确认面 = 四个部分（不是二次弹框）**：冲突提示句 #23 + 三选一 #24（选中「覆盖」）+ 后果说明 #25（**必须写清「先备份、失败自动恢复」** —— D-09 的回滚是用户可见承诺，不写用户就不知道可以反悔）+ 必勾 #22（命中启发式时）。**要素枚举而非视觉序**：这四处都落在动作区正上方（布局序 = 预览 → 必勾 → 冲突 → 禁用原因 → 动作区，与「元素顺序是契约」一致）；命中启发式时勾选是**另一条**独立的门（见禁用态契约情形 2/4）。**不新建第二层确认弹框** |
 
 ### 文案纪律（硬要求）
 
@@ -490,7 +498,7 @@ div.settings-group.skill-manage-section                              ← 既有�
             │         ├─ input#skillImportUrl.text-input[type=url]     地址
             │         └─ button#skillImportFetch.btn.btn-secondary.btn-sm   获取预览
             ├─ p#skillImportStatus.skill-import-status[role="status"][aria-live="polite"]   ← E6（兼 AT 播报）
-            ├─ div#skillImportPreview.skill-import-preview              预览卡片（**唯一滚动容器**，未就绪 display:none）
+            ├─ div#skillImportPreview.skill-import-preview[tabindex="0"]  预览卡片（**唯一滚动容器** + 键盘可达停靠点，未就绪 display:none）
             │    ├─ div.skill-import-field-row   技能名 / 落点（#11 #12）
             │    ├─ div.skill-import-field-row   描述（**原文**，`white-space:pre-wrap`）
             │    ├─ div.skill-import-field-row   目录 + 「共 N 个文件 / M 个目录」+ button 展开全部/收起
@@ -500,13 +508,13 @@ div.settings-group.skill-manage-section                              ← 既有�
             │    ├─ div.skill-import-scan        扫描结论两栏（col / col-heuristic）
             │    ├─ div.skill-import-field-row   allowed-tools 值 + 免责标注（**恒同排**）
             │    └─ p.skill-import-note          预览诚实边界（#36，**恒显**）
-            ├─ div#skillImportConflict.skill-import-conflict            冲突三选一（条件渲染；**恒在预览之后**）
+            ├─ div#skillImportAck.skill-import-ack                      必勾风险确认（条件渲染；**恒在预览之后、冲突之前**）
+            │    ├─ p.skill-import-ack-note      高亮提示（#21）
+            │    └─ label.skill-import-ack-label > input[type=checkbox].skill-import-ack-box + 「我已了解以上风险」
+            ├─ div#skillImportConflict.skill-import-conflict            冲突三选一（条件渲染；**恒在必勾之后、禁用原因之前**）
             │    ├─ p.skill-import-ack-note      冲突提示（#23）
             │    ├─ div.skill-import-radio-row × 3                      覆盖 / 改名 / 取消（**默认都未选中**）
             │    └─ div.skill-import-field       新的技能名（仅选中「改名」时渲染）
-            ├─ div#skillImportAck.skill-import-ack                      必勾风险确认（条件渲染）
-            │    ├─ p.skill-import-ack-note      高亮提示（#21）
-            │    └─ label.skill-import-ack-label > input[type=checkbox].skill-import-ack-box + 「我已了解以上风险」
             ├─ p#skillImportGate.skill-import-gate                      禁用原因的**可见文本**（空时 CSSOM display:none）
             └─ div.skill-import-actions
                  ├─ button#skillImportCancel.btn.btn-secondary.btn-sm   取消
@@ -516,30 +524,52 @@ div.settings-group.skill-manage-section                              ← 既有�
 **元素顺序是契约**（不得调换）：模式选择 → 当前面板 → 状态行 → 预览 → 必勾 → 冲突 → 禁用原因 → 动作区。
 把**必勾与冲突放在预览之后、按钮之前**是刻意的：用户必须先看完预览才能读到风险与冲突选择，
 且两者都紧邻动作区（「刚读完的条件就在按钮上面」）。
+**必勾在冲突之前**同样刻意：必勾是「我知道这包可能有害」的总括确认，冲突是「这个包要落到哪」的覆盖决策；
+勾选是**先于**落盘方式的元级确认，故它排在更靠近预览的位置（离它要确认的内容更近）。
+
+> **本顺序的自查（改完后逐处回读）**：本文件内在 **4 处**声明该元素的先后，全部要求同序 ——
+> ① 本段；② 上方 DOM 骨架（`#skillImportAck` 在 `#skillImportConflict` **之前**）；
+> ③ 状态机表的列序（状态行 → 预览区 → 必勾区 → 冲突区 → 动作区）；
+> ④ 键盘契约的 Tab 序（… → 必勾复选框 → 冲突 3 个 radio → 改名输入框 → 取消 → 确认）。
+> 另有两处**刻意不构成顺序声明**：`## Spacing Scale` 的 `.ai-modal` 行只列「正文段落全集」（附「逐段同序」标注），
+> Copywriting 的 Destructive confirmation 行只做**要素枚举**（已显式写明「要素枚举而非视觉序」）。
+> 元素清单（UI Considerations 的 E14 → E15）与状态机列序同向。
 
 ### 状态机（`#skillImportModal` 的唯一权威状态表）
 
-| 状态 | 触发 | 预览区 | 状态行 | 必勾区 | 冲突区 | 动作区 |
+| 状态 | 触发 | 状态行 | 预览区 | 必勾区 | 冲突区 | 动作区 |
 |------|------|--------|--------|--------|--------|--------|
-| **idle·本地** | 弹框打开 / 切到本地上传 | `display:none` | 空（`display:none`） | 不渲染 | 不渲染 | 取消可用；确认 `disabled`，原因 `请先选择 zip 文件` |
-| **idle·网络** | 切到网络地址 | `display:none` | 空 | 不渲染 | 不渲染 | 取消可用；确认 `disabled`，原因 `请输入网络地址` |
-| **在途·读取** | zip 文件 `change` | 不渲染 | `正在读取技能包…`（中性色） | 不渲染 | 不渲染 | **双 `disabled`** |
-| **在途·下载** | 点「获取预览」 | 不渲染 | `正在从网络地址下载…`（中性色） | 不渲染 | 不渲染 | **双 `disabled`**；`Escape` **仍可用**（下载可中断，走 `AbortController`） |
-| **预览就绪** | preview 响应到达 | `display:flex`（滚动容器） | `预览已就绪，确认后才会写入。` | 启发式命中 ⇒ 渲染（默认**未勾**） | 同名 ⇒ 渲染（默认**未选**） | 取消可用；确认 `disabled` 直到**四条门**全满足 |
-| **提交中** | 点确认（`mode:'commit'`） | 保持 | `正在写入技能，请稍候…` | 保持 | 保持 | **双 `disabled`**；`Escape` **被忽略** |
-| **提交成功** | commit 响应 ok | 关闭弹框并复位 | — | — | — | — |
-| **提交失败** | commit 响应非 ok | 保持 | danger + 按 `code` 查表 | **保持勾选** | **保持选择** | 恢复可点（可就地重试） |
-| **预览过期** | commit 返回过期类码 | `display:none`（清空） | danger `预览已过期，请重新选择文件。` | 清空（不渲染） | 清空（不渲染） | 回到 idle 的门（确认 `disabled`） |
+| **idle·本地** | 弹框打开 / 切到本地上传 | `尚未选择 zip 文件`（中性色 `--text-secondary`）= **#6 的空态** | `display:none` | 不渲染 | 不渲染 | 取消可用；确认 `disabled`，原因 `请先选择 zip 文件` |
+| **idle·网络** | 切到网络地址 | **空**（CSSOM `display:none`，不占位） | `display:none` | 不渲染 | 不渲染 | 取消可用；确认 `disabled`，原因 `请输入网络地址` |
+| **在途·读取** | zip 文件 `change` | `正在读取技能包…`（中性色） | 不渲染 | 不渲染 | 不渲染 | **双 `disabled`** |
+| **在途·下载** | 点「获取预览」 | `正在从网络地址下载…`（中性色） | 不渲染 | 不渲染 | 不渲染 | **双 `disabled`**；`Escape` **仍可用**（下载可中断，走 `AbortController`） |
+| **预览就绪** | preview 响应到达 | `预览已就绪，确认后才会写入。` | `display:flex`（滚动容器） | 启发式命中 ⇒ 渲染（默认**未勾**） | 同名 ⇒ 渲染（默认**未选**） | 取消可用；确认 `disabled` 直到**四条门**全满足 |
+| **提交中** | 点确认（`mode:'commit'`） | `正在写入技能，请稍候…` | 保持 | 保持 | 保持 | **双 `disabled`**；`Escape` **被忽略** |
+| **提交成功** | commit 响应 ok | — | 关闭弹框并复位 | — | — | — |
+| **提交失败** | commit 响应非 ok | danger + 按 `code` 查表 | 保持 | **保持勾选** | **保持选择** | 恢复可点（可就地重试） |
+| **预览过期** | commit 返回过期类码 | danger `预览已过期，请重新选择文件。` | `display:none`（清空） | 清空（不渲染） | 清空（不渲染） | 回到 idle 的门（确认 `disabled`） |
+
+**两行 idle 的状态行内容不同是刻意的（不是遗漏）**：#6 的空态文案 `尚未选择 zip 文件` 是
+**本地上传专属**（E4 明文要求它落在状态行）；**网络地址**模式的空态由**面板内 #7 的地址形态说明**
+（恒渲染）+ **动作区的禁用原因** `请输入网络地址` 共同承担（E5 即如此建模）⇒ 状态行**留空**并
+CSSOM `display:none`。理由：这三条已经占满了「现状 + 下一步」，再让状态行复述一遍会让动作区上方
+出现两条同义文本，稀释「禁用原因」的可读性。**该行留空是本契约的定值，不是未定义状态。**
 
 **弹框关闭（`取消` / `Escape` / 成功后）的复位契约**：一律把预览内容 `replaceChildren()` 清空、
-状态行复位为空、必勾与冲突选择清空、**URL 输入框清空**、文件输入 `reset()`。
+状态行复位为空、必勾与冲突选择清空、**URL 输入框清空**、**文件输入置空**
+（`input.value = ''` —— ⚠️ `<input>` **没有** `reset()` 方法，那是 `<form>` 的；
+本文件此前写成「文件输入 `reset()`」的**四处**措辞（组件清单 / 本节 / 与 48·49·50 既有面的关系 / 决策来源表）
+均按此统一）。
 理由：避免「上次的地址被静默重发」这种不透明状态；而**可修正的错误不需要靠关弹框来重试**
 （失败时弹框保持打开、输入保留，见「提交失败」行）。
 
-**文件输入的 `change` 逻辑必须 `finally { input.value = '' }`** —— 否则同一个文件第二次选不触发
-（照抄既有 `handleFileSelect` 的做法，`settings-page.js:1242`）。
+**文件输入的 `change` 逻辑必须 `finally { input.value = '' }`** —— 否则同一个文件第二次选不触发。
+既有先例的准确形态：`handleFileSelect` 的 `finally` 块在 `settings-page.js:812-814`
+（`:812` 是 `} finally {`，`:813` 是注释，`:814` 是 `e.target.value = '';`）；
+其 `addEventListener('change', handleFileSelect)` 注册行是 `settings-page.js:1242`
+（**注册行不是重置实现** —— 此处照抄的是**形态**，不是该行号）。
 
-### 禁用态契约（四种情形 + 四条通用纪律）
+### 禁用态契约（四种情形 + 五条通用纪律）
 
 确认按钮在**四种**情形下必须 `disabled`（前三种是本 phase 的硬约束，第四种是冲突选择器的必然）：
 
@@ -565,6 +595,21 @@ div.settings-group.skill-manage-section                              ← 既有�
 4. **在途期间**：确认与取消**双双** `disabled`（本阶段唯一「连取消都不可用」的窗口，长度 = 本地
    `rename` 序列，毫秒级）；状态行同步说明「正在写入技能，请稍候…」，`Escape` 被忽略。
    **不得**用「乐观关闭弹框 + 后台写入」替代 —— 那会让用户在结果未知的情况下离开。
+5. **已知边界（如实登记，本阶段不处置，也不声称已修）**：`#skillImportGate` 的**禁用原因变化不在 live region 内**
+   —— 该节点只有可见文本，**没有** `aria-live`；读屏用户在勾选 / 取消勾选必勾框、或切换冲突三选一时，
+   **听不到**原因文本的出现与消失。**为什么不能「并入 E6 的 `role="status"`」—— 两条独立理由**：
+   ① **位置与语义都不是状态**：`#skillImportGate` 是位于动作区正上方的**恒在说明性文本**，
+   把它塞进一个**状态播报**通道会让每次勾选切换都产生一次插入/删除播报，与 `polite`「不打断当前朗读」的
+   取向冲突，且会让 `#skillImportStatus` 的内容不再等于**状态行的可见文本**
+   （本契约要求两者同一份文案，见 AT 播报契约）⇒ **并入即破坏该条**；
+   ② **就地加 `aria-live` 也不免费**：`#skillImportGate` 文本为空时走 CSSOM `display:none`
+   （本契约的显隐纪律），而 `display:none` 的 live region **不在无障碍树内** ——
+   「由隐藏变为可见」是否触发播报**依 AT 而异**，要可靠就得把它改成**恒占位**，
+   那会推翻本契约已登记的「空文本不占位、不留残留外边距」。
+   **结论**：正确处置须**新建第二个恒在的 live region**（属新的交互机制，与「不做焦点陷阱」同一处置口径：
+   **须单独立项**）。**补偿（部分，不夸大）**：复选框自身的 `checked` 状态、确认按钮的 `disabled` 状态翻转，
+   读屏在 Tab 到这两个元素时可读出；但**「为什么禁用」那句解释在勾选切换的当下不可闻** ——
+   这是本边界的真实代价，已写明。
 
 ### 键盘可达性契约（本契约最需要正面回答的一条）
 
@@ -572,7 +617,7 @@ div.settings-group.skill-manage-section                              ← 既有�
 
 | # | 理由 |
 |---|------|
-| 1 | D-18 锁定的 `.ai-modal-overlay` **div 遮罩**形态拿不到平台焦点陷阱 —— 免费陷阱只在原生 `<dialog>` + `showModal()` 下存在（本页 2 个既有弹框走那条路，`settings.html:755` / `:769`）。改用 `<dialog>` 会**推翻 D-18**，且 AGENTS.md 的「弹框居中约定」要求 `realm://` 页继续用 div 遮罩 + CSSOM |
+| 1 | D-18 锁定的 `.ai-modal-overlay` **div 遮罩**形态拿不到平台焦点陷阱 —— 免费陷阱只在原生 `<dialog>` + `showModal()` 下存在（本页 2 个既有弹框走那条路，`settings.html:792` / `:806`）。改用 `<dialog>` 会**推翻 D-18**，且 AGENTS.md 的「弹框居中约定」要求 `realm://` 页继续用 div 遮罩 + CSSOM |
 | 2 | 给本页 4 个既有候选弹框里的**一个**单独引入 Tab 循环 = **跨页面新机制**。50 已把它具名写成「属跨页面新机制，须单独立项」（`settings.html:553-554` 的注释逐字保留该口径） |
 | 3 | 本阶段已承载 **P2 / P4 / P9** 三条 S1/S2 安全门禁（zip 路径类 / symlink 逃逸 / SSRF），不宜在同阶段引入新的全局交互机制 —— 风险隔离（ROADMAP 把 51 排最后正是同一条取向） |
 
@@ -587,11 +632,12 @@ div.settings-group.skill-manage-section                              ← 既有�
 |----|------|
 | **初始焦点** | 弹框打开时落在**当前模式面板内的第一个可交互元素**：本地上传 = `选择 zip 文件` 按钮；网络地址 = URL 输入框。**不落在确认按钮**（避免误触落盘）、**不落在标题**（不可聚焦） |
 | **`role` / 命名** | 弹框根：`role="dialog"` + `aria-labelledby="skillImportTitle"`；**不写 `aria-modal`**（理由如上）。标题节点 id 固定 `skillImportTitle` |
-| **Tab 顺序** | **严格等于 DOM 序**，**无任何正 `tabindex`、无 roving tabindex**。序：模式选择 2 个按钮 → 当前面板控件（选择文件 / URL 输入 → 获取预览）→ 树「展开全部」→ 脚本「展开全部」→ 必勾复选框 → 冲突 3 个 radio → 改名输入框（仅选中「改名」时存在）→ `取消` → `确认`。**被 `display:none` 隐藏的面板 / 改名输入框 / 不渲染的开关天然不在 Tab 序内** |
+| **Tab 顺序** | **严格等于 DOM 序**。**无任何正 `tabindex`（`>0`）、无 roving tabindex**；全弹框**唯一**的 `tabindex` 是**预览滚动容器的 `tabindex="0"`**（零值 ⇒ 不改相对顺序，只把该容器加入自然顺序）。序：模式选择 2 个按钮 → 当前面板控件（选择文件 / URL 输入 → 获取预览）→ **预览滚动容器**（仅预览就绪时在序内）→ 树「展开全部」→ 脚本「展开全部」→ 必勾复选框 → 冲突 3 个 radio → 改名输入框（仅选中「改名」时存在）→ `取消` → `确认`。**被 `display:none` 隐藏的面板 / 预览区 / 改名输入框 / 不渲染的开关天然不在 Tab 序内** |
 | **`Escape`** | 关闭弹框，语义**等同**「取消」。**监听挂在 `document`** 并以「弹框可见」为**前置守卫**早退 —— **不挂 overlay 局部**：因不做焦点陷阱，焦点可能被用户 Tab 到框外，局部监听会让 `Escape` 静默失效（这是不做陷阱的直接后果，必须由实现补偿掉）。⚠️ 与既有 `settings-page.js:1026 / 4387 / 5708` 三处 `Escape` 处理器**互不冲突**（三者的守卫都要求各自的弹框 / 面板可见）。**例外**：`提交中` 状态 `Escape` 被忽略 |
-| **焦点归还** | 关闭时（`取消` / `Escape` / 成功）把焦点归还**触发元素**（`#skillImportOpen`）；触发元素不可见或不存在时**不移动焦点**（**不得**把焦点丢到 `body`） |
-| **焦点可见性** | 新增控件一律走**既有可见焦点体系**：`.btn` 系走 UA 默认焦点环（全仓**无**全局 `outline: none` 重置 —— `main.css` 的 10 处 `outline: none` 全部挂在**具体类**上，无一作用于 `button` 全局）；两个输入框走作用域覆盖 ③；复选框 / radio 走 UA 默认环。**本阶段不新增第三条焦点环规则** |
-| **零可见高度停靠点（硬禁令）** | 弹框内**不得**出现「在 Tab 序内但不可见 / 零可见高度」的停靠点：所有显隐一律用 **`display`** 切换的类（`.skill-import-panel.active` / `.skill-import-preview.active` / 条件渲染），**不得**用 `max-height: 0` + `overflow: hidden`（49 的 `UI-49-W6-01` 正是该形态），**也不得**用 `visibility: hidden`（它同样不移出 Tab 序）。判据是**方向无关**的：「凡在弹框内的焦点停靠点都必须可见」，**不是**「弹框内零键盘停靠点」（后者会把日后做成可聚焦的改善误判为回归） |
+| **焦点归还** | 关闭时（`取消` / `Escape` / 成功）把焦点归还**触发元素**（`#skillImportOpen`），判据是 **`isConnected`**：`skillImportOpen.isConnected === true` 才调 `focus()`；**`isConnected === false` 时不调用 `focus()`**（也不主动把焦点移向任何其它节点）。**本契约不再承诺「焦点不落到 `body`」** —— 归还发生时框内持有焦点的元素已被置 `display:none`，浏览器**必然**把焦点移出（落到 `body` 是 UA 行为，不是本阶段代码能约束的对象；把它写成承诺就成了**不可断言项**，故删除）。本条的断言对象收窄为**本阶段代码是否主动调 `focus()`**，驱动可直接构造：摘除 `#skillImportOpen` 后关闭弹框，断言**未对该节点调用 `focus()`**（判据形态与 50 的既有先例同款，`settings-page.js:5459`） |
+| **焦点可见性** | 新增控件一律走**既有可见焦点体系**：`.btn` 系走 UA 默认焦点环（全仓**无**全局 `outline: none` 重置 —— `main.css` 的 **22 处** `outline: none`（**实测 2026-09-15**：`grep -cE 'outline:\s*none;' src/styles/main.css` → **22**；宽松匹配 `outline:\s*none` 得 23，多出的 1 处在 `:5862` 的注释内、非声明）全部挂在**具体类 / 标签**上，无一作用于 `button` 全局）；两个输入框走作用域覆盖 ③；复选框 / radio 走 UA 默认环；**预览滚动容器**（`tabindex="0"`）同样只依赖 UA 默认焦点环，不加自定义规则。**本阶段不新增第三条焦点环规则** —— 上列四项全部落在既有机制内 |
+| **零可见高度停靠点（硬禁令）** | 弹框内**不得**出现「在 Tab 序内但不可见 / 零可见高度」的停靠点：所有显隐一律用 **`display`** 切换的类（`.skill-import-panel.active` / `.skill-import-preview.active` / 条件渲染），**不得**用 `max-height: 0` + `overflow: hidden`（49 的 `UI-49-W6-01` 正是该形态），**也不得**用 `visibility: hidden`（它同样不移出 Tab 序）。判据是**方向无关**的：「凡在弹框内的焦点停靠点都必须可见」，**不是**「弹框内零键盘停靠点」（后者会把日后做成可聚焦的改善误判为回归）。**预览滚动容器是本阶段唯一的「非控件型」停靠点**（`tabindex="0"`，理由见下条）：它在预览就绪时恒有可见高度（`flex: 1 1 auto` 撑开），未就绪时整块 `display:none` ⇒ 与禁令相容。**这正是该判据「方向无关」的实例**：新增一个**可见**停靠点不违反禁令，**不可见**停靠点才违反 |
+| **滚动区的键盘可达性（本阶段对齐的一条）** | `.skill-import-preview` 作为**唯一滚动容器**显式声明 `tabindex="0"`。理由：内容溢出且**内部无可聚焦后代**时（例如只有一条长 description、条目数 ≤ 50 因而不渲染「展开全部」按钮），键盘用户**没有任何**进入该区域的路径 ⇒ 零值 `tabindex` 是零成本修复（不改相对顺序、不新增焦点环规则、不违反上一条禁令）。**可断言判据（UAT）**：预览处于 `.active` 时 `Tab` 能落在容器上，容器获焦后 `ArrowDown` / `PageDown` 能滚动其内容（`scrollTop` 增大）；预览非 `.active`（`display:none`）时**不在** Tab 序内 |
 | **已知边界（如实登记）** | Tab 可以从弹框尾部走回背景页面控件（无陷阱）。**这是有理由的边界，不是静默省略**。**补偿**：弹框自带可见的 `取消` 按钮（恒在 DOM、恒可聚焦），且 `Escape` 因挂在 `document` 上仍然有效 ⇒ 键盘用户有一条**不依赖走回触发元素**的退出路径 |
 
 #### 模式选择的语义取舍：**复用类、不复用 ARIA 形态**
@@ -653,6 +699,7 @@ div.settings-group.skill-manage-section                              ← 既有�
 - **唯一滚动容器** = `.skill-import-preview`（`flex: 1 1 auto; min-height: 0; overflow-y: auto`）。
   `min-height: 0` 是**必需**的（flex 子项默认 `min-height: auto`，不给 0 则永不收缩、弹框会被撑破）。
   **不得**在预览内部再建第二个滚动容器（目录树 / 脚本清单 / 扫描结论一律随预览区滚动）。
+  该容器同时是**键盘可达停靠点**（标记 `tabindex="0"`，见键盘契约的「滚动区的键盘可达性」行）。
   目录树与脚本清单的「只渲染前 50 项」是**内容截断**，**不是**滚动容器。
 - **显隐一律用 `display`**：面板（`.skill-import-panel` / `.active`）、预览（`.skill-import-preview` / `.active`）、
   状态行与隐藏 file input 用 **JS CSSOM 具体值**。**不用** `max-height` / `opacity` / `visibility` 做显隐。
@@ -760,7 +807,9 @@ div.settings-group.skill-manage-section                              ← 既有�
 }
 .skill-import-status-danger { color: var(--skill-error-text); }
 
-/* 预览卡片容器：弹框内**唯一**滚动容器（min-height: 0 是它能在 flex 列里收缩的前提） */
+/* 预览卡片容器：弹框内**唯一**滚动容器（min-height: 0 是它能在 flex 列里收缩的前提）。
+   键盘可达：容器在 markup 上声明 tabindex="0"（见 ## 结构与交互契约 的键盘契约）；
+   焦点环走 UA 默认，**不为此新增规则**。 */
 .skill-import-preview {
   flex: 1 1 auto;
   min-height: 0;
@@ -880,7 +929,9 @@ div.settings-group.skill-manage-section                              ← 既有�
   cursor: pointer;
 }
 /* 勾选态的填充色与既有 .ai-switch.on 的强调色一致；未勾选态的可见性沿用本页既有裸 checkbox
-   的同一宿主同一底（settings.html:160 / 674 / 765），且状态变化另有文本冗余表达 */
+   的同一宿主同一底（settings.html:160 / 674 / 765），且状态变化另有文本冗余表达
+   （= ## Color 的「Accent reserved for」第 4 项：本阶段唯一用 accent 做填充处，
+   可撤回的装饰性强化 —— 删掉即回落 UA 默认强调色，功能零损失）。 */
 .skill-import-ack-box { accent-color: var(--accent-color); }
 
 /* 冲突三选一 */
@@ -938,7 +989,7 @@ div.settings-group.skill-manage-section                              ← 既有�
 | 三档来源徽标 / `TIER_BADGE` / `STATUS_TEXT`（48 / 49 / 50） | **零交集**：预览卡片显示的是**尚未落盘**的包，没有来源档位、也不产生新的行尾状态。导入成功后技能即普通 `user` 技能，其行尾状态由 50 的链决定（本阶段**不新增 `STATUS_TEXT` 键**） |
 | `.skill-manage-hint` / `setSkillManageHint`（50 D-06 的 inline hint 范式） | **直接复用同一函数与同一类**：导入成功 / 最终失败走它（2 秒无条件复位 + `clearTimeout` 纪律）。**弹框打开期间不使用它**（会被遮罩挡住）—— 改用弹框内状态行（E6） |
 | `.btn.btn-secondary.btn-sm`（50 的按钮族） | **六个按钮全部复用同一组合**（+ 确认按钮的 1px accent 边框）。**不使用** `.btn-primary` / `.btn-danger`（两者白字对比度 3.68 / 3.76 不达标） |
-| `#rulesFileInput` 的文件选择链路 | **照抄形状**：隐藏 `<input type="file">`（类规则 `display:none`）+ 可见 button `.click()` + `change` 处理 + `finally { reset() }`。**不新增 native dialog IPC 通道**（设置页是纯 HTTP 客户端） |
+| `#rulesFileInput` 的文件选择链路 | **照抄形状**：隐藏 `<input type="file">`（类规则 `display:none`）+ 可见 button `.click()` + `change` 处理 + `finally { input.value = '' }`（既有实现见 `settings-page.js:812-814`；⚠️ **`<input>` 没有 `reset()` 方法**，本文件一律写 `input.value = ''`）。**不新增 native dialog IPC 通道**（设置页是纯 HTTP 客户端） |
 | `skillsApi()`（50 的 HTTP 客户端模板） | **直接复用**：preview 阶段用 `{ method:'POST', headers:{'Content-Type':'application/zip'}, body: file }`（同源、零预检，实测 0 个 OPTIONS）或 `{ 'Content-Type':'application/json', body: JSON.stringify({mode:'url',url}) }`；commit 用 `{mode:'commit', importId, conflict, newName?}`。**不使用 base64**（D-01） |
 | `escapeHtml` / `TD-48-01` | **不扩大缺口**：本阶段新增插值面**全部** DOM API 赋值，零 HTML 字符串模板；另加**显示前净化**（控制字符 + 双向控制符）。**该挂账项仍在原处、仍未被修**，不得读成已修 |
 | `TD-48-02` / `WR-02` / `WR-06` / `WR-12` / `IN-14` / `IN-16` / `IN-17` | **不在本阶段契约面**，逐字保持挂账。**若本阶段新增真实渲染门禁，不得重复 `WR-12` 的「否命题空集真」形态**（承重判据必须带**正命题**，见 `## Color` 的「须在真实渲染下取数的读数」四条），且新驱动的证据**不得只活 `/tmp`**（`IN-16` / `WR-09` 教训 ⇒ 夹具固化进 `tests/fixtures/`，基线动态取） |
@@ -1099,7 +1150,7 @@ byStatus `{ resolved: 57, dismissed: 25 }`；byVerification `{ explicit: 55, bac
 |----------|------|
 | 入口 = 技能管理区标题行右侧「导入技能」按钮 + `realm://` 范式 div 遮罩弹框 + 两个 tab | **D-18 原文** |
 | 弹框形态照抄 50 的 `skillManageConfirm`（`.ai-modal-overlay` + `.ai-modal`、初始隐藏走 CSS 类、禁 markup 内联 style、绝不用于 `<dialog>`） | **D-18 原文** + AGENTS.md「内部页面 CSP」/「弹框居中约定」 |
-| 文件选择复用既有 `<input type="file">` 先例（`rulesFileInput` + `.click()` + `finally reset()`），不新增 native dialog IPC | **D-18 原文** |
+| 文件选择复用既有 `<input type="file">` 先例（`rulesFileInput` + `.click()` + `finally` 里置空 `input.value`），不新增 native dialog IPC | **D-18 原文** |
 | 失败反馈走设置页既有 inline hint（**不新建 toast 基建**） | **D-18 原文**（50 D-06 同一判断） |
 | 不新增主窗口入口 | **D-18 原文** + 50 D-17 |
 | 预览卡片信息集（名称 + 落点 / description **原文** / 目录树折叠 + 前 N 项 + 计数 / 字节数 + 限额对照 / 脚本清单**标红** / 扫描结论**两栏** / `allowed-tools` + 免责标注 / 诚实边界） | **D-13 原文**（含 ROADMAP 判据 1 的六字段） |
@@ -1136,6 +1187,9 @@ byStatus `{ resolved: 57, dismissed: 25 }`；byVerification `{ explicit: 55, bac
 | **禁用原因必须上屏**（`.btn:disabled` 的 `pointer-events:none` 让 `title` 无法触发、且 `disabled` 元素不可聚焦） | 本契约（对比度豁免的代价必须由别处承担） |
 | 在途期间**确认与取消双双 disabled**、`Escape` 被忽略 | 本契约（不得让用户在结果未知时离开；窗口长度 = 本地 rename 序列） |
 | **唯一滚动容器** = `.skill-import-preview`（`flex:1 1 auto; min-height:0; overflow-y:auto`） | 本契约（复用 `.ai-modal` 既有 `max-height:80vh` + flex 列；`min-height:0` 是 flex 收缩的必需前提） |
+| 该滚动容器**兼作键盘可达停靠点**（`tabindex="0"`，零值 ⇒ 不改相对顺序） | 本契约（溢出且内部无可聚焦后代时，键盘无任何进入路径；容器恒有可见高度 ⇒ 不违反「零可见高度停靠点」硬禁令） |
+| `#skillImportGate` 的禁用原因**不进 live region**（勾选切换当下读屏不可闻） | 本契约的**已知边界**（并入 E6 的状态通道会破坏「状态行 = 播报源同一份文案」；就地加 `aria-live` 会被「空文本 `display:none`」抵消 ⇒ 正确处置须新建第二个恒在 live region，**须单独立项**） |
+| 必勾复选框的 `accent-color` 填充 = **Accent reserved for 第 4 项**（本阶段唯一用 accent 填充处） | 本契约（可撤回的装饰性强化：勾选态另有「禁用原因消失 + 确认按钮可用」的文本冗余表达） |
 | **禁止新建折叠控件**（「展开全部」是内容截断开关，不复用 `.ai-skill-content-box` / `.collapsed`） | 本契约（避免「同一区域两个控件、两份状态」的漂移面；也避免触碰 49 的 a11y 挂账） |
 | 目录树缩进 12px/层、**第 8 层封顶**；同级按 **UTF-16 码元序**（非 locale 敏感） | 本契约（深树不把名字挤出可视区；`localeCompare` 随机器 locale 变 ⇒ 破坏预览可复现性） |
 | 三选项**默认都不预选**；选中「取消」时确认按钮文案切 `关闭弹框` | 本契约（D-08 要三选一，而「点了等于关闭」的第三项会产出必然死路的确认按钮；取舍见 Copywriting 的二元表） |
@@ -1146,12 +1200,42 @@ byStatus `{ resolved: 57, dismissed: 25 }`；byVerification `{ explicit: 55, bac
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
-- [ ] Dimension 7 Inventory Provenance: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
+- [x] Dimension 7 Inventory Provenance: PASS
 
-**Approval:** pending
+**Reviewed at:** `2026-09-15T03:05:45Z`　**Approval:** approved（修订轮：6 条 FLAG 全部处置完毕，0 BLOCK 遗留）
+
+### 本次 6 条 FLAG 的逐条处置
+
+| FLAG | 维度 | 处置 | 落点 / 理由 |
+|------|------|------|------------|
+| F1 | 2 Visuals | **已修** | **互换 DOM 骨架中 `#skillImportAck` 与 `#skillImportConflict` 两块**，使四处声明同序（本段 / DOM 骨架 / 状态机列序 / Tab 序）。顺带清掉两处**疑似第四处**：`## Spacing Scale` 的 `.ai-modal` 行（原写「确认区」）改为逐段同序枚举并加注；Copywriting 的 Destructive confirmation 行把箭头链（`冲突 → 必勾 → 导入`）改为**要素枚举**并显式写明「要素枚举而非视觉序」。新增「本顺序的自查」引用块，把四处 + 两处非声明处逐条列出 |
+| F2 | 1 Copywriting | **已修（保留「空态文案由状态行承载」方向）** | 状态机 `idle·本地` 行的状态行格由「空（`display:none`）」改为 **`尚未选择 zip 文件`**（= #6），与该表相邻行、Copywriting #6、空态节、E4 四处对齐。`idle·网络` 行**保持留空**，并新增一段「两行 idle 的差别是刻意的」说明其理由（#6 是 zip 专属；URL 模式空态由面板 #7 + 禁用原因承担），空态节的「一律」措辞改为按模式分别陈述 |
+| F3 | 7 Inventory Provenance | **原样保留（未改一个字）** | `Could not enumerate` 的理由真实（无 `components.json` / 无 `tailwind.config.*` / 依赖中无 UI 框架）；「**非穷尽清单 —— 不是封闭白名单**」这句与自带的可重跑 `grep` 命令**均未动**，表外原语查 `main.css` 仍是**预期路径** |
+| F4 | 2 Visuals | **已修（取「改写成可断言形式」）** | 焦点归还改为 **`isConnected`** 判据（`true` 才调 `focus()`；`false` 不调），**删除**「不得把焦点丢到 `body`」承诺并写明删除理由（UA 必然移出 ⇒ 原表述不可断言）；断言对象收窄为「本阶段代码是否主动调 `focus()`」，并在驱动里可构造（摘除 `#skillImportOpen` 后关闭）。判据形态与 50 的既有先例 `settings-page.js:5459` 同款。**未**同时声明「分支不可达」——按裁决要求二选一 |
+| F5 | 契约精度 | **已修（a/b/d/e 四处落笔；c 无落点，见下）** | **a** `:755` / `:769` → **`:792` / `:806`**（2 处，实测两个 `<dialog class="modal">` 在 `settings.html:792` / `:806`）；**b** `main.css` 的 `10 处` → **`22 处`**（实测 `grep -cE 'outline:\s*none;'` → 22，宽松匹配 23 的差额在 `:5862` 注释内；结论不变：无一条作用于 `button` 全局）；**d** `finally reset()` @`:1242` → **`settings-page.js:812-814`、形态 `e.target.value = ''`**（`:1242` 是 `change` 注册行，已注明「注册行不是重置实现」）+ 组件清单源址列同步补 `812-814`；**e** 「文件输入 `reset()`」4 处措辞统一为 **`input.value = ''`**（含 `## 决策来源表` 一处），并在复位契约处写明 `<input>` 无 `reset()` 方法。**c：本文件不存在该表述** —— 全文 `grep` 无 `skill-creator` / `.py` / `python` 命中（`44,998` / `viewer.html` 同样零命中），故**无落点可改**；实测值已复核为 **10 个 `.py`**（`scripts/` 9 个：8 个含 `__init__.py` + `utils.py`，另 `eval-viewer/generate_review.py` 1 个），该数字确由 `51-CONTEXT.md:121` / `51-RESEARCH.md:118` 携带旧值，但按裁决**不改上游两份文档** |
+| F6 | 3 Color | **已修** | `Accent reserved for` 新增**第 4 项**「必勾复选框的勾选态填充」（`.skill-import-ack-box { accent-color: var(--accent-color) }`），写明**中性化替代**（删声明即回落 UA 默认强调色，功能零损失）与「可撤回的装饰性强化」定位；原第 4 项「显式排除」改为第 5 项并把「任何填充色」收敛为「**除第 4 项以外**的任何填充色」，`.btn-primary` 顺延为第 6 项；`## Color` 表头「只有三处」→「共四处」；CSS 块内该规则注释加交叉引用。清单与正文再无冲突 |
+
+### 附加项（上一轮列为可选的 3 条）
+
+| 项 | 处置 | 说明 |
+|----|------|------|
+| ① 预览滚动容器声明 `tabindex="0"` | **已采纳** | DOM 骨架加 `[tabindex="0"]`；Tab 序契约新增该停靠点（并澄清「无正 `tabindex`」指 `>0`，零值不改相对顺序）；「零可见高度停靠点」行加实例说明；新增「滚动区的键盘可达性」一行（含可断言判据）；折叠/滚动纪律、CSS 注释、决策来源表同步 |
+| ② description 也做显示层净化 | **未采纳（有意保留原状）** | 与 E8 的定值冲突：E8 明文「description **必须完整渲染** —— 不净化、不语义截断，预览的全部意义就是让用户判断净化是否会误伤」，CSS 注释与长文本纪律同口径。改成净化会让「用户看到的就是包里的原文」这一预览核心承诺失效 ⇒ 保留「路径类净化 + description 原文」的分工，不采纳 |
+| ③ `#skillImportGate` 原因变化不在 live region | **以「已知边界」写明（不处置）** | 见禁用态契约通用纪律第 5 条：写明两条不能并入 E6 状态通道的独立理由（语义冲突 + `display:none` 的 live region 不在无障碍树内），结论为「须新建第二个恒在 live region ⇒ 单独立项」，并**如实写明补偿是部分的**（勾选切换当下「为什么禁用」不可闻） |
+
+### 核验结论（必须在修订轮保持不变的算术）
+
+- 元素数 **18**（E1–E18）；账本 **82 / 82 / 0**；`byStatus = {resolved: 57, dismissed: 25}`；
+  `byVerification = {explicit: 55, backstop: 2}`；backstop **2** 条。本轮修订**未增删任何元素或账本行**，
+  上列计数逐字保持（探针实跑输出 `{"applicable":82,"resolved":82,"unresolved":0,…}` 不变）。
+- 三条「核验通过、不得回退」的结论原样保留：① 刻意省略 `aria-modal` + 改加 `role="dialog"` +
+  `aria-labelledby`；② 「明确不使用 `aria-disabled`、一律原生 `disabled`」+「禁用原因必须上屏」；
+  ③ 上述 18 / 82 / 2 的算术。
+- 本轮**零新增颜色令牌**（仍为 0 个）、零新增字体、零新增图标、零新增折叠控件、零新增 toast 基建、
+  零新增前端依赖 —— 新增的 `tabindex="0"` 是 markup 属性，不构成新机制。
