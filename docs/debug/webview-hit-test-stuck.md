@@ -1,110 +1,328 @@
 # webview 鼠标命中残留：网页点不动、刷新无效、只能重启
 
-> **状态：已修复（2026-09-15，`hotfix/webview-hit-test-stuck`）**
-> 影响文件：`src/renderer.js`（真源收敛 + 兜底恢复）、`main.js`（guest 观测）
-> 验证：`tests/uat-webview-hit-test-stuck.js`（30 项，实跑全绿 + 三条单点变异各自精准打红）
+> **状态**：已修复、**未合入 master**（2026-09-15）
+> **分支**：`hotfix/webview-hit-test-stuck`　**worktree**：`.worktrees/webview-hit-test-stuck`　**基点**：`40a58cb`
+> **一句话根因**：拖标签 / 拖 AI 面板宽度期间会把**所有** webview 的 `pointer-events` 置 `none`（且不改可见性），而恢复只挂在各自的 `mouseup` 上——那次 `mouseup` 一丢，网页区就永久失去鼠标命中。
+> **本文档行号**：除特别注明外均为分支 tip `47dc69c` 时的值；改前（基点）行号已单独标注。
 
-## 1. 现象（用户报告）
+---
 
-- 页面长时间运行后，鼠标点网页内的输入框无反应、链接也点不动；**宿主 UI（地址栏、工具栏）一切正常**
-- **刷新页面无效**，只有重启才恢复；非必现
-- 关键旁证（用户自述）：**Vim 的 `f`（hint 模式）仍能聚焦输入框**
+## 0. 五分钟接入（TL;DR）
 
-## 2. 判据：这条旁证把范围锁死在「宿主 → guest 的鼠标命中」这一层
+| 问题 | 答案 |
+|---|---|
+| 用户看到什么 | 网页内的输入框和链接**鼠标点不动**；地址栏/工具栏正常；**刷新页面无效**；只能重启；非必现 |
+| 根因在哪一层 | **宿主渲染进程**给 `<webview>` 元素写的内联 `pointer-events` —— 不在 guest 页面里，也不在 vim 状态机里 |
+| 怎么一眼确认 | 出问题时按 `f`（Vim hint）：**hint 会出现且能聚焦输入框** ⇒ guest 活着、是命中测试层；若 hint 也失效 ⇒ 是 guest 进程卡死，属另一类 |
+| 现在还会不会发生 | 丢 `mouseup` 仍可能发生（事件丢失是外部条件），但**不会再永久卡住**：最迟 3 秒被兜底恢复，并打印一行归因日志 |
+| 复发时第一个动作 | 搜 `[Realm] webview 可命中性残留已恢复`（见 §5.2）；没有这行再去查主进程 `[Realm 诊断]`（见 §5.2 第二类） |
+| 当场自救（用户侧） | 切到别的标签页再切回（会走 `showWebview` 重算），**不必重启** |
+| 回归门禁 | `NODE_PATH="$(npm root -g)" node tests/uat-webview-hit-test-stuck.js`（实跑 40 项；会话只 1 个标签时 +2） |
+| 关键锚点 | `src/renderer.js`：`state.visibleTabId`(:213)、`applyWebviewInteractivity`(:1990)、`suspendWebviewHitTest`(:2042)、`resumeWebviewHitTest`(:2059)、`initWebviewHitTestSafetyNet`(:2081)、`showWebview`(:2121)；`main.js` 观测块(:558-577) |
 
-hint 模式的链路是：
+**禁止事项（改这块代码前先看 §7）**：不要再出现任何「自行写 `wv.style.pointerEvents`」的代码；不要用 `state.activeTabId` 判「屏幕上显示的是哪个 webview」。
+
+---
+
+## 1. 现象与用户原话
+
+用户报告（原话，2026-09-15）：
+
+> 在页面长时间运行后经常会出现鼠标点击网页内的输入框无效/没反应，不能正常把光标聚焦在输入框输入信息。刷新页面也不管用，重启才行。但不是必现的。我怀疑跟 vim 快捷键有关系，因为它的 f 键位可以聚焦输入框。
+
+补充追问得到的现场信息：
+
+- 「输入框点击没反应，链接**好像**也点击没有反应（印象中是这样）」
+- 「**地址栏能聚焦能输入**，网页不行」
+- 出问题前「**都没做过，就放着看/长时间没动**」
+
+---
+
+## 2. 判据：为什么这一定是「宿主 → guest 的鼠标命中」这一层
+
+### 2.1 决定性旁证
+
+用户说的「`f` 键位可以聚焦输入框」不是猜测的一部分，而是**判别性证据**。Vim hint 模式的实际链路（`src/renderer.js` 的 `injectHintMode` + `__realmHintKey` 派发）是：
 
 ```
-主进程 before-input-event 捕获按键 → IPC → renderer executeJavaScript 注入 guest
-→ overlay 渲染 → 按 hint 字母 → guest 内元素 .click() → 输入框获得焦点
+主进程 before-input-event 捕获按键（不依赖 guest 键盘焦点）
+  → IPC vim:triggered / vim:hint-key
+  → renderer webview.executeJavaScript(...) 注入 guest
+  → guest 内渲染 overlay → 按 hint 字母 → element.click() → 输入框获得焦点
 ```
 
-**全程不经过浏览器命中测试**。所以旁证成立就意味着：
+**全程不经过浏览器命中测试。** 所以旁证成立 ⇒ 以下同时成立：
 
 | 被证实 | 被排除 |
 |---|---|
-| guest 进程活着、脚本能跑、DOM/焦点可编程操作 | guest 渲染进程卡死或崩溃（那种情况下 `executeJavaScript` 注入会一并失效，hint 根本出不出现） |
-| 真实鼠标事件到不了 guest | vim 状态残留吞键（那只吞**键盘**，且焦点进入输入框后主进程会放行，与本现象不符） |
+| guest 进程活着、脚本能跑、DOM 焦点可编程设置 | guest 渲染进程卡死/崩溃（那时 `executeJavaScript` 注入会一并失效，hint 根本不出现或按了没反应） |
+| 真实鼠标事件**到不了 guest** | vim 状态残留吞键（那只会吞**键盘**，且焦点一旦进入输入框，主进程 `before-input-event` 会因 `vimFocusStates` 放行，与本现象不符） |
 
-后者尤其要点明：08-27 那次（`vim-mode-input-field-bug.md`）修的是**键盘**侧的上报竞态，与本现象不是同一层，所以那次修复不会、也确实没有解决本问题。
+### 2.2 被排除的假设（连同排除理由，避免后来者重走）
 
-**「刷新页面无效」是这一层的专属签名**：被改的是**宿主** webview 元素的内联样式，与页面 DOM 无关，`reload()` 不可能清掉它。
+| 假设 | 为什么排除 |
+|---|---|
+| Vim 状态残留（`hintModeActive` / `searchInputActive` / `VimStateMachine` 卡在 pending） | 只影响键盘；且焦点在输入框时主进程放行按键（`shortcut-manager.js:316-355`），无法解释「点不动」 |
+| 有个透明覆盖层挡住了网页区 | 全仓枚举过：候选者（`#newTabPage` / `#aiDropOverlay` / toast / 各面板）要么 `pointer-events:none`，要么非定位元素（在层叠上被绝对定位的 webview 盖住），要么可见（用户会看到）。`.new-tab-page` 是普通流内元素，早于 webview 入 DOM ⇒ 绝对定位的 webview 永远在其之上 |
+| `-webkit-app-region: drag` 吞点击 | 只有 5 处选择器（`.sidebar` / `.toolbar` / `.tab-bar` / `.tab-drag-spacer` / `.ai-panel-header`），全在 chrome 区，不覆盖浏览器视图 |
+| 拖拽状态机残留（`state.crossDrag` 没复位） | 会把 `pointer-events` 关掉，但 `onCrossDragMouseUp` 是 document capture 级监听，用户在宿主界面的任何一次点击都会触发它 ⇒ 会自愈，与「一直点不动」不符 |
+| 之前那次修复（08-27）没生效 | 那次修的是**键盘**侧的焦点上报竞态（`docs/debug/vim-mode-input-field-bug.md`），与鼠标命中不是同一层；本次已实证走查其在场 |
+
+### 2.3 两个"亚症状"为什么由同一根因解释
+
+| 用户的观察 | 解释 |
+|---|---|
+| **刷新页面无效** | 改的是**宿主** `<webview>` 元素的内联样式，与页面 DOM 无关；`reload()` 只重载 guest 文档，不可能清掉宿主样式 |
+| **"长时间没动之后才出现"** | 该状态是**静默的**——不去点网页完全看不出来（页面照常渲染、滚动条还在、鼠标形状不变）。触发点（那次丢 `mouseup` 的拖拽）可能远早于发现时刻，所以用户回忆不起做过什么操作 |
+
+---
 
 ## 3. 病灶
 
-### 3.1 两处「置 none 后只靠各自 mouseup 恢复」
+### 3.1 两处「置 none 后只靠各自 mouseup 恢复」（主因）
 
-拖拽/改宽期间必须把 webview 的 `pointer-events` 置 `none`（否则鼠标经过网页区会被 guest 吞掉、`mousemove` 断流、浮动预览卡在页面上），但这个状态**不改变可见性**——页面照常渲染，只是再也点不到。而恢复只挂在各自的 `mouseup` 上：
+拖拽/改宽期间必须把 webview 的 `pointer-events` 置 `none`，否则鼠标经过网页区会被 guest 吞掉、宿主 `mousemove` 断流（表现为"拖几像素就卡住"、浮动预览卡在页面上）——**这个手段本身是对的**，问题在收尾。
+
+改前代码（基点 `40a58cb`）：
 
 | 触发 | 置 `none` | 恢复 |
 |---|---|---|
-| 拖标签激活跨窗口拖拽 | `onCrossDragMouseMove` | `restoreWebviewPointerEvents()`（仅 `mouseup` / Escape） |
-| 拖 AI 面板宽度 | `initAIPanelResize.onMouseDown` | `onMouseUp`（仅 `mouseup`，且恢复成 `''` = auto） |
+| 拖标签激活跨窗口拖拽 | `onCrossDragMouseMove` ⇒ `:13875-13877`（`document.querySelectorAll('webview')` 全置 none） | `restoreWebviewPointerEvents()` ⇒ `:13796-13800`，仅由 `onCrossDragMouseUp`(:13963) 与 `onCrossDragKeyDown`(:14068) 调用 |
+| 拖 AI 面板宽度 | `initAIPanelResize.onMouseDown` ⇒ `:14281-14283`（同样全置 none） | `onMouseUp` ⇒ `:14303-14305`，且恢复成 `''`（= auto，**连非活动 webview 一起放开**） |
 
-`mouseup` 一旦丢失（窗口外松手、拖拽中途窗口失焦、面板被关闭、事件丢失），网页区就**永久**失去鼠标命中。
-
-**为什么用户会觉得是「长时间没动之后才出现」**：这个卡死状态是**静默的**——不去点网页完全看不出来。触发点可能远早于发现时刻，这也解释了为什么用户回忆不起做过什么操作。
+`mouseup` 丢失的现实路径（任一即可）：鼠标在窗口外松手、拖拽中途窗口失焦 / 屏幕休眠、面板在拖拽中被关闭、渲染进程事件丢失、`onMouseUp` 在恢复语句**之前**抛错（改前恢复语句位于函数中后段，前面还有 `classList` 操作）。
 
 ### 3.2 第二入口：可命中性有两套真源
 
-`restoreWebviewPointerEvents` 自己按 `state.activeTabId` 写 `pointer-events`，而可见性由 `showWebview(tabId)` 按参数写。两者不一致时（`activeTabId` ≠ 屏幕上的那个），恢复动作会把**可见页面**打成不可命中，而把不可见的那个设成可交互。同症状、不同成因。
+`restoreWebviewPointerEvents` 自己按 `state.activeTabId` 写 `pointer-events`，而可见性由 `showWebview(tabId)` 按**参数**写。两者不一致时，恢复动作会把**屏幕上那个**打成不可命中、把不可见的那个设成可交互：
 
-（本次实测：`navigateCurrentTab` 的 `showWebview(tabId)` 是可以传非活动 tab 的签名，但当前两处调用点都传 `state.activeTabId`，**今天不可达**；本次不改其行为，风险改由「可见性真源」消解——即便将来发生，可见页面仍是可命中的。）
-
-## 4. 修复（`src/renderer.js`）
-
-1. **单一真源**：`state.visibleTabId`（由 `showWebview` 写入；不再拿 `activeTabId` 猜）＋ `applyWebviewInteractivity()` 作为可见性与可命中性**唯一写入点**，`showWebview` 与拖拽/改宽收尾共用。
-2. **成对入口**：`suspendWebviewHitTest(reason)` / `resumeWebviewHitTest(source)`，恢复**幂等**（未 suspend 时是 no-op，不会覆盖 `showWebview` 的结果）。
-3. **兜底网**（`initWebviewHitTestSafetyNet`）：不再依赖各拖拽路径自己的收尾
-   - `mousemove` 的 `e.buttons === 0` —— 指针在动却没有按键，是「收尾已丢失」的第一现场权威信号
-   - `window blur` / `visibilitychange` —— 窗口失焦或不可见时按键不可能仍按着，证据作废并尝试恢复
-   - **3s 看门狗**：复查间隔 `WEBVIEW_SUSPEND_WATCHDOG_MS=3000`，按键证据有效期 `WEBVIEW_SUSPEND_EVIDENCE_MS=1000`。**两者必须不等**——相等时看门狗每次复查都会判「证据还没过期」而无限重排，残留永远救不回来
-4. **残留日志**（正常收尾**静默**，因此正常使用零新增输出，一旦打印即一眼定位）：
-   ```
-   [Realm] webview 可命中性残留已恢复（兜底=watchdog|mousemove-no-button|window-blur|visibility-restored，原始禁用=tab-cross-drag|ai-panel-resize，已禁用 Nms）
-   ```
-5. **改宽收尾顺序**：先 `resume` 再动其它 DOM 状态——该函数后续任何一步抛错都不能把「点不动」留在界面上。
-
-## 5. 验证
-
-### 5.1 绿轮（实跑）
-
-```
-NODE_PATH="$(npm root -g)" node tests/uat-webview-hit-test-stuck.js
+```js
+// 改前 :13796-13800
+function restoreWebviewPointerEvents() {
+  state.webviews.forEach((wv, id) => {
+    if (wv) wv.style.pointerEvents = id === state.activeTabId ? 'auto' : 'none';
+  });
+}
 ```
 
-真实 dev 应用上 30 项断言全过：基线不变量（恰一个可见且 auto/非 inert，其余一律 none + inert）；正常收尾（拖拽/改宽各一条）恢复且**不**产生残留日志；丢 `mouseup` 三条兜底路径（拖拽 + `mousemove` 信号、拖拽 + 看门狗纯时间推进、改宽 + `mousemove` 信号）各自恢复且日志归因正确；幂等中「未 suspend 的 resume 为 no-op」。
+**可达性实测（重要，避免误判）**：`navigateCurrentTab` 里存在 `showWebview(tabId)` 这种「参数可以是非活动 tab」的签名（`:760`，`navigateCurrentTab` 由 `openUrl` 的 current-tab 分支调用，`:860`），但 `resolvedSourceTabId = sourceTabId || state.activeTabId`（`:847`），而全仓两处调用点都传 `state.activeTabId`（`:6264`、`:6909`）⇒ **今天不可达**。本次**不改其行为**，只把风险消解掉（见 §4.1）。
 
-### 5.2 红轮（单点变异，各自精准打红）
+### 3.3 全仓「能影响命中」的写入点清单（改前）
 
-| 变异 | 预期 | 实测 |
-|---|---|---|
-| 看门狗判据恒为「重排」 | 仅看门狗两条断 | ✔ 只红那两条 |
-| 拆掉 `mousemove` 兜底 | 仅丢 mouseup 的 2/5 用例红 | ✔ 红 7 条（含连带），看门狗用例仍绿 ⇒ 两条机制互相独立 |
-| 改宽收尾改回旧实现 `pointerEvents=''` | 仅「非活动 webview 仍不可命中」红 | ✔ 只红那一条 |
+只有 5 处写 webview 的交互/可见性，本次全部收敛为 1 处：
 
-### 5.3 回归对照
+| 位置（改前） | 写了什么 |
+|---|---|
+| `showWebview` `:1944-1959` | `visibility` / `position` / `pointerEvents` / `inert`（按参数 tabId） |
+| `restoreWebviewPointerEvents` `:13796-13800` | `pointerEvents`（按 `activeTabId`） |
+| `onCrossDragMouseMove` `:13875-13877` | `pointerEvents = 'none'`（全部） |
+| `initAIPanelResize.onMouseDown` `:14281-14283` | `pointerEvents = 'none'`（全部） |
+| `initAIPanelResize.onMouseUp` `:14303-14305` | `pointerEvents = ''`（全部） |
 
-`NODE_PATH="$(npm root -g)" node tests/uat-hard-reload-shortcut.js` 全绿（键盘 → `before-input-event` → renderer 分发链路，本次未触碰）。
+CSS 侧无任何规则能关掉 webview 命中（`.browser-view webview` 只设了 `background`）。
 
-### 5.4 保真度边界（不得读成更强的证据）
+---
 
-- 驱动里的 `e.buttons` 是**手工构造**的（真实 Chromium 只在真鼠标 `mousemove` 时填），因此「mousemove 兜底」验证的是**监听器判定逻辑**，不是 Chromium 的 buttons 语义；看门狗那条（零事件、纯时间推进）不受该边界影响。
-- 本驱动不验证「真实鼠标事件是否被 Chromium 送到 guest」（需真机手势）。
+## 4. 修复（分支 tip，全部在 `src/renderer.js` + `main.js`）
 
-## 6. 复发时的判别签名（下次先读这里）
+### 4.1 单一真源
 
-1. **看有没有这行日志**（dev/debug 或用户贴的控制台）：
-   `[Realm] webview 可命中性残留已恢复（...）`
-   - 有 ⇒ 本机制；`原始禁用=` 直接指出是拖标签还是改宽，`兜底=` 指出哪种收尾丢了
-   - 无，但页面确实点不动 ⇒ 去第 2 步
-2. **看主进程有没有**（仅 dev/debug）：`[Realm 诊断] webContents 无响应` / `渲染进程退出`（`main.js` 的 `web-contents-created` 观测块）
-   - 有 ⇒ guest 渲染进程卡死/崩溃，属另一类问题（页面保留最后一帧、`executeJavaScript` 也会失效），不是本机制
-3. **手动分诊**：在页面上按 `f`（hint 出现且能聚焦输入框 ⇒ guest 活着 ⇒ 命中测试层）；或在控制台对它 `executeJavaScript`（超时 ⇒ guest 卡死）
-4. **临时自救**：切一下标签页即可（`showWebview` 会重算可命中性），不必重启
+- `state.visibleTabId`（`src/renderer.js:213`）：**实际显示**的 tab，由 `showWebview` 写入。刻意与 `activeTabId` 分开——收尾要按「屏幕上那个」恢复，不是按「tab 栏高亮的那个」猜。
+- `applyWebviewInteractivity()`（`:1990`）：可见性与可命中性**唯一写入点**，`showWebview`（`:2121`）与所有收尾共用。判定逻辑是从原 `showWebview` 循环**原样搬移**的，只把真源从参数改为 `state.visibleTabId`。
 
-## 7. 未纳入本次
+### 4.2 成对入口
 
-- `navigateCurrentTab` 的 `showWebview(tabId)` 签名允许非活动 tab（今天不可达）：本次只消解风险，未改行为
-- 刷新按钮在页面处于 `loading` 状态时语义是 stop（标准浏览器行为，但对永远 loading 的流式页面等于按钮刷不了新）——独立小项
-- guest preload 每 500ms 轮询里用 `sendSync`（阻塞式 IPC）：仓库自己的文档已标注其死锁风险，本次未动，留作独立小项
+```js
+suspendWebviewHitTest(reason)   // :2042  reason ∈ {'tab-cross-drag','ai-panel-resize'}，同时记时间戳并起看门狗
+resumeWebviewHitTest(source)    // :2059  幂等；未 suspend 时 no-op（不会覆盖 showWebview 的结果）
+clearWebviewHitTestSuspend()    // :2011  静默清除登记（showWebview 切 tab 时调用）
+```
+
+调用点（全部）：
+
+| 位置 | 调用 |
+|---|---|
+| `onCrossDragMouseMove` 激活分支 `:14035` | `suspendWebviewHitTest('tab-cross-drag')` |
+| `onCrossDragMouseUp` `:14121` | `resumeWebviewHitTest('drag-end')` |
+| `onCrossDragKeyDown`（Escape 取消）`:14226` | `resumeWebviewHitTest('drag-end')` |
+| `initAIPanelResize.onMouseDown` `:14439` | `suspendWebviewHitTest('ai-panel-resize')` |
+| `initAIPanelResize.onMouseUp` `:14459` | `resumeWebviewHitTest('drag-end')`（**已上移到函数最前**：后续任何一步抛错都不能把"点不动"留在界面上） |
+| `showWebview` `:2125` | `clearWebviewHitTestSuspend()` |
+| 初始化链 `:7210` | `initWebviewHitTestSafetyNet()` |
+
+### 4.3 兜底网（`initWebviewHitTestSafetyNet` `:2081`）
+
+不再依赖各拖拽路径自己的收尾：
+
+| 信号 | 语义 |
+|---|---|
+| `mousemove` 且 `e.buttons === 0`（`:2093`） | 指针在动却没有按键 ⇒ 拖拽早已结束而收尾丢失（**第一现场信号**，最常先命中） |
+| `window blur`（`:2105`）/ `visibilitychange` 恢复可见（`:2113`） | 窗口失焦或不可见时按键不可能仍按在窗口内 ⇒ 证据作废并尝试恢复 |
+| 3s 看门狗（`:2024`） | 零事件场景（用户直接走开）也能救回 |
+
+两个时间常数**必须不相等**（这是本次踩过的坑，已写进 AGENTS.md）：
+
+```js
+const WEBVIEW_SUSPEND_WATCHDOG_MS = 3000;  // :1972 复查间隔
+const WEBVIEW_SUSPEND_EVIDENCE_MS = 1000;  // :1980 「按键仍按着」的证据有效期
+```
+
+相等时看门狗每次复查都会判「证据还没过期」而无限重排，残留**永远救不回来**（首次实现就是这个形态，靠单点变异发现）。
+
+### 4.4 诊断日志（正常收尾静默 ⇒ 正式版零新增输出）
+
+只在兜底救回时打印，含**原始禁用来源**与**已禁用时长**，一行即可定位：
+
+```
+[Realm] webview 可命中性残留已恢复（兜底=watchdog|mousemove-no-button|window-blur|visibility-restored，原始禁用=tab-cross-drag|ai-panel-resize，已禁用 Nms）
+```
+
+### 4.5 主进程 guest 观测（`main.js:558-577`，仅 `NODE_ENV=development|debug`）
+
+沿用既有诊断块的开关（`production`/`nightly` 零输出），只挂监听与日志、不含行为逻辑：
+
+- `unresponsive` / `responsive`：渲染进程主线程卡住与恢复
+- `render-process-gone`：崩溃或被系统回收（带 `reason` / `exitCode`）
+- `did-fail-load`：主框架加载失败（**滤掉 `-3 ERR_ABORTED`**，那是正常导航取消，否则刷屏）
+
+用途：区分「guest 卡死」与「宿主命中测试坏了」——前者会让 `executeJavaScript` 注入一并失效，后者不会。
+
+---
+
+## 5. 诊断手册（复发时按这个走）
+
+### 5.1 决策树
+
+```
+网页点不动
+├─ 按 f 有 hint 出现且能聚焦输入框？
+│   ├─ 是 → 命中测试层（本文档这一族）
+│   │   ├─ 有 [Realm] webview 可命中性残留已恢复  → 本机制，看「原始禁用=」定位是拖标签还是改宽
+│   │   └─ 没有该日志 → 属"宿主命中测试被别的东西占住"（覆盖层 / 其它写 pointerEvents 的代码）
+│   │       排查：按 §5.3 手动读数
+│   └─ 否（hint 不出现 / 按了无反应）→ guest 进程卡死或已崩溃
+│       └─ 查主进程 [Realm 诊断] webContents 无响应 / 渲染进程退出
+└─ 连地址栏也点不动 → 不是本族（宿主整体问题，另立排查）
+```
+
+### 5.2 日志签名表
+
+| 日志 | 结论 |
+|---|---|
+| `[Realm] webview 可命中性残留已恢复（兜底=…，原始禁用=…）` | 本机制；`原始禁用=tab-cross-drag` ⇒ 拖标签路径，`=ai-panel-resize` ⇒ 改宽路径；`兜底=` 指出哪种收尾丢了 |
+| `[Realm 诊断] webContents 无响应 id=… type=webview url=…` | guest 渲染进程主线程卡住（页面保留最后一帧、点击/打字/刷新全失效）——与本文档**不同**的一类，另立排查 |
+| `[Realm 诊断] 渲染进程退出 … reason=…` | guest 崩溃/被回收，同上另立 |
+| `[Realm 诊断] 主框架加载失败 … code=…` | 页面本身没加载出来（不是本族，但可解释"看不到内容"） |
+
+### 5.3 手动分诊（没有日志、也无法复现时）
+
+1. 在页面上下文读数（DevTools 或 `win.evaluate`）：
+
+```js
+// 命中层被谁关着？
+Array.from(document.querySelectorAll('#browserView webview')).map(wv => ({
+  pe: getComputedStyle(wv).pointerEvents,
+  vis: getComputedStyle(wv).visibility,
+  inert: wv.inert,
+}));
+// 网页区中心点上到底是谁在接收鼠标？
+const r = document.querySelector('#browserView').getBoundingClientRect();
+document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+```
+
+- 可见那个 webview 的 `pe === 'none'` ⇒ 命中层被关（本族）
+- `elementFromPoint` 返回的不是 `<webview>` ⇒ 有元素盖在上面
+- 两者都正常但仍点不动 ⇒ 怀疑 guest 卡死，用 `webview.executeJavaScript('1+1')` 看是否超时
+
+2. guest 活性判据：`executeJavaScript` **超时** ⇒ guest 卡死（§5.2 第二类）；**正常返回** ⇒ guest 活着，属命中层。
+
+### 5.4 临时自救（用户侧，无需重启）
+
+切到别的标签页再切回（`switchTab` ⇒ `showWebview` ⇒ `applyWebviewInteractivity` 重算）。若已带本分支，通常无需手动——最迟 3 秒自动恢复。
+
+---
+
+## 6. 验证手册
+
+### 6.1 绿轮（实跑 40 项，0 失败）
+
+```bash
+NODE_PATH="$(npm root -g)" node tests/uat-webview-hit-test-stuck.js   # exit 0
+```
+
+> 断言条数随会话略有浮动：启动时若只有 1 个 webview，驱动会补建一个 `about:blank` 临时标签以取得「非活动 webview」（+2 条，收尾关闭并切回）。上表 40 条对应「启动会话已有多个标签」的实跑。
+
+覆盖（`tests/uat-webview-hit-test-stuck.js`）：
+
+| 用例 | 断言要点 |
+|---|---|
+| 0 基线 | 恰一个 webview 可见且 `auto`/非 `inert`；其余一律 `none` + `inert` |
+| 1 拖拽正常收尾 | suspend 生效 ⇒ `mouseup` ⇒ 立即恢复；**不**产生残留日志（负命题） |
+| 2 拖拽丢 `mouseup` + `mousemove` 兜底 | 残留复现 ⇒ `mousemove(buttons=0)` ⇒ 立即恢复；日志归因 `tab-cross-drag` + `mousemove-no-button` |
+| 3 拖拽丢 `mouseup` + 看门狗 | 零事件纯时间推进，3800ms 内恢复；日志含 `watchdog` |
+| 4 改宽正常收尾 | 恢复且**非活动 webview 仍 `none`**（旧实现会把它们误设成 `auto`）；不产生残留日志 |
+| 5 改宽丢 `mouseup` + `mousemove` 兜底 | 恢复；日志归因 `ai-panel-resize` |
+| 6 幂等 | 未 suspend 时 `resumeWebviewHitTest('drag-end')` 为 no-op，状态快照逐项不变 |
+
+驱动自身约束（写在文件头，勿删）：用合成 `MouseEvent` 走**真实监听器链路**；`mouseup` / `mousemove` 复用拖拽起点坐标，避免 `onCrossDragMouseUp` 走到 `endDrag({outOfTabBar})` 那条**会真的新建窗口**的分支；按需补 `about:blank` 临时标签并在收尾关闭切回；`aiPanelWidth` 原值写回。
+
+### 6.2 红轮：三条单点变异（各自精准打红，可复现）
+
+每条都在 `src/renderer.js` 上改一处，跑同一条命令，跑完 `git checkout -- src/renderer.js` 还原。
+
+| # | 改哪里 | 改法 | 预期红 | 实测 |
+|---|---|---|---|---|
+| 1 | `armWebviewSuspendWatchdog` :2028 的条件 | `if (Date.now() - lastPointerPressedAt < WEBVIEW_SUSPEND_EVIDENCE_MS \|\| true)`（看门狗永不判决） | 仅看门狗 2 条 | ✔ 恰好红 2 条 |
+| 2 | `initWebviewHitTestSafetyNet` :2093 | 注释掉 `resumeWebviewHitTest('mousemove-no-button');` | 仅丢 mouseup 的用例 2/5 | ✔ 红 7 条（用例 2 四条 + 用例 5 两条 + 用例 6 一条连带），**用例 3 看门狗仍绿** ⇒ 两条机制互相独立 |
+| 3 | `initAIPanelResize.onMouseUp` :14459 之后 | 补回旧实现 `document.querySelectorAll('webview').forEach(wv => { wv.style.pointerEvents = ''; });` | 仅「改宽收尾后非活动 webview 仍不可命中」1 条 | ✔ 恰好红 1 条 |
+
+失败时驱动 exit code = 1（`保留 | tail` 会吞掉退出码，判红请直接看输出或以 `; echo $?` 取码）。
+
+### 6.3 回归对照
+
+```bash
+NODE_PATH="$(npm root -g)" node tests/uat-hard-reload-shortcut.js   # 全绿
+```
+
+走「合成按键 → 主进程 `before-input-event` → renderer 分发」链路，本次未触碰该链路，用作渲染进程启动与 webview 装配未坏的对照。
+
+### 6.4 保真度边界（不得读成更强的证据）
+
+- 驱动里的 `e.buttons` 是**手工构造**的（真实 Chromium 只在真鼠标 `mousemove` 时填）⇒「`mousemove` 兜底」验证的是**监听器判定逻辑**，不是 Chromium 的 buttons 语义；**用例 3（看门狗）不受该边界影响**（零事件、纯时间推进）。
+- 本驱动**不验证**「真实鼠标事件是否被 Chromium 送到 guest」（需真机手势）。
+- 本次**未复现用户现场的那一刻**（丢 `mouseup` 是外部条件）。逻辑链与门禁都指向宿主命中层；若复发时**没有** §5.2 第一类日志，则应按决策树转查 guest 卡死那一类。
+
+---
+
+## 7. 维护约定（改这块代码时必须遵守）
+
+1. **禁用必须成对**：任何"关掉 webview 命中"的代码一律走 `suspendWebviewHitTest(reason)`，恢复一律走幂等的 `resumeWebviewHitTest(source)`；**不得再自行写 `wv.style.pointerEvents`**。
+2. **真源唯一**：可见性与可命中性只有 `applyWebviewInteractivity()` 一个写入点，真源是 `state.visibleTabId`。**不要**用 `state.activeTabId` 判"显示的是哪个 webview"。
+3. **正常收尾静默**：日志只在兜底救回时打印；新增兜底路径时请复用 `resumeWebviewHitTest(source)` 并传新的 `source`，以便日志归因。
+4. **两个时间常数不等**：`WEBVIEW_SUSPEND_WATCHDOG_MS` ≠ `WEBVIEW_SUSPEND_EVIDENCE_MS`，相等 = 看门狗永不判决。
+5. **收尾顺序**：`resume` 要放在收尾函数靠前位置，后续任何一步抛错都不能把"点不动"留在界面上。
+6. 改完必须跑 §6.1 门禁，并按改动面挑一个变异复现红轮（至少变异 2 或 3）。
+
+---
+
+## 8. 未纳入本次（已知风险 + 建议做法）
+
+| # | 事项 | 位置 | 建议 |
+|---|---|---|---|
+| 1 | `navigateCurrentTab` 的 `showWebview(tabId)` 允许传非活动 tab，会把显示与 tab 栏高亮弄不一致 | `src/renderer.js:760` | 今天不可达（两处调用点都传 `activeTabId`）。本次只由真源消解风险（即便发生，可见页面仍可命中）。若要加固：加「`tabId !== state.activeTabId` 时不改可见性」并配可验证的门禁（注意：仅加 `console.warn` 会因不可达而无法验证） |
+| 2 | 刷新按钮在页面处于 `loading` 状态时语义是 stop | `src/renderer.js` 的 `elements.reloadBtn` click 分支 | 标准浏览器行为，但对"永远 loading"的流式页面等于按钮刷不了新。独立小项，改动前先确认是否要保留 Chrome 语义 |
+| 3 | guest preload 每 500ms 轮询里用 `sendSync`（阻塞式 IPC） | `src/webview-preload.js:587` + `:567` | 仓库自己的文档已标注 handler 缺失 ⇒ 渲染进程永久阻塞。本次**未动**（避免引入回归）。若要做，需另立小项 + 独立验证（连"点击输入框后立刻打字不吞键"那条正确性一起设计），并同步 `docs/debug/vim-mode-input-field-bug.md` |
+| 4 | 拖拽状态机残留（`crossDragTabId` / `crossDragListenersAttached` 在丢 `mouseup` 后不复位） | `src/renderer.js` 跨窗口拖拽块 | 本次只修「可见后果」（命中被关）。状态机残留本身会让下次 mouse 移动误激活拖拽；因 `onCrossDragMouseUp` 是 document capture 级、任何一次点击都会复位，故影响有限——留观察 |
+
+---
+
+## 9. 交接清单
+
+| 项 | 值 |
+|---|---|
+| 分支 / worktree | `hotfix/webview-hit-test-stuck` / `.worktrees/webview-hit-test-stuck`（仓库内，含 `node_modules` 符号链接） |
+| 基点 | `40a58cb`（master，期间被并发会话推进过；本分支未动 master） |
+| 提交 | `3959765` fix(webview) 代码修复 · `8603bad` feat(main) guest 观测 · `94cf805` test(webview) 驱动 · `47dc69c` docs(webview) 本文档 + AGENTS.md |
+| 落点 | **master**（尚未合入，等观察一段时间；合入前按 `docs/dev/branching-spec.md` §3 做回合三步校验） |
+| 复查命令 | `git -C .worktrees/webview-hit-test-stuck log --oneline master..HEAD` |
+| 相关文档 | `docs/debug/vim-mode-input-field-bug.md`（键盘侧，另一层，别混）· `docs/debug/vim-hint-focus-cross-tab-failure.md`（hint 按键路由不依赖 guest 焦点，正是本次判据的基础） |
