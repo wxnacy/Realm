@@ -23,6 +23,7 @@ const path = require('node:path');
 
 let captured = null;
 const sent = [];
+const clipboardWritten = [];
 
 const fakeElectron = {
   Menu: {
@@ -31,7 +32,10 @@ const fakeElectron = {
       return { popup: () => {} };
     },
   },
-  clipboard: { writeText: () => {}, writeImage: () => {} },
+  clipboard: {
+    writeText: (text) => clipboardWritten.push(text),
+    writeImage: () => {},
+  },
   nativeImage: {
     createFromBuffer: () => ({ isEmpty: () => true }),
     createFromDataURL: () => ({ isEmpty: () => true }),
@@ -95,6 +99,10 @@ const LINK_GROUP = [
 const CONTAINERS_FIXTURE = [
   { id: 'default', name: '默认', icon: 'fingerprint' },
   { id: 'work', name: '工作', icon: 'briefcase' },
+];
+
+const MEDIA_GROUP_VIDEO = [
+  '在新标签页中打开视频', '将视频另存为…', '复制媒体地址', '---',
 ];
 
 /**
@@ -278,6 +286,85 @@ test('无选中文本：不出现搜索项', () => {
     menuLabels({
       hasImage: false, hasLink: false, srcURL: '', linkURL: '', mediaType: 'none',
       selectionText: '',
+    }),
+    GENERAL_TAIL
+  );
+});
+
+// ==================== 媒体元素 ====================
+
+test('video 直链：媒体组 + 通用', () => {
+  assert.deepEqual(
+    menuLabels({
+      hasImage: false, hasLink: false, srcURL: 'https://a.test/clip.mp4', linkURL: '',
+      mediaType: 'video',
+    }),
+    [...MEDIA_GROUP_VIDEO, ...GENERAL_TAIL]
+  );
+});
+
+test('audio 直链：label 用「音频」', () => {
+  assert.deepEqual(
+    menuLabels({
+      hasImage: false, hasLink: false, srcURL: 'https://a.test/song.mp3', linkURL: '',
+      mediaType: 'audio',
+    }),
+    ['在新标签页中打开音频', '将音频另存为…', '复制媒体地址', '---', ...GENERAL_TAIL]
+  );
+});
+
+test('MSE 流（blob:）：打开与另存为均置灰', () => {
+  const items = menuItems({
+    hasImage: false, hasLink: false, srcURL: 'blob:https://a.test/abc-123', linkURL: '',
+    mediaType: 'video',
+  });
+  assert.equal(itemByLabel(items, '在新标签页中打开视频').enabled, false);
+  assert.equal(itemByLabel(items, '将视频另存为…（流媒体不支持）').enabled, false);
+});
+
+test('HLS 清单（.m3u8）：另存为置灰且说明原因，打开仍可用', () => {
+  const items = menuItems({
+    hasImage: false, hasLink: false, srcURL: 'https://a.test/live.m3u8?token=1', linkURL: '',
+    mediaType: 'video',
+  });
+  assert.equal(itemByLabel(items, '将视频另存为…（流媒体不支持）').enabled, false);
+  assert.equal(itemByLabel(items, '在新标签页中打开视频').enabled, true);
+});
+
+test('媒体 + 链接：媒体组排在链接组之前', () => {
+  assert.deepEqual(
+    menuLabels({
+      hasImage: false, hasLink: true, srcURL: 'https://a.test/clip.mp4',
+      linkURL: 'https://a.test/page', mediaType: 'video', containers: CONTAINERS_FIXTURE,
+    }),
+    [...MEDIA_GROUP_VIDEO, ...LINK_GROUP, ...GENERAL_TAIL]
+  );
+});
+
+test('「复制媒体地址」写入剪贴板', () => {
+  const items = menuItems({
+    hasImage: false, hasLink: false, srcURL: 'https://a.test/clip.mp4', linkURL: '',
+    mediaType: 'video',
+  });
+  clipboardWritten.length = 0;
+  itemByLabel(items, '复制媒体地址').click();
+  assert.deepEqual(clipboardWritten, ['https://a.test/clip.mp4']);
+});
+
+test('「在新标签页中打开视频」发送 srcURL', () => {
+  const items = menuItems({
+    hasImage: false, hasLink: false, srcURL: 'https://a.test/clip.mp4', linkURL: '',
+    mediaType: 'video',
+  });
+  itemByLabel(items, '在新标签页中打开视频').click();
+  assert.deepEqual(sent, [['context-menu:open-in-new-tab', { url: 'https://a.test/clip.mp4' }]]);
+});
+
+test('mediaType 非 video/audio：不出现媒体组', () => {
+  assert.deepEqual(
+    menuLabels({
+      hasImage: false, hasLink: false, srcURL: 'https://a.test/x', linkURL: '',
+      mediaType: 'none',
     }),
     GENERAL_TAIL
   );
