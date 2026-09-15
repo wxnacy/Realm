@@ -25,10 +25,10 @@ files_reviewed_list:
   - tests/test-skills-management.js
   - tests/uat-51-import-modal.js
 findings:
-  critical: 1
+  critical: 2
   warning: 3
   info: 6
-  total: 10
+  total: 11
 status: issues_found
 ---
 
@@ -41,7 +41,9 @@ status: issues_found
 
 ## Summary
 
-导入管线（zip 上传 / 网络 zipball / raw 直链 → 同一条解压校验与落盘管线）的安全承重面经逐行核对与**实跑探针**验证，多数判据与文档一致且判据链是单源的：
+导入管线（zip 上传 / 网络 zipball / raw 直链 → 同一条解压校验与落盘管线）的安全承重面经逐行核对与**实跑探针**验证，多数判据与文档一致且判据链是单源的。
+
+> ⚠️ **本报告的复核范围已修订**：CR-02 是**逐行阅读 + 模块级测试都没发现**的运行期集成缺陷，由 `/gsd-verify-work 51` 的自动化 UAT 驱动（`tests/uat-51-import-live.js`）在真实运行期抓到。这印证了「逐行核对 + 模块级实跑」这条证据链对**作用域解析 / 接线类**缺陷存在系统性盲区。
 
 - 解压面（`readSkillPackageEntries`）：entry 名八条自建判据（含原始字节面）、NFD+小写查重、两路 symlink、zip64 声明特例、压缩比闸、累计字节闸、流内实测字节闸全部在位；`fs.mkdtempSync` 空目录 + 解压后 `assertNoSymlinkTree` realpath 复核构成双层。
 - 网络面（`downloadPackage` + `classifyImportUrl`）：https 强制 / 白名单精确成员判定（`normalizeHost` 只剥一个 `www.`，不做后缀匹配）/ 逐跳私网 / 跳数超限抛错 / 流式字节上限（实读字节而非 `content-length`）/ magic bytes，五道逐跳执行；生产调用点传 `undefined` 走真实实现。
@@ -50,7 +52,7 @@ status: issues_found
 - 前端 region **零 `innerHTML` / `insertAdjacentHTML`**，全部 `createElement` + `textContent` / `el.title`（不扩大 TD-48-01 的缺口）；`SKILL_IMPORT_ERROR_TEXT` 与 `IMPORT_SKILL_ERROR` 21 键双向覆盖有机械判据。
 - 实跑：`node tests/test-skills-import.js` 116/116、`node tests/test-skills-import-net.js` 50/50 通过；另用三个独立探针复现了下述 CR-01 / WR-01 / WR-02。
 
-**核心结论：安全与校验面未发现可证明的逃逸或注入缺口；但句柄生命周期在前端断了一环（CR-01，可复现的用户可见死路 + 临时区滞留），共享缓存被回读刷新污染且回滚后不复扫（WR-01），另有两条文档/注释与实现不符（WR-02 压缩比闸判据对象、WR-03 声称的 manage_skill 接线），六条 INFO 为死代码与口径不一致。**
+**核心结论：安全与校验面未发现可证明的逃逸或注入缺口；但**网络导入整条腿在运行期是死的**（CR-02：`downloadPackage` 无绑定 ⇒ 所有网络地址导入 100% ReferenceError。**由 `/gsd-verify-work 51` 的真实网络 UAT 发现并已在本轮修复**，三条既有护栏全部照不到这条集成缝 —— 详见 CR-02 的「为什么三条既有护栏全绿」）；另有句柄生命周期在前端断了一环（CR-01，可复现的用户可见死路 + 临时区滞留），共享缓存被回读刷新污染且回滚后不复扫（WR-01），两条文档/注释与实现不符（WR-02 压缩比闸判据对象、WR-03 声称的 manage_skill 接线），六条 INFO 为死代码与口径不一致。**
 
 ## Critical Issues
 
@@ -104,6 +106,52 @@ async function fetchSkillImportPreview(source) {
 ```
 
 （`discardSkillImportHandle()` 已是「尽力而为、不阻塞」语义，弹框内重复调用安全；若希望更保守，可把它放在成功分支里以 `prevId !== newId` 为守卫，并在 `catch` 内补一次。）
+
+### CR-02: `ai-manager.js` 里 `downloadPackage` **无绑定** ⇒ 所有网络地址导入（zipball 与直链 SKILL.md）运行期 100% `ReferenceError`【本次 UAT 发现并已修复】
+
+**File:** `ai-manager.js:1857` / `:1868` / `:1891`（修复点 `:1841`）
+
+**Issue:** `previewSkillImport` 的三处网络分支裸写 `downloadPackage(undefined, { … })`，但本文件对 `ai-skills-manager.js` 的其余符号一律走 `getAiSkillsManagerLazy()` —— 这个标识符**从来没有绑定过**（`git log -S` 显示自 `0b8bc1d`（51-05）引入起即如此）。运行期抛
+`ReferenceError: downloadPackage is not defined`，被 `main.js` 的 handler 序列化成
+`{ error: 'downloadPackage is not defined', code: undefined }`，设置页按兜底文案上屏
+`导入失败：downloadPackage is not defined`。
+
+影响面：**所有网络地址导入 100% 失败**（zipball 与 raw 直链两条路径都在下载前即抛）；
+本地上传（zip 文件）不受影响 —— 本次两条自动化驱动分别取到「网络面全红 / 本地面上传全绿」的对照读数。
+
+**Fix（已应用）:**
+
+```js
+const skillsManager = getAiSkillsManagerLazy();
+
+// ⚠️ 必须显式解构：下面三处网络分支裸写 `downloadPackage(undefined, …)`（首参逐字
+// `undefined` 是 test-skills-import-net.js 的源码门禁要求）。漏掉这一行 ⇒ 运行期 ReferenceError。
+const { downloadPackage } = skillsManager;
+```
+
+**为什么三条既有护栏全绿（**本次教训的承重部分**）：**
+
+1. `tests/test-skills-import-net.js` 直接打 `aiSkills.downloadPackage(deps, …)` —— 那是
+   `ai-skills-manager` 的**导出面**，与 `ai-manager.js` 的**集成缝**是两个对象；模块级测试
+   再密也照不到这条缝。
+2. 该文件**已有**一条针对生产调用点的源码门禁（`:813` 起：「每个 `downloadPackage(` 调用的
+   首参必须逐字 `undefined`」+ `hits.length > 0`）—— 它断言的是调用**形态**，**不检查标识符
+   是否有绑定**。这是本项目「假绿形态」清单里「判据对象与被测对象不是同一个」的新实例：
+   门禁的**判据对象**是调用点的文本形态，而**真实故障**发生在作用域解析。
+3. 仓内**没有任何 `no-undef` 类静态检查**（无 ESLint / 无 lint script / `npm test` 也只有
+   五个套件脚本），而 `node --check` 只做语法检查 —— 未绑定标识符是运行期错误，
+   静态面永远看不见。
+
+**建议的后续加固（未在本阶段实施，属超范围）：**
+把「生产调用点」那条门禁从**形态断言**升级为**绑定断言**（例如同时断言
+`prod` 里出现 `const { downloadPackage } = skillsManager;` 或等价的绑定形态），
+或引入一条 `no-undef` 静态检查。两种做法都必须与「首参逐字 `undefined`」的门禁**并存**
+（后者护的是「不得注入依赖」这条不同的性质）。
+
+**Verification:** 修复后 `tests/uat-51-import-live.js` 由 12/21 转为 **29/29**
+（含真实 GitHub 端到端、落盘 sha256 逐字节比对、`/pdf` 面板、真实 provider 请求体含
+`<skill name="pdf" location="…">`）；`tests/test-skills-import-net.js` 仍 50/50；
+7 个套件 + counts-parity 全绿。
 
 ## Warnings
 

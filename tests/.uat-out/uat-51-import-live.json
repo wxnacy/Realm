@@ -1,0 +1,375 @@
+{
+  "driver": "tests/uat-51-import-live.js",
+  "covers": [
+    "UAT-51-test-1",
+    "UAT-51-test-2"
+  ],
+  "started": "2026-09-15T12:13:53.185Z",
+  "finished": "2026-09-15T12:14:26.527Z",
+  "node": "v22.22.0",
+  "upstream": {
+    "owner": "anthropics",
+    "repo": "skills",
+    "ref": "main",
+    "scope": "skills/pdf",
+    "skillName": "pdf",
+    "zipballUrl": "https://codeload.github.com/anthropics/skills/zip/refs/heads/main",
+    "treeUrl": "https://github.com/anthropics/skills/tree/main/skills/pdf",
+    "real404Url": "https://github.com/anthropics/skills/tree/zzq51-no-such-ref-9f3a/skills/pdf"
+  },
+  "preflight": {},
+  "artifacts": {
+    "upstream": {
+      "zipBytes": 3988166,
+      "downloadMs": 1062,
+      "entryCount": 512,
+      "topPrefixes": [
+        "skills-main"
+      ],
+      "skillMdCountInScope": 1,
+      "wantedRel": "skills-main/skills/pdf/SKILL.md",
+      "skillMdBytes": 8072,
+      "skillMdSha256": "9f78b8359fbd4943ad260a7a1e436e5a96503406d6c34e99f69223d647d85b9c",
+      "firstEntries": [
+        "skills-main/",
+        "skills-main/.claude-plugin/",
+        "skills-main/.claude-plugin/marketplace.json",
+        "skills-main/.gitignore"
+      ]
+    },
+    "managementRowsBefore": 19,
+    "importPreview": {
+      "status": "预览已就绪，确认后才会写入。",
+      "danger": false,
+      "previewActive": true,
+      "labels": [
+        "技能名",
+        "落点",
+        "描述",
+        "目录",
+        "体积",
+        "脚本"
+      ],
+      "values": [
+        "pdf",
+        "将写入 skills/pdf/",
+        "Use this skill whenever the user wants to do anything with PDF files. This includes reading or extracting text/tables from PDFs, combining or merging multiple PDFs into one, splitting PDFs apart, rotating pages, adding watermarks, creating new PDFs, filling PDF forms, encrypting/decrypting PDFs, extracting images, and OCR on scanned PDFs to make them searchable. If the user mentions a .pdf file or asks to produce one, use this skill.",
+        "",
+        "解压后合计 57.3 KB · 单文件最大 16.3 KB（限额：SKILL.md 64.0 KB / 累计 32.0 MB）",
+        ""
+      ],
+      "confirmDisabled": false,
+      "ackPresent": false,
+      "conflictPresent": false,
+      "name": null,
+      "elapsedMs": 927
+    },
+    "fieldPairs": "技能名=pdf | 落点=将写入 skills/pdf/ | 描述=Use this skill whenever the user wants to do anything with PDF files. This includes reading or extracting text/tables from PDFs, combining or merging multiple PDFs into one, splitting PDFs apart, rotating pages, adding watermarks, creating new PDFs, filling PDF forms, encrypting/decrypting PDFs, extracting images, and OCR on scanned PDFs to make them searchable. If the user mentions a .pdf file or asks to produce one, use this skill. | 目录= | 体积=解压后合计 57.3 KB · 单文件最大 16.3 KB（限额：SKILL.md 64.0 KB / 累计 32.0 MB） | 脚本=",
+    "confirmClick": {
+      "beforeDisabled": false,
+      "ackExisted": false
+    },
+    "successHint": "已导入「pdf」",
+    "landed": {
+      "landedPath": "/Users/wxnacy/Library/Application Support/realm-dev/agent-workspace/skills/pdf/SKILL.md",
+      "exists": true,
+      "bytes": 8072,
+      "sha256": "9f78b8359fbd4943ad260a7a1e436e5a96503406d6c34e99f69223d647d85b9c",
+      "dirEntries": 5,
+      "badNameDirs": []
+    },
+    "managementRows": {
+      "total": 20,
+      "hitCount": 1,
+      "hitText": "pdf用户卸载Use this skill whenever the user wants to do anything with PDF files. This includes reading or extracting text/tables from PDFs, combining or merging mul",
+      "beforeCount": 19
+    },
+    "slashPicker": {
+      "panelHidden": false,
+      "pickerOpen": true,
+      "rowCount": 22,
+      "skillRowNames": [
+        "/demo",
+        "/pdf",
+        "/weather",
+        "/aa-budget-01",
+        "/aa-budget-02",
+        "/aa-budget-03",
+        "/aa-budget-04",
+        "/aa-budget-05",
+        "/aa-budget-06",
+        "/aa-budget-07",
+        "/aa-budget-08",
+        "/aa-budget-09",
+        "/aa-budget-10",
+        "/aa-budget-11",
+        "/aa-budget-12",
+        "/aa-budget-13",
+        "/aa-budget-14",
+        "/commit-style",
+        "/find-skills",
+        "/skill-creator"
+      ]
+    },
+    "patch": {
+      "patchedGlobal": true,
+      "patchedNet": true,
+      "netPatchError": null
+    },
+    "aiPanelWasHidden": false,
+    "promptLegError": null,
+    "promptCapture": {
+      "hits": 1,
+      "hitsNet": 0,
+      "matched": [
+        {
+          "url": "https://api.xiaomimimo.com/v1/chat/completions",
+          "bodyType": "string",
+          "bodyLen": 40601,
+          "hasSkillBlock": true,
+          "hasSkillBody": true,
+          "blockSnippet": "<skill name=\"pdf\" location=\"/Users/wxnacy/Library/Application Support/realm-dev/agent-workspace/skills/pdf/SKILL.md\">\\nR"
+        }
+      ],
+      "seenUrls": [
+        "https://api.xiaomimimo.com/v1/chat/completions"
+      ]
+    },
+    "unpatch": {
+      "restoredGlobal": true,
+      "netStubStillArmed": true
+    },
+    "stubCases": {
+      "403": {
+        "text": "访问被拒（HTTP 403），剩余配额 0，请稍后重试或改用本地上传",
+        "danger": true,
+        "success": false,
+        "display": "block",
+        "previewActive": false,
+        "gate": "请输入网络地址"
+      },
+      "429": {
+        "text": "触发远端限流（HTTP 429），请于 42 秒后重试",
+        "danger": true,
+        "success": false,
+        "display": "block",
+        "previewActive": false,
+        "gate": "请输入网络地址"
+      },
+      "404-real": {
+        "text": "地址或 ref 不存在（HTTP 404），响应类型 text/plain; charset=utf-8。若这是仓库地址，请确认默认分支名（已尝试 main / master）",
+        "danger": true,
+        "success": false,
+        "display": "block",
+        "previewActive": false,
+        "gate": "请输入网络地址"
+      }
+    },
+    "test2Boundary": {
+      "real": [
+        "404-real（真实 codeload 404）"
+      ],
+      "substituted": [
+        "403：由 net.fetch 单点替身返回真实形状响应（导入链路只打 codeload，真实 60 req/h 限流打在 api.github.com，二者不是同一配额域）",
+        "429：同上（带 retry-after: 42）"
+      ]
+    }
+  },
+  "assertions": [
+    {
+      "name": "交叉核对：zipball 顶层前缀恰为单一 `<repo>-<ref>/`（skills-main/）",
+      "pass": true,
+      "detail": "[\"skills-main\"]"
+    },
+    {
+      "name": "交叉核对：scope 子树下恰有 1 个 SKILL.md（「恰好一个技能根」的前提成立）",
+      "pass": true,
+      "detail": "count=1 rel=skills-main/skills/pdf/SKILL.md bytes=8072"
+    },
+    {
+      "name": "交叉核对：上游 SKILL.md 可读且非空（落盘比对的基准存在）",
+      "pass": true,
+      "detail": "sha256=9f78b8359fbd4943ad260a7a1e436e5a96503406d6c34e99f69223d647d85b9c"
+    },
+    {
+      "name": "Test1：真实网络导入进入就绪态（非 danger、预览已渲染）",
+      "pass": true,
+      "detail": "elapsed=927ms status=\"预览已就绪，确认后才会写入。\""
+    },
+    {
+      "name": "Test1：预览六字段齐备（技能名 / 落点 / 描述 / 目录 / 体积 / 脚本）",
+      "pass": true,
+      "detail": "missing=[] labels=[\"技能名\",\"落点\",\"描述\",\"目录\",\"体积\",\"脚本\"]"
+    },
+    {
+      "name": "Test1：技能名 = pdf（来自上游 frontmatter，不是 zipball 目录名）",
+      "pass": true,
+      "detail": "技能名=pdf | 落点=将写入 skills/pdf/ | 描述=Use this skill whenever the user wants to do anything with PDF files. This includes reading or extracting text/tables from PDFs, combining or merging multiple PDFs into one, splitting PDFs apart, rotating pages, adding watermarks, creating new PDFs, filling PDF forms, encrypting/decrypting PDFs, extracting images, and OCR on scanned PDFs to make them searchable. If the user mentions a .pdf file or asks to produce one, use this skill. | 目录= | 体积=解压后合计 57.3 KB · 单文件最大 16.3 KB（限额：SKILL.md 64.0 KB / 累计 32.0 MB） | 脚本="
+    },
+    {
+      "name": "Test1：同名冲突区**未**渲染（realm-dev 无同名技能 ⇒ 走无冲突档）",
+      "pass": true,
+      "detail": "conflictPresent=false"
+    },
+    {
+      "name": "Test1：落盘 `agent-workspace/skills/pdf/SKILL.md` 存在",
+      "pass": true,
+      "detail": "/Users/wxnacy/Library/Application Support/realm-dev/agent-workspace/skills/pdf/SKILL.md"
+    },
+    {
+      "name": "Test1：落盘正文与上游**逐字节相同**（sha256 相等）",
+      "pass": true,
+      "detail": "落盘=9f78b8359fbd4943ad260a7a1e436e5a96503406d6c34e99f69223d647d85b9c 上游=9f78b8359fbd4943ad260a7a1e436e5a96503406d6c34e99f69223d647d85b9c"
+    },
+    {
+      "name": "Test1：zipball 顶层 `<repo>-<ref>/` 前缀与 scopeRel 都被剥离（无 skills-main* 目录）",
+      "pass": true,
+      "detail": "bad=[]"
+    },
+    {
+      "name": "Test1：技能目录回读可见（含 SKILL.md 之外的条目）",
+      "pass": true,
+      "detail": "entries=5"
+    },
+    {
+      "name": "Test1：提交后区级 hint 报「已导入」（弹框关闭后走区级提示）",
+      "pass": true,
+      "detail": "\"已导入「pdf」\""
+    },
+    {
+      "name": "Test1：组件列表（技能管理）出现该技能，且总数 +1",
+      "pass": true,
+      "detail": "hit=1 total=20 (before=19)"
+    },
+    {
+      "name": "Test1：`/` 面板出现该技能（技能行 `/pdf`）",
+      "pass": true,
+      "detail": "rows=22 skills=[\"/demo\",\"/pdf\",\"/weather\",\"/aa-budget-01\",\"/aa-budget-02\",\"/aa-budget-03\",\"/aa-budget-04\",\"/aa-budget-05\",\"/aa-budget-06\",\"/aa-budget-07\",\"/aa-budget-08\",\"/aa-budget-09\",\"/aa-budget-10\",\"/aa-budget-11\",\"/aa-budget-12\",\"/aa-budget-13\",\"/aa-budget-14\",\"/commit-style\",\"/find-skills\",\"/skill-creator\"]"
+    },
+    {
+      "name": "Test1/2 前置：provider 请求捕获器已装入主进程（globalThis.fetch）",
+      "pass": true,
+      "detail": "{\"patchedGlobal\":true,\"patchedNet\":true,\"netPatchError\":null}"
+    },
+    {
+      "name": "Test2 前置：`net.fetch` 替身已装入（403 / 429 的替代路径可用）",
+      "pass": true,
+      "detail": "{\"patchedGlobal\":true,\"patchedNet\":true,\"netPatchError\":null}"
+    },
+    {
+      "name": "Test1：主进程真的发出了 provider 请求（捕获器有命中，不是空跑）",
+      "pass": true,
+      "detail": "global=1 net=0 urls=[\"https://api.xiaomimimo.com/v1/chat/completions\"]"
+    },
+    {
+      "name": "Test1：下一条消息的请求体**含技能块**（`<skill name=\"pdf\"`）",
+      "pass": true,
+      "detail": "[{\"url\":\"https://api.xiaomimimo.com/v1/chat/completions\",\"bodyType\":\"string\",\"bodyLen\":40601,\"hasSkillBlock\":true,\"hasSkillBody\":true,\"blockSnippet\":\"<skill name=\\\"pdf\\\" location=\\\"/Users/wxnacy/Library/Application Support/realm-dev/agent-workspace/skills/pdf/SKILL.md\\\">\\\\nR\"}]"
+    },
+    {
+      "name": "Test1：请求体含该技能的**真实正文**（上游 SKILL.md 首句）",
+      "pass": true,
+      "detail": "[{\"url\":\"https://api.xiaomimimo.com/v1/chat/completions\",\"bodyType\":\"string\",\"bodyLen\":40601,\"hasSkillBlock\":true,\"hasSkillBody\":true,\"blockSnippet\":\"<skill name=\\\"pdf\\\" location=\\\"/Users/wxnacy/Library/Application Support/realm-dev/agent-workspace/skills/pdf/SKILL.md\\\">\\\\nR\"}]"
+    },
+    {
+      "name": "Test2 前置：`net.fetch` 替身在 provider 腿收尾后**仍然装着**（403 / 429 要用它）",
+      "pass": true,
+      "detail": "{\"restoredGlobal\":true,\"netStubStillArmed\":true}"
+    },
+    {
+      "name": "Test2（403）：失败文案上屏且**不是静默失败**",
+      "pass": true,
+      "detail": "{\"text\":\"访问被拒（HTTP 403），剩余配额 0，请稍后重试或改用本地上传\",\"danger\":true,\"success\":false,\"display\":\"block\",\"previewActive\":false,\"gate\":\"请输入网络地址\"}"
+    },
+    {
+      "name": "Test2（403）：文案含状态码 403 与可操作指引",
+      "pass": true,
+      "detail": "\"访问被拒（HTTP 403），剩余配额 0，请稍后重试或改用本地上传\""
+    },
+    {
+      "name": "Test2（403）：失败后预览不进入就绪态（不留半成品）",
+      "pass": true,
+      "detail": "previewActive=false"
+    },
+    {
+      "name": "Test2（429）：失败文案上屏且**不是静默失败**",
+      "pass": true,
+      "detail": "{\"text\":\"触发远端限流（HTTP 429），请于 42 秒后重试\",\"danger\":true,\"success\":false,\"display\":\"block\",\"previewActive\":false,\"gate\":\"请输入网络地址\"}"
+    },
+    {
+      "name": "Test2（429）：文案含状态码 429 与可操作指引",
+      "pass": true,
+      "detail": "\"触发远端限流（HTTP 429），请于 42 秒后重试\""
+    },
+    {
+      "name": "Test2（429）：失败后预览不进入就绪态（不留半成品）",
+      "pass": true,
+      "detail": "previewActive=false"
+    },
+    {
+      "name": "Test2（404-real）：失败文案上屏且**不是静默失败**",
+      "pass": true,
+      "detail": "{\"text\":\"地址或 ref 不存在（HTTP 404），响应类型 text/plain; charset=utf-8。若这是仓库地址，请确认默认分支名（已尝试 main / master）\",\"danger\":true,\"success\":false,\"display\":\"block\",\"previewActive\":false,\"gate\":\"请输入网络地址\"}"
+    },
+    {
+      "name": "Test2（404-real）：文案含状态码 404 与可操作指引",
+      "pass": true,
+      "detail": "\"地址或 ref 不存在（HTTP 404），响应类型 text/plain; charset=utf-8。若这是仓库地址，请确认默认分支名（已尝试 main / master）\""
+    },
+    {
+      "name": "Test2（404-real）：失败后预览不进入就绪态（不留半成品）",
+      "pass": true,
+      "detail": "previewActive=false"
+    }
+  ],
+  "cleanup": {
+    "preSkillDir": "absent",
+    "preTmpResidue": [],
+    "aiPanelRestored": "not-needed",
+    "skillDir": "removed",
+    "residueFound": [],
+    "residueRemoved": [],
+    "pageErrors": [],
+    "mainLogTail": [
+      "### 核心定位",
+      "这个指南涵盖了使用 **Python 库**和**命令行工具**进行 PDF 处理的基础操作。对于高级功能、JavaScript 库和详细示例，需要参阅 `REFERENCE.md`。",
+      "### Quick Start 示例",
+      "展示了最基础的 PDF 读取流程，使用 `pypdf` 库：",
+      "1. **`PdfReader`** — 读取 PDF 文件，可以获取总页数",
+      "2. **`page.extract_text()`** — 逐页提取文本内容",
+      "3. 通过循环遍历所有页面，拼接出完整的文本",
+      "```python",
+      "from pypdf import PdfReader",
+      "reader = PdfReader(\"document.pdf\")",
+      "text = \"\"",
+      "for page in reader.pages:",
+      "    text += page.extract_text()",
+      "```",
+      "### 简单来说",
+      "第一节就像一本书的\"前言\"，告诉你：",
+      "- **能做什么**：读取 PDF、提取文本、获取页数",
+      "- **用什么做**：主要推荐 `pypdf` 库",
+      "- **怎么开始**：三行代码就能跑起来",
+      "- **深入学习**：复杂需求去看 REFERENCE.md 和 FORMS.md",
+      "温总，需要我进一步总结其他章节，或者对某个具体操作做更详细的说明吗？",
+      "[Realm AI Conv] 全量替换保存 2 条消息到对话 977a5494-f418-4cc7-8fa1-1075de04d917",
+      "[Realm] 技能 API 处理失败: 访问被拒（HTTP 403），剩余配额 0，请稍后重试或改用本地上传",
+      "[Realm] 技能 API 处理失败: 触发远端限流（HTTP 429），请于 42 秒后重试",
+      "[Realm] 技能 API 处理失败: 地址或 ref 不存在（HTTP 404），响应类型 text/plain; charset=utf-8。若这是仓库地址，请确认默认分支名（已尝试 main / master）"
+    ],
+    "appExit": null,
+    "windowsAtEnd": [
+      "file:///Users/wxnacy/Projects/Realm/src/index.html",
+      "http://localhost:8005/rouman?search=%E5%A6%88%E5%A6%88",
+      "http://localhost:63365/settings?container=default&token=d776adb9-096a-4f60-9954-97eb69d64025",
+      "http://localhost:63365/newtab?container=default&token=d776adb9-096a-4f60-9954-97eb69d64025",
+      "chrome-error://chromewebdata/",
+      "chrome-error://chromewebdata/",
+      "chrome-error://chromewebdata/",
+      "chrome-error://chromewebdata/"
+    ]
+  },
+  "exitCode": 0,
+  "passed": 29,
+  "total": 29
+}

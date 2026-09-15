@@ -1,0 +1,521 @@
+{
+  "driver": "tests/uat-51-import-modal.js",
+  "covers": [
+    "E2-backstop",
+    "E17-backstop",
+    "disabled-reasons",
+    "keyboard",
+    "injection-discipline"
+  ],
+  "started": "2026-09-15T09:59:13.907Z",
+  "finished": "2026-09-15T09:59:24.308Z",
+  "node": "v22.22.0",
+  "artifacts": {
+    "wideZipBytes": 58470,
+    "entries": 222,
+    "injectionScanSafe": true,
+    "conflictProbeDir": "/Users/wxnacy/Library/Application Support/realm-dev/agent-workspace/skills/zzq-import-probe",
+    "initialState": {
+      "display": "flex",
+      "status": "尚未选择 zip 文件",
+      "gate": "请先选择 zip 文件",
+      "confirmDisabled": true,
+      "cancelDisabled": false,
+      "focusId": "skillImportPick"
+    },
+    "urlMode": {
+      "gate": "请输入网络地址",
+      "status": "",
+      "statusDisplay": "none",
+      "fetchDisabled": true,
+      "localActive": false,
+      "urlActive": true,
+      "localPressed": "false",
+      "urlPressed": "true",
+      "focusId": "skillImportUrl"
+    },
+    "ready": {
+      "modalDisplay": "flex",
+      "modalHeight": 564.796875,
+      "innerHeight": 706,
+      "innerWidth": 360,
+      "status": "预览已就绪，确认后才会写入。",
+      "gate": "请先勾选「我已了解以上风险」",
+      "gateHeight": 18,
+      "confirmDisabled": true,
+      "ackChildren": 2,
+      "ackChecked": false,
+      "conflictChildren": 4,
+      "conflictChoices": [
+        "overwrite",
+        "rename",
+        "cancel"
+      ],
+      "radioChecked": false,
+      "labelTexts": [
+        "技能名",
+        "落点",
+        "描述",
+        "目录",
+        "体积",
+        "脚本",
+        "allowed-tools"
+      ],
+      "treeRows": 50,
+      "treeToggle": true,
+      "scriptRows": 1,
+      "scanCols": 2,
+      "honestyTexts": [
+        "技能不构成额外权限 —— 这些脚本受既有 bash 三档策略与确认卡片约束。",
+        "启发式检测只降低概率，不是安全边界。",
+        "本字段在当前运行时不被强制，仅供参考。",
+        "以上结论由启发式检测与限额判据得出，不代表该技能是安全的。"
+      ]
+    },
+    "e2": {
+      "modalHeight": 564.796875,
+      "innerHeight": 706,
+      "modalDisplay": "flex",
+      "previewScrollBefore": 0,
+      "previewScrollAfter": 1492,
+      "previewScrollHeight": 1587,
+      "previewClientHeight": 95,
+      "pageScrollBefore": 0,
+      "pageScrollAfter": 0,
+      "scrollableCandidates": [
+        "skillImportPreview"
+      ]
+    },
+    "afterAck": {
+      "gate": "请选择覆盖、改名或取消",
+      "confirmDisabled": true
+    },
+    "renameMode": {
+      "gate": "请输入新的技能名",
+      "hasField": true,
+      "hasError": true,
+      "errorText": "",
+      "confirmText": "导入",
+      "confirmDisabled": true
+    },
+    "cancelChoice": {
+      "confirmText": "关闭弹框",
+      "hasField": false
+    },
+    "e17": {
+      "gate": "请先勾选「我已了解以上风险」",
+      "gateHeight": 18,
+      "gateTop": 558.390625,
+      "actionsScrollWidth": 304,
+      "actionsClientWidth": 304,
+      "actionsTop": 590.390625,
+      "actionsLeft": 27.796875,
+      "actionsRight": 332.1875,
+      "buttonCount": 2,
+      "buttons": [
+        {
+          "id": "skillImportCancel",
+          "w": 40.515625,
+          "h": 28,
+          "left": 241.15625,
+          "right": 281.671875,
+          "top": 590.390625
+        },
+        {
+          "id": "skillImportConfirm",
+          "w": 42.515625,
+          "h": 28,
+          "left": 289.671875,
+          "right": 332.1875,
+          "top": 590.390625
+        }
+      ],
+      "sameRow": true,
+      "overlap": false,
+      "withinRow": true,
+      "modalScrollWidth": 336,
+      "modalClientWidth": 336,
+      "gateAboveButtons": true,
+      "innerWidth": 360,
+      "actionsDisplay": "flex"
+    },
+    "clickBlocked": {
+      "calls": [],
+      "modalDisplay": "flex",
+      "status": "预览已就绪，确认后才会写入。",
+      "confirmDisabled": true
+    },
+    "keyboard": {
+      "tabindexCount": 1,
+      "tabindexIds": [
+        "skillImportPreview:0"
+      ],
+      "positiveTabindex": 0,
+      "previewTabindex": "0",
+      "previewFocused": true,
+      "stopCount": 11,
+      "reorderedCount": 0,
+      "outerOffsets": [
+        120,
+        120,
+        228,
+        427,
+        481,
+        507,
+        533,
+        590,
+        590
+      ],
+      "outerAscending": true,
+      "zeroHeightStops": 0
+    },
+    "committing": {
+      "immediate": {
+        "confirmDisabled": true,
+        "cancelDisabled": true,
+        "status": "正在写入技能，请稍候…"
+      },
+      "afterTick": {
+        "confirmDisabled": true,
+        "cancelDisabled": true,
+        "modalDisplay": "flex",
+        "status": "正在写入技能，请稍候…"
+      }
+    },
+    "escapeClosed": {
+      "modalDisplay": "none",
+      "focusId": "skillImportOpen",
+      "previewChildren": 0,
+      "statusDisplay": "none",
+      "fileValue": "",
+      "urlValue": ""
+    },
+    "detachedFocus": {
+      "focusCalled": false,
+      "isConnected": false
+    },
+    "xssSnapshot": {
+      "totalRows": 225,
+      "evilRowFound": 1,
+      "imgElements": 0,
+      "scriptElements": 0,
+      "rowText": "xss<img src=x onerror=alert(1)>.txt",
+      "expandAllWasRendered": true
+    },
+    "sanitizeProbe": {
+      "rtl": {
+        "text": "evilx.txt",
+        "hidden": 1,
+        "notice": "evilx.txt（含 1 个控制字符，已隐藏）"
+      },
+      "c0": {
+        "text": "ab.txt",
+        "hidden": 1
+      },
+      "plain": {
+        "text": "normal/path.txt",
+        "hidden": 0
+      }
+    },
+    "bidiRejected": {
+      "text": "压缩包内含不安全的路径或符号链接条目，已整包拒绝。",
+      "danger": true,
+      "previewActive": false
+    }
+  },
+  "assertions": [
+    {
+      "name": "弹框可见（不是 display:none）",
+      "pass": true,
+      "detail": "display=flex"
+    },
+    {
+      "name": "禁用原因 1a：未选包 ⇒ 「请先选择 zip 文件」上屏",
+      "pass": true,
+      "detail": "gate=\"请先选择 zip 文件\""
+    },
+    {
+      "name": "空态状态行 = 「尚未选择 zip 文件」",
+      "pass": true,
+      "detail": "status=\"尚未选择 zip 文件\""
+    },
+    {
+      "name": "初始焦点落在当前面板第一个可交互元素（不落在确认按钮）",
+      "pass": true,
+      "detail": "focus=skillImportPick"
+    },
+    {
+      "name": "确认按钮初始 disabled（原生属性）",
+      "pass": true,
+      "detail": "disabled=true"
+    },
+    {
+      "name": "取消按钮初始可用",
+      "pass": true,
+      "detail": "disabled=false"
+    },
+    {
+      "name": "禁用原因 1b：网络地址模式空输入 ⇒ 「请输入网络地址」上屏",
+      "pass": true,
+      "detail": "gate=\"请输入网络地址\""
+    },
+    {
+      "name": "两行 idle 的刻意差异：网络态状态行留空（CSSOM display:none）",
+      "pass": true,
+      "detail": "status=\"\" display=none"
+    },
+    {
+      "name": "「获取预览」在 URL 为空时 disabled",
+      "pass": true,
+      "detail": "disabled=true"
+    },
+    {
+      "name": "模式面板互斥切换（.active 单选）",
+      "pass": true,
+      "detail": "local=false url=true"
+    },
+    {
+      "name": "模式按钮用 aria-pressed 分段控件语义",
+      "pass": true,
+      "detail": "local=false url=true"
+    },
+    {
+      "name": "网络模式初始焦点落在 URL 输入框",
+      "pass": true,
+      "detail": "focus=skillImportUrl"
+    },
+    {
+      "name": "预览就绪状态行 = 「预览已就绪，确认后才会写入。」",
+      "pass": true,
+      "detail": "status=\"预览已就绪，确认后才会写入。\""
+    },
+    {
+      "name": "预览字段标签齐备（D-13 信息集逐条对齐）",
+      "pass": true,
+      "detail": "missing=[] labels=[\"技能名\",\"落点\",\"描述\",\"目录\",\"体积\",\"脚本\",\"allowed-tools\"]"
+    },
+    {
+      "name": "目录树默认只渲染前 N 项（截断 + 展开开关）",
+      "pass": true,
+      "detail": "rows=50 toggle=true"
+    },
+    {
+      "name": "E11：脚本清单标红渲染（> 0 条时整块渲染）",
+      "pass": true,
+      "detail": "scriptRows=1"
+    },
+    {
+      "name": "扫描结论两栏恒渲染",
+      "pass": true,
+      "detail": "cols=2"
+    },
+    {
+      "name": "四条诚实边界在预览内恒显",
+      "pass": true,
+      "detail": "[\"技能不构成额外权限 —— 这些脚本受既有 bash 三档策略与确认卡片约束。\",\"启发式检测只降低概率，不是安全边界。\",\"本字段在当前运行时不被强制，仅供参考。\",\"以上结论由启发式检测与限额判据得出，不代表该技能是安全的。\"]"
+    },
+    {
+      "name": "必勾区按启发式命中条件渲染",
+      "pass": true,
+      "detail": "children=2 checked=false"
+    },
+    {
+      "name": "冲突区按同名三选一渲染（user 档：覆盖/改名/取消，默认全未选）",
+      "pass": true,
+      "detail": "[\"overwrite\",\"rename\",\"cancel\"]"
+    },
+    {
+      "name": "禁用原因 2：必勾未勾 ⇒ 「请先勾选「我已了解以上风险」」上屏",
+      "pass": true,
+      "detail": "gate=\"请先勾选「我已了解以上风险」\" h=18"
+    },
+    {
+      "name": "E2 backstop（正命题）：弹框总高 <= 0.8 × 可用窗口高",
+      "pass": true,
+      "detail": "modal=564.796875 inner=706"
+    },
+    {
+      "name": "E2 backstop（正命题）：滚动真的发生在预览区内（scrollTop 增大）",
+      "pass": true,
+      "detail": "before=0 after=1492 sh/ch=1587/95"
+    },
+    {
+      "name": "E2 backstop（反向约束）：页面级滚动不移动",
+      "pass": true,
+      "detail": "page before=0 after=0"
+    },
+    {
+      "name": "E2 backstop：弹框内只有一个可滚动容器（恰为预览区）",
+      "pass": true,
+      "detail": "[\"skillImportPreview\"]"
+    },
+    {
+      "name": "禁用原因 4：必勾已勾但冲突未选 ⇒ 「请选择覆盖、改名或取消」上屏",
+      "pass": true,
+      "detail": "gate=\"请选择覆盖、改名或取消\""
+    },
+    {
+      "name": "E16：选中「改名」后输入框才渲染（条件渲染）",
+      "pass": true,
+      "detail": "field=true error=true"
+    },
+    {
+      "name": "禁用原因 3：改名输入为空 ⇒ 「请输入新的技能名」上屏",
+      "pass": true,
+      "detail": "gate=\"请输入新的技能名\""
+    },
+    {
+      "name": "不预填默认值（输入框初始为空）",
+      "pass": true,
+      "detail": "error=\"\""
+    },
+    {
+      "name": "确认按钮文案二元表：选中「取消」时切「关闭弹框」",
+      "pass": true,
+      "detail": "text=\"关闭弹框\""
+    },
+    {
+      "name": "取消选择时不渲染改名输入框（不占位、不进 Tab 序）",
+      "pass": true,
+      "detail": "hasField=false"
+    },
+    {
+      "name": "E17 backstop（正命题）：动作区不横向溢出（scrollWidth <= clientWidth）",
+      "pass": true,
+      "detail": "sw=304 cw=304"
+    },
+    {
+      "name": "E17 backstop（正命题）：两个按钮同排、互不重叠、且都在动作区内",
+      "pass": true,
+      "detail": "sameRow=true overlap=false withinRow=true [{\"id\":\"skillImportCancel\",\"w\":40.515625,\"h\":28,\"left\":241.15625,\"right\":281.671875,\"top\":590.390625},{\"id\":\"skillImportConfirm\",\"w\":42.515625,\"h\":28,\"left\":289.671875,\"right\":332.1875,\"top\":590.390625}]"
+    },
+    {
+      "name": "E17 backstop（正命题）：两个按钮都可见且不被裁切",
+      "pass": true,
+      "detail": "[{\"id\":\"skillImportCancel\",\"w\":40.515625,\"h\":28,\"left\":241.15625,\"right\":281.671875,\"top\":590.390625},{\"id\":\"skillImportConfirm\",\"w\":42.515625,\"h\":28,\"left\":289.671875,\"right\":332.1875,\"top\":590.390625}] innerW=360"
+    },
+    {
+      "name": "E17 backstop：禁用原因文本可见、非空、且位于按钮排上方（窄窗口让位的是文本）",
+      "pass": true,
+      "detail": "gate=\"请先勾选「我已了解以上风险」\" h=18 above=true"
+    },
+    {
+      "name": "E17 backstop：弹框本体不横向溢出",
+      "pass": true,
+      "detail": "modal sw/cw=336/336"
+    },
+    {
+      "name": "未勾选时真实 click() 不提交（弹框未关、零 commit 请求）",
+      "pass": true,
+      "detail": "{\"calls\":[],\"modalDisplay\":\"flex\",\"status\":\"预览已就绪，确认后才会写入。\",\"confirmDisabled\":true}"
+    },
+    {
+      "name": "唯一 tabindex 是预览滚动容器的 0 值（无正 tabindex / 无 roving tabindex）",
+      "pass": true,
+      "detail": "[\"skillImportPreview:0\"]"
+    },
+    {
+      "name": "预览容器在 .active 时可获焦",
+      "pass": true,
+      "detail": "tabindex=0 focused=true"
+    },
+    {
+      "name": "Tab 序 = DOM 序（零正 tabindex + 无 CSS 视觉重排 + 预览外停靠点布局序非递减）",
+      "pass": true,
+      "detail": "11 stops reordered=0 outerOffsets=[120,120,228,427,481,507,533,590,590]"
+    },
+    {
+      "name": "弹框内零可见高度停靠点",
+      "pass": true,
+      "detail": "zero=0"
+    },
+    {
+      "name": "提交中：确认与取消**双双** disabled + 状态行「正在写入技能，请稍候…」",
+      "pass": true,
+      "detail": "{\"confirmDisabled\":true,\"cancelDisabled\":true,\"modalDisplay\":\"flex\",\"status\":\"正在写入技能，请稍候…\"}"
+    },
+    {
+      "name": "提交中：Escape 被忽略（弹框仍可见）",
+      "pass": true,
+      "detail": "display=flex"
+    },
+    {
+      "name": "ready 态 Escape 关闭弹框",
+      "pass": true,
+      "detail": "display=none"
+    },
+    {
+      "name": "关闭复位契约：预览清空 + 状态行不占位 + 两输入置空",
+      "pass": true,
+      "detail": "{\"modalDisplay\":\"none\",\"focusId\":\"skillImportOpen\",\"previewChildren\":0,\"statusDisplay\":\"none\",\"fileValue\":\"\",\"urlValue\":\"\"}"
+    },
+    {
+      "name": "焦点归还触发元素（#skillImportOpen）",
+      "pass": true,
+      "detail": "focus=skillImportOpen"
+    },
+    {
+      "name": "isConnected === false 时不调用 focus()（不主动把焦点移向任何其它节点）",
+      "pass": true,
+      "detail": "{\"focusCalled\":false,\"isConnected\":false}"
+    },
+    {
+      "name": "注入纪律渲染快照：恶意文件名以**文本**呈现（逐字包含原串）",
+      "pass": true,
+      "detail": "rows=225 rowText=\"xss<img src=x onerror=alert(1)>.txt\""
+    },
+    {
+      "name": "注入纪律渲染快照：预览内零 <img> / <script> 元素",
+      "pass": true,
+      "detail": "img=0 script=0"
+    },
+    {
+      "name": "显示层净化：RTL override 被移除且**可见提示**不静默",
+      "pass": true,
+      "detail": "{\"text\":\"evilx.txt\",\"hidden\":1,\"notice\":\"evilx.txt（含 1 个控制字符，已隐藏）\"}"
+    },
+    {
+      "name": "显示层净化：C0 控制字符被移除；干净路径**零改动**（判别力对照）",
+      "pass": true,
+      "detail": "{\"rtl\":{\"text\":\"evilx.txt\",\"hidden\":1,\"notice\":\"evilx.txt（含 1 个控制字符，已隐藏）\"},\"c0\":{\"text\":\"ab.txt\",\"hidden\":1},\"plain\":{\"text\":\"normal/path.txt\",\"hidden\":0}}"
+    },
+    {
+      "name": "含双向控制符的条目名 ⇒ 整包拒绝（预览不渲染 + danger 状态行）",
+      "pass": true,
+      "detail": "{\"text\":\"压缩包内含不安全的路径或符号链接条目，已整包拒绝。\",\"danger\":true,\"previewActive\":false}"
+    }
+  ],
+  "cleanup": {
+    "preProbeSkill": "absent",
+    "preTmpResidue": [],
+    "probeSkill": "removed",
+    "residueFound": [],
+    "residueRemoved": [],
+    "pageErrors": [],
+    "mainLogTail": [
+      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
+      "[Realm] webview webContents 创建, id: 7",
+      "[Realm] did-start-navigation: https://nav-test-example.com/enter, isInPlace: false, isMainFrame: true",
+      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
+      "[Realm] webview webContents 创建, id: 8",
+      "[Realm] did-start-navigation: https://nav-test-example.com/bookmark, isInPlace: false, isMainFrame: true",
+      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
+      "[Realm] webview webContents 创建, id: 9",
+      "[Realm] did-start-navigation: https://cmd-plain-nav-test.com/, isInPlace: false, isMainFrame: true",
+      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
+      "2026-09-15 17:59:15.873 Electron[40557:20805667] +[IMKClient subclass]: chose IMKClient_Modern",
+      "2026-09-15 17:59:15.873 Electron[40557:20805667] +[IMKInputSession subclass]: chose IMKInputSession_Modern",
+      "[Realm] Tab 创建: tab-9 (容器: default, 窗口: 1)",
+      "[Realm] webview webContents 创建, id: 10",
+      "[Realm] did-start-navigation: http://localhost:57824/settings?container=default&token=734532e0-9e4f-4774-ae89-301e819b362c, isInPlace: false, isMainFrame: true",
+      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
+      "[Realm] webview 导航完成: http://localhost:57824/settings?container=default&token=734532e0-9e4f-4774-ae89-301e819b362c",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 10",
+      "[Realm UA-CH] dom-ready 触发, webContents: 10, url: http://localhost:57824/settings?container=default&token=734532e0-9e4f-4774-ae89-301e819b362c",
+      "[Realm] 技能 API 处理失败: 压缩包条目名含双向控制符，已拒绝整包"
+    ]
+  },
+  "exitCode": 0,
+  "passed": 52,
+  "total": 52
+}

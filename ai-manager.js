@@ -1838,6 +1838,15 @@ class AIManager {
 
     const skillsManager = getAiSkillsManagerLazy();
 
+    // ⚠️ **必须显式解构**：本文件对 `ai-skills-manager.js` 的符号一律走 `getAiSkillsManagerLazy()`，
+    // 下面三处网络分支却**裸写** `downloadPackage(undefined, …)`（首参逐字 `undefined` 是
+    // `tests/test-skills-import-net.js` 的源码门禁要求）。漏掉这一行 ⇒ 运行期
+    // `ReferenceError: downloadPackage is not defined` ⇒ **所有**网络地址导入（zipball 与直链
+    // SKILL.md 两条路径）100% 失败，而模块级单测（直接打 `ai-skills-manager` 的导出面）与
+    // 「首参逐字 undefined」的形态门禁**都发现不了**它。
+    // 由 `/gsd-verify-work 51` 的真实网络 UAT 抓到（`tests/uat-51-import-live.js`，2026-09-15）。
+    const { downloadPackage } = skillsManager;
+
     try {
       // ① **准备段**：每个来源一个准备器，**都只产出 `pkgRoot`**。
       //    ⚠️ 直链 SKILL.md **不是**第二条落盘路径（P9 明令禁止的形态）—— 它只把单文件

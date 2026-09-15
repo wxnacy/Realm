@@ -1,0 +1,278 @@
+{
+  "driver": "tests/uat-51-import-limits.js",
+  "covers": [
+    "UAT-51-test-3"
+  ],
+  "started": "2026-09-15T12:05:47.244Z",
+  "finished": "2026-09-15T12:06:02.072Z",
+  "node": "v22.22.0",
+  "plan": {
+    "nearLimit": {
+      "entryBytes": 1024000,
+      "entries": 31
+    },
+    "oversize": {
+      "entryBytes": 4194304,
+      "entries": 16
+    },
+    "limits": {
+      "maxEntryBytes": 1048576,
+      "maxTotalBytes": 33554432,
+      "httpBodyMax": 33554432
+    }
+  },
+  "artifacts": {
+    "heapTools": {
+      "supported": true,
+      "hasStart": "function"
+    },
+    "nearPackage": {
+      "size": 31748626,
+      "uncompressedTotal": 31744134,
+      "entryCount": 32
+    },
+    "heapCalibration": {
+      "baseline": 34506346,
+      "samples": 0,
+      "min": null,
+      "max": null,
+      "peakDelta": -34506346,
+      "copiedBytes": 31748626,
+      "note": "performance.memory.usedJSHeapSize 是量化值且与 GC 强耦合；本次显式 arrayBuffer 的峰值增量为 -34506346 B（负值 = 构造期垃圾在被测窗口内被回收）。故本驱动不把 guest 堆曲线做成阈值判据，改用「确定性源码判据 + 主进程 RSS 两侧判据」。"
+    },
+    "uploadSource": {
+      "regionFound": true,
+      "regionBytes": 45698,
+      "settingsPage": {
+        "fileBodyDirect": true,
+        "explicitZipContentType": true,
+        "arrayBuffer": 0,
+        "readAsArrayBuffer": 0,
+        "FileReader": 0
+      },
+      "readRawBody": {
+        "found": true,
+        "bytes": 1282,
+        "contentLengthFastPath": true,
+        "drainsOnReject": true,
+        "arrayBuffer": 0,
+        "readAsArrayBuffer": 0,
+        "FileReader": 0
+      }
+    },
+    "sourceMutationProbe": {
+      "mutA": {
+        "fileBodyDirect": true,
+        "explicitZipContentType": true,
+        "arrayBuffer": 1,
+        "readAsArrayBuffer": 0,
+        "FileReader": 0
+      },
+      "mutB": {
+        "fileBodyDirect": false,
+        "explicitZipContentType": true,
+        "arrayBuffer": 1,
+        "readAsArrayBuffer": 0,
+        "FileReader": 0
+      },
+      "mutC": {
+        "found": true,
+        "bytes": 1285,
+        "contentLengthFastPath": false,
+        "drainsOnReject": true,
+        "arrayBuffer": 1,
+        "readAsArrayBuffer": 0,
+        "FileReader": 0
+      }
+    },
+    "nearUpload": {
+      "elapsedMs": 906,
+      "status": {
+        "text": "预览已就绪，确认后才会写入。",
+        "danger": false,
+        "display": "block",
+        "gate": ""
+      },
+      "heap": {
+        "baseline": 66261221,
+        "samples": 9,
+        "min": 66261221,
+        "max": 66349109,
+        "delta": 87888
+      },
+      "rss": {
+        "count": 18,
+        "first": 617594880,
+        "max": 712704000,
+        "delta": 95109120
+      }
+    },
+    "nearElapsedMs": 906,
+    "residueAfterNear": [],
+    "overPackage": {
+      "size": 67111340,
+      "uncompressedTotal": 67108948,
+      "entryCount": 17
+    },
+    "overUpload": {
+      "status": {
+        "text": "导入失败：请求体超过上限（33554432 字节）",
+        "danger": true,
+        "display": "block",
+        "gate": "请先选择 zip 文件"
+      },
+      "rss": {
+        "count": 34,
+        "first": 751468544,
+        "max": 752877568,
+        "delta": 1409024
+      }
+    },
+    "overBranch": "content-length-fast-path"
+  },
+  "assertions": [
+    {
+      "name": "前置：guest 的 performance.memory 可用（否则内存判据不可测）",
+      "pass": true,
+      "detail": "{\"supported\":true,\"hasStart\":\"function\"}"
+    },
+    {
+      "name": "A：现场生成的近限包**确实贴近但不超过** 32 MiB（夹具自证）",
+      "pass": true,
+      "detail": "uncompressed=31744134（上限 33554432）"
+    },
+    {
+      "name": "A（源码·正命题）：渲染侧导入区找得到，且本地上传分支 `body` 逐字为 File 直传",
+      "pass": true,
+      "detail": "{\"fileBodyDirect\":true,\"explicitZipContentType\":true,\"arrayBuffer\":0,\"readAsArrayBuffer\":0,\"FileReader\":0}"
+    },
+    {
+      "name": "A（源码·正命题）：本地上传分支显式声明 `Content-Type: application/zip`",
+      "pass": true,
+      "detail": "{\"fileBodyDirect\":true,\"explicitZipContentType\":true,\"arrayBuffer\":0,\"readAsArrayBuffer\":0,\"FileReader\":0}"
+    },
+    {
+      "name": "A（源码·否命题）：渲染侧导入区零 `arrayBuffer` / `readAsArrayBuffer` / `FileReader`",
+      "pass": true,
+      "detail": "{\"fileBodyDirect\":true,\"explicitZipContentType\":true,\"arrayBuffer\":0,\"readAsArrayBuffer\":0,\"FileReader\":0} regionBytes=45698"
+    },
+    {
+      "name": "A（源码·正命题）：主进程 `readRawBody` 含 `Content-Length` 预检与 `req.resume()`（停止累积）",
+      "pass": true,
+      "detail": "{\"found\":true,\"bytes\":1282,\"contentLengthFastPath\":true,\"drainsOnReject\":true,\"arrayBuffer\":0,\"readAsArrayBuffer\":0,\"FileReader\":0}"
+    },
+    {
+      "name": "A（源码·否命题）：主进程 `readRawBody` 零 `arrayBuffer`（**已剥注释** ⇒ 不被自家文档命中）",
+      "pass": true,
+      "detail": "{\"found\":true,\"bytes\":1282,\"contentLengthFastPath\":true,\"drainsOnReject\":true,\"arrayBuffer\":0,\"readAsArrayBuffer\":0,\"FileReader\":0}"
+    },
+    {
+      "name": "A（源码判据可红·变异 1）：往导入区插一句 `arrayBuffer()` ⇒ 「零 arrayBuffer」判据精确转红",
+      "pass": true,
+      "detail": "{\"fileBodyDirect\":true,\"explicitZipContentType\":true,\"arrayBuffer\":1,\"readAsArrayBuffer\":0,\"FileReader\":0}"
+    },
+    {
+      "name": "A（源码判据可红·变异 2）：把 `body` 换成 `await source.file.arrayBuffer()` ⇒ 「File 直传」判据精确转红",
+      "pass": true,
+      "detail": "{\"fileBodyDirect\":false,\"explicitZipContentType\":true,\"arrayBuffer\":1,\"readAsArrayBuffer\":0,\"FileReader\":0}"
+    },
+    {
+      "name": "A（源码判据可红·变异 3）：把 `Content-Length` 预检换成 `arrayBuffer()` ⇒ 两条判据同时转红",
+      "pass": true,
+      "detail": "{\"found\":true,\"bytes\":1285,\"contentLengthFastPath\":false,\"drainsOnReject\":true,\"arrayBuffer\":1,\"readAsArrayBuffer\":0,\"FileReader\":0}"
+    },
+    {
+      "name": "A：近限包走到就绪态（体量与限额口径真的对得上，不是空跑）",
+      "pass": true,
+      "detail": "{\"text\":\"预览已就绪，确认后才会写入。\",\"danger\":false,\"display\":\"block\",\"gate\":\"\"}"
+    },
+    {
+      "name": "A（正命题）：主进程 RSS 增量 > 16 MiB ⇒ 这 ~30 MiB 真的过了线",
+      "pass": true,
+      "detail": "samples=18 rssDelta=95109120"
+    },
+    {
+      "name": "A：关闭预览后不残留 `.tmp/skill-import-*`（预览关闭即弃）",
+      "pass": true,
+      "detail": "[]"
+    },
+    {
+      "name": "B：现场生成的超限包 > 32 MiB（夹具自证）",
+      "pass": true,
+      "detail": "file=67111340"
+    },
+    {
+      "name": "B：超限包被拒且**不是静默失败**（danger 状态行非空）",
+      "pass": true,
+      "detail": "{\"text\":\"导入失败：请求体超过上限（33554432 字节）\",\"danger\":true,\"display\":\"block\",\"gate\":\"请先选择 zip 文件\"}"
+    },
+    {
+      "name": "B：文案含「请求体超过上限」与真实限额数字（可操作原因，不是通用兜底）",
+      "pass": true,
+      "detail": "\"导入失败：请求体超过上限（33554432 字节）\""
+    },
+    {
+      "name": "B（强判据）：主进程 RSS 增量 ≤ `maxBytes` + 8 MiB ⇒ 内存上界如实为 32 MiB，**不**随 64 MiB 的 body 线性增长",
+      "pass": true,
+      "detail": "samples=34 rssDelta=1409024（body 67111340 B，上限 33554432）branch=content-length-fast-path"
+    },
+    {
+      "name": "B（分支登记）：`readRawBody` 走了两条合法分支之一（`Content-Length` 零字节快路径 或 累积到上限即拒）",
+      "pass": true,
+      "detail": "branch=content-length-fast-path rssDelta=1409024"
+    },
+    {
+      "name": "A/B 两侧可红（非恒真自证）：**B 的 body 更大**，但 B 的 RSS 增量**小于** A 的（同一仪器、两个方向）",
+      "pass": true,
+      "detail": "A: body=31748626 rssDelta=95109120 | B: body=67111340 rssDelta=1409024"
+    },
+    {
+      "name": "全程 guest / host 无未捕获异常（pageerror）",
+      "pass": true,
+      "detail": "[]"
+    },
+    {
+      "name": "主进程无 unhandledRejection",
+      "pass": true,
+      "detail": "[]"
+    }
+  ],
+  "cleanup": {
+    "preSkillDir": "absent",
+    "preTmpResidue": [],
+    "skillDir": "absent",
+    "residueFound": [],
+    "residueRemoved": [],
+    "pageErrors": [],
+    "mainLogTail": [
+      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
+      "[Realm] webview webContents 创建, id: 8",
+      "[Realm] did-start-navigation: https://nav-test-example.com/bookmark, isInPlace: false, isMainFrame: true",
+      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
+      "[Realm] webview webContents 创建, id: 9",
+      "[Realm] did-start-navigation: https://cmd-plain-nav-test.com/, isInPlace: false, isMainFrame: true",
+      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
+      "[Realm] webview webContents 创建, id: 10",
+      "[Realm] did-start-navigation: http://localhost:57797/settings?container=default&token=c493b07d-1b55-46fa-b353-eac5d24f0b05, isInPlace: false, isMainFrame: true",
+      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
+      "[Realm] webview webContents 创建, id: 11",
+      "[Realm] did-start-navigation: http://localhost:57797/newtab?container=default&token=c493b07d-1b55-46fa-b353-eac5d24f0b05, isInPlace: false, isMainFrame: true",
+      "[Realm] 无法从 partition 获取容器 ID, partition: \"\"",
+      "[Realm] webview 导航完成: http://localhost:8005/rouman?search=%E5%A6%88%E5%A6%88",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 2",
+      "[Realm] webview 导航完成: http://localhost:57797/settings?container=default&token=c493b07d-1b55-46fa-b353-eac5d24f0b05",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 10",
+      "[Realm] webview 导航完成: http://localhost:57797/newtab?container=default&token=c493b07d-1b55-46fa-b353-eac5d24f0b05",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 11",
+      "[Realm UA-CH] dom-ready 触发, webContents: 2, url: http://localhost:8005/rouman?search=%E5%A6%88%E5%A6%88",
+      "[Realm] 获取常用网站: 12 个",
+      "[Realm UA-CH] dom-ready 触发, webContents: 11, url: http://localhost:57797/newtab?container=default&token=c493b07d-1b55-46fa-b353-eac5d24f0b05",
+      "[Realm UA-CH] dom-ready 触发, webContents: 10, url: http://localhost:57797/settings?container=default&token=c493b07d-1b55-46fa-b353-eac5d24f0b05",
+      "[39485:0915/200550.586795:ERROR:components/services/storage/service_worker/service_worker_storage.cc:1814] Failed to delete the database: Database IO error",
+      "[Realm] 技能 API 处理失败: 请求体超过上限"
+    ]
+  },
+  "exitCode": 0,
+  "passed": 21,
+  "total": 21
+}

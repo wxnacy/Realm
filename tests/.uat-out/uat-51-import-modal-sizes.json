@@ -1,0 +1,714 @@
+{
+  "driver": "tests/uat-51-import-modal-sizes.js",
+  "covers": [
+    "UAT-51-test-4"
+  ],
+  "started": "2026-09-15T12:06:08.209Z",
+  "finished": "2026-09-15T12:06:23.343Z",
+  "node": "v22.22.0",
+  "targetSizes": [
+    {
+      "label": "极窄",
+      "contentW": 420,
+      "contentH": 620
+    },
+    {
+      "label": "窄",
+      "contentW": 600,
+      "contentH": 700
+    },
+    {
+      "label": "基线",
+      "contentW": 880,
+      "contentH": 820
+    },
+    {
+      "label": "宽",
+      "contentW": 1280,
+      "contentH": 900
+    },
+    {
+      "label": "超宽",
+      "contentW": 1920,
+      "contentH": 1080
+    }
+  ],
+  "sizeMatrix": [
+    {
+      "label": "极窄",
+      "targetContentW": 420,
+      "targetContentH": 620,
+      "w": 661,
+      "h": 734
+    },
+    {
+      "label": "窄",
+      "targetContentW": 600,
+      "targetContentH": 700,
+      "w": 841,
+      "h": 814
+    },
+    {
+      "label": "基线",
+      "targetContentW": 880,
+      "targetContentH": 820,
+      "w": 1121,
+      "h": 934
+    },
+    {
+      "label": "宽",
+      "targetContentW": 1280,
+      "targetContentH": 900,
+      "w": 1521,
+      "h": 1014
+    },
+    {
+      "label": "超宽",
+      "targetContentW": 1920,
+      "targetContentH": 1080,
+      "w": 2161,
+      "h": 1194
+    }
+  ],
+  "perSize": [
+    {
+      "label": "极窄",
+      "targetContentW": 420,
+      "targetContentH": 620,
+      "w": 661,
+      "h": 734,
+      "measured": {
+        "modalDisplay": "flex",
+        "innerWidth": 420,
+        "innerHeight": 620,
+        "modalWidth": 394.796875,
+        "modalHeight": 496,
+        "modalScrollWidth": 393,
+        "modalClientWidth": 393,
+        "previewScrollBefore": 0,
+        "previewScrollAfter": 1869,
+        "previewScrollHeight": 1895,
+        "previewClientHeight": 26,
+        "pageScrollBefore": 0,
+        "pageScrollAfter": 0,
+        "scrollableCandidates": [
+          "skillImportPreview"
+        ],
+        "actionsDisplay": "flex",
+        "actionsScrollWidth": 361,
+        "actionsClientWidth": 361,
+        "actionsLeft": 29.59375,
+        "actionsRight": 390.390625,
+        "buttonCount": 2,
+        "buttons": [
+          {
+            "id": "skillImportCancel",
+            "w": 40.515625,
+            "h": 28,
+            "left": 299.359375,
+            "right": 339.875,
+            "top": 513
+          },
+          {
+            "id": "skillImportConfirm",
+            "w": 42.515625,
+            "h": 28,
+            "left": 347.875,
+            "right": 390.390625,
+            "top": 513
+          }
+        ],
+        "sameRow": true,
+        "overlap": false,
+        "gateText": "请先勾选「我已了解以上风险」",
+        "gateHeight": 18,
+        "gateAboveButtons": true,
+        "treeToggle": true,
+        "treeRows": 64,
+        "scriptRows": 1,
+        "ackChildren": 2,
+        "conflictChoices": "overwrite,rename,cancel"
+      }
+    },
+    {
+      "label": "窄",
+      "targetContentW": 600,
+      "targetContentH": 700,
+      "w": 841,
+      "h": 814,
+      "measured": {
+        "modalDisplay": "flex",
+        "innerWidth": 600,
+        "innerHeight": 700,
+        "modalWidth": 560,
+        "modalHeight": 560,
+        "modalScrollWidth": 558,
+        "modalClientWidth": 558,
+        "previewScrollBefore": 0,
+        "previewScrollAfter": 1697,
+        "previewScrollHeight": 1805,
+        "previewClientHeight": 108,
+        "pageScrollBefore": 0,
+        "pageScrollAfter": 0,
+        "scrollableCandidates": [
+          "skillImportPreview"
+        ],
+        "actionsDisplay": "flex",
+        "actionsScrollWidth": 526,
+        "actionsClientWidth": 526,
+        "actionsLeft": 37,
+        "actionsRight": 563,
+        "buttonCount": 2,
+        "buttons": [
+          {
+            "id": "skillImportCancel",
+            "w": 40.515625,
+            "h": 28,
+            "left": 471.96875,
+            "right": 512.484375,
+            "top": 585
+          },
+          {
+            "id": "skillImportConfirm",
+            "w": 42.515625,
+            "h": 28,
+            "left": 520.484375,
+            "right": 563,
+            "top": 585
+          }
+        ],
+        "sameRow": true,
+        "overlap": false,
+        "gateText": "请先勾选「我已了解以上风险」",
+        "gateHeight": 18,
+        "gateAboveButtons": true,
+        "treeToggle": true,
+        "treeRows": 64,
+        "scriptRows": 1,
+        "ackChildren": 2,
+        "conflictChoices": "overwrite,rename,cancel"
+      }
+    },
+    {
+      "label": "基线",
+      "targetContentW": 880,
+      "targetContentH": 820,
+      "w": 1121,
+      "h": 934,
+      "measured": {
+        "modalDisplay": "flex",
+        "innerWidth": 880,
+        "innerHeight": 820,
+        "modalWidth": 560,
+        "modalHeight": 656,
+        "modalScrollWidth": 558,
+        "modalClientWidth": 558,
+        "previewScrollBefore": 0,
+        "previewScrollAfter": 1601,
+        "previewScrollHeight": 1805,
+        "previewClientHeight": 204,
+        "pageScrollBefore": 0,
+        "pageScrollAfter": 0,
+        "scrollableCandidates": [
+          "skillImportPreview"
+        ],
+        "actionsDisplay": "flex",
+        "actionsScrollWidth": 526,
+        "actionsClientWidth": 526,
+        "actionsLeft": 177,
+        "actionsRight": 703,
+        "buttonCount": 2,
+        "buttons": [
+          {
+            "id": "skillImportCancel",
+            "w": 40.515625,
+            "h": 28,
+            "left": 611.96875,
+            "right": 652.484375,
+            "top": 693
+          },
+          {
+            "id": "skillImportConfirm",
+            "w": 42.515625,
+            "h": 28,
+            "left": 660.484375,
+            "right": 703,
+            "top": 693
+          }
+        ],
+        "sameRow": true,
+        "overlap": false,
+        "gateText": "请先勾选「我已了解以上风险」",
+        "gateHeight": 18,
+        "gateAboveButtons": true,
+        "treeToggle": true,
+        "treeRows": 64,
+        "scriptRows": 1,
+        "ackChildren": 2,
+        "conflictChoices": "overwrite,rename,cancel"
+      }
+    },
+    {
+      "label": "宽",
+      "targetContentW": 1280,
+      "targetContentH": 900,
+      "w": 1521,
+      "h": 1014,
+      "measured": {
+        "modalDisplay": "flex",
+        "innerWidth": 1280,
+        "innerHeight": 900,
+        "modalWidth": 560,
+        "modalHeight": 720,
+        "modalScrollWidth": 558,
+        "modalClientWidth": 558,
+        "previewScrollBefore": 0,
+        "previewScrollAfter": 1537,
+        "previewScrollHeight": 1805,
+        "previewClientHeight": 268,
+        "pageScrollBefore": 0,
+        "pageScrollAfter": 0,
+        "scrollableCandidates": [
+          "skillImportPreview"
+        ],
+        "actionsDisplay": "flex",
+        "actionsScrollWidth": 526,
+        "actionsClientWidth": 526,
+        "actionsLeft": 377,
+        "actionsRight": 903,
+        "buttonCount": 2,
+        "buttons": [
+          {
+            "id": "skillImportCancel",
+            "w": 40.515625,
+            "h": 28,
+            "left": 811.96875,
+            "right": 852.484375,
+            "top": 765
+          },
+          {
+            "id": "skillImportConfirm",
+            "w": 42.515625,
+            "h": 28,
+            "left": 860.484375,
+            "right": 903,
+            "top": 765
+          }
+        ],
+        "sameRow": true,
+        "overlap": false,
+        "gateText": "请先勾选「我已了解以上风险」",
+        "gateHeight": 18,
+        "gateAboveButtons": true,
+        "treeToggle": true,
+        "treeRows": 64,
+        "scriptRows": 1,
+        "ackChildren": 2,
+        "conflictChoices": "overwrite,rename,cancel"
+      }
+    },
+    {
+      "label": "超宽",
+      "targetContentW": 1920,
+      "targetContentH": 1080,
+      "w": 2161,
+      "h": 1194,
+      "measured": {
+        "modalDisplay": "flex",
+        "innerWidth": 1920,
+        "innerHeight": 1080,
+        "modalWidth": 560,
+        "modalHeight": 864,
+        "modalScrollWidth": 558,
+        "modalClientWidth": 558,
+        "previewScrollBefore": 0,
+        "previewScrollAfter": 1393,
+        "previewScrollHeight": 1805,
+        "previewClientHeight": 412,
+        "pageScrollBefore": 0,
+        "pageScrollAfter": 0,
+        "scrollableCandidates": [
+          "skillImportPreview"
+        ],
+        "actionsDisplay": "flex",
+        "actionsScrollWidth": 526,
+        "actionsClientWidth": 526,
+        "actionsLeft": 697,
+        "actionsRight": 1223,
+        "buttonCount": 2,
+        "buttons": [
+          {
+            "id": "skillImportCancel",
+            "w": 40.515625,
+            "h": 28,
+            "left": 1131.96875,
+            "right": 1172.484375,
+            "top": 927
+          },
+          {
+            "id": "skillImportConfirm",
+            "w": 42.515625,
+            "h": 28,
+            "left": 1180.484375,
+            "right": 1223,
+            "top": 927
+          }
+        ],
+        "sameRow": true,
+        "overlap": false,
+        "gateText": "请先勾选「我已了解以上风险」",
+        "gateHeight": 18,
+        "gateAboveButtons": true,
+        "treeToggle": true,
+        "treeRows": 64,
+        "scriptRows": 1,
+        "ackChildren": 2,
+        "conflictChoices": "overwrite,rename,cancel"
+      }
+    }
+  ],
+  "artifacts": {
+    "wideZipBytes": 16283,
+    "entries": 62,
+    "conflictProbeDir": "/Users/wxnacy/Library/Application Support/realm-dev/agent-workspace/skills/zzq51-size-probe",
+    "collapsedState": {
+      "modalDisplay": "flex",
+      "treeRows": 50,
+      "treeToggle": true,
+      "scriptRows": 1,
+      "ackChildren": 2,
+      "conflictChoices": "overwrite,rename,cancel",
+      "totalEntries": 62
+    },
+    "widestState": {
+      "toggled": true,
+      "gate": "请先勾选「我已了解以上风险」",
+      "treeRows": 64,
+      "hasLastFile": true,
+      "hasSkillMd": true,
+      "hasScript": true
+    },
+    "layoutProbe": {
+      "wasHidden": false,
+      "nowHidden": true,
+      "aiPanelWidth": 280,
+      "sidebarWidth": 240
+    },
+    "calibration": {
+      "window": {
+        "w": 1400,
+        "h": 900
+      },
+      "measured": {
+        "innerWidth": 1159,
+        "innerHeight": 786
+      },
+      "offsetW": 241,
+      "offsetH": 114
+    },
+    "measuredWidths": [
+      420,
+      600,
+      880,
+      1280,
+      1920
+    ],
+    "distinctWidths": [
+      420,
+      600,
+      880,
+      1280,
+      1920
+    ],
+    "usableWidths": [
+      420,
+      600,
+      880,
+      1280,
+      1920
+    ],
+    "usableRowCount": 5,
+    "distinctHeights": [
+      620,
+      700,
+      820,
+      900,
+      1080
+    ]
+  },
+  "assertions": [
+    {
+      "name": "前置：弹框可见且四类元素齐备（目录树折叠 / 脚本标红 / 必勾区 / 冲突三选一）",
+      "pass": true,
+      "detail": "{\"modalDisplay\":\"flex\",\"treeRows\":50,\"treeToggle\":true,\"scriptRows\":1,\"ackChildren\":2,\"conflictChoices\":\"overwrite,rename,cancel\",\"totalEntries\":62}"
+    },
+    {
+      "name": "前置：展开后目录树**越过折叠线**且末尾条目与脚本行都在 DOM 里（折叠不是静默截断）",
+      "pass": true,
+      "detail": "{\"treeRows\":64,\"hasLastFile\":true,\"hasSkillMd\":true,\"hasScript\":true}"
+    },
+    {
+      "name": "前置：AI 侧栏已关闭（否则窗口宽度到 guest 宽度的映射被侧栏宽度整体偏移 ⇒ 尺寸矩阵名不副实）",
+      "pass": true,
+      "detail": "{\"wasHidden\":false,\"nowHidden\":true,\"aiPanelWidth\":280,\"sidebarWidth\":240}"
+    },
+    {
+      "name": "前置：自标定得到正的宽度偏移（窗口尺寸不能直接当内容尺寸，必须反推）",
+      "pass": true,
+      "detail": "{\"window\":{\"w\":1400,\"h\":900},\"measured\":{\"innerWidth\":1159,\"innerHeight\":786},\"offsetW\":241,\"offsetH\":114}"
+    },
+    {
+      "name": "极窄(661x734 → 实测 420x620)：弹框总高 > 0 且 ≤ 0.8 × 视口高",
+      "pass": true,
+      "detail": "modalH=496 innerH=620"
+    },
+    {
+      "name": "极窄(661x734 → 实测 420x620)：滚动只在预览区（置 scrollTop 后变大 + 页面级滚动不动）",
+      "pass": true,
+      "detail": "before=0 after=1869 sh/ch=1895/26 page=0->0"
+    },
+    {
+      "name": "极窄(661x734 → 实测 420x620)：弹框内可滚动容器**恰为**预览区",
+      "pass": true,
+      "detail": "[\"skillImportPreview\"]"
+    },
+    {
+      "name": "极窄(661x734 → 实测 420x620)：动作区不横向溢出（scrollWidth ≤ clientWidth）",
+      "pass": true,
+      "detail": "sw=361 cw=361"
+    },
+    {
+      "name": "极窄(661x734 → 实测 420x620)：两按钮同排、不重叠、宽度 > 0、右边界不超出视口（不被裁切）",
+      "pass": true,
+      "detail": "sameRow=true overlap=false [{\"id\":\"skillImportCancel\",\"w\":40.515625,\"h\":28,\"left\":299.359375,\"right\":339.875,\"top\":513},{\"id\":\"skillImportConfirm\",\"w\":42.515625,\"h\":28,\"left\":347.875,\"right\":390.390625,\"top\":513}] innerW=420"
+    },
+    {
+      "name": "极窄(661x734 → 实测 420x620)：禁用原因文本可见、非空、且位于按钮排上方",
+      "pass": true,
+      "detail": "gate=\"请先勾选「我已了解以上风险」\" h=18 above=true"
+    },
+    {
+      "name": "极窄(661x734 → 实测 420x620)：四类元素在**该档**仍齐备（目录树 / 脚本 / 必勾 / 冲突三选一）",
+      "pass": true,
+      "detail": "tree=64 scripts=1 ack=2 conflict=overwrite,rename,cancel"
+    },
+    {
+      "name": "极窄(661x734 → 实测 420x620)：弹框本体不横向溢出",
+      "pass": true,
+      "detail": "modal sw/cw=393/393"
+    },
+    {
+      "name": "窄(841x814 → 实测 600x700)：弹框总高 > 0 且 ≤ 0.8 × 视口高",
+      "pass": true,
+      "detail": "modalH=560 innerH=700"
+    },
+    {
+      "name": "窄(841x814 → 实测 600x700)：滚动只在预览区（置 scrollTop 后变大 + 页面级滚动不动）",
+      "pass": true,
+      "detail": "before=0 after=1697 sh/ch=1805/108 page=0->0"
+    },
+    {
+      "name": "窄(841x814 → 实测 600x700)：弹框内可滚动容器**恰为**预览区",
+      "pass": true,
+      "detail": "[\"skillImportPreview\"]"
+    },
+    {
+      "name": "窄(841x814 → 实测 600x700)：动作区不横向溢出（scrollWidth ≤ clientWidth）",
+      "pass": true,
+      "detail": "sw=526 cw=526"
+    },
+    {
+      "name": "窄(841x814 → 实测 600x700)：两按钮同排、不重叠、宽度 > 0、右边界不超出视口（不被裁切）",
+      "pass": true,
+      "detail": "sameRow=true overlap=false [{\"id\":\"skillImportCancel\",\"w\":40.515625,\"h\":28,\"left\":471.96875,\"right\":512.484375,\"top\":585},{\"id\":\"skillImportConfirm\",\"w\":42.515625,\"h\":28,\"left\":520.484375,\"right\":563,\"top\":585}] innerW=600"
+    },
+    {
+      "name": "窄(841x814 → 实测 600x700)：禁用原因文本可见、非空、且位于按钮排上方",
+      "pass": true,
+      "detail": "gate=\"请先勾选「我已了解以上风险」\" h=18 above=true"
+    },
+    {
+      "name": "窄(841x814 → 实测 600x700)：四类元素在**该档**仍齐备（目录树 / 脚本 / 必勾 / 冲突三选一）",
+      "pass": true,
+      "detail": "tree=64 scripts=1 ack=2 conflict=overwrite,rename,cancel"
+    },
+    {
+      "name": "窄(841x814 → 实测 600x700)：弹框本体不横向溢出",
+      "pass": true,
+      "detail": "modal sw/cw=558/558"
+    },
+    {
+      "name": "基线(1121x934 → 实测 880x820)：弹框总高 > 0 且 ≤ 0.8 × 视口高",
+      "pass": true,
+      "detail": "modalH=656 innerH=820"
+    },
+    {
+      "name": "基线(1121x934 → 实测 880x820)：滚动只在预览区（置 scrollTop 后变大 + 页面级滚动不动）",
+      "pass": true,
+      "detail": "before=0 after=1601 sh/ch=1805/204 page=0->0"
+    },
+    {
+      "name": "基线(1121x934 → 实测 880x820)：弹框内可滚动容器**恰为**预览区",
+      "pass": true,
+      "detail": "[\"skillImportPreview\"]"
+    },
+    {
+      "name": "基线(1121x934 → 实测 880x820)：动作区不横向溢出（scrollWidth ≤ clientWidth）",
+      "pass": true,
+      "detail": "sw=526 cw=526"
+    },
+    {
+      "name": "基线(1121x934 → 实测 880x820)：两按钮同排、不重叠、宽度 > 0、右边界不超出视口（不被裁切）",
+      "pass": true,
+      "detail": "sameRow=true overlap=false [{\"id\":\"skillImportCancel\",\"w\":40.515625,\"h\":28,\"left\":611.96875,\"right\":652.484375,\"top\":693},{\"id\":\"skillImportConfirm\",\"w\":42.515625,\"h\":28,\"left\":660.484375,\"right\":703,\"top\":693}] innerW=880"
+    },
+    {
+      "name": "基线(1121x934 → 实测 880x820)：禁用原因文本可见、非空、且位于按钮排上方",
+      "pass": true,
+      "detail": "gate=\"请先勾选「我已了解以上风险」\" h=18 above=true"
+    },
+    {
+      "name": "基线(1121x934 → 实测 880x820)：四类元素在**该档**仍齐备（目录树 / 脚本 / 必勾 / 冲突三选一）",
+      "pass": true,
+      "detail": "tree=64 scripts=1 ack=2 conflict=overwrite,rename,cancel"
+    },
+    {
+      "name": "基线(1121x934 → 实测 880x820)：弹框本体不横向溢出",
+      "pass": true,
+      "detail": "modal sw/cw=558/558"
+    },
+    {
+      "name": "宽(1521x1014 → 实测 1280x900)：弹框总高 > 0 且 ≤ 0.8 × 视口高",
+      "pass": true,
+      "detail": "modalH=720 innerH=900"
+    },
+    {
+      "name": "宽(1521x1014 → 实测 1280x900)：滚动只在预览区（置 scrollTop 后变大 + 页面级滚动不动）",
+      "pass": true,
+      "detail": "before=0 after=1537 sh/ch=1805/268 page=0->0"
+    },
+    {
+      "name": "宽(1521x1014 → 实测 1280x900)：弹框内可滚动容器**恰为**预览区",
+      "pass": true,
+      "detail": "[\"skillImportPreview\"]"
+    },
+    {
+      "name": "宽(1521x1014 → 实测 1280x900)：动作区不横向溢出（scrollWidth ≤ clientWidth）",
+      "pass": true,
+      "detail": "sw=526 cw=526"
+    },
+    {
+      "name": "宽(1521x1014 → 实测 1280x900)：两按钮同排、不重叠、宽度 > 0、右边界不超出视口（不被裁切）",
+      "pass": true,
+      "detail": "sameRow=true overlap=false [{\"id\":\"skillImportCancel\",\"w\":40.515625,\"h\":28,\"left\":811.96875,\"right\":852.484375,\"top\":765},{\"id\":\"skillImportConfirm\",\"w\":42.515625,\"h\":28,\"left\":860.484375,\"right\":903,\"top\":765}] innerW=1280"
+    },
+    {
+      "name": "宽(1521x1014 → 实测 1280x900)：禁用原因文本可见、非空、且位于按钮排上方",
+      "pass": true,
+      "detail": "gate=\"请先勾选「我已了解以上风险」\" h=18 above=true"
+    },
+    {
+      "name": "宽(1521x1014 → 实测 1280x900)：四类元素在**该档**仍齐备（目录树 / 脚本 / 必勾 / 冲突三选一）",
+      "pass": true,
+      "detail": "tree=64 scripts=1 ack=2 conflict=overwrite,rename,cancel"
+    },
+    {
+      "name": "宽(1521x1014 → 实测 1280x900)：弹框本体不横向溢出",
+      "pass": true,
+      "detail": "modal sw/cw=558/558"
+    },
+    {
+      "name": "超宽(2161x1194 → 实测 1920x1080)：弹框总高 > 0 且 ≤ 0.8 × 视口高",
+      "pass": true,
+      "detail": "modalH=864 innerH=1080"
+    },
+    {
+      "name": "超宽(2161x1194 → 实测 1920x1080)：滚动只在预览区（置 scrollTop 后变大 + 页面级滚动不动）",
+      "pass": true,
+      "detail": "before=0 after=1393 sh/ch=1805/412 page=0->0"
+    },
+    {
+      "name": "超宽(2161x1194 → 实测 1920x1080)：弹框内可滚动容器**恰为**预览区",
+      "pass": true,
+      "detail": "[\"skillImportPreview\"]"
+    },
+    {
+      "name": "超宽(2161x1194 → 实测 1920x1080)：动作区不横向溢出（scrollWidth ≤ clientWidth）",
+      "pass": true,
+      "detail": "sw=526 cw=526"
+    },
+    {
+      "name": "超宽(2161x1194 → 实测 1920x1080)：两按钮同排、不重叠、宽度 > 0、右边界不超出视口（不被裁切）",
+      "pass": true,
+      "detail": "sameRow=true overlap=false [{\"id\":\"skillImportCancel\",\"w\":40.515625,\"h\":28,\"left\":1131.96875,\"right\":1172.484375,\"top\":927},{\"id\":\"skillImportConfirm\",\"w\":42.515625,\"h\":28,\"left\":1180.484375,\"right\":1223,\"top\":927}] innerW=1920"
+    },
+    {
+      "name": "超宽(2161x1194 → 实测 1920x1080)：禁用原因文本可见、非空、且位于按钮排上方",
+      "pass": true,
+      "detail": "gate=\"请先勾选「我已了解以上风险」\" h=18 above=true"
+    },
+    {
+      "name": "超宽(2161x1194 → 实测 1920x1080)：四类元素在**该档**仍齐备（目录树 / 脚本 / 必勾 / 冲突三选一）",
+      "pass": true,
+      "detail": "tree=64 scripts=1 ack=2 conflict=overwrite,rename,cancel"
+    },
+    {
+      "name": "超宽(2161x1194 → 实测 1920x1080)：弹框本体不横向溢出",
+      "pass": true,
+      "detail": "modal sw/cw=558/558"
+    },
+    {
+      "name": "反恒真：各档实测 `innerWidth` 至少 3 个互不相同的取值（矩阵真的是多档，不是同档测 5 次）",
+      "pass": true,
+      "detail": "widths=[420,600,880,1280,1920] distinct=[420,600,880,1280,1920]"
+    },
+    {
+      "name": "反恒真：**非退化**档至少 3 个且其 `innerWidth` 互不相同（退化档没吃掉矩阵）",
+      "pass": true,
+      "detail": "usable=5 widths=[420,600,880,1280,1920] degenerate=0"
+    },
+    {
+      "name": "反恒真：各档实测 `innerHeight` 至少 2 个互不相同的取值",
+      "pass": true,
+      "detail": "[620,700,820,900,1080]"
+    },
+    {
+      "name": "全程 guest / host 无未捕获异常（pageerror）",
+      "pass": true,
+      "detail": "[]"
+    }
+  ],
+  "cleanup": {
+    "preProbeSkill": "absent",
+    "preTmpResidue": [],
+    "probeSkill": "removed",
+    "residueFound": [],
+    "residueRemoved": [],
+    "pageErrors": [],
+    "mainLogTail": [
+      "(node:42556) electron: Failed to load URL: https://bg-nav-test.com/ with error: ERR_NETWORK_CHANGED",
+      "(node:42556) electron: Failed to load URL: https://nav-test-example.com/explicit with error: ERR_NETWORK_CHANGED",
+      "[Realm UA-CH] dom-ready 触发, webContents: 5, url: https://bg-nav-test.com/",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 5",
+      "[Realm UA-CH] dom-ready 触发, webContents: 3, url: https://nav-test-example.com/path",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 3",
+      "(node:42556) electron: Failed to load URL: https://nav-test-example.com/enter with error: ERR_NETWORK_CHANGED",
+      "(node:42556) electron: Failed to load URL: https://cmd-plain-nav-test.com/ with error: ERR_NETWORK_CHANGED",
+      "[Realm UA-CH] dom-ready 触发, webContents: 9, url: https://cmd-plain-nav-test.com/",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 9",
+      "[Realm UA-CH] dom-ready 触发, webContents: 7, url: https://nav-test-example.com/enter",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 7",
+      "(node:42556) electron: Failed to load URL: https://nav-test-example.com/bypass with error: ERR_NETWORK_CHANGED",
+      "(node:42556) electron: Failed to load URL: https://nav-test-example.com/bookmark with error: ERR_NETWORK_CHANGED",
+      "[Realm UA-CH] dom-ready 触发, webContents: 8, url: https://nav-test-example.com/bookmark",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 8",
+      "[Realm UA-CH] dom-ready 触发, webContents: 6, url: https://nav-test-example.com/bypass",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 6",
+      "[Realm UA-CH] dom-ready 触发, webContents: 4, url: https://nav-test-example.com/explicit",
+      "[Realm UA-CH] 已附加 UA 覆盖, webContents: 4"
+    ]
+  },
+  "exitCode": 0,
+  "passed": 48,
+  "total": 48
+}
