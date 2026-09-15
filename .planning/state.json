@@ -11,33 +11,33 @@
     {
       "number": "47",
       "name": "内置技能播种 + bash 策略加固",
-      "status": "complete"
+      "status": "in_progress"
     },
     {
       "number": "48",
       "name": "技能发现与调用",
-      "status": "complete"
+      "status": "in_progress"
     },
     {
       "number": "49",
       "name": "`manage_skill` 工具",
-      "status": "complete"
+      "status": "in_progress"
     },
     {
       "number": "50",
       "name": "设置页技能管理区 + `/api/skills/*`",
-      "status": "complete"
+      "status": "in_progress"
     },
     {
       "number": "51",
       "name": "用户技能导入管线",
-      "status": "complete"
+      "status": "in_progress"
     }
   ],
   "next": {
-    "command": "/gsd-complete-milestone v2.6",
-    "label": "Complete milestone v2.6",
-    "reason": "All 6 phases (46-51) complete — 38/38 plans, UAT complete, verification passed, SECURITY verified"
+    "command": "/gsd:progress",
+    "label": "Show progress",
+    "reason": "Unsure of state — showing progress"
   },
-  "updated_at": "2026-09-15T13:44:05.003Z"
+  "updated_at": "2026-09-15T13:58:53.058Z"
 }

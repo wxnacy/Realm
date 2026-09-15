@@ -54,6 +54,49 @@
 
 ---
 
+## Milestone: v2.6 — AI 助手技能（Skill）能力
+
+**Shipped:** 2026-09-15
+**Phases:** 6 | **Plans:** 38
+
+### What Was Built
+- 技能目录落进 agent 工作区硬沙箱，接进 pi-agent-core 原生 Skill 层，`<available_skills>` 注入 system prompt 第 4 段；模型看到的 `<location>` 经真实沙箱 `readTextFile` 验证可打开
+- 随包自审过的两个内置技能（find-skills 零安装语义改写版 + skill-creator 固定 SHA 快照）经原子播种进 `managed-skills/`，并把「零安装语义」做成可机器检查的门禁
+- `/` 面板并入技能列表 + `/skill:name [args]` 显式调用进对话历史 + 模型按 description 自动匹配；运行期新增的技能**至多一次重扫**后当场可调用
+- `manage_skill`（create / update / delete）落在零 electron 依赖的写权威面：seeded 按播种登记表保护、字段分离扫描、沙箱原子写、单次刷新链
+- 设置页技能管理区 + `/api/skills/*` 双入口读同一权威（`realm://` guest 走 HTTP + token / 主窗口走 IPC），启停与卸载带乐观翻转与失败回滚
+- 用户技能导入管线：本地 zip 与网络地址两条通道汇进**同一段**解压校验与落盘；两阶段预览 + 恶意包整包拒绝 + SSRF 逐跳防护
+
+### What Worked
+- **`/gsd-verify-work` 的真实运行期驱动是本里程碑最大的增量**：4 项人工 UAT 全部自动化后立刻抓到「逐行核对 + 模块级实跑」这条链照不到的运行期缺陷（`CR-02`：`downloadPackage` 无绑定 ⇒ 网络导入整条腿 100% `ReferenceError`）
+- **verifier 的独立复跑纠正了作者的自证**：把一条「21/21 全过」拆成「6 次 1 红的分支相关假判据」，并逼出「环境读数 vs 判据」的分账纪律
+- 把「环境读数只登记不断言」「驱动收尾按精确 PID 收自己的子进程」「开跑前登记并发实例」写进驱动文件头与 STATE ⇒ 可复用的驱动范式
+
+### What Was Inefficient
+- **收尾时跳过了 `verify:post` 的 hook dispatch**，Phase 51 因此漏跑 `security_enforcement=true` 强制的 security step，事后补跑才产出 `51-SECURITY.md`
+- **把 ROADMAP 的里程碑标头当自由文本改**，破坏了 `milestone.complete` 的相位窗口解析（"the ROADMAP window for v2.6 is truncated"）并让 `init.manager` 返回 `phases: []` ⇒ 工作流那条 `all_phases_verified` 门禁**空集恒真**；回退后才恢复，且归档时还要为此走一次 shrink 许可
+- 为刷新 verification digest 多跑了 **4 轮 verifier**（每轮改一个 `covered_files` 内文件就再 stale 一次）
+- 并发会话共用 `realm-dev` userData 让驱动读数带噪，一轮间歇红耗费了大量定位成本
+
+### Patterns Established
+- **运行期集成缝必须由真实运行期驱动覆盖**（模块级测试密集 ≠ 覆盖；**形态断言 ≠ 绑定断言**）
+- **环境读数与判据分账**：做不出可靠两侧判据的观测量一律「只登记不断言」——给读数设阈值等于造一条假判据
+- **uat 驱动自身要有卫生**：开跑前登记并用实例数、收尾按精确 PID 收掉自己的子进程、「未复现 ≠ 零抖动」
+- **改 `.planning` 受保护产物前先探一次解析器**（`milestone complete <v> --dry-run`）
+
+### Key Lessons
+1. 真实运行期驱动能在几分钟内发现模块级测试全绿也照不到的缺陷 —— 收尾不要把它当「锦上添花」
+2. **verifier 的复跑次数就是判据可靠性的证据**：一条只跑一次就绿的阈值断言，很可能只是碰对了分支
+3. 驱动会污染驱动：一个 `PPID=1` 的孤儿 Electron 实例足以让后续每一轮读数带噪
+4. 受保护产物的**标头也是解析器输入**，不是展示文本；改 headline 前先 dry-run
+
+### Cost Observations
+- Model mix: 未采集
+- Sessions: 未采集
+- Notable: `CR-02` 这类「接线类」缺陷的成本集中在**发现**而非修复（修复是 1 行），而发现它需要真实运行期驱动 + 独立 verifier 两条链
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -62,12 +105,14 @@
 |-----------|----------|--------|------------|
 | v1.0–v2.4 | 未采集 | 39 | 未建立回顾文档；流程从"直接执行"演进到 discuss → plan → execute → verify 全链 |
 | v2.5 | 未采集 | 6 | 引入 gap-closure 计划闭环、code-review 后置、UI 评审、验证指纹与 UAT 门禁对账 |
+| **v2.6** | 未采集 | 6 | 引入**真实运行期 UAT 驱动**（`uat-*` 三支）、「环境读数 vs 判据」分账、驱动自身卫生（孤儿实例守卫）、里程碑归档前 dry-run 探解析器 |
 
 ### Cumulative Quality
 
 | Milestone | Tests | Coverage | Zero-Dep Additions |
 |-----------|-------|----------|-------------------|
 | v2.5 | 媒体套件 188 + 导航/附件 197 全绿 | 未采集（无覆盖率工具） | 2（turndown；mux.js 已在 v2.4 引入） |
+| **v2.6** | 技能域 7 套件（55/198/115/49/41/116/50）全 fail 0；UAT 三驱动 29+18+48 全绿 | 未采集（无覆盖率工具） | 2（`yauzl`；`yaml` 精确钉版） |
 
 ### Top Lessons (Verified Across Milestones)
 

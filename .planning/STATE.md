@@ -2,19 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v2.6
 milestone_name: AI 助手技能（Skill）能力
-current_phase: 51
-status: completed
+status: Awaiting next milestone
 stopped_at: Phase 51 complete — all phases complete
-last_updated: "2026-09-15T13:44:04.987Z"
+last_updated: "2026-09-15T13:58:53.044Z"
 last_activity: 2026-09-15
-last_activity_desc: Phase 51 complete
-state_head: 2f20995f07f392572bac9f538f8ded083d91aa40
+last_activity_desc: Milestone v2.6 completed and archived
+state_head: 77de4d506d3a4870af890cd38df8f4c696d6ecdb
 progress:
   total_phases: 6
-  completed_phases: 6
+  completed_phases: 1
   total_plans: 38
   completed_plans: 38
-  percent: 100
+  percent: 17
+current_phase: 51
 ---
 
 # Project State: Realm Browser
@@ -24,16 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-15)
 
 **Core value:** 容器间数据完全隔离 — 每个容器的 Cookie、存储、缓存互不干扰，同时支持 Cookie 文件持久化和自动加载。
-**Current focus:** 里程碑 v2.6 六阶段（46–51）已全部收口 —— 可执行 `/gsd-complete-milestone v2.6`
+**Current focus:** v2.6 已归档（2026-09-15）—— 下个里程碑待 `/gsd-new-milestone` 定义
 
 ## Current Position
 
-Phase: 51
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-09-15 — Phase 51 complete
-
-Progress: [████████████████████] 38/38 plans (100%)
+Phase: Milestone v2.6 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-09-15 — Milestone v2.6 completed and archived
 
 ## Performance Metrics
 
@@ -285,6 +283,13 @@ Recent decisions affecting current work:
 - [Phase 51]: [Phase 51-01]: 抽出 buildRootBaseline / isInsideBaseline 作为双基准前缀判据单源（读面 resolveInside 与写面 resolveInsideForWrite 共用）。这是本计划对 resolveInside 唯一的结构性改动，抽出后逐字等价、既有 21 例零变化 —— 计划要求「同一判据、同一双基准、不得重新发明一套前缀比较」，抽出是唯一能同时满足「单源」与「读面语义零变化」的形态。
 - [Phase 51]: [Phase 51-01]: createTempDir/createTempFile 纳入写面复核（父目录 getTmpDir() + 产物路径两段，任一失败返回 permission_denied）—— mkdtemp 本身不经 guard，.tmp/ 被替换成 symlink 产物即逃逸，而导入管线（51-03/04）会在 .tmp/ 下大量建目录。产物前缀形状 tmp-<prefix>-<rand> 与 builtin-skills-seeder 的 sweepSeedResidue 清扫正则成对，不得改名（改名会让崩溃清扫静默失效）；已加形状断言钉住。
 
+### Milestone Boundary（v2.6 归档，2026-09-15）
+
+- **收尾类型 `override_closeout`**：46–50 的 `*-VERIFICATION.md` 对当前树为 `stale`（`covered_files` 含 `ai-manager.js`/`main.js`/`src/settings-page.js`，被后续阶段与并发 webview 工作改动过 ⇒ digest 失效）。这是「后续阶段落代码即让先前阶段 digest 失效」的**结构性**后果，不是结论有变（五阶段 UAT 均 `complete`、verification frontmatter 均 `passed`、SECURITY 均 `threats_open: 0`）；用户显式裁决 proceed anyway。
+- **未运行里程碑审计**（无 `v2.6-MILESTONE-AUDIT.md`）；`audit-open` 全类扫描 0 开放项、40 项历史 acknowledge 仍在抑制态。
+- **归档范围**：`milestones/v2.6-ROADMAP.md` + `v2.6-REQUIREMENTS.md` + `v2.6-phases/`（六个相位目录已移出 `.planning/phases/`）；`REQUIREMENTS.md` 已 `git rm`（下个里程碑重建）。
+- **Phase 51 附带修复**：真 blocker `CR-02`（`downloadPackage` 无绑定 ⇒ 网络导入运行期 100% `ReferenceError`）已修并复验 29/29。
+
 ### Roadmap Evolution
 
 - Phase 42 added: AI 历史对话功能调研与 pi-agent 集成方案
@@ -414,20 +419,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-15T13:44:04Z
-Stopped at: Phase 51 complete（7/7 计划 + UAT 4/4 全自动化通过）；里程碑 v2.6 六阶段全部收官，待用户裁决是否 complete-milestone
+Last session: 2026-09-15T14:05:00Z
+Stopped at: 里程碑 v2.6 已归档（`override_closeout`：46–50 验证 digest 对当前树 stale、未运行里程碑审计）
 Resume file: None
 
 ## Operator Next Steps
 
-- **Phase 51 已收尾**（7/7 计划；verifier 判 `passed`、29/29 must-haves、`behavior_unverified: 0`；`51-REVIEW.md` 2 Critical + 3 Warning + 6 Info）。**`/gsd-verify-work 51` 把 4 项人工 UAT 全部自动化并跑通（4/4 pass、0 issues）**：新增三支运行期驱动 `tests/uat-51-import-live.js`（29/29，真实 GitHub 端到端 + 403/429/404 文案）/ `uat-51-import-limits.js`（18/18，限额与内存面）/ `uat-51-import-modal-sizes.js`（48/48，5 档尺寸矩阵），证据固化在仓内 `tests/.uat-out/`。**本轮抓到并修复一个真 blocker CR-02**：`ai-manager.js` 的 `downloadPackage` **只有调用没有绑定**（引入于 `0b8bc1d` / 51-05）⇒ 所有网络地址导入（zipball 与直链 SKILL.md）运行期 100% `ReferenceError`，而三条既有护栏（模块级单测打另一侧导出面、「首参逐字 undefined」只断言调用形态、仓内无 `no-undef` 检查）**全绿照不到**。**三条诚实边界**：① 403/429 **未真实触发** GitHub 限流（导入链路只打 `codeload.github.com`，未鉴权 60 req/h 配额打在 `api.github.com`，非同一配额域），用 `net.fetch` 单点替身返回真实形状响应头、其余全走真链路；② guest JS 堆曲线与 ③ B 侧进程 RSS 上界**都只登记不断言**（前者被 GC 耦合、后者分支相关且 verifier 实测 6 次 1 红，降级后连跑 5 轮 18/18）。另查明并修掉一处**驱动自身污染**：收尾 `process.exit()` 抢在异步 `electronApp.close()` 之前留下孤儿 Electron 实例，与后续运行共用 `realm-dev` ⇒ 设置页 guest 重初始化 ⇒ 用例间歇转红；三支驱动已加固（前置登记实例 + 收尾按精确 PID 收自己的子进程）
-- **Phase 50 已收尾**（5/5 计划、4 waves；verifier 19/22 VERIFIED / 0 FAILED；`code-review` 1 Critical + 6 Warning + 5 Info，CR-01/WR-01/WR-04 已 hotfix 修复合并，其余记技术债不阻断）。**2026-09-15 `/gsd-verify-work 50` 把 9 项人工 UAT 全部自动化并跑通（9/9 pass、0 issues）**：新增四个运行期驱动（`tests/uat-50-t1-*.js` / `uat-50-a-*.js` / `uat-50-b-*.js` / `uat-50-t3-*.js`，`uat-` 前缀 ⇒ 不被 `test-*` 套件拾取），逐项对应 VERIFICATION 的 9 条人工项；证据落 `/tmp/uat50/`。`50-SECURITY.md` 由 `/gsd-secure-phase 50` 以 **State B 新建**（37 条威胁全 closed、`threats_open: 0`、ASVS L1 grep-depth、未派发 auditor —— ASVS 提到 ≥2 时须重跑并派发）。**两条诚实边界**：① UAT 第 9 项原文的「四合一最宽行」（诊断徽标+已遮蔽+开关+卸载）**在数据层不可构造**（卸载按钮仅 user 行、已遮蔽落在 managed 败者），已改为两类最宽真实行 + 断言该组合不存在；② UAT 第 3 项「errors 非空时汇总条渲染」分支本次未被执行到（`errors=[]`）。
-- **Phase 50 收尾时门禁侧两件事（下次同类收尾可直接复用）**：① `verify:pre` 的 `api-coverage` **阻塞门**要求 `COVERAGE.md`，已按 46/47/48/49 先例补一份零矩阵行的 no-integration 声明（探针唯一命中信号是计划 prose 里的 `DOM API` ⇒ 与 49 同款误报，非真实外部 API 集成），文件已提交；② `make install-nightly` 会**临时把 `process.env.NODE_ENV = 'nightly'` 注入 `main.js`** 并在退出时由 `trap` 还原 —— 构建窗口期内**不得**并发启动 dev 探针（否则 NODE_ENV 串到 `realm-nightly`）。本次构建后已按 sha256 逐字复核 `main.js` 还原、`.bak` 已清理
-- **Phase 49 已收尾**（8/8 计划：3 original + 5 gap-closure；验证 24/24 must-have、`behavior_unverified: 0`、最终判 `passed`；`code-review` 轮 5 为 0 Critical / 8 Warning / 11 Info，全部记技术债不阻断；回归门禁 22/22 套件、账本 `counts-parity cells=8` 即 55 / 178 / 111）。**本轮（`--gaps-only`）闭合 `UI-49-W6-01`**：`renderSkillContentBox` 加 `{ interactive = true }` 语境开关，卡片调用点传 `false` —— 焦点语义只在气泡实例（恒可见）施加；卡片实例不施加，因为 `.tool-card-content` 的 `max-height: 0` + `overflow: hidden` **不移出 Tab 序**，施加即产出零可见高度的隐形停靠点。收尾时按用户裁决顺手闭合了审查轮 5 的 `IN-15`（两处 `49-UI-SPEC.md:508` 引用因 49-08 自己的插入漂成空行 → 改**按名引用**「展开 / 折叠（卡片）」行，对后续插入免疫）与 `IN-17`（§11.7 只写原因未写**代价** → 补记「卡片语境正文折叠块无键盘入口、鼠标是唯一入口、属 49 之前的既有状态而非回归」）；因这两处改动落在 `covered_files` 内，重跑 verifier 刷新指纹（`f00b67cd…`）后状态由 `human_needed` 改判 `passed`
-- **Phase 49 挂账未修（不阻断，建议随 Phase 50 同批看）**：`WR-12`（49-08 驱动承重判据 `R3` 绿轮**空集真**、全套 8 条断言只有否命题 —— 本次由 verifier 自建阳性对照探针独立补足闭合证据，**驱动自体仍缺正命题**，改法见 `49-REVIEW.md` 的 R7 建议）、`IN-14`（`M9b` 为纯源码形态扫描，强制开启 / 紧凑守卫 / 调用点后补 `tabindex` 三种等价变异可绕过）、`IN-16`/`WR-09`（红→绿证据只活 `/tmp` + `E-DATA-DB` 依赖本机 `realm-dev` 用户数据，新机器/CI 跑不动）、`IN-10`~`IN-13`（文案/注释口径）；另记 `IN-17` 已闭合但**卡片语境正文折叠块无键盘入口**这一 a11y 面仍待单独立项（`49-UI-SPEC.md:508` 的锁定决策要求本阶段零改动，升级全仓卡片范式需另开阶段）
-- **Phase 49 开工前第一条仍未办**：处置 **TD-48-01**（`escapeHtml` 不转义引号 → 面板行属性上下文逃逸）与 **TD-48-02**（取消分支无锚点自校验）；两条为 Phase 48 用户明确裁决「延后」的 Critical。49 阶段**未扩大**该缺口但**也未闭合**（49-02/49-03 逐字保持挂账；`escapeHtml` 实测零 diff）。形态与修法见 `48-REVIEW.md` 的 Disposition 表。同批建议顺手清 UI-REVIEW 的 3 条 priority fix（pill 字体缺规则 / 徽标与超限标注对比度 / 长名行分组）
-- **Phase 47 已收尾**（override 收尾：SC3 普遍性表述 + CR-01/CR-02 记技术债）。技术债与建议修法见 `.planning/phases/47-bash/47-REVIEW.md` 的 Disposition 与处置补记：CR-01（`npm -g update` 类旗标取值槽吞子命令）、CR-02（`npm audit --json fix` 类）、残余 ③（`npm -g update ls`）、`matchDangerous` 未同源归一化、`sweepSeedResidue` 缺陈旧性判据、`npm version` 被列只读、`ai-bash-policy.js:249` JSDoc 不准确、docs 只读枚举缺漂移护栏 —— 根治走 **argv 级分词 + 显式「带值旗标」清单**（可一次消除 CR-01/CR-02/残余 ③）
-- ⚠ **发布前必办**：生产包 `/Applications/Realm.app` 仍是 2026-09-10 构建（无 `skills-builtin/` 与 `THIRD_PARTY_NOTICES.md`、仍含 `.planning`/`tests`）；SC5 与 Phase 50 T3 的打包面证据均经 **Nightly 路线**取得（T3 于 2026-09-15 重跑 `make install-nightly`，`/Applications/Realm Nightly.app` 的 `app.asar.unpacked/skills-builtin/` 下 `find-skills` + `skill-creator` 齐备），**正式发布前必须重跑 `make install`** —— 注意它当前**会覆盖正在运行的生产实例**（本次收尾时 PID 22083 在运行），下次执行前须先确认用户已自行退出该实例
-- 用户已定：Phase 48 的 `/skill:name` 必须实时读盘（写路径接线 + 实时正文两条都是显式验收项）—— ✅ 已闭合（48-07 / 48-08 + UAT round 3 test 14 / round 4 test 19）
-- 遗留验证待办：Phase 46 的 P8 失效链 3/6 需在 49/50/51 逐点闭合（Phase 48 已落下**读侧**调用方与两个成功出口的延迟回写，**写路径回写**仍待补）
-- Phase 47 收尾时 `phase.complete` 报两条非阻断警告：① 各 SUMMARY 的「files referenced」误报（把代码块里的命令当文件路径）；② `REQUIREMENTS.md` 正文含 `ECO-01..06` 但 Traceability 表未登记（属 `## v2 Requirements` 的**延后生态项**，非本里程碑交付，收尾时未擅自补录 —— 该警告在 Phase 48 收尾时**再次出现**，属同一已知误报类）
+- Start the next milestone with /gsd-new-milestone

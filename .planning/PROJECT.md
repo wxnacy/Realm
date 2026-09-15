@@ -149,12 +149,16 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - ✓ MGMT-01..06: AI 自建技能（`manage_skill` 的 create / update / delete + 只接受 `name`（`^[a-z0-9-]+$`）/`content`/`description` 且服务端二次校验 + seeded 按**播种登记表**判定拒绝覆盖与删除 + 沙箱 `env.renameFile` 原子写、失败不留半成品且不触及 `ai-memory/`·`attachments/` + 九码闭合拒绝面 + 字段分离扫描与净化后复验非空 + 组装全文写侧字节闸 + 成功出口单次 `syncAgentSystemPrompt()` 回写、新技能集**下一条消息起可见**） — Phase 49
   > **收尾方式**：8/8 计划（3 original + 5 gap-closure），验证 24/24 must-have、`behavior_unverified: 0`；`code-review` 轮 5 判 0 Critical / 8 Warning / 11 Info（全部记技术债）；回归门禁 22/22 套件，账本 `counts-parity cells=8`（55 / 178 / 111）。**关键实现语义**：① 写侧权威字节闸口的判据对象 = **组装后的 `SKILL.md` 全文**（两侧判同一量，否则产出「落盘成功但被加载管线跳过」的幽灵技能）；② 写入流程固定为「原文结构校验 → 扫描原文 → 净化 → **净化值复验非空**」；③ 失败态机器可读原因码经**消息词缀**持久化（encode/decode 同常量，不回显被拒原文）；④ 卡片标记并入逻辑**单源**在 `src/skill-picker-model.js` 的 `mergeManageSkillMarker`，渲染端不得另写展开式合并。**a11y 语义（`UI-49-W6-01` 闭合）**：`renderSkillContentBox` 的 `{ interactive = true }` **语境开关** —— 焦点语义只在**气泡实例**（恒可见）施加，**卡片实例**不施加，因为 `.tool-card-content` 用 `max-height: 0` + `overflow: hidden` 折叠而 `overflow: hidden` **不移出 Tab 序**，施加即产出零可见高度的隐形停靠点。**挂账未修**：`WR-12`（49-08 驱动承重判据 `R3` 绿轮空集真、全套只有否命题 —— 本次由 verifier 自建阳性对照探针补足，驱动自体仍缺正命题）、`IN-14`（`M9b` 为纯源码形态扫描，三种等价变异可绕过）、`IN-16`/`WR-09`（验收依赖 `/tmp` 与本机 `realm-dev` 用户数据，不可移植）、`IN-10`~`IN-13`（文案/注释口径）、`IN-17` 已闭合但**卡片语境正文折叠块无键盘入口**这一既存 a11y 面仍待单独立项
 
+- ✓ USER-01 / USER-02 / USER-06 / USER-07 / SEC-09: 设置页技能管理区 + `/api/skills/*`（管理投影与 `/` 面板投影**刻意不合并** + 不依赖 Agent 的读路径初始化 + 只读三档分组列表零 innerHTML + 行内启停开关乐观翻转与失败回滚 + 卸载二次确认 + 诊断两层承载 + 两入口读同一权威（`realm://` guest 走 HTTP+token / 主窗口走 IPC）且 handler 零判定 + `/api/*` 请求体体积闸「默认 1 MiB fail-closed + 需大者显式放大」） — Phase 50
+  > **收尾方式**：5/5 计划；UAT 9/9（`/gsd-verify-work 50` 把 9 项人工面全部自动化）；`50-SECURITY.md` 以 State B 新建（37 条威胁全 closed、`threats_open: 0`、ASVS L1 grep-depth、未派 auditor）。**两条诚实边界**：① UAT 原文的「四合一最宽行」（诊断徽标+已遮蔽+开关+卸载）在数据层**不可构造**（卸载按钮仅 user 行、已遮蔽落在 managed 败者），已改判两类最宽真实行并断言该组合不存在；② 「`errors` 非空时汇总条渲染」分支本次未被执行到（`errors=[]`）
+- ✓ USER-03 / USER-04 / USER-05 / USER-08 / SEC-02~08 / SEC-10: 用户技能导入管线（zip + 网络地址）（本地 zip raw binary 上传 + 网络三形态分流与 zipball 顶层前缀剥离 + `mkdtemp` 空目录解压 + 两阶段预览六字段 + 恶意包整包拒绝（symlink 两路 / 逃逸族十二类 / NFD+小写查重 / 六类限额）+ 单一落盘实现 `importUserSkill` + 冲突三档（seeded 拒 / user 三选一 / managed 只改名）+ 覆盖事务备份与回滚 + `resolveInsideForWrite` 补 ENOENT symlink 缺口 + https-only/主机白名单/逐跳私网/跳数上限/流式字节上限/magic bytes） — Phase 51
+  > **收尾方式**：7/7 计划；**4 项人工 UAT 全部自动化并 4/4 通过**（新增三支运行期驱动 `tests/uat-51-import-live.js` 29/29 / `-limits.js` 18/18 / `-modal-sizes.js` 48/48，证据固化在仓内 `tests/.uat-out/`）；verifier 判 `passed`（29/29 must-haves、`behavior_unverified: 0`）；`51-SECURITY.md` 补跑（52 条威胁、`threats_open: 0`，3 条 accepted risk 含 high 级 DNS rebinding）。**本轮抓到并修复真 blocker `CR-02`**（`ai-manager.js` 的 `downloadPackage` 无绑定 ⇒ 网络导入运行期 100% `ReferenceError`）。**三条诚实边界**：① 403/429 未真实触发 GitHub 限流（导入链路只打 `codeload`，配额打 `api.github.com`，非同一配额域）⇒ `net.fetch` 单点替身、其余全走真链路；② guest JS 堆曲线、③ B 侧进程 RSS 上界都**只登记不断言**。**挂账未修**：CR-01（同弹框第 4 次连续预览必返 `too_many_pending`）、WR-01/02/03
+
 ### Active
 
-<!-- 当前需要构建的功能（v2.6 里程碑；需求细节见 .planning/REQUIREMENTS.md） -->
+<!-- 当前需要构建的功能（下个里程碑待 /gsd-new-milestone 定义；v2.6 需求细节见 .planning/milestones/v2.6-REQUIREMENTS.md） -->
 
-- AI 助手技能（Skill）能力 — v2.6 进行中
-- **bash 安装档只读豁免的 argv 级分词根治** — Phase 47 复审 CR-01/CR-02 与残余 ③：`matchInstall` 的只读判定用「整段正则 + `FLAG_TOLERANCE` 取值槽」，导致 `npm -g update` / `npm --global rebuild` / `npm audit --json fix` / `npm -g update ls` 在白名单含裸工具名时**零卡片**。根治 = 显式声明「带值旗标」清单（`--prefix` / `-w` / `--filter` / `-C` / `--registry` …）+ argv 级分词后比对只读清单；可一次消除三条残余并使 `pnpm --filter a run build` 不再依赖取值槽实现（修法见 `.planning/phases/47-bash/47-REVIEW.md`）
+- **bash 安装档只读豁免的 argv 级分词根治** — Phase 47 复审 CR-01/CR-02 与残余 ③：`matchInstall` 的只读判定用「整段正则 + `FLAG_TOLERANCE` 取值槽」，导致 `npm -g update` / `npm --global rebuild` / `npm audit --json fix` / `npm -g update ls` 在白名单含裸工具名时**零卡片**。根治 = 显式声明「带值旗标」清单（`--prefix` / `-w` / `--filter` / `-C` / `--registry` …）+ argv 级分词后比对只读清单；可一次消除三条残余并使 `pnpm --filter a run build` 不再依赖取值槽实现（修法见 `.planning/milestones/v2.6-phases/47-bash/47-REVIEW.md`）
 - 增强功能 (ENH-01~06: 截图/画中画/播放列表/字幕/DASH/RTMP) — 顺延
 - 书签导出 — 顺延
 - 全屏模式 — 顺延
@@ -172,7 +176,12 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 - **收藏栏多行显示** — 仅支持单行显示
 - **DASH (.mpd) 播放** — v2.2 暂缓：嗅探/renderer/CSS 已补 dash 支持但复验仍失败，二层根因未诊断（UAT G-28-2，2026-08-08 用户决定，走 /gsd-plan-phase 28 --gaps 续查）
 
-## Current Milestone: v2.6 AI 助手技能（Skill）能力
+## Current Milestone: 无（v2.6 已于 2026-09-15 归档）
+
+下个里程碑待 `/gsd-new-milestone` 定义（questioning → research → requirements → roadmap）。
+
+<details>
+<summary>v2.6 AI 助手技能（Skill）能力 — 已交付（shipped 2026-09-15）</summary>
 
 **Goal:** 让 Realm AI 助手具备符合 Anthropic Agent Skills 开放规范的技能发现、调用、创建与管理能力——用户可 `/` 唤出技能、可导入自己的技能，AI 可自主查找与创建技能。
 
@@ -185,10 +194,11 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 ## Current State
 
-**In progress:** v2.6 AI 助手技能（Skill）能力 — 6 阶段中 **5 完成**（46 技能基础设施 / 47 播种+bash 加固 / 48 发现与调用 / 49 `manage_skill` / **50 设置页技能管理区 + `/api/skills/*` 于 2026-09-15 收尾**：9/9 UAT、`threats_open: 0`、5/5 计划、账本 438 例全绿），**剩余 1 阶段**（51 用户技能导入管线 zip + 网络地址）。注：STATE.md frontmatter 的 `progress` 计数器只从本里程碑**开工点**起算，与 ROADMAP 的「已勾选阶段数」口径不同，**以 ROADMAP 为准**。
+**Shipped:** v2.6 AI 助手技能（Skill）能力 (2026-09-15) — 6/6 阶段、38/38 计划、47/47 需求；`v2.6` 已归档到 `.planning/milestones/`。⚠️ 收尾为 `override_closeout`：46–50 的验证 digest 对当前树为 `stale`（其 `covered_files` 被后续阶段改动过，属结构性），且未运行里程碑审计。
 
-**Shipped:** v2.5 (2026-09-10)
-- 45 phases complete (4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0 + 4 v2.1 + 4 v2.2 + 4 v2.3 + 6 v2.4 + 6 v2.5)
+**Shipped history:**
+- **51 phases complete**（4 v1.0 + 5 v1.1 + 3 v1.2 + 1 v1.3 + 8 v2.0 + 4 v2.1 + 4 v2.2 + 4 v2.3 + 6 v2.4 + 6 v2.5 + **6 v2.6**）
+- v2.6 交付：AI 技能体系（沙箱内技能目录与 prompt 注入 + 随包自审内置技能 + `/` 面板与 `/skill:name` 显式调用 + 模型按 description 自动匹配 + `manage_skill` 自建技能 + 设置页技能管理区 + zip / 网络地址两条经恶意包加固的导入通道）
 - 所有里程碑已完成归档
 - v2.5 交付：AI 联网搜索与网页抓取（web_search/web_fetch + 配置 UI）+ AI 历史对话管理 + AI 三层条目记忆 + 播放器视频缓存与本地媒体库 + B 站直播 fMP4 转录
 - 技术栈：Electron 43.6.0（Chromium 150）+ better-sqlite3 + electron-store + Chrome DevTools Protocol + pi-agent-core + hls.js / dashjs / mpegts.js / mux.js + nodejieba
@@ -235,7 +245,7 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 ## Next Milestone Goals
 
-**v2.6** (in progress) — AI 助手技能（Skill）能力
+**v2.6** ✅ shipped 2026-09-15 — AI 助手技能（Skill）能力
 - Skill 发现与调用 + `/` 命令并入 skill 列表 + 模型自动匹配
 - 内置 find-skills / skill-creator 技能（完整目录播种到 managed-skills/）
 - manage_skill 工具（AI 自主创建技能）
@@ -389,6 +399,16 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 | 设置页**不做**即时同步（多开设置页之间不广播），但「重进该页即同步」是被承诺的语义 —— 诚实边界成文 | `windowManager.broadcast` 只发到各 `BrowserWindow` 的 webContents、**不到 webview guest**；设置页也收不到任何主进程广播 ⇒ 每次操作后用响应体回传的**最新投影**就地重渲染。不假装即时同步是设计决定，不是缺陷 | ✓ 已验证 — Phase 50（50-04 / UAT T5 只断言「重进即同步」，**刻意未**断言即时刷新） |
 | SEC-09 的形状 = 「默认 1 MiB **fail-closed** + 需大者**显式**放大」，全仓恰好 2 处显式放大 | `MAX_JSON_BODY_BYTES`(1 MiB) 是 `/api/*` POST 全局默认；`MAX_JSON_BODY_BYTES_LARGE`(32 MiB) 只给两个 **by-design** 大 body 端点（`import-chrome`/`import-html`，body 是用户书签文件**全文**）。`rules/import` 虽也是用户选定文件内容但非 by-design 大 body，不做第三处覆盖（1 MiB 对它的后果是可读 413 而非静默破坏）；配合 `sendJson` 幂等护栏 + `res` 缺失降级分支一次关闭两条会崩主进程的隐患 | ✓ 已验证 — Phase 50（50-03 / UAT T6 Electron 内 413 + 反向对照 + `50-SECURITY.md` T-50-16..19） |
 
+### v2.6 归档时新增（2026-09-15）
+
+| Decision | Rationale | Outcome |
+|----------|-----------|---------|
+| 技能 tier **只有 2 层**（`skills/` user > `managed-skills/` managed），不引入上游多级 provider priority | Realm 只有两类来源；7 层机制引入即纯负担。同名去重 user 胜出，且冲突必须对用户可见（不静默去重） | ✓ 已验证 — Phase 46（UAT） |
+| 网络导入的 **DNS rebinding 以「如实接受」处置**，不得表述为「已缓解 / 已消除」 | 「先 `dns.lookup` 校验、再 `net.fetch` 请求」模型下不存在根治手段；白名单已把收益压到接近零，如实披露优于虚假承诺（D-16） | ✓ 已接受 — Phase 51（`51-SECURITY.md` AR-51-03，high 级 accepted risk） |
+| 导入**只有一个落盘实现**（`importUserSkill`），三个来源（zip 上传 / zipball / 直链 SKILL.md）都汇进同一段校验与落盘 | 「第二条落盘路径」是最容易被后续阶段无意引入的形态；做成可机械检查的源码判据（`importUserSkill(` 定义恰 1 + 调用恰 1 + handler 与前端各 0） | ✓ 已验证 — Phase 51（源码判据 + UAT） |
+| UAT 的**「环境读数」与「判据」分开记账** —— 做不出可靠两/多侧判据的观测量一律降级为「只登记不断言」 | Phase 51 两条读数（guest JS 堆曲线被 GC 耦合；B 侧进程 RSS 分支相关且排空瞬时缓冲可让峰值超过 body 体积本身）经 verifier 复跑证明会间歇转红。**为读数设阈值 = 造一条假判据** | ✓ 已验证 — Phase 51（verifier 实测 6 次 1 红后降级；降级后连跑 18/18 无抖动） |
+| 运行期新增的集成缝**必须由真实运行期驱动覆盖**，模块级测试密集 ≠ 覆盖 | Phase 51 的 `downloadPackage` 无绑定缺陷（CR-02）让「网络导入整条腿」在运行期 100% `ReferenceError`，而模块级单测 + 「首参逐字 `undefined`」形态门禁 + 无 `no-undef` 静态检查**三者全绿**。建议把该门禁从形态断言升级为绑定断言 | ✓ 已记录 — Phase 51（`51-REVIEW.md` CR-02 + STATE 加固建议） |
+
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries.
@@ -407,4 +427,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-15 after Phase 51 (用户技能导入管线（zip + 网络地址）) complete — 里程碑 v2.6 六阶段全部收口*
+*Last updated: 2026-09-15 after v2.6 (AI 助手技能（Skill）能力) milestone archived*

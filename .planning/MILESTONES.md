@@ -1,5 +1,61 @@
 # Milestones
 
+## v2.6 AI 助手技能（Skill）能力 (Shipped: 2026-09-15)
+
+**Phases completed:** 6 phases, 38 plans, 94 tasks
+
+**Key accomplishments:**
+
+- 技能目录落进硬沙箱 root、经薄 env 收窄加载面后进模块级缓存，再由同步零 IO 访问器拼成 system prompt 第 4 段；模型在 prompt 里看到的 `<location>` 已被真实沙箱 `readTextFile` 验证可打开
+- SDK 的递归扫描结果被收敛为 Realm 的契约布局（深嵌套不进集合）、名称权威从 frontmatter 收回到目录名（杜绝冒名）、同名来源冲突显式化为「遮蔽」——败者仍在数据层但不再进 prompt，三类新诊断全部可读可查
+- 技能集从「能跑」变成「可信」：每一个失败面都变成可同步读到的诊断，三条限额各自在正确位置生效并给出「哪个限额、当前值」，定序跨机确定，启停只过滤不删文件
+- 技能集变更从此「无需重启、无需重建 Agent、下一轮即生效、且跨窗口可见」；P8 失效链在本阶段可触发的三条路径全部闭合，并由一条源码扫描断言永久锁住「漏接线」；技能功能有了与实际行为一致的产品说明权威文档
+- 随包 `skills-builtin/find-skills`（零安装语义改写版）经 `builtin-skills-seeder.js` 原子播种进 `agent-workspace/managed-skills/`，技能加载器零诊断识别、因 `disable-model-invocation: true` 不进 system prompt —— 并以二段式静态扫描器把「零安装语义」变成机器可检的门禁
+- skill-creator 以固定 SHA（`b0cbd3df…`）的上游快照随包（18 文件 225,004 B + 自研 check_env.mjs），SKILL.md 经六处受控改写后不再含平台专有内容且带 Apache-2.0 §4(b) 修改声明；新增的 Node 环境预检探针把「缺 Python / 版本过低 / 缺依赖 / 缺命令」变成 8 个明确失败码与用户可操作指引；`THIRD_PARTY_NOTICES.md` 以五要素记录两个技能并让 `modified` 判定可被测试逐条检索 —— 而零安装语义扫描面同时从单技能扩到两技能、两次反向验证证明它不是空转
+- `/skill:name [args]` 打通解析 → 调用瞬间实时读盘 → SDK `<skill>` 块组装 → 注入 Agent → 入历史 → 重开对话按 args 还原气泡；renderer 侧气泡 pill / 折叠块 / 错误回滚 / 重发载荷收敛全部闭合，`skills:changed` 只重拉快照不自激。
+- 面板成为技能与本地命令的同屏发现面：展平单数组渲染 + 两个 sticky 分区标题、行五要素（名称 / 三档来源徽标 / `仅显式` / 截断描述 / 行尾标注）、↑↓ 跳过灰显不可选中行、技能行组装 `/skill:{name} args` 走既定发送链路、打开即快照渲染 + 后台刷新（失败保留旧快照）、args 不再吞字符。
+- 模型 `read` 技能正文时工具卡片标识为「使用技能「name」」并带来源徽标，重开对话按同一判据重建标记；「发现与调用」产品说明成文
+- `readSkillForInvocation` 的同一性判据从「SDK 读回的 name 与入参相等」改为「所在目录路径全等」，命中后把注入用 name 重写为目录名 —— 面板列出即可调用的承诺在 name≠目录名 形态上终于为真
+- 用户气泡构建收敛为 `buildUserMessageContent` 单源 + 回填后 `refreshUserMessageBubble` 定向刷新（pill 与折叠块当轮即现）；取消归属改用 `aiCancelledMessageId` 锚点解算，迟到的「用户已取消」只落在被取消的那条气泡上、不再越权复位新一轮
+- 发送路径的两段本地否决被删除，`/skill:<name>` 一律由主进程在调用那一刻读盘裁定（失败经既有 `skillError` 回滚，用户可见文案逐字不变）；`skills:changed` 改为无条件重拉快照；产品文档与三份 48 阶段计划/验证文本按 G-48-2 / G-48-3 修订并逐处留档，`AGENTS.md` 测试清单补登记 48-05 新建的取消归属测试
+- 主进程缓存存在性门被补上「有界重试」：`/skill:<新名>` 一旦判为不存在，就经唯一权威入口 `syncAgentSystemPrompt()` 重扫恰一次后当场重读磁盘 —— 运行期新增的技能目录（含 AI 经 `write`/`bash` 创建）不需要打开 `/` 面板或重启即可调用，而 shadowed / disabled / tier 三字段仍全部来自同一条加载管线
+- 延迟的技能 prompt 回写与 `skills:changed` 广播从「只有带 @ 引用/附件的那一轮、或打开面板才落地」变成
+- `manage_skill` 三动作（create / update / delete）落在 `ai-skills-manager.js` 的零 electron 依赖写权威面：统一目标判定 + seeded 登记表保护 + 字段分离扫描 + 文件级 rename 原子写 + 单次 `syncAgentSystemPrompt()` 刷新链，零新依赖
+- 三张跨进程白名单表 + 两时点标记（运行中给标题、终态给徽标与短原因）+ 按 toolCallId 的失败态元数据通道（绕开 SDK 恒为 `{}` 的 details）+ 实时与重载共用一个装饰构造，配 16 条 M 组断言与两条 48 共用面前置修复
+- 把「AI 自建技能」从代码事实提升为 Phase 50/51 唯一可读的权威口径：新增 `docs/product/ai-skills.md` §十一（三动作 / 九码拒绝面 / 两个上限闸职责 / 扫描与净化口径 / 三条诚实边界 / 时序语义），并在 AGENTS.md 挂上维护约定与实测测试账本、把 49-VALIDATION 矩阵按已交付任务重键并落定四条 OQ 裁决。
+- description 改经 YAML 单引号标量编码、净化后复验非空、写侧权威字节闸改按组装全文计字节 —— 「写侧允许落盘的技能必然能被加载管线收下」从一句声明变成三条可失败被观察的代码事实（`tools` 55/55、扫描层 33/33、兄弟套件 172/99 全绿，反向验证逐条指名转红的断言）
+- 渲染端的终态标记由覆盖改为经跨进程单源纯函数 `mergeManageSkillMarker` 并入、失败态原因码经 `[code] ` 词缀落库并在重载链路用同一个常量还原 —— Gap 2 / Gap 3 / WR-02 一并闭合，两组假绿守卫各自修出一条
+- 把 49-04 / 49-05 落地后变成不成立的三处文档声明逐条纠正（§11.7 失败态短原因 / §11.3 词缀成文 / §11.8 分账），并把「文档数字 == 实测数字」变成一条可重跑命令 —— 48 号五个编号（含 `WR-06`）一字未移出挂账句，本轮五个 49 号闭合项另起一句挂在 `49-REVIEW.md` 名下（八个账本单元一致、单点变异 3/3 转红、49-03 门禁回归通过）
+- `manage_skill` 卡片头部的超预算标注改取 `/` 面板单源的 ≤ 4 字机械投影（`超预算`，3 字），使 280px 面板下的头部单行不变式真正成立 —— 标注不再被祖先裁切（越界 0.00px）、技能名回到可压缩的 54px；并留下一条真实渲染回归门禁（红→绿两轮 + 声明投影 sha）兑现「子串/声明扫描会假绿」的教训。
+- `renderSkillContentBox` 增加语境开关：气泡实例施加 `role`/`tabindex`/`aria-expanded`/Enter-Space，卡片实例关闭（宿主用 `max-height: 0` 折叠，后代不会自动退出顺序焦点导航），并以真实 Tab 遍历 + 命中测试门禁取得红→绿两轮证据
+- 管理面投影 + 不依赖 Agent 的读路径初始化 + `GET /api/skills/list` + 设置页只读三档分组列表（零 innerHTML 全 DOM 构建）+ `STATUS_TEXT` 第 5 条与状态链单源 + D-13 尺寸口径（递归/含 SKILL.md/不含隐藏/目录 size 不计/不穿 symlink/不进 digest）
+- 仅 user 可卸载的三态判据 + 第十码 `not_user_owned` + 管理面安全超集谓词；两个 HTTP 写端点与 `aiSkills`/`aiSkills.disabled` 双键服务端校验；写路径「重扫恰一次 + 调用侧补播恰一次」并把补播的存在理由用忙时用例独占钉住
+- `readJsonBody(req, res, { maxBytes })` 的累积中体积闸（默认 1 MiB fail-closed，两个书签导入端点显式 32 MiB）+ 承重的 `res` 缺失降级分支 + `sendJson` 幂等护栏（一次修好 13 处发送点）+ 全部 59 处调用点改签名；三个 IPC 管理通道与 `realmAPI` 三方法转发到同一组 manager 函数、handler 零判定
+- 行内启停开关（乐观翻转 + 失败回滚）与卸载二次确认弹框（`realm://` div 遮罩范式）；诊断的两层承载 —— 行内 `诊断 N` 徽标控制无 header 的内联详情区、模块级 `errors[]` 走默认展开的顶部汇总条；折叠态收敛到 `setCollapsed` 单点双写；「仅显式」提升为跨进程单源并一并改写三条既有断言
+- 管理面从代码事实提升为成文契约（`docs/product/ai-skills.md` §十二 12.1–12.9 + 五条诚实边界），维护约定与测试账本三处同批刷新，counts-parity 扩到 5 套件后转绿（cells=16），Phase 50 的七个套件门禁全绿
+- `resolveInsideForWrite` 闭合「中间目录为 symlink 且写目标不存在」的沙箱写逃逸：五个写方法与两个临时目录方法全部切换，读面判据一字未动，既有 21 例零删改、新增 17 例（38/38 全绿）
+- `yauzl@^3.4.0` 与精确钉版的 `yaml@2.9.0` 落进 `dependencies`、lock 入库、磁盘上 yaml 单实例、打包面零改动 —— 并把 `yaml` 的 `[SUS]` 供应链闸走成一次可归因的人工确认
+- 本计划由编排层在子代理 429 中断后接管续做
+- 本计划由主会话内联执行
+
+### Verification
+
+- Closeout type: **override_closeout**（用户 2026-09-15 显式裁决「proceed anyway」）
+- 47/47 requirements complete；38/38 plans；6/6 phases
+- **Known verification overrides**：46 / 47 / 48 / 49 / 50 五阶段的 `*-VERIFICATION.md` 对**当前树**为 `stale` —— 其 `covered_files` 含 `ai-manager.js` / `main.js` / `src/settings-page.js`，被后续阶段（含 Phase 51 收尾时修掉的 CR-02）与并发 webview 工作改动过 ⇒ `covered_digest` 失效。这是「后续阶段落代码即让先前阶段 digest 失效」的**结构性**后果，**不是**这些阶段的结论有变：五阶段的 `*-UAT.md` 均 `complete`、`*-VERIFICATION.md` 的 frontmatter 均 `status: passed`、`*-SECURITY.md` 均 `threats_open: 0`。
+- **未运行里程碑审计**（无 `v2.6-MILESTONE-AUDIT.md`）。`audit-open` 全类扫描为 **0 开放项**，另有 40 项历史 acknowledge 仍处于抑制态。
+- **Phase 51 收尾抓到并修复真 blocker `CR-02`**：`ai-manager.js` 的 `downloadPackage` **只有调用没有绑定** ⇒ 所有网络地址导入（zipball 与直链 SKILL.md）运行期 100% `ReferenceError`；三条既有护栏（模块级单测打的是另一侧导出面、「首参逐字 `undefined`」只断言调用**形态**、仓内无 `no-undef` 静态检查）全绿也照不到。详见 `milestones/v2.6-phases/51-zip/51-REVIEW.md`。
+- 代码审查挂账未修（不阻断）：`CR-01`（同一弹框会话第 4 次连续预览必返 `too_many_pending` 且无自救入口）、`WR-01` / `WR-02` / `WR-03`。
+
+### Archive
+
+- Roadmap: `.planning/milestones/v2.6-ROADMAP.md`
+- Requirements: `.planning/milestones/v2.6-REQUIREMENTS.md`
+- Phases: `.planning/milestones/v2.6-phases/`（`46-prompt` / `47-bash` / `48-skill-name` / `49-manage-skill-ai` / `50-api-skills` / `51-zip`）
+- Tag: `v2.6`
+
+---
+
 ## v2.5 AI 网络搜索功能 (Shipped: 2026-09-10)
 
 **Phases completed:** 6 phases, 38 plans, 76 tasks
