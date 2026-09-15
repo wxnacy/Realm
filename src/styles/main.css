@@ -10746,3 +10746,229 @@ textarea::placeholder {
    body 的 max-height: 260px 内层滚动同样是既有声明）。本段只保留上面那条
    「与下方列表的段间距」的相邻兄弟规则（.ai-skill-content-box.skill-manage-summary
    + .skill-manage-groups { margin-top: 16px }）。 */
+
+/* ===== 设置页「技能导入」（Phase 51） ===== */
+
+/* 区标题行：标题 + 右侧「导入技能」入口按钮。
+   作用域覆盖 ②：把标题自身的 margin-bottom 归零，16px 由本行承担 ⇒ 几何结果与既有逐值相同，
+   本区以外的 .settings-group-title 零变化。 */
+.skill-manage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.skill-manage-header .settings-group-title { margin-bottom: 0; }
+
+/* 作用域覆盖 ①：模式选择的 .active 文字色。
+   存量 .ai-memory-tab.active 的 --accent-color 对宿主实测暗 3.90 / 亮 3.37 < 4.5:1（14px 非大字）。
+   几何值（padding / font-size / border-bottom）一字未改 ⇒ 不产生同排参差；
+   AI 记忆区的三个 tab 零变化（其既有不达标见 ## Color 补记 ④）。 */
+.skill-manage-section .ai-memory-tab.active { color: var(--text-primary); }
+
+/* ---- 导入弹框 ---- */
+.skill-import-modal { width: 560px; max-width: 94vw; }
+
+/* 两个面板：显隐一律走 display（CSP 安全；不用 max-height / visibility —— 后者不移出 Tab 序） */
+.skill-import-panel { display: none; flex-direction: column; gap: 8px; }
+.skill-import-panel.active { display: flex; }
+
+/* 隐藏的 file input（初始隐藏走类规则，不写 markup 内联 style）。
+   可见入口是 .skill-import-pick = .btn.btn-secondary.btn-sm，点击时转调 input.click()。 */
+.skill-import-file-input { display: none; }
+
+/* 输入行（URL / 新的技能名）：几何逐值照抄 .whitelist-input-area .text-input，
+   但**不照抄**其 :focus { outline: none }（1px accent 边框对输入框底实测 3.09 / 2.92 < 3:1）。 */
+.skill-import-field { display: flex; align-items: center; gap: 8px; }
+.skill-import-field .text-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 40px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+/* 作用域覆盖 ③：焦环走 50 已确立的形状（accent 对 --bg-secondary 3.90 / 3.37 ≥ 3:1） */
+.skill-import-field .text-input:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+/* 弹框状态行（兼 aria-live 播报区；空文本时经 CSSOM display:none 不占位） */
+.skill-import-status {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+.skill-import-status-danger { color: var(--skill-error-text); }
+
+/* 预览卡片容器：弹框内**唯一**滚动容器（min-height: 0 是它能在 flex 列里收缩的前提）。
+   键盘可达：容器在 markup 上声明 tabindex="0"（见 ## 结构与交互契约 的键盘契约）；
+   焦点环走 UA 默认，**不为此新增规则**。 */
+.skill-import-preview {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+}
+.skill-import-preview.active { display: flex; }
+
+/* 字段行：11px 标签 + 12px 值（与来源徽标同处「可扫读的次要信息」一档） */
+.skill-import-field-row { display: flex; align-items: baseline; gap: 8px; }
+.skill-import-label {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.skill-import-value {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
+}
+.skill-import-value-mono { font-family: var(--font-mono, monospace); word-break: break-all; }
+
+/* description **原文**：不净化、不语义截断 */
+.skill-import-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 计数（11px，与标签同档） */
+.skill-import-count {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+/* 目录树 */
+.skill-import-tree { display: flex; flex-direction: column; gap: 4px; }
+.skill-import-tree-row {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.skill-import-tree-row-dir { color: var(--text-primary); }
+.skill-import-tree-row-file { color: var(--text-secondary); }
+.skill-import-tree-name { min-width: 0; word-break: break-all; }
+
+/* 脚本清单（标红；--skill-error-text 对宿主 7.56 / 5.93 ≥ 4.5:1） */
+.skill-import-scripts { display: flex; flex-direction: column; gap: 4px; }
+.skill-import-script-path {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--skill-error-text);
+  word-break: break-all;
+}
+
+/* 说明 / 诚实边界文案（不构成额外权限 / 预览不代表安全） */
+.skill-import-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+/* 扫描结论两栏：左高亮条是**非文本**指示（lim 对宿主 6.68 / 6.50 ≥ 3:1） */
+.skill-import-scan { display: flex; flex-direction: column; gap: 8px; }
+.skill-import-scan-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-left: 2px solid var(--border-color);
+  padding-left: 8px;
+}
+.skill-import-scan-col-heuristic { border-left-color: var(--skill-limit-text); }
+.skill-import-scan-head {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+.skill-import-scan-item {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--skill-limit-text);
+  word-break: break-word;
+}
+
+/* 风险必勾区 */
+.skill-import-ack { display: flex; flex-direction: column; gap: 8px; }
+.skill-import-ack-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--skill-limit-text);
+  word-break: break-word;
+}
+.skill-import-ack-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+/* 勾选态的填充色与既有 .ai-switch.on 的强调色一致；未勾选态的可见性沿用本页既有裸 checkbox
+   的同一宿主同一底（settings.html:160 / 674 / 765），且状态变化另有文本冗余表达
+   （= ## Color 的「Accent reserved for」第 4 项：本阶段唯一用 accent 做填充处，
+   可撤回的装饰性强化 —— 删掉即回落 UA 默认强调色，功能零损失）。 */
+.skill-import-ack-box { accent-color: var(--accent-color); }
+
+/* 冲突三选一 */
+.skill-import-conflict {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-left: 2px solid var(--skill-limit-text);
+  padding-left: 8px;
+}
+.skill-import-radio-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+/* 改名校验失败的**就近**内联文案 */
+.skill-import-error {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--skill-error-text);
+  word-break: break-word;
+}
+
+/* 禁用原因的**可见文本**（.btn:disabled 的 pointer-events:none 让 title 无法触发 ⇒ 必须上屏） */
+.skill-import-gate {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+/* 动作区（形状逐值照抄 50 的 .skill-manage-confirm-actions） */
+.skill-import-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+/* 强调按钮：白字对 --accent-color 仅 3.68:1 ⇒ 用 accent **边框**（非文本，对外部邻色 3.90 / 3.37 ≥ 3:1）
+   + 600 字重，**不用** accent 填充。全局 button 无边框（main.css:146）⇒ 必须新增；
+   box-sizing: border-box + .btn-sm 定高 28px ⇒ 零布局位移。 */
+.skill-import-confirm { border: 1px solid var(--accent-color); font-weight: 600; }

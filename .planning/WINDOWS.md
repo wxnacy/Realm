@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 46
+open_count: 49
 waived_count: 0
 fixed_count: 2
-total_count: 48
-last_updated: 2026-09-15T09:03:36.582Z
+total_count: 51
+last_updated: 2026-09-15T09:40:39.796Z
 ---
 
 # Broken Windows Ledger
@@ -63,6 +63,9 @@ last_updated: 2026-09-15T09:03:36.582Z
 | 46 | 51 | deviation | tests/test-skills-import-net.js |  | 51-05 判据依赖的源与盲窗（成文，不改计划判据）：门禁自带 stripC（五态剥注释器，与 51-03/51-04/51-06 同一份）对 ai-skills-manager.js **有状态机错位盲窗**：yamlScalar 的 .replace(/'/g, "''") 是含引号的正则字面量，剥注释器无 regex 态 ⇒ 从该处起状态漂移，第 136..2489 行的注释**未被剥离**（实测：state=3 覆盖 136..2489，之后自行闭合）。后果：落在这个窗口里的注释会被当作代码计入。本计划的规避方式是把新增段头部注释里的 importUserSkill( / yauzl.openPromise( 字面量改写为无括号措辞（门禁 G2 的『定义 1 / 调用 1』因此成立）；**计划判据一字未改**。后续计划若要在该窗口内写这些 token 的注释，须先修剥注释器或换措辞 | open |  | 2026-09-15T09:03:27.026Z |  |
 | 47 | 51 | deviation | ai-skills-manager.js |  | 51-05 两处对计划 artifact 表的**加成式**偏离（不改任何判据口径，均为可选/附加字段）：① verifyPackageBytes 增加可选第三参 contentType（计划 artifact 表登记 (destPath, kind)）—— 计划任务体逐字要求『message **用 content-type 补充**』，把 content-type 作为可选形参传入是最小实现，两个门禁只断言函数名存在；② classifyImportUrl 的返回对象在 { kind, target, scopeRel, ref, code?, message? } 之外附加 fallbackRef / refBase（计划正文具名 fallbackRef、refBase 是本实现新增的重试基址），用于「main 404 ⇒ 用 master 重试恰一次」；两者都不放宽任何安全判据 | open |  | 2026-09-15T09:03:36.498Z |  |
 | 48 | 51 | deviation | tests/test-skills-import-net.js |  | 51-05 Task 3 端到端证据落在 **manager 层**而非 previewSkillImport（如实登记，非能力缺失）：纯 Node 下 require('electron') 返回字符串 ⇒ net.fetch 不存在 ⇒ 生产侧的 url 分支在纯 Node 里**结构性不可达**（这正是注入缝存在的理由，也是 51-VALIDATION.md 把『真实 GitHub 端到端』列为 Manual-Only 的原因）。套件用 runUrlPipeline 复现同一段调用序列（分类→下载→校验形态→准备器→公共后段→importUserSkill），生产侧等价性由源码判据守住（locateSkillRoot(/buildImportPreview( 在 ai-manager.js 各恰 1 处 + 门禁 G2 整段断言）。真实 GitHub 的成功路径仍待人工一次性验证 | open |  | 2026-09-15T09:03:36.582Z |  |
+| 49 | 51 | unrun-verify | .planning/phases/51-zip/51-06-PLAN.md |  | 51-06 T2 门禁三（码表双向覆盖）的键正则为 /[a-z_]{4,}:/ —— 不含数字类，无法匹配 unsupported_zip64: ⇒ 对任何正确实现恒红（表里该键确实存在且文案取 UI-SPEC 逐字）。计划判据一字未改；权威判据按计划指定落点放在 tests/test-skills-import.js（用 /^\\s*([A-Za-z][A-Za-z0-9_]*)\\s*:/gm + 正命题 tableKeys.size>=21），已以 M11（删掉该键）验证转红并指名 unsupported_zip64 | open |  | 2026-09-15T09:40:39.633Z |  |
+| 50 | 51 | unrun-verify | .planning/phases/51-zip/51-06-PLAN.md |  | 51-06 T1 门禁二（状态机与交互）的「文件输入未在 finally 里置空」判据用子串 input.value = "" / value = "" —— 被无关的 fileInput.value = ""（open/close 复位）命中，删除 change 处理器 finally 里的 input.value = "" 后该门禁仍报 ok（无判别力）。已以实测确认：门禁绿而套件级判据 tests/test-skills-import.js「文件选择链路：change 处理器在 finally 里置空文件输入」转红并给出定长原因 | open |  | 2026-09-15T09:40:39.715Z |  |
+| 51 | 51 | deviation | .planning/phases/51-zip/51-06-PLAN.md |  | 51-06 T3 acceptance_criteria 指定的两条 backstop 变异与断言之间无因果链（实测逐字未变）：① 删 .skill-import-preview 的 min-height:0 ⇒ 读数 modal=564.796875 inner=706 不变（.ai-modal 自带 max-height:80vh 已钳住上界；且 overflow-y:auto 的 flex 子项按 Flexbox §4.5 自动最小尺寸本就是 0 ⇒ 该声明冗余）；② 给 .skill-import-actions 加 flex-wrap:wrap ⇒ sw=304 cw=304 与同排断言不变（该容器内只有两个 ~40px 按钮，任何测试宽度下都不会换行）。已改用能真正探到同一属性的可满足探针证明判别力：删 .ai-modal 的 max-height:80vh ⇒ E2 三条断言转红（modal=2059.5625、预览内滚动 0、零可滚动容器，49/52 passed）；给动作区按钮加 min-width:300px ⇒ withinRow 转红（51/52 passed）。另注：E17 的 scrollWidth<=clientWidth 对左侧溢出无判别力（flex-end 把溢出推向左，scrollWidth 不增长），真正承重的是 withinRow 那条 | open |  | 2026-09-15T09:40:39.796Z |  |
 
 ````json
 [
@@ -640,6 +643,42 @@ last_updated: 2026-09-15T09:03:36.582Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-15T09:03:36.582Z",
+    "resolved_at": null
+  },
+  {
+    "id": 49,
+    "kind": "unrun-verify",
+    "phase": "51",
+    "file": ".planning/phases/51-zip/51-06-PLAN.md",
+    "line": null,
+    "description": "51-06 T2 门禁三（码表双向覆盖）的键正则为 /[a-z_]{4,}:/ —— 不含数字类，无法匹配 unsupported_zip64: ⇒ 对任何正确实现恒红（表里该键确实存在且文案取 UI-SPEC 逐字）。计划判据一字未改；权威判据按计划指定落点放在 tests/test-skills-import.js（用 /^\\s*([A-Za-z][A-Za-z0-9_]*)\\s*:/gm + 正命题 tableKeys.size>=21），已以 M11（删掉该键）验证转红并指名 unsupported_zip64",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T09:40:39.633Z",
+    "resolved_at": null
+  },
+  {
+    "id": 50,
+    "kind": "unrun-verify",
+    "phase": "51",
+    "file": ".planning/phases/51-zip/51-06-PLAN.md",
+    "line": null,
+    "description": "51-06 T1 门禁二（状态机与交互）的「文件输入未在 finally 里置空」判据用子串 input.value = \"\" / value = \"\" —— 被无关的 fileInput.value = \"\"（open/close 复位）命中，删除 change 处理器 finally 里的 input.value = \"\" 后该门禁仍报 ok（无判别力）。已以实测确认：门禁绿而套件级判据 tests/test-skills-import.js「文件选择链路：change 处理器在 finally 里置空文件输入」转红并给出定长原因",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T09:40:39.715Z",
+    "resolved_at": null
+  },
+  {
+    "id": 51,
+    "kind": "deviation",
+    "phase": "51",
+    "file": ".planning/phases/51-zip/51-06-PLAN.md",
+    "line": null,
+    "description": "51-06 T3 acceptance_criteria 指定的两条 backstop 变异与断言之间无因果链（实测逐字未变）：① 删 .skill-import-preview 的 min-height:0 ⇒ 读数 modal=564.796875 inner=706 不变（.ai-modal 自带 max-height:80vh 已钳住上界；且 overflow-y:auto 的 flex 子项按 Flexbox §4.5 自动最小尺寸本就是 0 ⇒ 该声明冗余）；② 给 .skill-import-actions 加 flex-wrap:wrap ⇒ sw=304 cw=304 与同排断言不变（该容器内只有两个 ~40px 按钮，任何测试宽度下都不会换行）。已改用能真正探到同一属性的可满足探针证明判别力：删 .ai-modal 的 max-height:80vh ⇒ E2 三条断言转红（modal=2059.5625、预览内滚动 0、零可滚动容器，49/52 passed）；给动作区按钮加 min-width:300px ⇒ withinRow 转红（51/52 passed）。另注：E17 的 scrollWidth<=clientWidth 对左侧溢出无判别力（flex-end 把溢出推向左，scrollWidth 不增长），真正承重的是 withinRow 那条",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T09:40:39.796Z",
     "resolved_at": null
   }
 ]
