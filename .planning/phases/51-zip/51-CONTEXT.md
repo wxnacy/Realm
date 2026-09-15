@@ -159,6 +159,27 @@
   - ⚠️ **但 `STATE.md` 的 ⚠️ 不得被读成 P8 失效链 6/6 全覆盖**：**读侧 / 兜底**份额（`refreshSkillsForPanel()`、`ensureSkillsFresh()`）与**写路径**份额**不是同一个量**（50 D-18 / OQ-5 的双账本口径）⇒ 收口时**分别记两个数**。
   - 设置页**每次操作后自行重拉列表**、**每次进入该页时重拉**；**多开设置页实例之间不做即时同步**（50 D-18 的诚实边界：`broadcast` 只到 BrowserWindow 的 webContents，不到 webview guest；为 guest 单开 push 通道是新基建）。
 
+### 研究校正与开放问题处置（2026-09-15，源：`51-RESEARCH.md`）
+
+研究已完成（1628 行，含 10 节实测、34 条实测结论 V1–V34 与 8 条推断 A1–A8 分栏）。**以下 12 条校正权威度高于本 CONTEXT 的对应决策**，plan 期必须按此处实现；`51-RESEARCH.md` 是事实来源。
+
+- **CR-1（改 D-05 的白名单条目）**：**`skills.sh` 的保留理由不成立**。实测 `https://skills.sh/` → **308 → `www.skills.sh`**（不在白名单）⇒ 按 D-05 字面实现会让该条目**在第一跳被自己的逐跳校验拒**，等于挂一条永远不可达的白名单项；且 `grep` 全仓 `skills-builtin/` + `docs/` + 根 `*.md` **零命中 `skills.sh`** —— 47 改写后的 `find-skills` 候选输出是 **GitHub 仓库 URL**（检索端点 `api.github.com/search/repositories`），不是 skills.sh。
+  - **裁决**：白名单**同时含 `skills.sh` 与 `www.skills.sh`**（等价做法：主机匹配规范化为「去 `www.` 前缀后比对」），并在 `docs/product/ai-skills.md` **如实**写「该源保留为未来兼容，本阶段无消费者」。**不要**写成「承载产品闭环」——那是已过时的理由（这条纠正本身也须落文档，否则同样的错论会再传一手）。
+  - **CR-1b（同一批）**：**`api.github.com` 显式拒绝**并给码 `unsupported_url`（它在白名单只服务 `find-skills` 检索，导入管线无载荷语义；D-06 已定不做 Contents API）。文档写明「保留在白名单是为未来兼容，本阶段导入不承载它」，避免出现「白名单放行但行为未定义」的第四分支。
+- **CR-2（改 D-14 的 yaml 版本写法）**：**必须精确钉 `"yaml": "2.9.0"`，不得写 `^2.9.0`**。实测 `^2.9.0` 会解析到根 `2.9.1`，而 SDK 精确依赖 `2.9.0` ⇒ **双实例**（根 + 嵌套），正是 O5 明文要避免的「双实例静默解析差异」。SDK 侧用哪个 yaml 版本已逐字核实。
+- **CR-3（改 D-12 附带的错误码落点）**：**新增导入错误码不得并入 `MANAGE_SKILL_ERROR`**。该表被 `tests/test-manage-skill.js:1589` 锁死为**恰 11 键**，`:1605` 的失败信息逐字写着「不得再新立第十二键」⇒ 加码会让 49/50 的账本同时漂移。**裁决：新建独立常量 `IMPORT_SKILL_ERROR`**（独立命名空间）+ `docs/product/ai-skills.md` 新增导入章节的错误码表 + `AGENTS.md` 测试清单同步。**Pitfall 6 的替代路径（显式修订既有断言）不采用** —— 本阶段没有必须复用该常量取值的理由。
+- **CR-4（改 D-11 的嵌套深度口径与取值）**：**深度按「定位到的技能根」相对计，限额 ≥ 12**（建议直接对齐仓内先例 `SKILL_SIZE_WALK_MAX_DEPTH = 16`）。P7 建议的 8 在**包根口径**下会被 `anthropics/skills` 的 `docx` / `pptx` / `xlsx` **正好打满**（实测最深处 `<顶层前缀>/skills/docx/scripts/office/schemas/ecma/fouth-edition/opc-contentTypes.xsd`，斜杠数恰 8）；相对技能根同批文件只有 5。**该口径必须写进 `docs/product/ai-skills.md` 的限额章节**，否则用户看不懂「为什么一个 6 层目录的技能被拒」。
+- **CR-5（改 D-01 的不变式表述，方向纠正）**：D-01 原写「上传的东西不可能合法地超过它能解出的上限」—— **该不变式的反方向不成立**：实测一个 101,923 B 的包声明解出 **104,857,600 B**（`bomb-ratio.zip`）⇒ **上传闸对炸弹防护零贡献**。正确表述（计划文本必须用这句）：「**合法包**的解压总量 ≤ 32 MiB ⇒ 其**压缩后**体积必然 ≤ 32 MiB，故上传闸不会误杀合法包」。**压缩比闸与累计解压闸是两道独立的自建闸**，测试必须分别断言「压缩比闸拦下了炸弹」而不是只断言「上传闸拦下了」。
+- **CR-6（yauzl 用法的三条实测约束，直接决定实现形态）**：① **`eachEntry()` 的 iterator `return()` 会 `close()` 整个 zipfile**（`autoClose` 默认 `true`）⇒ 「先枚举收集数组、循环外再 `openReadStream`」100% 得 `Error: closed`（研究首版探针六个样本全部踩中）。**必须在 `for await` 体内开流**，或改走 `readEntry()` + 事件。② **`validateFileName` 只拦三类**（含 `\`、盘符/绝对路径、`split('/').includes('..')`）⇒ **ADS（`evil.txt:ads`）/ 控制字符 / NUL / 尾随空格与点 / `a//b` / RTL override 六类全部放行**，必须**自建** entry 名校验；且因 `strictFileNames !== true`（默认）时库会**先把 `\` 换成 `/`**，逃逸判据要在**替换之后**、`path.posix.normalize` 之后再判。③ **`uncompressedSize === 0xFFFFFFFF` 完全静默**（缺 zip64 extra field 时不报错、值原样停在 4294967295）⇒ **显式判 `=== 0xFFFFFFFF` 即拒绝**（`unsupported_zip64` 类码），否则 4 GiB 的荒谬值会参与压缩比运算。另：**stored 条目的 `validateEntrySizes` 在枚举期报错，deflate 的在流中报错**；`chrdev` / `fifo` / `socket` 三种 mode **不报错**。
+- **CR-7（改 D-06 的技能根定位范围）**：**「全包扫描」不能限定 `skills/*`**。实测 `anthropics/skills` 的 `template/SKILL.md` 位于**包根**，只扫 `skills/` 会漏。按 D-06 字面「全包扫描恰好一个 `SKILL.md`」实现，并在多根拒绝文案里用**实测的 20 个根**做例子。
+- **CR-8（D-06 的次生落差，必须在拒绝文案里处置）**：`anthropics/skills` 整仓实测 **20 个技能根 → 必被 D-06 拒**，而 `find-skills` 给出的候选**正是**这类 GitHub 仓库 URL ⇒ 用户拿到候选后**必须自己补 `tree/<ref>/<path>`**。**处置走拒绝提示文案**（讲清 `tree/<ref>/<path>` 的正确形态并给一个实测样例），**不改内置技能正文** —— 改 `skills-builtin/**` 会连带触发 `THIRD_PARTY_NOTICES.md` 五要素同步与零安装语义扫描，成本远高于文案。
+- **CR-9（D-12 的威胁模式护栏，实测必需）**：三类模式里「诱导跳过确认」最自然的中文模式**会命中内置 `find-skills/SKILL.md` 自身**（`- 本技能不会建议绕过任何确认提示；任何绕过确认的做法都属于越界。`）—— 一个**明确禁止**绕过的句子被「绕过确认」模式抓走。**实测有效的护栏**：命中点之前**同一行内 40 字符内不得出现否定词**，形如 `/^(?![^\n]{0,40}(不会|不得|禁止|不要|不建议|绝不|不能))[^\n]{0,40}(绕过|跳过|忽略)[^\n]{0,8}(确认|审批|授权|权限检查)/`。⚠️ **lookbehind `(?<!...)` 无效**（实测仍命中，因为否定词与命中点之间隔着「建议」两字）。**必须把 `skills-builtin/**` 当回归夹具钉进测试**（这就是「正命题 + 真实语料」的价值，也是 49 `WR-12` 教训的正面做法）。
+- **CR-10（D-12 的必勾复选框效力边界，成文）**：**后端不校验**该复选框。理由：`importId` 已等价于「用户看过预览并确认」这一事实；后端再加一个布尔只能是「客户端能伪造就等于没有」的**假安全**。真正的边界是「预览确认 + 沙箱」，默认勾选项是 UX 提示。**必须写进 `docs/product/ai-skills.md` 说明这是有意选择**。
+- **CR-11（测试跑法的实测口径）**：**本项目没有 `npm test`**（`package.json.scripts` 实测无 `test`）。**新增两个套件统一用 `node tests/<file>.js` 形态**（与待增补的四个套件一致）；**套件名里不得出现 `picker`** —— counts-parity 脚本按文件名是否含 `picker` 决定是否插 `--test`。全量命令见 `51-RESEARCH.md` §Validation Architecture（9 个套件、估计 ≤ 20 s）。
+- **CR-12（可复现性纪律，直接回应 `IN-16` / `WR-09`）**：**夹具不得只留 `/tmp`** —— 研究用的恶意样本生成器与威胁语料校准器必须**固化进仓库**（`tests/fixtures/skill-packages/` 或 `tests/helpers/make-malicious-zip.js`），覆盖：symlink（file / dir / 混装）、非普通文件（chrdev / fifo / socket）、逃逸族 12 例、冲突名 4 例（大小写 2 + NFC/NFD 2）、炸弹 3 例、`0xFFFFFFFF`、加密条目、不支持的方法、空包、data descriptor、zip64。另：`playwright` **只在全局**（仓内 `require.resolve` 失败）⇒ 任何新增 uat 驱动**必须** `NODE_PATH="$(npm root -g)"`；无全局 playwright 的环境该层证据降级为「本机可重跑」，**新驱动不得再背一条同类不重跑债**。**网络面测试用本地 stub server，不得依赖实时外网**；`anthropics/skills` 的语料要固化为精简样本。
+
+**另有三条 research 的推断需 plan 期按 `[ASSUMED]` 处置**（见 `51-RESEARCH.md` §Assumptions Log 的 A1–A8）：压缩比闸的具体阈值与「合法包」边界、TTL 与并发上限的实测取值、以及 32 MiB 上传在本机 Electron 的真实耗时（研究在真实 Chromium 下实测 32 MiB / 26 ms、33 MiB 413、堆持平 —— 量级结论可用，绝对值按本机复核）。
+
 ### Claude's Discretion
 
 - `importId` 的生成方式（`crypto.randomUUID()` vs 随机 hex）、Map 字段名、**TTL 具体值（建议 10 分钟）**、**并发上限（建议 3）**。
