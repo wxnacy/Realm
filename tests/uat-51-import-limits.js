@@ -47,7 +47,7 @@
  *   是**量化**值且与 GC 强耦合 —— 实测标定（对同一个 File 显式 `await file.arrayBuffer()`）
  *   得到的增量是 **负值**（构造期垃圾在被测窗口内被回收，量级盖过拷贝本身），
  *   说明它做不出可靠的两侧判据。故堆序列只作为环境读数入证据，**不设阈值**。
- *   真正承重的是上面 ③ 的确定性源码判据与 A/B 两侧的 RSS 判据。
+ *   真正承重的是上面 ③ 的确定性源码判据与 **A 侧**的 RSS 正命题；B 侧 RSS 同款降级为读数。
  * - 绝对耗时**只登记不断言**（本机环境相关量）。
  * - RSS 是**主进程**的量（渲染进程另有独立进程）；它对应的是 `readRawBody` 的累积，
  *   不是渲染堆。两者分开报，不混为一谈。
@@ -649,7 +649,7 @@ async function main() {
       note:
         'performance.memory.usedJSHeapSize 是量化值且与 GC 强耦合；本次显式 arrayBuffer 的' +
         '峰值增量为 ' + calib.peakDelta + ' B（负值 = 构造期垃圾在被测窗口内被回收）。' +
-        '故本驱动不把 guest 堆曲线做成阈值判据，改用「确定性源码判据 + 主进程 RSS 两侧判据」。',
+        '故本驱动不把 guest 堆曲线做成阈值判据，改用「确定性源码判据 + A 侧 RSS 正命题」。',
     };
     log(`  器材读数（显式 arrayBuffer ${calib.copiedBytes} B）：堆峰值增量 ${calib.peakDelta} B / ${calib.samples} 采样（只登记不断言）`);
 
@@ -890,11 +890,8 @@ async function main() {
         'RSS 峰值可超过 body 体积本身（verifier 实测 68.1 MB > 67.1 MB）。' +
         '「内存上界如实为 maxBytes」由 readRawBody 的源码契约 + 三条单点变异自证承重。',
     };
-    check(
-      'B（分支登记·信息性）：`readRawBody` 走了两条合法分支之一',
-      overBranch === 'content-length-fast-path' || overBranch === 'bounded-accumulation',
-      `branch=${overBranch} rssDelta=${overRssDelta}（body ${buildOver.size} B，上限 ${MAX_BYTES}）`
-    );
+    /* ⚠ 刻意**不**给分支登记加 `check()`：`overBranch` 的定义域就是这两值，写成断言是**恒真**的
+       （verifier 复核指出）。分支只作为**读数**入证据（`overRssReading.branch`）与日志。 */
     log(
       `  [读数] B 侧 RSS 增量 ${overRssDelta} B（body ${buildOver.size} B）· 分支 ${overBranch} —— 只登记不断言`
     );

@@ -72,7 +72,7 @@ expected: |
   dev 模式打开 DevTools Performance，上传一个接近 32 MiB 的包 ⇒ 记录耗时与堆曲线；
   确认**无**「先 `arrayBuffer()` 再判大小」的峰值。
 result: pass
-automated_by: tests/uat-51-import-limits.js（19/19，连跑 3 轮无抖动）
+automated_by: tests/uat-51-import-limits.js（18/18，连跑 2 轮无抖动）
 evidence: |
   - **A 近限成功**：包在 **guest 内现场生成**（store 方式 + 正确 CRC32，**不经 CDP 传字节**），
     解压总量 31,744,134 B（< 32 MiB 上限）、32 条目；上传 **906～1059 ms** 走到就绪态。
@@ -100,7 +100,7 @@ boundary: |
      所以早先记录的「21/21 全过」是**单次采样**。根因：累积分支下 `req.resume()` 排空 64 MiB
      的 body 会产生大量**瞬时 chunk 缓冲**叠加 GC 滞后，RSS 峰值可**超过 body 体积本身**
      （实测 68.1 MB > 67.1 MB）—— 该仪器在此路径上测的不是「应用缓冲上界」。
-     **处置**：删掉阈值断言，改记为 `overRssReading`（含分支标签）；本驱动连跑 3 轮均 19/19，
+     **处置**：删掉阈值断言，改记为 `overRssReading`（含分支标签）；verifier 复核后又删掉一处**恒真的**「分支登记」断言（`overBranch` 的定义域就是那两值，写成断言恒绿）。本驱动连跑 2 轮均 18/18，
      B 侧读数在 12.0 / 49.8 / 53.2 MB 之间波动（波动本身即该仪器不可靠的实证）。
      「不无上限读入内存」改由**确定性源码判据 + 变异自证**承重。
 
