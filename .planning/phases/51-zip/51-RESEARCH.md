@@ -1427,9 +1427,9 @@ await env.remove(bak, { recursive: true, force: true });        // ③ 成功后
 
 **结论：本研究的 10 项「真正需要新调研」的内容全部落在「实测结论」栏，无一项留在「推断」栏。** 推断栏的 8 条都是**环境等价性**、**语料覆盖度**与**产品裁决**类问题，不影响 D-01..D-19 的任一条落地。
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **`skills.sh` 白名单条目（D-05）如何处置？**（⚠️ **本阶段唯一的必答项**）
+1. **`skills.sh` 白名单条目（D-05）如何处置？**（⚠️ **本阶段唯一的必答项**） —— **RESOLVED**：采纳下方推荐项 **(a)**（白名单同时含 `skills.sh` 与 `www.skills.sh`；实现形式是主机匹配归一化去前导 `www.`）⇒ 该裁决以 **CR-1** 载入 `51-CONTEXT.md` 并据此修订 D-05；独立于 (a)(b)(c) 的次生落差按推荐走**拒绝提示文案**（**CR-8**）。落点：`51-05-PLAN.md` T1/T2/T3 与 `51-03-PLAN.md` T1（多根拒绝文案）。
    - **What we know:** 实测 `skills.sh` 308 → `www.skills.sh`（不在白名单）；`www.skills.sh` 下无 zip/raw 语义（`/anthropics/pdf`、`/skills/pdf`、`/api/skills` 全 404；`/p/<任意id>` 200 但只是 SPA 壳）；`grep` 全仓 `skills-builtin/` + `docs/` + 根 `*.md` **零命中 `skills.sh`**；`find-skills/SKILL.md` 的候选输出是 GitHub **仓库 URL**，检索端点是 `api.github.com/search/repositories`。
    - **What's unclear:** D-05 的「保留理由」与已交付代码不一致 —— 是**理由过时**（47 改写后的 find-skills 已不用 skills.sh）还是**文档没跟上**（原计划让候选落 skills.sh 但实现改了）？
    - **Recommendation（三选一，须 planner 显式裁决并写进计划）：**
@@ -1438,27 +1438,27 @@ await env.remove(bak, { recursive: true, force: true });        // ③ 成功后
      - **(c)** 保留原样（只有 `skills.sh`）—— **不推荐**：实测首次请求即被自己的逐跳校验拒，等于白名单里挂一条**永远不可达**的条目，且产品文档会写一个假事实。
    - ⚠️ **独立于 (a)(b)(c) 的次生问题（必须一并处置）**：实测 `https://github.com/anthropics/skills` 会被 D-06 判为 **20 个技能根 → 拒绝**。⇒ 用户拿到 `find-skills` 的候选（GitHub 仓库地址）后**必须自己补 `tree/<ref>/<path>`**。这条落差要么写进 find-skills 技能正文（改内置技能 = 需同步 `THIRD_PARTY_NOTICES.md` 与零安装语义扫描，成本高），要么在**拒绝提示文案里**讲清楚（成本低，**推荐**）。
 
-2. **`api.github.com` 在导入白名单里的语义是什么？**
+2. **`api.github.com` 在导入白名单里的语义是什么？** —— **RESOLVED**：**显式拒绝**（回 `unsupported_url` + 可读原因），文档写成「保留为未来兼容，本阶段导入管线不承载它」⇒ **CR-1b**。落点：`51-05-PLAN.md` T1。
    - **What we know:** D-05 保留了它（find-skills 用它检索）；D-06 明确不做 Contents API。本会话的 URL 分类器原型实测把它归为 `other-whitelisted`（无载荷语义）；实测 `https://api.github.com/repos/anthropics/skills/contents` 会走到这个分支。
    - **Recommendation:** **显式拒绝**并给文案（`unsupported_url`），同时在文档写明「`api.github.com` 保留在白名单是为了未来兼容，本阶段导入管线不承载它」。避免出现「白名单放行但行为未定义」的第四条分支。
 
-3. **技能根定位的「全包扫描」是否包含顶层前缀之外的任意深度？**
+3. **技能根定位的「全包扫描」是否包含顶层前缀之外的任意深度？** —— **RESOLVED**：按 D-06 字面实现**全包扫描**（**不**限定 `skills/*` —— 实测 `template/SKILL.md` 位于包根），并在多根拒绝文案里用实测的 20 个根做例子 ⇒ **CR-7**。落点：`51-03-PLAN.md` T1（`locateSkillRoot`）。
    - **What we know:** 实测 `anthropics/skills` 有 **20** 个技能根，其中 `template/SKILL.md` 在**包根**（不在 `skills/` 下）⇒ 只扫 `skills/*` 会漏。
    - **Recommendation:** 按 D-06 字面「全包扫描恰好一个 `SKILL.md`」实现（不限定 `skills/`），并在提示文案里用**实测的 20 个根**做例子。
 
-4. **`SKILL_THREAT_PATTERNS` 命中后的「必勾确认」是否也由后端校验？**
+4. **`SKILL_THREAT_PATTERNS` 命中后的「必勾确认」是否也由后端校验？** —— **RESOLVED**：前端必勾 + **后端不校验**（`importId` 已等价于「用户看过预览并确认」；后端再加一个布尔只是「客户端能伪造就等于没有」的假安全），且必须在文档写明这是**有意选择** ⇒ **CR-10**。落点：`51-06-PLAN.md` 的必勾区 + `51-07-PLAN.md` §13.5。
    - **What we know:** D-12 要求「必勾的风险复选框，不勾不得提交」；D-02 的 commit 只收 `importId` + 冲突选择。
    - **Recommendation:** 前端必勾 + 后端**不**校验（`importId` 已等价于「用户看过预览并确认」这一事实；后端再加一个布尔只会是「客户端能伪造就等于没有」的假安全）。但**须在文档写明**这是有意选择：真正的边界是「预览确认 + 沙箱」，复选框是 UX 提示。
 
-5. **新增错误的码表放哪里？**
+5. **新增错误的码表放哪里？** —— **RESOLVED**：新建独立常量 `IMPORT_SKILL_ERROR`（独立命名空间；`MANAGE_SKILL_ERROR` 的恰 11 键**不动**）⇒ **CR-3**。落点：`51-03-PLAN.md` T1（一次定义 20 键）+ `51-04-PLAN.md` T1（补 `INVALID_NAME` ⇒ 最终 21 键）。
    - **What we know:** `MANAGE_SKILL_ERROR` 被锁死在 11 键（`tests/test-manage-skill.js:1589`，失败信息逐字「不得再新立第十二键」）。
    - **Recommendation（推荐）:** 新建 `IMPORT_SKILL_ERROR` 常量（独立命名空间）+ `docs/product/ai-skills.md` 新增导入章节的错误码表 + `AGENTS.md` 测试清单同步。**不要**动 `MANAGE_SKILL_ERROR` 的键数（那会让 49/50 的账本同时漂移）。
 
-6. **`MAX_SKILL_PACKAGE_BYTES` 与 P7 的「累计解压 ≤ 32 MiB」是否应当同值？**
+6. **`MAX_SKILL_PACKAGE_BYTES` 与 P7 的「累计解压 ≤ 32 MiB」是否应当同值？** —— **RESOLVED**：统一为 **32 MiB**，且两者**互为独立的两道闸**（上传闸与累计解压闸；上传闸对 zip 炸弹**零贡献** —— CR-5 的方向纠正）。落点：`51-05-PLAN.md` T3 的跨文件「上限单源」断言。
    - **What we know:** D-01 定 `32 * 1024 * 1024`；实测 `anthropics/skills` 整仓压缩后 3.99 MB、解压 10.48 MiB ⇒ 真实世界余量约 3–8 倍。P7 的措辞是「累计解压 ≤ 32 **MB**」而 D-01 是「上传 ≤ 32 **MiB**」（4.9% 差）。
    - **Recommendation:** 统一用 **32 MiB（33,554,432 B）** 作为两者的单源常量，并在文档写明「上传闸与累计解压闸同值，但**互为独立的两道**」（见 Pitfall 5）。
 
-7. **嵌套深度限额按哪个口径、取多少？**
+7. **嵌套深度限额按哪个口径、取多少？** —— **RESOLVED**：按**技能根相对**计 + 取值 **16**（对齐仓内先例 `SKILL_SIZE_WALK_MAX_DEPTH`），并把该口径写进产品文档的限额章节 ⇒ **CR-4**。落点：`51-03-PLAN.md` T1（`IMPORT_LIMITS.MAX_NESTING_DEPTH`）+ `51-07-PLAN.md` §13.3。
    - **What we know:** 实测 P7 建议的 8 在「压缩包根」口径下被 `anthropics/skills` 的 `docx` / `pptx` / `xlsx` **打满**（depth 恰 8）；按「技能根」口径同批文件只有 5。仓内既有 `SKILL_SIZE_WALK_MAX_DEPTH = 16`（`ai-skills-manager.js:86`）。
    - **Recommendation:** 按**技能根相对**计 + 限额 ≥ 12（或直接对齐仓内先例 16）；并把这条口径写进 `docs/product/ai-skills.md` 的限额章节（否则用户看不懂「为什么一个 6 层目录的技能被拒」）。
 

@@ -373,8 +373,42 @@ Plans:
   4. 解压只在 `fs.mkdtempSync` 新建的空目录内进行，落盘前用**最近已存在祖先的 realpath** 复核；导入完成后工作区外不产生任何文件（含 `~` 下敏感位置），且既有沙箱 `writeFile` 的 ENOENT symlink 缺口一并加固。
   5. 网络导入 https-only + 主机白名单 + 逐跳内网地址校验 + 流式字节上限 + magic bytes 校验；扫描同时覆盖 `description` 与 body（复用 `scanInjectionPatterns` + 新增 `SKILL_THREAT_PATTERNS`）；与内置同名拒绝导入、与已有用户技能同名需显式选择（覆盖 / 改名 / 取消）；失败按"命中哪个限额 / 扫描结论 / 校验错误"给出真实原因。
 
-**Plans**: TBD
+**Plans**: 7/7 plans planned / 6 waves（已规划，未执行）
 **UI hint**: yes
+
+> ⚠️ `51-02` 的 `autonomous: false`：它的 T1 含唯一的 `checkpoint:human-verify gate="blocking-human"`（`yaml` 的 `[SUS] too-new` 供应链闸 ⇒ 安装前必须用户回话）。
+
+**Wave 1**
+
+- [ ] **51-01-PLAN.md — SEC-10 沙箱写面加固（端到端纵切）**：`resolveInsideForWrite`（最近已存在祖先 realpath 复核）+ `guardForWriteResult` 包装 + 五个写方法切面 + 自指 symlink 仍放行 + 既有用例集合零变化（SEC-10）
+- [ ] **51-02-PLAN.md — 两个依赖按实测口径落定（含 blocking-human 检查点）**：`yauzl@^3.4.0`（库自身从不写盘）+ `yaml@2.9.0`（**精确钉版** ⇒ 单实例）+ 依赖审计四条 + `build.files` 的 `!` 前缀护栏（USER-03、USER-04）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] **51-03-PLAN.md — 阶段主 tracer + zip 全量校验 + 技能域威胁扫描**：设置页选 zip → raw binary `POST /api/skills/import` → `mkdtemp` 空目录解压 → 两阶段预览 → 落盘 → 回读可见；symlink 两路整包拒绝 + 逃逸族十二类 + NFD/小写查重 + 六类限额 + `SKILL_THREAT_PATTERNS` 双扫（带正命题 + 内置语料零误伤回归）+ 唯一落盘实现的源码扫描判据（USER-03、USER-05、SEC-02、SEC-03、SEC-04、SEC-05、SEC-06）
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] **51-04-PLAN.md — 落盘事务与句柄生命周期**：冲突三档（seeded 拒 / user 三选一 / managed 只改名）+ 覆盖的备份与两段 rename 回滚 + 回读验证失败即回滚 + TTL / 并发上限 / 显式取消 / 崩溃残留清扫 + `IMPORT_SKILL_ERROR` 码矩阵与「上传闸对炸弹零贡献」两道独立闸（USER-05、USER-08、SEC-07）
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] **51-05-PLAN.md — 网络地址导入**：URL 三形态分流（仓库 / `tree/<ref>/<path>` / raw 与 blob 直链）+ `www.` 归一化同可达 + zipball 顶层前缀剥离 + 技能根定位；https-only + 主机白名单精确匹配 + 逐跳私网校验 + 跳数上限抛错 + 流式字节上限 + magic bytes + 单一落盘入口（USER-04、SEC-08）
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] **51-06-PLAN.md — 导入 UI 完整面 + uat 驱动**：两 tab 弹框 + 六字段预览卡片（目录树与脚本清单的截断折叠、扫描结论两栏、`allowed-tools` 免责标注）+ 必勾风险确认 + 冲突三选一 + 显示层净化与属性上下文转义 + 15 个新增元素零内联 `style`（USER-05、USER-08）
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] **51-07-PLAN.md — 文档与账本收口**：`docs/product/ai-skills.md` 第十三节【导入】+ 安全边界与已知限制定稿（含 DNS rebinding 残余风险如实披露）+ `AGENTS.md` 维护约定与测试清单 + counts-parity `suites`/`cells` 12 → 20 + `51-VALIDATION.md` 矩阵重键（不自证，交 `/gsd:verify-work`）（全部 12 项）
+
+**Cross-cutting constraints**
+
+- 三条安全门禁各自可独立验收、不得跨阶段滑落：P2（S1）写面 symlink 逃逸（51-01 + 51-03）/ P4（S1）zip 路径类校验（51-03）/ P9（S2）SSRF 逐跳（51-05）
+- 「只有一个落盘实现」是跨计划回归判据：`importUserSkill(` 定义恰 1 + 调用恰 1 + handler 与前端各 0；`yauzl.openPromise(` 恰 1（51-03 立、51-04 / 51-05 复验）
+- `MANAGE_SKILL_ERROR` 恰 11 键不变（导入码另立 `IMPORT_SKILL_ERROR`）；`main.js` 的 `res.writeHead(` 基线 14 不变；`await readJsonBody(req` 59 → 60
+
 
 **Security gate**: P2（S1，阻断门禁）resolveInside ENOENT symlink 逃逸 + P4（S1）zip 路径类校验 + P9（S2）SSRF 逐跳校验；SEC-06 技能域威胁扫描（description + body 双扫，与 SEC-07 名称冲突策略共同闭合 P3 后半）。
 **Research needed**: yauzl 解压 API 形态与四处错误处理面实测（zip-slip / symlink / 炸弹三类恶意样本）；GitHub 三种 URL 形态（zipball / SKILL.md 直链 / contents 列一层）的分流语义需真实网络请求验证。
@@ -403,4 +437,4 @@ Plans:
 | 48. 技能发现与调用 | 8/8 | In Progress|  |
 | 49. `manage_skill` 工具 | 8/8 | In Progress|  |
 | 50. 设置页技能管理区 + `/api/skills/*` | 5/5 | In Progress|  |
-| 51. 用户技能导入管线 | TBD | Not started | - |
+| 51. 用户技能导入管线 | 0/7 | Ready to execute | - |
