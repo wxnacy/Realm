@@ -51,7 +51,9 @@
     "mpegts.js": "^1.8.1",
     "mux.js": "^6.3.0",
     "nodejieba": "^3.5.8",
-    "turndown": "^7.2.4"
+    "turndown": "^7.2.4",
+    "yaml": "2.9.0",
+    "yauzl": "^3.4.0"
   },
   "build": {
     "appId": "com.realm.browser",
