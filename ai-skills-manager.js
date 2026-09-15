@@ -2369,6 +2369,17 @@ function makeImportError(code, message, extra = {}) {
   const err = new Error(message);
   err.code = code;
   Object.assign(err, extra);
+  // D-10 的失败报告结构：`{ code, error, quota?, diagnostics[] }` —— 限额类失败必须同时带
+  // **结构化**的 `quota`（限额名 + 限额值 + 当前值）。在本函数里由 `extra` 派生而不是逐个
+  // throw 点手写，是为了让「限额文案含名与值」这条纪律只有**一个**实现处（漏一处就会
+  // 产出「说了超限但没说超了多少」的失败）。
+  if (extra && extra.limit !== undefined) {
+    err.quota = {
+      limit: extra.limit,
+      limitValue: extra.limitValue,
+      currentValue: extra.currentValue,
+    };
+  }
   return err;
 }
 
@@ -2663,7 +2674,7 @@ async function readSkillPackageEntries(zipPath, { destDir } = {}) {
       if (count > IMPORT_LIMITS.MAX_ENTRIES) {
         throw makeImportError(
           IMPORT_SKILL_ERROR.LIMIT_EXCEEDED,
-          `压缩包条目数超过上限：限额 ${IMPORT_LIMITS.MAX_ENTRIES} 个，当前已超过该值`,
+          `压缩包条目数超过上限：限额 ${IMPORT_LIMITS.MAX_ENTRIES} 个，当前 ${count} 个`,
           { limit: 'MAX_ENTRIES', limitValue: IMPORT_LIMITS.MAX_ENTRIES, currentValue: count }
         );
       }
@@ -2805,7 +2816,7 @@ async function readSkillPackageEntries(zipPath, { destDir } = {}) {
               if (written > IMPORT_LIMITS.MAX_ENTRY_BYTES) {
                 throw makeImportError(
                   IMPORT_SKILL_ERROR.LIMIT_EXCEEDED,
-                  `压缩包单个条目超过上限：限额 ${IMPORT_LIMITS.MAX_ENTRY_BYTES} 字节（流内实测已超出）`,
+                  `压缩包单个条目超过上限：限额 ${IMPORT_LIMITS.MAX_ENTRY_BYTES} 字节（流内实测已超出，当前 ${written} 字节）`,
                   {
                     limit: 'MAX_ENTRY_BYTES',
                     limitValue: IMPORT_LIMITS.MAX_ENTRY_BYTES,

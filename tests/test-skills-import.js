@@ -125,6 +125,7 @@ async function expectThrowCode(fn, code) {
   }
   assert.ok(err, `期望抛出 code=${code} 的错误，但调用成功返回`);
   assert.strictEqual(err.code, code, `期望 code=${code}，实测 ${err.code}（message: ${err.message}）`);
+  noteObservedCode(err.code); // 拒绝面矩阵的观测点之一
   return err;
 }
 
@@ -135,6 +136,73 @@ function userSkillNames() {
   } catch {
     return [];
   }
+}
+
+// ==================== 拒绝面矩阵的机械判据（51-04 T3） ====================
+//
+// 「每个 `IMPORT_SKILL_ERROR` 码至少一条用例」不能靠人工数 —— 那样删掉一条用例没人会发现。
+// 做法：① 期望表从**被测模块**取值（手抄字符串会与实现漂移）；
+// ② 每条拒绝断言统一经 `assertRejected`（或转发到它的既有工具）把**已观察到的码**
+//    记进模块级 Set；③ 文件**末尾**一条矩阵用例核对 Set 是否覆盖期望表，缺哪个码就指名报错。
+
+/** 期望表：`IMPORT_SKILL_ERROR` 的**全部**值（从被测模块取，不手抄） */
+const EXPECTED_CODES = Object.values(aiSkills.IMPORT_SKILL_ERROR);
+
+/**
+ * **具名豁免**清单：本计划（51-04）范围内**确实不可达**的码
+ *
+ * 四个都是**网络面**的码，由 `51-05`（网络地址来源）交付真实用例 —— 那一步会把这四个
+ * 从这里移除，并在它自己的门禁里断言「一个跳过项都不剩」。
+ *
+ * ⚠️ 豁免必须**可见**（矩阵用例打印跳过项），**不得静默过滤** —— 静默过滤会让本矩阵
+ * 退化成「只检查我写了用例的那些码」。
+ */
+const PENDING_CODES_NETWORK = ['unsupported_url', 'download_failed', 'redirect_limit', 'not_a_zip'];
+
+/** 已被用例**真实观测到**的拒绝码 */
+const OBSERVED_CODES = new Set();
+
+/** 记录一次观测（`expectThrowCode` / `expectPipelineReject` / `assertRejected` 共用） */
+function noteObservedCode(code) {
+  if (typeof code === 'string' && code) OBSERVED_CODES.add(code);
+}
+
+/**
+ * 统一的拒绝断言（唯一入口）—— 断言 `code`、非空 `message`，并把观测码记进矩阵
+ *
+ * 失败形态照 D-10：`code` 非空字符串、`error`（= message）非空且不是通用文案；
+ * 限额类额外要求 `quota`（限额名 + 限额值 + 当前值）。
+ *
+ * @param {() => Promise<any>} fn - 触发拒绝的调用
+ * @param {string} expectedCode - 期望的机器可读码
+ * @returns {Promise<Error>} 实际抛出的错误对象
+ */
+async function assertRejected(fn, expectedCode) {
+  let err = null;
+  try {
+    await fn();
+  } catch (e) {
+    err = e;
+  }
+  assert.ok(err, `期望抛出 code=${expectedCode} 的错误，但调用成功返回`);
+  assert.strictEqual(err.code, expectedCode, `期望 code=${expectedCode}，实测 ${err.code}（message: ${err.message}）`);
+  assert.strictEqual(typeof err.message, 'string', `code=${expectedCode} 的失败必须带 message`);
+  assert.ok(
+    err.message.trim().length > 0,
+    `code=${expectedCode} 的失败 message 不得为空（禁静默失败：不得只有通用文案或空串）`
+  );
+  noteObservedCode(err.code);
+  return err;
+}
+
+/** D-10 的失败报告形状视图（`{ code, error, quota?, diagnostics[] }`） */
+function failureReportOf(err) {
+  return {
+    code: err.code,
+    error: err.message,
+    quota: err.quota,
+    diagnostics: err.diagnostics,
+  };
 }
 
 // ==================== ① tracer：端到端纵切 ====================
@@ -1356,6 +1424,7 @@ async function expectPipelineReject(env, zipBuffer, codes, label, opts = {}) {
     `${label}：期望码 ∈ [${codes.join(', ')}]，实测 ${err.code}（message: ${err.message}）`
   );
   assert.deepStrictEqual(userSkillNames(), before, `${label}：拒绝路径不得在 skills/ 下新增任何目录`);
+  noteObservedCode(err.code); // 拒绝面矩阵的观测点之一
   return err;
 }
 
@@ -1987,6 +2056,319 @@ describe('威胁扫描双扫：description 与 body 各扫一次且 field 可判
       zip,
       [aiSkills.IMPORT_SKILL_ERROR.INJECTION_DETECTED],
       '注入类 description'
+    );
+  });
+});
+
+// ==================== ⑫ 拒绝面矩阵收口：缺口补齐 + 限额文案「名 + 值」+ 矩阵机械判据 ====================
+//
+// 本组只补**缺口**（前面各组已覆盖的码不重复写等价用例）；每组断言都走 `assertRejected`
+// 或经 `expectThrowCode` / `expectPipelineReject` 转发到同一观测 Set。
+
+describe('拒绝面缺口补齐：每个可达的码都有一条真实用例', () => {
+  test('invalid_zip：非 zip 字节 / 截断的 central directory（两种真实形态）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+
+    // ① 完全不是 zip
+    const notZip = stageZip(Buffer.from('this is definitely not a zip file at all', 'utf8'));
+    await assertRejected(
+      () => aiSkills.extractAndValidatePackage(env, { importDir: notZip, scopeRel: null }),
+      aiSkills.IMPORT_SKILL_ERROR.INVALID_ZIP
+    );
+
+    // ② 合法 local header + EOCD 被截断（central directory 缺失）
+    const good = makeZip.skillPackage({ name: 'trunc-skill' });
+    const truncated = good.subarray(0, Math.max(0, good.length - 40));
+    const badDir = stageZip(truncated);
+    await assertRejected(
+      () => aiSkills.extractAndValidatePackage(env, { importDir: badDir, scopeRel: null }),
+      aiSkills.IMPORT_SKILL_ERROR.INVALID_ZIP
+    );
+  });
+
+  test('unsupported_zip64 / undecodable_entry：**复述**已有用例的观测（不重复写等价用例）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    // 这两条码的专用用例住「六类限额」组（⑦ / ⑧）—— 本组只做一次**正向复核**，
+    // 保证它们确实进了矩阵的观测 Set（若哪天那两条用例被删，这里会同时转红）。
+    await expectPipelineReject(
+      env,
+      makeZip.zip64DeclaredZip(),
+      [aiSkills.IMPORT_SKILL_ERROR.UNSUPPORTED_ZIP64],
+      'zip64 声明值'
+    );
+    const enc = await assertRejected(
+      () => runPipeline(env, makeZip.encryptedZip()),
+      aiSkills.IMPORT_SKILL_ERROR.UNDECODABLE_ENTRY
+    );
+    assert.ok(enc.message.trim().length > 0);
+  });
+
+  test('unsafe_entry 三类子形态各一：symlink / 非普通文件 / 逃逸族（自建判据那类）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+
+    const sym = await expectPipelineReject(env, makeZip.symlinkZip(), [aiSkills.IMPORT_SKILL_ERROR.UNSAFE_ENTRY], 'symlink');
+    assert.strictEqual(sym.detail, 'symlink_entry');
+
+    const special = await expectPipelineReject(
+      env,
+      makeZip.specialFileZip('chrdev'),
+      [aiSkills.IMPORT_SKILL_ERROR.UNSAFE_ENTRY],
+      '非普通文件'
+    );
+    assert.strictEqual(special.detail, 'special_file');
+
+    // 逃逸族取**自建判据**拦下的那一类（`..` 段由 yauzl 的 validateFileName 先拦，
+    // 失败码会是 invalid_zip —— 那是库自身的 guard，不是我们的判据，故不选它）
+    const adsName = makeZip.ESCAPE_NAMES.find((n) => n.includes(':ads'));
+    assert.ok(adsName, '夹具必须含 NTFS ADS 样本（自建 entry 名校验的漏网形态之一）');
+    const escape = await expectPipelineReject(
+      env,
+      makeZip.escapeZip(adsName),
+      [aiSkills.IMPORT_SKILL_ERROR.UNSAFE_ENTRY],
+      '逃逸族（ADS）'
+    );
+    assert.ok(typeof escape.detail === 'string' && escape.detail.length > 0, '逃逸族必须给 detail');
+  });
+
+  test('skill_root_count：0 个（空包）与多于 1 个（双技能）各一', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+
+    await assertRejected(
+      () => runPipeline(env, makeZip.emptyZip()),
+      aiSkills.IMPORT_SKILL_ERROR.SKILL_ROOT_COUNT
+    );
+
+    const two = makeZip.buildZip({
+      entries: [
+        { name: 'a-skill/SKILL.md', data: '---\nname: a-skill\ndescription: A\n---\n\n', method: makeZip.METHOD_STORED },
+        { name: 'b-skill/SKILL.md', data: '---\nname: b-skill\ndescription: B\n---\n\n', method: makeZip.METHOD_STORED },
+      ],
+    });
+    const err = await assertRejected(
+      () => runPipeline(env, two),
+      aiSkills.IMPORT_SKILL_ERROR.SKILL_ROOT_COUNT
+    );
+    assert.ok(err.message.includes('tree/<ref>/<path>'), '多技能拒绝必须给可复制的 tree 地址形态（CR-8）');
+  });
+
+  test('frontmatter_invalid 四形态：YAML 语法错 / 顶层数组 / 缺 description / name 缺失且目录名非法', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+
+    const forms = [
+      { label: 'YAML 语法错', text: '---\nname: [unclosed\ndescription: y\n---\n\n', dir: 'fm-skill' },
+      { label: '顶层数组', text: '---\n- a\n- b\n---\n\n', dir: 'fm-skill' },
+      { label: '缺 description', text: '---\nname: fm-skill\n---\n\n', dir: 'fm-skill' },
+      { label: 'name 缺失且目录名非法', text: '---\ndescription: 只有描述\n---\n\n', dir: 'Bad Name!' },
+    ];
+    for (const f of forms) {
+      const zip = makeZip.buildZip({
+        entries: [{ name: `${f.dir}/SKILL.md`, data: f.text, method: makeZip.METHOD_STORED }],
+      });
+      const err = await assertRejected(
+        () => runPipeline(env, zip),
+        aiSkills.IMPORT_SKILL_ERROR.FRONTMATTER_INVALID
+      );
+      assert.ok(err.message.trim().length > 0, `[${f.label}] 必须给可读原因`);
+    }
+  });
+
+  test('unknown：沙箱层失败（skills/ 不可写）⇒ 带 code 的明确失败，不留半成品', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const { located } = await stageLocated(env, makeZip.skillPackage({ name: 'perm-skill' }));
+
+    const skillsDir = workspace.getSkillsDir();
+    const before = userSkillNames();
+    fs.chmodSync(skillsDir, 0o500); // 只读 ⇒ rename 进不去
+
+    let err;
+    try {
+      err = await assertRejected(
+        () =>
+          aiSkills.importUserSkill(
+            env,
+            { srcDir: located.skillRootAbs, name: 'perm-skill' },
+            { seededNames: SEEDED }
+          ),
+        aiSkills.IMPORT_SKILL_ERROR.UNKNOWN
+      );
+    } finally {
+      fs.chmodSync(skillsDir, 0o700);
+    }
+    assert.strictEqual(typeof err.message, 'string');
+    assert.deepStrictEqual(userSkillNames(), before, '失败不得留下半成品目录');
+  });
+
+  test('失败报告形状 = D-10 的 `{ code, error, quota?, diagnostics[] }`（限额类带 quota）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+
+    // 非限额类：code + error 非空，quota 缺省
+    const zip = makeZip.buildZip({
+      entries: [
+        { name: 'shape-skill/SKILL.md', data: '---\nname: shape-skill\n---\n\n', method: makeZip.METHOD_STORED },
+      ],
+    });
+    const fmErr = await assertRejected(() => runPipeline(env, zip), aiSkills.IMPORT_SKILL_ERROR.FRONTMATTER_INVALID);
+    const fmReport = failureReportOf(fmErr);
+    assert.strictEqual(fmReport.code, 'frontmatter_invalid');
+    assert.ok(fmReport.error.trim().length > 0);
+    assert.strictEqual(fmReport.quota, undefined, '非限额类失败不得凭空带 quota');
+
+    // 限额类：quota 必须同时带限额名与两个值
+    const big = makeZip.buildZip({
+      entries: [
+        { name: 'shape-skill/SKILL.md', data: '---\nname: shape-skill\ndescription: y\n---\n\n', method: makeZip.METHOD_STORED },
+        { name: 'shape-skill/huge.bin', data: Buffer.alloc(2 * 1024 * 1024, 3), method: makeZip.METHOD_STORED },
+      ],
+    });
+    const limErr = await assertRejected(() => runPipeline(env, big), aiSkills.IMPORT_SKILL_ERROR.LIMIT_EXCEEDED);
+    const limReport = failureReportOf(limErr);
+    assert.ok(limReport.quota && typeof limReport.quota === 'object', '限额类失败必须带结构化 quota');
+    assert.strictEqual(limReport.quota.limit, 'MAX_ENTRY_BYTES', 'quota 必须给出**哪个限额**');
+    assert.strictEqual(limReport.quota.limitValue, aiSkills.IMPORT_LIMITS.MAX_ENTRY_BYTES);
+    assert.ok(Number.isFinite(limReport.quota.currentValue), 'quota 必须给出**当前值**');
+    assert.ok(
+      limReport.quota.currentValue > limReport.quota.limitValue,
+      '当前值必须真的越过了限额（否则该用例没有判别力）'
+    );
+  });
+
+  test('六类限额逐条：message 同时含「限额名」与「当前值」（循环断言，不是六条独立断言）', async (t) => {
+    const root = withTempRoot(t);
+    const env = await makeEnv(root);
+    const L = aiSkills.IMPORT_LIMITS;
+
+    // 每项：构造一次真实超限 + 期望的**限额名**片段（改实现里的限额名会让这条对不上）
+    const cases = [
+      {
+        name: '单 entry 字节',
+        expectedName: '单个条目',
+        expectedLimit: 'MAX_ENTRY_BYTES',
+        build: () =>
+          makeZip.buildZip({
+            entries: [
+              { name: 'lim-skill/SKILL.md', data: '---\nname: x\ndescription: y\n---\n\n', method: makeZip.METHOD_STORED },
+              { name: 'lim-skill/a.bin', data: Buffer.alloc(L.MAX_ENTRY_BYTES + 1024, 1), method: makeZip.METHOD_STORED },
+            ],
+          }),
+      },
+      {
+        name: '累计解压字节',
+        expectedName: '解压总量',
+        expectedLimit: 'MAX_TOTAL_BYTES',
+        build: () => {
+          const entries = [
+            { name: 'lim-skill/SKILL.md', data: '---\nname: x\ndescription: y\n---\n\n', method: makeZip.METHOD_STORED },
+          ];
+          for (let i = 0; i < 33; i += 1) {
+            entries.push({
+              name: `lim-skill/f${i}.bin`,
+              data: Buffer.alloc(1024 * 1024, i & 0xff),
+              method: makeZip.METHOD_STORED,
+            });
+          }
+          return makeZip.buildZip({ entries });
+        },
+      },
+      {
+        name: 'entry 数',
+        expectedName: '条目数',
+        expectedLimit: 'MAX_ENTRIES',
+        build: () => makeZip.manyEntriesZip(L.MAX_ENTRIES + 1),
+      },
+      {
+        name: '压缩比',
+        expectedName: '压缩比',
+        expectedLimit: 'MAX_COMPRESSION_RATIO',
+        build: () => makeZip.ratioBombZip(),
+      },
+      {
+        name: '嵌套深度',
+        expectedName: '嵌套深度',
+        expectedLimit: 'MAX_NESTING_DEPTH',
+        build: () => makeZip.depthPackage({ skillPath: 'lim-skill', depth: L.MAX_NESTING_DEPTH + 1, name: 'lim-skill' }),
+      },
+    ];
+
+    for (const c of cases) {
+      const err = await assertRejected(() => runPipeline(env, c.build()), aiSkills.IMPORT_SKILL_ERROR.LIMIT_EXCEEDED);
+      assert.strictEqual(err.limit, c.expectedLimit, `[${c.name}] 限额名应为 ${c.expectedLimit}`);
+      assert.ok(err.message.includes(c.expectedName), `[${c.name}] message 必须含限额名「${c.expectedName}」：${err.message}`);
+      assert.ok(
+        /当前|声明|累计|实测/.test(err.message),
+        `[${c.name}] message 必须给出**当前值**（不得只说「超限」）：${err.message}`
+      );
+      assert.ok(err.quota && Number.isFinite(err.quota.currentValue), `[${c.name}] quota.currentValue 必须是数值`);
+    }
+
+    // 第六类：SKILL.md 的 64 KiB 闸住在落盘函数里（不在解压段）
+    const oversized = makeZip.buildZip({
+      entries: [
+        {
+          name: 'lim-skill/SKILL.md',
+          data: `---\nname: lim-skill\ndescription: y\n---\n\n${'x'.repeat(70 * 1024)}`,
+          method: makeZip.METHOD_STORED,
+        },
+      ],
+    });
+    const { located } = await stageLocated(env, oversized);
+    const sixErr = await assertRejected(
+      () =>
+        aiSkills.importUserSkill(
+          env,
+          { srcDir: located.skillRootAbs, name: 'lim-skill' },
+          { seededNames: SEEDED }
+        ),
+      aiSkills.IMPORT_SKILL_ERROR.OVERSIZE
+    );
+    assert.ok(sixErr.message.includes('超过上限'), `[SKILL.md 字节] message 必须含限额说明：${sixErr.message}`);
+    assert.ok(
+      sixErr.message.includes(String(aiSkills.LIMITS.MAX_SKILL_MD_BYTES)),
+      `[SKILL.md 字节] message 必须含限额值与当前值：${sixErr.message}`
+    );
+    assert.ok(sixErr.quota && Number.isFinite(sixErr.quota.currentValue), '[SKILL.md 字节] 必须带结构化 quota');
+  });
+});
+
+// ==================== ⑬ 矩阵机械判据（必须是文件里的**最后一个** describe） ====================
+
+describe('拒绝面矩阵：每个可达的 IMPORT_SKILL_ERROR 码至少一条用例（缺码即指名）', () => {
+  test('EXPECTED_CODES ↔ OBSERVED_CODES 双向核对；网络面四码具名跳过并打印', () => {
+    const skipped = [];
+    const missing = [];
+    for (const code of EXPECTED_CODES) {
+      if (PENDING_CODES_NETWORK.includes(code)) {
+        skipped.push(code);
+        continue;
+      }
+      if (!OBSERVED_CODES.has(code)) missing.push(code);
+    }
+
+    // **打印跳过项**（不得静默过滤）：门禁据此核实豁免集合恰为网络面四码
+    console.log(`[拒绝面矩阵] PENDING_CODES（51-05 交付，本计划具名跳过）：${skipped.join(', ')}`);
+    console.log(`[拒绝面矩阵] 跳过的码：${skipped.length} 个（${skipped.join(' / ')}）`);
+    console.log(`[拒绝面矩阵] 已观测到的码：${[...OBSERVED_CODES].sort().join(', ')}`);
+
+    assert.deepStrictEqual(
+      [...skipped].sort(),
+      [...PENDING_CODES_NETWORK].sort(),
+      '豁免集合必须**恰为**网络面四码（多一个或少一个都说明盘点有漏）'
+    );
+    assert.deepStrictEqual(
+      missing,
+      [],
+      `以下码没有任何拒绝用例（缺哪个码在此指名）：${missing.join(', ')}`
+    );
+    assert.strictEqual(
+      EXPECTED_CODES.length,
+      OBSERVED_CODES.size + PENDING_CODES_NETWORK.length,
+      '期望表 = 已观测 ∪ 具名豁免（不得有既没观测也没豁免的码）'
     );
   });
 });
