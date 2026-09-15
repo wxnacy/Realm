@@ -373,7 +373,7 @@ Plans:
   4. 解压只在 `fs.mkdtempSync` 新建的空目录内进行，落盘前用**最近已存在祖先的 realpath** 复核；导入完成后工作区外不产生任何文件（含 `~` 下敏感位置），且既有沙箱 `writeFile` 的 ENOENT symlink 缺口一并加固。
   5. 网络导入 https-only + 主机白名单 + 逐跳内网地址校验 + 流式字节上限 + magic bytes 校验；扫描同时覆盖 `description` 与 body（复用 `scanInjectionPatterns` + 新增 `SKILL_THREAT_PATTERNS`）；与内置同名拒绝导入、与已有用户技能同名需显式选择（覆盖 / 改名 / 取消）；失败按"命中哪个限额 / 扫描结论 / 校验错误"给出真实原因。
 
-**Plans**: 2/7 plans executed planned / 6 waves（已规划，未执行）
+**Plans**: 3/7 plans executed planned / 6 waves（已规划，未执行）
 **UI hint**: yes
 
 > ⚠️ `51-02` 的 `autonomous: false`：它的 T1 含唯一的 `checkpoint:human-verify gate="blocking-human"`（`yaml` 的 `[SUS] too-new` 供应链闸 ⇒ 安装前必须用户回话）。
@@ -385,7 +385,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] **51-03-PLAN.md — 阶段主 tracer + zip 全量校验 + 技能域威胁扫描**：设置页选 zip → raw binary `POST /api/skills/import` → `mkdtemp` 空目录解压 → 两阶段预览 → 落盘 → 回读可见；symlink 两路整包拒绝 + 逃逸族十二类 + NFD/小写查重 + 六类限额 + `SKILL_THREAT_PATTERNS` 双扫（带正命题 + 内置语料零误伤回归）+ 唯一落盘实现的源码扫描判据（USER-03、USER-05、SEC-02、SEC-03、SEC-04、SEC-05、SEC-06）
+- [x] **51-03-PLAN.md — 阶段主 tracer + zip 全量校验 + 技能域威胁扫描**：设置页选 zip → raw binary `POST /api/skills/import` → `mkdtemp` 空目录解压 → 两阶段预览 → 落盘 → 回读可见；symlink 两路整包拒绝 + 逃逸族十二类 + NFD/小写查重 + 六类限额 + `SKILL_THREAT_PATTERNS` 双扫（带正命题 + 内置语料零误伤回归）+ 唯一落盘实现的源码扫描判据（USER-03、USER-05、SEC-02、SEC-03、SEC-04、SEC-05、SEC-06）
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -436,4 +436,4 @@ Plans:
 | 48. 技能发现与调用 | 8/8 | In Progress|  |
 | 49. `manage_skill` 工具 | 8/8 | In Progress|  |
 | 50. 设置页技能管理区 + `/api/skills/*` | 5/5 | In Progress|  |
-| 51. 用户技能导入管线 | 2/7 | In Progress|  |
+| 51. 用户技能导入管线 | 3/7 | In Progress|  |
