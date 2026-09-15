@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 49
+open_count: 50
 waived_count: 0
 fixed_count: 2
-total_count: 51
-last_updated: 2026-09-15T09:40:39.796Z
+total_count: 52
+last_updated: 2026-09-15T09:46:37.757Z
 ---
 
 # Broken Windows Ledger
@@ -66,6 +66,7 @@ last_updated: 2026-09-15T09:40:39.796Z
 | 49 | 51 | unrun-verify | .planning/phases/51-zip/51-06-PLAN.md |  | 51-06 T2 门禁三（码表双向覆盖）的键正则为 /[a-z_]{4,}:/ —— 不含数字类，无法匹配 unsupported_zip64: ⇒ 对任何正确实现恒红（表里该键确实存在且文案取 UI-SPEC 逐字）。计划判据一字未改；权威判据按计划指定落点放在 tests/test-skills-import.js（用 /^\\s*([A-Za-z][A-Za-z0-9_]*)\\s*:/gm + 正命题 tableKeys.size>=21），已以 M11（删掉该键）验证转红并指名 unsupported_zip64 | open |  | 2026-09-15T09:40:39.633Z |  |
 | 50 | 51 | unrun-verify | .planning/phases/51-zip/51-06-PLAN.md |  | 51-06 T1 门禁二（状态机与交互）的「文件输入未在 finally 里置空」判据用子串 input.value = "" / value = "" —— 被无关的 fileInput.value = ""（open/close 复位）命中，删除 change 处理器 finally 里的 input.value = "" 后该门禁仍报 ok（无判别力）。已以实测确认：门禁绿而套件级判据 tests/test-skills-import.js「文件选择链路：change 处理器在 finally 里置空文件输入」转红并给出定长原因 | open |  | 2026-09-15T09:40:39.715Z |  |
 | 51 | 51 | deviation | .planning/phases/51-zip/51-06-PLAN.md |  | 51-06 T3 acceptance_criteria 指定的两条 backstop 变异与断言之间无因果链（实测逐字未变）：① 删 .skill-import-preview 的 min-height:0 ⇒ 读数 modal=564.796875 inner=706 不变（.ai-modal 自带 max-height:80vh 已钳住上界；且 overflow-y:auto 的 flex 子项按 Flexbox §4.5 自动最小尺寸本就是 0 ⇒ 该声明冗余）；② 给 .skill-import-actions 加 flex-wrap:wrap ⇒ sw=304 cw=304 与同排断言不变（该容器内只有两个 ~40px 按钮，任何测试宽度下都不会换行）。已改用能真正探到同一属性的可满足探针证明判别力：删 .ai-modal 的 max-height:80vh ⇒ E2 三条断言转红（modal=2059.5625、预览内滚动 0、零可滚动容器，49/52 passed）；给动作区按钮加 min-width:300px ⇒ withinRow 转红（51/52 passed）。另注：E17 的 scrollWidth<=clientWidth 对左侧溢出无判别力（flex-end 把溢出推向左，scrollWidth 不增长），真正承重的是 withinRow 那条 | open |  | 2026-09-15T09:40:39.796Z |  |
+| 52 | 51 | deviation | tests/test-builtin-skills-seeder.js |  | 51-07 Task 3 的 Rule 1 偏离（计划 files_modified 不含此文件）：tests/test-builtin-skills-seeder.js:2203 把工作区套件（test-agent-workspace.js）例数写死为断言 line.includes("21 例")，与它自己的用例名「唯一权威判据，不写死字面量」相悖 —— 51-01 把该套件 21 → 38 例后，它变成一条「只能靠改测试才能变绿」的陈旧字面量（实测 fail 1：工作区测试计数应保持 21 例）。改为与同文件下方 bash-policy 同一范式：由 node --test tests/test-agent-workspace.js 实跑取 # tests 再断言 AGENTS.md 行含该值。单点变异验证（AGENTS.md 写 21 例）⇒ 转红并指名「必须等于实跑值 38」；复原后 101/101 全绿 | open |  | 2026-09-15T09:46:37.757Z |  |
 
 ````json
 [
@@ -679,6 +680,18 @@ last_updated: 2026-09-15T09:40:39.796Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-15T09:40:39.796Z",
+    "resolved_at": null
+  },
+  {
+    "id": 52,
+    "kind": "deviation",
+    "phase": "51",
+    "file": "tests/test-builtin-skills-seeder.js",
+    "line": null,
+    "description": "51-07 Task 3 的 Rule 1 偏离（计划 files_modified 不含此文件）：tests/test-builtin-skills-seeder.js:2203 把工作区套件（test-agent-workspace.js）例数写死为断言 line.includes(\"21 例\")，与它自己的用例名「唯一权威判据，不写死字面量」相悖 —— 51-01 把该套件 21 → 38 例后，它变成一条「只能靠改测试才能变绿」的陈旧字面量（实测 fail 1：工作区测试计数应保持 21 例）。改为与同文件下方 bash-policy 同一范式：由 node --test tests/test-agent-workspace.js 实跑取 # tests 再断言 AGENTS.md 行含该值。单点变异验证（AGENTS.md 写 21 例）⇒ 转红并指名「必须等于实跑值 38」；复原后 101/101 全绿",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T09:46:37.757Z",
     "resolved_at": null
   }
 ]

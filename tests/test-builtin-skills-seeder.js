@@ -2200,8 +2200,23 @@ describe('DOC-02 文档同步（47-04 Task 2）', () => {
   test('AGENTS.md 的「测试：」行计数与实跑输出一致（唯一权威判据，不写死字面量）', () => {
     const line = agentsDoc.split('\n').find((l) => l.startsWith('- 测试：'));
     assert.ok(line, 'AGENTS.md 应含「- 测试：」行');
-    assert.ok(line.includes('21 例'), '工作区测试计数应保持 21 例');
     assert.ok(!line.includes('29 例'), '过时的 29 例必须已被替换');
+
+    // 工作区套件（沙箱 / 迁移 + Phase 51 的写面加固用例组）的计数同样**实跑取值**。
+    // 原先此处写死 `21 例`，与用例名自称的「不写死字面量」相悖：51-01 把该套件
+    // 从 21 例扩到 38 例后，它变成了一条**只能靠改测试才能变绿**的陈旧字面量。
+    const wOut = require('node:child_process').spawnSync(
+      process.execPath,
+      ['--test', 'tests/test-agent-workspace.js'],
+      { encoding: 'utf8', cwd: REPO_ROOT, timeout: 120000 }
+    ).stdout;
+    const wMatched = wOut.match(/^# tests (\d+)$/m);
+    assert.ok(wMatched, '应能从 node --test 的 TAP 输出解析出工作区套件的 `# tests`');
+    const wActual = Number(wMatched[1]);
+    assert.ok(
+      line.includes(`${wActual} 例`),
+      `AGENTS.md 的工作区套件计数必须等于实跑值 ${wActual}（当前行：${line}）`
+    );
 
     const out = require('node:child_process').spawnSync(
       process.execPath,

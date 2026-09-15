@@ -551,13 +551,17 @@ AI 通过一个 `manage_skill` 工具把流程 / 经验沉淀为自己的技能�
 ```bash
 node -e '
 const cp=require("child_process"),fs=require("fs");
-const suites=["tests/test-manage-skill.js","tests/test-ai-skills.js","tests/test-skill-picker-model.js","tests/test-skills-management.js","tests/test-skills-http-api.js"];
-// 两个新套件各 2 个账本单元（本文件 §七/§11.8 + AGENTS.md 测试行）⇒ cells 基线由 8 提到 12
+const suites=["tests/test-manage-skill.js","tests/test-ai-skills.js","tests/test-skill-picker-model.js","tests/test-skills-management.js","tests/test-skills-http-api.js","tests/test-skills-import.js","tests/test-skills-import-net.js"];
+// 五个既有套件当前已在两个账本文件里贡献 16 个单元（实测 cells=16：AGENTS.md 5 + 本文件 11）；
+// 两个新套件各需在**两个文件**里都有账本单元 ⇒ 下限 = 16 + 2×2 = 20。
+// **cells 只是下限阈值；权威判据是紧随其后的逐套件覆盖断言**
+// （for (const base of Object.keys(meas)) if (!hit[base]) bad.push(…)）—— 漏写任一新套件的账本单元会**指名**报出，
+// 而只把单元数凑够不会报错，故不得靠阈值判断齐不齐。
 const meas={};
 for(const f of suites){const o=cp.execSync("node "+(f.indexOf("picker")>=0?"--test ":"")+f,{encoding:"utf8",stdio:["ignore","pipe","ignore"]});meas[f.split("/").pop()]=String(o.match(/# tests (\d+)/)[1]);}
 const FN=/test-[\w-]+\.js/g;let bad=[],cells=0;
 for(const file of ["AGENTS.md","docs/product/ai-skills.md"]){const hit={};fs.readFileSync(file,"utf8").split("\n").forEach((line,ln)=>{const idx=[];FN.lastIndex=0;let m;while((m=FN.exec(line)))idx.push([m.index,m[0]]);for(let i=0;i<idx.length;i++){const base=idx[i][1];if(!(base in meas))continue;const end=i+1<idx.length?idx[i+1][0]:line.length;const uniq=[...new Set([...line.slice(idx[i][0],end).matchAll(/(\d+)\s*例/g)].map(x=>x[1]))];if(!uniq.length)continue;cells++;hit[base]=(hit[base]||0)+1;if(uniq.length!==1||uniq[0]!==meas[base])bad.push(file+":"+(ln+1)+" "+base+" 账本单元取到 ["+uniq.join("/")+"] ≠ 实测 "+meas[base]);}});for(const base of Object.keys(meas))if(!hit[base])bad.push(file+" 的账本未覆盖 "+base);}
-if(cells<12)bad.push("账本单元数 "+cells+" < 12（§七/§11.8 与 AGENTS.md 测试行共四个既有套件 + 两个新套件各 2 个账本单元）");
+if(cells<20)bad.push("账本单元数 "+cells+" < 20（五个既有套件在两个账本文件里实测贡献 16 个单元 + 两个新套件各 2 个账本单元 ⇒ 下限 20）");
 if(bad.length)throw new Error("例数不一致: "+bad.join("; "));
 console.log("counts-parity ok");console.log("cells="+cells+" measured="+JSON.stringify(meas));
 '
