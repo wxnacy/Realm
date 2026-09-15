@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 36
+open_count: 39
 waived_count: 0
 fixed_count: 2
-total_count: 38
-last_updated: 2026-09-15T07:23:06.599Z
+total_count: 41
+last_updated: 2026-09-15T07:56:57.770Z
 ---
 
 # Broken Windows Ledger
@@ -53,6 +53,9 @@ last_updated: 2026-09-15T07:23:06.599Z
 | 36 | 51 | deviation | tests/test-agent-workspace.js |  | 51-01 Rule 2: env.remove 用例的承重断言改用「尚不存在的逃逸目标」（计划原文 `remove('<link OUT>/x')` 形态）—— 首版删已存在的 root 外文件时，回退加固的树同样拒绝（resolveInside 对已存在路径本就做 realpath 复核）故该用例恒绿、无检出力；改用 ENOENT 目标后回退会退化成底层 not_found 而非 permission_denied，MA 变异可转红（已实测） | open |  | 2026-09-15T07:11:46.049Z |  |
 | 37 | 51 | deviation | tests/test-agent-workspace.js |  | 51-01 Rule 2: 新增一条「未覆盖面」行为用例（计划仅要求注释登记）—— 断言 env.exec('echo escaped > ../x') 之后 root 外**确实**存在该文件，把「本加固不封闭 bash 写盘」（prohibitions 第 2 条 / D-15 诚实边界）从注释承诺升级为可执行反证据 | open |  | 2026-09-15T07:11:46.134Z |  |
 | 38 | 51 | deviation | .planning/phases/51-zip/51-02-PLAN.md |  | 51-02 Rule 1: 计划门禁二对 yauzl Promise 导出面的断言不可满足 —— 原写法对模块级命名空间断言 openReadStreamPromise（实为 ZipFile.prototype 成员，模块级只有四个 *Promise 打开器）⇒ 对任何正确安装恒红。已按接收者寻址改写（openPromise/fromBufferPromise 取模块、openReadStreamPromise 取 ZipFile.prototype），断言强度不变；合成探针红/绿两轮 + 树上四门禁全绿已复验 | open |  | 2026-09-15T07:23:06.599Z |  |
+| 39 | 51 | unrun-verify | .planning/phases/51-zip/51-03-PLAN.md |  | 51-03 计划门禁五（传输面）锚点取错行 ⇒ 对任何正确实现恒红：它用 main.indexOf("route === 'import'") 取窗口起点，而 main.js 在 handleSkillsApi 之前已有一处同名分支（handleRulesApi 的分配规则导入，main.js:2745）⇒ 窗口落在另一个函数上，报「import 分支未使用 readRawBody / 未显式声明 maxBytes」。计划判据一字未改；已按计划 acceptance_criteria 自己声明的口径（用函数名 / token 定界）在 tests/test-skills-import.js 的「传输面（main.js 源码契约，窗口按函数名 / token 定界）」组补等价判据（同四条负向 token + 顺序判据），单点变异 req.resume()→req.destroy() / 交换早退与累加顺序 各确认转红 | open |  | 2026-09-15T07:56:48.653Z |  |
+| 40 | 51 | deviation | tests/test-manage-skill.js |  | 51-03 Rule 3: 三条既有护栏断言编码的是 51-02/51-03 之前的「yaml 是 SDK 传递依赖、不得直接 require」纪律，与 Phase 51 D-14（yaml 提升为直接依赖、精确钉 2.9.0）直接冲突 ⇒ 新增 require('yaml') 后确定性转红。按新语义最小改写：① test-manage-skill.js 的「不得引入 yaml 包」改为「yamlScalar 函数体内不得出现 yaml + 全仓 require('yaml') 恰 1 处且住在 getYamlLazy() 内」；② test-ai-skills.js 的 YAML_OR_IGNORE_REQUIRE 只保留 ignore（yaml 移出禁令）并拆出「yaml 只经 getYamlLazy 引入」独立用例；③ test-ai-skills.js 的 localeCompare 判据由 src.includes('localeCompare') 改为判『调用』(\\.localeCompare\\s*\\()—— 导入面的目录树排序必须如实登记『不用 localeCompare』这条口径，注释里出现该词是预期行为。另 test-ai-skills.js 新增的 lookbehind 负向 token 判据改在剥注释面上判定（与计划门禁同口径）。三处判别力零损失（分别做过等价变异的反向验证） | open |  | 2026-09-15T07:56:57.676Z |  |
+| 41 | 51 | deviation | AGENTS.md |  | 51-03 Rule 3: counts-parity 账本（AGENTS.md 测试行 + docs/product/ai-skills.md §七/§11.8/§12）随本计划的套件改动刷新到实测值 —— test-ai-skills.js 187 → 198、test-skills-http-api.js 32 → 41。注：T1 提交时漏刷（test-ai-skills 187 → 188 已在 T1 落地但账本未同批改），T2 一并补齐；此后 T3 再次刷新到 198。cells 仍为 16（两个新套件各 2 个账本单元由 51-07 扩到 20） | open |  | 2026-09-15T07:56:57.770Z |  |
 
 ````json
 [
@@ -510,6 +513,42 @@ last_updated: 2026-09-15T07:23:06.599Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-15T07:23:06.599Z",
+    "resolved_at": null
+  },
+  {
+    "id": 39,
+    "kind": "unrun-verify",
+    "phase": "51",
+    "file": ".planning/phases/51-zip/51-03-PLAN.md",
+    "line": null,
+    "description": "51-03 计划门禁五（传输面）锚点取错行 ⇒ 对任何正确实现恒红：它用 main.indexOf(\"route === 'import'\") 取窗口起点，而 main.js 在 handleSkillsApi 之前已有一处同名分支（handleRulesApi 的分配规则导入，main.js:2745）⇒ 窗口落在另一个函数上，报「import 分支未使用 readRawBody / 未显式声明 maxBytes」。计划判据一字未改；已按计划 acceptance_criteria 自己声明的口径（用函数名 / token 定界）在 tests/test-skills-import.js 的「传输面（main.js 源码契约，窗口按函数名 / token 定界）」组补等价判据（同四条负向 token + 顺序判据），单点变异 req.resume()→req.destroy() / 交换早退与累加顺序 各确认转红",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T07:56:48.653Z",
+    "resolved_at": null
+  },
+  {
+    "id": 40,
+    "kind": "deviation",
+    "phase": "51",
+    "file": "tests/test-manage-skill.js",
+    "line": null,
+    "description": "51-03 Rule 3: 三条既有护栏断言编码的是 51-02/51-03 之前的「yaml 是 SDK 传递依赖、不得直接 require」纪律，与 Phase 51 D-14（yaml 提升为直接依赖、精确钉 2.9.0）直接冲突 ⇒ 新增 require('yaml') 后确定性转红。按新语义最小改写：① test-manage-skill.js 的「不得引入 yaml 包」改为「yamlScalar 函数体内不得出现 yaml + 全仓 require('yaml') 恰 1 处且住在 getYamlLazy() 内」；② test-ai-skills.js 的 YAML_OR_IGNORE_REQUIRE 只保留 ignore（yaml 移出禁令）并拆出「yaml 只经 getYamlLazy 引入」独立用例；③ test-ai-skills.js 的 localeCompare 判据由 src.includes('localeCompare') 改为判『调用』(\\.localeCompare\\s*\\()—— 导入面的目录树排序必须如实登记『不用 localeCompare』这条口径，注释里出现该词是预期行为。另 test-ai-skills.js 新增的 lookbehind 负向 token 判据改在剥注释面上判定（与计划门禁同口径）。三处判别力零损失（分别做过等价变异的反向验证）",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T07:56:57.676Z",
+    "resolved_at": null
+  },
+  {
+    "id": 41,
+    "kind": "deviation",
+    "phase": "51",
+    "file": "AGENTS.md",
+    "line": null,
+    "description": "51-03 Rule 3: counts-parity 账本（AGENTS.md 测试行 + docs/product/ai-skills.md §七/§11.8/§12）随本计划的套件改动刷新到实测值 —— test-ai-skills.js 187 → 198、test-skills-http-api.js 32 → 41。注：T1 提交时漏刷（test-ai-skills 187 → 188 已在 T1 落地但账本未同批改），T2 一并补齐；此后 T3 再次刷新到 198。cells 仍为 16（两个新套件各 2 个账本单元由 51-07 扩到 20）",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-15T07:56:57.770Z",
     "resolved_at": null
   }
 ]
