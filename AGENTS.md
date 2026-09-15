@@ -59,6 +59,8 @@ Realm Browser 是一个基于 Electron 的多容器隔离浏览器，支持独�
 
 执行前先 `git fetch`，避免基于过期的远端状态判断。
 
+**回合与清理的四步实操校验**（并发会话在场时每步各要多判一件事，2026-09-15 实测）：① 步骤 3 前 `git log --oneline HEAD..master` 看对方多出什么、是否触及本分支文件；② 步骤 4 前先把「别人的未提交文件」与「本次合并会改的文件」求交集，**交集为空**才直接合，非空先确认（合并后复查 `git status` 与合并前逐行一致）；③ 合并后用 `git rev-parse feature/<简述>^{tree} master^{tree}` 判两个 tree hash 是否相同 —— 相同则 master 内容与分支逐字节一致，**分支上的验证结论直接继承**，同时按改动面挑做**源码扫描**的套件复跑；④ 清理后 `git worktree list` 只剩主工作树、`ls .git/worktrees/` 为空。另：`master` 是活跃共享线，合并后某测试变红先 `git log` 看清有没有别人的提交再下结论。详见 [docs/dev/branching-spec.md](docs/dev/branching-spec.md) §5.1「实操校验」。
+
 **四条不要做**：
 
 - 不要在**主工作树**上 `switch` 到 `feature`/`hotfix` 分支再改 —— 必须用独立 worktree

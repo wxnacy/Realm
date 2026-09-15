@@ -242,6 +242,55 @@ git worktree remove .worktrees/ai-memory-gc
 git branch -d feature/ai-memory-gc
 ```
 
+**实操校验（2026-09-15 端到端实测，步骤 3 / 4 / 5）**
+
+命令本身能跑通，但**同一仓库有并发会话时**这四步各要多判一件事。以下每条都是实测踩点，不是理论推演。
+
+**① 步骤 3（`git merge master`）前先 fetch 并看对方多出什么**
+
+```bash
+git fetch origin
+git log --oneline HEAD..master      # master 相对本分支多出的提交
+```
+
+用来判断将要合入的内容是否触及本分支改过的文件。实测：master 已前进 3 个提交（其中一条是 Phase 51 的**真实代码**提交，不是文档），但因文件零重叠，`git merge master` 直接干净合并。
+
+**② 步骤 4（合回 `master`）前逐文件核对与并发会话未提交改动的重叠**
+
+`git merge` 在**目标工作树存在未提交改动、且该文件恰好被本次合并修改**时会拒绝。并发会话在场时主工作树常挂着别人的半成品，所以先做一次集合求交：
+
+```bash
+cd <仓库根>
+git status --short                        # 别人的未提交文件
+git diff --name-only master feature/<简述> # 本次合并会改的文件
+```
+
+**交集为空**才直接合并；非空先与对方确认，**不要**用 `git checkout --` / `reset --hard` 去「腾地方」。
+
+合并后立即复查别人的改动是否原样保留 —— `git status --short` 的输出应与合并前逐行一致。
+
+**③ 合并后用 tree hash 相等继承分支上的验证结论**
+
+不必为了「在 master 上再验一遍」重跑整套。若步骤 3 已把 master 完全并进分支，则：
+
+```bash
+git rev-parse feature/<简述>^{tree} master^{tree}
+```
+
+两个 hash **相同**即 master 内容与分支逐字节一致 ⇒ 分支上跑过的验证结论**直接继承**（实测二者同为 `8d5b7a1c…`，故不再重跑那 9 条端到端断言）。
+
+同时按**改动面**挑要复跑的套件：改了 `renderer.js` / `settings-page.js` 这类被**源码扫描**的文件时，务必复跑那些做源码扫描的套件 —— 它们才是真实风险面，纯逻辑套件不会因这类改动变红。
+
+**④ 步骤 5 清理后确认零残留**
+
+```bash
+git worktree list        # 应只剩主工作树一行
+git branch --list        # feature 分支应已消失
+ls .git/worktrees/       # 应为空；有内容 = 僵尸元数据（手删目录的后果）
+```
+
+**⑤ 一个判读纪律**：`master` 是**活跃共享线** —— 并发会话可能在你合并之上继续提交。所以「合并后某测试变红」不一定是你的改动引起的，先 `git log` 看清中间有没有别人的提交，再下结论。
+
 **feature 寿命超过 2~3 周的处理**：不要靠「再多合几次 master」硬撑。二选一：
 
 - 拆成若干可独立合入的小 feature
