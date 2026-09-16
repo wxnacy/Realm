@@ -7563,7 +7563,20 @@ function renameConversation(conversationId) {
   input.focus();
   input.select();
 
+  // 编辑态下点击输入框只用于定位光标 / 选择文本，必须拦在列表项之外：
+  // 输入框是 .ai-conv-item 的子孙，click 冒泡到列表项会走
+  // switchConversation()（renderer.js:7337）→ closeConvDropdown()，
+  // 结果是一点输入框就切走对话并关掉面板，正在编辑的输入框被销毁
+  input.addEventListener('click', (e) => e.stopPropagation());
+
+  // 收尾只允许发生一次：renderConvList() 会移除持有焦点的输入框，浏览器随即
+  // 派发 blur（实测），没有这道闸时 Escape 取消会被 blur 二次提交覆盖 ——
+  // 用户按 Escape 想放弃修改，结果反而把输入框里的内容写进了标题
+  let settled = false;
+
   const submitRename = async () => {
+    if (settled) return;
+    settled = true;
     const newTitle = input.value.trim();
     if (newTitle && newTitle !== currentTitle) {
       try {
@@ -7580,12 +7593,17 @@ function renameConversation(conversationId) {
     renderConvList();
   };
 
+  const cancelRename = () => {
+    settled = true;
+    renderConvList();
+  };
+
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       submitRename();
     } else if (e.key === 'Escape') {
-      renderConvList();
+      cancelRename();
     }
   });
 
