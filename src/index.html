@@ -654,6 +654,22 @@
         <label for="bookmarkTitleInput">标题</label>
         <input type="text" id="bookmarkTitleInput" class="bookmark-edit-input" placeholder="页面标题">
       </div>
+      <!-- 文件夹（对标 Chrome 星标弹窗）：触发器显示面包屑路径，点开为可搜索的文件夹树 -->
+      <div class="bookmark-edit-field">
+        <label for="bookmarkFolderTrigger">文件夹</label>
+        <div class="bookmark-folder-select" id="bookmarkFolderSelect">
+          <button type="button" id="bookmarkFolderTrigger" class="bookmark-folder-trigger"
+                  aria-haspopup="tree" aria-expanded="false">
+            <span class="bookmark-folder-path" id="bookmarkFolderPath">收藏栏</span>
+            <svg class="bookmark-folder-chevron" width="12" height="12" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+          <!-- 下拉内容由 renderer 渲染：搜索框 + 文件夹树 + 新建行 -->
+          <div class="bookmark-folder-dropdown hidden" id="bookmarkFolderDropdown" role="tree"></div>
+        </div>
+      </div>
       <div class="bookmark-edit-field">
         <label>网址</label>
         <div id="bookmarkUrlDisplay" class="bookmark-edit-url"></div>

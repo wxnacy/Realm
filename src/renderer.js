@@ -53,6 +53,12 @@ const elements = {
   bookmarkSaveBtn: document.getElementById('bookmarkSaveBtn'),
   bookmarkRemoveBtn: document.getElementById('bookmarkRemoveBtn'),
 
+  // 收藏编辑面板的文件夹选择器
+  bookmarkFolderSelect: document.getElementById('bookmarkFolderSelect'),
+  bookmarkFolderTrigger: document.getElementById('bookmarkFolderTrigger'),
+  bookmarkFolderPath: document.getElementById('bookmarkFolderPath'),
+  bookmarkFolderDropdown: document.getElementById('bookmarkFolderDropdown'),
+
   // 容器创建/编辑模态框
   containerModal: document.getElementById('containerModal'),
   containerModalTitle: document.getElementById('containerModalTitle'),
@@ -245,6 +251,38 @@ const state = {
   isCurrentPageBookmarked: false,
   currentBookmarkId: null,
   currentBookmarkTitle: null,
+  /** 当前已收藏页面所在的文件夹 ID（0 = 收藏栏根目录），来自 favoritesCheck */
+  currentBookmarkFolderId: 0,
+  /**
+   * 收藏编辑面板**自身**的编辑目标：{isEdit, id, url}
+   *
+   * 保存 / 移除一律以它为准，不读全局 state —— 全局 state 会随活动 Tab 变化
+   * （收藏栏右键可编辑**别的页面**的书签、面板开着时用户也能切 Tab），
+   * 靠全局 state 判断模式会把操作落到另一个书签上（改错标题、甚至移错文件夹）
+   */
+  bookmarkPanelTarget: null,
+  /** 收藏编辑面板中「待保存」的目标文件夹 ID（新增/编辑态都在此累积） */
+  pendingBookmarkFolderId: 0,
+  /** 文件夹树缓存（打开面板时刷新），供路径显示与下拉渲染共用 */
+  bookmarkFolderTree: [],
+  /** 文件夹树是否已成功加载（区分「尚未加载」与「加载了但没有该文件夹」） */
+  bookmarkFolderTreeLoaded: false,
+  /** 文件夹下拉是否展开 */
+  bookmarkFolderDropdownOpen: false,
+  /** 下拉搜索关键词（已 trim + 小写，仅用于匹配） */
+  bookmarkFolderKeyword: '',
+  /** 搜索关键词原样（保留大小写）：无命中时用它作新建文件夹名，不能把用户的输入改小写 */
+  bookmarkFolderKeywordRaw: '',
+  /** 键盘高亮项索引（对应当前可见行列表）；-1 表示无高亮 */
+  bookmarkFolderHighlightIndex: -1,
+  /** 当前可见行快照（渲染与键盘/点击解析共用同一份，避免两处各算一遍） */
+  bookmarkFolderRows: [],
+  /** 搜索无命中时给出的「用此关键词新建」名称；空串表示不显示该行 */
+  bookmarkFolderSuggestion: '',
+  /** 已展开的文件夹 ID 集合（0 代表根目录） */
+  bookmarkFolderExpanded: new Set(),
+  /** 上次保存到的文件夹 ID（懒加载；null 表示尚未从设置读取） */
+  lastUsedBookmarkFolderId: null,
 
   // 媒体面板状态
   mediaPanelOpen: false,
@@ -485,6 +523,7 @@ async function checkBookmarkStatus(url) {
     state.isCurrentPageBookmarked = false;
     state.currentBookmarkId = null;
     state.currentBookmarkTitle = null;
+    state.currentBookmarkFolderId = 0;
     updateStarButton(false);
     return;
   }
@@ -493,6 +532,8 @@ async function checkBookmarkStatus(url) {
     state.isCurrentPageBookmarked = !!result;
     state.currentBookmarkId = result ? result.id : null;
     state.currentBookmarkTitle = result ? result.title : null;
+    // 收藏所在文件夹（0 = 收藏栏根目录）：星标弹窗据此显示当前文件夹
+    state.currentBookmarkFolderId = result ? (result.folder_id || 0) : 0;
     updateStarButton(!!result);
   } catch (err) {
     console.error('[Realm Renderer] 检查收藏状态失败:', err);
@@ -558,14 +599,31 @@ function updateStarButton(bookmarked) {  const outline = elements.bookmarkStarBt
  * @param {boolean} isEdit - 是否为编辑模式（已收藏页面再次点击星标）
  *   true：显示"移除收藏"按钮，标题为"编辑收藏"，保存调用 update
  *   false：隐藏"移除收藏"按钮，标题为"收藏此页面"，保存调用 add
+ * @param {number} [folderId] - 该收藏当前所在的文件夹 ID（0 = 收藏栏根目录）。
+ *   编辑态由调用方给出；新增态传 0，稍后由「上次保存到的文件夹」补齐
  */
-function showBookmarkEditPanel(title, url, isEdit = false) {
+function showBookmarkEditPanel(title, url, isEdit = false, folderId = 0) {
   elements.bookmarkTitleInput.value = title || '';
   elements.bookmarkUrlDisplay.textContent = url || '';
 
   // 编辑模式 UI 切换
   elements.bookmarkEditHeader.textContent = isEdit ? '编辑收藏' : '收藏此页面';
   elements.bookmarkRemoveBtn.style.display = isEdit ? '' : 'none';
+
+  // 固化本次的编辑目标（详见 state.bookmarkPanelTarget 的说明）
+  state.bookmarkPanelTarget = {
+    isEdit: !!isEdit,
+    id: isEdit ? state.currentBookmarkId : null,
+    url: url || '',
+  };
+
+  // 文件夹初值 + 重置下拉状态（上次打开的折叠/搜索状态不带到这一次）
+  state.pendingBookmarkFolderId = folderId || 0;
+  state.bookmarkFolderExpanded = new Set();
+  closeBookmarkFolderDropdown();
+  updateBookmarkFolderTrigger();
+  // 树与记忆值异步补齐：面板本身必须同步打开（见 loadBookmarkFolderContext 说明）
+  loadBookmarkFolderContext(isEdit, state.pendingBookmarkFolderId);
 
   // 使用 <dialog> + showModal()：进入 top layer，天然覆盖 Electron <webview>
   // （webview 是独立 guest WebContents，z-index/visibility 对其不可靠，
@@ -584,15 +642,23 @@ function showBookmarkEditPanel(title, url, isEdit = false) {
  * 隐藏收藏编辑面板
  */
 function hideBookmarkEditPanel() {
+  closeBookmarkFolderDropdown();
+  state.bookmarkPanelTarget = null;
   if (elements.bookmarkEditPanel.open) {
     elements.bookmarkEditPanel.close();
+  }
+  // 收藏栏右键「编辑」打开的可能**不是**当前页面的收藏，它会把全局 state 指向
+  // 另一个书签；收尾时按活动 Tab 重新对齐，避免星标停在与当前页不符的状态上
+  const activeTab = state.tabs.get(state.activeTabId);
+  if (activeTab && activeTab.url) {
+    checkBookmarkStatus(activeTab.url);
   }
 }
 
 /**
  * 保存收藏
- * 已收藏（编辑模式）：调用 favoritesUpdate 更新标题
- * 未收藏（新增模式）：调用 favoritesAdd 新增记录
+ * 已收藏（编辑模式）：调用 favoritesUpdate 更新标题与所在文件夹
+ * 未收藏（新增模式）：调用 favoritesAdd 新增记录（含所在文件夹）
  */
 async function saveBookmark() {
   const title = elements.bookmarkTitleInput.value.trim();
@@ -600,35 +666,52 @@ async function saveBookmark() {
 
   if (!url) return;
 
+  // 面板打开期间该文件夹可能在收藏页被删除 ⇒ 写入前收敛，
+  // 否则会写进一个悬空 folder_id（收藏在所有视图里都看不到）
+  const folderId = resolveFolderId(state.pendingBookmarkFolderId);
+
+  // 模式与目标一律取自面板自己固化的编辑目标，而不是全局 state（见 bookmarkPanelTarget）
+  const target = state.bookmarkPanelTarget || { isEdit: false, id: null, url };
+
   let toastMessage = null;
   let toastType = 'success';
+  let shouldRememberFolder = true;
 
   try {
-    if (state.isCurrentPageBookmarked && state.currentBookmarkId) {
-      // 编辑模式：更新标题
-      await window.realmAPI.favoritesUpdate(state.currentBookmarkId, title);
-      state.currentBookmarkTitle = title; // 同步 state，避免下次打开仍是旧值
+    if (target.isEdit && target.id) {
+      // 编辑模式：更新标题与所在文件夹
+      await window.realmAPI.favoritesUpdate(target.id, title, folderId);
+      // 同步 state，避免下次打开仍是旧值
+      state.currentBookmarkTitle = title;
+      state.currentBookmarkFolderId = folderId;
       toastMessage = '已更新收藏';
     } else {
-      // 新增模式：插入新记录，从当前 tab 获取 favicon
+      // 新增模式：插入新记录（含所在文件夹），从当前 tab 获取 favicon
       const activeTab = state.tabs.get(state.activeTabId);
       const faviconUrl = activeTab ? (activeTab.faviconUrl || '') : '';
       const result = await window.realmAPI.favoritesAdd({
         url,
         title,
         faviconUrl,
+        folderId,
       });
 
       if (result.error === 'duplicate') {
         toastMessage = '已收藏过该页面';
         toastType = 'error';
+        shouldRememberFolder = false;
       } else {
         state.isCurrentPageBookmarked = true;
         state.currentBookmarkId = result.id;
         state.currentBookmarkTitle = title; // 同步 state
+        state.currentBookmarkFolderId = folderId;
         updateStarButton(true);
         toastMessage = '已收藏';
       }
+    }
+    // 记住本次保存到的文件夹：下一次新增默认落到它（Chrome 同款行为）
+    if (shouldRememberFolder) {
+      rememberLastUsedBookmarkFolder(folderId);
     }
   } catch (err) {
     console.error('[Realm Renderer] 收藏失败:', err);
@@ -653,7 +736,10 @@ async function saveBookmark() {
  * 取消收藏当前页面（编辑面板"移除收藏"按钮触发）
  */
 async function removeBookmark() {
-  const bookmarkId = state.currentBookmarkId;
+  // 移除的对象取自面板固化的编辑目标（与保存同一口径），而非全局 state
+  const bookmarkId = state.bookmarkPanelTarget
+    ? state.bookmarkPanelTarget.id
+    : state.currentBookmarkId;
 
   if (!bookmarkId) return;
 
@@ -665,6 +751,7 @@ async function removeBookmark() {
     state.isCurrentPageBookmarked = false;
     state.currentBookmarkId = null;
     state.currentBookmarkTitle = null;
+    state.currentBookmarkFolderId = 0;
     updateStarButton(false);
     toastMessage = '已取消收藏';
   } catch (err) {
@@ -682,6 +769,634 @@ async function removeBookmark() {
   // 刷新收藏栏显示
   if (window.bookmarksBar) {
     window.bookmarksBar.load();
+  }
+}
+
+// ==================== 收藏编辑面板：文件夹选择器 ====================
+// 对标 Chrome 星标弹窗的「文件夹」组合框：触发器显示面包屑路径，
+// 点开是「搜索框 + 文件夹树 + 新建行」。根目录（folder_id = 0）内容实际
+// 展示在收藏栏上，故显示为「收藏栏」（收藏页对同一层用的是「所有书签」）。
+
+/** 根目录（folder_id = 0）在收藏栏上的显示名 */
+const FOLDER_ROOT_LABEL = '收藏栏';
+
+/** 「上次保存到的文件夹」在设置中的键（写入 settings.bookmarksBar 之下） */
+const LAST_USED_FOLDER_SETTING_KEY = 'bookmarksBar.lastUsedFavoriteFolderId';
+
+/**
+ * 在文件夹树中查找到目标文件夹的完整路径
+ * @param {Array} tree - 文件夹树
+ * @param {number} folderId - 目标文件夹 ID
+ * @param {Array} [path] - 递归累积的祖先路径 [{id, name}]
+ * @returns {Array<{id: number, name: string}>|null} 路径（含目标自身），未找到为 null
+ */
+function findFolderPath(tree, folderId, path = []) {
+  for (const folder of tree) {
+    const next = [...path, { id: folder.id, name: folder.name }];
+    if (folder.id === folderId) return next;
+    if (Array.isArray(folder.children) && folder.children.length > 0) {
+      const found = findFolderPath(folder.children, folderId, next);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * 文件夹的面包屑显示文本
+ * @param {number} folderId - 文件夹 ID（0 表示根目录）
+ * @returns {string} 形如「收藏栏 / 开发 / 前端」
+ */
+function folderDisplayPath(folderId) {
+  if (!folderId) return FOLDER_ROOT_LABEL;
+  const path = findFolderPath(state.bookmarkFolderTree, folderId);
+  // 树已加载但找不到 ⇒ 文件夹已被删除；树未加载 ⇒ 暂不知晓，先按根目录显示
+  if (!path) return FOLDER_ROOT_LABEL;
+  return [FOLDER_ROOT_LABEL, ...path.map((item) => item.name)].join(' / ');
+}
+
+/**
+ * 把文件夹 ID 收敛为「树里真实存在」的 ID
+ *
+ * 悬空 folder_id 的后果是收藏在根目录与任何文件夹里都看不到（等于凭空消失），
+ * 因此写入前一律收敛。树尚未加载时原样返回——此时用户还没有选择的余地，
+ * 数据层对不存在的文件夹也会拒绝写入并回报错误，不会静默落库。
+ *
+ * @param {number} folderId - 待校验的文件夹 ID
+ * @returns {number} 可安全写入的文件夹 ID（0 或树中存在的 ID）
+ */
+function resolveFolderId(folderId) {
+  if (!folderId) return 0;
+  if (!state.bookmarkFolderTreeLoaded) return folderId;
+  return findFolderPath(state.bookmarkFolderTree, folderId) ? folderId : 0;
+}
+
+/**
+ * 刷新触发器显示的面包屑与悬停全路径
+ */
+function updateBookmarkFolderTrigger() {
+  if (!elements.bookmarkFolderPath || !elements.bookmarkFolderTrigger) return;
+  const text = folderDisplayPath(state.pendingBookmarkFolderId);
+  elements.bookmarkFolderPath.textContent = text;
+  elements.bookmarkFolderTrigger.title = text;
+}
+
+/**
+ * 拉取文件夹树并刷新界面
+ *
+ * 必须在每次打开面板时重新拉取：面板关闭期间用户可能在收藏页增删文件夹。
+ * 失败时降级为「空树 + 错误提示」，绝不抛出（面板本身仍可用，只是选不了文件夹）。
+ *
+ * @returns {Promise<boolean>} 是否加载成功
+ */
+async function refreshBookmarkFolderTree() {
+  try {
+    const tree = await window.realmAPI.getFavoriteFolderTree();
+    state.bookmarkFolderTree = Array.isArray(tree) ? tree : [];
+    state.bookmarkFolderTreeLoaded = true;
+  } catch (err) {
+    console.error('[Realm Renderer] 加载文件夹树失败:', err);
+    state.bookmarkFolderTree = [];
+    state.bookmarkFolderTreeLoaded = false;
+  }
+
+  // 待保存的文件夹可能已在别处被删除 ⇒ 收敛，避免保存时写入悬空 ID
+  state.pendingBookmarkFolderId = resolveFolderId(state.pendingBookmarkFolderId);
+  updateBookmarkFolderTrigger();
+  if (state.bookmarkFolderDropdownOpen) {
+    ensureBookmarkFolderAncestorsExpanded();
+    renderBookmarkFolderList();
+  }
+  return state.bookmarkFolderTreeLoaded;
+}
+
+/**
+ * 读取「上次保存到的文件夹」（懒加载，进程内缓存）
+ * @returns {Promise<number>} 文件夹 ID；未设置或读取失败时为 0
+ */
+async function getLastUsedBookmarkFolderId() {
+  if (state.lastUsedBookmarkFolderId !== null) return state.lastUsedBookmarkFolderId;
+
+  let value = 0;
+  try {
+    const settings = await window.realmAPI.getSettings();
+    const raw = settings && settings.bookmarksBar
+      ? settings.bookmarksBar.lastUsedFavoriteFolderId
+      : undefined;
+    if (Number.isInteger(raw) && raw > 0) value = raw;
+  } catch (err) {
+    console.error('[Realm Renderer] 读取上次收藏文件夹失败:', err);
+  }
+
+  state.lastUsedBookmarkFolderId = value;
+  return value;
+}
+
+/**
+ * 记住本次保存到的文件夹（Chrome 同款行为：下次新增默认落到它）
+ * @param {number} folderId - 文件夹 ID
+ */
+function rememberLastUsedBookmarkFolder(folderId) {
+  const value = folderId || 0;
+  state.lastUsedBookmarkFolderId = value;
+  // 持久化失败只影响下次的默认值，不影响本次保存结果
+  window.realmAPI.setSetting(LAST_USED_FOLDER_SETTING_KEY, value).catch((err) => {
+    console.error('[Realm Renderer] 记录上次收藏文件夹失败:', err);
+  });
+}
+
+/**
+ * 收集下拉中当前「可见」的文件夹行
+ *
+ * 可见 = 自身命中关键词，或子树内有命中（命中项的**祖先**要留作上下文，
+ * 否则过滤后只剩孤立一行，看不出它在哪一层）。
+ * 关键词非空时忽略折叠状态、一律展开，否则命中项会被折叠藏起来。
+ *
+ * @returns {{rows: Array, matchCount: number}} 行列表与命中数
+ */
+function collectBookmarkFolderRows() {
+  const keyword = state.bookmarkFolderKeyword;
+
+  /**
+   * 递归收集子树中的可见行
+   * @param {Array} nodes - 当前层的文件夹节点
+   * @param {number} level - 层级（用于缩进）
+   * @returns {{rows: Array, matches: number}}
+   */
+  function collect(nodes, level) {
+    const rows = [];
+    let matches = 0;
+    for (const folder of nodes) {
+      const children = Array.isArray(folder.children) ? folder.children : [];
+      const sub = collect(children, level + 1);
+      const selfMatch = !keyword || folder.name.toLowerCase().includes(keyword);
+      if (!selfMatch && sub.matches === 0) continue;
+      if (selfMatch) matches += 1;
+      matches += sub.matches;
+      rows.push({
+        id: folder.id,
+        name: folder.name,
+        level,
+        hasChildren: children.length > 0,
+        expanded: keyword ? true : state.bookmarkFolderExpanded.has(folder.id),
+      });
+      if (keyword || state.bookmarkFolderExpanded.has(folder.id)) {
+        rows.push(...sub.rows);
+      }
+    }
+    return { rows, matches };
+  }
+
+  const rootExpanded = keyword ? true : state.bookmarkFolderExpanded.has(0);
+  const top = collect(state.bookmarkFolderTree, 1);
+  const rows = [{
+    id: 0,
+    name: FOLDER_ROOT_LABEL,
+    level: 0,
+    hasChildren: state.bookmarkFolderTree.length > 0,
+    expanded: rootExpanded,
+  }];
+  if (rootExpanded) rows.push(...top.rows);
+
+  const rootMatch = keyword && FOLDER_ROOT_LABEL.toLowerCase().includes(keyword) ? 1 : 0;
+  return { rows, matchCount: rootMatch + top.matches };
+}
+
+/**
+ * 展开当前选中文件夹的祖先链（根目录恒展开）
+ *
+ * 不展开目标自身：只需把它露出来，没有必要顺带展开它的子级。
+ */
+function ensureBookmarkFolderAncestorsExpanded() {
+  state.bookmarkFolderExpanded.add(0);
+  const path = findFolderPath(state.bookmarkFolderTree, state.pendingBookmarkFolderId);
+  if (!path) return;
+  for (const node of path.slice(0, -1)) {
+    state.bookmarkFolderExpanded.add(node.id);
+  }
+}
+
+/**
+ * 折叠 / 展开一个文件夹节点
+ * @param {number} folderId - 文件夹 ID（0 表示根目录）
+ */
+function toggleBookmarkFolderExpanded(folderId) {
+  if (state.bookmarkFolderExpanded.has(folderId)) {
+    state.bookmarkFolderExpanded.delete(folderId);
+  } else {
+    state.bookmarkFolderExpanded.add(folderId);
+  }
+  state.bookmarkFolderHighlightIndex = -1;
+  renderBookmarkFolderList();
+}
+
+/**
+ * 构建下拉的固定骨架（搜索框 / 列表容器 / 新建行）
+ *
+ * 只在每次打开时构建一次：列表内容单独渲染，避免每敲一个字符就把搜索框
+ * 重建一遍——那会丢掉焦点与光标位置。
+ */
+function buildBookmarkFolderDropdownShell() {
+  const dropdown = elements.bookmarkFolderDropdown;
+  if (!dropdown) return;
+  dropdown.innerHTML = '';
+
+  const search = document.createElement('input');
+  search.type = 'text';
+  search.id = 'bookmarkFolderSearchInput';
+  search.className = 'bookmark-folder-search';
+  search.placeholder = '搜索文件夹';
+  search.autocomplete = 'off';
+  search.setAttribute('aria-label', '搜索文件夹');
+  search.addEventListener('input', (e) => {
+    // 中文 IME 合成期间的 input 是拼音中间态（如 "kf"），据此过滤会把树整空、
+    // 候选词也无法正常挑选。统一等 compositionend 拿到落定值再过滤
+    if (e.isComposing) return;
+    applyBookmarkFolderKeyword(e.target.value);
+  });
+  search.addEventListener('compositionend', (e) => {
+    applyBookmarkFolderKeyword(e.target.value);
+  });
+  search.addEventListener('keydown', handleBookmarkFolderSearchKeydown);
+  dropdown.appendChild(search);
+
+  const list = document.createElement('div');
+  list.id = 'bookmarkFolderList';
+  list.className = 'bookmark-folder-list';
+  list.setAttribute('role', 'tree');
+  // 事件委托只挂在列表上：新建行的输入框不在其中，不会误触发选中
+  list.addEventListener('click', (e) => {
+    const el = e.target.closest('.bookmark-folder-row, .bookmark-folder-create-suggestion');
+    if (!el) return;
+    const index = Number(el.dataset.index);
+    if (!Number.isNaN(index)) {
+      activateBookmarkFolderRow(index);
+    }
+  });
+  dropdown.appendChild(list);
+
+  const createRow = document.createElement('div');
+  createRow.className = 'bookmark-folder-create-row';
+
+  const icon = document.createElement('span');
+  icon.className = 'bookmark-folder-create-icon';
+  icon.textContent = '＋';
+
+  const createInput = document.createElement('input');
+  createInput.type = 'text';
+  createInput.id = 'bookmarkFolderCreateInput';
+  createInput.className = 'bookmark-folder-create-input';
+  createInput.autocomplete = 'off';
+  createInput.setAttribute('aria-label', '新建文件夹');
+  createInput.addEventListener('click', (e) => e.stopPropagation());
+  createInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      createFolderInBookmarkDropdown(createInput.value);
+    } else if (e.key === 'Escape') {
+      // 只收起下拉（并阻止 dialog 的原生 Escape 关闭），与搜索框一致
+      e.preventDefault();
+      e.stopPropagation();
+      closeBookmarkFolderDropdown();
+      elements.bookmarkFolderTrigger.focus();
+    }
+  });
+
+  icon.addEventListener('click', () => createInput.focus());
+  createRow.appendChild(icon);
+  createRow.appendChild(createInput);
+  dropdown.appendChild(createRow);
+}
+
+/**
+ * 应用搜索关键词并重绘列表
+ * @param {string} raw - 输入框原值
+ */
+function applyBookmarkFolderKeyword(raw) {
+  const trimmed = (raw || '').trim();
+  state.bookmarkFolderKeywordRaw = trimmed;
+  state.bookmarkFolderKeyword = trimmed.toLowerCase();
+  state.bookmarkFolderHighlightIndex = -1;
+  renderBookmarkFolderList();
+}
+
+/**
+ * 渲染列表内容（树行 + 搜索建议行）
+ */
+function renderBookmarkFolderList() {
+  const list = document.getElementById('bookmarkFolderList');
+  if (!list) return;
+
+  const { rows, matchCount } = collectBookmarkFolderRows();
+  // 建议行取**原样**关键词：新建出的文件夹名必须保留用户输入的大小写
+  const suggestion = state.bookmarkFolderKeyword && matchCount === 0
+    ? state.bookmarkFolderKeywordRaw
+    : '';
+
+  // 渲染快照与解析入口共用同一份数据（键盘与点击都按 data-index 回到这里取行）
+  state.bookmarkFolderRows = rows;
+  state.bookmarkFolderSuggestion = suggestion;
+
+  list.innerHTML = '';
+  let index = 0;
+
+  if (suggestion) {
+    const el = document.createElement('div');
+    el.className = 'bookmark-folder-create-suggestion';
+    el.dataset.index = String(index);
+    el.textContent = `＋ 新建文件夹 "${suggestion}"`;
+    list.appendChild(el);
+    index += 1;
+  }
+
+  for (const row of rows) {
+    list.appendChild(buildBookmarkFolderRow(row, index));
+    index += 1;
+  }
+
+  if (rows.length === 0 && !suggestion) {
+    const note = document.createElement('div');
+    note.className = state.bookmarkFolderTreeLoaded ? 'bookmark-folder-empty' : 'bookmark-folder-error';
+    note.textContent = state.bookmarkFolderTreeLoaded ? '暂无文件夹' : '文件夹加载失败';
+    list.appendChild(note);
+  }
+
+  applyBookmarkFolderHighlight();
+  updateBookmarkFolderCreatePlaceholder();
+}
+
+/**
+ * 构建一个文件夹树行
+ * @param {Object} row - collectBookmarkFolderRows 产出的行数据
+ * @param {number} index - 行在可见列表中的索引（键盘/点击解析用）
+ * @returns {HTMLElement} 行元素
+ */
+function buildBookmarkFolderRow(row, index) {
+  const el = document.createElement('div');
+  el.className = 'bookmark-folder-row';
+  el.dataset.index = String(index);
+  el.dataset.folderId = String(row.id);
+  el.style.paddingLeft = `${10 + row.level * 16}px`;
+  el.setAttribute('role', 'treeitem');
+
+  const isSelected = row.id === state.pendingBookmarkFolderId;
+  if (isSelected) el.classList.add('selected');
+  // expanded 类仅供调试与 UAT 判读折叠状态
+  if (row.expanded) el.classList.add('expanded');
+
+  const expand = document.createElement('span');
+  expand.className = row.hasChildren ? 'bookmark-folder-expand' : 'bookmark-folder-expand empty';
+  expand.textContent = row.expanded ? '▾' : '▸';
+  expand.addEventListener('click', (e) => {
+    // 点三角只折叠/展开，不改选中项
+    e.stopPropagation();
+    toggleBookmarkFolderExpanded(row.id);
+  });
+
+  const name = document.createElement('span');
+  name.className = 'bookmark-folder-name';
+  name.textContent = row.id === 0 ? FOLDER_ROOT_LABEL : row.name;
+
+  el.appendChild(expand);
+  el.appendChild(name);
+
+  if (isSelected) {
+    const check = document.createElement('span');
+    check.className = 'bookmark-folder-check';
+    check.textContent = '✓';
+    el.appendChild(check);
+  }
+
+  return el;
+}
+
+/**
+ * 应用键盘高亮样式
+ */
+function applyBookmarkFolderHighlight() {
+  const list = document.getElementById('bookmarkFolderList');
+  if (!list) return;
+  list.querySelectorAll('.highlighted').forEach((el) => el.classList.remove('highlighted'));
+  const index = state.bookmarkFolderHighlightIndex;
+  if (index < 0) return;
+  const target = list.querySelector(`[data-index="${index}"]`);
+  if (target) target.classList.add('highlighted');
+}
+
+/**
+ * 把键盘高亮项滚动到可视区
+ */
+function scrollBookmarkFolderHighlightIntoView() {
+  const list = document.getElementById('bookmarkFolderList');
+  if (!list) return;
+  const index = state.bookmarkFolderHighlightIndex;
+  if (index < 0) return;
+  const target = list.querySelector(`[data-index="${index}"]`);
+  if (target && typeof target.scrollIntoView === 'function') {
+    target.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+/**
+ * 新建行的 placeholder：显式写出父级文件夹
+ *
+ * Chrome 的「新建文件夹」建到哪个节点下并不直观，这里用文案直接说明。
+ */
+function updateBookmarkFolderCreatePlaceholder() {
+  const input = document.getElementById('bookmarkFolderCreateInput');
+  if (!input) return;
+  input.placeholder = `在 ${folderDisplayPath(state.pendingBookmarkFolderId)} 中新建`;
+}
+
+/**
+ * 按可见列表索引激活一行（键盘 Enter 与鼠标点击共用同一解析）
+ * @param {number} index - 可见列表索引（建议行占 0 时，树行整体后移 1）
+ */
+function activateBookmarkFolderRow(index) {
+  if (index < 0) return;
+
+  // 建议行（搜索无命中时的「用此关键词新建」）
+  if (state.bookmarkFolderSuggestion && index === 0) {
+    createFolderInBookmarkDropdown(state.bookmarkFolderSuggestion);
+    return;
+  }
+
+  const rowIndex = state.bookmarkFolderSuggestion ? index - 1 : index;
+  const row = state.bookmarkFolderRows[rowIndex];
+  if (row) selectBookmarkFolder(row.id);
+}
+
+/**
+ * 选中文件夹（更新待保存值并收起下拉）
+ * @param {number} folderId - 文件夹 ID（0 表示根目录）
+ */
+function selectBookmarkFolder(folderId) {
+  state.pendingBookmarkFolderId = folderId || 0;
+  updateBookmarkFolderTrigger();
+  closeBookmarkFolderDropdown();
+  elements.bookmarkFolderTrigger.focus();
+}
+
+/**
+ * 搜索框键盘交互：焦点全程留在搜索框上，用高亮项表达「当前指向哪一行」
+ * @param {KeyboardEvent} e - 键盘事件
+ */
+function handleBookmarkFolderSearchKeydown(e) {
+  if (e.key === 'Escape') {
+    // 只收起下拉；preventDefault 同时阻止 <dialog> 的原生 Escape 关闭
+    e.preventDefault();
+    e.stopPropagation();
+    closeBookmarkFolderDropdown();
+    elements.bookmarkFolderTrigger.focus();
+    return;
+  }
+
+  const total = state.bookmarkFolderRows.length + (state.bookmarkFolderSuggestion ? 1 : 0);
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (total === 0) return;
+    const delta = e.key === 'ArrowDown' ? 1 : -1;
+    const current = state.bookmarkFolderHighlightIndex;
+    // -1 表示尚无高亮：向下从首项开始，向上从末项开始
+    state.bookmarkFolderHighlightIndex = current < 0
+      ? (delta > 0 ? 0 : total - 1)
+      : (current + delta + total) % total;
+    applyBookmarkFolderHighlight();
+    scrollBookmarkFolderHighlightIntoView();
+    return;
+  }
+
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    activateBookmarkFolderRow(state.bookmarkFolderHighlightIndex);
+  }
+}
+
+/**
+ * 在当前选中的文件夹下新建文件夹，并自动选中新建结果
+ * @param {string} rawName - 文件夹名称
+ */
+async function createFolderInBookmarkDropdown(rawName) {
+  const name = (rawName || '').trim();
+  if (!name) return;
+
+  // 父级 = 当前已选中的文件夹（新建行的 placeholder 已写明这一点）
+  const parentId = resolveFolderId(state.pendingBookmarkFolderId);
+  try {
+    const result = await window.realmAPI.createFavoriteFolder(name, parentId);
+    if (!result || result.error) {
+      showToast(result && result.message ? result.message : '新建文件夹失败', 'error');
+      return;
+    }
+
+    // 新建的文件夹要能立刻看见：展开它的父级，再重拉树
+    state.bookmarkFolderExpanded.add(parentId);
+    await refreshBookmarkFolderTree();
+
+    state.pendingBookmarkFolderId = result.id;
+    state.bookmarkFolderKeyword = '';
+    state.bookmarkFolderKeywordRaw = '';
+    state.bookmarkFolderHighlightIndex = -1;
+    updateBookmarkFolderTrigger();
+    // 新建即选定：收起下拉，与「点某一行选中」保持一致（Chrome 亦如此）
+    closeBookmarkFolderDropdown();
+  } catch (err) {
+    console.error('[Realm Renderer] 新建文件夹失败:', err);
+    showToast('新建文件夹失败', 'error');
+  }
+}
+
+/**
+ * 展开文件夹下拉
+ */
+function openBookmarkFolderDropdown() {
+  const dropdown = elements.bookmarkFolderDropdown;
+  if (!dropdown) return;
+
+  state.bookmarkFolderDropdownOpen = true;
+  state.bookmarkFolderKeyword = '';
+  state.bookmarkFolderKeywordRaw = '';
+  state.bookmarkFolderHighlightIndex = -1;
+  state.bookmarkFolderSuggestion = '';
+  ensureBookmarkFolderAncestorsExpanded();
+
+  buildBookmarkFolderDropdownShell();
+  renderBookmarkFolderList();
+
+  // 先去掉 hidden 再量尺寸：display:none 下 rect 全 0，算不出剩余空间
+  dropdown.classList.remove('hidden');
+  elements.bookmarkFolderTrigger.setAttribute('aria-expanded', 'true');
+  applyBookmarkFolderDropdownMaxHeight();
+
+  const search = document.getElementById('bookmarkFolderSearchInput');
+  if (search) {
+    search.value = '';
+    search.focus();
+  }
+}
+
+/**
+ * 收起文件夹下拉
+ */
+function closeBookmarkFolderDropdown() {
+  state.bookmarkFolderDropdownOpen = false;
+  state.bookmarkFolderKeyword = '';
+  state.bookmarkFolderKeywordRaw = '';
+  state.bookmarkFolderHighlightIndex = -1;
+  state.bookmarkFolderSuggestion = '';
+  state.bookmarkFolderRows = [];
+
+  if (elements.bookmarkFolderDropdown) {
+    elements.bookmarkFolderDropdown.classList.add('hidden');
+    // 清空 DOM：下次打开重建骨架，避免残留上一次的输入值与监听器
+    elements.bookmarkFolderDropdown.innerHTML = '';
+    elements.bookmarkFolderDropdown.style.maxHeight = '';
+  }
+  if (elements.bookmarkFolderTrigger) {
+    elements.bookmarkFolderTrigger.setAttribute('aria-expanded', 'false');
+  }
+}
+
+/**
+ * 按视口剩余空间收窄下拉高度
+ *
+ * 下拉是绝对定位的子元素，不参与 dialog 的尺寸计算（弹窗本身不会被撑高，
+ * 因而无需重新定位）；代价是贴近窗口底部时会被视口裁掉，故按剩余空间限制。
+ */
+function applyBookmarkFolderDropdownMaxHeight() {
+  const dropdown = elements.bookmarkFolderDropdown;
+  if (!dropdown) return;
+  const rect = dropdown.getBoundingClientRect();
+  const available = window.innerHeight - rect.top - 12;
+  // 下限 120px：窗口极矮时仍要能看清几行，而不是压成一条缝
+  dropdown.style.maxHeight = `${Math.max(120, Math.min(260, Math.floor(available)))}px`;
+}
+
+/**
+ * 面板打开后异步补齐文件夹上下文（拉树 + 新增态解析「上次使用」）
+ *
+ * 刻意异步：面板必须同步打开（UAT 驱动与 positionPanelBelowButton 都依赖
+ * showModal 后的同步状态），树与设置读回来只更新文本，不影响打开时机。
+ *
+ * @param {boolean} isEdit - 是否编辑态（编辑态用收藏自身的文件夹，不吃记忆值）
+ * @param {number} initialPending - 打开时的待保存值（用于判断用户是否已改选）
+ */
+async function loadBookmarkFolderContext(isEdit, initialPending) {
+  await refreshBookmarkFolderTree();
+  if (!elements.bookmarkEditPanel.open) return;
+
+  if (!isEdit) {
+    const remembered = await getLastUsedBookmarkFolderId();
+    // 仅在用户尚未手动改选时套用记忆值（异步期间可能已经点开下拉选过了）
+    if (remembered && state.pendingBookmarkFolderId === initialPending) {
+      state.pendingBookmarkFolderId = resolveFolderId(remembered);
+      updateBookmarkFolderTrigger();
+    }
+  }
+
+  if (state.bookmarkFolderDropdownOpen) {
+    ensureBookmarkFolderAncestorsExpanded();
+    renderBookmarkFolderList();
   }
 }
 
@@ -2536,7 +3251,8 @@ function initShortcuts() {
           showBookmarkEditPanel(
             initialTitle,
             activeTab.url,
-            state.isCurrentPageBookmarked
+            state.isCurrentPageBookmarked,
+            state.currentBookmarkFolderId
           );
         } else {
           showToast('当前页面不可收藏', 'info');
@@ -4430,12 +5146,22 @@ async function init() {
       openUrl(data.url, { disposition: 'new-tab' });
     }
   });
-  window.realmAPI.onIpcMessage('bookmarks-bar:edit-bookmark', (data) => {
-    // 设置编辑状态，然后弹出收藏编辑面板
+  window.realmAPI.onIpcMessage('bookmarks-bar:edit-bookmark', async (data) => {
+    // 设置编辑状态，然后弹出收藏编辑面板。
+    // 该入口的 payload 只有 {id, url, title}（main.js 从收藏栏右键菜单发出，不含
+    // 文件夹），故按 url 回查数据库补齐 —— 以 favoritesCheck 当唯一读源，不新增 IPC
+    let folderId = 0;
+    try {
+      const record = await window.realmAPI.favoritesCheck(data.url);
+      if (record) folderId = record.folder_id || 0;
+    } catch (err) {
+      console.error('[Realm Renderer] 查询收藏所在文件夹失败:', err);
+    }
     state.isCurrentPageBookmarked = true;
     state.currentBookmarkId = data.id;
     state.currentBookmarkTitle = data.title;
-    showBookmarkEditPanel(data.title, data.url, true);
+    state.currentBookmarkFolderId = folderId;
+    showBookmarkEditPanel(data.title, data.url, true, folderId);
   });
 
   /**
@@ -4517,16 +5243,19 @@ async function init() {
     }
     const title = activeTab.title || activeTab.url;
     const faviconUrl = activeTab.faviconUrl || '';
-    window.realmAPI.favoritesAdd({ url: activeTab.url, title, faviconUrl }).then(async (result) => {
+    // 直接带 folderId 入库。旧实现是「先 add 再 moveFavorite」，那条路径有两个毛病：
+    // folderId=0 会被 `if (data.folderId)` 跳过而不落该文件夹，
+    // 且 moveFavorite 只写 folder_id、不写 sort_order ⇒ 落位不可预期
+    const folderId = data.folderId || 0;
+    window.realmAPI.favoritesAdd({ url: activeTab.url, title, faviconUrl, folderId }).then((result) => {
       if (result.error) {
         showToast(result.message || '添加失败', 'error');
         return;
       }
-      if (data.folderId) {
-        await window.realmAPI.moveFavorite(result.id, data.folderId);
-      }
       state.isCurrentPageBookmarked = true;
       state.currentBookmarkId = result.id;
+      state.currentBookmarkTitle = title;
+      state.currentBookmarkFolderId = folderId;
       updateStarButton(true);
       showToast('已添加书签', 'success');
       if (window.bookmarksBar) window.bookmarksBar.load();
@@ -6773,7 +7502,9 @@ function setupEventListeners() {
       showBookmarkEditPanel(
         initialTitle,
         activeTab.url,
-        state.isCurrentPageBookmarked
+        state.isCurrentPageBookmarked,
+        // 编辑态带上该收藏所在文件夹；新增态由面板内部用「上次保存到的文件夹」补齐
+        state.currentBookmarkFolderId
       );
     } else {
       // 当前 Tab 无 URL（尚未导航），给出明确反馈
@@ -6798,6 +7529,37 @@ function setupEventListeners() {
   // 收藏编辑面板"移除收藏"按钮（编辑模式可见）
   elements.bookmarkRemoveBtn.addEventListener('click', removeBookmark);
 
+  // 文件夹选择器：点触发器开合下拉
+  elements.bookmarkFolderTrigger.addEventListener('click', () => {
+    if (state.bookmarkFolderDropdownOpen) {
+      closeBookmarkFolderDropdown();
+    } else {
+      openBookmarkFolderDropdown();
+    }
+  });
+
+  // 文件夹下拉的点击外部收起。按下点判据不可省：在下拉的搜索框里拖选文字、
+  // 把光标移到下拉外再松开时，click 的目标是公共祖先（下拉之外），
+  // 只看 target 会把「选中文字」误判成「点了外部」（项目统一判据）
+  document.addEventListener('click', (e) => {
+    if (!state.bookmarkFolderDropdownOpen) return;
+    if (elements.bookmarkFolderDropdown.contains(e.target)) return;
+    if (elements.bookmarkFolderTrigger.contains(e.target)) return;
+    if (isPointerDownInContent(elements.bookmarkFolderDropdown)) return;
+    closeBookmarkFolderDropdown();
+  });
+
+  // 下拉展开时 Escape 只收起下拉，不关整个面板：一次 Escape 就把「编辑收藏」
+  // 整个放弃，与用户「退出文件夹选择」的意图不符。
+  // dialog 的原生 Escape 走 cancel 事件，preventDefault 即拦下
+  elements.bookmarkEditPanel.addEventListener('cancel', (e) => {
+    if (state.bookmarkFolderDropdownOpen) {
+      e.preventDefault();
+      closeBookmarkFolderDropdown();
+      elements.bookmarkFolderTrigger.focus();
+    }
+  });
+
   // 点击 dialog 外部（backdrop）关闭：点击 dialog 元素本身（非内容）即 backdrop。
   // 还要求按下点也在内容之外：在标题输入框里拖选文字、把光标移到弹窗外再松开时，
   // click 的目标同样是 dialog 自身，只看 target 会把「选中文字」误判成「点了外部」
@@ -6808,7 +7570,7 @@ function setupEventListeners() {
     }
   });
 
-  // Escape 键：<dialog> 原生支持 Escape 关闭，无需手动监听
+  // Escape 键：<dialog> 原生支持 Escape 关闭（下拉开着时由上面的 cancel 拦截）
 
   // 收藏栏右键事件委托
   if (elements.bookmarksBar) {
