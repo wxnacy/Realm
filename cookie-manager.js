@@ -9,6 +9,7 @@ const { app, session } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const Store = require('electron-store');
+const { DEFAULT_CONTAINERS } = require('./container-defaults');
 
 // 配置存储实例
 const configStore = new Store({ name: 'realm-config' });
@@ -57,7 +58,7 @@ function migrateLegacyCookies() {
     return;
   }
 
-  const containers = configStore.get('containers', []);
+  const containers = configStore.get('containers', DEFAULT_CONTAINERS);
   for (const container of containers) {
     const legacyPath = path.join(LEGACY_COOKIE_DIR, `${container.id}.json`);
     const newPath = getCookieFilePath(container.id);
@@ -487,7 +488,7 @@ async function compareDomainCookies(containerId, domain) {
  */
 async function saveAllCookies() {
   try {
-    const containers = configStore.get('containers', []);
+    const containers = configStore.get('containers', DEFAULT_CONTAINERS);
     let saved = 0;
 
     for (const container of containers) {
@@ -611,7 +612,7 @@ async function loadCookies(containerId) {
  */
 async function loadAllCookies() {
   try {
-    const containers = configStore.get('containers', []);
+    const containers = configStore.get('containers', DEFAULT_CONTAINERS);
     let loaded = 0;
 
     for (const container of containers) {

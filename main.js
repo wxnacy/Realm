@@ -90,6 +90,7 @@ loadShellEnv();
 
 const Store = require('electron-store');
 const containerManager = require('./container-manager');
+const { DEFAULT_CONTAINERS } = require('./container-defaults');
 const contextMenuManager = require('./context-menu-manager');
 
 // 禁用 Privacy Sandbox 广告 API（FLEDGE/Protected Audience/Topics 等）。
@@ -4471,7 +4472,7 @@ app.whenReady().then(async () => {
   // 清理孤儿 Partitions 目录（必须在 initContainers 之前：
   // 此时被删容器的 partition session 尚未创建，目录无句柄占用，
   // 运行中删除失败的残留由这里兜底，下次启动必定清干净）
-  const configuredIds = configStore.get('containers', []).map(c => c.id);
+  const configuredIds = configStore.get('containers', DEFAULT_CONTAINERS).map(c => c.id);
   cookieManager.cleanupOrphanPartitions(configuredIds);
 
   // 初始化容器
@@ -4898,7 +4899,7 @@ app.on('before-quit', async (event) => {
   // 运行中删除会被存活 session 的网络服务组件刷盘重建（HTTP 缓存索引、
   // Network Persistent State 等，无法用开关禁用）——这是 Chromium 架构限制。
   // 此处紧随 app.quit()，网络服务进程终止后删除即永久，不会再被重建。
-  const configuredIds = configStore.get('containers', []).map(c => c.id);
+  const configuredIds = configStore.get('containers', DEFAULT_CONTAINERS).map(c => c.id);
   cookieManager.cleanupOrphanPartitions(configuredIds);
 
   // 技能导入临时区：只删**本进程 Map 里登记**的目录（own）—— 精确、无跨实例风险。
