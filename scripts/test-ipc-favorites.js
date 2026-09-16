@@ -197,15 +197,29 @@ const cases = [
     channel: 'favorites:add',
     payload: { url: 'https://example.com', title: 'Example', faviconUrl: 'https://example.com/favicon.ico' },
     // handler 应先将远程 faviconUrl 经 favicon-fetcher 转 data URL 再入库
-    expectCall: ['addRecord', { url: 'https://example.com', title: 'Example', faviconUrl: FAKE_DATA_URL }],
+    // folderId 键固定透传（payload 未提供时为 0），deepStrictEqual 对键存在性敏感
+    expectCall: ['addRecord', { url: 'https://example.com', title: 'Example', faviconUrl: FAKE_DATA_URL, folderId: 0 }],
     expectFetcherCall: ['fetchAsDataUrl', 'https://example.com/favicon.ico'],
+    expectReturn: { id: 1 },
+  },
+  {
+    // 指定文件夹新增（星标弹窗选择文件夹后新增）
+    channel: 'favorites:add',
+    payload: { url: 'https://example-folder.com', title: '夹内', folderId: 5 },
+    expectCall: ['addRecord', {
+      url: 'https://example-folder.com',
+      title: '夹内',
+      faviconUrl: '',
+      folderId: 5,
+    }],
+    expectNoFetcher: true,
     expectReturn: { id: 1 },
   },
   {
     // 无 faviconUrl 时不得调用 fetcher（右键菜单添加等空图标场景）
     channel: 'favorites:add',
     payload: { url: 'https://example.com', title: 'Example' },
-    expectCall: ['addRecord', { url: 'https://example.com', title: 'Example', faviconUrl: '' }],
+    expectCall: ['addRecord', { url: 'https://example.com', title: 'Example', faviconUrl: '', folderId: 0 }],
     expectNoFetcher: true,
     expectReturn: { id: 1 },
   },
@@ -219,9 +233,29 @@ const cases = [
     expectReturn: { success: true },
   },
   {
+    // 不传 folderId（收藏页 HTTP API / AI 工具链的旧语义路径）：
+    // 必须原样透传 undefined，绝不能落成 0 —— 那会把「改标题」变成「移动到根目录」，
+    // 数据层据此走「只改标题且不动排序」分支
     channel: 'favorites:update',
     payload: { id: 7, title: '新标题' },
-    expectCall: ['updateRecord', 7, { title: '新标题' }],
+    expectCall: ['updateRecord', 7, { title: '新标题', folderId: undefined }],
+    expectSent: ['bookmarks-bar:refresh'],
+    expectReturn: true,
+  },
+  {
+    // 带 folderId（星标弹窗保存）：原样透传给数据层
+    channel: 'favorites:update',
+    payload: { id: 7, title: '新标题', folderId: 5 },
+    expectCall: ['updateRecord', 7, { title: '新标题', folderId: 5 }],
+    expectSent: ['bookmarks-bar:refresh'],
+    expectReturn: true,
+  },
+  {
+    // folderId=0 是「移动到根目录」的**有效目标**，不能被 `||` 之类吞掉
+    channel: 'favorites:update',
+    payload: { id: 7, title: '新标题', folderId: 0 },
+    expectCall: ['updateRecord', 7, { title: '新标题', folderId: 0 }],
+    expectSent: ['bookmarks-bar:refresh'],
     expectReturn: true,
   },
   {
