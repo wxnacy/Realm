@@ -6341,9 +6341,39 @@ function cacheSuggestions(keyword, suggestions) {
 }
 
 /**
+ * 最近一次指针按下的目标元素（由 setupEventListeners 的 pointerdown 捕获阶段写入）
+ */
+let lastPointerDownTarget = null;
+
+/**
+ * 本次点击的按下点是否落在容器**内容**里。
+ *
+ * 判定「是否点击了容器外部」必须看**按下点**，不能看 click 事件的 target：
+ * 在容器内可拖选的文本（input / 可选中文本）上按下鼠标、把光标移到容器外再松开时，
+ * click 事件的目标是 mousedown 与 mouseup 的**最近公共祖先** —— 对 `<dialog>` 而言
+ * 正好是 dialog 元素自身（backdrop 关闭的判据 `e.target === dialog` 就是这样被命中的），
+ * 对普通面板则可能是面板自身或更外层。于是「拖选文字」被误判成「点了容器外部」，
+ * 把面板 / 弹窗关掉。
+ *
+ * 判据刻意排除「按下点就是容器自身」的情形（`t !== container`）：那正是点在
+ * backdrop 上时的形态，属于真正的点击外部，仍应关闭。
+ */
+function isPointerDownInContent(container) {
+  const t = lastPointerDownTarget;
+  return !!container && !!t && t !== container && container.contains(t);
+}
+
+/**
  * 设置事件监听器
  */
 function setupEventListeners() {
+  // 记录指针按下落点（捕获阶段，先于一切业务监听器）：供上面 isPointerDownInContent
+  // 判定「点击外部关闭」用。项目内已有一处同形态实现（下载面板穿透裁决的
+  // lastEmbedderMousedown），这里把同一思路提供给各面板/弹窗的关闭判据。
+  document.addEventListener('pointerdown', (e) => {
+    lastPointerDownTarget = e.target;
+  }, true);
+
   // Tab 栏事件
   // 新建 Tab 按钮
   elements.tabNewBtn.addEventListener('click', () => {
@@ -6768,9 +6798,12 @@ function setupEventListeners() {
   // 收藏编辑面板"移除收藏"按钮（编辑模式可见）
   elements.bookmarkRemoveBtn.addEventListener('click', removeBookmark);
 
-  // 点击 dialog 外部（backdrop）关闭：点击 dialog 元素本身（非内容）即 backdrop
+  // 点击 dialog 外部（backdrop）关闭：点击 dialog 元素本身（非内容）即 backdrop。
+  // 还要求按下点也在内容之外：在标题输入框里拖选文字、把光标移到弹窗外再松开时，
+  // click 的目标同样是 dialog 自身，只看 target 会把「选中文字」误判成「点了外部」
   elements.bookmarkEditPanel.addEventListener('click', (e) => {
-    if (e.target === elements.bookmarkEditPanel) {
+    if (e.target === elements.bookmarkEditPanel &&
+        !isPointerDownInContent(elements.bookmarkEditPanel)) {
       hideBookmarkEditPanel();
     }
   });
@@ -6883,10 +6916,11 @@ function setupEventListeners() {
   }
 
   // Cookie 编辑模态框外部点击关闭
+  // （按下点同样要在内容之外，否则在 cookieValueInput 里拖选文字后松手到 backdrop 会误关）
   const cookieEditModal = document.getElementById('cookieEditModal');
   if (cookieEditModal) {
     cookieEditModal.addEventListener('click', (e) => {
-      if (e.target === cookieEditModal) {
+      if (e.target === cookieEditModal && !isPointerDownInContent(cookieEditModal)) {
         cookieEditModal.close();
         cookieState.editingCookie = null;
       }
@@ -6926,8 +6960,10 @@ function setupEventListeners() {
   });
 
   // 点击模态框外部关闭
+  // （按下点同样要在内容之外：容器表单里 textarea / 输入框拖选文字后松手到 backdrop 不应关闭）
   elements.containerModal.addEventListener('click', (e) => {
-    if (e.target === elements.containerModal) {
+    if (e.target === elements.containerModal &&
+        !isPointerDownInContent(elements.containerModal)) {
       elements.containerModal.close();
     }
   });
@@ -7076,8 +7112,11 @@ function setupEventListeners() {
   // 点击外部关闭对话下拉面板和右键菜单
   document.addEventListener('click', (e) => {
     // 关闭对话下拉面板
+    // 按下点也要在面板内容之外：在内联重命名输入框里拖选文字、把光标拖到面板外再松开时，
+    // click 的目标是公共祖先（面板之外），只看 target 会把「选中文字」误判成「点了外部」
     if (state.convDropdownOpen &&
         !elements.aiConvDropdown.contains(e.target) &&
+        !isPointerDownInContent(elements.aiConvDropdown) &&
         !elements.aiHistoryBtn.contains(e.target)) {
       closeConvDropdown();
     }
@@ -7120,14 +7159,18 @@ function setupEventListeners() {
   }
 
   // 点击外部关闭 @ 引用面板
+  // 按下点也要在面板内容之外：在两个面板的输入框 / 列表文本上拖选后松手到面板外，
+  // click 的目标同样在面板之外，只看 target 会把「选中文字」误判成「点了外部」
   document.addEventListener('click', (e) => {
     if (state.contextPickerOpen &&
         !elements.contextPickerPanel.contains(e.target) &&
+        !isPointerDownInContent(elements.contextPickerPanel) &&
         e.target !== elements.aiInput) {
       closeContextPicker();
     }
     if (state.slashPickerOpen &&
         !elements.slashPickerPanel.contains(e.target) &&
+        !isPointerDownInContent(elements.slashPickerPanel) &&
         e.target !== elements.aiInput) {
       closeSlashPicker();
     }
