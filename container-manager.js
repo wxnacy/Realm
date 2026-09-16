@@ -11,22 +11,13 @@ const { session } = require('electron');
 const Store = require('electron-store');
 const crypto = require('crypto');
 const cookieManager = require('./cookie-manager');
+const { DEFAULT_CONTAINERS } = require('./container-defaults');
 
 // 配置存储实例
 const configStore = new Store({ name: 'realm-config' });
 
 // 容器实例存储
 const containers = new Map();
-
-/**
- * 默认容器配置
- */
-const DEFAULT_CONTAINERS = [
-  { id: 'default', name: '默认', color: '#6B7280', icon: 'fingerprint', phone: '', email: '', notes: '', envVars: [] },
-  { id: 'work', name: '工作', color: '#3B82F6', icon: 'briefcase', phone: '', email: '', notes: '', envVars: [] },
-  { id: 'personal', name: '个人', color: '#10B981', icon: 'user', phone: '', email: '', notes: '', envVars: [] },
-  { id: 'finance', name: '金融', color: '#F59E0B', icon: 'bank', phone: '', email: '', notes: '', envVars: [] },
-];
 
 /**
  * 生成容器 ID
