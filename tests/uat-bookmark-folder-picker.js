@@ -41,6 +41,42 @@ const TAG = `uat-folder-${Date.now().toString(36)}`;
 
 // ==================== renderer 侧探针（必须自包含） ====================
 
+/**
+ * 下拉是否**真的**可见可点
+ *
+ * 不能只看 `hidden` 类与 max-height：<dialog> 的 UA 样式带 overflow:auto，
+ * 会把下拉超出弹窗盒的部分当作滚动溢出裁掉 —— 类名与尺寸都对，实际只露出
+ * 上半截、下半截看不见也点不到（本驱动就是靠这个判据才发现该缺陷的）。
+ * 判据用 elementFromPoint 命中归属 + 下边界在视口内。
+ */
+const DROPDOWN_HIT_TEST = () => {
+  const dropdown = document.getElementById('bookmarkFolderDropdown');
+  if (!dropdown) return { ok: false, reason: '下拉不存在' };
+  const list = document.getElementById('bookmarkFolderList');
+  const r = dropdown.getBoundingClientRect();
+  const midX = Math.round(r.left + r.width / 2);
+  const inside = (el) => !!el && (dropdown.contains(el) || el === dropdown);
+  return {
+    ok: true,
+    rect: { top: Math.round(r.top), bottom: Math.round(r.bottom), height: Math.round(r.height) },
+    innerHeight: window.innerHeight,
+    hitTop: inside(document.elementFromPoint(midX, r.top + 12)),
+    hitBottom: inside(document.elementFromPoint(midX, r.bottom - 6)),
+    bottomInViewport: r.bottom <= window.innerHeight,
+    listNeedsScroll: !!list && list.scrollHeight > list.clientHeight,
+    // 最末一行也要真的点得到（整棵树可达，而不只是上半截）
+    hitLastRow: (() => {
+      const rows = document.querySelectorAll('#bookmarkFolderList .bookmark-folder-row');
+      if (rows.length === 0) return null;
+      const last = rows[rows.length - 1].getBoundingClientRect();
+      return inside(document.elementFromPoint(
+        Math.round(last.left + last.width / 2),
+        Math.round(last.top + last.height / 2)
+      ));
+    })(),
+  };
+};
+
 /** 面板 + 下拉的快照 */
 const PANEL_SNAPSHOT = () => {
   const dlg = document.getElementById('bookmarkEditPanel');
@@ -322,6 +358,16 @@ async function main() {
       snap.rows.find((r) => r.selected).id === 0,
       snap.rows.filter((r) => r.selected));
 
+    // 下拉必须整块可见可点：只断言 hidden / max-height 漏掉了 <dialog> 的
+    // overflow:auto 裁切（下半截看不见也点不到，而类名与尺寸全部正常）
+    const hit = await win.evaluate(DROPDOWN_HIT_TEST);
+    console.log('    下拉命中:', JSON.stringify(hit));
+    check('下拉顶部中心点确实落在下拉内', hit.hitTop === true, hit);
+    check('下拉底部中心点确实落在下拉内（未被 dialog 的 overflow 裁掉）',
+      hit.hitBottom === true, hit);
+    check('下拉下边界在视口内', hit.bottomInViewport === true, hit);
+    check('树最末一行可点（整棵树可达）', hit.hitLastRow === true, hit);
+
     // ==================== 用例 3：搜索保留祖先（含 IME 守卫） ====================
     console.log('\n用例 3: 搜索过滤保留祖先 + IME 合成期不生效');
     const ime = await win.evaluate(TYPE_WITH_IME, `UAT子-${TAG}`);
@@ -488,6 +534,23 @@ async function main() {
     await win.evaluate(CLICK_SAVE);
     const movedToRoot = await waitFor(READ_BOOKMARK, (r) => !!r && r.folder_id === 0, 6000, 200, testUrl);
     check('改到根目录后 folder_id 为 0', !!movedToRoot && movedToRoot.folder_id === 0, movedToRoot);
+
+    // ==================== 用例 12：矮窗口下下拉不超出视口底部 ====================
+    console.log('\n用例 12: 矮窗口（560px 高）下拉仍完整可见');
+    await win.setViewportSize({ width: 1000, height: 560 });
+    await sleep(300);
+    await win.evaluate(OPEN_NEW_PANEL, { title: testTitle, url: testUrl });
+    await win.click('#bookmarkFolderTrigger');
+    await waitFor(PANEL_SNAPSHOT, (s) => s.rows.length > 1, 8000);
+    const shortHit = await win.evaluate(DROPDOWN_HIT_TEST);
+    console.log('    矮窗口命中:', JSON.stringify(shortHit));
+    check('矮窗口：下拉高度被收窄（不超过上限 260px）',
+      shortHit.rect.height <= 260, shortHit.rect);
+    check('矮窗口：下边界仍在视口内', shortHit.bottomInViewport === true, shortHit);
+    check('矮窗口：底部中心点仍落在下拉内', shortHit.hitBottom === true, shortHit);
+    await win.evaluate(CLOSE_PANEL);
+    await win.setViewportSize({ width: 1440, height: 900 });
+    await sleep(200);
   } catch (err) {
     failures.push('驱动异常');
     console.error('\n驱动异常:', err && err.stack ? err.stack : err);

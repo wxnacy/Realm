@@ -2944,6 +2944,12 @@ textarea::placeholder {
   background: transparent;
   max-width: 100%;
   max-height: 100%;
+  /* overflow 必须是 visible：UA 样式给 <dialog> 的默认值是 auto，会把「文件夹」
+     下拉超出弹窗盒的部分裁掉（绝对定位子元素算作弹窗的滚动溢出）——
+     表现为下拉只露出约 120px、下半截看不见也点不到。本弹窗自身高度固定为
+     内容高（320px 面板），从不依赖滚动，故置 visible 无副作用。
+     下拉超出视口底部的问题由 applyBookmarkFolderDropdownMaxHeight 动态限制 */
+  overflow: visible;
 }
 
 /* 不要遮罩：原设计为轻量弹出面板，用户可看到背后页面 */
