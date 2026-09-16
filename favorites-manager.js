@@ -488,25 +488,56 @@ function _getLastSortKey(table) {
 }
 
 /**
+ * 取指定文件夹末尾之后的新排序键（「追加到该文件夹末尾」语义）
+ *
+ * 与 _getLastSortKey('favorites') 的区别：只看**该文件夹内**的合法键。
+ * 收藏项跨文件夹移动、或在指定文件夹内新增时用它，落位即目标文件夹末尾。
+ * 脏数据（INTEGER 0 / 文本 '0'）同样不参与，理由见 _getLastSortKey。
+ *
+ * @param {number} folderId - 目标文件夹 ID（0 表示根目录）
+ * @returns {string} 新的 fractional 排序键
+ */
+function _nextSortKeyInFolder(folderId) {
+  const last = db.prepare(
+    `SELECT sort_order FROM favorites
+     WHERE folder_id = ? AND typeof(sort_order) = 'text' AND sort_order != '0'
+     ORDER BY sort_order DESC LIMIT 1`
+  ).get(folderId);
+  return generateKeyBetween(last ? last.sort_order : null, null);
+}
+
+/**
  * 添加收藏记录
  * @param {Object} record - 记录数据
  * @param {string} record.url - 页面 URL
  * @param {string} [record.title] - 页面标题
  * @param {string} [record.faviconUrl] - favicon URL
+ * @param {number} [record.folderId] - 目标文件夹 ID（0 表示根目录）
  * @returns {{id: number}|{error: string, message: string}} 新记录的 ID 或重复错误
  */
-function addRecord({ url, title = '', faviconUrl = '' }) {
+function addRecord({ url, title = '', faviconUrl = '', folderId = 0 }) {
   ensureTable();
 
+  // 目标文件夹必须存在：folder_id 无外键约束，写入不存在的 id 会造出
+  // 「根目录与任何文件夹都看不到」的孤儿收藏（在 UI 上等于凭空消失）
+  if (folderId !== 0) {
+    const folder = db.prepare('SELECT id FROM favorite_folders WHERE id = ?').get(folderId);
+    if (!folder) {
+      return { error: 'folder_not_found', message: '目标文件夹不存在' };
+    }
+  }
+
   // 新记录追加到排序末尾（fractional 键），避免落列默认值 INTEGER 0
-  // 造成 INTEGER/TEXT 混合类型排序错乱（拖拽排序不生效的根因之一）
+  // 造成 INTEGER/TEXT 混合类型排序错乱（拖拽排序不生效的根因之一）。
+  // 这里取**全局**末键而非目标文件夹内末键：键全局单调 ⇒ 新键必大于目标
+  // 文件夹内所有键 ⇒ 落位仍是该文件夹末尾，无需再多一份同形查询。
   const sortKey = generateKeyBetween(_getLastSortKey('favorites'), null);
 
   // 使用 INSERT OR IGNORE 处理 UNIQUE 约束冲突
   const result = db.prepare(`
-    INSERT OR IGNORE INTO favorites (url, title, favicon_url, sort_order)
-    VALUES (?, ?, ?, ?)
-  `).run(url, title, faviconUrl, sortKey);
+    INSERT OR IGNORE INTO favorites (url, title, favicon_url, folder_id, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(url, title, faviconUrl, folderId, sortKey);
 
   // lastInsertRowid 为 0 表示插入被忽略（URL 已存在）
   if (result.lastInsertRowid === 0n || result.lastInsertRowid === 0) {
@@ -517,20 +548,50 @@ function addRecord({ url, title = '', faviconUrl = '' }) {
 }
 
 /**
- * 更新收藏记录标题
+ * 更新收藏记录的标题与所在文件夹
+ *
+ * folderId 的三种语义（决定是否重排 sort_order）：
+ * - `undefined`：只改标题。既有调用方（收藏页 HTTP API、AI 工具链）走这条旧语义
+ * - 与当前 folder_id **相同**：同样只改标题，**绝不碰 sort_order**。
+ *   星标弹窗每次保存都会带上当前 folderId，若「只要提供了就重排」，
+ *   用户改一次标题就会把书签甩到所在文件夹的末尾
+ * - 与当前不同：单事务内改 folder_id 并追加到目标文件夹末尾
+ *
  * @param {number} id - 记录 ID
  * @param {Object} updates - 更新内容
  * @param {string} updates.title - 新标题
+ * @param {number} [updates.folderId] - 目标文件夹 ID（0 表示根目录）
  * @returns {boolean} 是否更新成功
  */
-function updateRecord(id, { title }) {
+function updateRecord(id, { title, folderId }) {
   ensureTable();
 
-  const result = db.prepare(`
-    UPDATE favorites SET title = ? WHERE id = ?
-  `).run(title, id);
+  const current = db.prepare('SELECT folder_id FROM favorites WHERE id = ?').get(id);
+  if (!current) return false;
 
-  return result.changes > 0;
+  // 归一化到数字再比较：IPC 是边界，字符串 '3' 与数字 3 若被判为「不同」，
+  // 后果是静默重排（书签被甩到末尾）而不是报错
+  const targetFolderId = folderId === undefined ? undefined : Number(folderId);
+
+  if (targetFolderId === undefined || targetFolderId === current.folder_id) {
+    const result = db.prepare('UPDATE favorites SET title = ? WHERE id = ?').run(title, id);
+    return result.changes > 0;
+  }
+
+  // 目标文件夹必须存在（同 addRecord：不允许造出孤儿 folder_id）
+  if (targetFolderId !== 0) {
+    const folder = db.prepare('SELECT id FROM favorite_folders WHERE id = ?').get(targetFolderId);
+    if (!folder) return false;
+  }
+
+  const tx = db.transaction(() => {
+    db.prepare('UPDATE favorites SET title = ? WHERE id = ?').run(title, id);
+    db.prepare('UPDATE favorites SET folder_id = ?, sort_order = ? WHERE id = ?')
+      .run(targetFolderId, _nextSortKeyInFolder(targetFolderId), id);
+  });
+  tx();
+
+  return true;
 }
 
 /**
@@ -632,13 +693,13 @@ function searchRecords({ keyword, offset = 0, limit = 50 }) {
 /**
  * 检查 URL 是否已收藏
  * @param {string} url - 页面 URL
- * @returns {{id: number, title: string, favicon_url: string}|null} 收藏记录或 null
+ * @returns {{id: number, title: string, favicon_url: string, folder_id: number}|null} 收藏记录或 null
  */
 function checkUrl(url) {
   ensureTable();
 
   return db.prepare(`
-    SELECT id, title, favicon_url FROM favorites
+    SELECT id, title, favicon_url, folder_id FROM favorites
     WHERE url = ? LIMIT 1
   `).get(url) || null;
 }
@@ -726,9 +787,13 @@ function renameFolder(id, { name }) {
 }
 
 /**
- * 删除文件夹（级联删除子文件夹和收藏项）
- * 子文件夹通过 favorite_folders.parent_id 外键 ON DELETE CASCADE 自动删除
- * 收藏项通过手动删除（favorites.folder_id 无外键约束，避免重建表）
+ * 删除文件夹（连同全部后代文件夹与其中的收藏项）
+ *
+ * 自身与全部后代文件夹在**同一次** DELETE 里删净：`favorite_folders.parent_id` 上
+ * 并没有外键（`parent_id = 0` 是虚拟根，不能有 FK，历史迁移已把该约束去掉），
+ * 所以**没有 ON DELETE CASCADE 可依赖** —— 只删自身会让后代变成悬空孤儿：父级没了
+ * 就再没有任何展开路径能到达它们，在 UI 里彻底隐形却永久留在库里。
+ *
  * @param {number} id - 文件夹 ID
  * @returns {{success: boolean, message?: string}} 结果
  */
@@ -743,13 +808,14 @@ function deleteFolder(id) {
   // 收集要删除的文件夹 ID（当前文件夹 + 所有后代文件夹）
   const folderIds = getDescendantFolderIds(id);
   folderIds.push(id);
+  const placeholders = folderIds.map(() => '?').join(',');
 
   // 先删除这些文件夹中的所有收藏项（避免孤儿记录）
-  const placeholders = folderIds.map(() => '?').join(',');
   db.prepare(`DELETE FROM favorites WHERE folder_id IN (${placeholders})`).run(...folderIds);
 
-  // 再删除文件夹（子文件夹通过 ON DELETE CASCADE 自动删除）
-  const result = db.prepare('DELETE FROM favorite_folders WHERE id = ?').run(id);
+  // 再删除文件夹自身与其全部后代
+  const result = db.prepare(`DELETE FROM favorite_folders WHERE id IN (${placeholders})`)
+    .run(...folderIds);
   return { success: result.changes > 0 };
 }
 
@@ -930,14 +996,8 @@ function moveFavoriteInto(id, { folderId }) {
   ensureTable();
 
   const tx = db.transaction(() => {
-    const last = db.prepare(
-      `SELECT sort_order FROM favorites
-       WHERE folder_id = ? AND typeof(sort_order) = 'text' AND sort_order != '0'
-       ORDER BY sort_order DESC LIMIT 1`
-    ).get(folderId);
-    const sortKey = generateKeyBetween(last ? last.sort_order : null, null);
     db.prepare('UPDATE favorites SET folder_id = ?, sort_order = ? WHERE id = ?')
-      .run(folderId, sortKey, id);
+      .run(folderId, _nextSortKeyInFolder(folderId), id);
   });
   tx();
 

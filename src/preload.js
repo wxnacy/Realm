@@ -493,7 +493,7 @@ contextBridge.exposeInMainWorld('realmAPI', {
   /**
    * 检查 URL 是否已收藏
    * @param {string} url - 页面 URL
-   * @returns {Promise<{id: number, title: string, favicon_url: string}|null>}
+   * @returns {Promise<{id: number, title: string, favicon_url: string, folder_id: number}|null>}
    */
   favoritesCheck: (url) => ipcRenderer.invoke('favorites:check', { url }),
 
@@ -503,17 +503,20 @@ contextBridge.exposeInMainWorld('realmAPI', {
    * @param {string} data.url - 页面 URL
    * @param {string} [data.title] - 页面标题
    * @param {string} [data.faviconUrl] - favicon URL
+   * @param {number} [data.folderId] - 目标文件夹 ID（0 表示根目录，缺省即 0）
    * @returns {Promise<{id: number}|{error: string, message: string}>}
    */
   favoritesAdd: (data) => ipcRenderer.invoke('favorites:add', data),
 
   /**
-   * 更新收藏标题
+   * 更新收藏标题与所在文件夹
    * @param {number} id - 记录 ID
    * @param {string} title - 新标题
+   * @param {number} [folderId] - 目标文件夹 ID（0 表示根目录）。
+   *   不传时主进程只改标题，且不会改动该收藏在其文件夹内的排序位置
    * @returns {Promise<boolean>}
    */
-  favoritesUpdate: (id, title) => ipcRenderer.invoke('favorites:update', { id, title }),
+  favoritesUpdate: (id, title, folderId) => ipcRenderer.invoke('favorites:update', { id, title, folderId }),
 
   /**
    * 回填收藏 favicon（仅当记录当前无图标时生效）

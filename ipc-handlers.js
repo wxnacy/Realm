@@ -1484,6 +1484,7 @@ function registerHandlers() {
    * @param {string} data.url - 页面 URL
    * @param {string} [data.title] - 页面标题
    * @param {string} [data.faviconUrl] - favicon 源 URL（主进程统一抓取转 data URL 入库）
+   * @param {number} [data.folderId] - 目标文件夹 ID（0 表示根目录，缺省即 0）
    * @returns {{id: number}|{error: string, message: string}}
    */
   ipcMain.handle('favorites:add', async (event, data) => {
@@ -1500,14 +1501,22 @@ function registerHandlers() {
       url: data.url || '',
       title: data.title || '',
       faviconUrl,
+      folderId: data.folderId || 0,
     });
   });
 
   /**
-   * 更新收藏标题
+   * 更新收藏标题与所在文件夹
+   *
+   * 恒广播 bookmarks-bar:refresh：标题变化本就该刷新收藏栏（hover title 与
+   * 溢出菜单文案都取自记录），文件夹变化更需要——据此省掉「先查旧值判断是否
+   * 变更」的额外读。渲染进程另有一次 bookmarksBar.load()，重复加载无副作用。
+   *
    * @param {Object} data - 参数
    * @param {number} data.id - 记录 ID
    * @param {string} data.title - 新标题
+   * @param {number} [data.folderId] - 目标文件夹 ID（0 表示根目录）。
+   *   缺省（undefined）时数据层只改标题；与当前相同时也只改标题且不动排序
    * @returns {boolean} 是否更新成功
    */
   ipcMain.handle('favorites:update', (event, data) => {
@@ -1515,7 +1524,14 @@ function registerHandlers() {
     if (!data || typeof data !== 'object') {
       throw new Error('无效的参数');
     }
-    return favoritesManager.updateRecord(data.id, { title: data.title });
+    // 刻意保留 undefined（不写成 `|| 0`）：数据层用「undefined」表达
+    // 「本次不打算改文件夹」，写成 0 会把改标题变成「移动到根目录」
+    const result = favoritesManager.updateRecord(data.id, {
+      title: data.title,
+      folderId: data.folderId,
+    });
+    windowManager.broadcast('bookmarks-bar:refresh');
+    return result;
   });
 
   /**

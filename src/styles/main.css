@@ -2944,6 +2944,12 @@ textarea::placeholder {
   background: transparent;
   max-width: 100%;
   max-height: 100%;
+  /* overflow 必须是 visible：UA 样式给 <dialog> 的默认值是 auto，会把「文件夹」
+     下拉超出弹窗盒的部分裁掉（绝对定位子元素算作弹窗的滚动溢出）——
+     表现为下拉只露出约 120px、下半截看不见也点不到。本弹窗自身高度固定为
+     内容高（320px 面板），从不依赖滚动，故置 visible 无副作用。
+     下拉超出视口底部的问题由 applyBookmarkFolderDropdownMaxHeight 动态限制 */
+  overflow: visible;
 }
 
 /* 不要遮罩：原设计为轻量弹出面板，用户可看到背后页面 */
@@ -3007,6 +3013,204 @@ textarea::placeholder {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+
+/* ==================== 收藏编辑面板：文件夹选择器 ==================== */
+/* 对标 Chrome 星标弹窗的「文件夹」组合框：触发器显示面包屑路径，
+   点开是「搜索框 + 文件夹树 + 新建行」的下拉。 */
+
+/* 定位上下文：下拉相对本容器绝对定位 —— 绝对定位的子元素不参与 dialog 的
+   尺寸计算，因此弹出下拉不会改变弹窗宽度/高度，也就无需重新定位弹窗本身 */
+.bookmark-folder-select {
+  position: relative;
+}
+
+.bookmark-folder-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.bookmark-folder-trigger:hover,
+.bookmark-folder-trigger:focus-visible {
+  border-color: var(--accent-color);
+  outline: none;
+}
+
+.bookmark-folder-path {
+  flex: 1;
+  /* flex 子项默认 min-width:auto，不置 0 则超长路径撑破容器、省略号不生效 */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bookmark-folder-chevron {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.bookmark-folder-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  /* 必须在 dialog 内部：dialog 走 top layer，其外的元素会被 inert 且点不到 */
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  /* 上限值；实际打开时由 JS 按视口剩余空间收窄，避免贴近窗口底部时被裁掉 */
+  max-height: 260px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.bookmark-folder-dropdown.hidden {
+  display: none;
+}
+
+.bookmark-folder-search {
+  flex: none;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+}
+
+.bookmark-folder-list {
+  flex: 1;
+  /* 同 min-width 的理由：不置 0 时 flex 子项不收缩，列表不出滚动条 */
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.bookmark-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bookmark-folder-row:hover,
+.bookmark-folder-row.highlighted {
+  background: var(--bg-hover);
+}
+
+.bookmark-folder-row.selected .bookmark-folder-name {
+  color: var(--accent-color);
+  font-weight: 500;
+}
+
+.bookmark-folder-expand {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* 叶子节点不画三角，但仍占位以保持同级名称左对齐 */
+.bookmark-folder-expand.empty {
+  visibility: hidden;
+}
+
+.bookmark-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bookmark-folder-check {
+  flex: none;
+  font-size: 12px;
+  color: var(--accent-color);
+}
+
+/* 底部新建行：树与它之间用分隔线隔开，输入框常驻（placeholder 写明建到哪个文件夹下） */
+.bookmark-folder-create-row {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-color);
+  font-size: 13px;
+}
+
+.bookmark-folder-create-icon {
+  flex: none;
+  color: var(--accent-color);
+}
+
+.bookmark-folder-create-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+}
+
+.bookmark-folder-create-input:focus {
+  border-color: var(--accent-color);
+}
+
+/* 搜索无命中时在列表顶部给出的「用此关键词新建」建议行 */
+.bookmark-folder-create-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 13px;
+  color: var(--accent-color);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bookmark-folder-create-suggestion:hover,
+.bookmark-folder-create-suggestion.highlighted {
+  background: var(--bg-hover);
+}
+
+.bookmark-folder-empty,
+.bookmark-folder-error {
+  padding: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.bookmark-folder-error {
+  color: #ef4444;
 }
 
 /* ==================== 常用网站网格样式 ==================== */

@@ -139,13 +139,15 @@ describe('2. 文件夹 CRUD', () => {
   assertEqual(tree[0].children[0].name, '项目A', '子节点名称正确');
 });
 
-describe('3. 删除文件夹（级联删除收藏项）', () => {
+describe('3. 删除文件夹（级联删除收藏项与子文件夹）', () => {
   // 清理数据
   db.exec('DELETE FROM favorites');
   db.exec('DELETE FROM favorite_folders');
 
-  // 创建文件夹和收藏
+  // 创建三层文件夹：待删除 → 子 → 孙
   const folder = favoritesManager.createFolder({ name: '待删除' });
+  const child = favoritesManager.createFolder({ name: '子', parentId: folder.id });
+  const grandchild = favoritesManager.createFolder({ name: '孙', parentId: child.id });
   favoritesManager.addRecord({ url: 'https://example1.com', title: '示例1' });
   favoritesManager.addRecord({ url: 'https://example2.com', title: '示例2' });
 
@@ -168,6 +170,21 @@ describe('3. 删除文件夹（级联删除收藏项）', () => {
   // 验证文件夹已删除
   const foldersAfter = favoritesManager.listFolders();
   assertEqual(foldersAfter.length, 0, '文件夹已被删除');
+
+  // 子/孙文件夹必须随之删净。parent_id 上**没有**外键（parent_id=0 是虚拟根，
+  // 历史迁移已把该约束去掉）⇒ 没有可依赖的 ON DELETE CASCADE；只删自身会让
+  // 后代成为「没有任何展开路径可达」的悬空孤儿（UI 里隐形但永久留在库里）
+  const descendantsLeft = db.prepare(
+    'SELECT id FROM favorite_folders WHERE id IN (?, ?)'
+  ).all(child.id, grandchild.id);
+  assertEqual(descendantsLeft.length, 0, '子/孙文件夹一并删净（不留悬空后代）');
+
+  const danglingAnywhere = db.prepare(`
+    SELECT f.id FROM favorite_folders f
+    LEFT JOIN favorite_folders p ON p.id = f.parent_id
+    WHERE f.parent_id != 0 AND p.id IS NULL
+  `).all();
+  assertEqual(danglingAnywhere.length, 0, '全库不存在悬空文件夹');
 });
 
 describe('4. 移动收藏到文件夹', () => {
@@ -245,6 +262,104 @@ describe('7. 不能删除根目录', () => {
   const result = favoritesManager.deleteFolder(0);
   assert(result.success === false, '删除根目录返回 success: false');
   assert(result.message.includes('根目录'), '返回正确的错误信息');
+});
+
+describe('8. 新增收藏时指定文件夹', () => {
+  db.exec('DELETE FROM favorites');
+  db.exec('DELETE FROM favorite_folders');
+
+  const folder = favoritesManager.createFolder({ name: '新增目标' });
+  const intoRoot = favoritesManager.addRecord({ url: 'https://add-root.com', title: '根' });
+  const intoFolder = favoritesManager.addRecord({
+    url: 'https://add-folder.com',
+    title: '夹内',
+    folderId: folder.id,
+  });
+
+  const rootRow = db.prepare('SELECT folder_id FROM favorites WHERE id = ?').get(intoRoot.id);
+  const folderRow = db.prepare('SELECT folder_id FROM favorites WHERE id = ?').get(intoFolder.id);
+  assertEqual(rootRow.folder_id, 0, '未指定 folderId 时落在根目录（0）');
+  assertEqual(folderRow.folder_id, folder.id, '指定 folderId 时写入该文件夹');
+
+  // 落位在目标文件夹末尾：再插一条，新条目的 sort_order 必须更大
+  const second = favoritesManager.addRecord({
+    url: 'https://add-folder-2.com',
+    title: '夹内2',
+    folderId: folder.id,
+  });
+  const keys = db.prepare(
+    'SELECT id, sort_order FROM favorites WHERE folder_id = ? ORDER BY sort_order ASC'
+  ).all(folder.id);
+  assertEqual(keys.length, 2, '目标文件夹内有 2 条收藏');
+  assertEqual(keys[1].id, second.id, '后插入者排在该文件夹末尾');
+
+  // 目标文件夹不存在：必须拒绝，不得写入孤儿 folder_id
+  const bad = favoritesManager.addRecord({
+    url: 'https://add-orphan.com',
+    title: '孤儿',
+    folderId: 999999,
+  });
+  assertEqual(bad.error, 'folder_not_found', '不存在的文件夹返回 folder_not_found');
+  const orphan = db.prepare('SELECT id FROM favorites WHERE url = ?').get('https://add-orphan.com');
+  assert(orphan === undefined, '拒绝时未落库（不产生孤儿收藏）');
+});
+
+describe('9. 更新收藏的文件夹', () => {
+  db.exec('DELETE FROM favorites');
+  db.exec('DELETE FROM favorite_folders');
+
+  const folderA = favoritesManager.createFolder({ name: 'A' });
+  const folderB = favoritesManager.createFolder({ name: 'B' });
+
+  // 文件夹 A 内放两条，用于验证「改标题不重排」
+  const first = favoritesManager.addRecord({ url: 'https://u1.com', title: '一', folderId: folderA.id });
+  favoritesManager.addRecord({ url: 'https://u2.com', title: '二', folderId: folderA.id });
+
+  const before = db.prepare('SELECT folder_id, sort_order FROM favorites WHERE id = ?').get(first.id);
+
+  // ① 只改标题（不传 folderId）—— 旧语义
+  const okTitleOnly = favoritesManager.updateRecord(first.id, { title: '一改' });
+  assert(okTitleOnly === true, '只改标题返回 true');
+  const afterTitleOnly = db.prepare('SELECT folder_id, sort_order FROM favorites WHERE id = ?').get(first.id);
+  assertEqual(afterTitleOnly.sort_order, before.sort_order, '只改标题：sort_order 不变');
+  assertEqual(afterTitleOnly.folder_id, folderA.id, '只改标题：folder_id 不变');
+
+  // ② 传与当前相同的 folderId —— 星标弹窗的常规路径，必须同样不重排
+  const okSame = favoritesManager.updateRecord(first.id, { title: '一改2', folderId: folderA.id });
+  assert(okSame === true, 'folderId 与当前相同时返回 true');
+  const afterSame = db.prepare('SELECT folder_id, sort_order FROM favorites WHERE id = ?').get(first.id);
+  assertEqual(afterSame.sort_order, before.sort_order, 'folderId 未变：sort_order 不变（不被甩到末尾）');
+
+  // ③ 传字符串形式的同一 folderId（IPC 边界形态）—— 归一化后同样不得重排
+  favoritesManager.updateRecord(first.id, { title: '一改3', folderId: String(folderA.id) });
+  const afterString = db.prepare('SELECT folder_id, sort_order FROM favorites WHERE id = ?').get(first.id);
+  assertEqual(afterString.sort_order, before.sort_order, '字符串 folderId 归一化后不触发重排');
+
+  // ④ 改到另一个文件夹：folder_id 更新且追加到目标末尾
+  const okMove = favoritesManager.updateRecord(first.id, { title: '一改4', folderId: folderB.id });
+  assert(okMove === true, '改文件夹返回 true');
+  const moved = db.prepare('SELECT folder_id, sort_order, title FROM favorites WHERE id = ?').get(first.id);
+  assertEqual(moved.folder_id, folderB.id, 'folder_id 已更新到目标文件夹');
+  assertEqual(moved.title, '一改4', '标题同时更新');
+  const inB = db.prepare(
+    'SELECT id FROM favorites WHERE folder_id = ? ORDER BY sort_order ASC'
+  ).all(folderB.id);
+  assertEqual(inB.length, 1, '目标文件夹内出现该收藏');
+
+  // ⑤ 目标文件夹不存在 / 记录不存在：拒绝且不改变任何字段
+  const snapshot = db.prepare('SELECT * FROM favorites WHERE id = ?').get(first.id);
+  const badFolder = favoritesManager.updateRecord(first.id, { title: '不该生效', folderId: 999999 });
+  assertEqual(badFolder, false, '目标文件夹不存在时返回 false');
+  const afterBad = db.prepare('SELECT * FROM favorites WHERE id = ?').get(first.id);
+  assertEqual(afterBad.title, snapshot.title, '拒绝时标题未变');
+  assertEqual(afterBad.folder_id, snapshot.folder_id, '拒绝时 folder_id 未变');
+
+  const missing = favoritesManager.updateRecord(999999, { title: 'x', folderId: folderB.id });
+  assertEqual(missing, false, '记录不存在时返回 false');
+
+  // ⑥ checkUrl 透出 folder_id（星标弹窗据此显示当前文件夹）
+  const checked = favoritesManager.checkUrl('https://u1.com');
+  assertEqual(checked.folder_id, folderB.id, 'checkUrl 返回 folder_id');
 });
 
 // ==================== 测试结果 ====================
