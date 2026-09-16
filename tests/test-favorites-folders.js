@@ -139,13 +139,15 @@ describe('2. 文件夹 CRUD', () => {
   assertEqual(tree[0].children[0].name, '项目A', '子节点名称正确');
 });
 
-describe('3. 删除文件夹（级联删除收藏项）', () => {
+describe('3. 删除文件夹（级联删除收藏项与子文件夹）', () => {
   // 清理数据
   db.exec('DELETE FROM favorites');
   db.exec('DELETE FROM favorite_folders');
 
-  // 创建文件夹和收藏
+  // 创建三层文件夹：待删除 → 子 → 孙
   const folder = favoritesManager.createFolder({ name: '待删除' });
+  const child = favoritesManager.createFolder({ name: '子', parentId: folder.id });
+  const grandchild = favoritesManager.createFolder({ name: '孙', parentId: child.id });
   favoritesManager.addRecord({ url: 'https://example1.com', title: '示例1' });
   favoritesManager.addRecord({ url: 'https://example2.com', title: '示例2' });
 
@@ -168,6 +170,21 @@ describe('3. 删除文件夹（级联删除收藏项）', () => {
   // 验证文件夹已删除
   const foldersAfter = favoritesManager.listFolders();
   assertEqual(foldersAfter.length, 0, '文件夹已被删除');
+
+  // 子/孙文件夹必须随之删净。parent_id 上**没有**外键（parent_id=0 是虚拟根，
+  // 历史迁移已把该约束去掉）⇒ 没有可依赖的 ON DELETE CASCADE；只删自身会让
+  // 后代成为「没有任何展开路径可达」的悬空孤儿（UI 里隐形但永久留在库里）
+  const descendantsLeft = db.prepare(
+    'SELECT id FROM favorite_folders WHERE id IN (?, ?)'
+  ).all(child.id, grandchild.id);
+  assertEqual(descendantsLeft.length, 0, '子/孙文件夹一并删净（不留悬空后代）');
+
+  const danglingAnywhere = db.prepare(`
+    SELECT f.id FROM favorite_folders f
+    LEFT JOIN favorite_folders p ON p.id = f.parent_id
+    WHERE f.parent_id != 0 AND p.id IS NULL
+  `).all();
+  assertEqual(danglingAnywhere.length, 0, '全库不存在悬空文件夹');
 });
 
 describe('4. 移动收藏到文件夹', () => {

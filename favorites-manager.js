@@ -787,9 +787,13 @@ function renameFolder(id, { name }) {
 }
 
 /**
- * 删除文件夹（级联删除子文件夹和收藏项）
- * 子文件夹通过 favorite_folders.parent_id 外键 ON DELETE CASCADE 自动删除
- * 收藏项通过手动删除（favorites.folder_id 无外键约束，避免重建表）
+ * 删除文件夹（连同全部后代文件夹与其中的收藏项）
+ *
+ * 自身与全部后代文件夹在**同一次** DELETE 里删净：`favorite_folders.parent_id` 上
+ * 并没有外键（`parent_id = 0` 是虚拟根，不能有 FK，历史迁移已把该约束去掉），
+ * 所以**没有 ON DELETE CASCADE 可依赖** —— 只删自身会让后代变成悬空孤儿：父级没了
+ * 就再没有任何展开路径能到达它们，在 UI 里彻底隐形却永久留在库里。
+ *
  * @param {number} id - 文件夹 ID
  * @returns {{success: boolean, message?: string}} 结果
  */
@@ -804,13 +808,14 @@ function deleteFolder(id) {
   // 收集要删除的文件夹 ID（当前文件夹 + 所有后代文件夹）
   const folderIds = getDescendantFolderIds(id);
   folderIds.push(id);
+  const placeholders = folderIds.map(() => '?').join(',');
 
   // 先删除这些文件夹中的所有收藏项（避免孤儿记录）
-  const placeholders = folderIds.map(() => '?').join(',');
   db.prepare(`DELETE FROM favorites WHERE folder_id IN (${placeholders})`).run(...folderIds);
 
-  // 再删除文件夹（子文件夹通过 ON DELETE CASCADE 自动删除）
-  const result = db.prepare('DELETE FROM favorite_folders WHERE id = ?').run(id);
+  // 再删除文件夹自身与其全部后代
+  const result = db.prepare(`DELETE FROM favorite_folders WHERE id IN (${placeholders})`)
+    .run(...folderIds);
   return { success: result.changes > 0 };
 }
 

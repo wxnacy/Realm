@@ -192,9 +192,9 @@ const TEARDOWN_FIXTURES = async ({ url, tag }) => {
     } catch (e) { /* 清理失败不应让驱动红 */ }
   }
   try {
-    // **必须逐个子树节点删除，不能只删父文件夹**：deleteFolder 只删自身
-    // （子文件夹本应靠 ON DELETE CASCADE，但那个外键早就在 ensureTable 的迁移里
-    //  被移除了），父级没了子文件夹会变成悬空条目永久残留在库里
+    // 逐个删而不是只删父级：这段清理要能在「deleteFolder 只删自身」的历史实现上
+    // 也自清理干净（那次缺陷曾让本驱动每轮各留一个孤儿文件夹）。现在 deleteFolder
+    // 已删净后代，于是后续对已删子级的删除会返回 changes=0 —— 无害，照旧忽略
     const tree = await window.realmAPI.getFavoriteFolderTree();
     const doomed = [];
     const walk = (nodes) => {
