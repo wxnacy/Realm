@@ -33,29 +33,53 @@ const fetcherCalls = [];
 /** 主窗口 webContents.send 广播记录：[channel, ...args] */
 const sentMessages = [];
 
-/** electron 桩：ipcMain.handle 捕获注册；BrowserWindow 返回固定窗口 id */
+/** 主窗口对象桩：BrowserWindow.fromWebContents 与 windowManager.getMainWindow
+ * 必须返回**同一个** id，`assertTrustedSender` 才会放行。
+ * 它还要求 `win.isDestroyed()` 为函数（CR-4 起）—— 只给 `{id}` 会让每个
+ * favorites:* 用例都以「win.isDestroyed is not a function」失败。
+ * webContents.send 是 webContents 直发形态的广播出口，记入 sentMessages。 */
+const mainWindowStub = {
+  id: 1,
+  isDestroyed: () => false,
+  webContents: {
+    send: (channel, ...args) => sentMessages.push([channel, ...args]),
+  },
+};
+
+/** electron 桩：ipcMain.handle 捕获注册；BrowserWindow 返回固定窗口。
+ * 其余 ipcMain 事件方法（on / once / removeListener）注册阶段会被调用，
+ * 一律空实现 —— 本测试只关心 handle 注册出来的请求-响应契约。
+ * `app` 必须存在：ipc-handlers.js 在**模块顶层**注册 app.on('before-quit')，
+ * 缺了它整个测试会在 require 阶段以 TypeError 崩掉（护栏因此长期失效）。 */
 const electronStub = {
   ipcMain: {
     handle: (channel, fn) => {
       handlers[channel] = fn;
     },
+    on: () => {},
+    once: () => {},
+    removeListener: () => {},
   },
   dialog: {},
+  app: {
+    on: () => {},
+  },
   BrowserWindow: {
-    fromWebContents: () => ({ id: 1 }),
+    fromWebContents: () => mainWindowStub,
   },
 };
 
-/** window-manager 桩：与 BrowserWindow 返回相同 id，使 assertTrustedSender 通过；
- * 附带 isDestroyed/webContents.send 供 favorites:update-favicon 广播断言 */
+/** window-manager 桩：与 BrowserWindow 返回同一窗口对象，使 assertTrustedSender 通过；
+ * isManagedWindow 是 CR-4/D-11 起的第二道判据（缺了它同样是 100% 拒绝）。
+ *
+ * 两个广播出口都必须落到 sentMessages，否则 `expectSent` 是死断言：
+ * - webContents.send：经主窗口直发（mainWindowStub 上）
+ * - broadcast：所有收藏类 handler 实际用的是这条（ipc-handlers.js 内多处在用），
+ *   此前桩里没有它 ⇒ 一旦 app 桩补齐就会转为 TypeError */
 const windowManagerStub = {
-  getMainWindow: () => ({
-    id: 1,
-    isDestroyed: () => false,
-    webContents: {
-      send: (channel, ...args) => sentMessages.push([channel, ...args]),
-    },
-  }),
+  getMainWindow: () => mainWindowStub,
+  isManagedWindow: (id) => id === mainWindowStub.id,
+  broadcast: (channel, ...args) => sentMessages.push([channel, ...args]),
 };
 
 /**
@@ -97,8 +121,29 @@ const noopManagerStub = new Proxy({}, {
   },
 });
 
+/**
+ * electron-store 桩：ipc-handlers.js 在模块顶层 `new Store({name:'realm-config'})`。
+ * 真实 Store 会取 app.getPath('userData') 并**读写磁盘上的 realm-config.json** ——
+ * 本测试既不启动 Electron（没有 app.getPath），也绝不能碰用户的真实配置。
+ * 用内存 Map 顶替：读写语义与 Store 一致（get 带默认值），无任何落盘副作用。
+ */
+class ElectronStoreStub {
+  constructor() {
+    this._data = new Map();
+  }
+
+  get(key, defaultValue) {
+    return this._data.has(key) ? this._data.get(key) : defaultValue;
+  }
+
+  set(key, value) {
+    this._data.set(key, value);
+  }
+}
+
 const STUBS = {
   electron: electronStub,
+  'electron-store': ElectronStoreStub,
   './window-manager': windowManagerStub,
   './favorites-manager': favoritesManagerStub,
   './favicon-fetcher': faviconFetcherStub,
@@ -108,6 +153,11 @@ const STUBS = {
   './assignment-rules': noopManagerStub,
   './shortcut-manager': noopManagerStub,
   './history-manager': noopManagerStub,
+  // autocomplete-manager 在**模块加载时**就 startCleanupTimer()（30s 周期，
+  // 引用态 setInterval），真实模块一进来本进程就再也不退出 ——
+  // npm run validate 的 `&&` 链会永久挂住（实测 2 分钟以上）。
+  // 它不参与任何 favorites:* 契约，按上面几个 manager 的同一惯例打桩。
+  './autocomplete-manager': noopManagerStub,
 };
 
 const originalLoad = Module._load;
