@@ -751,13 +751,25 @@ async function deleteCookies(containerId) {
  * 应用启动时调用（initContainers 之前，此时无任何 partition session 被创建，
  * 目录无句柄占用，删除必定成功且不会被重建）。
  * 运行中删除失败的残留目录由下一次启动在此处兜底清理。
- * @param {Array<string>} validContainerIds - 当前有效容器 ID 列表
- * @returns {{removed: number}}
+ *
+ * 空列表入参一律拒绝执行：有效容器列表不可能为空（default 容器不可删除，
+ * 见 container-manager.deleteContainer），因此空列表只可能来自「配置缺失
+ * + 调用点回了空默认值」，而非「用户没有容器」。按后者处理会删光所有
+ * 容器的 Partitions 目录（含 localStorage/IndexedDB/cookie）。
+ *
+ * @param {Array<string>} validContainerIds - 当前有效容器 ID 列表（不得为空）
+ * @returns {{removed: number, skipped?: boolean}}
  */
 function cleanupOrphanPartitions(validContainerIds) {
   const partitionsRoot = path.join(app.getPath('userData'), 'Partitions');
   if (!fs.existsSync(partitionsRoot)) {
     return { removed: 0 };
+  }
+
+  // 纵深防御：即便调用点传错，也不允许把「配置缺失」当成「没有容器」执行全量删除
+  if (!Array.isArray(validContainerIds) || validContainerIds.length === 0) {
+    console.warn('[Realm] 有效容器列表为空，跳过孤儿 Partitions 清理（避免误删全部容器数据）');
+    return { removed: 0, skipped: true };
   }
 
   const validDirs = new Set(validContainerIds.map(id => `container-${id}`));
