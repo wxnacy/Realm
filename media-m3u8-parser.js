@@ -15,9 +15,13 @@ const DEFAULT_TARGET_DURATION = 6;
 /**
  * 解析 m3u8 清单文本
  * @param {string} text - 原始清单文本
- * @returns {{ mediaSequence: number, targetDuration: number, ended: boolean, isLive: boolean, hasEncryption: boolean, keyUris: string[], keyIv: string|null, mapUri: string|null, mapByterange: string|null, segments: Array<{ uri: string, seq: number, duration: number|null }> }}
+ * @returns {{ mediaSequence: number, targetDuration: number, ended: boolean, isLive: boolean, isMaster: boolean, hasEncryption: boolean, keyUris: string[], keyIv: string|null, mapUri: string|null, mapByterange: string|null, segments: Array<{ uri: string, seq: number, duration: number|null }> }}
  *   mediaSequence — 滑动窗口基线序号（缺省 0）；segments[].seq = mediaSequence + 分片序位
  *   ended — 是否含 EXT-X-ENDLIST；isLive — 播放中清单（!ended）
+ *   isMaster — 是否含 EXT-X-STREAM-INF（多码率 master playlist：只列 variant 子清单、
+ *     本身无分片，录制引擎无法直接消费，见
+ *     docs/debug/twitch-record-master-playlist-zero-segments.md）；
+ *     注意不匹配 EXT-X-I-FRAME-STREAM-INF（前缀不同，天然排除）
  *   duration — 紧邻 EXTINF 标签的时长（秒），无对应标签时为 null
  *   hasEncryption — 任一 #EXT-X-KEY 行 METHOD ≠ NONE 即 true（AES-128 / SAMPLE-AES 都算；
  *     不因后续 METHOD=NONE 行回落——整清单出现过加密即视为加密流，G-44-7）
@@ -41,6 +45,7 @@ function parsePlaylist(text) {
     targetDuration: DEFAULT_TARGET_DURATION,
     ended: false,
     isLive: true,
+    isMaster: false,
     hasEncryption: false,
     keyUris: [],
     keyIv: null,
@@ -52,6 +57,8 @@ function parsePlaylist(text) {
 
   let pendingDuration = null;
   let pendingKeyframe = null;
+  // EXT-X-STREAM-INF 的下一非 # 行是 variant 子清单 URI（不是分片），跳过不入 segments
+  let pendingVariantUri = false;
 
   const lines = text.split('\n');
   for (const line of lines) {
@@ -62,6 +69,14 @@ function parsePlaylist(text) {
       if (trimmed.includes('EXT-X-ENDLIST')) {
         result.ended = true;
         result.isLive = false;
+        continue;
+      }
+      // EXT-X-STREAM-INF：master playlist 的 variant 条目（下一非 # 行是子清单
+      // URI——本解析器只标记 isMaster，variant URI 不进 segments，避免被
+      // 录制引擎当分片下载）；EXT-X-I-FRAME-STREAM-INF 前缀不同不会误入
+      if (trimmed.startsWith('#EXT-X-STREAM-INF')) {
+        result.isMaster = true;
+        pendingVariantUri = true;
         continue;
       }
       // EXT-BILI-AUX：B 站私有标签，归属下一条分片（同 EXTINF 挂接语义）；
@@ -119,7 +134,12 @@ function parsePlaylist(text) {
       continue;
     }
 
-    // 非 # 开头的非空行 = 分片 URI（含 query 保留整行）
+    // 非 # 开头的非空行：EXT-X-STREAM-INF 的 URI 行是 variant 子清单地址，跳过
+    if (pendingVariantUri) {
+      pendingVariantUri = false;
+      continue;
+    }
+    // 其余非 # 行 = 分片 URI（含 query 保留整行）
     result.segments.push({
       uri: trimmed,
       seq: result.mediaSequence + result.segments.length,

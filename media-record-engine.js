@@ -304,6 +304,18 @@ function createRecordEngine({ fetchPage, parsePlaylist, taskManager, recordRoot,
       try {
         const buf = await fetchPage(st.url, { referer: st.referer, containerId: st.containerId });
         const pl = parse(buf.toString('utf8'));
+        // master playlist 检出即失败（2026-09-16，替代旧 0 分片空转）：清单只含
+        // EXT-X-STREAM-INF variant 条目、本身无分片，录下去只会在 token 过期后以
+        // 误导性的 'network' 失败且数据 0 字节不可救（实测 20 分钟，见
+        // docs/debug/twitch-record-master-playlist-zero-segments.md）。首轮即可
+        // 检出，把 20 分钟空转变成一次拉清单即反馈；行级正则兜底与下方
+        // hasEncryption 同理（注入的自定义解析器可能不返回 isMaster）
+        if (pl.isMaster || /(^|\r?\n)#EXT-X-STREAM-INF/.test(buf.toString('utf8'))) {
+          active.delete(st.taskId);
+          writeMeta(st);
+          taskManager.failTask(st.taskId, '该源为多码率目录，无法直接录制，请选择实际播放的清晰度源');
+          return;
+        }
         if (pl.targetDuration > 0) st.targetDuration = pl.targetDuration;
         // 窗口分片 EXTINF 中位数 → 轮询间隔依据（见 computePollIntervalMs）
         const segMedian = medianSegmentDuration(pl.segments);

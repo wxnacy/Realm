@@ -1,7 +1,8 @@
 # 录制源取到 master playlist → 0 分片空转至 token 过期才失败（Twitch usher）
 
 > 2026-09-13 · Realm Browser（正式环境实测）· 影响文件：`media-record-engine.js` / `media-m3u8-parser.js` / `src/player.js`
-> **状态：未修复**（用户 2026-09-13 决定不做修改，本文档供后续接手者定位）
+> **状态：已修复（2026-09-16，分支 `fix/record-master-playlist`）**——播放器侧目录源
+> 透明切换（D 方案）+ 引擎侧检出即失败（B 方案变体），详见文末「修复实录」。
 
 ## 现象
 
@@ -98,6 +99,30 @@ master 条目打「不可录」标记）。需评估是否所有站点都能抓�
 回归测试建议加在 `tests/test-media-record-*.js`（引擎去 Electron 化，可纯 Node 注入
 `fetchPage`）：master playlist 文本作为 `fetchPage` 返回值，断言要么选 variant 后有分片
 落盘（A），要么 `startRecord` 返回明确 reason 且**不进入轮询循环**（B）。
+
+## 修复实录（2026-09-16，用户拍板 D + B 组合）
+
+**D. 播放器侧目录源透明切换**（主修复，用户无感）：hls.js 播 master 时自己会选
+variant，`/proxy` 链路（`main.js rewriteM3u8ForProxy`）会把 variant 地址改写成
+`/proxy?url=<直连地址>` 随清单交给 hls.js——`src/player.js` 新增
+`resolveRecordUrl()`：点录制时取 `hls.levels[currentLevel ?? 0].url[0]`，经
+`directUrlFromProxy()` 解出直连 variant 地址作为录制源（直连 media playlist 时
+还原结果与 `currentUrl` 等价，行为不变）。配套：`state.recordUrl` 记录实际录制源，
+`syncRecordUi` 红点匹配改以它为准（否则 master 的 playbackKey 匹配不到 variant
+录制任务，红点点不亮；窗口重开时 `resolveRecordUrl()` 现场还原兜底）。
+
+**B. 引擎侧检出即失败**（兜底，任何入口都安全）：`media-m3u8-parser.js` 新增
+`isMaster` 标记（`EXT-X-STREAM-INF` 检出；`EXT-X-I-FRAME-STREAM-INF` 前缀不同
+天然排除；variant URI 行不再误入 `segments`），`media-record-engine.js` pollLoop
+拉清单后检出 master 即 `failTask`（中文指引换源）——首轮检出，20 分钟空转压成
+一次拉清单即反馈。检出放轮询循环而非 startRecord 预拉，是有意为之：预拉方案会让
+startRecord 阻塞在首次拉清单上，破坏「立即返回 + 0 分片也走表」（G-44-4）契约
+（`tests/test-media-record-duration.js` 的 fetchPage 挂起用例即守门此语义，
+实施时曾因预拉方案全线挂起而改道）。
+
+回归：`tests/test-media-record-master-reject.js`（5 例：parser 检出 3 + 引擎
+检出即失败 1 + media playlist 不受影响 1）；既有套件 test-media-record-*
+/ test-m3u8-playlist-parser / test-media-cache / test-media-remuxer 全绿。
 
 ## 相关
 

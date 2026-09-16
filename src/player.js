@@ -36,6 +36,10 @@ const state = {
   hlsRetryCount: 0,
   /** @type {string|null} 当前 URL 对应的运行中录制任务 ID（Phase 44 D-20/D-21，红点数据源；null=当前视频未在录） */
   recordingTaskId: null,
+  /** @type {string|null} 当前录制任务实际使用的源 URL（目录源透明切换后与 currentUrl 不同——
+   *  currentUrl 是用户选中的 master playlist，recordUrl 是 hls.js 选中的 variant 子清单；
+   *  initPlayer 切流时复位，syncRecordUi 红点匹配以它为准） */
+  recordUrl: null,
 };
 
 /**
@@ -156,6 +160,8 @@ async function initPlayer(url) {
 
   const format = detectFormat(url);
   state.currentUrl = url;
+  // 录制源随切流复位（新流的录制归属新 URL，旧 recordUrl 不能带过去）
+  state.recordUrl = null;
   // 直播属性随新加载的流重新判定，旧值不能带到下一次播放
   state.isLive = false;
   // D-10 重试计数随新流归零
@@ -829,6 +835,49 @@ function playbackKeyOfUrl(rawUrl) {
 }
 
 /**
+ * 还原 /proxy 形态 URL 中的直连地址（独立播放器链路：hls.js 请求的清单经
+ * 主进程 rewriteM3u8ForProxy 改写，variant 子清单地址形如
+ * `/proxy?url=<直连地址>&token=...`；录制引擎需要直连地址自己回源）。
+ * 非 /proxy 形态（webview tab 直连）原样返回绝对化结果。
+ * @param {string} u - hls.js level 里的 URL（可能相对）
+ * @returns {string|null} 直连 http(s) URL；取不到返回 null
+ */
+function directUrlFromProxy(u) {
+  if (!u || typeof u !== 'string') return null;
+  try {
+    const abs = new URL(u, location.origin);
+    if (abs.origin === location.origin && abs.pathname === '/proxy') {
+      const inner = abs.searchParams.get('url');
+      return inner && /^https?:\/\//i.test(inner) ? inner : null;
+    }
+    return /^https?:$/i.test(abs.protocol) ? abs.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 录制源 URL 决策（2026-09-16，目录源透明切换）：
+ * 用户从嗅探面板选中的可能是多码率 master playlist（Twitch usher）——hls.js
+ * 能播（自己选 variant），但录制引擎只认 media playlist。此处优先取 hls.js
+ * 当前选中清晰度（currentLevel，未选定取首条）的 variant 子清单直连地址作为
+ * 录制源，选错目录也能录成；非 hls 引擎/levels 未就绪回退 currentUrl。
+ * 直连 media playlist 时 level 地址还原后与 currentUrl 等价，行为不变。
+ * @returns {string} 传给 startRecord 的 URL
+ */
+function resolveRecordUrl() {
+  const hls = currentEngine && currentEngine.engine;
+  if (hls && Array.isArray(hls.levels) && hls.levels.length > 0) {
+    const idx = typeof hls.currentLevel === 'number' && hls.currentLevel >= 0 ? hls.currentLevel : 0;
+    const level = hls.levels[idx];
+    const levelUrl = level && Array.isArray(level.url) ? level.url[0] : null;
+    const direct = directUrlFromProxy(levelUrl);
+    if (direct) return direct;
+  }
+  return state.currentUrl;
+}
+
+/**
  * 字节数格式化（红点 tooltip / 抽屉元信息）：
  * <1GB 显示 xxxMB，≥1GB 显示 x.xGB
  * @param {number} bytes - 字节数
@@ -863,7 +912,10 @@ async function syncRecordUi() {
   if (!state.isIndependentMode || !window.playerAPI || !window.playerAPI.getRecordList) return;
   try {
     const list = await window.playerAPI.getRecordList();
-    const key = playbackKeyOfUrl(state.currentUrl);
+    // 目录源透明切换后录制归属 recordUrl（variant 子清单），不是 currentUrl（master）——
+    // 红点匹配以实际录制源为准，否则 running 中的任务匹配不到、红点点不亮；
+    // 窗口重开（recordUrl 尚未建立）时用 resolveRecordUrl 现场还原 variant 兜底恢复
+    const key = playbackKeyOfUrl(state.recordUrl || resolveRecordUrl());
     const active = (list || []).find((t) => t.playbackKey === key);
     state.recordingTaskId = active ? active.taskId : null;
     updateRecordUi();
@@ -880,14 +932,18 @@ btnRecord.addEventListener('click', async () => {
   }
   if (!state.currentUrl || !window.playerAPI || !window.playerAPI.startRecord) return;
   try {
+    // 目录源（master playlist）透明切换：取 hls.js 当前清晰度的 variant 子清单
+    // 直连地址录制；直连源时与 currentUrl 等价
+    const recordUrl = resolveRecordUrl();
     const r = await window.playerAPI.startRecord({
-      url: state.currentUrl,
+      url: recordUrl,
       title: state.currentTitle || '',
       containerId: state.containerId || '',
       referer: urlParams.get('referer') || '',
     });
     if (r && r.success) {
       state.recordingTaskId = r.taskId;
+      state.recordUrl = recordUrl;
       updateRecordUi();
     } else {
       showError((r && r.error) || '录制启动失败');
