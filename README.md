@@ -2,7 +2,7 @@
 
 多容器隔离浏览器 —— 每个容器拥有独立的 Cookie、缓存与登录状态，可同时登录同一网站的多个账号而互不干扰。内置 AI 助手与媒体嗅探、播放、录制能力。
 
-当前版本 `0.1.20`　·　Electron 43　·　macOS (Apple Silicon)
+当前版本 `0.2.0`　·　Electron 43　·　macOS (Apple Silicon)
 
 ## 特性
 
